@@ -46,6 +46,7 @@ from PyQt5.QtWidgets import (
     QInputDialog, QSpinBox, QCheckBox, QScrollArea, QDialog
 )
 
+import electrumsv
 from electrumsv import keystore
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
@@ -2005,11 +2006,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         console.history = self.config.get("console-history",[])
         console.history_index = len(console.history)
 
-        console.updateNamespace({'wallet' : self.wallet,
-                                 'network' : self.network,
-                                 'plugins' : self.gui_object.plugins,
-                                 'window': self})
-        console.updateNamespace({'util' : util, 'bitcoin':bitcoin})
+        console.updateNamespace({
+            'bitcoin': bitcoin,
+            'config': self.config,
+            'daemon': self.gui_object.daemon,
+            'electrumsv': electrumsv,
+            'network': self.network,
+            'plugins': self.gui_object.plugins,
+            'util': util,
+            'wallet': self.wallet,
+            'window': self,
+        })
 
         c = commands.Commands(self.config, self.wallet, self.network,
                               lambda: self.console.set_json(True))
