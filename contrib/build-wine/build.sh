@@ -17,8 +17,7 @@ mkdir -p /tmp/electrum-build
 
 $here/build-secp256k1.sh || exit 1
 
-$here/prepare-wine.sh && \
-$here/prepare-pyinstaller.sh || exit 1
+$here/prepare-wine.sh || exit 1
 
 echo "Resetting modification time in C:\Python..."
 # (Because of some bugs in pyinstaller)

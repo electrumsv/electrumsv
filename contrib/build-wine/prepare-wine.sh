@@ -85,6 +85,10 @@ $PYTHON -m pip install -r $here/../deterministic-build/requirements-binaries.txt
 # Install PyInstaller
 $PYTHON -m pip install https://github.com/ecdsa/pyinstaller/archive/fix_2952.zip
 
+# Install PyInstaller
+
+$PYTHON -m pip install git+https://github.com/ecdsa/pyinstaller@fix_2952
+
 # Install ZBar
 wget -q -O zbar.exe "$ZBAR_URL"
 verify_hash zbar.exe $ZBAR_SHA256
