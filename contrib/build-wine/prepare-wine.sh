@@ -26,26 +26,18 @@ verify_signature() {
         return 0
     else
         echo "$out" >&2
-        exit 0
+        exit 1
     fi
 }
 
 verify_hash() {
-    local file=$1 expected_hash=$2 out=
+    local file=$1 expected_hash=$2
     actual_hash=$(sha256sum $file | awk '{print $1}')
     if [ "$actual_hash" == "$expected_hash" ]; then
         return 0
     else
         echo "$file $actual_hash (unexpected hash)" >&2
-        rm "$file"
         exit 1
-    fi
-}
-
-download_if_not_exist() {
-    local file_name=$1 url=$2
-    if [ ! -e $file_name ] ; then
-        wget -O $PWD/$file_name "$url"
     fi
 }
 
@@ -85,10 +77,6 @@ $PYTHON -m pip install -r $here/../deterministic-build/requirements-binaries.txt
 # Install PyInstaller
 $PYTHON -m pip install https://github.com/ecdsa/pyinstaller/archive/fix_2952.zip
 
-# Install PyInstaller
-
-$PYTHON -m pip install git+https://github.com/ecdsa/pyinstaller@fix_2952
-
 # Install ZBar
 wget -q -O zbar.exe "$ZBAR_URL"
 verify_hash zbar.exe $ZBAR_SHA256
@@ -115,4 +103,4 @@ cp /tmp/electrum-build/secp256k1/libsecp256k1.dll $WINEPREFIX/drive_c/tmp/
 # add dlls needed for pyinstaller:
 cp $WINEPREFIX/drive_c/python$PYTHON_VERSION/Lib/site-packages/PyQt5/Qt/bin/* $WINEPREFIX/drive_c/python$PYTHON_VERSION/
 
-echo "Wine is configured. Please run prepare-pyinstaller.sh"
+echo "Wine is configured."
