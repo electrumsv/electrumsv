@@ -37,12 +37,20 @@ verify_hash() {
         return 0
     else
         echo "$file $actual_hash (unexpected hash)" >&2
-        exit 0
+        rm "$file"
+        exit 1
+    fi
+}
+
+download_if_not_exist() {
+    local file_name=$1 url=$2
+    if [ ! -e $file_name ] ; then
+        wget -O $PWD/$file_name "$url"
     fi
 }
 
 # Let's begin!
-cd `dirname $0`
+here=$(dirname $(readlink -e $0))
 set -e
 
 # Clean up Wine environment
@@ -54,12 +62,9 @@ echo "done"
 
 $WINE_EXE 'wineboot'
 
-echo "Cleaning tmp"
-rm -rf tmp
-mkdir -p tmp
-echo "done"
+mkdir -p /tmp/electrum-build
 
-cd tmp
+cd /tmp/electrum-build
 
 # Install Python
 # note: you might need "sudo apt-get install dirmngr" for the following
@@ -84,7 +89,7 @@ $PYTHON -m pip install pywin32-ctypes==0.1.2
 # install PySocks
 $PYTHON -m pip install win_inet_pton==1.0.1
 
-$PYTHON -m pip install -r ../../deterministic-build/requirements-binaries.txt
+$PYTHON -m pip install -r $here/../deterministic-build/requirements-binaries.txt
 
 # Install PyInstaller
 $PYTHON -m pip install https://github.com/ecdsa/pyinstaller/archive/fix_2952.zip
