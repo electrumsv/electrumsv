@@ -43,9 +43,7 @@ from electrumsv.wallet import Multisig_Wallet
 
 logger = logs.get_logger("cosignerpool")
 
-PORT = 12344
-HOST = 'cosigner.electrum.org'
-server = ServerProxy('http://%s:%d'%(HOST,PORT), allow_none=True)
+server = ServerProxy('https://cosigner.electrum.org/', allow_none=True)
 
 
 class Listener(util.DaemonThread):
