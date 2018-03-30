@@ -57,8 +57,6 @@ set -e
 
 $WINE_EXE 'wineboot'
 
-mkdir -p /tmp/electrum-build
-
 cd /tmp/electrum-build
 
 # Install Python
