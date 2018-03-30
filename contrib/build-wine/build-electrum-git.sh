@@ -6,12 +6,8 @@ if [[ -z "${WINEPREFIX}" ]]; then
 fi
 
 NAME_ROOT=electrum
-
-MAIN_REPO_NAME=electrum-sv
-MAIN_REPO_BRANCH=dev
 LOCALE_REPO_NAME=electrum-locale
 ICONS_REPO_NAME=electrum-icons
-CHECKOUT_TAG=tip
 
 # These settings probably don't need any change
 export PYTHONDONTWRITEBYTECODE=1

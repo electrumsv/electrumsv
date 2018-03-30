@@ -10,6 +10,8 @@ for i, x in enumerate(sys.argv):
 else:
     raise BaseException('no name')
 
+PYTHON_VERSION = '3.6.5'
+PYHOME = 'c:/python' + PYTHON_VERSION
 
 home = 'C:\\electrum\\'
 
@@ -20,7 +22,7 @@ hiddenimports += collect_submodules('btchip')
 hiddenimports += collect_submodules('keepkeylib')
 
 # Add libusb binary
-binaries = [("c:/python3.5.4/libusb-1.0.dll", ".")]
+binaries = [(PYHOME+"/libusb-1.0.dll", ".")]
 
 binaries += [('C:/tmp/libsecp256k1.dll', '.')]
 
