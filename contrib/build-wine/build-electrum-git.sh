@@ -52,9 +52,9 @@ cp -r $WINEPREFIX/drive_c/electrum/contrib/deterministic-build/$LOCALE_REPO_NAME
 cp $WINEPREFIX/drive_c/electrum/contrib/deterministic-build/$ICONS_REPO_NAME/icons_rc.py $WINEPREFIX/drive_c/electrum/gui/qt/
 
 # Install frozen dependencies
-$PYTHON -m pip install --require-hashes -r ../../deterministic-build/requirements.txt
+$PYTHON -m pip install -r ../../deterministic-build/requirements.txt
 
-$PYTHON -m pip install --require-hashes -r ../../deterministic-build/requirements-hw.txt
+$PYTHON -m pip install -r ../../deterministic-build/requirements-hw.txt
 
 pushd $WINEPREFIX/drive_c/electrum
 $PYTHON setup.py install
