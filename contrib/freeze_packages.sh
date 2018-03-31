@@ -5,6 +5,8 @@ venv_dir=~/.electrum-sv-venv
 contrib=$(dirname "$0")
 
 which virtualenv > /dev/null 2>&1 || { echo "Please install virtualenv" && exit 1; }
+python3 -m hashin -h > /dev/null 2>&1 || { python3 -m pip install hashin; }
+other_python=$(which python3)
 
 for i in '' '-hw' '-binaries'; do
     rm -rf "$venv_dir"
@@ -12,11 +14,21 @@ for i in '' '-hw' '-binaries'; do
 
     source $venv_dir/bin/activate
 
-    echo "Installing $i dependencies"
+    echo "Installing $m dependencies"
 
     python -m pip install -r $contrib/requirements/requirements${i}.txt --upgrade
 
-    pip freeze > $contrib/deterministic-build/requirements${i}.txt
+    echo "OK."
+
+    requirements=$(pip freeze)
+    echo "Generating package hashes..."
+
+    echo "$requirements" | while IFS= read -r requirement ; do
+        echo -e "\r  Hashing $requirement..."
+        $other_python -m hashin -r $contrib/deterministic-build/requirements${i}.txt ${requirement}
+    done
+
+    echo "OK."
 done
 
 echo "Done. Updated requirements"
