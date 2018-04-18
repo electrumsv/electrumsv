@@ -178,7 +178,8 @@ class Plugin(BasePlugin):
                 server.put(_hash, message)
             except Exception as e:
                 logger.exception("")
-                window.show_message(_("Failed to send transaction to cosigning pool."))
+                window.show_error(_("Failed to send transaction to cosigning pool")
+                                  + ':\n' + str(e))
                 return
             window.show_message(_("Your transaction was sent to the cosigning pool.") + '\n' +
                                 _("Open your cosigner wallet to retrieve it."))
@@ -222,7 +223,7 @@ class Plugin(BasePlugin):
             message = bh2u(EC.decrypt_message(message))
         except Exception as e:
             logger.exception("")
-            window.show_message(str(e))
+            window.show_error(_('Error decrypting message') + ':\n' + str(e))
             return
 
         self.listener.clear(keyhash)
