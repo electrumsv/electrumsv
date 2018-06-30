@@ -33,25 +33,35 @@ if [ -d $MAIN_REPO_NAME ]; then
     git pull
     cd ..
 else
-    URL=https://github.com/rt121212121/Electrum-SV
     # URL=https://github.com/Electrum-SV/Electrum-SV
+    URL=https://github.com/rt121212121/Electrum-SV
     git clone -b $MAIN_REPO_BRANCH $URL $MAIN_REPO_NAME
 fi
 
-for repo in $LOCALE_REPO_NAME $ICONS_REPO_NAME; do
-    if [ -d $repo ]; then
-        cd $repo
-        git checkout master
-        git pull
-        cd ..
-    else
-        URL=https://github.com/rt121212121/$repo
-        # URL=https://github.com/Electrum-SV/$repo
-        git clone -b master $URL $repo
+pushd $MAIN_REPO_NAME
+if [ ! -z "$1" ]; then
+    # a commit/tag/branch was specified
+    if ! git cat-file -e "$1" 2> /dev/null
+    then  # can't find target
+        # try pull requests
+        git config --local --add remote.origin.fetch '+refs/pull/*/merge:refs/remotes/origin/pr/*'
+        git fetch --all
     fi
-done
+    git checkout $1
+fi
 
-pushd $LOCALE_REPO_NAME
+# Load electrum-icons and electrum-locale for this release
+git submodule init
+git submodule update
+
+VERSION=`git describe --tags --dirty`
+echo "Last commit: $VERSION"
+
+pushd ./contrib/deterministic-build/$LOCALE_REPO_NAME
+if ! which msgfmt > /dev/null 2>&1; then
+    echo "Please install gettext"
+    exit 1
+fi
 for i in ./locale/*; do
     dir=$i/LC_MESSAGES
     mkdir -p $dir
@@ -59,25 +69,14 @@ for i in ./locale/*; do
 done
 popd
 
-
-pushd $MAIN_REPO_NAME
-
-if [ ! -z "$1" ]; then
-    git checkout $1
-else
-    git checkout "$CHECKOUT_TAG"
-fi
-
-VERSION=`git describe --tags`
-echo "Version to release: $VERSION"
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
 rm -rf $WINEPREFIX/drive_c/electrum
 cp -r $MAIN_REPO_NAME $WINEPREFIX/drive_c/electrum
 cp $MAIN_REPO_NAME/LICENCE .
-cp -r $LOCALE_REPO_NAME/locale $WINEPREFIX/drive_c/electrum/electrumsv/
-cp $ICONS_REPO_NAME/icons_rc.py $WINEPREFIX/drive_c/electrum/electrumsv/gui/qt/
+cp -r ./$MAIN_REPO_NAME/contrib/deterministic-build/$LOCALE_REPO_NAME/locale $WINEPREFIX/drive_c/electrum/electrumsv/
+cp ./$MAIN_REPO_NAME/contrib/deterministic-build/$ICONS_REPO_NAME/icons_rc.py $WINEPREFIX/drive_c/electrum/electrumsv/gui/qt/
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
@@ -91,7 +90,6 @@ cd ..
 
 rm -rf dist/
 
-
 # build standalone and portable versions
 $WINE_EXE "C:/python$PYTHON_VERSION/scripts/pyinstaller.exe" --noconfirm --ascii --name $NAME_ROOT-$VERSION -w deterministic.spec
 
@@ -100,22 +98,13 @@ pushd dist
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
-
 # build NSIS installer
 # $VERSION could be passed to the electrum.nsi script, but this would require some rewriting in the script iself.
 $WINE_EXE "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
 
 cd dist
 mv electrum-setup.exe $NAME_ROOT-$VERSION-setup.exe
-
-cd ../../..
-if [ -d packages -a -e gui/qt/icons_rc.py ] ; then
-    python3 setup.py sdist --format=zip,gztar
-    sha256sum gui/qt/icons_rc.py
-else
-    echo "Not creating source distribution since packages or icons file missing."
-    echo "Run './contrib/make_packages' and/or 'pyrcc5 icons.qrc -o electrumsv/gui/qt/icons_rc.py'"
-    echo "Then you can run 'python3 setup.py sdist --format=zip,gztar'"
-fi
+cd ..
 
 echo "Done."
+md5sum dist/electrum*exe
