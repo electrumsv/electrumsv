@@ -27,28 +27,7 @@ set -e
 
 cd tmp
 
-if [ -d $MAIN_REPO_NAME ]; then
-    cd $MAIN_REPO_NAME
-    git checkout $MAIN_REPO_BRANCH
-    git pull
-    cd ..
-else
-    # URL=https://github.com/Electrum-SV/Electrum-SV
-    URL=https://github.com/rt121212121/Electrum-SV
-    git clone -b $MAIN_REPO_BRANCH $URL $MAIN_REPO_NAME
-fi
-
-pushd $MAIN_REPO_NAME
-if [ ! -z "$1" ]; then
-    # a commit/tag/branch was specified
-    if ! git cat-file -e "$1" 2> /dev/null
-    then  # can't find target
-        # try pull requests
-        git config --local --add remote.origin.fetch '+refs/pull/*/merge:refs/remotes/origin/pr/*'
-        git fetch --all
-    fi
-    git checkout $1
-fi
+pushd $WINEPREFIX/drive_c/electrum
 
 # Load electrum-icons and electrum-locale for this release
 git submodule init
@@ -72,11 +51,9 @@ popd
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
-rm -rf $WINEPREFIX/drive_c/electrum
-cp -r $MAIN_REPO_NAME $WINEPREFIX/drive_c/electrum
-cp $MAIN_REPO_NAME/LICENCE .
-cp -r ./$MAIN_REPO_NAME/contrib/deterministic-build/$LOCALE_REPO_NAME/locale $WINEPREFIX/drive_c/electrum/electrumsv/
-cp ./$MAIN_REPO_NAME/contrib/deterministic-build/$ICONS_REPO_NAME/icons_rc.py $WINEPREFIX/drive_c/electrum/electrumsv/gui/qt/
+cp $WINEPREFIX/drive_c/electrum/LICENCE .
+cp -r $WINEPREFIX/drive_c/electrum/contrib/deterministic-build/$LOCALE_REPO_NAME/locale $WINEPREFIX/drive_c/electrum/lib/
+cp $WINEPREFIX/drive_c/electrum/contrib/deterministic-build/$ICONS_REPO_NAME/icons_rc.py $WINEPREFIX/drive_c/electrum/gui/qt/
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt

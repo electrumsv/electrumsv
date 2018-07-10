@@ -53,16 +53,7 @@ download_if_not_exist() {
 here=$(dirname $(readlink -e $0))
 set -e
 
-# Clean up Wine environment
-echo "Cleaning $WINEPREFIX"
-if [ -d $WINEPREFIX ]; then
-	rm -rf $WINEPREFIX/*
-fi
-echo "done"
-
-$WINE_EXE 'wineboot'
-
-mkdir -p /tmp/electrum-build
+wine 'wineboot'
 
 cd /tmp/electrum-build
 
