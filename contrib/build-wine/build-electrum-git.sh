@@ -8,6 +8,7 @@ fi
 NAME_ROOT=electrum
 LOCALE_REPO_NAME=electrum-locale
 ICONS_REPO_NAME=electrum-icons
+PYTHON_VERSION=3.6.6
 
 # These settings probably don't need any change
 export PYTHONDONTWRITEBYTECODE=1
