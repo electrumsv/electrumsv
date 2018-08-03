@@ -40,6 +40,7 @@ from electrumsv.plugin import BasePlugin, hook
 from electrumsv.util import bh2u, bfh
 from electrumsv.wallet import Multisig_Wallet
 
+from electrumsv.gui.qt.util import WaitingDialog
 
 logger = logs.get_logger("cosignerpool")
 
@@ -169,21 +170,25 @@ class Plugin(BasePlugin):
         return cosigner_xpub in xpub_set
 
     def do_send(self, tx):
+        def on_success(result):
+            window.show_message(_("Your transaction was sent to the cosigning pool.") + '\n' +
+                                _("Open your cosigner wallet to retrieve it."))
+        def on_failure(exc_info):
+            logger.exception("", exc_info=exc_info)
+            window.show_error(_("Failed to send transaction to cosigning pool")
+                              + ':\n' + str(exc_info[1]))
+
         for window, xpub, K, _hash in self.cosigner_list:
             if not self.cosigner_can_sign(tx, xpub):
                 continue
+            # construct message
             raw_tx_bytes = bfh(str(tx))
             public_key = ecc.ECPubkey(K)
             message = public_key.encrypt_message(raw_tx_bytes).decode('ascii')
-            try:
-                server.put(_hash, message)
-            except Exception as e:
-                logger.exception("")
-                window.show_error(_("Failed to send transaction to cosigning pool")
-                                  + ':\n' + str(e))
-                return
-            window.show_message(_("Your transaction was sent to the cosigning pool.") + '\n' +
-                                _("Open your cosigner wallet to retrieve it."))
+            # send message
+            task = lambda: server.put(_hash, message)
+            msg = _('Sending transaction to cosigning pool...')
+            WaitingDialog(window, msg, task, on_success, on_failure)
 
     def on_receive(self, keyhash, message):
         logger.debug("signal arrived for '%s'", keyhash)
