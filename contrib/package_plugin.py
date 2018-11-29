@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
-# Electron Cash - lightweight Bitcoin client
-# Copyright (C) 2018 Electron Cash developers
+# Electrum SV - lightweight Bitcoin client
+# Copyright (C) 2018 Electrum SV developers
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -24,7 +24,7 @@
 # SOFTWARE.
 
 """
-This script automates all the work involved in packaging an external Electron Cash plugin.
+This script automates all the work involved in packaging an external Electrum SV plugin.
 
 Future work:
 * Make this work on the command-line.
@@ -65,7 +65,7 @@ def write_plugin_archive(metadata, source_package_path, archive_file_path):
         # Copy the selected Python package into place.
         dest_package_path = os.path.join(temp_path, package_directory_name)
         shutil.copytree(source_package_path,  dest_package_path)
-        # Python bytecode cannot be written into the zip archive as Electron Cash runs it.
+        # Python bytecode cannot be written into the zip archive as Electrum SV runs it.
         # So we precompile it before creating the archived form.
         compileall.compile_dir(dest_package_path)
         shutil.make_archive(suffixless_path, 'zip', temp_path)
@@ -121,7 +121,7 @@ class App(QWidget):
 
         self.directory_path = None
 
-        self.setWindowTitle('Electron Cash Plugin Packager')
+        self.setWindowTitle('Electrum SV Plugin Packager')
         self.setMinimumWidth(500)
         self.setMaximumWidth(500)
 
@@ -150,11 +150,11 @@ class App(QWidget):
         self.descriptionEdit.setPlaceholderText("Add scheduled payments at a fixed time either on a given day every week, or a specific day every month.")
         self.descriptionEdit.setAcceptRichText(False)
         groupLayout.addRow('Description', self.descriptionEdit)
-        self.minimumElectronCashVersionEdit = QLineEdit()
-        self.minimumElectronCashVersionEdit.setPlaceholderText("3.2")
-        self.minimumElectronCashVersionEdit.setMaximumWidth(50)
-        self.minimumElectronCashVersionEdit.setToolTip("This is the lowest version of Electron Cash which this plugin can be installed with.")
-        groupLayout.addRow('Minimum Electron Cash Version', self.minimumElectronCashVersionEdit)
+        self.minimumElectrumSVVersionEdit = QLineEdit()
+        self.minimumElectrumSVVersionEdit.setPlaceholderText("3.2")
+        self.minimumElectrumSVVersionEdit.setMaximumWidth(50)
+        self.minimumElectrumSVVersionEdit.setToolTip("This is the lowest version of Electrum SV which this plugin can be installed with.")
+        groupLayout.addRow('Minimum Electrum SV Version', self.minimumElectrumSVVersionEdit)
 
         availableVLayout = QVBoxLayout()
         self.qtAvailableCheckBox = QCheckBox("Supports the QT user interface.")
@@ -200,7 +200,7 @@ class App(QWidget):
         self.versionEdit.textEdited.connect(self.on_required_text_change)
         self.projectUrlEdit.textEdited.connect(self.on_required_text_change)
         self.descriptionEdit.textChanged.connect(self.on_required_text_change)
-        self.minimumElectronCashVersionEdit.textEdited.connect(self.on_required_text_change)
+        self.minimumElectrumSVVersionEdit.textEdited.connect(self.on_required_text_change)
 
         self.refresh_ui()
         self.show()
@@ -212,11 +212,11 @@ class App(QWidget):
         except ValueError:
             versionText = ""
 
-        minimumElectronCashVersionText = self.minimumElectronCashVersionEdit.text().strip()
+        minimumElectrumSVVersionText = self.minimumElectrumSVVersionEdit.text().strip()
         try:
-            versiontuple(minimumElectronCashVersionText)
+            versiontuple(minimumElectrumSVVersionText)
         except ValueError:
-            minimumElectronCashVersionText = ""
+            minimumElectrumSVVersionText = ""
 
         projectUrlText = self.projectUrlEdit.text().strip()
         url_components = urllib.parse.urlparse(projectUrlText)
@@ -227,7 +227,7 @@ class App(QWidget):
         have_basics = have_basics and len(versionText) > 0
         have_basics = have_basics and len(projectUrlText) > 0
         have_basics = have_basics and len(self.descriptionEdit.toPlainText().strip()) > 3
-        have_basics = have_basics and len(minimumElectronCashVersionText) > 0
+        have_basics = have_basics and len(minimumElectrumSVVersionText) > 0
         have_basics = have_basics and (self.qtAvailableCheckBox.checkState() == Qt.Checked or self.cmdlineAvailableCheckBox.checkState() == Qt.Checked or self.kivyAvailableCheckBox.checkState() == Qt.Checked)
 
         can_export = have_basics
@@ -275,7 +275,7 @@ class App(QWidget):
         version = self.versionEdit.text().strip()
         project_url = self.projectUrlEdit.text().strip()
         description = self.descriptionEdit.toPlainText().strip()
-        minimum_ec_version = self.minimumElectronCashVersionEdit.text().strip()
+        minimum_ec_version = self.minimumElectrumSVVersionEdit.text().strip()
         package_name = None
         if self.directory_path is not None:
             package_name = os.path.basename(self.directory_path)
@@ -320,7 +320,7 @@ class App(QWidget):
         self.versionEdit.setText(str(metadata.get("version", "")))
         self.projectUrlEdit.setText(str(metadata.get("project_url", "")))
         self.descriptionEdit.setText(str(metadata.get("description", "")))
-        self.minimumElectronCashVersionEdit.setText(str(metadata.get("minimum_ec_version", "")))
+        self.minimumElectrumSVVersionEdit.setText(str(metadata.get("minimum_ec_version", "")))
         package_name = str(metadata.get("package_name", "")).strip()
         if len(package_name):
             manifest_path, manifest_filename = os.path.split(self.manifest_file_path)

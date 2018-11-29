@@ -214,7 +214,7 @@ class Daemon(DaemonThread):
             else:
                 response = "error: current GUI does not support multiple windows"
         else:
-            response = "Error: Electron Cash is running in daemon mode. Please stop the daemon first."
+            response = "Error: Electrum SV is running in daemon mode. Please stop the daemon first."
         return response
 
     def load_wallet(self, path, password):
@@ -264,7 +264,7 @@ class Daemon(DaemonThread):
             path = config.get_wallet_path()
             wallet = self.wallets.get(path)
             if wallet is None:
-                return {'error': 'Wallet "%s" is not loaded. Use "electron-cash daemon load_wallet"'%os.path.basename(path) }
+                return {'error': 'Wallet "%s" is not loaded. Use "electrum-sv daemon load_wallet"'%os.path.basename(path) }
         else:
             wallet = None
         # arguments passed to function
@@ -300,6 +300,6 @@ class Daemon(DaemonThread):
         gui_name = config.get('gui', 'qt')
         if gui_name in ['lite', 'classic']:
             gui_name = 'qt'
-        gui = __import__('electroncash_gui.' + gui_name, fromlist=['electroncash_gui'])
+        gui = __import__('electrumsv_gui.' + gui_name, fromlist=['electrumsv_gui'])
         self.gui = gui.ElectrumGui(config, self, plugins)
         self.gui.main()

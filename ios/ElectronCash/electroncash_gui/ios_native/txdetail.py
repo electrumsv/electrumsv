@@ -4,16 +4,16 @@
 #
 # MIT License
 #
-from electroncash.i18n import _, language
+from electrumsv.i18n import _, language
 from . import utils
 from . import gui
 from .custom_objc import TxDetailBase, TxInputsOutputsTVCBase
 from .uikit_bindings import *
 from .history import HistoryEntry, StatusImages
 from . import addresses
-from electroncash.transaction import Transaction
-from electroncash.address import Address, PublicKey, ScriptOutput
-from electroncash.util import timestamp_to_datetime
+from electrumsv.transaction import Transaction
+from electrumsv.address import Address, PublicKey, ScriptOutput
+from electrumsv.util import timestamp_to_datetime
 import json, sys
 from . import coins
 from . import contacts

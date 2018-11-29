@@ -1,7 +1,7 @@
 ![Bitcoin Cash](https://raw.githubusercontent.com/The-Bitcoin-Cash-Fund/Branding/master/Bitcoin_Cash/BCH%20Logo%20Long%20Text%20WhiteBG.png "")
-# Using Electron-Cash with Ledger Nano S
+# Using Electrum-SV with Ledger Nano S
 
-Successfully tested with Ledger Nano S (1.3.1) Electron-Cash (3.1.2) and Bitcoin Cash Ledger App (1.1.5)
+Successfully tested with Ledger Nano S (1.3.1) Electrum-SV (3.1.2) and Bitcoin Cash Ledger App (1.1.5)
 
 ---
 
@@ -51,20 +51,20 @@ Install the Ledger Manager to download and install Bitcoin Cash application onto
 
 ---
 
-### Using Ledger Nano S with Electron-Cash
+### Using Ledger Nano S with Electrum-SV
 
 1. Connect your Ledger device to USB
 2. Enter your PIN code
 3. Open the Bitcoin Cash application on the Ledger (required for Nano S and Blue)
 4. Disable the "Browser support" setting in this application (required for Nano S and Blue)
-5. Launch Electron-Cash and start the new wallet wizard:
+5. Launch Electrum-SV and start the new wallet wizard:
     * Select "Use a Hardware Device" - press Next
     * Select your Ledger device - press Next
     * Select your desired Wallet Derivation (or leave default value for Bitcoin Cash)
        - If you want to use legacy Bitcoin addresses use m/44'/0'/0'
        - If you want to use Bitcoin Cash addresses use m/44'/145'/0'
 6. ???
-7. PROFIT!!! (Your Bitcoin wallet should now open in Electron-Cash)
+7. PROFIT!!! (Your Bitcoin wallet should now open in Electrum-SV)
 
 ---
 

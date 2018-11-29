@@ -88,7 +88,7 @@ class SimpleConfig(PrintError):
     def electrum_path(self):
         # Read electrum_cash_path from command line
         # Otherwise use the user's default data directory.
-        path = self.get('electron_cash_path')
+        path = self.get('electrum_sv_path')
         if path is None:
             path = self.user_dir()
 
@@ -100,7 +100,7 @@ class SimpleConfig(PrintError):
         obsolete_file = os.path.join(path, 'recent_servers')
         if os.path.exists(obsolete_file):
             os.remove(obsolete_file)
-        self.print_error("electron-cash directory", path)
+        self.print_error("electrum-sv directory", path)
         return path
 
     def rename_config_keys(self, config, keypairs, deprecation_warning=False):
@@ -339,7 +339,7 @@ class SimpleConfig(PrintError):
 
 
 def read_user_config(path):
-    """Parse and store the user config settings in electron-cash.conf into user_config[]."""
+    """Parse and store the user config settings in electrum-sv.conf into user_config[]."""
     if not path:
         return {}
     config_path = os.path.join(path, "config")

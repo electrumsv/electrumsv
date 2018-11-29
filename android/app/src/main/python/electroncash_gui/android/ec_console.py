@@ -5,11 +5,11 @@ import os
 from os.path import dirname, exists, join
 import unittest
 
-from electroncash import commands, daemon, keystore, tests, util, version
-from electroncash import main  # electron-cash script, renamed by build.gradle.
-from electroncash.simple_config import SimpleConfig
-from electroncash.storage import WalletStorage
-from electroncash.wallet import Wallet
+from electrumsv import commands, daemon, keystore, tests, util, version
+from electrumsv import main  # electrum-sv script, renamed by build.gradle.
+from electrumsv.simple_config import SimpleConfig
+from electrumsv.storage import WalletStorage
+from electrumsv.wallet import Wallet
 
 
 # Too noisy: "servers", "interfaces"
@@ -29,7 +29,7 @@ class ECConsole(InteractiveConsole):
     def interact(self):
         try:
             InteractiveConsole.interact(
-                self, banner=(f"Electron Cash {version.PACKAGE_VERSION}\n"
+                self, banner=(f"Electrum SV {version.PACKAGE_VERSION}\n"
                               f"Type 'help' for available commands and variables."))
         except SystemExit:
             pass
@@ -185,7 +185,7 @@ class AllCommands(commands.Commands):
 
     def _assert_daemon_running(self):
         if not self.daemon_running:
-            raise Exception("Daemon not running")  # Same wording as in electron-cash script.
+            raise Exception("Daemon not running")  # Same wording as in electrum-sv script.
 
     def _on_callback(self, *args):
         util.print_stderr("[Callback] " + ", ".join(repr(x) for x in args))

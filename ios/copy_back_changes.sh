@@ -15,9 +15,9 @@ projdir_top="iOS/"
 pushd . > /dev/null
 cd $projdir
 
-a=`find ElectronCash/ -type f -depth 1 -name \*.py -print`
-b=`find ElectronCash/electroncash_gui -type f -name \*.py -print`
-c=`find ElectronCash/electroncash -type f -name \*.py -print`
+a=`find ElectrumSV/ -type f -depth 1 -name \*.py -print`
+b=`find ElectrumSV/electrumsv_gui -type f -name \*.py -print`
+c=`find ElectrumSV/electrumsv -type f -name \*.py -print`
 popd > /dev/null
 
 pushd . > /dev/null
@@ -70,7 +70,7 @@ function doIt() {
 for file in $a $b; do
     f1="${file}"
     f2="${projdir}/${file}"
-    doIt "$f1" "$f2" "ElectronCash/"
+    doIt "$f1" "$f2" "ElectrumSV/"
 done
 
 for f in $c; do

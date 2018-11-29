@@ -1,10 +1,10 @@
-# Configuration file for the electron cash client
+# Configuration file for the Electrum SV client
 # Settings defined here are shared across wallets
 #
-# copy this file to /etc/electron-cash.conf if you want read-only settings
+# copy this file to /etc/electrum-sv.conf if you want read-only settings
 
 [client]
-server = electron.coinucopia.io:50001:t
+server = sv.electrumx.cash:50001:t
 proxy = None
 gap_limit = 5
 # booleans use python syntax

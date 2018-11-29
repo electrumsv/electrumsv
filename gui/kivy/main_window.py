@@ -7,16 +7,16 @@ import traceback
 from decimal import Decimal
 import threading
 
-from electroncash.address import Address
-from electroncash.bitcoin import TYPE_ADDRESS
-from electroncash import WalletStorage, Wallet
-from electroncash_gui.kivy.i18n import _
-from electroncash.networks import NetworkConstants
-from electroncash.paymentrequest import InvoiceStore
-from electroncash.util import profiler, InvalidPassword
-from electroncash.plugins import run_hook
-from electroncash.util import format_satoshis, format_satoshis_plain
-from electroncash.paymentrequest import PR_UNPAID, PR_PAID, PR_UNKNOWN, PR_EXPIRED
+from electrumsv.address import Address
+from electrumsv.bitcoin import TYPE_ADDRESS
+from electrumsv import WalletStorage, Wallet
+from electrumsv_gui.kivy.i18n import _
+from electrumsv.networks import NetworkConstants
+from electrumsv.paymentrequest import InvoiceStore
+from electrumsv.util import profiler, InvalidPassword
+from electrumsv.plugins import run_hook
+from electrumsv.util import format_satoshis, format_satoshis_plain
+from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_UNKNOWN, PR_EXPIRED
 
 from kivy.app import App
 from kivy.core.window import Window
@@ -32,10 +32,10 @@ from kivy.lang import Builder
 
 # lazy imports for factory so that widgets can be used in kv
 #Factory.register('InstallWizard',
-#                 module='electroncash_gui.kivy.uix.dialogs.installwizard')
-#Factory.register('InfoBubble', module='electroncash_gui.kivy.uix.dialogs')
-#Factory.register('OutputList', module='electroncash_gui.kivy.uix.dialogs')
-#Factory.register('OutputItem', module='electroncash_gui.kivy.uix.dialogs')
+#                 module='electrumsv_gui.kivy.uix.dialogs.installwizard')
+#Factory.register('InfoBubble', module='electrumsv_gui.kivy.uix.dialogs')
+#Factory.register('OutputList', module='electrumsv_gui.kivy.uix.dialogs')
+#Factory.register('OutputItem', module='electrumsv_gui.kivy.uix.dialogs')
 
 from .uix.dialogs.installwizard import InstallWizard
 from .uix.dialogs import InfoBubble
@@ -57,7 +57,7 @@ from kivy.uix.tabbedpanel import TabbedPanel
 from kivy.uix.label import Label
 from kivy.core.clipboard import Clipboard
 
-Factory.register('TabbedCarousel', module='electroncash_gui.kivy.uix.screens')
+Factory.register('TabbedCarousel', module='electrumsv_gui.kivy.uix.screens')
 
 # Register fonts without this you won't be able to use bold/italic...
 # inside markup.
@@ -69,7 +69,7 @@ Label.register('Roboto',
                'gui/kivy/data/fonts/Roboto-Bold.ttf')
 
 
-from electroncash.util import base_units
+from electrumsv.util import base_units
 
 
 
@@ -246,7 +246,7 @@ class ElectrumWindow(App):
 
         App.__init__(self)#, **kwargs)
 
-        title = _('Electron-Cash App')
+        title = _('Electrum-SV App')
         self.electrum_config = config = kwargs.get('config', None)
         self.language = config.get('language', 'en')
         self.network = network = kwargs.get('network', None)
@@ -301,7 +301,7 @@ class ElectrumWindow(App):
             self.send_screen.do_clear()
 
     def on_qr(self, data):
-        from electroncash.bitcoin import base_decode
+        from electrumsv.bitcoin import base_decode
         data = data.strip()
         if Address.is_valid(data):
             self.set_URI(data)
@@ -310,8 +310,8 @@ class ElectrumWindow(App):
             self.set_URI(data)
             return
         # try to decode transaction
-        from electroncash.transaction import Transaction
-        from electroncash.util import bh2u
+        from electrumsv.transaction import Transaction
+        from electrumsv.util import bh2u
         try:
             text = bh2u(base_decode(data, None, base=43))
             tx = Transaction(text)
@@ -356,7 +356,7 @@ class ElectrumWindow(App):
         self.receive_screen.screen.address = addr.to_ui_string()
 
     def show_pr_details(self, req, status, is_invoice):
-        from electroncash.util import format_time
+        from electrumsv.util import format_time
         requestor = req.get('requestor')
         exp = req.get('exp')
         memo = req.get('memo')
@@ -378,7 +378,7 @@ class ElectrumWindow(App):
         popup.open()
 
     def show_addr_details(self, req, status):
-        from electroncash.util import format_time
+        from electrumsv.util import format_time
         fund = req.get('fund')
         isaddr = 'y'
         popup = Builder.load_file('gui/kivy/uix/ui_screens/invoice.kv')
@@ -577,9 +577,9 @@ class ElectrumWindow(App):
 
         #setup lazy imports for mainscreen
         Factory.register('AnimatedPopup',
-                         module='electroncash_gui.kivy.uix.dialogs')
+                         module='electrumsv_gui.kivy.uix.dialogs')
         Factory.register('QRCodeWidget',
-                         module='electroncash_gui.kivy.uix.qrcodewidget')
+                         module='electrumsv_gui.kivy.uix.qrcodewidget')
 
         # preload widgets. Remove this if you want to load the widgets on demand
         #Cache.append('electrum_widgets', 'AnimatedPopup', Factory.AnimatedPopup())
@@ -595,7 +595,7 @@ class ElectrumWindow(App):
         self.receive_screen = None
         self.requests_screen = None
         self.address_screen = None
-        self.icon = "icons/electron-cash.png"
+        self.icon = "icons/electrum-sv.png"
         self.tabs = self.root.ids['tabs']
 
     def update_interfaces(self, dt):

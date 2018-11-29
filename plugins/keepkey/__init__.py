@@ -1,4 +1,4 @@
-from electroncash.i18n import _
+from electrumsv.i18n import _
 
 fullname = 'KeepKey'
 description = _('Provides support for KeepKey hardware wallet')

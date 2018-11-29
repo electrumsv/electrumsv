@@ -1,4 +1,4 @@
-from electroncash.plugins import hook
+from electrumsv.plugins import hook
 from .keepkey import KeepKeyPlugin
 from ..hw_wallet import CmdLineHandler
 

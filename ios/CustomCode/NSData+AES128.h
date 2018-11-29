@@ -1,6 +1,6 @@
 //
 //  NSData+AES128.h
-//  Electron-Cash
+//  Electrum-SV
 //
 //  Created by calin on 9/20/18.
 //  Copyright © 2018 Calin Culianu. All rights reserved.

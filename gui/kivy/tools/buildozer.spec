@@ -1,13 +1,13 @@
 [app]
 
 # (str) Title of your application
-title = Electron-Cash
+title = Electrum-SV
 
 # (str) Package Name
-package.name = ElectronCash33
+package.name = ElectrumSV33
 
 # (str) Package domain (needed for android/ios packaging)
-package.domain = org.electroncash
+package.domain = org.electrumsv
 
 # (str) Source code where the main.py live
 source.dir = .
@@ -34,10 +34,10 @@ version = 3.3
 requirements = python3crystax, android, openssl, plyer, kivy==32b0ffc7390bf3e19b3c3e8eb5d2d83a210d9684
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/gui/kivy/theming/splash.png
-presplash.filename = %(source.dir)s/icons/electron_presplash.png
+presplash.filename = %(source.dir)s/icons/electrumsv_presplash.png
 
 # (str) Icon of the application
-icon.filename = %(source.dir)s/icons/electrum_launcher.png
+icon.filename = %(source.dir)s/icons/electrumsv_launcher.png
 
 # (str) Supported orientation (one of landscape, portrait or all)
 orientation = portrait

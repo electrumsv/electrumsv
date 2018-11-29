@@ -8,7 +8,7 @@ from . import utils
 from . import gui
 from . import history
 from . import newwallet
-from electroncash.i18n import _, language
+from electrumsv.i18n import _, language
 
 from .uikit_bindings import *
 from .custom_objc import *

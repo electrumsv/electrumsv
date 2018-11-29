@@ -8,8 +8,8 @@
 # The below line needs to be here becasue the iOS main.m evaluates this script and looks for a
 # Python class (that is bridged to ObjC) named "PythonAppDelegate", which gets the
 # 'applicationDidFinishLaunchingWithOptions' call, which is really where we start the app.
-import electroncash_gui.ios_native.appdelegate
-from electroncash_gui.ios_native.uikit_bindings import *
+import electrumsv_gui.ios_native.appdelegate
+from electrumsv_gui.ios_native.uikit_bindings import *
 import sys
 
 

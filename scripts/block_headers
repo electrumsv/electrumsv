@@ -3,8 +3,8 @@
 # A simple script that connects to a server and displays block headers
 
 import time
-from electroncash import SimpleConfig, Network
-from electroncash.util import print_msg, json_encode
+from electrumsv import SimpleConfig, Network
+from electrumsv.util import print_msg, json_encode
 
 # start network
 c = SimpleConfig()

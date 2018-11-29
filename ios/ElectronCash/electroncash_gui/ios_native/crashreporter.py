@@ -6,12 +6,12 @@
 
 from . import utils
 from . import gui
-from electroncash.i18n import _
+from electrumsv.i18n import _
 
 from .uikit_bindings import *
 from .custom_objc import *
 import json, traceback, requests, sys
-from electroncash import PACKAGE_VERSION
+from electrumsv import PACKAGE_VERSION
 
 
 issue_template = """<font face=arial color="#414141">
@@ -22,7 +22,7 @@ issue_template = """<font face=arial color="#414141">
 
 <h2>Additional information</h2>
 <ul>
-  <li>Electron Cash version: {app_version}</li>
+  <li>Electrum SV version: {app_version}</li>
   <li>Python version: {python_version}</li>
   <li>Operating system: {os}</li>
   <li>Wallet type: {wallet_type}</li>
@@ -33,7 +33,7 @@ issue_template = """<font face=arial color="#414141">
 #BauerJ's testing server
 #report_server = "https://crashhubtest.bauerj.eu/crash"
 # "Live" (Marcel's server)
-report_server = "https://crashhub.electroncash.org/crash"
+report_server = "https://crashhub.electrumsv.org/crash"
 
 Singleton = None
 
@@ -55,7 +55,7 @@ class CrashReporterVC(CrashReporterBase):
         self.reportTit.setText_withKerning_(_("Report Contents"), utils._kern)
         self.descTit.setText_withKerning_(_("Please briefly describe what led to the error (optional):").translate({ord(':'):None}), utils._kern)
         utils.uilabel_replace_attributed_text(self.errMsg,
-                                               _('Sorry!')  + " " + _('Something went wrong running Electron Cash.') + " " + _('To help us diagnose and fix the problem, you can send us a bug report that contains useful debug information:').translate({ord(':'):None}),
+                                               _('Sorry!')  + " " + _('Something went wrong running Electrum SV.') + " " + _('To help us diagnose and fix the problem, you can send us a bug report that contains useful debug information:').translate({ord(':'):None}),
                                                font = UIFont.italicSystemFontOfSize_(12.0)
                                               )
         self.descDel.placeholderFont = UIFont.italicSystemFontOfSize_(14.0)

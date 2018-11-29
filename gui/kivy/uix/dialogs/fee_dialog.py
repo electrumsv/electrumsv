@@ -3,8 +3,8 @@ from kivy.factory import Factory
 from kivy.properties import ObjectProperty
 from kivy.lang import Builder
 
-from electroncash.util import fee_levels
-from electroncash_gui.kivy.i18n import _
+from electrumsv.util import fee_levels
+from electrumsv_gui.kivy.i18n import _
 
 Builder.load_string('''
 <FeeDialog@Popup>

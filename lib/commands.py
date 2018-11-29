@@ -93,7 +93,7 @@ def command(s):
             if c.requires_network and network is None:
                 raise BaseException("Daemon offline")  # Same wording as in daemon.py.
             if c.requires_wallet and wallet is None:
-                raise BaseException("Wallet not loaded. Use 'electron-cash daemon load_wallet'")
+                raise BaseException("Wallet not loaded. Use 'electrum-sv daemon load_wallet'")
             if c.requires_password and password is None and wallet.storage.get('use_encryption') \
                and not kwargs.get("unsigned"):
                 return {'error': 'Password required' }
@@ -337,7 +337,7 @@ class Commands:
     @command('')
     def dumpprivkeys(self):
         """Deprecated."""
-        return "This command is deprecated. Use a pipe instead: 'electron-cash listaddresses | electron-cash getprivatekeys - '"
+        return "This command is deprecated. Use a pipe instead: 'electrum-sv listaddresses | electrum-sv getprivatekeys - '"
 
     @command('')
     def validateaddress(self, address):
@@ -385,7 +385,7 @@ class Commands:
 
     @command('')
     def version(self):
-        """Return the version of electron-cash."""
+        """Return the version of electrum-sv."""
         from .version import PACKAGE_VERSION
         return PACKAGE_VERSION
 
@@ -849,7 +849,7 @@ def add_network_options(parser):
 def add_global_options(parser):
     group = parser.add_argument_group('global options')
     group.add_argument("-v", "--verbose", action="store_true", dest="verbose", default=False, help="Show debugging information")
-    group.add_argument("-D", "--dir", dest="electron_cash_path", help="electron cash directory")
+    group.add_argument("-D", "--dir", dest="electrum_sv_path", help="electrum SV directory")
     group.add_argument("-P", "--portable", action="store_true", dest="portable", default=False, help="Use local 'electrum_data' directory")
     group.add_argument("-w", "--wallet", dest="wallet_path", help="wallet path")
     group.add_argument("-wp", "--walletpassword", dest="wallet_password", default=None, help="Supply wallet password")
@@ -858,7 +858,7 @@ def add_global_options(parser):
 def get_parser():
     # create main parser
     parser = argparse.ArgumentParser(
-        epilog="Run 'electron-cash help <command>' to see the help for a command")
+        epilog="Run 'electrum-sv help <command>' to see the help for a command")
     add_global_options(parser)
     subparsers = parser.add_subparsers(dest='cmd', metavar='<command>')
     # gui

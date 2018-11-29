@@ -1,6 +1,6 @@
 //
 //  ViewsForIB.m
-//  Electron-Cash
+//  Electrum-SV
 //
 //  Created by calin on 4/7/18.
 //  Copyright © 2018 Calin Culianu <calin.culiau@gmail.com>. MIT License.

@@ -1,4 +1,4 @@
-package org.electroncash.electroncash3
+package org.electrumsv.electrumsv3
 
 import org.junit.Test
 

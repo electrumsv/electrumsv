@@ -47,12 +47,12 @@ if [ -d iOS ]; then
 	rm -fr iOS
 fi
 
-if [ -d ElectronCash/electroncash ]; then
-	echo "Deleting old ElectronCash/electroncash..."
-	rm -fr ElectronCash/electroncash
+if [ -d ElectrumSV/electrumsv ]; then
+	echo "Deleting old ElectrumSV/electrumsv..."
+	rm -fr ElectrumSV/electrumsv
 fi
 
-echo "Pulling 'electroncash' libs into project from ../lib ..."
+echo "Pulling 'electrumsv' libs into project from ../lib ..."
 if [ ! -d ../lib/locale ]; then
 	(cd .. && contrib/make_locale && cd ios)
 	if [ "$?" != 0 ]; then
@@ -60,8 +60,8 @@ if [ ! -d ../lib/locale ]; then
 		exit 1
 	fi
 fi
-cp -fpR ../lib ElectronCash/electroncash
-find ElectronCash -name \*.pyc -exec rm -f {} \; 
+cp -fpR ../lib ElectrumSV/electrumsv
+find ElectrumSV -name \*.pyc -exec rm -f {} \; 
 
 echo ""
 echo "Building Briefcase-Based iOS Project..."
@@ -76,7 +76,7 @@ fi
 # No longer needed: they fixed the bug.  But leaving it here in case bug comes back!
 #cd iOS && ln -s . Support ; cd .. # Fixup for broken Briefcase template.. :/
 
-infoplist="iOS/ElectronCash/ElectronCash-Info.plist"
+infoplist="iOS/ElectrumSV/ElectrumSV-Info.plist"
 if [ -f "${infoplist}" ]; then
 	echo ""
 	echo "Adding custom keys to ${infoplist} ..."
@@ -113,8 +113,8 @@ if [ -f "${infoplist}" ]; then
 
 	# Stuff related to being able to open .txn and .txt files (open transaction from context menu in other apps)
 	plutil -insert "CFBundleDocumentTypes" -xml '<array><dict><key>CFBundleTypeIconFiles</key><array/><key>CFBundleTypeName</key><string>Transaction</string><key>LSItemContentTypes</key><array><string>public.plain-text</string></array></dict></array>' -- ${infoplist}
-	plutil -insert "UTExportedTypeDeclarations" -xml '<array><dict><key>UTTypeConformsTo</key><array><string>public.plain-text</string></array><key>UTTypeDescription</key><string>Transaction</string><key>UTTypeIdentifier</key><string>com.c3-soft.ElectronCash.txn</string><key>UTTypeSize320IconFile</key><string>signed@2x</string><key>UTTypeSize64IconFile</key><string>signed</string><key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>txn</string><string>txt</string></array></dict></dict></array>' -- ${infoplist}
-	plutil -insert "UTImportedTypeDeclarations" -xml '<array><dict><key>UTTypeConformsTo</key><array><string>public.plain-text</string></array><key>UTTypeDescription</key><string>Transaction</string><key>UTTypeIdentifier</key><string>com.c3-soft.ElectronCash.txn</string><key>UTTypeSize320IconFile</key><string>signed@2x</string><key>UTTypeSize64IconFile</key><string>signed</string><key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>txn</string><string>txt</string></array></dict></dict></array>' -- ${infoplist}
+	plutil -insert "UTExportedTypeDeclarations" -xml '<array><dict><key>UTTypeConformsTo</key><array><string>public.plain-text</string></array><key>UTTypeDescription</key><string>Transaction</string><key>UTTypeIdentifier</key><string>com.c3-soft.ElectrumSV.txn</string><key>UTTypeSize320IconFile</key><string>signed@2x</string><key>UTTypeSize64IconFile</key><string>signed</string><key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>txn</string><string>txt</string></array></dict></dict></array>' -- ${infoplist}
+	plutil -insert "UTImportedTypeDeclarations" -xml '<array><dict><key>UTTypeConformsTo</key><array><string>public.plain-text</string></array><key>UTTypeDescription</key><string>Transaction</string><key>UTTypeIdentifier</key><string>com.c3-soft.ElectrumSV.txn</string><key>UTTypeSize320IconFile</key><string>signed@2x</string><key>UTTypeSize64IconFile</key><string>signed</string><key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>txn</string><string>txt</string></array></dict></dict></array>' -- ${infoplist}
 	plutil -insert 'CFBundleURLTypes' -xml '<array><dict><key>CFBundleTypeRole</key><string>Viewer</string><key>CFBundleURLName</key><string>bitcoincash</string><key>CFBundleURLSchemes</key><array><string>bitcoincash</string></array></dict></array>' -- ${infoplist}
 	plutil -replace 'UIRequiresFullScreen' -bool NO -- ${infoplist}
 	plutil -insert 'NSFaceIDUsageDescription' -string 'FaceID is used for wallet authentication' -- ${infoplist}
@@ -138,7 +138,7 @@ if [ -d overrides/ ]; then
 	(cd overrides && cp -fpvR * ../iOS/ && cd ..)
 fi
 
-stupid_launch_image_grr="iOS/ElectronCash/Images.xcassets/LaunchImage.launchimage"
+stupid_launch_image_grr="iOS/ElectrumSV/Images.xcassets/LaunchImage.launchimage"
 if [ -d "${stupid_launch_image_grr}" ]; then
 	echo ""
 	echo "Removing deprecated LaunchImage stuff..."
@@ -176,7 +176,7 @@ cp -fpvr scratch/rubicon-objc/rubicon/objc iOS/app_packages/rubicon/
 [ "$?" != "0" ] && echo '*** Error copying rubicon files' && exit 1
 rm -fr scratch
 
-xcode_file="Electron-Cash.xcodeproj/project.pbxproj" 
+xcode_file="Electrum-SV.xcodeproj/project.pbxproj" 
 echo ""
 echo "Mogrifying Xcode .pbxproj file to use iOS 10.0 deployment target..."
 echo ""
@@ -189,7 +189,7 @@ else
 	echo ".pbxproj mogrifid ok."
 fi
 
-xcode_target="Electron-Cash"
+xcode_target="Electrum-SV"
 echo ""
 echo "Adding HEADER_SEARCH_PATHS to Xcode .pbxproj..."
 echo ""
@@ -230,7 +230,7 @@ fi
 echo ""
 echo "Modifying main.m to include PYTHONIOENCODING=UTF-8..."
 echo ""
-main_m="iOS/ElectronCash/main.m"
+main_m="iOS/ElectrumSV/main.m"
 if cat $main_m | sed -e '1 s/putenv/putenv("PYTHONIOENCODING=UTF-8"); putenv/; t' -e '1,// s//putenv("PYTHONIOENCODING=UTF-8"); putenv/' > ${main_m}.new; then
 	mv -fv ${main_m}.new $main_m
 else
@@ -240,7 +240,7 @@ fi
 echo ""
 echo "Copying google protobuf paymentrequests.proto to app lib dir..."
 echo ""
-cp -fva ElectronCash/electroncash/*.proto iOS/app/ElectronCash/electroncash
+cp -fva ElectrumSV/electrumsv/*.proto iOS/app/ElectrumSV/electrumsv
 if [ "$?" != "0" ]; then
 	echo "** WARNING: Failed to copy google protobuf .proto file to app lib dir!"
 fi

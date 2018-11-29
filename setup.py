@@ -18,7 +18,7 @@ with open('contrib/requirements/requirements-hw.txt') as f:
 version = imp.load_source('version', 'lib/version.py')
 
 if sys.version_info[:3] < (3, 5, 2):
-    sys.exit("Error: Electron Cash requires Python version >= 3.5.2...")
+    sys.exit("Error: Electrum SV requires Python version >= 3.5.2...")
 
 data_files = []
 
@@ -52,16 +52,16 @@ if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
         share_dir = user_share
     data_files += [
         # Menu icon
-        (os.path.join(share_dir, 'icons/hicolor/128x128/apps/'), ['icons/electron-cash.png']),
-        (os.path.join(share_dir, 'pixmaps/'),                    ['icons/electron-cash.png']),
+        (os.path.join(share_dir, 'icons/hicolor/128x128/apps/'), ['icons/electrum-sv.png']),
+        (os.path.join(share_dir, 'pixmaps/'),                    ['icons/electrum-sv.png']),
         # Menu entry
-        (os.path.join(share_dir, 'applications/'), ['electron-cash.desktop']),
+        (os.path.join(share_dir, 'applications/'), ['electrum-sv.desktop']),
         # App stream (store) metadata
-        (os.path.join(share_dir, 'metainfo/'), ['org.electroncash.ElectronCash.appdata.xml']),
+        (os.path.join(share_dir, 'metainfo/'), ['org.electrumsv.ElectrumSV.appdata.xml']),
     ]
 
 setup(
-    name="Electron Cash",
+    name="Electrum SV",
     version=version.PACKAGE_VERSION,
     install_requires=[
         'pyaes>=0.1a1',
@@ -78,42 +78,42 @@ setup(
         'hardware': requirements_hw,
     },
     packages=[
-        'electroncash',
-        'electroncash_gui',
-        'electroncash_gui.qt',
-        'electroncash_plugins',
-        'electroncash_plugins.audio_modem',
-        'electroncash_plugins.cosigner_pool',
-        'electroncash_plugins.email_requests',
-        'electroncash_plugins.hw_wallet',
-        'electroncash_plugins.keepkey',
-        'electroncash_plugins.labels',
-        'electroncash_plugins.ledger',
-        'electroncash_plugins.trezor',
-        'electroncash_plugins.digitalbitbox',
-        'electroncash_plugins.virtualkeyboard',
+        'electrumsv',
+        'electrumsv_gui',
+        'electrumsv_gui.qt',
+        'electrumsv_plugins',
+        'electrumsv_plugins.audio_modem',
+        'electrumsv_plugins.cosigner_pool',
+        'electrumsv_plugins.email_requests',
+        'electrumsv_plugins.hw_wallet',
+        'electrumsv_plugins.keepkey',
+        'electrumsv_plugins.labels',
+        'electrumsv_plugins.ledger',
+        'electrumsv_plugins.trezor',
+        'electrumsv_plugins.digitalbitbox',
+        'electrumsv_plugins.virtualkeyboard',
     ],
     package_dir={
-        'electroncash': 'lib',
-        'electroncash_gui': 'gui',
-        'electroncash_plugins': 'plugins',
+        'electrumsv': 'lib',
+        'electrumsv_gui': 'gui',
+        'electrumsv_plugins': 'plugins',
     },
     package_data={
-        'electroncash': [
+        'electrumsv': [
             'servers.json',
             'servers_testnet.json',
             'currencies.json',
             'www/index.html',
             'wordlist/*.txt',
-            'locale/*/LC_MESSAGES/electron-cash.mo',
+            'locale/*/LC_MESSAGES/electrum-sv.mo',
         ]
     },
-    scripts=['electron-cash'],
+    scripts=['electrum-sv'],
     data_files=data_files,
     description="Lightweight Bitcoin Cash Wallet",
-    author="Jonald Fyookball",
-    author_email="jonf@electroncash.org",
+    author="WIP",
+    author_email="WIP",
     license="MIT Licence",
-    url="http://electroncash.org",
+    url="http://electrumsv.org",
     long_description="""Lightweight Bitcoin Cash Wallet"""
 )

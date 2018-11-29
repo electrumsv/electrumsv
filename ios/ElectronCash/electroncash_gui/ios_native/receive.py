@@ -8,14 +8,14 @@ from . import utils
 from . import gui
 from . import addresses
 from .amountedit import BTCAmountEdit, FiatAmountEdit, BTCkBEdit  # Makes sure ObjC classes are imported into ObjC runtime
-from electroncash import WalletStorage, Wallet
-from electroncash.util import timestamp_to_datetime, format_time
-from electroncash.i18n import _, language
-from electroncash.networks import NetworkConstants
-from electroncash.address import Address, ScriptOutput
-from electroncash.paymentrequest import PR_UNPAID, PR_EXPIRED, PR_UNKNOWN, PR_PAID
-from electroncash import bitcoin
-import electroncash.web as web
+from electrumsv import WalletStorage, Wallet
+from electrumsv.util import timestamp_to_datetime, format_time
+from electrumsv.i18n import _, language
+from electrumsv.networks import NetworkConstants
+from electrumsv.address import Address, ScriptOutput
+from electrumsv.paymentrequest import PR_UNPAID, PR_EXPIRED, PR_UNKNOWN, PR_PAID
+from electrumsv import bitcoin
+import electrumsv.web as web
 import sys, traceback, time
 from .uikit_bindings import *
 from .custom_objc import *

@@ -26,12 +26,12 @@ binaries = [("c:/python3.5.4/libusb-1.0.dll", ".")]
 binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]]
 
 datas = [
-    (home+'lib/currencies.json', 'electroncash'),
-    (home+'lib/servers.json', 'electroncash'),
-    (home+'lib/servers_testnet.json', 'electroncash'),
-    (home+'lib/wordlist/english.txt', 'electroncash/wordlist'),
-    (home+'lib/locale', 'electroncash/locale'),
-    (home+'plugins', 'electroncash_plugins'),
+    (home+'lib/currencies.json', 'electrumsv'),
+    (home+'lib/servers.json', 'electrumsv'),
+    (home+'lib/servers_testnet.json', 'electrumsv'),
+    (home+'lib/wordlist/english.txt', 'electrumsv/wordlist'),
+    (home+'lib/locale', 'electrumsv/locale'),
+    (home+'plugins', 'electrumsv_plugins'),
     ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),
 ]
 datas += collect_data_files('trezorlib')
@@ -39,7 +39,7 @@ datas += collect_data_files('btchip')
 datas += collect_data_files('keepkeylib')
 
 # We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
-a = Analysis([home+'electron-cash',
+a = Analysis([home+'electrum-sv',
               home+'gui/qt/main_window.py',
               home+'gui/text.py',
               home+'lib/util.py',
@@ -89,7 +89,7 @@ exe_standalone = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons/electron.ico',
+    icon=home+'icons/electrum-sv.ico',
     console=False)
     # console=True makes an annoying black box pop up, but it does make Electrum output command line commands, with this turned off no output will be given but commands can still be used
 
@@ -102,7 +102,7 @@ exe_portable = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons/electron.ico',
+    icon=home+'icons/electrum-sv.ico',
     console=False)
 
 #####
@@ -116,7 +116,7 @@ exe_dependent = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons/electron.ico',
+    icon=home+'icons/electrum-sv.ico',
     console=False)
 
 coll = COLLECT(
@@ -127,6 +127,6 @@ coll = COLLECT(
     strip=None,
     upx=True,
     debug=False,
-    icon=home+'icons/electron.ico',
+    icon=home+'icons/electrum-sv.ico',
     console=False,
     name=os.path.join('dist', 'electrum'))

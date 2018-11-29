@@ -2,14 +2,14 @@ import threading
 
 from binascii import hexlify, unhexlify
 
-from electroncash.util import bfh, bh2u
-from electroncash.bitcoin import (b58_address_to_hash160, xpub_from_pubkey,
+from electrumsv.util import bfh, bh2u
+from electrumsv.bitcoin import (b58_address_to_hash160, xpub_from_pubkey,
                               TYPE_ADDRESS, TYPE_SCRIPT)
-from electroncash.i18n import _
-from electroncash.networks import NetworkConstants
-from electroncash.plugins import BasePlugin
-from electroncash.transaction import deserialize
-from electroncash.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
+from electrumsv.i18n import _
+from electrumsv.networks import NetworkConstants
+from electrumsv.plugins import BasePlugin
+from electrumsv.transaction import deserialize
+from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 
 from ..hw_wallet import HW_PluginBase
 
@@ -342,7 +342,7 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
 
         return outputs
 
-    def electroncash_tx_to_txtype(self, tx):
+    def electrumsv_tx_to_txtype(self, tx):
         t = self.types.TransactionType()
         d = deserialize(tx.raw)
         t.version = d['version']
@@ -358,4 +358,4 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
     # This function is called from the trezor libraries (via tx_api)
     def get_tx(self, tx_hash):
         tx = self.prev_tx[tx_hash]
-        return self.electroncash_tx_to_txtype(tx)
+        return self.electrumsv_tx_to_txtype(tx)

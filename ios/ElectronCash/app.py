@@ -5,11 +5,11 @@
 # MIT License
 #
 import os
-from electroncash_gui.ios_native.monkeypatches import MonkeyPatches
-from electroncash.util import set_verbosity
-from electroncash_gui.ios_native import ElectrumGui
-from electroncash_gui.ios_native.utils import call_later, get_user_dir, cleanup_tmp_dir, is_debug_build, NSLogSuppress
-from electroncash.simple_config import SimpleConfig
+from electrumsv_gui.ios_native.monkeypatches import MonkeyPatches
+from electrumsv.util import set_verbosity
+from electrumsv_gui.ios_native import ElectrumGui
+from electrumsv_gui.ios_native.utils import call_later, get_user_dir, cleanup_tmp_dir, is_debug_build, NSLogSuppress
+from electrumsv.simple_config import SimpleConfig
 
 def main():
     cleanup_tmp_dir()

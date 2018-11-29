@@ -6,17 +6,17 @@
 #
 from . import utils
 from . import gui
-from electroncash.i18n import _, language
-from electroncash.mnemonic import Mnemonic
-from electroncash.old_mnemonic import words as old_words
+from electrumsv.i18n import _, language
+from electrumsv.mnemonic import Mnemonic
+from electrumsv.old_mnemonic import words as old_words
 from typing import Any
 from .uikit_bindings import *
 from .custom_objc import *
 import sys
 from collections import namedtuple
-import electroncash.bitcoin as bitcoin
-import electroncash.keystore as keystore
-from electroncash.address import Address, PublicKey
+import electrumsv.bitcoin as bitcoin
+import electrumsv.keystore as keystore
+from electrumsv.address import Address, PublicKey
 
 if False:
     # this is here for translate i18n to pick up these strings
@@ -26,7 +26,7 @@ if False:
         _("Please write your seed phrase down, as it's the only way to recover your funds if you forget your password or your device is stolen."),
         _("Reenter your seed phrase"),
         # On-Boarding text...
-        _("Welcome to"), _("Electron Cash is an SPV wallet for Bitcoin Cash"),
+        _("Welcome to"), _("Electrum SV is an SPV wallet for Bitcoin Cash"),
         _("Control your own private keys"), _("Easily back up your wallet with a mnemonic seed phrase."),
         _("Enjoy high security"), _("without downloading the blockchain or running a full node."),
         _("Get Started"),
@@ -400,7 +400,7 @@ class NewWalletSeed2(NewWalletSeedBase):
                 if not self.restoreMode:
                     txt = _('Your seed is important!') + ' ' + _('To make sure that you have properly saved your seed, please retype it here.') + ' ' + _('Use the quick suggestions to save time.')
                 else:
-                    txt = _('You can restore a wallet that was created by any version of Electron Cash.')
+                    txt = _('You can restore a wallet that was created by any version of Electrum SV.')
                 utils.uilabel_replace_attributed_text(lbl, txt, font=UIFont.italicSystemFontOfSize_(14.0))
             else:
                 lbl.setText_withKerning_(_(d[lbl.ptr.value]), utils._kern)

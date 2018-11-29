@@ -4,7 +4,7 @@ import re
 from setuptools import setup, find_packages
 import sys
 
-with io.open('./ElectronCash/__init__.py', encoding='utf8') as version_file:
+with io.open('./ElectrumSV/__init__.py', encoding='utf8') as version_file:
     version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]", version_file.read(), re.M)
     if version_match:
         version = version_match.group(1)
@@ -17,7 +17,7 @@ with io.open('README.rst', encoding='utf8') as readme:
 
 
 setup(
-    name='ElectronCash',
+    name='ElectrumSV',
     version=version,
     description='A Bitcoin Cash SPV Wallet',
     long_description=long_description,
@@ -47,7 +47,7 @@ setup(
     ],
     options={
         'app': {
-            'formal_name': 'Electron-Cash',
+            'formal_name': 'Electrum-SV',
             'bundle': 'com.c3-soft'
         },
 

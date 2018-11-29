@@ -26,12 +26,12 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
-from electroncash.i18n import _
+from electrumsv.i18n import _
 from .util import *
 import re
 import math
 
-from electroncash.plugins import run_hook
+from electrumsv.plugins import run_hook
 
 def check_password_strength(password):
 

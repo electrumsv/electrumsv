@@ -10,7 +10,7 @@
 /**
  * CCActivityIndicator
  *
- * Developed for Electron Cash.  This is another take on the UIActivityIndicator view.  It's more-or-less a
+ * Developed for Electrum SV.  This is another take on the UIActivityIndicator view.  It's more-or-less a
  * drop-in replacement for it.  But instead of the spinny rectangle-flower thing, it is a bunch of 'electrons'
  * in an obital at different speeds.
  */

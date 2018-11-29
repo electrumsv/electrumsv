@@ -3,21 +3,21 @@ from kivy.factory import Factory
 from kivy.properties import ObjectProperty
 from kivy.lang import Builder
 
-from electroncash.util import base_units
-from electroncash.i18n import languages
-from electroncash_gui.kivy.i18n import _
-from electroncash.plugins import run_hook
-from electroncash.util import fee_levels
+from electrumsv.util import base_units
+from electrumsv.i18n import languages
+from electrumsv_gui.kivy.i18n import _
+from electrumsv.plugins import run_hook
+from electrumsv.util import fee_levels
 
 from .choice_dialog import ChoiceDialog
 
 Builder.load_string('''
 #:import partial functools.partial
-#:import _ electroncash_gui.kivy.i18n._
+#:import _ electrumsv_gui.kivy.i18n._
 
 <SettingsDialog@Popup>
     id: settings
-    title: _('Electron Cash Settings')
+    title: _('Electrum SV Settings')
     disable_pin: False
     use_encryption: False
     BoxLayout:

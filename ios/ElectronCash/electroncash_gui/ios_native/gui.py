@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Electron Cash - lightweight Bitcoin Cash client
+# Electrum SV - lightweight Bitcoin Cash client
 # Copyright (C) 2012 thomasv@gitorious
 #
 # This file is:
@@ -52,12 +52,12 @@ from . import wallets
 from . import newwallet  # Do not remove -- needed to declare NewWalletVC to ObjC runtime  (used by storyboard instantiation)
 from .custom_objc import *
 
-from electroncash.i18n import _, set_language, languages
-from electroncash.plugins import run_hook
-from electroncash import WalletStorage, Wallet
-from electroncash.address import Address
-from electroncash.util import UserCancelled, print_error, format_satoshis, format_satoshis_plain, PrintError, InvalidPassword
-import electroncash.web as web
+from electrumsv.i18n import _, set_language, languages
+from electrumsv.plugins import run_hook
+from electrumsv import WalletStorage, Wallet
+from electrumsv.address import Address
+from electrumsv.util import UserCancelled, print_error, format_satoshis, format_satoshis_plain, PrintError, InvalidPassword
+import electrumsv.web as web
 
 class WalletFileNotFound(Exception):
     pass
@@ -156,15 +156,15 @@ class GuiHelper(NSObject):
             return not ElectrumGui.gui.warn_user_if_no_wallet()
 
 
-# Manages the GUI. Part of the ElectronCash API so you can't rename this class easily.
+# Manages the GUI. Part of the ElectrumSV API so you can't rename this class easily.
 class ElectrumGui(PrintError):
 
     gui = None
 
     def __init__(self, config):
         ElectrumGui.gui = self
-        self.appName = 'Electron-Cash'
-        self.appDomain = 'com.c3-soft.ElectronCash'
+        self.appName = 'Electrum-SV'
+        self.appDomain = 'com.c3-soft.ElectrumSV'
         self.set_language()
 
         # Signals mechanism for publishing data to interested components asynchronously -- see self.refresh_components()
@@ -1126,7 +1126,7 @@ class ElectrumGui(PrintError):
         key = self.wallet.invoices.add(pr)
         status = self.wallet.invoices.get_status(key)
         #self.invoice_list.update()
-        from electroncash.paymentrequest import PR_PAID
+        from electrumsv.paymentrequest import PR_PAID
         if status == PR_PAID:
             self.show_message("invoice already paid", onOk = lambda: self.do_clear_send())
             return
@@ -1422,7 +1422,7 @@ class ElectrumGui(PrintError):
 
     def start_daemon(self):
         if self.daemon_is_running(): return
-        import electroncash.daemon as ed
+        import electrumsv.daemon as ed
         try:
             # Force remove of lock file so the code below cuts to the chase and starts a new daemon without
             # uselessly trying to connect to one that doesn't exist anyway.
@@ -1487,8 +1487,8 @@ class ElectrumGui(PrintError):
         def DoIt_Seed_Or_Keystore() -> None:
             nonlocal waitDlg
             try:
-                from electroncash import keystore
-                from electroncash.wallet import Standard_Wallet
+                from electrumsv import keystore
+                from electrumsv.wallet import Standard_Wallet
 
                 k = have_keystore
 
@@ -1496,7 +1496,7 @@ class ElectrumGui(PrintError):
                     k = keystore.from_seed(wallet_seed, seed_ext, False)
                     has_xpub = isinstance(k, keystore.Xpub)
                     if has_xpub:
-                        from electroncash.bitcoin import xpub_type
+                        from electrumsv.bitcoin import xpub_type
                         t1 = xpub_type(k.xpub)
                     if has_xpub and t1 not in ['standard']:
                         def compl() -> None: onFailure(_('Wrong key type') + ": '%s'"%t1)
@@ -1534,8 +1534,8 @@ class ElectrumGui(PrintError):
         def DoIt_Imported() -> None:
             nonlocal waitDlg
             try:
-                from electroncash import keystore
-                from electroncash.wallet import ImportedAddressWallet, ImportedPrivkeyWallet
+                from electrumsv import keystore
+                from electrumsv.wallet import ImportedAddressWallet, ImportedPrivkeyWallet
 
                 path = os.path.join(wallets.WalletsMgr.wallets_dir(), wallet_name)
                 storage = WalletStorage(path, manual_upgrades=True)
@@ -2165,7 +2165,7 @@ class ElectrumGui(PrintError):
         if isinstance(txn, bytes):
             txn = txn.decode('utf-8')
             print("Warning: show_ext_txn got bytes instead of a str for the txn.. this may be bad...")
-        from electroncash.transaction import tx_from_str, Transaction
+        from electrumsv.transaction import tx_from_str, Transaction
         from . import txdetail
         try:
             if not self.wallet:
@@ -2191,7 +2191,7 @@ class ElectrumGui(PrintError):
                 return True
         except:
             traceback.print_exc(file=sys.stderr)
-            self.show_error(_("Electron Cash was unable to parse your transaction"))
+            self.show_error(_("Electrum SV was unable to parse your transaction"))
         return False
 
     def present_on_boarding_wizard_if_needed(self) -> ObjCInstance:
@@ -2317,7 +2317,7 @@ class ElectrumGui(PrintError):
                 sys.__excepthook__(etype, eobj, tb)
         utils.do_in_main_thread(InMain, etype, eobj, tb)
 
-    # this method is called by Electron Cash libs to start the GUI
+    # this method is called by Electrum SV libs to start the GUI
     def main(self):
         self.createAndShowUI()
 

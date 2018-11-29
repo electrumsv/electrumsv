@@ -1,4 +1,4 @@
-package org.electroncash.electroncash3
+package org.electrumsv.electrumsv3
 
 import android.app.Dialog
 import android.arch.lifecycle.MutableLiveData
@@ -18,7 +18,7 @@ import kotlinx.android.synthetic.main.main.*
 import kotlinx.android.synthetic.main.new_wallet.*
 import kotlinx.android.synthetic.main.seed.*
 import kotlinx.android.synthetic.main.wallets.*
-import org.electroncash.electroncash3.databinding.WalletsBinding
+import org.electrumsv.electrumsv3.databinding.WalletsBinding
 
 
 class WalletsFragment : MainFragment() {

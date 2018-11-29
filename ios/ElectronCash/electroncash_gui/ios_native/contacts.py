@@ -6,10 +6,10 @@
 #
 from . import utils
 from . import gui
-from electroncash import WalletStorage, Wallet
-from electroncash.util import timestamp_to_datetime
-from electroncash.i18n import _, language
-from electroncash.address import Address, PublicKey
+from electrumsv import WalletStorage, Wallet
+from electrumsv.util import timestamp_to_datetime
+from electrumsv.i18n import _, language
+from electrumsv.address import Address, PublicKey
 from .uikit_bindings import *
 from .custom_objc import *
 from collections import namedtuple
@@ -797,7 +797,7 @@ def pay_to(addys : list) -> bool:
     print("payto:",*addys)
     if len(addys) > 1:
         gui.ElectrumGui.gui.show_error(title=_("Coming Soon"),
-                                       message=_("This version of Electron Cash currently only supports sending to 1 address at a time! Sorry!"))
+                                       message=_("This version of Electrum SV currently only supports sending to 1 address at a time! Sorry!"))
         return False
     gui.ElectrumGui.gui.jump_to_send_with_pay_to(addys[0])
     return True

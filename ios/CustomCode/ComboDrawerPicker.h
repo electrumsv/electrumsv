@@ -1,6 +1,6 @@
 //
 //  ComboDrawerPicker.h
-//  Electron-Cash
+//  Electrum-SV
 //
 //  Created by calin on 5/22/18.
 //  Copyright © 2018 Calin Culianu <calin.culianu@gmail.com>.

@@ -1,4 +1,4 @@
-package org.electroncash.electroncash3
+package org.electrumsv.electrumsv3
 
 import android.app.Application
 import android.os.Bundle
@@ -37,7 +37,7 @@ class ECConsoleActivity : PythonConsoleActivity() {
 
         override fun run() {
             // TODO: integrate console into MainActivity and remove MainActivity.instance.
-            py.getModule("electroncash_gui.android.ec_console")
+            py.getModule("electrumsv_gui.android.ec_console")
                 .callAttr("ECConsole", getApplication(), MainActivity.instance!!.daemonModel.commands)
                 .callAttr("interact")
         }

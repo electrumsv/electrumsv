@@ -3,10 +3,10 @@
 
 import tlslite
 
-from electroncash.transaction import Transaction
-from electroncash import paymentrequest
-from electroncash import paymentrequest_pb2 as pb2
-from electroncash.address import Address
+from electrumsv.transaction import Transaction
+from electrumsv import paymentrequest
+from electrumsv import paymentrequest_pb2 as pb2
+from electrumsv.address import Address
 
 chain_file = 'mychain.pem'
 cert_file = 'mycert.pem'

@@ -1,4 +1,4 @@
-from electroncash.util import PrintError
+from electrumsv.util import PrintError
 
 
 class TrezorTransport(PrintError):

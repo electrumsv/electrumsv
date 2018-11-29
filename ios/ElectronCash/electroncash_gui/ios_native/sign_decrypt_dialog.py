@@ -9,9 +9,9 @@ from .custom_objc import *
 from . import utils
 from . import gui
 from . import addresses
-from electroncash.i18n import _, language
-from electroncash import bitcoin
-from electroncash.address import Address
+from electrumsv.i18n import _, language
+from electrumsv import bitcoin
+from electrumsv.address import Address
 import sys, traceback, base64
 from collections import namedtuple
 
@@ -237,7 +237,7 @@ class SignDecryptVC(SignDecryptBase):
                         "private key, and verifying with the corresponding public key. The "
                         "address you have entered does not have a unique public key, so these "
                         "operations cannot be performed.") + '\n\n' + \
-                       _('The operation is undefined. Not just in Electron Cash, but in general.')
+                       _('The operation is undefined. Not just in Electrum SV, but in general.')
             parent().show_message(_('Cannot sign messages with this type of address.') + '\n\n' + msg_sign)
             return
         if not parent().wallet:

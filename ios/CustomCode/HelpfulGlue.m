@@ -1,6 +1,6 @@
 //
 //  HelpfulGlue.m
-//  Electron-Cash
+//  Electrum-SV
 //
 //  Created by calin on 2/23/18.
 //  Copyright © 2018 Calin Culianu. MIT License

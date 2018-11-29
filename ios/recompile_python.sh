@@ -1,10 +1,10 @@
 #!/bin/bash
 
-dir1="iOS/app/ElectronCash" 
+dir1="iOS/app/ElectrumSV" 
 dir2="iOS/app_packages"
 
 if [ ! -d "$dir1" -o ! -d "$dir2" ]; then
-	echo "Cannot find the iOS/app/ElectronCash python sources. Did you forget to run ./mak_ios_project.sh"'?'
+	echo "Cannot find the iOS/app/ElectrumSV python sources. Did you forget to run ./mak_ios_project.sh"'?'
 	exit 1
 fi
 

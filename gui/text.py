@@ -4,10 +4,10 @@ from decimal import Decimal
 import getpass
 
 import electrum
-from electroncash.address import Address
-from electroncash.util import format_satoshis, set_verbosity
-from electroncash.bitcoin import COIN, TYPE_ADDRESS
-from electroncash import Wallet, WalletStorage
+from electrumsv.address import Address
+from electrumsv.util import format_satoshis, set_verbosity
+from electrumsv.bitcoin import COIN, TYPE_ADDRESS
+from electrumsv import Wallet, WalletStorage
 
 _ = lambda x:x
 
@@ -21,7 +21,7 @@ class ElectrumGui:
         self.network = daemon.network
         storage = WalletStorage(config.get_wallet_path())
         if not storage.file_exists():
-            print("Wallet not found. try 'electron-cash create'")
+            print("Wallet not found. try 'electrum-sv create'")
             exit()
         if storage.is_encrypted():
             password = getpass.getpass('Password:', stream=None)

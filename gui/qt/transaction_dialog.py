@@ -32,12 +32,12 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 
-from electroncash.address import Address, PublicKey
-from electroncash.bitcoin import base_encode
-from electroncash.i18n import _
-from electroncash.plugins import run_hook
+from electrumsv.address import Address, PublicKey
+from electrumsv.bitcoin import base_encode
+from electrumsv.i18n import _
+from electrumsv.plugins import run_hook
 
-from electroncash.util import bfh
+from electrumsv.util import bfh
 from .util import *
 
 dialogs = []  # Otherwise python randomly garbage collects the dialogs...

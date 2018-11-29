@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Electron Cash - lightweight Bitcoin Cash client
+# Electrum SV - lightweight Bitcoin Cash client
 # Copyright (C) 2012 thomasv@gitorious
 #
 # This file is:
@@ -26,5 +26,5 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# ElectronCash libs expect this name to be here to auto-create the GUI, so expose it as such.
+# ElectrumSV libs expect this name to be here to auto-create the GUI, so expose it as such.
 from .gui import ElectrumGui

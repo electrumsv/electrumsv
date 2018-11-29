@@ -1,5 +1,5 @@
 
-from electroncash.i18n import _
+from electrumsv.i18n import _
 
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -28,7 +28,7 @@ class FeeSlider(QSlider):
             self.callback(self.dyn, pos, fee_rate)
 
     def get_tooltip(self, pos, fee_rate):
-        from electroncash.util import fee_levels
+        from electrumsv.util import fee_levels
         rate_str = self.window.format_fee_rate(fee_rate) if fee_rate else _('unknown')
         if self.config.has_custom_fee_rate():
             tooltip = _('Custom rate: ') + rate_str

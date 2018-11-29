@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
-# Electron Cash - lightweight Bitcoin client
-# Copyright (C) 2018 Electron Cash developers
+# Electrum SV - lightweight Bitcoin client
+# Copyright (C) 2018 Electrum SV developers
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -31,23 +31,23 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
-from electroncash.i18n import _
-from electroncash.plugins import ExternalPluginCodes, run_hook
+from electrumsv.i18n import _
+from electrumsv.plugins import ExternalPluginCodes, run_hook
 from .util import MyTreeWidget, MessageBoxMixin, WindowModalDialog, Buttons, CloseButton
 
 
 INSTALL_ERROR_MESSAGES = {
     ExternalPluginCodes.MISSING_MANIFEST: _("The plugin archive you selected is missing a manifest. It was therefore not possible to install it."),
     ExternalPluginCodes.NAME_ALREADY_IN_USE: _("There is already a plugin installed using the internal package name of the plugin you selected. It was therefore not possible to install it."),
-    ExternalPluginCodes.UNABLE_TO_COPY_FILE: _("It was not possible to copy the plugin archive into Electron Cash's plugin storage location. It was therefore not possible to install it."),
-    ExternalPluginCodes.INSTALLED_BUT_FAILED_LOAD: _("The plugin is installed, but in the process of enabling and loading it, an error occurred. Restart Electron Cash and try again, or uninstall it and report it to it's developers."),
-    ExternalPluginCodes.INCOMPATIBLE_VERSION: _("The plugin is targeted at a later version of Electron Cash."),
+    ExternalPluginCodes.UNABLE_TO_COPY_FILE: _("It was not possible to copy the plugin archive into Electrum SV's plugin storage location. It was therefore not possible to install it."),
+    ExternalPluginCodes.INSTALLED_BUT_FAILED_LOAD: _("The plugin is installed, but in the process of enabling and loading it, an error occurred. Restart Electrum SV and try again, or uninstall it and report it to it's developers."),
+    ExternalPluginCodes.INCOMPATIBLE_VERSION: _("The plugin is targeted at a later version of Electrum SV."),
     ExternalPluginCodes.INCOMPATIBLE_ZIP_FORMAT: _("The plugin archive is not recognized as a valid Zip file."),
     ExternalPluginCodes.INVALID_MANIFEST_JSON: _("The plugin manifest is not recognized as valid JSON."),
     ExternalPluginCodes.INVALID_MAMIFEST_DISPLAY_NAME: _("The plugin manifest lacks a valid display name."),
     ExternalPluginCodes.INVALID_MAMIFEST_DESCRIPTION: _("The plugin manifest lacks a valid description."),
     ExternalPluginCodes.INVALID_MAMIFEST_VERSION: _("The plugin manifest lacks a valid version."),
-    ExternalPluginCodes.INVALID_MAMIFEST_MINIMUM_EC_VERSION: _("The plugin manifest lacks a valid minimum Electron Cash version."),
+    ExternalPluginCodes.INVALID_MAMIFEST_MINIMUM_EC_VERSION: _("The plugin manifest lacks a valid minimum Electrum SV version."),
     ExternalPluginCodes.INVALID_MAMIFEST_PACKAGE_NAME: _("The plugin manifest lacks a valid package name."),
 }
 
@@ -112,7 +112,7 @@ class ExternalPluginsPreviewDialog(WindowModalDialog):
             confirmGroupBox = QGroupBox(_("Risks and Dangers"))
             liabilityLabel = QLabel(_("I accept responsibility for any harm that comes from installing this plugin, and acknowledge:"))
             rows = QVBoxLayout()
-            self.liabilityCheckbox1 = QCheckBox(_("The Electron Cash Developers do NOT audit or vet any plugins."))
+            self.liabilityCheckbox1 = QCheckBox(_("The Electrum SV Developers do NOT audit or vet any plugins."))
             self.liabilityCheckbox2 = QCheckBox(_("Plugins are risky.  They can steal funds or even damage your computer."))
             self.liabilityCheckbox3 = QCheckBox(_("I should only install the most reputable plugins trusted by the community."))
             confirmLayout.addWidget(liabilityLabel)
@@ -260,7 +260,7 @@ class ExternalPluginsDialog(WindowModalDialog, MessageBoxMixin):
         self.descriptionGroupBox.setAlignment(Qt.AlignHCenter)
         descriptionGroupLayout = QVBoxLayout()
         self.descriptionGroupBox.setLayout(descriptionGroupLayout)
-        self.descriptionLabel = QLabel(_("Install plugins at your own risk.\nThey have almost complete access to Electron Cash's internals."))
+        self.descriptionLabel = QLabel(_("Install plugins at your own risk.\nThey have almost complete access to Electrum SV's internals."))
         self.descriptionLabel.setAlignment(Qt.AlignCenter)
         descriptionGroupLayout.addWidget(self.descriptionLabel)
         vbox.addWidget(self.descriptionGroupBox)

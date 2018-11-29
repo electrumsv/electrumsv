@@ -9,7 +9,7 @@
 from .uikit_bindings import *
 from . import gui
 from . import utils
-import ElectronCash.app
+import ElectrumSV.app
 import time
 
 BG_HARD_LIMIT_SECS = 120.0
@@ -46,7 +46,7 @@ class PythonAppDelegate(UIResponder):
     def application_didFinishLaunchingWithOptions_(self, application : ObjCInstance, launchOptions : ObjCInstance) -> bool:
         #utils.NSLog("App finished launching. Options: %s",str(py_from_ns(launchOptions) if launchOptions else dict()))
 
-        ElectronCash.app.main()
+        ElectrumSV.app.main()
 
         return True
 
@@ -147,7 +147,7 @@ def startup_bg_task_stuff(application : ObjCInstance) -> None:
     global bgTimer
     utils.NSLog("Background: Entered background, notifying iOS about bgTask, starting bgTimer.")
 
-    bgTask = application.beginBackgroundTaskWithName_expirationHandler_(at("Electron_Cash_Background_Task"), on_bg_task_expiration)
+    bgTask = application.beginBackgroundTaskWithName_expirationHandler_(at("Electrum_SV_Background_Task"), on_bg_task_expiration)
 
     if bgTimer is not None: utils.NSLog("Background: bgTimer was not None. FIXME!")
 

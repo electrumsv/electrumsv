@@ -1,7 +1,7 @@
-Electron-Cash, iOS Native UI
+Electrum-SV, iOS Native UI
 ============================
 
-This subdirectory implements an iOS native UI for Electron Cash, using UIKit via
+This subdirectory implements an iOS native UI for Electrum SV, using UIKit via
 'rubicon-ios' Python bindings. It uses the 'Briefcase' project to create an Xcode project which contains within it a Python interpreter, plus all scripts and dependent python packages.  Only Python 3.5 is supported at the present time.
 
 - Rubicon-iOS Web Page: https://pybee.org/project/projects/bridges/rubicon/
@@ -49,5 +49,5 @@ For more information, see this stackoverflow post: https://stackoverflow.com/que
 
 Additional Notes
 ----------------
-The app built by this Xcode project is a fully running standalone Electron Cash as an iPhone app.  It pulls in sources from ../lib and other places when generating the Xcode project, but everything that is needed (.py files, Python interpreter, etc) ends up packaged in the generated iOS .app!
+The app built by this Xcode project is a fully running standalone Electrum SV as an iPhone app.  It pulls in sources from ../lib and other places when generating the Xcode project, but everything that is needed (.py files, Python interpreter, etc) ends up packaged in the generated iOS .app!
 

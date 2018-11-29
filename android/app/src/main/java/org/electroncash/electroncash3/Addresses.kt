@@ -1,4 +1,4 @@
-package org.electroncash.electroncash3
+package org.electrumsv.electrumsv3
 
 import android.arch.lifecycle.Observer
 import android.content.ClipboardManager
@@ -10,7 +10,7 @@ import com.chaquo.python.PyObject
 import kotlinx.android.synthetic.main.addresses.*
 
 
-val modAddresses = py.getModule("electroncash_gui.android.addresses")
+val modAddresses = py.getModule("electrumsv_gui.android.addresses")
 val clsAddress = libMod["address"]!!["Address"]!!
 
 

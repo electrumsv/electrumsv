@@ -27,7 +27,7 @@ if [ -d electrum ]; then
     git pull
     cd ..
 else
-    URL=https://github.com/Electron-Cash/Electron-Cash
+    URL=https://github.com/Electrum-SV/Electrum-SV
     git clone -b master $URL electrum # rest of script assumes the dir is called 'electrum'
 fi
 
@@ -38,7 +38,7 @@ for repo in electrum-locale electrum-icons; do
         git pull
         cd ..
     else
-        URL=https://github.com/Electron-Cash/$repo
+        URL=https://github.com/Electrum-SV/$repo
         git clone -b master $URL $repo
     fi
 done

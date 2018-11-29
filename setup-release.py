@@ -1,5 +1,5 @@
 """
-py2app/py2exe build script for Electron Cash
+py2app/py2exe build script for Electrum SV
 
 Usage (Mac OS X):
      python setup.py py2app
@@ -18,8 +18,8 @@ from lib.util import print_error
 from lib.version import PACKAGE_VERSION as version
 
 
-name = "Electron-Cash"
-mainscript = 'electron-cash'
+name = "Electrum SV"
+mainscript = 'electrum-sv'
 
 if sys.version_info[:3] < (3, 5, 2):
     print_error("Error: " + name + " requires Python version >= 3.5.2...")
@@ -28,7 +28,7 @@ if sys.version_info[:3] < (3, 5, 2):
 if sys.platform == 'darwin':
     from plistlib import Plist
     plist = Plist.fromFile('Info.plist')
-    plist.update(dict(CFBundleIconFile='electron.icns'))
+    plist.update(dict(CFBundleIconFile='electrum-sv.icns'))
 
     shutil.copy(mainscript, mainscript + '.py')
     mainscript += '.py'
@@ -38,7 +38,7 @@ if sys.platform == 'darwin':
         options=dict(py2app=dict(argv_emulation=False,
                                  includes=['PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWebKit', 'PyQt5.QtNetwork', 'sip'],
                                  packages=['lib', 'gui', 'plugins', 'packages'],
-                                 iconfile='electron.icns',
+                                 iconfile='electrum-sv.icns',
                                  plist=plist,
                                  resources=["icons"])),
     )

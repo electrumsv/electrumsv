@@ -4,7 +4,7 @@
 #
 # MIT License
 #
-from electroncash.i18n import _
+from electrumsv.i18n import _
 from .custom_objc import *
 from .uikit_bindings import *
 from . import utils
@@ -70,7 +70,7 @@ class FeeSlider(UISlider):
 
     @objc_method
     def getToolTip(self, pos : int, fee_rate : int) -> ObjCInstance:
-        from electroncash.util import fee_levels
+        from electrumsv.util import fee_levels
         pos = pos if pos is not None and pos >= 0 else int(self.value)
         fee_rate = fee_rate if fee_rate is not None and fee_rate >= 0 else int(self.feeRate)
         rate_str = parent().format_fee_rate(fee_rate) if fee_rate else _('unknown')

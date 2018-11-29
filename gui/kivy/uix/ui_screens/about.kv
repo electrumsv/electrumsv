@@ -1,7 +1,7 @@
-#:import VERSION electroncash.version.PACKAGE_VERSION
+#:import VERSION electrumsv.version.PACKAGE_VERSION
 
 Popup:
-    title: _("About Electron Cash")
+    title: _("About Electrum SV")
     BoxLayout:
         orientation: 'vertical'
         spacing: '10dp'
@@ -26,10 +26,10 @@ Popup:
                 size_hint_x: 0.4
             TopLabel:
                 markup: True
-                text: '[color=6666ff][ref=x]https://www.electroncash.org/[/ref][/color]'
+                text: '[color=6666ff][ref=x]https://www.electrumsv.org/[/ref][/color]'
                 on_ref_press:
                     import webbrowser
-                    webbrowser.open("https://www.electroncash.org/")
+                    webbrowser.open("https://www.electrumsv.org/")
                 size_hint_x: 0.6
             TopLabel:
                 text: _('Developers')

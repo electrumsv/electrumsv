@@ -24,11 +24,11 @@
 # SOFTWARE.
 import webbrowser
 
-from electroncash.i18n import _
-import electroncash.web as web
-from electroncash.address import Address
-from electroncash.plugins import run_hook
-from electroncash.util import FileImportFailed
+from electrumsv.i18n import _
+import electrumsv.web as web
+from electrumsv.address import Address
+from electrumsv.plugins import run_hook
+from electrumsv.util import FileImportFailed
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import (

@@ -1,10 +1,10 @@
 from decimal import Decimal
 _ = lambda x:x
 #from i18n import _
-from electroncash import WalletStorage, Wallet
-from electroncash.util import format_satoshis, set_verbosity
-from electroncash.address import Address
-from electroncash.bitcoin import COIN, TYPE_ADDRESS
+from electrumsv import WalletStorage, Wallet
+from electrumsv.util import format_satoshis, set_verbosity
+from electrumsv.address import Address
+from electrumsv.bitcoin import COIN, TYPE_ADDRESS
 import getpass, datetime
 
 # minimal fdisk like gui for console usage
@@ -17,7 +17,7 @@ class ElectrumGui:
         self.network = daemon.network
         storage = WalletStorage(config.get_wallet_path())
         if not storage.file_exists:
-            print("Wallet not found. try 'electron-cash create'")
+            print("Wallet not found. try 'electrum-sv create'")
             exit()
         if storage.is_encrypted():
             password = getpass.getpass('Password:', stream=None)
@@ -209,12 +209,12 @@ class ElectrumGui:
             print(_('Error'))
 
     def network_dialog(self):
-        print("use 'electron-cash setconfig server/proxy' to change your network settings")
+        print("use 'electrum-sv setconfig server/proxy' to change your network settings")
         return True
 
 
     def settings_dialog(self):
-        print("use 'electron-cash setconfig' to change your settings")
+        print("use 'electrum-sv setconfig' to change your settings")
         return True
 
     def password_dialog(self):

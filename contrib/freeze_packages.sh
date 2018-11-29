@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run this after a new release to update dependencies
 
-venv_dir=~/.electron-cash-venv
+venv_dir=~/.electrum-sv-venv
 contrib=$(dirname "$0")
 
 which virtualenv > /dev/null 2>&1 || { echo "Please install virtualenv" && exit 1; }

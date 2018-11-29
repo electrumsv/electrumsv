@@ -270,7 +270,7 @@ def android_data_dir():
 def android_headers_dir():
     try:
         import jnius
-        d = android_ext_dir() + '/org.electron.electron'
+        d = android_ext_dir() + '/org.electrumsv.electrumsv'
         if not os.path.exists(d):
             os.mkdir(d)
         return d
@@ -293,7 +293,7 @@ def assert_datadir_available(config_path):
         return
     else:
         raise FileNotFoundError(
-            'Electron Cash datadir does not exist. Was it deleted while running?' + '\n' +
+            'Electrum SV datadir does not exist. Was it deleted while running?' + '\n' +
             'Should be at {}'.format(path))
 
 def assert_file_in_datadir_available(path, config_path):
@@ -370,14 +370,14 @@ def user_dir(prefer_local=False):
     if 'ANDROID_DATA' in os.environ:
         return android_data_dir()
     elif os.name == 'posix' and "HOME" in os.environ:
-        return os.path.join(os.environ["HOME"], ".electron-cash" )
+        return os.path.join(os.environ["HOME"], ".electrum-sv" )
     elif "APPDATA" in os.environ or "LOCALAPPDATA" in os.environ:
         app_dir = os.environ.get("APPDATA")
         localapp_dir = os.environ.get("LOCALAPPDATA")
         # Prefer APPDATA, but may get LOCALAPPDATA if present and req'd.
         if localapp_dir is not None and prefer_local or app_dir is None:
             app_dir = localapp_dir
-        return os.path.join(app_dir, "ElectronCash")
+        return os.path.join(app_dir, "ElectrumSV")
     else:
         #raise Exception("No home directory found in environment variables.")
         return

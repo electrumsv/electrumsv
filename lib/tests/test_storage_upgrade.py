@@ -259,8 +259,8 @@ class TestStorageUpgrade(WalletTestCase):
         from ..plugins import Plugins
         from ..simple_config import SimpleConfig
 
-        cls.electron_cash_path = tempfile.mkdtemp()
-        config = SimpleConfig({'electron_cash_path': cls.electron_cash_path})
+        cls.electrum_sv_path = tempfile.mkdtemp()
+        config = SimpleConfig({'electrum_sv_path': cls.electrum_sv_path})
 
         gui_name = 'cmdline'
         # TODO it's probably wasteful to load all plugins... only need Trezor
@@ -269,7 +269,7 @@ class TestStorageUpgrade(WalletTestCase):
     @classmethod
     def tearDownClass(cls):
         super().tearDownClass()
-        shutil.rmtree(cls.electron_cash_path)
+        shutil.rmtree(cls.electrum_sv_path)
 
     def _upgrade_storage(self, wallet_json, accounts=1):
         storage = self._load_storage_from_json_string(wallet_json, manual_upgrades=True)

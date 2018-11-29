@@ -6,7 +6,7 @@ import traceback, platform
 from PyQt5 import QtCore
 from PyQt5 import QtGui
 from PyQt5 import QtWidgets
-from electroncash import util
+from electrumsv import util
 
 
 if platform.system() == 'Windows':

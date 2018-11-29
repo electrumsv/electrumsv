@@ -8,9 +8,9 @@ from . import utils
 from . import gui
 from . import txdetail
 from . import addresses
-from electroncash import WalletStorage, Wallet
-from electroncash.util import timestamp_to_datetime
-from electroncash.i18n import _, language
+from electrumsv import WalletStorage, Wallet
+from electrumsv.util import timestamp_to_datetime
+from electrumsv.i18n import _, language
 import time
 from .uikit_bindings import *
 from .custom_objc import *

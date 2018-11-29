@@ -6,7 +6,7 @@
     <data>
         <variable
             name="model"
-            type="org.electroncash.electroncash3.DaemonModel"/>
+            type="org.electrumsv.electrumsv3.DaemonModel"/>
     </data>
 
     <android.support.constraint.ConstraintLayout

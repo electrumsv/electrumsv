@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Electron Cash - lightweight Bitcoin Cash client
+# Electrum SV - lightweight Bitcoin Cash client
 # Copyright (C) 2012 thomasv@gitorious
 #
 # This file is:
@@ -32,8 +32,8 @@ from .uikit_bindings import *
 from . import utils
 from .custom_objc import *
 
-from electroncash.i18n import _
-from electroncash import WalletStorage, Wallet
+from electrumsv.i18n import _
+from electrumsv import WalletStorage, Wallet
        
 
 def Create_SeedDisplayVC(seed : str, passphrase : str) -> ObjCInstance:

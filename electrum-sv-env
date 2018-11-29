@@ -1,10 +1,10 @@
 #!/bin/bash
 #
 # This script creates a virtualenv named 'env' and installs all
-# python dependencies before activating the env and running Electron Cash.
-# If 'env' already exists, it is activated and Electron Cash is started
+# python dependencies before activating the env and running Electrum SV.
+# If 'env' already exists, it is activated and Electrum SV is started
 # without any installations. Additionally, the PYTHONPATH environment
-# variable is set properly before running Electron Cash.
+# variable is set properly before running Electrum SV.
 #
 # python-qt and its dependencies will still need to be installed with
 # your package manager.
@@ -23,6 +23,6 @@ if [ ! -e ./gui/qt/icons_rc.py ]; then
     pyrcc5 icons.qrc -o gui/qt/icons_rc.py
 fi
 
-./electron-cash "$@"
+./electrum-sv "$@"
 
 deactivate

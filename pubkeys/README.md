@@ -1,4 +1,4 @@
-# Verifying Electron-Cash Downloads using File Hashes
+# Verifying Electrum-SV Downloads using File Hashes
 PLEASE NOTE: sha256sum is known as gsha256sum in MACOS
 
 1. Download the SHA256SUMS file to the same directory as the installer. 
@@ -6,15 +6,15 @@ PLEASE NOTE: sha256sum is known as gsha256sum in MACOS
 
     cd Downloads
 
-    wget https://raw.githubusercontent.com/Electron-Cash/keys-n-hashes/master/sigs-and-sums/3.1/mac/SHA256.Electron-Cash-3.1-macosx.dmg.txt
+    wget https://raw.githubusercontent.com/Electrum-SV/keys-n-hashes/master/sigs-and-sums/3.1/mac/SHA256.Electrum-SV-3.1-macosx.dmg.txt
 
 Compare the file hashes
 
-    sha256sum -c SHA256.Electron-Cash-3.1-macosx.dmg.txt 2>&1
+    sha256sum -c SHA256.Electrum-SV-3.1-macosx.dmg.txt 2>&1
     
 If the file hashes match, "OK" will be displayed on your screen. 
 
-    Electron-Cash-3.1-macosx.dmg: OK
+    Electrum-SV-3.1-macosx.dmg: OK
     
 If the hashes do not match, then there was a problem with either the download or a problem with the server. You should download the file again.
 
@@ -22,23 +22,23 @@ If the hashes do not match, then there was a problem with either the download or
 
 Download the SHA256SUMS files
 
-    wget https://raw.githubusercontent.com/Electron-Cash/keys-n-hashes/master/sigs-and-sums/3.1/mac/SHA256.Electron-Cash-3.1-macosx.dmg.txt
+    wget https://raw.githubusercontent.com/Electrum-SV/keys-n-hashes/master/sigs-and-sums/3.1/mac/SHA256.Electrum-SV-3.1-macosx.dmg.txt
     
 View the SHA256SUMS file
 
-    cat SHA256.Electron-Cash-3.1-macosx.dmg.txt
-    670d6851908720195d58a1d94a53e77e4120e0e98f6940ee93a76f4468e2c6c5  Electron-Cash-3.1-macosx.dmg
+    cat SHA256.Electrum-SV-3.1-macosx.dmg.txt
+    670d6851908720195d58a1d94a53e77e4120e0e98f6940ee93a76f4468e2c6c5  Electrum-SV-3.1-macosx.dmg
     
 Generate a SHA256 hash of the file you downloaded
 
-    sha256sum Electron-Cash-3.1-macosx.dmg
-    670d6851908720195d58a1d94a53e77e4120e0e98f6940ee93a76f4468e2c6c5  Electron-Cash-3.1-macosx.dmg
+    sha256sum Electrum-SV-3.1-macosx.dmg
+    670d6851908720195d58a1d94a53e77e4120e0e98f6940ee93a76f4468e2c6c5  Electrum-SV-3.1-macosx.dmg
     
 Now compare the hash that your machine calculated with the corresponding hash in the SHA256SUMS file.
 
 When both hashes match exactly then the downloaded file is almost certainly intact. 
 
-# Verifying Electron-Cash Downloads using GNU Privacy Guard
+# Verifying Electrum-SV Downloads using GNU Privacy Guard
 
 ## TLDR
 
@@ -54,7 +54,7 @@ When both hashes match exactly then the downloaded file is almost certainly inta
 
 2. Download the public key of the person/institution you want to verify. For TrueCrypt, their public key is available here.
 
-        wget https://raw.githubusercontent.com/Electron-Cash/keys-n-hashes/master/pubkeys/calinkey.txt
+        wget https://raw.githubusercontent.com/Electrum-SV/keys-n-hashes/master/pubkeys/calinkey.txt
 
 3. Import the person’s public key into your key ring
 
@@ -83,15 +83,15 @@ When both hashes match exactly then the downloaded file is almost certainly inta
 
 6. Download the corresponding signature file
 
-        wget https://github.com/Electron-Cash/keys-n-hashes/raw/master/sigs-and-sums/3.1/mac/Electron-Cash-3.1-macosx.dmg.sig
+        wget https://github.com/Electrum-SV/keys-n-hashes/raw/master/sigs-and-sums/3.1/mac/Electrum-SV-3.1-macosx.dmg.sig
         
 7. Now you can verify the signature of the file you downloaded
 
-        gpg --verify Electron-Cash-3.1-macosx.dmg.sig
+        gpg --verify Electrum-SV-3.1-macosx.dmg.sig
       
     Example of successful output
     
-        gpg: assuming signed data in 'Electron-Cash-3.1-macosx.dmg'
+        gpg: assuming signed data in 'Electrum-SV-3.1-macosx.dmg'
         gpg: Signature made Sat  6 Jan 03:51:06 2018 AEDT
         gpg:                using DSA key 21810A542031C02C
         gpg: checking the trustdb

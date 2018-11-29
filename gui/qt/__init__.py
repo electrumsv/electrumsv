@@ -37,11 +37,11 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 import PyQt5.QtCore as QtCore
 
-from electroncash.i18n import _, set_language
-from electroncash.plugins import run_hook
-from electroncash import WalletStorage
-from electroncash.util import UserCancelled, print_error
-from electroncash.networks import NetworkConstants
+from electrumsv.i18n import _, set_language
+from electrumsv.plugins import run_hook
+from electrumsv import WalletStorage
+from electrumsv.util import UserCancelled, print_error
+from electrumsv.networks import NetworkConstants
 
 from .installwizard import InstallWizard, GoBack
 
@@ -51,7 +51,7 @@ try:
 except Exception as e:
     print(e)
     print("Error: Could not find icons file.")
-    print("Run 'pyrcc5 icons.qrc -o gui/qt/icons_rc.py', and re-run Electron Cash")
+    print("Run 'pyrcc5 icons.qrc -o gui/qt/icons_rc.py', and re-run Electrum SV")
     sys.exit(1)
 
 from .util import *   # * needed for plugins
@@ -92,7 +92,7 @@ class ElectrumGui:
         if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
             QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
         if hasattr(QGuiApplication, 'setDesktopFileName'):
-            QGuiApplication.setDesktopFileName('electron-cash.desktop')
+            QGuiApplication.setDesktopFileName('electrum-sv.desktop')
         self.config = config
         self.daemon = daemon
         self.plugins = plugins
@@ -106,7 +106,7 @@ class ElectrumGui:
         # init tray
         self.dark_icon = self.config.get("dark_icon", False)
         self.tray = QSystemTrayIcon(self.tray_icon(), None)
-        self.tray.setToolTip('Electron Cash')
+        self.tray.setToolTip('Electrum SV')
         self.tray.activated.connect(self.tray_activated)
         self.build_tray_menu()
         self.tray.show()
@@ -128,14 +128,14 @@ class ElectrumGui:
             submenu.addAction(_("Close"), window.close)
         m.addAction(_("Dark/Light"), self.toggle_tray_icon)
         m.addSeparator()
-        m.addAction(_("Exit Electron Cash"), self.close)
+        m.addAction(_("Exit Electrum SV"), self.close)
         self.tray.setContextMenu(m)
 
     def tray_icon(self):
         if self.dark_icon:
-            return QIcon(':icons/electron_dark_icon.png')
+            return QIcon(':icons/electrumsv_dark_icon.png')
         else:
-            return QIcon(':icons/electron_light_icon.png')
+            return QIcon(':icons/electrumsv_light_icon.png')
 
     def toggle_tray_icon(self):
         self.dark_icon = not self.dark_icon
@@ -161,7 +161,7 @@ class ElectrumGui:
 
     def show_network_dialog(self, parent):
         if not self.daemon.network:
-            parent.show_warning(_('You are using Electron Cash in offline mode; restart Electron Cash if you want to get connected'), title=_('Offline'))
+            parent.show_warning(_('You are using Electrum SV in offline mode; restart Electrum SV if you want to get connected'), title=_('Offline'))
             return
         if self.nd:
             self.nd.on_update()
@@ -208,7 +208,7 @@ class ElectrumGui:
             except BaseException as e:
                 traceback.print_exc(file=sys.stdout)
                 if '2fa' in str(e):
-                    d = QMessageBox(QMessageBox.Warning, _('Error'), '2FA wallets for Bitcoin Cash are currently unsupported by <a href="https://api.trustedcoin.com/#/">TrustedCoin</a>. Follow <a href="https://github.com/Electron-Cash/Electron-Cash/issues/41#issuecomment-357468208">this guide</a> in order to recover your funds.')
+                    d = QMessageBox(QMessageBox.Warning, _('Error'), '2FA wallets for Bitcoin Cash are currently unsupported by <a href="https://api.trustedcoin.com/#/">TrustedCoin</a>. Follow <a href="https://github.com/Electrum-SV/Electrum-SV/issues/41#issuecomment-357468208">this guide</a> in order to recover your funds.')
                     d.exec_()
                 else:
                     d = QMessageBox(QMessageBox.Warning, _('Error'), 'Cannot load wallet:\n' + str(e))

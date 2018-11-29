@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Electron Cash - lightweight Bitcoin Cash client
+# Electrum SV - lightweight Bitcoin Cash client
 # Copyright (C) 2012 thomasv@gitorious
 #
 # This file is:
@@ -9,13 +9,13 @@
 # MIT LICENSE
 #
 '''
-    Monkey Patches -- mostly to modify electroncash.* package to suit our needs.
+    Monkey Patches -- mostly to modify electrumsv.* package to suit our needs.
     Don't hate me.  (This was needed to keep the iOS stuff self-contained.)
 '''
 from .uikit_bindings import *
-from electroncash.util import (InvalidPassword, profiler)
-import electroncash.bitcoin as ec_bitcoin
-from electroncash_gui.ios_native.utils import NSLog
+from electrumsv.util import (InvalidPassword, profiler)
+import electrumsv.bitcoin as ec_bitcoin
+from electrumsv_gui.ios_native.utils import NSLog
 import sys, ssl
 
 class MonkeyPatches:

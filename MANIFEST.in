@@ -1,9 +1,9 @@
 include LICENCE RELEASE-NOTES AUTHORS
 include README.rst
-include electron-cash.conf.sample
-include electron-cash.desktop
+include electrum-sv.conf.sample
+include electrum-sv.desktop
 include *.py
-include electron-cash
+include electrum-sv
 include contrib/requirements/requirements.txt
 include contrib/requirements/requirements-hw.txt
 recursive-include lib *.py

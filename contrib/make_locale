@@ -12,7 +12,7 @@ original_dir = os.getcwd()
 os.chdir(os.path.dirname(os.path.realpath(__file__)))
 os.chdir('..')
 
-code_directories = 'gui plugins lib ios/ElectronCash/electroncash_gui/ios_native'
+code_directories = 'gui plugins lib ios/ElectrumSV/electrumsv_gui/ios_native'
 cmd = "find {} -type f -name '*.py' -o -name '*.kv'".format(code_directories)
 
 files = subprocess.check_output(cmd, shell=True)
@@ -31,8 +31,8 @@ os.system(cmd)
 
 os.chdir('lib')
 
-crowdin_identifier = 'electron-cash'
-crowdin_file_name = 'files[electron-cash-client/messages.pot]'
+crowdin_identifier = 'electrum-sv'
+crowdin_file_name = 'files[electrum-sv-client/messages.pot]'
 locale_file_name = 'locale/messages.pot'
 crowdin_api_key = None
 
@@ -82,6 +82,6 @@ for lang in os.listdir('locale'):
     msg_dir = 'locale/{}/LC_MESSAGES'.format(lang)
     if not os.path.exists(msg_dir):
         os.mkdir(msg_dir)
-    cmd = 'msgfmt --output-file="{0}/electron-cash.mo" "{0}/electron-cash.po"'.format(msg_dir)
+    cmd = 'msgfmt --output-file="{0}/electrum-sv.mo" "{0}/electrum-sv.po"'.format(msg_dir)
     print('Installing', lang)
     os.system(cmd)

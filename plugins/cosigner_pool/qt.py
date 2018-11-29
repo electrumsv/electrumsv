@@ -30,14 +30,14 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import QPushButton
 
-from electroncash import bitcoin, util, keystore
-from electroncash import transaction
-from electroncash.plugins import BasePlugin, hook
-from electroncash.i18n import _
-from electroncash.wallet import Multisig_Wallet
-from electroncash.util import bh2u, bfh
+from electrumsv import bitcoin, util, keystore
+from electrumsv import transaction
+from electrumsv.plugins import BasePlugin, hook
+from electrumsv.i18n import _
+from electrumsv.wallet import Multisig_Wallet
+from electrumsv.util import bh2u, bfh
 
-from electroncash_gui.qt.transaction_dialog import show_transaction
+from electrumsv_gui.qt.transaction_dialog import show_transaction
 
 import sys
 import traceback
@@ -162,7 +162,7 @@ class Plugin(BasePlugin):
             d.cosigner_send_button.hide()
 
     def cosigner_can_sign(self, tx, cosigner_xpub):
-        from electroncash.keystore import is_xpubkey, parse_xpubkey
+        from electrumsv.keystore import is_xpubkey, parse_xpubkey
         xpub_set = set([])
         for txin in tx.inputs():
             for x_pubkey in txin['x_pubkeys']:

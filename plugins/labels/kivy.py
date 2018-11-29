@@ -1,5 +1,5 @@
 from .labels import LabelsPlugin
-from electroncash.plugins import hook
+from electrumsv.plugins import hook
 
 class Plugin(LabelsPlugin):
 

@@ -9,19 +9,19 @@ from . import gui
 from .history import HistoryEntry
 from . import txdetail
 from . import contacts
-from electroncash import WalletStorage, Wallet
-from electroncash.util import timestamp_to_datetime, NotEnoughFunds, ExcessiveFee
-from electroncash.transaction import Transaction
-from electroncash.i18n import _
+from electrumsv import WalletStorage, Wallet
+from electrumsv.util import timestamp_to_datetime, NotEnoughFunds, ExcessiveFee
+from electrumsv.transaction import Transaction
+from electrumsv.i18n import _
 from .custom_objc import *
 from .uikit_bindings import *
-from electroncash.networks import NetworkConstants
-from electroncash.address import Address, ScriptOutput
-from electroncash.paymentrequest import PaymentRequest
-from electroncash import bitcoin
+from electrumsv.networks import NetworkConstants
+from electrumsv.address import Address, ScriptOutput
+from electrumsv.paymentrequest import PaymentRequest
+from electrumsv import bitcoin
 from .feeslider import FeeSlider
 from .amountedit import BTCAmountEdit
-from electroncash.plugins import run_hook
+from electrumsv.plugins import run_hook
 import time, html, re, sys, traceback
 from decimal import Decimal
 

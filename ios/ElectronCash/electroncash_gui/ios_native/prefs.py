@@ -8,12 +8,12 @@ from . import utils
 from . import gui
 from . import addrconv
 from . import amountedit
-from electroncash.util import timestamp_to_datetime
-from electroncash.i18n import _, language
+from electrumsv.util import timestamp_to_datetime
+from electrumsv.i18n import _, language
 import time
 import html
 from .uikit_bindings import *
-import electroncash.web as web
+import electrumsv.web as web
 
 
 SECTION_TITLES = [ 'Tools', 'Fees', 'Transactions', 'Appearance', 'Fiat',

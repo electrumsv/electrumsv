@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Electron Cash - lightweight Bitcoin Cash client
+# Electrum SV - lightweight Bitcoin Cash client
 # Copyright (C) 2012 thomasv@gitorious
 #
 # This file is:
@@ -31,13 +31,13 @@ from . import utils
 from . import gui
 from .custom_objc import *
 
-from electroncash.i18n import _
+from electrumsv.i18n import _
 
 import socket
 from collections import namedtuple
 
-from electroncash.networks import NetworkConstants
-from electroncash.network import serialize_server, deserialize_server
+from electrumsv.networks import NetworkConstants
+from electrumsv.network import serialize_server, deserialize_server
 
 TAG_HELP_STATUS = 112
 TAG_HELP_SERVER = 122
@@ -491,17 +491,17 @@ def showHelpForButton(oid : objc_id) -> None:
     msg = _("Unknown")
     if tag is TAG_HELP_STATUS:
         msg = ' '.join([
-            _("Electron Cash connects to several nodes in order to download block headers and find out the longest blockchain."),
+            _("Electrum SV connects to several nodes in order to download block headers and find out the longest blockchain."),
             _("This blockchain is used to verify the transactions sent by your transaction server.")
         ])
     elif tag is TAG_HELP_SERVER:
-        msg = _("Electron Cash sends your wallet addresses to a single server, in order to receive your transaction history.")
+        msg = _("Electrum SV sends your wallet addresses to a single server, in order to receive your transaction history.")
     elif tag is TAG_HELP_BLOCKCHAIN:
         msg = _('This is the height of your local copy of the blockchain.')
     elif tag is TAG_HELP_AUTOSERVER:
         msg = ' '.join([
-            _("If auto-connect is enabled, Electron Cash will always use a server that is on the longest blockchain."),
-            _("If it is disabled, you have to choose a server you want to use. Electron Cash will warn you if your server is lagging.")
+            _("If auto-connect is enabled, Electrum SV will always use a server that is on the longest blockchain."),
+            _("If it is disabled, you have to choose a server you want to use. Electrum SV will warn you if your server is lagging.")
         ])
-    msg = msg.replace("Electrum","Electron Cash")
+    msg = msg.replace("Electrum","Electrum SV")
     parent().show_message(msg, title = _("Information"))

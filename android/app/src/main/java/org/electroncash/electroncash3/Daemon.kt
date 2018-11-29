@@ -1,4 +1,4 @@
-package org.electroncash.electroncash3
+package org.electrumsv.electrumsv3
 
 import android.app.Application
 import android.arch.lifecycle.AndroidViewModel
@@ -14,9 +14,9 @@ val py by lazy {
     Python.start(AndroidPlatform(app))
     Python.getInstance()
 }
-val libMod by lazy { py.getModule("electroncash")!! }
+val libMod by lazy { py.getModule("electrumsv")!! }
 val daemonMod by lazy {
-    val mod =  py.getModule("electroncash_gui.android.daemon")!!
+    val mod =  py.getModule("electrumsv_gui.android.daemon")!!
     mod.callAttr("set_excepthook", mainHandler)
     mod
 }
@@ -25,7 +25,7 @@ val WATCHDOG_INTERVAL = 1000L
 
 
 class DaemonModel(val app: Application) : AndroidViewModel(app) {
-    val consoleMod = py.getModule("electroncash_gui.android.ec_console")
+    val consoleMod = py.getModule("electrumsv_gui.android.ec_console")
 
     val commands = consoleMod.callAttr("AllCommands")!!
     val config = commands.get("config")!!

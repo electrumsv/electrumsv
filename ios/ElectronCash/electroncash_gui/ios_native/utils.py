@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Electron Cash - lightweight Bitcoin Cash client
+# Electrum SV - lightweight Bitcoin Cash client
 # Copyright (C) 2012 thomasv@gitorious
 #
 # This file is:
@@ -32,8 +32,8 @@ from typing import Callable, Any
 from .uikit_bindings import *
 from .custom_objc import *
 
-from electroncash.i18n import _
-from electroncash.util import PrintError
+from electrumsv.i18n import _
+from electrumsv.util import PrintError
 
 
 def is_2x_screen() -> bool:

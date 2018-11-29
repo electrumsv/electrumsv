@@ -1,4 +1,4 @@
-from electroncash.util import print_msg, print_error, raw_input
+from electrumsv.util import print_msg, print_error, raw_input
 
 class CmdLineHandler:
 

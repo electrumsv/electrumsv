@@ -1,4 +1,4 @@
-# Electron Cash - lightweight Bitcoin Cash client
+# Electrum SV - lightweight Bitcoin Cash client
 # Copyright (C) 2011 thomasv@gitorious
 # Copyright (C) 2017 Neil Booth
 #
@@ -59,17 +59,25 @@ class NetworkConstants:
         cls.GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
         cls.DEFAULT_PORTS = {'t': '50001', 's': '50002'}
         cls.DEFAULT_SERVERS = read_json_dict('servers.json')
-        cls.TITLE = 'Electron Cash'
+        cls.TITLE = 'Electrum SV'
 
         # Bitcoin Cash fork block specification
         cls.BITCOIN_CASH_FORK_BLOCK_HEIGHT = 478559
         cls.BITCOIN_CASH_FORK_BLOCK_HASH = "000000000000000000651ef99cb9fcbe0dadde1d424bd9f15ff20136191a5eec"
 
-        cls.VERIFICATION_BLOCK_MERKLE_ROOT = "3848ff6c001ebf78ec1a798c2002f154ace4ba6c0f0a58ccb22f66934eda7143"
-        cls.VERIFICATION_BLOCK_HEIGHT = 540250
-        
+        if True:
+            # This is currently a post-split SV checkpoint.
+            cls.VERIFICATION_BLOCK_MERKLE_ROOT = "2eb4a1d21caa056385dbedd7743878e481d26052092aba97b319a6459ff6fa1b"
+            cls.VERIFICATION_BLOCK_HEIGHT = 557957
+        else:
+            # This is a pre-split checkpoint
+            cls.VERIFICATION_BLOCK_MERKLE_ROOT = "3848ff6c001ebf78ec1a798c2002f154ace4ba6c0f0a58ccb22f66934eda7143"
+            cls.VERIFICATION_BLOCK_HEIGHT = 540250
+
     @classmethod
     def set_testnet(cls):
+        # rt12 --- FIXME
+        raise Exception("There is no testnet available at this time")
         cls.TESTNET = True
         cls.WIF_PREFIX = 0xef
         cls.ADDRTYPE_P2PKH = 111
@@ -81,7 +89,7 @@ class NetworkConstants:
         cls.GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
         cls.DEFAULT_PORTS = {'t':'51001', 's':'51002'}
         cls.DEFAULT_SERVERS = read_json_dict('servers_testnet.json')
-        cls.TITLE = 'Electron Cash Testnet'
+        cls.TITLE = 'Electrum SV Testnet'
 
         # Bitcoin Cash fork block specification
         cls.BITCOIN_CASH_FORK_BLOCK_HEIGHT = 1155876

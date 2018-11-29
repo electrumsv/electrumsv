@@ -6,8 +6,8 @@ import queue
 from collections import namedtuple
 from functools import partial
 
-from electroncash.i18n import _
-from electroncash.address import Address
+from electrumsv.i18n import _
+from electrumsv.address import Address
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
@@ -22,7 +22,7 @@ else:
 
 dialogs = []
 
-from electroncash.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
+from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
 
 pr_icons = {
     PR_UNPAID:":icons/unpaid.png",

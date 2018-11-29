@@ -1,4 +1,4 @@
-package org.electroncash.electroncash3
+package org.electrumsv.electrumsv3
 
 import android.content.Context
 import android.view.View
@@ -65,7 +65,7 @@ class CrashhubDialog : CrashReportDialog() {
 
 class CrashhubSenderFactory : ReportSenderFactory {
     override fun create(context: Context, config: CoreConfiguration): ReportSender {
-        // TODO switch to Marcel's server https://crashhub.electroncash.org/crash once
+        // TODO switch to Marcel's server https://crashhub.electrumsv.org/crash once
         // it's back online.
         return CrashhubSender(config, "https://crashhubtest.bauerj.eu/crash")
     }

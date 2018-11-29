@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # -*- mode: python -*-
 #
+# Electrum SV - lightweight Bitcoin Cash client
+# Copyright (C) 2018 The Electrum SV Developers
+#
+# Electrum Cash - lightweight Bitcoin Cash client
+# Copyright (C) 2017-2018 The Electron Cash Developers
+#
 # Electrum - lightweight Bitcoin client
 # Copyright (C) 2011 thomasv@gitorious
-#
-# Electron Cash - lightweight Bitcoin Cash client
-# Copyright (C) 2017-2018 The Electron Cash Developers
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -51,7 +54,7 @@ if jnius:
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 is_bundle = getattr(sys, 'frozen', False)
-is_local = not is_bundle and os.path.exists(os.path.join(script_dir, "electron-cash.desktop"))
+is_local = not is_bundle and os.path.exists(os.path.join(script_dir, "electrum-sv.desktop"))
 is_android = 'ANDROID_DATA' in os.environ
 
 # move this back to gui/kivy/__init.py once plugins are moved
@@ -89,23 +92,23 @@ if not is_android:  # Avoid unnecessarily slowing down app startup.
 # load local module as electrum
 if is_local:
     import imp
-    imp.load_module('electroncash', *imp.find_module('lib'))
-    imp.load_module('electroncash_gui', *imp.find_module('gui'))
-    imp.load_module('electroncash_plugins', *imp.find_module('plugins'))
+    imp.load_module('electrumsv', *imp.find_module('lib'))
+    imp.load_module('electrumsv_gui', *imp.find_module('gui'))
+    imp.load_module('electrumsv_plugins', *imp.find_module('plugins'))
 
-from electroncash import bitcoin, util
-from electroncash import SimpleConfig, Network
-from electroncash.networks import NetworkConstants
-from electroncash.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
-from electroncash.storage import WalletStorage
-from electroncash.util import print_msg, print_stderr, json_encode, json_decode
-from electroncash.util import set_verbosity, InvalidPassword
-from electroncash.commands import get_parser, known_commands, Commands, config_variables
-from electroncash import daemon
-from electroncash import keystore
-from electroncash.mnemonic import Mnemonic
-import electroncash_plugins
-import electroncash.web as web
+from electrumsv import bitcoin, util
+from electrumsv import SimpleConfig, Network
+from electrumsv.networks import NetworkConstants
+from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
+from electrumsv.storage import WalletStorage
+from electrumsv.util import print_msg, print_stderr, json_encode, json_decode
+from electrumsv.util import set_verbosity, InvalidPassword
+from electrumsv.commands import get_parser, known_commands, Commands, config_variables
+from electrumsv import daemon
+from electrumsv import keystore
+from electrumsv.mnemonic import Mnemonic
+import electrumsv_plugins
+import electrumsv.web as web
 
 # get password routine
 def prompt_password(prompt, confirm=True):
@@ -189,7 +192,7 @@ def init_daemon(config_options):
     storage = WalletStorage(config.get_wallet_path())
     if not storage.file_exists():
         print_msg("Error: Wallet file not found.")
-        print_msg("Type 'electron-cash create' to create a new wallet, or provide a path to a wallet with the -w option")
+        print_msg("Type 'electrum-sv create' to create a new wallet, or provide a path to a wallet with the -w option")
         sys.exit(0)
     if storage.is_encrypted():
         if 'wallet_password' in config_options:
@@ -227,7 +230,7 @@ def init_cmdline(config_options, server):
 
     if cmd.requires_wallet and not storage.file_exists():
         print_msg("Error: Wallet file not found.")
-        print_msg("Type 'electron-cash create' to create a new wallet, or provide a path to a wallet with the -w option")
+        print_msg("Type 'electrum-sv create' to create a new wallet, or provide a path to a wallet with the -w option")
         sys.exit(0)
 
     # important warning
@@ -296,7 +299,7 @@ def run_offline_command(config, config_options):
     return result
 
 def init_plugins(config, gui_name):
-    from electroncash.plugins import Plugins
+    from electrumsv.plugins import Plugins
     return Plugins(config, gui_name)
 
 
@@ -344,7 +347,7 @@ if __name__ == '__main__':
         config_options['portable'] = False
 
     if config_options.get('portable'):
-        config_options['electron_cash_path'] = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'electron_cash_data')
+        config_options['electrum_sv_path'] = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'electrum_sv_data')
 
     # kivy sometimes freezes when we write to sys.stderr
     set_verbosity(config_options.get('verbose') and config_options.get('gui')!='kivy')
@@ -397,7 +400,7 @@ if __name__ == '__main__':
                 d = daemon.Daemon(config, fd, False)
                 d.start()
                 if config.get('websocket_server'):
-                    from electroncash import websockets
+                    from electrumsv import websockets
                     websockets.WebSocketServer(config, d.network).start()
                 if config.get('requests_dir'):
                     path = os.path.join(config.get('requests_dir'), 'index.html')
@@ -425,7 +428,7 @@ if __name__ == '__main__':
         else:
             cmd = known_commands[cmdname]
             if cmd.requires_network:
-                print_msg("Daemon not running; try 'electron-cash daemon start'")
+                print_msg("Daemon not running; try 'electrum-sv daemon start'")
                 sys.exit(1)
             else:
                 init_plugins(config, 'cmdline')

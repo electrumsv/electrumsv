@@ -35,9 +35,9 @@ import PyQt5.QtCore as QtCore
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import *
 
-from electroncash.i18n import _
+from electrumsv.i18n import _
 import sys
-from electroncash import PACKAGE_VERSION
+from electrumsv import PACKAGE_VERSION
 
 
 issue_template = """<h2>Traceback</h2>
@@ -47,14 +47,14 @@ issue_template = """<h2>Traceback</h2>
 
 <h2>Additional information</h2>
 <ul>
-  <li>Electron Cash version: {app_version}</li>
+  <li>Electrum SV version: {app_version}</li>
   <li>Python version: {python_version}</li>
   <li>Operating system: {os}</li>
   <li>Wallet type: {wallet_type}</li>
   <li>Locale: {locale}</li>
 </ul>
 """
-report_server = "https://crashhub.electroncash.org/crash"
+report_server = "https://crashhub.electrumsv.org/crash"
 
 
 class Exception_Window(QWidget):
@@ -64,14 +64,14 @@ class Exception_Window(QWidget):
         self.exc_args = (exctype, value, tb)
         self.main_window = main_window
         QWidget.__init__(self)
-        self.setWindowTitle('Electron Cash - ' + _('An Error Occurred'))
+        self.setWindowTitle('Electrum SV - ' + _('An Error Occurred'))
         self.setMinimumSize(600, 300)
 
         main_box = QVBoxLayout()
 
         heading = QLabel('<h2>' + _('Sorry!') + '</h2>')
         main_box.addWidget(heading)
-        main_box.addWidget(QLabel(_('Something went wrong running Electron Cash.')))
+        main_box.addWidget(QLabel(_('Something went wrong running Electrum SV.')))
 
         main_box.addWidget(QLabel(
             _('To help us diagnose and fix the problem, you can send us a bug report that contains useful debug '
@@ -183,7 +183,8 @@ class Exception_Hook(QObject):
         if not main_window.config.get("show_crash_reporter", default=True):
             return
         self.main_window = main_window
-        sys.excepthook = self.handler
+        # rt12 --- disable this until we get our own crashhub instance running
+        # sys.excepthook = self.handler
         self._report_exception.connect(_show_window)
 
     def handler(self, exctype, value, tb):

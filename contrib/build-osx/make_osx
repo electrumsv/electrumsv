@@ -19,10 +19,10 @@ VERSION=`git describe --tags`
 
 # Paramterize
 PYTHON_VERSION=3.6.4
-BUILDDIR=/tmp/electron-cash-build
-PACKAGE=Electron-Cash
-GIT_REPO_ACCT=https://github.com/Electron-Cash
-GIT_REPO=$GIT_REPO_ACCT/Electron-Cash
+BUILDDIR=/tmp/electrum-sv-build
+PACKAGE=Electrum-SV
+GIT_REPO_ACCT=https://github.com/Electrum-SV
+GIT_REPO=$GIT_REPO_ACCT/Electrum-SV
 
 
 info "Installing Python $PYTHON_VERSION"

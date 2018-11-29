@@ -30,9 +30,9 @@ from .qrtextedit import ScanQRTextEdit
 
 import re
 from decimal import Decimal
-from electroncash import bitcoin
-from electroncash.address import Address, ScriptOutput
-from electroncash.networks import NetworkConstants
+from electrumsv import bitcoin
+from electrumsv.address import Address, ScriptOutput
+from electrumsv.networks import NetworkConstants
 
 from . import util
 

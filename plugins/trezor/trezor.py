@@ -2,15 +2,15 @@ from binascii import hexlify, unhexlify
 import traceback
 import sys
 
-from electroncash.util import bfh, bh2u, versiontuple, UserCancelled
-from electroncash.bitcoin import (b58_address_to_hash160, xpub_from_pubkey, deserialize_xpub,
+from electrumsv.util import bfh, bh2u, versiontuple, UserCancelled
+from electrumsv.bitcoin import (b58_address_to_hash160, xpub_from_pubkey, deserialize_xpub,
                                   TYPE_ADDRESS, TYPE_SCRIPT)
-from electroncash.i18n import _
-from electroncash.networks import NetworkConstants
-from electroncash.plugins import BasePlugin, Device
-from electroncash.transaction import deserialize
-from electroncash.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
-from electroncash.address import ScriptOutput
+from electrumsv.i18n import _
+from electrumsv.networks import NetworkConstants
+from electrumsv.plugins import BasePlugin, Device
+from electrumsv.transaction import deserialize
+from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
+from electrumsv.address import ScriptOutput
 
 from ..hw_wallet import HW_PluginBase
 
@@ -459,6 +459,6 @@ class TrezorPlugin(HW_PluginBase):
 
     # This function is called from the TREZOR libraries (via tx_api)
     def get_tx(self, tx_hash):
-        # for electron-cash previous tx is never needed, since it uses
+        # for electrum-sv previous tx is never needed, since it uses
         # bip-143 signatures.
         return None

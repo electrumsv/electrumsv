@@ -4,7 +4,7 @@ Author: Calin Culianu <calin.culianu@gmail.com>
 
 ---
 
-A helper app for Electron Cash. This app emulates the 'zbar' functionality present on Windows and Linux for Electron Cash.
+A helper app for Electrum SV. This app emulates the 'zbar' functionality present on Windows and Linux for Electrum SV.
 
 It is a very small and lightweight app with no external dependencies other than what macOS provides in its own system libs for
 reading from the camera and detecting QR codes in video.
@@ -35,6 +35,6 @@ Or, if you prefer the command-line:
 
 ### See Also
 
-- `lib/qrscanner.py` - for how it is integrated into Electron Cash.
-- `contrib/build-osx/osx.spec` - for how it's collected and put into the final Electron-Cash.app.
+- `lib/qrscanner.py` - for how it is integrated into Electrum SV.
+- `contrib/build-osx/osx.spec` - for how it's collected and put into the final Electrum-SV.app.
 - `macos/compiled/CalinsQRReader.app` - the compiled and developer signed version of this app, which is what gets executed by `qrscanner.py`

@@ -15,7 +15,7 @@ android {
     compileSdkVersion 27
 
     defaultConfig {
-        applicationId "org.electroncash.electroncash3"
+        applicationId "org.electrumsv.electrumsv3"
         minSdkVersion 15
         targetSdkVersion 26
 
@@ -42,7 +42,7 @@ android {
             pip {
                 install "-r", "$REPO_ROOT/contrib/deterministic-build/requirements.txt"
             }
-            extractPackages "electroncash"
+            extractPackages "electrumsv"
         }
         ndk {
             abiFilters "x86", "armeabi-v7a"
@@ -56,8 +56,8 @@ android {
             python {
                 srcDir REPO_ROOT
                 include "lib/**"                               // In ../.. (renamed below)
-                include("chaquopy/**", "electroncash_gui/**",  // In src/main/python
-                        "electroncash_plugins/**")             //
+                include("chaquopy/**", "electrumsv_gui/**",  // In src/main/python
+                        "electrumsv_plugins/**")             //
             }
         }
     }
@@ -71,7 +71,7 @@ android {
 
     applicationVariants.all { variant ->
         variant.outputs.all {
-            outputFileName = "electroncash-${variant.versionName}.apk"
+            outputFileName = "electrumsv-${variant.versionName}.apk"
         }
     }
 }
@@ -85,20 +85,20 @@ afterEvaluate {
         // Rename directory to match package name, like package_dir does in setup.py.
         task.doLast {
             def src = "$dstDir/lib"
-            def dst = "$dstDir/electroncash"
+            def dst = "$dstDir/electrumsv"
             if (! file(src).renameTo(dst)) {
                 throw new GradleException("Failed to rename $src to $dst")
             }
         }
 
         // Include command line script.
-        def mainFile = file("$REPO_ROOT/electron-cash")
+        def mainFile = file("$REPO_ROOT/electrum-sv")
         task.inputs.file(mainFile)
         task.doLast {
             copy {
                 from mainFile.parent
                 include mainFile.name
-                into "$dstDir/electroncash"
+                into "$dstDir/electrumsv"
                 rename { "main.py" }
             }
         }

@@ -18,7 +18,7 @@
                         <rect key="frame" x="0.0" y="0.0" width="375" height="603"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView userInteractionEnabled="NO" contentMode="center" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElectronCashFunkyBG_4.png" translatesAutoresizingMaskIntoConstraints="NO" id="AsC-5H-u1V">
+                            <imageView userInteractionEnabled="NO" contentMode="center" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElectrumSVFunkyBG_4.png" translatesAutoresizingMaskIntoConstraints="NO" id="AsC-5H-u1V">
                                 <rect key="frame" x="36" y="37" width="283" height="251"/>
                                 <constraints>
                                     <constraint firstAttribute="height" constant="251" id="2bK-C5-us3"/>
@@ -863,7 +863,7 @@
                         <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView userInteractionEnabled="NO" contentMode="center" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElectronCashFunkyBG_4.png" translatesAutoresizingMaskIntoConstraints="NO" id="20E-wH-rET">
+                            <imageView userInteractionEnabled="NO" contentMode="center" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElectrumSVFunkyBG_4.png" translatesAutoresizingMaskIntoConstraints="NO" id="20E-wH-rET">
                                 <rect key="frame" x="36" y="66" width="283" height="251"/>
                                 <constraints>
                                     <constraint firstAttribute="height" constant="251" id="5jk-er-QaO"/>
@@ -1104,7 +1104,7 @@
                         <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElectronCashFunkyBG.png" translatesAutoresizingMaskIntoConstraints="NO" id="yud-pJ-xw6">
+                            <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElectrumSVFunkyBG.png" translatesAutoresizingMaskIntoConstraints="NO" id="yud-pJ-xw6">
                                 <rect key="frame" x="64" y="129" width="251" height="283"/>
                             </imageView>
                             <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElecTRONCash.png" translatesAutoresizingMaskIntoConstraints="NO" id="5p7-9Z-k5r">
@@ -1129,7 +1129,7 @@
                                             <constraint firstAttribute="width" constant="208" id="lxK-8b-E6P"/>
                                         </constraints>
                                         <attributedString key="attributedText">
-                                            <fragment content="Electron Cash is an SPV wallet for Bitcoin Cash">
+                                            <fragment content="Electrum SV is an SPV wallet for Bitcoin Cash">
                                                 <attributes>
                                                     <color key="NSColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                                                     <font key="NSFont" metaFont="system" size="15"/>
@@ -2997,7 +2997,7 @@
                         <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElectronCashFunkyBG_2.png" translatesAutoresizingMaskIntoConstraints="NO" id="mvt-WK-d9u">
+                            <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElectrumSVFunkyBG_2.png" translatesAutoresizingMaskIntoConstraints="NO" id="mvt-WK-d9u">
                                 <rect key="frame" x="28" y="115" width="306" height="316"/>
                             </imageView>
                             <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="OnBoardingLock.png" translatesAutoresizingMaskIntoConstraints="NO" id="Dob-Qg-7wJ">
@@ -3103,7 +3103,7 @@
                         <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElectronCashFunkyBG_3.png" translatesAutoresizingMaskIntoConstraints="NO" id="h8k-qc-p09">
+                            <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="ElectrumSVFunkyBG_3.png" translatesAutoresizingMaskIntoConstraints="NO" id="h8k-qc-p09">
                                 <rect key="frame" x="38" y="115" width="300" height="297"/>
                             </imageView>
                             <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="OnBoardingShield.png" translatesAutoresizingMaskIntoConstraints="NO" id="PbD-G1-Frg">
@@ -3206,10 +3206,10 @@
         <image name="Back_Chevron_White.png" width="7" height="13"/>
         <image name="BeLectron_Insignia.png" width="154" height="138"/>
         <image name="ElecTRONCash.png" width="341" height="112"/>
-        <image name="ElectronCashFunkyBG.png" width="251" height="283"/>
-        <image name="ElectronCashFunkyBG_2.png" width="306" height="316"/>
-        <image name="ElectronCashFunkyBG_3.png" width="300" height="297"/>
-        <image name="ElectronCashFunkyBG_4.png" width="283" height="251"/>
+        <image name="ElectrumSVFunkyBG.png" width="251" height="283"/>
+        <image name="ElectrumSVFunkyBG_2.png" width="306" height="316"/>
+        <image name="ElectrumSVFunkyBG_3.png" width="300" height="297"/>
+        <image name="ElectrumSVFunkyBG_4.png" width="283" height="251"/>
         <image name="OnBoardingLock.png" width="280" height="195"/>
         <image name="OnBoardingShield.png" width="284" height="212"/>
         <image name="Rect_For_Chk_18px.png" width="20" height="20"/>

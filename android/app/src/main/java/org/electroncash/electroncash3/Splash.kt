@@ -1,4 +1,4 @@
-package org.electroncash.electroncash3
+package org.electrumsv.electrumsv3
 
 import android.arch.lifecycle.MutableLiveData
 import android.arch.lifecycle.Observer
@@ -24,7 +24,7 @@ class SplashActivity : AppCompatActivity() {
 
 class SplashModel : ViewModel() {
     val thread = Thread {
-        // Start Python and load electroncash module: this may take several seconds.
+        // Start Python and load electrumsv module: this may take several seconds.
         libMod.id()
         daemonMod.id()  // See android/daemon.py
         ready.postValue(Unit)

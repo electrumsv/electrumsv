@@ -2,9 +2,9 @@
 
 import sys
 import time
-from electroncash import SimpleConfig, Network
-from electroncash.util import print_msg, json_encode
-from electroncash.address import Address
+from electrumsv import SimpleConfig, Network
+from electrumsv.util import print_msg, json_encode
+from electrumsv.address import Address
 
 try:
     addr = Address.from_string(sys.argv[1])
