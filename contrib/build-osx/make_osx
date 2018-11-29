@@ -1,18 +1,10 @@
 #!/bin/bash
-RED='\033[0;31m'
-BLUE='\033[0,34m'
-NC='\033[0m' # No Color
-function info {
-	printf "\r💬 ${BLUE}INFO:${NC} ${1}\n"
-}
-function fail {
-    printf "\r🗯 ${RED}ERROR:${NC} ${1}\n"
-    exit 1
-}
 
 build_dir=$(dirname "$0")
 test -n "$build_dir" -a -d "$build_dir" || exit
 cd $build_dir/../..
+
+. "$build_dir"/base.sh # functions we use below
 
 export PYTHONHASHSEED=22
 VERSION=`git describe --tags`
@@ -24,6 +16,26 @@ PACKAGE=Electrum-SV
 GIT_REPO_ACCT=https://github.com/Electrum-SV
 GIT_REPO=$GIT_REPO_ACCT/Electrum-SV
 LIBSECP_VERSION=452d8e4d2a2f9f1b5be6b02e18f1ba102e5ca0b4
+
+which xcodebuild > /dev/null 2>&1 || fail "Please install Xcode and xcode command line tools to continue"
+
+# Code Signing: See https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/Procedures/Procedures.html
+APP_SIGN=""
+if [ -n "$1" ]; then
+    # Test the identity is valid for signing by doing this hack. There is no other way to do this.
+    cp -f /bin/ls ./CODESIGN_TEST
+    codesign -s "$1" --dryrun -f ./CODESIGN_TEST > /dev/null 2>&1
+    res=$?
+    rm -f ./CODESIGN_TEST
+    if ((res)); then
+        fail "Code signing identity \"$1\" appears to be invalid."
+    fi
+    unset res
+    APP_SIGN="$1"
+    info "Code signing enabled using identity \"$APP_SIGN\""
+else
+    warn "Code signing DISABLED. Specify a valid macOS Developer identity installed on the system as the first argument to this script to enable signing."
+fi
 
 which xcodebuild > /dev/null 2>&1 || fail "Please install Xcode and xcode command line tools to continue"
 
@@ -86,23 +98,11 @@ info "Making locale..."
 info "Downloading libusb..."
 curl https://homebrew.bintray.com/bottles/libusb-1.0.21.el_capitan.bottle.tar.gz | \
 tar xz --directory $BUILDDIR
-cp $BUILDDIR/libusb/1.0.21/lib/libusb-1.0.dylib contrib/osx
-DoCodeSignMaybe "libusb" "contrib/osx/libusb-1.0.dylib" "$APP_SIGN" # If APP_SIGN is empty will be a noop
-
-info "Building libsecp256k1"
-git clone https://github.com/bitcoin-core/secp256k1 $BUILDDIR/secp256k1
-pushd $BUILDDIR/secp256k1
-git reset --hard $LIBSECP_VERSION
-git clean -f -x -q
-./autogen.sh
-./configure --enable-module-recovery --enable-experimental --enable-module-ecdh --disable-jni --with-bignum=no
-make
-popd
-cp -fp $BUILDDIR/secp256k1/.libs/libsecp256k1.0.dylib contrib/osx
-DoCodeSignMaybe "libsecp256k1" "contrib/osx/libsecp256k1.0.dylib" "$APP_SIGN" # If APP_SIGN is empty will be a noop
+cp $BUILDDIR/libusb/1.0.21/lib/libusb-1.0.dylib contrib/build-osx
+DoCodeSignMaybe "libusb" "contrib/build-osx/libusb-1.0.dylib" "$APP_SIGN" # If APP_SIGN is empty will be a noop
 
 info "Building CalinsQRReader..."
-d=contrib/osx/CalinsQRReader
+d=contrib/CalinsQRReader
 pushd $d
 rm -fr build
 xcodebuild || fail "Could not build CalinsQRReader"
@@ -130,5 +130,14 @@ plutil -insert 'CFBundleURLTypes' \
 	-- dist/$PACKAGE.app/Contents/Info.plist \
 	|| fail "Could not add keys to Info.plist. Make sure the program 'plutil' exists and is installed."
 
+DoCodeSignMaybe "app bundle" "dist/${PACKAGE}.app" "$APP_SIGN" # If APP_SIGN is empty will be a noop
+
 info "Creating .DMG"
 hdiutil create -fs HFS+ -volname $PACKAGE -srcfolder dist/$PACKAGE.app dist/$PACKAGE-$VERSION.dmg || fail "Could not create .DMG"
+
+DoCodeSignMaybe ".DMG" "dist/${PACKAGE}-${VERSION}.dmg" "$APP_SIGN" # If APP_SIGN is empty will be a noop
+
+if [ -z "$APP_SIGN" ]; then
+    warn "App was built successfully but was not code signed. Users may get security warnings from macOS."
+    warn "Specify a valid code signing identity as the first argument to this script to enable code signing."
+fi
