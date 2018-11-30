@@ -92,6 +92,7 @@ if is_local:
 
 from electrumsv import bitcoin, util
 from electrumsv import SimpleConfig, Network
+from electrumsv.logger import Logger
 from electrumsv.networks import NetworkConstants
 from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
 from electrumsv.storage import WalletStorage
@@ -343,7 +344,13 @@ if __name__ == '__main__':
     if config_options.get('portable'):
         config_options['electrum_sv_path'] = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'electrum_sv_data')
 
-    set_verbosity(config_options.get('verbose'))
+    if "ELECTRUMSV_FILELOGGING" in os.environ:
+        # Force verbose logging, if the user is using file logging.
+        set_verbosity(True)
+        Logger().enable_log_files()
+    else:
+        # Otherwise, rely on the user command line parameter.
+        set_verbosity(config_options.get('verbose'))
 
     if config_options.get('testnet'):
         NetworkConstants.set_testnet()
