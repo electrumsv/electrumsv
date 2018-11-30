@@ -2,16 +2,16 @@
 # sudo desktop-file-install ElectrumSV.desktop
 
 [Desktop Entry]
-Comment=Lightweight Bitcoin Cash Client
+Comment=Lightweight Bitcoin SV Client
 Exec=electrum-sv %u
-GenericName=Bitcoin Cash Wallet
+GenericName=Bitcoin SV Wallet
 Icon=electrum-sv
 Name=Electrum SV
 Categories=Finance;Network;
 StartupNotify=false
 Terminal=false
 Type=Application
-MimeType=x-scheme-handler/bitcoincash;
+MimeType=x-scheme-handler/bitcoinsv;
 Actions=Testnet;
 
 [Desktop Action Testnet]

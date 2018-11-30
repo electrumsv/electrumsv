@@ -34,4 +34,4 @@ def main():
     gui = ElectrumGui(config)
     call_later(0.010, gui.main) # this is required for the activity indicator to actually animate. Switch to a direct call if not using activity indicator on Splash2
 
-    return "Bitcoin Cash FTW!"
+    return "Bitcoin SV FTW!"

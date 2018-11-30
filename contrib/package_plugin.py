@@ -85,7 +85,7 @@ def write_manifest(metadata, manifest_file_path):
     with open(manifest_file_path, "w") as f:
         json.dump(metadata, f, indent=4)
 
-def build_manifest(display_name, version, project_url, description, minimum_ec_version, package_name, available_for_qt, available_for_cmdline, available_for_kivy):
+def build_manifest(display_name, version, project_url, description, minimum_ec_version, package_name, available_for_qt, available_for_cmdline):
     metadata = {}
     metadata["display_name"] = display_name
     version_value = version.strip()
@@ -109,8 +109,6 @@ def build_manifest(display_name, version, project_url, description, minimum_ec_v
         available_for.append("qt")
     if available_for_cmdline:
         available_for.append("cmdline")
-    if available_for_kivy:
-        available_for.append("kivy")
     metadata["available_for"] = available_for
 
     return metadata
@@ -159,10 +157,8 @@ class App(QWidget):
         availableVLayout = QVBoxLayout()
         self.qtAvailableCheckBox = QCheckBox("Supports the QT user interface.")
         self.cmdlineAvailableCheckBox = QCheckBox("Supports the command line.")
-        self.kivyAvailableCheckBox = QCheckBox("Supports the Kivy user interface.")
         availableVLayout.addWidget(self.qtAvailableCheckBox)
         availableVLayout.addWidget(self.cmdlineAvailableCheckBox)
-        availableVLayout.addWidget(self.kivyAvailableCheckBox)
         groupLayout.addRow("Available For", availableVLayout)
 
         self.packageNameEdit = QLineEdit()
@@ -228,7 +224,7 @@ class App(QWidget):
         have_basics = have_basics and len(projectUrlText) > 0
         have_basics = have_basics and len(self.descriptionEdit.toPlainText().strip()) > 3
         have_basics = have_basics and len(minimumElectrumSVVersionText) > 0
-        have_basics = have_basics and (self.qtAvailableCheckBox.checkState() == Qt.Checked or self.cmdlineAvailableCheckBox.checkState() == Qt.Checked or self.kivyAvailableCheckBox.checkState() == Qt.Checked)
+        have_basics = have_basics and (self.qtAvailableCheckBox.checkState() == Qt.Checked or self.cmdlineAvailableCheckBox.checkState() == Qt.Checked)
 
         can_export = have_basics
         can_package = have_basics and self.have_valid_directory(self.directory_path)
@@ -281,9 +277,8 @@ class App(QWidget):
             package_name = os.path.basename(self.directory_path)
         available_for_qt = self.qtAvailableCheckBox.checkState() == Qt.Checked
         available_for_cmdline = self.cmdlineAvailableCheckBox.checkState() == Qt.Checked
-        available_for_kivy = self.kivyAvailableCheckBox.checkState() == Qt.Checked
 
-        return build_manifest(display_name, version, project_url, description, minimum_ec_version, package_name, available_for_qt, available_for_cmdline, available_for_kivy)
+        return build_manifest(display_name, version, project_url, description, minimum_ec_version, package_name, available_for_qt, available_for_cmdline)
 
     def write_manifest(self, manifest_file_path):
         metadata = self.build_manifest()
@@ -332,7 +327,6 @@ class App(QWidget):
         available_for = metadata.get("available_for", [])
         self.qtAvailableCheckBox.setChecked("qt" in available_for)
         self.cmdlineAvailableCheckBox.setChecked("cmdline" in available_for)
-        self.kivyAvailableCheckBox.setChecked("kivy" in available_for)
 
         self.refresh_ui()
 

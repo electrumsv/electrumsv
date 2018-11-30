@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Electrum SV - lightweight Bitcoin Cash client
+# Electrum SV - lightweight Bitcoin SV client
 # Copyright (C) 2012 thomasv@gitorious
 #
 # This file is:

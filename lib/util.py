@@ -259,12 +259,8 @@ def android_ext_dir():
     return env.getExternalStorageDirectory().getPath()
 
 def android_data_dir():
-    try:
-        import jnius
-        context = jnius.autoclass('org.kivy.android.PythonActivity').mActivity
-    except ImportError:
-        from com.chaquo.python import Python
-        context = Python.getPlatform().getApplication()
+    from com.chaquo.python import Python
+    context = Python.getPlatform().getApplication()
     return context.getFilesDir().getPath() + '/data'
 
 def android_headers_dir():

@@ -1,4 +1,4 @@
-Electrum SV - Lightweight Bitcoin Cash client
+Electrum SV - Lightweight Bitcoin SV client
 =====================================
 
 ::
@@ -111,11 +111,6 @@ Windows
 -------
 
 See `contrib/build-wine/`.
-
-Android
--------
-
-See `gui/kivy/Readme.txt` file.
 
 iOS
 -------

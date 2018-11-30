@@ -1,8 +1,8 @@
 name: electrum-sv
 version: master
-summary: Bitcoin Cash thin client
+summary: Bitcoin SV thin client
 description: |
-  Lightweight Bitcoin Cash client
+  Lightweight Bitcoin SV client
 
 grade: devel # must be 'stable' to release into candidate/stable channels
 confinement: strict

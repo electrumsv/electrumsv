@@ -81,7 +81,7 @@ def dust_threshold(network):
     # Change < dust threshold is added to the tx fee
     #return 182 * 3 * relayfee(network) / 1000 # original Electrum logic
     #return 1 # <-- was this value until late Sept. 2018
-    return 546 # hard-coded Bitcoin Cash dust threshold. Was changed to this as of Sept. 2018
+    return 546 # hard-coded Bitcoin SV dust threshold. Was changed to this as of Sept. 2018
 
 
 def append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax):
@@ -1210,7 +1210,7 @@ class Abstract_Wallet(PrintError):
         address = txin['address']
         if self.is_mine(address):
             txin['type'] = self.get_txin_type(address)
-            # Bitcoin Cash needs value to sign
+            # Bitcoin SV needs value to sign
             received, spent = self.get_addr_io(address)
             item = received.get(txin['prevout_hash']+':%d'%txin['prevout_n'])
             tx_height, value, is_cb = item

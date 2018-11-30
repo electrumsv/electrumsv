@@ -42,7 +42,6 @@ class BaseWizard(object):
         self.stack = []
         self.plugin = None
         self.keystores = []
-        self.is_kivy = config.get('gui') == 'kivy'
         self.seed_type = None
 
     def run(self, *args):
@@ -114,17 +113,15 @@ class BaseWizard(object):
                 ('create_standard_seed', _('Create a new seed')),
                 ('restore_from_seed', _('I already have a seed')),
                 ('restore_from_key', _('Use public or private keys')),
+                ('choose_hw_device',  _('Use a hardware device')),
             ]
-            if not self.is_kivy:
-                choices.append(('choose_hw_device',  _('Use a hardware device')))
         else:
             message = _('Add a cosigner to your multi-sig wallet')
             choices = [
                 ('restore_from_key', _('Enter cosigner key')),
                 ('restore_from_seed', _('Enter cosigner seed')),
+                ('choose_hw_device',  _('Cosign with hardware device')),
             ]
-            if not self.is_kivy:
-                choices.append(('choose_hw_device',  _('Cosign with hardware device')))
 
         self.choice_dialog(title=title, message=message, choices=choices, run_next=self.run)
 

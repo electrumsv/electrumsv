@@ -110,10 +110,10 @@ setup(
     },
     scripts=['electrum-sv'],
     data_files=data_files,
-    description="Lightweight Bitcoin Cash Wallet",
-    author="WIP",
-    author_email="WIP",
+    description="Lightweight Bitcoin SV Wallet",
+    author="Roger Taylor",
+    author_email="roger.taylor.email@gmail.com",
     license="MIT Licence",
     url="http://electrumsv.org",
-    long_description="""Lightweight Bitcoin Cash Wallet"""
+    long_description="""Lightweight Bitcoin SV Wallet"""
 )

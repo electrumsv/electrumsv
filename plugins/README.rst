@@ -142,8 +142,8 @@ The ``manifest.json`` file has required fields:
   packages, or even looking around to distinguish between the one Python
   package and other data directories.
 - ``available_for``: This is a list of keywords which map to supported
-  Electrum SV plugin interfaces.  Valid values to include are ``qt``,
-  ``kivy`` and ``cmdline``.
+  Electrum SV plugin interfaces.  Valid values to include are ``qt`` and
+  ``cmdline``.
 
 If you do not include these fields in your manifest file, then the user will
 see an error message when they try and install it.
