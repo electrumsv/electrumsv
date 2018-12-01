@@ -35,7 +35,7 @@ class ExchangeBase(PrintError):
     def get_json(self, site, get_string):
         # APIs must have https
         url = ''.join(['https://', site, get_string])
-        response = requests.request('GET', url, headers={'User-Agent' : 'Electrum SV'}, timeout=10)
+        response = requests.request('GET', url, headers={'User-Agent' : 'Electrum-SV'}, timeout=10)
         return response.json()
 
     def get_csv(self, site, get_string):
