@@ -193,7 +193,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             else:
                 summary_label.setText(_("%d wallets are selected / will be copied.") % selection_count)
             
-        wallet_filenames = sorted(os.listdir(ec_wallets_dir))
+        wallet_filenames = sorted(os.listdir(ec_wallets_dir), key=lambda s: s.lower())
         
         file_list = QListWidget()
         file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -202,7 +202,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         file_list.itemSelectionChanged.connect(update_summary_label)
         
         vbox = QVBoxLayout()
-        introduction_label = QLabel(_("Your Electron Cash wallet directory was found. If you want Electrum SV to import any of them on your behalf, select the ones you want copied from the list below and then click the Next button."))
+        introduction_label = QLabel(_("Your Electron Cash wallet directory was found. If you want Electrum SV to import any of them on your behalf, select the ones you want copied from the list below before clicking the Next button."))
         introduction_label.setWordWrap(True)
         vbox.setSpacing(20)
         vbox.addWidget(introduction_label)
