@@ -117,7 +117,7 @@ class SendVC(SendBase):
                 message = _("The QR code contains multiple outputs. At this time only a single output is supported.\nPlease try again.")
             else:
                 title = _("Invalid QR Code")
-                message = _("The QR code does not appear to be a valid BCH address or payment request.\nPlease try again.")
+                message = _("The QR code does not appear to be a valid BSV address or payment request.\nPlease try again.")
             reader.stopScanning()
             parent().show_error(
                 title = title,

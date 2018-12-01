@@ -891,9 +891,9 @@ class ElectrumGui(PrintError):
         if self.decimal_point == 2:
             return 'cash'
         if self.decimal_point == 5:
-            return 'mBCH'
+            return 'mBSV'
         if self.decimal_point == 8:
-            return 'BCH'
+            return 'BSV'
         raise Exception('Unknown base unit')
 
     def get_decimal_point(self):

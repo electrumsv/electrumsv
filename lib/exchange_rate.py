@@ -118,7 +118,7 @@ class BitcoinAverage(ExchangeBase):
 
     def get_rates(self, ccy):
         json = self.get_json('apiv2.bitcoinaverage.com', '/indices/global/ticker/short')
-        return dict([(r.replace("BCH", ""), Decimal(json[r]['last']))
+        return dict([(r.replace("BSV", ""), Decimal(json[r]['last']))
                      for r in json if r != 'timestamp'])
 
     def history_ccys(self):
@@ -128,7 +128,7 @@ class BitcoinAverage(ExchangeBase):
 
     def request_history(self, ccy):
         history = self.get_csv('apiv2.bitcoinaverage.com',
-                               "/indices/global/history/BCH%s?period=alltime&format=csv" % ccy)
+                               "/indices/global/history/BSV%s?period=alltime&format=csv" % ccy)
         return dict([(h['DateTime'][:10], h['Average'])
                      for h in history])
 
@@ -143,7 +143,7 @@ class Bitmarket(ExchangeBase):
 class BitPay(ExchangeBase):
 
     def get_rates(self, ccy):
-        json = self.get_json('bitpay.com', '/api/rates/BCH')
+        json = self.get_json('bitpay.com', '/api/rates/BSV')
         return dict([(r['code'], Decimal(r['rate'])) for r in json])
 
 
@@ -178,7 +178,7 @@ class Kraken(ExchangeBase):
 
     def get_rates(self, ccy):
         ccys = ['EUR', 'USD']
-        pairs = ['BCH%s' % c for c in ccys]
+        pairs = ['BSV%s' % c for c in ccys]
         json = self.get_json('api.kraken.com',
                              '/0/public/Ticker?pair=%s' % ','.join(pairs))
         return dict((k[-3:], Decimal(float(v['c'][0])))
@@ -188,7 +188,7 @@ class Kraken(ExchangeBase):
 class CoinFloor(ExchangeBase):
     # CoinFloor API only supports GBP on public API
     def get_rates(self, ccy):
-        json = self.get_json('webapi.coinfloor.co.uk:8090/bist/BCH/GBP', '/ticker/')
+        json = self.get_json('webapi.coinfloor.co.uk:8090/bist/BSV/GBP', '/ticker/')
         return {'GBP': Decimal(json['last'])}
 
 

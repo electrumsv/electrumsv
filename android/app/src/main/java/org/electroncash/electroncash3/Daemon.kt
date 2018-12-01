@@ -141,7 +141,7 @@ class DaemonModel(val app: Application) : AndroidViewModel(app) {
         }
         if (amount <= 0) throw ToastException(R.string.invalid_amount)
 
-        val outputs = arrayOf(arrayOf(address, formatSatoshis(amount, UNIT_BCH)))
+        val outputs = arrayOf(arrayOf(address, formatSatoshis(amount, UNIT_BSV)))
         try {
             return commands.callAttr("_mktx", outputs, Kwarg("password", password),
                                      Kwarg("unsigned", unsigned))

@@ -106,7 +106,7 @@
                                         <action selector="onQRBut:" destination="-1" eventType="primaryActionTriggered" id="Ici-J6-5Gq"/>
                                     </connections>
                                 </button>
-                                <textField opaque="NO" clipsSubviews="YES" tag="210" contentMode="right" contentHorizontalAlignment="right" contentVerticalAlignment="center" placeholder="Input amount (mBCH)" minimumFontSize="7" clearButtonMode="whileEditing" translatesAutoresizingMaskIntoConstraints="NO" id="xtv-AQ-swS" customClass="BTCAmountEdit">
+                                <textField opaque="NO" clipsSubviews="YES" tag="210" contentMode="right" contentHorizontalAlignment="right" contentVerticalAlignment="center" placeholder="Input amount (mBSV)" minimumFontSize="7" clearButtonMode="whileEditing" translatesAutoresizingMaskIntoConstraints="NO" id="xtv-AQ-swS" customClass="BTCAmountEdit">
                                     <rect key="frame" x="15" y="295" width="345" height="38"/>
                                     <color key="backgroundColor" red="0.96470588239999999" green="0.96470588239999999" blue="0.96470588239999999" alpha="1" colorSpace="deviceRGB"/>
                                     <constraints>
@@ -233,7 +233,7 @@
                                     <nil key="highlightedColor"/>
                                     <variation key="heightClass=regular-widthClass=regular" layoutMarginsFollowReadableWidth="NO"/>
                                 </label>
-                                <label opaque="NO" userInteractionEnabled="NO" tag="320" contentMode="left" horizontalHuggingPriority="251" text="0 BCH" lineBreakMode="tailTruncation" numberOfLines="0" baselineAdjustment="alignBaselines" minimumScaleFactor="0.5" adjustsLetterSpacingToFitWidth="YES" translatesAutoresizingMaskIntoConstraints="NO" id="heV-Gd-Pf3">
+                                <label opaque="NO" userInteractionEnabled="NO" tag="320" contentMode="left" horizontalHuggingPriority="251" text="0 BSV" lineBreakMode="tailTruncation" numberOfLines="0" baselineAdjustment="alignBaselines" minimumScaleFactor="0.5" adjustsLetterSpacingToFitWidth="YES" translatesAutoresizingMaskIntoConstraints="NO" id="heV-Gd-Pf3">
                                     <rect key="frame" x="41" y="516" width="319" height="20"/>
                                     <constraints>
                                         <constraint firstAttribute="height" constant="20" id="uhv-0F-6Cx"/>

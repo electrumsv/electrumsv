@@ -46,7 +46,7 @@
         android:layout_height="wrap_content"
         app:layout_constraintEnd_toEndOf="@+id/etAddress"
         app:layout_constraintTop_toTopOf="@+id/textView5"
-        tools:text="@string/bch"/>
+        tools:text="@string/bsv"/>
 
     <EditText
         android:id="@+id/etAmount"
@@ -88,6 +88,6 @@
         android:layout_height="wrap_content"
         app:layout_constraintEnd_toEndOf="@+id/etAmount"
         app:layout_constraintTop_toTopOf="@+id/textView7"
-        tools:text="1 sat/byte (0.00003456 BCH)"/>
+        tools:text="1 sat/byte (0.00003456 BSV)"/>
 
 </android.support.constraint.ConstraintLayout>

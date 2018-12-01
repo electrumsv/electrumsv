@@ -103,7 +103,7 @@ class AddrConvVC(AddrConvBase):
         
         if not self.doConversion_(result):
             title = _("Invalid QR Code")
-            message = _("The QR code does not appear to be a valid BCH address.\nPlease try again.")
+            message = _("The QR code does not appear to be a valid BSV address.\nPlease try again.")
             reader.stopScanning()
             gui.ElectrumGui.gui.show_error(
                 title = title,

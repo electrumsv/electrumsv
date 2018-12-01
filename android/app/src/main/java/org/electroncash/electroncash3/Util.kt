@@ -16,10 +16,10 @@ import android.widget.Toast
 import kotlin.reflect.KClass
 
 
-val UNIT_BCH = 100000000L
-val UNIT_MBCH = 100000L
-var unitSize = UNIT_BCH  // TODO: make unit configurable
-var unitName = "BCH"     //
+val UNIT_BSV = 100000000L
+val UNIT_MBSV = 100000L
+var unitSize = UNIT_BSV  // TODO: make unit configurable
+var unitName = "BSV"     //
 
 fun toSatoshis(s: String, unit: Long = unitSize) : Long? {
     try {
