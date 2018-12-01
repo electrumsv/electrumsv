@@ -34,30 +34,39 @@ from .networks import NetworkConstants
 from .util import format_satoshis_plain
 
 mainnet_block_explorers = {
-    'Bitcoin.com': ('https://explorer.bitcoin.com/bch',
-                    Address.FMT_CASHADDR,
-                    {'tx': 'tx', 'addr': 'address'}),
-    'Blockchair.com': ('https://blockchair.com/bitcoin-cash',
-                       Address.FMT_CASHADDR,
-                       {'tx': 'transaction', 'addr': 'address'}),
-    'Blocktrail.com': ('https://blocktrail.com/BCC',
-                       Address.FMT_LEGACY,
-                       {'tx': 'tx', 'addr': 'address'}),
-    'BTC.com': ('https://bch.btc.com',
-                       Address.FMT_CASHADDR,
-                       {'tx': '', 'addr': ''}),
-    'ViaBTC.com': ('https://www.viabtc.com/bch',
-                   Address.FMT_CASHADDR,
-                   {'tx': 'tx', 'addr': 'address'}),
+    'bchsvexplorer.com': (
+        'https://bchsvexplorer.com',
+        Address.FMT_CASHADDR,
+        {'tx': 'tx', 'addr': 'address'},
+    ),
+    'svblox.com': (
+        'https://svblox.com',
+        Address.FMT_CASHADDR,
+        {'tx': 'tx', 'addr': 'address'},
+    ),
+    'whatsonchain.com': (
+        'https://whatsonchain.com',
+        Address.FMT_CASHADDR,
+        {'tx': 'tx', 'addr': 'address'},
+    ),
+    'bsvexplorer.io': (
+        'https://bsvexplorer.io',
+        Address.FMT_CASHADDR,
+        {'tx': 'tx', 'addr': 'address'},
+    ),
+    'bitcoinsvexplorer.com': (
+        'https://www.bitcoinsvexplorer.com',
+        Address.FMT_CASHADDR,
+        {'tx': 'tx', 'addr': 'address'},
+    ),
 }
 
 testnet_block_explorers = {
-    'Blocktrail.com': ('https://www.blocktrail.com/tBCC',
-                       Address.FMT_LEGACY,
-                       {'tx': 'tx', 'addr': 'address'}),
-    'system default': ('blockchain:',
-                       Address.FMT_LEGACY,
-                       {'tx': 'tx', 'addr': 'address'}),
+    'system default': (
+        'blockchain:',
+        Address.FMT_LEGACY,
+        {'tx': 'tx', 'addr': 'address'},
+    ),
 }
 
 def BE_info():
@@ -69,7 +78,7 @@ def BE_tuple(config):
     return BE_info().get(BE_from_config(config))
 
 def BE_from_config(config):
-    return config.get('block_explorer', 'Blockchair.com')
+    return config.get('block_explorer', 'bchsvexplorer.com')
 
 def BE_URL(config, kind, item):
     be_tuple = BE_tuple(config)
