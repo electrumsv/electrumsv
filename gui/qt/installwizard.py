@@ -1,5 +1,6 @@
 
 import os
+import shutil
 import sys
 import threading
 import traceback
@@ -9,7 +10,7 @@ from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 
 from electrumsv import Wallet, WalletStorage
-from electrumsv.util import UserCancelled, InvalidPassword
+from electrumsv.util import UserCancelled, InvalidPassword, user_dir
 from electrumsv.base_wizard import BaseWizard
 from electrumsv.i18n import _
 
@@ -153,7 +154,85 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         self.refresh_gui()  # Need for QT on MacOSX.  Lame.
 
     def run_and_get_wallet(self):
+        ret = self._copy_electron_cash_wallets()    
+        # Whether the user exited the application.
+        if ret == -1:
+            return
 
+        # Otherwise, move onto the wallet selection.
+        return self._run_and_get_wallet()
+        
+    def _copy_electron_cash_wallets(self):
+        """
+        Work out whether we should show UI to offer to copy the user's
+        Electron Cash wallets to their Electrum SV wallet directory, and
+        if so, show it and give them the chance.
+        """
+        def count_user_wallets(wallets_path):
+            if os.path.exists(wallets_path):
+                filenames = os.listdir(wallets_path)
+                return len(filenames)
+            return 0
+
+        # If the user has Electrum SV wallets already, we do not offer to copy the one's Electron Cash has.
+        esv_wallets_dir = os.path.join(user_dir(), "wallets")
+        if count_user_wallets(esv_wallets_dir) > 0:
+            return
+        ec_wallets_dir = esv_wallets_dir.replace("ElectrumSV", "ElectronCash")
+        ec_wallet_count = count_user_wallets(ec_wallets_dir)
+        # If the user does not have Electron Cash wallets to copy, there's no point in offering.
+        if ec_wallet_count == 0:
+            return
+
+        def update_summary_label():
+            selection_count = len(file_list.selectedItems())
+            if selection_count == 0:
+                summary_label.setText(_("No wallets are selected / will be copied."))
+            elif selection_count == 1:
+                summary_label.setText(_("1 wallet is selected / will be copied."))
+            else:
+                summary_label.setText(_("%d wallets are selected / will be copied.") % selection_count)
+            
+        wallet_filenames = sorted(os.listdir(ec_wallets_dir))
+        
+        file_list = QListWidget()
+        file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        for filename in wallet_filenames:
+            file_list.addItem(QListWidgetItem(filename))
+        file_list.itemSelectionChanged.connect(update_summary_label)
+        
+        vbox = QVBoxLayout()
+        introduction_label = QLabel(_("Your Electron Cash wallet directory was found. If you want Electrum SV to import any of them on your behalf, select the ones you want copied from the list below and then click the Next button."))
+        introduction_label.setWordWrap(True)
+        vbox.setSpacing(20)
+        vbox.addWidget(introduction_label)
+        vbox.addWidget(file_list)
+        summary_label = QLabel()
+        update_summary_label()
+        vbox.addWidget(summary_label)
+        self.set_layout(vbox, title=_('Import Electron Cash wallets'))
+
+        while True:
+            v = self.loop.exec_()
+            if v == 0:
+                return -1
+            if v != 2:  # 2 = next
+                # If the user is not selecting close or next, I do not know what they are selecting. Cancel?
+                return -1
+            
+            # If the user selected any files, then we copy them before exiting to the next page.
+            for item in file_list.selectedItems():
+                filename = item.text()
+                source_path = os.path.join(ec_wallets_dir, filename)
+                target_path = os.path.join(esv_wallets_dir, filename)
+                try:
+                    shutil.copyfile(source_path, target_path)
+                except shutil.Error:
+                    # For now we ignore copy errors.
+                    pass
+            break
+        
+    def _run_and_get_wallet(self):
         vbox = QVBoxLayout()
         hbox = QHBoxLayout()
         hbox.addWidget(QLabel(_('Wallet') + ':'))
@@ -335,7 +414,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     def remove_from_recently_open(self, filename):
         self.config.remove_from_recently_open(filename)
-
+        
     def text_input(self, title, message, is_valid, allow_multi=False):
         slayout = KeysLayout(parent=self, title=message, is_valid=is_valid,
                              allow_multi=allow_multi)
