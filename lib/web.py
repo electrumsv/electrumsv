@@ -64,7 +64,7 @@ mainnet_block_explorers = {
 testnet_block_explorers = {
     'system default': (
         'blockchain:',
-        Address.FMT_LEGACY,
+        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
 }

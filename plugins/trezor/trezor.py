@@ -431,7 +431,7 @@ class TrezorPlugin(HW_PluginBase):
                     raise Exception(_("Unsupported output script."))
             elif _type == TYPE_ADDRESS:
                 txoutputtype.script_type = self.types.OutputScriptType.PAYTOADDRESS
-                addr_format = address.FMT_LEGACY
+                addr_format = address.FMT_BITCOIN
                 if client.get_trezor_model() == 'T':
                     if client.atleast_version(2, 0, 8):
                         addr_format = address.FMT_UI

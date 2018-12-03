@@ -229,7 +229,7 @@ class Abstract_Wallet(PrintError):
     @classmethod
     def from_Address_dict(cls, d):
         '''Convert a dict of Address objects to a dict of strings.'''
-        return {addr.to_string(Address.FMT_LEGACY): value
+        return {addr.to_string(Address.FMT_BITCOIN): value
                 for addr, value in d.items()}
 
     def diagnostic_name(self):
@@ -285,7 +285,7 @@ class Abstract_Wallet(PrintError):
             self.storage.put('verified_tx3', self.verified_tx)
             if write:
                 self.storage.write()
-                
+
     def clear_history(self):
         with self.transaction_lock:
             self.txi = {}
@@ -824,7 +824,7 @@ class Abstract_Wallet(PrintError):
 
         # Store fees
         self.tx_fees.update(tx_fees)
-        
+
         if self.network:
             self.network.trigger_callback('on_history')
 
@@ -1608,7 +1608,7 @@ class ImportedWalletBase(Simple_Wallet):
                 # FIXME: what about pruned_txo?
 
             self.storage.put('verified_tx3', self.verified_tx)
-            
+
         self.save_transactions()
 
         self.set_label(address.to_storage_string(), None)

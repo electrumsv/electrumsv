@@ -561,7 +561,7 @@ class AddressesVC(AddressesVCBase):
 
     @objc_method
     def toggleCashAddr(self) -> None:
-        gui.ElectrumGui.gui.toggle_cashaddr(not gui.ElectrumGui.gui.prefs_get_use_cashaddr())
+        gui.ElectrumGui.gui.toggle_cashaddr()
 
     @objc_method
     def onTapAddress_(self, linkView : ObjCInstance) -> None:
@@ -821,10 +821,7 @@ def _Get(domain = None) -> AddressData:
 
 def _GetBBTitle(x = None) -> Any:
     if x is not None:
-        #return [ _("Show CashAddr"), _("Show Legacy") ]
         return [ _("Toggle Format"), _("Toggle Format") ]
-    if gui.ElectrumGui.gui.prefs_get_use_cashaddr():
-        return _("Toggle Format") #_("Show Legacy")
     return _("Toggle Format")  #_("Show CashAddr")
 
 def _ShowAddressContextMenu(entry, parentvc, ipadAnchor, toggleFreezeCallback = None):

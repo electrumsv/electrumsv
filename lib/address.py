@@ -302,11 +302,11 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     ADDR_P2SH = 1
 
     # Address formats
-    FMT_CASHADDR = 0
-    FMT_LEGACY = 1
+    FMT_BITCOIN = 0
+    FMT_CASHADDR = 1
 
-    # Default to CashAddr
-    FMT_UI = FMT_CASHADDR
+    # We are Bitcoin.  Default to it
+    FMT_UI = FMT_BITCOIN
 
     def __new__(cls, hash160, kind):
         assert kind in (cls.ADDR_P2PKH, cls.ADDR_P2SH)
@@ -315,8 +315,11 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         return super().__new__(cls, hash160, kind)
 
     @classmethod
-    def show_cashaddr(cls, on):
-        cls.FMT_UI = cls.FMT_CASHADDR if on else cls.FMT_LEGACY
+    def toggle_cashaddr(cls):
+        if cls.FMT_UI == cls.FMT_BITCOIN:
+            cls.FMT_UI = cls.FMT_CASHADDR
+        else:
+            cls.FMT_UI = cls.FMT_BITCOIN
 
     @classmethod
     def from_cashaddr_string(cls, string):
@@ -419,7 +422,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         if fmt == self.FMT_CASHADDR:
             return self.to_cashaddr()
 
-        if fmt == self.FMT_LEGACY:
+        if fmt == self.FMT_BITCOIN:
             if self.kind == self.ADDR_P2PKH:
                 verbyte = NetworkConstants.ADDRTYPE_P2PKH
             else:
@@ -456,7 +459,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
 
     def to_storage_string(self):
         '''Convert to text in the storage format.'''
-        return self.to_string(self.FMT_LEGACY)
+        return self.to_string(self.FMT_BITCOIN)
 
     def to_script(self):
         '''Return a binary script to pay to the address.'''

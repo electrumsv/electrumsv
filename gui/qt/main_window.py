@@ -133,8 +133,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.tl_windows = []
         self.tx_external_keypairs = {}
 
-        Address.show_cashaddr(config.get('show_cashaddr', False))
-
         self.create_status_bar()
         self.need_update = threading.Event()
 
@@ -1749,14 +1747,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
     def create_converter_tab(self):
 
         source_address = QLineEdit()
+        bitcoin_address = QLineEdit()
+        bitcoin_address.setReadOnly(True)
         cash_address = QLineEdit()
         cash_address.setReadOnly(True)
-        legacy_address = QLineEdit()
-        legacy_address.setReadOnly(True)
 
         widgets = [
+            (bitcoin_address, Address.FMT_BITCOIN),
             (cash_address, Address.FMT_CASHADDR),
-            (legacy_address, Address.FMT_LEGACY),
         ]
 
         def convert_address():
@@ -1774,8 +1772,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
         label = WWLabel(_(
             "This tool helps convert between address formats for Bitcoin "
-            "SV addresses.\nYou are encouraged to use the 'Cash address' "
-            "format."
+            "(SV) addresses.\nYou are encouraged to use the Bitcoin format."
         ))
 
         w = QWidget()
@@ -1785,10 +1782,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         grid.setColumnStretch(2, 1)
         grid.addWidget(QLabel(_('Address to convert')), 0, 0)
         grid.addWidget(source_address, 0, 1)
-        grid.addWidget(QLabel(_('Cash address')), 1, 0)
-        grid.addWidget(cash_address, 1, 1)
-        grid.addWidget(QLabel(_('Legacy address')), 2, 0)
-        grid.addWidget(legacy_address, 2, 1)
+        grid.addWidget(QLabel(_('Bitcoin address')), 1, 0)
+        grid.addWidget(bitcoin_address, 1, 1)
+        grid.addWidget(QLabel(_('Legacy cash address')), 2, 0)
+        grid.addWidget(cash_address, 2, 1)
         w.setLayout(grid)
 
         vbox = QVBoxLayout()
@@ -2723,7 +2720,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.update_status()
 
     def cashaddr_icon(self):
-        if self.config.get('show_cashaddr', False):
+        if Address.FMT_UI == Address.FMT_CASHADDR:
             return QIcon(":icons/tab_converter.png")
         else:
             return QIcon(":icons/tab_converter_bw.png")
@@ -2732,14 +2729,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.addr_converter_button.setIcon(self.cashaddr_icon())
 
     def toggle_cashaddr_status_bar(self):
-        self.toggle_cashaddr(not self.config.get('show_cashaddr', False))
+        self.toggle_cashaddr()
 
-    def toggle_cashaddr_settings(self, state):
-        self.toggle_cashaddr(state == Qt.Checked)
-
-    def toggle_cashaddr(self, on):
-        self.config.set_key('show_cashaddr', on)
-        Address.show_cashaddr(on)
+    def toggle_cashaddr(self):
+        Address.toggle_cashaddr()
         for window in self.gui_object.windows:
             window.cashaddr_toggled_signal.emit()
 
@@ -2752,12 +2745,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         fee_widgets = []
         tx_widgets = []
         id_widgets = []
-
-        cashaddr_cb = QCheckBox(_('CashAddr address format'))
-        cashaddr_cb.setChecked(Address.FMT_UI == Address.FMT_CASHADDR)
-        cashaddr_cb.setToolTip(_("If unchecked, addresses are shown in legacy format"))
-        cashaddr_cb.stateChanged.connect(self.toggle_cashaddr_settings)
-        gui_widgets.append((cashaddr_cb, None))
 
         # language
         lang_help = _('Select which language is used in the GUI (after restart).')
