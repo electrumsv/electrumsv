@@ -26,6 +26,8 @@
 import os
 import sys
 
+libzbar = None
+
 if sys.platform == 'darwin':
     import subprocess
 
@@ -56,8 +58,7 @@ else:
     try:
         libzbar = ctypes.cdll.LoadLibrary(name)
     except OSError:
-        libzbar = None
-
+        pass
 
     def scan_barcode(device='', timeout=-1, display=True, threaded=False, try_again=True):
         if libzbar is None:
