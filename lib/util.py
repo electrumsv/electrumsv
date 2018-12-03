@@ -361,6 +361,17 @@ def bh2u(x):
     """
     return hfu(x).decode('ascii')
 
+def get_electron_cash_user_dir(esv_user_dir):
+    """Convert the ESV user directory to what it would be in Electron Cash.
+    This should allow the Electron Cash directory for the platform to be
+    located.
+    
+    Arguments:
+    esv_user_dir --- the Electrum SV `user_dir` generated path.
+    """
+    esv_user_dir = esv_user_dir.replace(".electrum-sv", ".electron-cash")
+    esv_user_dir = esv_user_dir.replace("ElectrumSV", "ElectronCash")
+    return esv_user_dir
 
 def user_dir(prefer_local=False):
     if 'ANDROID_DATA' in os.environ:

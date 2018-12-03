@@ -10,7 +10,7 @@ from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 
 from electrumsv import Wallet, WalletStorage
-from electrumsv.util import UserCancelled, InvalidPassword, user_dir
+from electrumsv.util import UserCancelled, InvalidPassword, user_dir, get_electron_cash_user_dir
 from electrumsv.base_wizard import BaseWizard
 from electrumsv.i18n import _
 
@@ -178,7 +178,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         esv_wallets_dir = os.path.join(user_dir(), "wallets")
         if count_user_wallets(esv_wallets_dir) > 0:
             return
-        ec_wallets_dir = esv_wallets_dir.replace("ElectrumSV", "ElectronCash")
+        ec_wallets_dir = get_electron_cash_user_dir(esv_wallets_dir)
         ec_wallet_count = count_user_wallets(ec_wallets_dir)
         # If the user does not have Electron Cash wallets to copy, there's no point in offering.
         if ec_wallet_count == 0:
