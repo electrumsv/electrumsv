@@ -9,13 +9,16 @@ import platform
 import imp
 import argparse
 
+from setuptools import setup, find_packages
+
+
 with open('contrib/requirements/requirements.txt') as f:
     requirements = f.read().splitlines()
 
 with open('contrib/requirements/requirements-hw.txt') as f:
     requirements_hw = f.read().splitlines()
 
-version = imp.load_source('version', 'lib/version.py')
+version = imp.load_source('version', 'electrumsv/version.py')
 
 if sys.version_info[:3] < (3, 5, 2):
     sys.exit("Error: Electrum SV requires Python version >= 3.5.2...")
@@ -80,9 +83,10 @@ setup(
     packages=[
         'electrumsv',
         'electrumsv.gui',
+        'electrumsv.gui.qt',
         'electrumsv.plugins',
-    ] +  + [('electrumsv.plugins.' + pkg)
-            for pkg in find_packages('electrumsv/plugins')],
+    ] + [('electrumsv.plugins.' + pkg)
+         for pkg in find_packages('electrumsv/plugins')],
     package_dir={
         'electrumsv': 'electrumsv'
     },

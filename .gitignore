@@ -6,7 +6,7 @@ dist/
 *.egg/
 /electrum.py
 contrib/pyinstaller/
-ElectrumSV.egg-info/
+Electrum_SV.egg-info/
 electrumsv/gui/qt/icons_rc.py
 locale/
 .devlocaltmp/
