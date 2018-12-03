@@ -304,7 +304,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     # Address formats
     FMT_CASHADDR = 0
     FMT_LEGACY = 1
-    FMT_BITPAY = 2   # Supported temporarily only for compatibility
 
     # Default to CashAddr
     FMT_UI = FMT_CASHADDR
@@ -357,11 +356,9 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
             raise AddressError('invalid address: {}'.format(string))
 
         verbyte, hash160 = raw[0], raw[1:]
-        if verbyte in [NetworkConstants.ADDRTYPE_P2PKH,
-                       NetworkConstants.ADDRTYPE_P2PKH_BITPAY]:
+        if verbyte == NetworkConstants.ADDRTYPE_P2PKH:
             kind = cls.ADDR_P2PKH
-        elif verbyte in [NetworkConstants.ADDRTYPE_P2SH,
-                         NetworkConstants.ADDRTYPE_P2SH_BITPAY]:
+        elif verbyte == NetworkConstants.ADDRTYPE_P2SH:
             kind = cls.ADDR_P2SH
         else:
             raise AddressError('unknown version byte: {}'.format(verbyte))
@@ -427,11 +424,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
                 verbyte = NetworkConstants.ADDRTYPE_P2PKH
             else:
                 verbyte = NetworkConstants.ADDRTYPE_P2SH
-        elif fmt == self.FMT_BITPAY:
-            if self.kind == self.ADDR_P2PKH:
-                verbyte = NetworkConstants.ADDRTYPE_P2PKH_BITPAY
-            else:
-                verbyte = NetworkConstants.ADDRTYPE_P2SH_BITPAY
         else:
             raise AddressError('unrecognised format')
 
