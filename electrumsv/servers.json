@@ -1,0 +1,31 @@
+{
+    "sv.electrumx.cash": {
+        "pruning": "-",
+        "s": "50002",
+        "t": "50001",
+        "version": "1.4"
+    },
+    "electroncash.cascharia.com": {
+        "pruning": "-",
+        "s": "50002",
+        "t": "50001",
+        "version": "1.4"
+    },
+    "satoshi.vision.cash": {
+        "pruning": "-",
+        "s": "50002",
+        "version": "1.4"
+    },
+    "sv1.hsmiths.com": {
+        "pruning": "-",
+        "s": "60004",
+        "t": "60003",
+        "version": "1.4"
+    },
+    "electrumx-sv.1209k.com": {
+        "pruning": "-",
+        "s": "50002",
+        "t": "50001",
+        "version": "1.4"
+    },
+}

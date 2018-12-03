@@ -53,7 +53,7 @@ from . import newwallet  # Do not remove -- needed to declare NewWalletVC to Obj
 from .custom_objc import *
 
 from electrumsv.i18n import _, set_language, languages
-from electrumsv.plugins import run_hook
+from electrumsv.plugin import run_hook
 from electrumsv import WalletStorage, Wallet
 from electrumsv.address import Address
 from electrumsv.util import UserCancelled, print_error, format_satoshis, format_satoshis_plain, PrintError, InvalidPassword
@@ -218,8 +218,6 @@ class ElectrumGui(PrintError):
         self.alias_info = None # TODO: IMPLEMENT alias stuff
         self.lastHeightSeen = -2
         self.lastSplitNotify = 0
-
-        Address.show_cashaddr(self.prefs_get_use_cashaddr())
 
         self.cash_addr_sig = utils.PySig()
 
@@ -692,7 +690,7 @@ class ElectrumGui(PrintError):
                 ShowSplitNotify()
                 self.lastSplitNotify = time.time()
 
- 
+
             '''utils.NSLog("lh=%d sh=%d is_up_to_date=%d Wallet Network is_up_to_date=%d is_connecting=%d is_connected=%d",
                         int(lh), int(sh),
                         int(self.wallet.up_to_date),
@@ -859,13 +857,10 @@ class ElectrumGui(PrintError):
 
     def cashaddr_icon(self):
         imgname = "cashaddr_off_new"
-        #if self.prefs_get_use_cashaddr():
-        #    imgname = "cashaddr_on_new"
         return UIImage.imageNamed_(imgname)#.imageWithRenderingMode_(UIImageRenderingModeAlwaysOriginal)
 
-    def toggle_cashaddr(self, on : bool) -> None:
-        self.config.set_key('show_cashaddr', on)
-        Address.show_cashaddr(on)
+    def toggle_cashaddr(self) -> None:
+        Address.toggle_cashaddr()
         self.refresh_all()
         self.cash_addr_sig.emit(on)
 
@@ -985,9 +980,6 @@ class ElectrumGui(PrintError):
         if self.wallet.multiple_change != multiple:
             self.wallet.multiple_change = multiple
             self.wallet.storage.put('multiple_change', multiple)
-
-    def prefs_get_use_cashaddr(self) -> bool:
-        return bool(self.config.get('show_cashaddr', True))
 
     def prefs_set_decimal_point(self, dec: int) -> None:
         if dec in [2, 5, 8]:
@@ -2322,4 +2314,3 @@ class ElectrumGui(PrintError):
         self.createAndShowUI()
 
         self.setup_key_enclave(lambda: self.start_daemon())
-

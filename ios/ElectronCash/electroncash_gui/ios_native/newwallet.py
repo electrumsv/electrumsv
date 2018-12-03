@@ -1030,7 +1030,6 @@ class Import2(Import2Base):
         bb = self.navigationItem.rightBarButtonItem
         if bb:
             from .addresses import _GetBBTitle
-            gui.ElectrumGui.gui.toggle_cashaddr(not gui.ElectrumGui.gui.prefs_get_use_cashaddr())
             bb.title = _GetBBTitle()
             newitems = list()
             for it in self.items:

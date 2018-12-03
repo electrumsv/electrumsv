@@ -24,7 +24,7 @@ class AddressesFragment : MainFragment() {
     override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
         inflater.inflate(R.menu.addresses, menu)
         menu.findItem(R.id.menuFormat).isChecked =
-            clsAddress["FMT_UI"] == clsAddress["FMT_LEGACY"]
+            clsAddress["FMT_UI"] == clsAddress["FMT_BITCOIN"]
     }
 
     override fun onPrepareOptionsMenu(menu: Menu) {
@@ -37,7 +37,7 @@ class AddressesFragment : MainFragment() {
         when (item.itemId) {
             R.id.menuFormat -> {
                 item.isChecked = !item.isChecked
-                clsAddress.callAttr("show_cashaddr", !item.isChecked)
+                clsAddress.callAttr("toggle_cashaddr")
                 rvAddresses.adapter?.notifyDataSetChanged()
             }
             else -> throw Exception("Unknown item $item")
@@ -84,7 +84,7 @@ class AddressesAdapter(val wallet: PyObject, val addresses: PyObject)
         holder.itemView.setOnClickListener {
             val addrString = holder.item.addrString
             (getSystemService(ClipboardManager::class)).text =
-                if (clsAddress["FMT_UI"] == clsAddress["FMT_LEGACY"]) addrString
+                if (clsAddress["FMT_UI"] == clsAddress["FMT_BITCOIN"]) addrString
                 else "bitcoincash:" + addrString
             toast(R.string.address_copied)
         }

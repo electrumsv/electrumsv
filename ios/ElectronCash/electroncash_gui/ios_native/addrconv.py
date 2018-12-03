@@ -14,22 +14,22 @@ from .custom_objc import *
 
 
 class AddrConvVC(AddrConvBase):
-      
+
     @objc_method
     def init(self) -> ObjCInstance:
         self = ObjCInstance(send_super(__class__, self, 'init'))
         if self:
             self.title = _("Address Converter")
         return self
-    
+
     @objc_method
     def dealloc(self) -> None:
         send_super(__class__, self, 'dealloc')
-    
+
     @objc_method
     def loadView(self) -> None:
         NSBundle.mainBundle.loadNibNamed_owner_options_("AddressConverter",self,None)
-        
+
     @objc_method
     def viewDidLoad(self) -> None:
         send_super(__class__, self, 'viewDidLoad')
@@ -38,19 +38,19 @@ class AddrConvVC(AddrConvBase):
         ats = NSMutableAttributedString.alloc().initWithAttributedString_(self.blurb.attributedText).autorelease()
         r = NSRange(0, ats.length())
         ats.addAttribute_value_range_(NSKernAttributeName, utils._kern, r)
-        
+
     @objc_method
     def viewWillAppear_(self, animated : bool) -> None:
         send_super(__class__, self, 'viewWillAppear:', animated, argtypes=[c_bool])
-        
+
         txt = _(
             "This tool helps convert between address formats for Bitcoin "
             "Cash addresses.\nYou are encouraged to use the 'Cash address' "
             "format."
             )
-        
+
         utils.uilabel_replace_attributed_text(self.blurb, txt.replace('\n','\n\n'), font = UIFont.italicSystemFontOfSize_(14.0))
-        
+
         self.address.attributedPlaceholder = NSAttributedString.alloc().initWithString_attributes_(
             _('Address to convert'),
             {
@@ -60,19 +60,19 @@ class AddrConvVC(AddrConvBase):
         self.addressTit.setText_withKerning_(_('Address'), utils._kern)
         self.cashTit.setText_withKerning_(_('Cash address'), utils._kern)
         self.legacyTit.setText_withKerning_(_('Legacy address'), utils._kern)
-        
+
         utils.uitf_redo_attrs(self.address)
-        
+
     @objc_method
     def textFieldShouldReturn_(self, tf) -> bool:
         #print("tf should return")
         tf.resignFirstResponder()
         return True
-    
+
     @objc_method
     def textFieldDidEndEditing_(self, tf) -> None:
         utils.uitf_redo_attrs(tf)
-    
+
     @objc_method
     def onBut_(self, but) -> None:
         def DoIt() -> None:
@@ -100,7 +100,7 @@ class AddrConvVC(AddrConvBase):
     def reader_didScanResult_(self, reader, result) -> None:
         utils.NSLog("Reader data = '%s'",str(result))
         result = str(result).strip()
-        
+
         if not self.doConversion_(result):
             title = _("Invalid QR Code")
             message = _("The QR code does not appear to be a valid BSV address.\nPlease try again.")
@@ -114,18 +114,18 @@ class AddrConvVC(AddrConvBase):
         else:
             self.address.text = result
             self.readerDidCancel_(reader)
-             
+
     @objc_method
     def readerDidCancel_(self, reader) -> None:
         if reader is not None: reader.stopScanning()
         if self.presentedViewController:
             self.dismissViewControllerAnimated_completion_(True, None)
-        
+
     @objc_method
     def onAddress_(self, tf) -> None:
         print("onAddress:",tf.text)
         self.doConversion_(tf.text)
-        
+
     @objc_method
     def doConversion_(self, text) -> bool:
         self.cash.text = ""
@@ -135,9 +135,9 @@ class AddrConvVC(AddrConvBase):
         self.qrButShowCash.enabled = False
         self.qrButShowLegacy.enabled = False
         text = text.strip()
-        
+
         addy = None
-        
+
         try:
             addy = Address.from_string(text)
         except:
@@ -145,11 +145,11 @@ class AddrConvVC(AddrConvBase):
 
         if addy:
             self.cash.text = addy.to_full_string(Address.FMT_CASHADDR)
-            self.legacy.text = addy.to_full_string(Address.FMT_LEGACY)
+            self.legacy.text = addy.to_full_string(Address.FMT_BITCOIN)
             self.cpyCashBut.enabled = True
             self.cpyLegBut.enabled = True
             self.qrButShowCash.enabled = True
             self.qrButShowLegacy.enabled = True
-            
+
             return True
         return False

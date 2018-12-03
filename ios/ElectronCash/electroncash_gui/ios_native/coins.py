@@ -155,10 +155,7 @@ class CoinsDetail(CoinsDetailBase):
         self.qr.contentMode = UIViewContentModeCenter # if the image pix margin changes -- FIX THIS
         self.qr.image = utils.get_qrcode_image_for_data(coin.tx_hash or '', size = size)
 
-        if gui.ElectrumGui.gui.prefs_get_use_cashaddr() and not utils.is_landscape() and not utils.is_ipad():
-            self.statusTopCS.constant = self.statusTopSaved
-        else:
-            self.statusTopCS.constant = self.statusTopSaved + 8
+        self.statusTopCS.constant = self.statusTopSaved + 8
 
         self.needsRefresh = False
 

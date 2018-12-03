@@ -37,19 +37,19 @@ UNIT_KEYS.sort(key=lambda x: UNITS[x],reverse=True)
 
 
 class PrefsVC(UITableViewController):
-        
+
     currencies = objc_property() # NSArray of strings...
     exchanges = objc_property() # NSArray of strings...
-    
+
     normalButtonColor = objc_property() # UIColor instance
     warnButtonColor = objc_property()
-    
+
     networkStatusText = objc_property()
     #networkStatusIcon = objc_property()
     #lockIcon = objc_property()
     hasSeed = objc_property()
     hasPW = objc_property()
-        
+
     @objc_method
     def init(self) -> ObjCInstance:
         self = ObjCInstance(send_super(__class__, self, 'initWithStyle:', UITableViewStyleGrouped, argtypes=[c_int]))
@@ -71,13 +71,13 @@ class PrefsVC(UITableViewController):
         self.navigationItem.backBarButtonItem = bb
         gui.ElectrumGui.gui.sigPrefs.connect(lambda:self.refresh(), self)
         return self
-    
+
     @objc_method
     def initWithStyle_(self, style : int) -> ObjCInstance:
         print("WARNING: PrefsVC doesn't support the initWithStyle: method -- use plain old 'init' instead!")
         assert style == UITableViewStyleGrouped
         return self.init()
-        
+
     @objc_method
     def dealloc(self) -> None:
         gui.ElectrumGui.gui.sigPrefs.disconnect(self)
@@ -99,7 +99,7 @@ class PrefsVC(UITableViewController):
             self.updateCurrencies()
             self.updateExchanges()
             self.tableView.reloadData()
- 
+
     @objc_method
     def viewDidAppear_(self, animated : bool) -> None:
         # do polish here?
@@ -137,19 +137,19 @@ class PrefsVC(UITableViewController):
             self.exchanges = sorted(fx.get_exchanges_by_ccy(c, h))
         else:
             self.exchanges = sorted(fx.get_exchanges_by_ccy('USD', False))
-        
+
         self.setFiatExchangeButtonText_(None)
-    
-    ## TableView methods below...   
+
+    ## TableView methods below...
     @objc_method
     def numberOfSectionsInTableView_(self, tableView) -> int:
         return len(SECTION_TITLES)
-    
+
     @objc_method
     def tableView_titleForHeaderInSection_(self, tv : ObjCInstance, section : int) -> ObjCInstance:
         assert section >= 0 and section < len(SECTION_TITLES)
         return ns_from_py(_(SECTION_TITLES[section]))
-    
+
     @objc_method
     def tableView_numberOfRowsInSection_(self, tableView, section : int) -> int:
         assert section >= 0 and section < len(SECTION_TITLES)
@@ -180,18 +180,18 @@ class PrefsVC(UITableViewController):
             cell = self.createCellForSection_row_(secName,row)
         self.setupCell_section_row_(cell,secName,row)
         return cell
-    
+
     @objc_method
     def tableView_heightForRowAtIndexPath_(self, tableView, indexPath) -> float:
         return 44.0
-    
+
     @objc_method
     def tableView_didSelectRowAtIndexPath_(self, tv, indexPath) -> None:
         tv.deselectRowAtIndexPath_animated_(indexPath,True)
         parent = gui.ElectrumGui.gui
         section,row = indexPath.section, indexPath.row
         secName = SECTION_TITLES[section]
-        
+
         if secName == "Tools":
             if row == 0: # AddrConv
                 if not self.navigationController: return
@@ -211,7 +211,7 @@ class PrefsVC(UITableViewController):
         section,row = indexPath.section, indexPath.row
         secName = SECTION_TITLES[section]
         parent = gui.ElectrumGui.gui
-        
+
         if secName == 'Tools' and row == 1: parent.show_network_dialog()
 
     @objc_method
@@ -308,13 +308,6 @@ class PrefsVC(UITableViewController):
                     s.addTarget_action_forControlEvents_(self, SEL(b'onHideDLBanner:'), UIControlEventValueChanged)
             elif row == 1:
                 l = cell.viewWithTag_(1)
-                s = cell.viewWithTag_(2)
-                l.text = _('CashAddr address format')
-                s.on = parent.prefs_get_use_cashaddr()
-                if s.allTargets.count <= 0:
-                    s.addTarget_action_forControlEvents_(self, SEL(b'onUseCashAddr:'), UIControlEventValueChanged)
-            elif row == 2:
-                l = cell.viewWithTag_(1)
                 b = cell.viewWithTag_(2)
                 b = b if b is not None else cell.viewWithTag_(TAG_NZ)
                 l.text = _('Zeros after decimal point')
@@ -327,7 +320,7 @@ class PrefsVC(UITableViewController):
                     if nz_prefs >= nr:
                         nz_prefs = nr-1
                     b.setTitle_forState_(str(nz_prefs),UIControlStateNormal)
-            elif row == 3:
+            elif row == 2:
                 l = cell.viewWithTag_(1)
                 b = cell.viewWithTag_(2)
                 b = b if b is not None else cell.viewWithTag_(TAG_BASE_UNIT)
@@ -337,7 +330,7 @@ class PrefsVC(UITableViewController):
                     b.setTitle_forState_(parent.base_unit(),UIControlStateNormal)
                     if b.allTargets.count <= 0:
                         b.addTarget_action_forControlEvents_(self, SEL(b'onBaseUnitBut:'), UIControlEventPrimaryActionTriggered)
-            elif row == 4:
+            elif row == 3:
                 l = cell.viewWithTag_(1)
                 b = cell.viewWithTag_(2)
                 b = b if b is not None else cell.viewWithTag_(TAG_BLOCK_EXPLORER)
@@ -363,7 +356,7 @@ class PrefsVC(UITableViewController):
                     curr = fx.get_currency() if fx and fx.is_enabled() else _('None')
                     b.setTitle_forState_(curr, UIControlStateNormal)
                     if b.allTargets.count <= 0:
-                        b.addTarget_action_forControlEvents_(self, SEL(b'onFiatCurrencyBut:'), UIControlEventPrimaryActionTriggered)                        
+                        b.addTarget_action_forControlEvents_(self, SEL(b'onFiatCurrencyBut:'), UIControlEventPrimaryActionTriggered)
             elif row == 1:
                 l = cell.viewWithTag_(1)
                 s = cell.viewWithTag_(2)
@@ -393,8 +386,8 @@ class PrefsVC(UITableViewController):
                     self.setFiatExchangeButtonText_(b)
                     if b.allTargets.count <= 0:
                         b.addTarget_action_forControlEvents_(self, SEL(b'onFiatExchangeBut:'), UIControlEventPrimaryActionTriggered)
-                        
-   
+
+
     @objc_method
     def setFiatExchangeButtonText_(self, b : ObjCInstance) -> None:
         b = self.tableView.viewWithTag_(TAG_FIAT_EXCHANGE) if b is None else b
@@ -407,21 +400,21 @@ class PrefsVC(UITableViewController):
             if self.normalButtonColor is None: self.normalButtonColor = b.titleColorForState_(UIControlStateNormal)
             b.setTitleColor_forState_(self.warnButtonColor,UIControlStateNormal)
         elif self.normalButtonColor is not None:
-            b.setTitleColor_forState_(self.normalButtonColor,UIControlStateNormal)            
+            b.setTitleColor_forState_(self.normalButtonColor,UIControlStateNormal)
         b.setTitle_forState_(str(ex), UIControlStateNormal)
-        
+
     @objc_method
     def createCellForSection_row_(self, secName_oc : ObjCInstance, row : int) -> ObjCInstance:
         secName = py_from_ns(secName_oc)
         cell = None
         ident = "%s_%s"%(str(secName), str(row))
-        
+
         if secName in ['Tools']:
             cell =  UITableViewCell.alloc().initWithStyle_reuseIdentifier_(UITableViewCellStyleSubtitle, ident).autorelease()
         elif ident in ['Fees_1', 'Transactions_0', 'Transactions_1', 'Transactions_2', 'Appearance_0', 'Appearance_1','Fiat_1', 'Fiat_2']:
             objs = NSBundle.mainBundle.loadNibNamed_owner_options_("BoolCell",self.tableView,None)
             assert objs is not None and len(objs)
-            cell = objs[0] 
+            cell = objs[0]
         elif ident in ['Fees_0']:
             objs = NSBundle.mainBundle.loadNibNamed_owner_options_("TFCell",self.tableView,None)
             assert objs is not None and len(objs)
@@ -439,19 +432,19 @@ class PrefsVC(UITableViewController):
     def textFieldShouldReturn_(self, tf : ObjCInstance) -> bool:
         tf.resignFirstResponder()
         return True
-    
+
     @objc_method
     def textFieldDidEndEditing_(self, tf : ObjCInstance) -> None:
         self.onMaxStaticFee_(tf)
         utils.uitf_redo_attrs(tf)
-   
+
     @objc_method
     def getNumZerosList(self) -> ObjCInstance:
         parent = gui.ElectrumGui.gui
         nr = min(parent.get_decimal_point(), 8) + 1
         ret = [str(i) for i in range(0,nr)]
         return ns_from_py(ret)
-    
+
     ### ACTION HANDLERS -- basically calls back into gui object ###
     @objc_method
     def onNZBut_(self, but : ObjCInstance) -> None:
@@ -464,7 +457,7 @@ class PrefsVC(UITableViewController):
             b = self.view.viewWithTag_(TAG_NZ)
             if b is not None: b.setTitle_forState_(str(nz_prefs),UIControlStateNormal)
         utils.present_modal_picker(parentVC = self, items = nzl, selectedIndex = int(nz),
-                                   okCallback = onOk, okButtonTitle=_("OK"), cancelButtonTitle=_("Cancel"))        
+                                   okCallback = onOk, okButtonTitle=_("OK"), cancelButtonTitle=_("Cancel"))
     @objc_method
     def onBaseUnitBut_(self, but : ObjCInstance) -> None:
         parent = gui.ElectrumGui.gui
@@ -479,7 +472,7 @@ class PrefsVC(UITableViewController):
         sel = 0 if len(sel) <= 0 else sel[0]
         utils.present_modal_picker(parentVC = self, items = UNIT_KEYS, selectedIndex = int(sel),
                                    okCallback = onOk, okButtonTitle=_("OK"), cancelButtonTitle=_("Cancel"))
-    
+
     @objc_method
     def onBlockExplorerBut_(self, but: ObjCInstance) -> None:
         parent = gui.ElectrumGui.gui
@@ -498,7 +491,7 @@ class PrefsVC(UITableViewController):
         if len(be):
             utils.present_modal_picker(parentVC = self, items = be, selectedIndex = int(sel),
                                        okCallback = onOk, okButtonTitle=_("OK"), cancelButtonTitle=_("Cancel"))
-        
+
     @objc_method
     def onFiatCurrencyBut_(self, but : ObjCInstance) -> None:
         parent = gui.ElectrumGui.gui
@@ -519,7 +512,7 @@ class PrefsVC(UITableViewController):
         if len(ccys):
             utils.present_modal_picker(parentVC = self, items = ccys, selectedIndex = int(idx),
                                        okCallback = onOk, okButtonTitle=_("OK"), cancelButtonTitle=_("Cancel"))
-        
+
     @objc_method
     def onFiatExchangeBut_(self, but : ObjCInstance) -> None:
         parent = gui.ElectrumGui.gui
@@ -533,7 +526,7 @@ class PrefsVC(UITableViewController):
             if fx and fx.is_enabled() and ex and ex != fx.exchange.name():
                 fx.set_exchange(ex)
             self.setFiatExchangeButtonText_(None)
-        if len(exs) and fx:    
+        if len(exs) and fx:
             utils.present_modal_picker(parentVC = self, items = exs, selectedIndex = int(idx),
                                        okCallback = onOk, okButtonTitle = _("OK"), cancelButtonTitle = _("Cancel"))
 
