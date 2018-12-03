@@ -146,6 +146,28 @@ class BitPay(ExchangeBase):
         json = self.get_json('bitpay.com', '/api/rates/BSV')
         return dict([(r['code'], Decimal(r['rate'])) for r in json])
 
+class Bitfinex(ExchangeBase):
+    """
+    https://docs.bitfinex.com/v2/reference
+    """
+    INDEX_SYMBOL = 0
+    INDEX_BID = 1
+    INDEX_BID_SIZE = 2
+    INDEX_ASK = 3
+    INDEX_ASK_SIZE = 4
+    INDEX_DAILY_CHANGE = 5
+    INDEX_DAILY_CHANGE_PERC = 6
+    INDEX_LAST_PRICE = 7
+    INDEX_VOLUME = 8
+    INDEX_HIGH = 9
+    INDEX_LOW = 10
+    
+    def get_rates(self, ccy):
+        json_value = self.get_json('api.bitfinex.com', '/v2/tickers?symbols=tBSVUSD')
+        usd_entry = json_value[0]        
+        return {
+            'USD': Decimal(usd_entry[Bitfinex.INDEX_LAST_PRICE]),
+        }
 
 class Bitso(ExchangeBase):
 
