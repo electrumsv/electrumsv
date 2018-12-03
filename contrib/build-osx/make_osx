@@ -57,7 +57,7 @@ for repo in icons; do
   git clone $GIT_REPO_ACCT/electrum-$repo $BUILDDIR/electrum-$repo
 done
 
-cp    $BUILDDIR/electrum-icons/icons_rc.py ./gui/qt/
+cp    $BUILDDIR/electrum-icons/icons_rc.py ./electrumsv/gui/qt/
 
 info "Making locale..."
 ./contrib/make_locale || fail "Failed to make locale..."

@@ -53,7 +53,7 @@ from . import newwallet  # Do not remove -- needed to declare NewWalletVC to Obj
 from .custom_objc import *
 
 from electrumsv.i18n import _, set_language, languages
-from electrumsv.plugins import run_hook
+from electrumsv.plugin import run_hook
 from electrumsv import WalletStorage, Wallet
 from electrumsv.address import Address
 from electrumsv.util import UserCancelled, print_error, format_satoshis, format_satoshis_plain, PrintError, InvalidPassword

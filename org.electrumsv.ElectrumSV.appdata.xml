@@ -22,8 +22,6 @@
 	<provides>
 		<binary>electrum-sv</binary>
 		<python3>electrumsv</python3>
-		<python3>electrumsv_gui</python3>
-		<python3>electrumsv_plugins</python3>
 	</provides>
 	<update_contact>roger.taylor.email@gmail.com</update_contact>
 </component>

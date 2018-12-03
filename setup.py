@@ -79,24 +79,12 @@ setup(
     },
     packages=[
         'electrumsv',
-        'electrumsv_gui',
-        'electrumsv_gui.qt',
-        'electrumsv_plugins',
-        'electrumsv_plugins.audio_modem',
-        'electrumsv_plugins.cosigner_pool',
-        'electrumsv_plugins.email_requests',
-        'electrumsv_plugins.hw_wallet',
-        'electrumsv_plugins.keepkey',
-        'electrumsv_plugins.labels',
-        'electrumsv_plugins.ledger',
-        'electrumsv_plugins.trezor',
-        'electrumsv_plugins.digitalbitbox',
-        'electrumsv_plugins.virtualkeyboard',
-    ],
+        'electrumsv.gui',
+        'electrumsv.plugins',
+    ] +  + [('electrumsv.plugins.' + pkg)
+            for pkg in find_packages('electrumsv/plugins')],
     package_dir={
-        'electrumsv': 'lib',
-        'electrumsv_gui': 'gui',
-        'electrumsv_plugins': 'plugins',
+        'electrumsv': 'electrumsv'
     },
     package_data={
         'electrumsv': [

@@ -29,25 +29,12 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import os,sys
+
+import os
+import sys
 
 if sys.version_info < (3, 5, 2):
     sys.exit("Error: Must be using Python 3.5.2 or higher")
-
-# from https://gist.github.com/tito/09c42fb4767721dc323d
-import threading
-try:
-    import jnius
-except:
-    jnius = None
-if jnius:
-    orig_thread_run = threading.Thread.run
-    def thread_check_run(*args, **kwargs):
-        try:
-            return orig_thread_run(*args, **kwargs)
-        finally:
-            jnius.detach()
-    threading.Thread.run = thread_check_run
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 is_bundle = getattr(sys, 'frozen', False)
@@ -83,12 +70,6 @@ def check_imports():
 if not is_android:  # Avoid unnecessarily slowing down app startup.
     check_imports()
 
-# load local module as electrum
-if is_local:
-    import imp
-    imp.load_module('electrumsv', *imp.find_module('lib'))
-    imp.load_module('electrumsv_gui', *imp.find_module('gui'))
-    imp.load_module('electrumsv_plugins', *imp.find_module('plugins'))
 
 from electrumsv import bitcoin, util
 from electrumsv import SimpleConfig, Network
@@ -102,7 +83,6 @@ from electrumsv.commands import get_parser, known_commands, Commands, config_var
 from electrumsv import daemon
 from electrumsv import keystore
 from electrumsv.mnemonic import Mnemonic
-import electrumsv_plugins
 import electrumsv.web as web
 
 # get password routine
@@ -294,7 +274,7 @@ def run_offline_command(config, config_options):
     return result
 
 def init_plugins(config, gui_name):
-    from electrumsv.plugins import Plugins
+    from electrumsv.plugin import Plugins
     return Plugins(config, gui_name)
 
 
