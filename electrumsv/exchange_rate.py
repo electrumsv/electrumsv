@@ -261,7 +261,7 @@ class CoinCap(ExchangeBase):
 class CoinGecko(ExchangeBase):
 
     def get_rates(self, ccy):
-        json = self.get_json('api.coingecko.com', '/api/v3/coins/bitcoin-cash?localization=False&sparkline=false')
+        json = self.get_json('api.coingecko.com', '/api/v3/coins/bitcoin-cash-sv?localization=False&sparkline=false')
         prices = json["market_data"]["current_price"]
         return dict([(a[0].upper(),Decimal(a[1])) for a in prices.items()])
 
