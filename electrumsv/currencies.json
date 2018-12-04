@@ -1,9 +1,12 @@
 {
-    "Kraken": [
-        "EUR",
+    "Bitfinex": [
         "USD"
     ],
-    "Bitfinex": [
+    "CoinCap": [
+        "USD"
+    ],
+    "Kraken": [
+        "EUR",
         "USD"
     ]
 }
