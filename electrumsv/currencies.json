@@ -55,6 +55,9 @@
 		"XDR",
 		"ZAR"
     ],
+    "CoinPaprika": [
+        "USD"
+    ],
     "Kraken": [
         "EUR",
         "USD"

@@ -1,4 +1,3 @@
-from datetime import datetime
 import inspect
 import requests
 import sys
@@ -7,6 +6,8 @@ import json
 from threading import Thread
 import time
 import csv
+import datetime
+import dateutil.parser
 import decimal
 from decimal import Decimal
 
@@ -213,24 +214,20 @@ class CoinFloor(ExchangeBase):
         json = self.get_json('webapi.coinfloor.co.uk:8090/bist/BSV/GBP', '/ticker/')
         return {'GBP': Decimal(json['last'])}
 
-
-class WEX(ExchangeBase):
-
+class CoinPaprika(ExchangeBase):
     def get_rates(self, ccy):
-        json_eur = self.get_json('wex.nz', '/api/3/ticker/bch_eur')
-        json_rub = self.get_json('wex.nz', '/api/3/ticker/bch_rur')
-        json_usd = self.get_json('wex.nz', '/api/3/ticker/bch_usd')
-        json_btc = self.get_json('wex.nz', '/api/3/ticker/bch_btc')
-        json_ltc = self.get_json('wex.nz', '/api/3/ticker/bch_ltc')
-        json_eth = self.get_json('wex.nz', '/api/3/ticker/bch_eth')
-        json_dsh = self.get_json('wex.nz', '/api/3/ticker/bch_dsh')
-        return {'EUR': Decimal(json_eur['bch_eur']['last']),
-                'RUB': Decimal(json_rub['bch_rur']['last']),
-                'USD': Decimal(json_usd['bch_usd']['last']),
-                'BTC': Decimal(json_btc['bch_btc']['last']),
-                'LTC': Decimal(json_ltc['bch_ltc']['last']),
-                'ETH': Decimal(json_eth['bch_eth']['last']),
-                'DSH': Decimal(json_dsh['bch_dsh']['last'])}
+        json = self.get_json('api.coinpaprika.com', '/v1/tickers/bsv-bitcoin-sv')
+        return {'USD': Decimal(json['quotes']['USD']['price'])}
+        
+    def history_ccys(self):
+        return ['USD']
+
+    def request_history(self, ccy):        
+        limit = 1000
+        end_date = datetime.date.today()
+        start_date = end_date - datetime.timedelta(days=limit-1)
+        history = self.get_json('api.coinpaprika.com', "/v1/tickers/bsv-bitcoin-sv/historical?start={}&quote=USD&limit={}&interval=24h".format(start_date.strftime("%Y-%m-%d"), limit))
+        return dict([(dateutil.parser.parse(h['timestamp']).strftime('%Y-%m-%d'), h['price']) for h in history])
 
 
 class CoinCap(ExchangeBase):
@@ -248,12 +245,11 @@ class CoinCap(ExchangeBase):
         return ['USD']
 
     def request_history(self, ccy):
-        from datetime import datetime as dt
         # Currently 2000 days is the maximum in 1 API call which needs to be fixed
         # sometime before the year 2023...
         history = self.get_json('api.coincap.io',
                                "/v2/assets/bitcoin-sv/history?interval=d1&limit=2000")
-        return dict([(dt.utcfromtimestamp(h['time']/1000).strftime('%Y-%m-%d'),
+        return dict([(datetime.datetime.utcfromtimestamp(h['time']/1000).strftime('%Y-%m-%d'),
                         h['priceUsd'])
                      for h in history['data']])
 
@@ -275,9 +271,7 @@ class CoinGecko(ExchangeBase):
 
     def request_history(self, ccy):
         history = self.get_json('api.coingecko.com', '/api/v3/coins/bitcoin-cash/market_chart?vs_currency=%s&days=max' % ccy)
-
-        from datetime import datetime as dt
-        return dict([(dt.utcfromtimestamp(h[0]/1000).strftime('%Y-%m-%d'), h[1])
+        return dict([(datetime.datetime.utcfromtimestamp(h[0]/1000).strftime('%Y-%m-%d'), h[1])
                      for h in history['prices']])
 
 
@@ -453,7 +447,7 @@ class FxThread(ThreadJob):
         rate = self.exchange.historical_rate(self.ccy, d_t)
         # Frequently there is no rate for today, until tomorrow :)
         # Use spot quotes in that case
-        if rate is None and (datetime.today().date() - d_t.date()).days <= 2:
+        if rate is None and (datetime.datetime.today().date() - d_t.date()).days <= 2:
             rate = self.exchange.quotes.get(self.ccy)
             self.history_used_spot = True
         return Decimal(rate) if rate is not None else None
