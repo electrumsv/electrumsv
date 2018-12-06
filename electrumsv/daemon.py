@@ -27,8 +27,8 @@ import ast
 import os
 import time
 import threading
+import traceback
 
-# from jsonrpc import JSONRPCResponseManager
 import jsonrpclib
 from .jsonrpc import VerifyingJSONRPCServer
 
