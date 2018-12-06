@@ -7,7 +7,6 @@ from threading import Thread
 import time
 import csv
 import datetime
-import dateutil.parser
 import decimal
 from decimal import Decimal
 
@@ -227,8 +226,7 @@ class CoinPaprika(ExchangeBase):
         end_date = datetime.date.today()
         start_date = end_date - datetime.timedelta(days=limit-1)
         history = self.get_json('api.coinpaprika.com', "/v1/tickers/bsv-bitcoin-sv/historical?start={}&quote=USD&limit={}&interval=24h".format(start_date.strftime("%Y-%m-%d"), limit))
-        return dict([(dateutil.parser.parse(h['timestamp']).strftime('%Y-%m-%d'), h['price']) for h in history])
-
+        return dict([(datetime.datetime.strptime(h['timestamp'], '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d'), h['price']) for h in history])        
 
 class CoinCap(ExchangeBase):
     def get_rates(self, ccy):
