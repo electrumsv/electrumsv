@@ -365,7 +365,7 @@ def get_electron_cash_user_dir(esv_user_dir):
     """Convert the ESV user directory to what it would be in Electron Cash.
     This should allow the Electron Cash directory for the platform to be
     located.
-    
+
     Arguments:
     esv_user_dir --- the Electrum SV `user_dir` generated path.
     """
@@ -412,10 +412,11 @@ def format_satoshis(x, num_zeros=0, decimal_point=8, precision=None, is_diff=Fal
         return 'unknown'
     if precision is None:
         precision = decimal_point
-    decimal_format = ".0" + str(precision) if precision > 0 else ""
+    decimal_format = ",.0" + str(precision) if precision > 0 else ""
     if is_diff:
         decimal_format = '+' + decimal_format
-    result = ("{:" + decimal_format + "f}").format(x / pow (10, decimal_point)).rstrip('0')
+    fmt_string = "{:" + decimal_format + "f}"
+    result = (fmt_string).format(x / pow (10, decimal_point)).rstrip('0')
     integer_part, fract_part = result.split(".")
     dp = localeconv()['decimal_point']
     if len(fract_part) < num_zeros:
