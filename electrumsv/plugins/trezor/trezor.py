@@ -432,14 +432,6 @@ class TrezorPlugin(HW_PluginBase):
             elif _type == TYPE_ADDRESS:
                 txoutputtype.script_type = self.types.OutputScriptType.PAYTOADDRESS
                 addr_format = address.FMT_BITCOIN
-                if client.get_trezor_model() == 'T':
-                    if client.atleast_version(2, 0, 8):
-                        addr_format = address.FMT_UI
-                    elif client.atleast_version(2, 0, 7):
-                        addr_format = address.FMT_CASHADDR
-                else:
-                    if client.atleast_version(1, 6, 2):
-                        addr_format = address.FMT_UI
                 txoutputtype.address = address.to_full_string(addr_format)
             return txoutputtype
 
