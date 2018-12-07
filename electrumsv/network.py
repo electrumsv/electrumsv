@@ -1104,7 +1104,7 @@ class Network(util.DaemonThread):
                 self.switch_lagging_interface()
                 self.notify('updated')
         elif interface.mode == Interface.MODE_DEFAULT:
-            interface.print_error("ignored header {} received in default mode".format(height))
+            interface.print_error("ignored header {} received in default mode, {}".format(height, result))
             return
 
         # If not finished, get the next header
@@ -1305,14 +1305,6 @@ class Network(util.DaemonThread):
         if not self.verified_checkpoint:
             self.init_headers_file()
             self.verified_checkpoint = True
-
-        # rt12 --- checkpoint generation currently disabled.
-        if False:
-            with self.interface_lock:
-                interfaces = list(self.interfaces.values())
-            for interface_entry in interfaces:
-                interface_entry.blockchain = self.blockchains[0]
-                interface_entry.set_mode(Interface.MODE_DEFAULT)
 
         interface.print_error("server was verified correctly")
         interface.set_mode(Interface.MODE_DEFAULT)
