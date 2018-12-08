@@ -35,7 +35,7 @@ import time
 import json
 import copy
 import errno
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from decimal import Decimal
 from functools import partial
 
@@ -69,6 +69,9 @@ TX_STATUS = [
     _('Not Verified'),
 ]
 
+
+TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
+                    'fee height conf timestamp exp_n')
 
 
 def relayfee(network):
@@ -572,7 +575,8 @@ class Abstract_Wallet(PrintError):
                 height, conf, timestamp = self.get_tx_height(tx_hash)
                 if height > 0:
                     if conf:
-                        status = _("{} confirmations").format(conf)
+                        status = _("{:,d} confirmations (in block {:,d})"
+                            ).format(conf, height)
                     else:
                         status = _('Not verified')
                 else:
@@ -601,7 +605,8 @@ class Abstract_Wallet(PrintError):
         else:
             amount = None
 
-        return tx_hash, status, label, can_broadcast, amount, fee, height, conf, timestamp, exp_n
+        return TxInfo(tx_hash, status, label, can_broadcast, amount, fee,
+                      height, conf, timestamp, exp_n)
 
     def get_addr_io(self, address):
         h = self.get_address_history(address)

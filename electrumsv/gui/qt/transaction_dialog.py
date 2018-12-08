@@ -196,16 +196,19 @@ class TxDialog(QDialog, MessageBoxMixin):
         desc = self.desc
         base_unit = self.main_window.base_unit()
         format_amount = self.main_window.format_amount
-        tx_hash, status, label, can_broadcast, amount, fee, height, conf, timestamp, exp_n = self.wallet.get_tx_info(self.tx)
+        tx_info = self.wallet.get_tx_info(self.tx)
+
         size = self.tx.estimated_size()
-        self.broadcast_button.setEnabled(can_broadcast)
+        self.broadcast_button.setEnabled(tx_info.can_broadcast)
         can_sign = not self.tx.is_complete() and \
             (self.wallet.can_sign(self.tx) or bool(self.main_window.tx_external_keypairs))
         self.sign_button.setEnabled(can_sign)
-        self.tx_hash_e.setText(tx_hash or _('Unknown'))
-        if fee is None:
+        self.tx_hash_e.setText(tx_info.hash or _('Unknown'))
+        if tx_info.fee is None:
             try:
-                fee = self.tx.get_fee() # Try and compute fee. We don't always have 'value' in all the inputs though. :/
+                # Try and compute fee. We don't always have 'value' in
+                # all the inputs though. :/
+                tx_info.fee = self.tx.get_fee()
             except KeyError: # Value key missing from an input
                 pass
         if desc is None:
@@ -213,29 +216,40 @@ class TxDialog(QDialog, MessageBoxMixin):
         else:
             self.tx_desc.setText(_("Description") + ': ' + desc)
             self.tx_desc.show()
-        self.status_label.setText(_('Status:') + ' ' + status)
+        self.status_label.setText(_('Status:') + ' ' + tx_info.status)
 
-        if timestamp:
-            time_str = datetime.datetime.fromtimestamp(timestamp).isoformat(' ')[:-3]
+        if tx_info.timestamp:
+            time_str = datetime.datetime.fromtimestamp(
+                tx_info.timestamp).isoformat(' ')[:-3]
             self.date_label.setText(_("Date: {}").format(time_str))
             self.date_label.show()
-        elif exp_n:
-            text = '%d blocks'%(exp_n) if exp_n > 0 else _('unknown (low fee)')
+        elif tx_info.exp_n:
+            text = ('{:d} blocks'.format(exp_n) if exp_n > 0 else
+                    _('unknown (low fee)'))
             self.date_label.setText(_('Expected confirmation time') + ': ' + text)
             self.date_label.show()
         else:
             self.date_label.hide()
-        if amount is None:
+        if tx_info.amount is None:
             amount_str = _("Transaction unrelated to your wallet")
-        elif amount > 0:
-            amount_str = _("Amount received:") + ' %s'% format_amount(amount) + ' ' + base_unit
+        elif tx_info.amount > 0:
+            amount_str = '{} {} {}'.format(_("Amount received:"),
+                                           format_amount(tx_info.amount),
+                                           base_unit)
         else:
-            amount_str = _("Amount sent:") + ' %s'% format_amount(-amount) + ' ' + base_unit
+            amount_str = '{} {} {}'.format(_("Amount sent:"),
+                                           format_amount(-tx_info.amount),
+                                           base_unit)
         size_str = _("Size:") + ' %d bytes'% size
-        fee_str = _("Fee") + ': %s'% (format_amount(fee) + ' ' + base_unit if fee is not None else _('unknown'))
+        if tx_info.fee is not None:
+            fee_amount = '{} {}'.format(format_amount(tx_info.fee), base_unit)
+        else:
+            fee_amount = _('unknown')
+        fee_str = '{}: {}'.format(_("Fee"), fee_amount)
         dusty_fee = self.tx.ephemeral.get('dust_to_fee', 0)
-        if fee is not None:
-            fee_str += '  ( %s ) '%  self.main_window.format_fee_rate(fee/size*1000)
+        if tx_info.fee is not None:
+            fee_str += '  ( {} ) '.format(self.main_window.format_fee_rate(
+                tx_info.fee / size * 1000))
             if dusty_fee:
                 fee_str += ' <font color=#999999>' + (_("( %s in dust was added to fee )") % format_amount(dusty_fee)) + '</font>'
         self.amount_label.setText(amount_str)
