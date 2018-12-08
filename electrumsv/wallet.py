@@ -71,7 +71,7 @@ TX_STATUS = [
 
 
 TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
-                    'fee height conf timestamp exp_n')
+                    'fee height conf timestamp')
 
 
 def relayfee(network):
@@ -564,7 +564,6 @@ class Abstract_Wallet(PrintError):
 
     def get_tx_info(self, tx):
         is_relevant, is_mine, v, fee = self.get_wallet_delta(tx)
-        exp_n = None
         can_broadcast = False
         label = ''
         height = conf = timestamp = None
@@ -586,7 +585,6 @@ class Abstract_Wallet(PrintError):
                     if fee and self.network.config.has_fee_estimates():
                         size = tx.estimated_size()
                         fee_per_kb = fee * 1000 / size
-                        exp_n = self.network.config.reverse_dynfee(fee_per_kb)
             else:
                 status = _("Signed")
                 can_broadcast = self.network is not None
@@ -606,7 +604,7 @@ class Abstract_Wallet(PrintError):
             amount = None
 
         return TxInfo(tx_hash, status, label, can_broadcast, amount, fee,
-                      height, conf, timestamp, exp_n)
+                      height, conf, timestamp)
 
     def get_addr_io(self, address):
         h = self.get_address_history(address)
