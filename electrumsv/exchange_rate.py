@@ -161,10 +161,10 @@ class Bitfinex(ExchangeBase):
     INDEX_VOLUME = 8
     INDEX_HIGH = 9
     INDEX_LOW = 10
-    
+
     def get_rates(self, ccy):
         json_value = self.get_json('api.bitfinex.com', '/v2/tickers?symbols=tBSVUSD')
-        usd_entry = json_value[0]        
+        usd_entry = json_value[0]
         return {
             'USD': Decimal(usd_entry[Bitfinex.INDEX_LAST_PRICE]),
         }
@@ -217,16 +217,16 @@ class CoinPaprika(ExchangeBase):
     def get_rates(self, ccy):
         json = self.get_json('api.coinpaprika.com', '/v1/tickers/bsv-bitcoin-sv')
         return {'USD': Decimal(json['quotes']['USD']['price'])}
-        
+
     def history_ccys(self):
         return ['USD']
 
-    def request_history(self, ccy):        
+    def request_history(self, ccy):
         limit = 1000
         end_date = datetime.date.today()
         start_date = end_date - datetime.timedelta(days=limit-1)
         history = self.get_json('api.coinpaprika.com', "/v1/tickers/bsv-bitcoin-sv/historical?start={}&quote=USD&limit={}&interval=24h".format(start_date.strftime("%Y-%m-%d"), limit))
-        return dict([(datetime.datetime.strptime(h['timestamp'], '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d'), h['price']) for h in history])        
+        return dict([(datetime.datetime.strptime(h['timestamp'], '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d'), h['price']) for h in history])
 
 class CoinCap(ExchangeBase):
     def get_rates(self, ccy):
@@ -392,7 +392,8 @@ class FxThread(ThreadJob):
 
     def set_currency(self, ccy):
         self.ccy = ccy
-        self.config.set_key('currency', ccy, True)
+        if self.get_currency() != ccy:
+            self.config.set_key('currency', ccy, True)
         self.timeout = 0 # Because self.ccy changes
         self.on_quotes()
 
@@ -422,8 +423,12 @@ class FxThread(ThreadJob):
             return Decimal(rate)
 
     def format_amount_and_units(self, btc_balance):
+        amount_str = self.format_amount(btc_balance)
+        return '' if not amount_str else "%s %s" % (amount_str, self.ccy)
+
+    def format_amount(self, btc_balance):
         rate = self.exchange_rate()
-        return '' if rate is None else "%s %s" % (self.value_str(btc_balance, rate), self.ccy)
+        return '' if rate is None else self.value_str(btc_balance, rate)
 
     def get_fiat_status_text(self, btc_balance, base_unit, decimal_point):
         rate = self.exchange_rate()
