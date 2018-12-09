@@ -30,8 +30,8 @@ os.system(cmd)
 
 os.chdir('electrumsv')
 
-crowdin_identifier = 'electrum-sv'
-crowdin_file_name = 'files[electrum-sv-client/messages.pot]'
+crowdin_identifier = 'electron-cash'
+crowdin_file_name = 'files[electron-cash-client/messages.pot]'
 locale_file_name = 'locale/messages.pot'
 crowdin_api_key = None
 
@@ -81,6 +81,6 @@ for lang in os.listdir('locale'):
     msg_dir = 'locale/{}/LC_MESSAGES'.format(lang)
     if not os.path.exists(msg_dir):
         os.mkdir(msg_dir)
-    cmd = 'msgfmt --output-file="{0}/electrum-sv.mo" "{0}/electrum-sv.po"'.format(msg_dir)
+    cmd = 'msgfmt --output-file="{0}/electrum-sv.mo" "{0}/electron-cash.po"'.format(msg_dir)
     print('Installing', lang)
     os.system(cmd)

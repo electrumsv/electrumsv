@@ -7,7 +7,7 @@ import os
 
 PACKAGE='Electrum-SV'
 PYPKG='electrumsv'
-MAIN_SCRIPT='w-sv'
+MAIN_SCRIPT='electrum-sv'
 ICONS_FILE='electrum-sv.icns'
 
 for i, x in enumerate(sys.argv):
@@ -15,7 +15,7 @@ for i, x in enumerate(sys.argv):
         VERSION = sys.argv[i+1]
         break
 else:
-    raise BaseException('no version')
+    raise Exception('no version')
 
 electrum = os.path.abspath(".") + "/"
 block_cipher = None
@@ -27,11 +27,10 @@ hiddenimports += collect_submodules('btchip')
 hiddenimports += collect_submodules('keepkeylib')
 
 datas = [
-    (electrum+'lib/currencies.json', PYPKG),
-    (electrum+'lib/servers.json', PYPKG),
-    (electrum+'lib/wordlist/english.txt', PYPKG + '/wordlist'),
-    (electrum+'lib/locale', PYPKG + '/locale'),
-    (electrum+'plugins', PYPKG + '_plugins'),
+    (electrum + PYPKG + '/*.json', PYPKG),
+    (electrum + PYPKG + '/wordlist/english.txt', PYPKG + '/wordlist'),
+    (electrum + PYPKG + '/locale', PYPKG + '/locale'),
+    (electrum + PYPKG + '/plugins', PYPKG + '/plugins'),
 ]
 datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
@@ -40,28 +39,28 @@ datas += collect_data_files('keepkeylib')
 # Add the QR Scanner helper app
 datas += [(electrum + "contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app", "./contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app")]
 
-# Add libusb so Trezor will work
+# Add libusb so Trezor and Safe-T mini will work
 binaries = [(electrum + "contrib/osx/libusb-1.0.dylib", ".")]
+binaries += [(electrum + "contrib/osx/libsecp256k1.0.dylib", ".")]
 
 # Workaround for "Retro Look":
 binaries += [b for b in collect_dynamic_libs('PyQt5') if 'macstyle' in b[0]]
 
 # We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
-a = Analysis([electrum+MAIN_SCRIPT,
-              electrum+'gui/qt/main_window.py',
-              electrum+'gui/text.py',
-              electrum+'lib/util.py',
-              electrum+'lib/wallet.py',
-              electrum+'lib/simple_config.py',
-              electrum+'lib/bitcoin.py',
-              electrum+'lib/dnssec.py',
-              electrum+'lib/commands.py',
-              electrum+'plugins/cosigner_pool/qt.py',
-              electrum+'plugins/email_requests/qt.py',
-              electrum+'plugins/trezor/client.py',
-              electrum+'plugins/trezor/qt.py',
-              electrum+'plugins/keepkey/qt.py',
-              electrum+'plugins/ledger/qt.py',
+a = Analysis([electrum+ MAIN_SCRIPT,
+              electrum+'electrumsv/gui/qt/main_window.py',
+              electrum+'electrumsv/gui/text.py',
+              electrum+'electrumsv/util.py',
+              electrum+'electrumsv/wallet.py',
+              electrum+'electrumsv/simple_config.py',
+              electrum+'electrumsv/bitcoin.py',
+              electrum+'electrumsv/dnssec.py',
+              electrum+'electrumsv/commands.py',
+              electrum+'electrumsv/plugins/cosigner_pool/qt.py',
+              electrum+'electrumsv/plugins/email_requests/qt.py',
+              electrum+'electrumsv/plugins/trezor/qt.py',
+              electrum+'electrumsv/plugins/keepkey/qt.py',
+              electrum+'electrumsv/plugins/ledger/qt.py',
               ],
              binaries=binaries,
              datas=datas,
@@ -73,16 +72,15 @@ for d in a.datas:
     if 'pyconfig' in d[0]:
         a.datas.remove(d)
         break
-# Remove QtWeb and other stuff that we know we never use.
-# This is a hack of sorts that works to keep the binary file size reasonable.
-bins2remove=('qtweb', 'qt3d', 'qtgame', 'qtdesigner', 'qtquick', 'qtlocation', 'qttest', 'qtxml')
-print("Removing", *bins2remove)
+
+# Strip out parts of Qt that we never use. Reduces binary size by tens of MBs. see #4815
+qt_bins2remove=('qtweb', 'qt3d', 'qtgame', 'qtdesigner', 'qtquick', 'qtlocation', 'qttest', 'qtxml')
+print("Removing Qt binaries:", *qt_bins2remove)
 for x in a.binaries.copy():
-    for r in bins2remove:
+    for r in qt_bins2remove:
         if x[0].lower().startswith(r):
             a.binaries.remove(x)
-            print('----> Removed:', x)
-#
+            print('----> Removed x =', x)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
@@ -102,8 +100,8 @@ app = BUNDLE(exe,
              name=PACKAGE + '.app',
              icon=electrum+ICONS_FILE,
              bundle_identifier=None,
-             info_plist = {
-                 'NSHighResolutionCapable':'True',
-                 'NSSupportsAutomaticGraphicsSwitching':'True'
+             info_plist={
+                'NSHighResolutionCapable': 'True',
+                'NSSupportsAutomaticGraphicsSwitching': 'True'
              }
 )
