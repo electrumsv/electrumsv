@@ -9,6 +9,6 @@ cache:
   - pip
 script:
     - tox
-    - coveralls
 after_success:
     - if [ "$TRAVIS_BRANCH" = "master" ]; then pip install pycurl requests && contrib/make_locale; fi
+    - coveralls
