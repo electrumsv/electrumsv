@@ -134,9 +134,6 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
             client.used()
         return client
 
-    def get_coin_name(self):
-        return "Testnet" if NetworkConstants.TESTNET else "Bitcoin"
-
     def initialize_device(self, device_id, wizard, handler):
         # Initialization method
         msg = _("Choose how you want to initialize your {}.\n\n"
@@ -224,15 +221,13 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
 
     def show_address(self, wallet, address):
         client = self.get_client(wallet.keystore)
-        if not client.atleast_version(1, 3):
-            wallet.keystore.handler.show_error(_("Your device firmware is too old"))
-            return
         change, index = wallet.get_address_index(address)
         derivation = wallet.keystore.derivation
         address_path = "%s/%d/%d"%(derivation, change, index)
         address_n = client.expand_path(address_path)
         script_type = self.types.SPENDADDRESS
-        client.get_address(self.get_coin_name(), address_n, True, script_type=script_type)
+        client.get_address(self.get_display_coin_name(), address_n,
+                           True, script_type=script_type)
 
     def tx_inputs(self, tx, for_sig=False):
         inputs = []

@@ -155,6 +155,10 @@ class TrezorPlugin(HW_PluginBase):
         # Note: testnet supported only by unofficial firmware
         return "Bcash Testnet" if NetworkConstants.TESTNET else "Bcash"
 
+    def get_display_coin_name(self):
+        # For showing addresses
+        return "Testnet" if NetworkConstants.TESTNET else "Bitcoin"
+
     def initialize_device(self, device_id, wizard, handler):
         # Initialization method
         msg = _("Choose how you want to initialize your {}.\n\n"
@@ -301,9 +305,6 @@ class TrezorPlugin(HW_PluginBase):
         if keystore is None:
             keystore = wallet.get_keystore()
         client = self.get_client(keystore)
-        if not client.atleast_version(1, 3):
-            keystore.handler.show_error(_("Your device firmware is too old"))
-            return
         change, index = wallet.get_address_index(address)
         derivation = keystore.derivation
         address_path = "%s/%d/%d"%(derivation, change, index)
@@ -311,7 +312,8 @@ class TrezorPlugin(HW_PluginBase):
         xpubs = wallet.get_master_public_keys()
         if len(xpubs) == 1:
             script_type = self.get_trezor_input_script_type(is_multisig=False)
-            client.get_address(self.get_coin_name(), address_n, True, script_type=script_type)
+            client.get_address(self.get_display_coin_name(), address_n,
+                               True, script_type=script_type)
         else:
             def f(xpub):
                 return self._make_node_path(xpub, [change, index])
@@ -325,7 +327,8 @@ class TrezorPlugin(HW_PluginBase):
                m=wallet.m,
             )
             script_type = self.get_trezor_input_script_type(is_multisig=True)
-            client.get_address(self.get_coin_name(), address_n, True, multisig=multisig, script_type=script_type)
+            client.get_address(self.get_display_coin_name(), address_n, True,
+                               multisig=multisig, script_type=script_type)
 
     def tx_inputs(self, tx, for_sig=False):
         inputs = []
