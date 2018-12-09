@@ -2,9 +2,10 @@
 
 build_dir=$(dirname "$0")
 test -n "$build_dir" -a -d "$build_dir" || exit
-cd $build_dir/../..
 
 . "$build_dir"/base.sh # functions we use below
+
+cd $build_dir/../..
 
 export PYTHONHASHSEED=22
 VERSION=`git describe --tags`
@@ -13,8 +14,8 @@ VERSION=`git describe --tags`
 PYTHON_VERSION=3.6.4
 BUILDDIR=/tmp/electrum-sv-build
 PACKAGE=Electrum-SV
-GIT_REPO_ACCT=https://github.com/Electrum-SV
-GIT_REPO=$GIT_REPO_ACCT/Electrum-SV
+GIT_REPO_ACCT=https://github.com/Electron-Cash
+GIT_REPO=$GIT_REPO_ACCT/Electron-Cash
 LIBSECP_VERSION=452d8e4d2a2f9f1b5be6b02e18f1ba102e5ca0b4
 
 which xcodebuild > /dev/null 2>&1 || fail "Please install Xcode and xcode command line tools to continue"
