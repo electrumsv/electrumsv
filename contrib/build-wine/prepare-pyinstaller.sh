@@ -1,10 +1,14 @@
 #!/bin/bash
-PYTHON_VERSION=3.5.4
+source `dirname "$0"`/vars.sh
+if [[ -z "${WINEPREFIX}" ]]; then
+	echo Failed to import variables.
+	exit 0
+fi
 
-PYINSTALLER_GIT_URL=https://github.com/Electrum-SV/pyinstaller
+#PYINSTALLER_GIT_URL=https://github.com/Electrum-SV/pyinstaller
+PYINSTALLER_GIT_URL=https://github.com/rt121212121/pyinstaller
 BRANCH=fix_2952
 
-export WINEPREFIX=/opt/wine64
 PYHOME=c:/python$PYTHON_VERSION
 PYTHON="wine $PYHOME/python.exe -OO -B"
 

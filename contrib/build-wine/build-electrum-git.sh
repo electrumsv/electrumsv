@@ -1,49 +1,57 @@
 #!/bin/bash
+source `dirname "$0"`/vars.sh
+if [[ -z "${WINEPREFIX}" ]]; then
+	echo Failed to import variables.
+	exit 0
+fi
 
 NAME_ROOT=electrum
-PYTHON_VERSION=3.5.4
 
-CHECKOUT_TAG=3.3.2
+MAIN_REPO_NAME=electrum-sv
+MAIN_REPO_BRANCH=dev
+LOCALE_REPO_NAME=electrum-locale
+ICONS_REPO_NAME=electrum-icons
+CHECKOUT_TAG=tip
 
 # These settings probably don't need any change
-export WINEPREFIX=/opt/wine64
 export PYTHONDONTWRITEBYTECODE=1
-export PYTHONHASHSEED=22
 
 PYHOME=c:/python$PYTHON_VERSION
-PYTHON="wine $PYHOME/python.exe -OO -B"
+PYTHON="$WINE_EXE $PYHOME/python.exe -OO -B"
 
 
 # Let's begin!
 cd `dirname $0`
+echo `pwd`
 set -e
 
 cd tmp
 
-
-if [ -d electrum ]; then
-    cd electrum
-    git checkout master
+if [ -d $MAIN_REPO_NAME ]; then
+    cd $MAIN_REPO_NAME
+    git checkout $MAIN_REPO_BRANCH
     git pull
     cd ..
 else
-    URL=https://github.com/Electrum-SV/Electrum-SV
-    git clone -b master $URL electrum # rest of script assumes the dir is called 'electrum'
+    URL=https://github.com/rt121212121/Electrum-SV
+    # URL=https://github.com/Electrum-SV/Electrum-SV
+    git clone -b $MAIN_REPO_BRANCH $URL $MAIN_REPO_NAME
 fi
 
-for repo in electrum-locale electrum-icons; do
+for repo in $LOCALE_REPO_NAME $ICONS_REPO_NAME; do
     if [ -d $repo ]; then
         cd $repo
         git checkout master
         git pull
         cd ..
     else
-        URL=https://github.com/Electrum-SV/$repo
+        URL=https://github.com/rt121212121/$repo
+        # URL=https://github.com/Electrum-SV/$repo
         git clone -b master $URL $repo
     fi
 done
 
-pushd electrum-locale
+pushd $LOCALE_REPO_NAME
 for i in ./locale/*; do
     dir=$i/LC_MESSAGES
     mkdir -p $dir
@@ -52,7 +60,7 @@ done
 popd
 
 
-pushd electrum
+pushd $MAIN_REPO_NAME
 
 if [ ! -z "$1" ]; then
     git checkout $1
@@ -66,11 +74,10 @@ find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
 rm -rf $WINEPREFIX/drive_c/electrum
-cp -r electrum $WINEPREFIX/drive_c/electrum
-cp electrum/LICENCE .
-cp -r electrum-locale/locale $WINEPREFIX/drive_c/electrum/lib/
-cp electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum/gui/qt/
-
+cp -r $MAIN_REPO_NAME $WINEPREFIX/drive_c/electrum
+cp $MAIN_REPO_NAME/LICENCE .
+cp -r $LOCALE_REPO_NAME/locale $WINEPREFIX/drive_c/electrum/electrumsv/
+cp $ICONS_REPO_NAME/icons_rc.py $WINEPREFIX/drive_c/electrum/electrumsv/gui/qt/
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
@@ -86,8 +93,7 @@ rm -rf dist/
 
 
 # build standalone and portable versions
-wine "C:/python$PYTHON_VERSION/scripts/pyinstaller.exe" --noconfirm --ascii --name $NAME_ROOT-$VERSION -w deterministic.spec
-
+$WINE_EXE "C:/python$PYTHON_VERSION/scripts/pyinstaller.exe" --noconfirm --ascii --name $NAME_ROOT-$VERSION -w deterministic.spec
 
 # set timestamps in dist, in order to make the installer reproducible
 pushd dist
@@ -97,7 +103,7 @@ popd
 
 # build NSIS installer
 # $VERSION could be passed to the electrum.nsi script, but this would require some rewriting in the script iself.
-wine "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
+$WINE_EXE "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
 
 cd dist
 mv electrum-setup.exe $NAME_ROOT-$VERSION-setup.exe

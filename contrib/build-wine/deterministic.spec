@@ -28,12 +28,12 @@ binaries += [('C:/tmp/libsecp256k1.dll', '.')]
 binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]]
 
 datas = [
-    (home+'lib/currencies.json', 'electrumsv'),
-    (home+'lib/servers.json', 'electrumsv'),
-    (home+'lib/servers_testnet.json', 'electrumsv'),
-    (home+'lib/wordlist/english.txt', 'electrumsv/wordlist'),
-    (home+'lib/locale', 'electrumsv/locale'),
-    (home+'plugins', 'electrumsv_plugins'),
+    (home+'electrumsv/lib/currencies.json', 'electrumsv'),
+    (home+'electrumsv/lib/servers.json', 'electrumsv'),
+    (home+'electrumsv/lib/servers_testnet.json', 'electrumsv'),
+    (home+'electrumsv/lib/wordlist/english.txt', 'electrumsv/wordlist'),
+    (home+'electrumsv/lib/locale', 'electrumsv/locale'),
+    (home+'electrumsv/plugins', 'electrumsv_plugins'),
     ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),
 ]
 datas += collect_data_files('trezorlib')
@@ -42,20 +42,20 @@ datas += collect_data_files('keepkeylib')
 
 # We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
 a = Analysis([home+'electrum-sv',
-              home+'gui/qt/main_window.py',
-              home+'gui/text.py',
-              home+'lib/util.py',
-              home+'lib/wallet.py',
-              home+'lib/simple_config.py',
-              home+'lib/bitcoin.py',
-              home+'lib/dnssec.py',
-              home+'lib/commands.py',
-              home+'plugins/cosigner_pool/qt.py',
-              home+'plugins/email_requests/qt.py',
-              home+'plugins/trezor/client.py',
-              home+'plugins/trezor/qt.py',
-              home+'plugins/keepkey/qt.py',
-              home+'plugins/ledger/qt.py',
+              home+'electrumsv/gui/qt/main_window.py',
+              home+'electrumsv/gui/text.py',
+              home+'electrumsv/lib/util.py',
+              home+'electrumsv/lib/wallet.py',
+              home+'electrumsv/lib/simple_config.py',
+              home+'electrumsv/lib/bitcoin.py',
+              home+'electrumsv/lib/dnssec.py',
+              home+'electrumsv/lib/commands.py',
+              home+'electrumsv/plugins/cosigner_pool/qt.py',
+              home+'electrumsv/plugins/email_requests/qt.py',
+              home+'electrumsv/plugins/trezor/client.py',
+              home+'electrumsv/plugins/trezor/qt.py',
+              home+'electrumsv/plugins/keepkey/qt.py',
+              home+'electrumsv/plugins/ledger/qt.py',
               #home+'packages/requests/utils.py'
               ],
              binaries=binaries,

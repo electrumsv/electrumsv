@@ -1,4 +1,9 @@
 #!/bin/bash
+source `dirname "$0"`/vars.sh
+if [[ -z "${WINEPREFIX}" ]]; then
+	echo Failed to import variables.
+	exit 0
+fi
 
 # Please update these carefully, some versions won't work under Wine
 NSIS_URL=https://prdownloads.sourceforge.net/nsis/nsis-3.02.1-setup.exe?download
@@ -10,15 +15,8 @@ ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 LIBUSB_URL=https://prdownloads.sourceforge.net/project/libusb/libusb-1.0/libusb-1.0.21/libusb-1.0.21.7z?download
 LIBUSB_SHA256=acdde63a40b1477898aee6153f9d91d1a2e8a5d93f832ca8ab876498f3a6d2b8
 
-PYTHON_VERSION=3.5.4
-
-## These settings probably don't need change
-export WINEPREFIX=/opt/wine64
-#export WINEARCH='win32'
-
 PYHOME=c:/python$PYTHON_VERSION
-PYTHON="wine $PYHOME/python.exe -OO -B"
-
+PYTHON="$WINE_EXE $PYHOME/python.exe -OO -B"
 
 # based on https://superuser.com/questions/497940/script-to-verify-a-signature-with-gpg
 verify_signature() {
@@ -49,10 +47,12 @@ set -e
 
 # Clean up Wine environment
 echo "Cleaning $WINEPREFIX"
-rm -rf $WINEPREFIX
+if [ -d $WINEPREFIX ]; then
+	rm -rf $WINEPREFIX/*
+fi
 echo "done"
 
-wine 'wineboot'
+$WINE_EXE 'wineboot'
 
 echo "Cleaning tmp"
 rm -rf tmp
@@ -72,7 +72,7 @@ for msifile in core dev exe lib pip tools; do
     wget "https://www.python.org/ftp/python/$PYTHON_VERSION/win32/${msifile}.msi"
     wget "https://www.python.org/ftp/python/$PYTHON_VERSION/win32/${msifile}.msi.asc"
     verify_signature "${msifile}.msi.asc" $KEYRING_PYTHON_DEV
-    wine msiexec /i "${msifile}.msi" /qb TARGETDIR=C:/python$PYTHON_VERSION
+    $WINE_EXE msiexec /i "${msifile}.msi" /qb TARGETDIR=C:/python$PYTHON_VERSION
 done
 
 # upgrade pip
@@ -92,7 +92,7 @@ $PYTHON -m pip install https://github.com/ecdsa/pyinstaller/archive/fix_2952.zip
 # Install ZBar
 wget -q -O zbar.exe "$ZBAR_URL"
 verify_hash zbar.exe $ZBAR_SHA256
-wine zbar.exe /S
+$WINE_EXE zbar.exe /S
 
 
 # Upgrade setuptools (so Electrum can be installed later)
@@ -101,22 +101,16 @@ $PYTHON -m pip install setuptools --upgrade
 # Install NSIS installer
 wget -q -O nsis.exe "$NSIS_URL"
 verify_hash nsis.exe $NSIS_SHA256
-wine nsis.exe /S
+$WINE_EXE nsis.exe /S
 
 wget -q -O libusb.7z "$LIBUSB_URL"
 verify_hash libusb.7z "$LIBUSB_SHA256"
 7z x -olibusb libusb.7z
 cp libusb/MS32/dll/libusb-1.0.dll $WINEPREFIX/drive_c/python$PYTHON_VERSION/
 
-# Install UPX
-#wget -O upx.zip "https://downloads.sourceforge.net/project/upx/upx/3.08/upx308w.zip"
-#unzip -o upx.zip
-#cp upx*/upx.exe .
-
 # libsecp256k1
 mkdir -p $WINEPREFIX/drive_c/tmp
 cp /tmp/electrum-build/secp256k1/libsecp256k1.dll $WINEPREFIX/drive_c/tmp/
-
 
 # add dlls needed for pyinstaller:
 cp $WINEPREFIX/drive_c/python$PYTHON_VERSION/Lib/site-packages/PyQt5/Qt/bin/* $WINEPREFIX/drive_c/python$PYTHON_VERSION/
