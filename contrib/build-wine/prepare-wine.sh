@@ -20,8 +20,9 @@ LIBUSB_SHA256=671f1a420757b4480e7fadc8313d6fb3cbb75ca00934c417c1efa6e77fb8779b
 
 PYTHON_VERSION=3.6.6
 
-PYHOME=c:/python$PYTHON_VERSION
-PYTHON="$WINE_EXE $PYHOME/python.exe -OO -B"
+PYTHON_FOLDER="python3"
+PYHOME="c:/$PYTHON_FOLDER"
+PYTHON="wine $PYHOME/python.exe -OO -B"
 
 # based on https://superuser.com/questions/497940/script-to-verify-a-signature-with-gpg
 verify_signature() {
@@ -57,7 +58,7 @@ download_if_not_exist() {
 here=$(dirname $(readlink -e $0))
 set -e
 
-$WINE_EXE 'wineboot'
+wine 'wineboot'
 
 # HACK to work around https://bugs.winehq.org/show_bug.cgi?id=42474#c22
 # needed for python 3.6+
@@ -77,7 +78,7 @@ for msifile in core dev exe lib pip tools; do
     wget -N -c "https://www.python.org/ftp/python/$PYTHON_VERSION/win32/${msifile}.msi"
     wget -N -c "https://www.python.org/ftp/python/$PYTHON_VERSION/win32/${msifile}.msi.asc"
     verify_signature "${msifile}.msi.asc" $KEYRING_PYTHON_DEV
-    $WINE_EXE msiexec /i "${msifile}.msi" /qb TARGETDIR=C:/python$PYTHON_VERSION
+    wine msiexec /i "${msifile}.msi" /qb TARGETDIR=$PYHOME
 done
 
 # upgrade pip
@@ -94,7 +95,7 @@ $PYTHON -m pip install pyinstaller==3.4
 # Install ZBar
 download_if_not_exist $ZBAR_FILENAME "$ZBAR_URL"
 verify_hash $ZBAR_FILENAME "$ZBAR_SHA256"
-$WINE_EXE "$PWD/$ZBAR_FILENAME" /S
+wine "$PWD/$ZBAR_FILENAME" /S
 
 # Upgrade setuptools (so Electrum can be installed later)
 $PYTHON -m pip install setuptools --upgrade
@@ -102,13 +103,13 @@ $PYTHON -m pip install setuptools --upgrade
 # Install NSIS installer
 download_if_not_exist $NSIS_FILENAME "$NSIS_URL"
 verify_hash $NSIS_FILENAME "$NSIS_SHA256"
-$WINE_EXE "$PWD/$NSIS_FILENAME" /S
+wine "$PWD/$NSIS_FILENAME" /S
 
 download_if_not_exist $LIBUSB_FILENAME "$LIBUSB_URL"
 verify_hash $LIBUSB_FILENAME "$LIBUSB_SHA256"
 7z x -olibusb $LIBUSB_FILENAME -aoa
 
-cp libusb/MS32/dll/libusb-1.0.dll $WINEPREFIX/drive_c/python$PYTHON_VERSION/
+cp libusb/MS32/dll/libusb-1.0.dll $WINEPREFIX/drive_c/$PYTHON_FOLDER/
 
 mkdir -p $WINEPREFIX/drive_c/tmp
 cp secp256k1/libsecp256k1.dll $WINEPREFIX/drive_c/tmp/

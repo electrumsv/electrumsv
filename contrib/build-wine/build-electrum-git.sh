@@ -8,13 +8,12 @@ fi
 NAME_ROOT=electrum
 LOCALE_REPO_NAME=electrum-locale
 ICONS_REPO_NAME=electrum-icons
-PYTHON_VERSION=3.6.6
 
 # These settings probably don't need any change
 export PYTHONDONTWRITEBYTECODE=1
 
-PYHOME=c:/python$PYTHON_VERSION
-PYTHON="$WINE_EXE $PYHOME/python.exe -OO -B"
+PYHOME=c:/python3
+PYTHON="wine $PYHOME/python.exe -OO -B"
 
 
 # Let's begin!
@@ -66,7 +65,7 @@ cd ..
 rm -rf dist/
 
 # build standalone and portable versions
-$WINE_EXE "C:/python$PYTHON_VERSION/scripts/pyinstaller.exe" --noconfirm --ascii --name $NAME_ROOT-$VERSION -w deterministic.spec
+wine "$PYHOME/scripts/pyinstaller.exe" --noconfirm --ascii --clean --name $NAME_ROOT-$VERSION -w deterministic.spec
 
 # set timestamps in dist, in order to make the installer reproducible
 pushd dist
@@ -75,7 +74,7 @@ popd
 
 # build NSIS installer
 # $VERSION could be passed to the electrum.nsi script, but this would require some rewriting in the script iself.
-$WINE_EXE "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
+wine "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
 
 cd dist
 mv electrum-setup.exe $NAME_ROOT-$VERSION-setup.exe

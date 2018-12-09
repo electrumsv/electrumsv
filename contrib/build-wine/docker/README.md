@@ -27,7 +27,7 @@ similar system.
 
     ```
     $ git checkout $REV
-    $ sudo docker run \
+    $ sudo docker run -it \
         --name electrum-wine-builder-cont \
         -v $PWD:/opt/wine64/drive_c/electrum \
         --rm \
