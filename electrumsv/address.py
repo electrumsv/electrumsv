@@ -315,13 +315,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         return super().__new__(cls, hash160, kind)
 
     @classmethod
-    def toggle_cashaddr(cls):
-        if cls.FMT_UI == cls.FMT_BITCOIN:
-            cls.FMT_UI = cls.FMT_CASHADDR
-        else:
-            cls.FMT_UI = cls.FMT_BITCOIN
-
-    @classmethod
     def from_cashaddr_string(cls, string):
         '''Construct from a cashaddress string.'''
         prefix = NetworkConstants.CASHADDR_PREFIX

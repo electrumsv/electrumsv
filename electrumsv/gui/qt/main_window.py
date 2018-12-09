@@ -101,7 +101,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
     alias_received_signal = pyqtSignal()
     computing_privkeys_signal = pyqtSignal()
     show_privkeys_signal = pyqtSignal()
-    cashaddr_toggled_signal = pyqtSignal()
     history_updated_signal = pyqtSignal()
 
     def __init__(self, gui_object, wallet):
@@ -187,7 +186,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         for i in range(wrtabs.count()):
             QShortcut(QKeySequence("Alt+" + str(i + 1)), self, lambda i=i: wrtabs.setCurrentIndex(i))
 
-        self.cashaddr_toggled_signal.connect(self.update_cashaddr_icon)
         self.payment_request_ok_signal.connect(self.payment_request_ok)
         self.payment_request_error_signal.connect(self.payment_request_error)
         self.notify_transactions_signal.connect(self.notify_transactions)
@@ -847,7 +845,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.receive_address_label = HelpLabel(_('Receiving address'), msg)
         self.receive_address_e.textChanged.connect(self.update_receive_qr)
         self.receive_address_e.setFocusPolicy(Qt.NoFocus)
-        self.cashaddr_toggled_signal.connect(self.update_receive_address_widget)
         grid.addWidget(self.receive_address_label, 0, 0)
         grid.addWidget(self.receive_address_e, 0, 1, 1, -1)
 
@@ -1817,19 +1814,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
     def create_addresses_tab(self):
         from .address_list import AddressList
         self.address_list = l = AddressList(self)
-        self.cashaddr_toggled_signal.connect(l.update)
         return self.create_list_tab(l)
 
     def create_utxo_tab(self):
         from .utxo_list import UTXOList
         self.utxo_list = l = UTXOList(self)
-        self.cashaddr_toggled_signal.connect(l.update)
         return self.create_list_tab(l)
 
     def create_contacts_tab(self):
         from .contact_list import ContactList
         self.contact_list = l = ContactList(self)
-        self.cashaddr_toggled_signal.connect(l.update)
         return self.create_list_tab(l)
 
     def remove_address(self, addr):
@@ -2004,13 +1998,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.lock_icon = QIcon()
         self.password_button = StatusBarButton(self.lock_icon, _("Password"), self.change_password_dialog )
         sb.addPermanentWidget(self.password_button)
-
-        self.addr_converter_button = StatusBarButton(
-            self.cashaddr_icon(),
-            _("Toggle CashAddr Display"),
-            self.toggle_cashaddr_status_bar
-        )
-        sb.addPermanentWidget(self.addr_converter_button)
 
         sb.addPermanentWidget(StatusBarButton(QIcon(":icons/preferences.png"), _("Preferences"), self.settings_dialog ) )
         self.seed_button = StatusBarButton(QIcon(":icons/seed.png"), _("Seed"), self.show_seed_dialog )
@@ -2718,23 +2705,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.address_list.refresh_headers()
         self.address_list.update()
         self.update_status()
-
-    def cashaddr_icon(self):
-        if Address.FMT_UI == Address.FMT_CASHADDR:
-            return QIcon(":icons/tab_converter.png")
-        else:
-            return QIcon(":icons/tab_converter_bw.png")
-
-    def update_cashaddr_icon(self):
-        self.addr_converter_button.setIcon(self.cashaddr_icon())
-
-    def toggle_cashaddr_status_bar(self):
-        self.toggle_cashaddr()
-
-    def toggle_cashaddr(self):
-        Address.toggle_cashaddr()
-        for window in self.gui_object.windows:
-            window.cashaddr_toggled_signal.emit()
 
     def settings_dialog(self):
         self.need_restart = False

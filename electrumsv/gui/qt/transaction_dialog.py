@@ -268,8 +268,6 @@ class TxDialog(QDialog, MessageBoxMixin):
         o_text.setFont(QFont(MONOSPACE_FONT))
         o_text.setReadOnly(True)
         vbox.addWidget(o_text)
-        self.main_window.cashaddr_toggled_signal.connect(
-            partial(self.update_io, i_text, o_text))
         self.update_io(i_text, o_text)
 
     def update_io(self, i_text, o_text):

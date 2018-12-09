@@ -57,7 +57,6 @@ class AddressDialog(WindowModalDialog):
         icon = ":icons/qrcode_white.png" if ColorScheme.dark_scheme else ":icons/qrcode.png"
         self.addr_e.addButton(icon, self.show_qr, _("Show QR Code"))
         self.addr_e.setReadOnly(True)
-        self.parent.cashaddr_toggled_signal.connect(self.update_addr)
         vbox.addWidget(self.addr_e)
         self.update_addr()
 
