@@ -59,6 +59,11 @@ mainnet_block_explorers = {
         Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
+    'blockchair.com' : (
+        'https://blockchair.com/bitcoin-sv',
+        Address.FMT_BITCOIN,
+        {'tx': 'transaction', 'addr': 'address'},
+    ),
     'btc.com': (
         'https://bsv.btc.com',
         Address.FMT_BITCOIN,
