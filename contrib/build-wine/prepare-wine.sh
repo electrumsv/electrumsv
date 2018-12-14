@@ -55,13 +55,11 @@ download_if_not_exist() {
 here=$(dirname $(readlink -e $0))
 set -e
 
-wine 'wineboot'
+$WINE_EXE 'wineboot'
 
-echo "Cleaning tmp"
-mkdir -p tmp
-echo "done"
+mkdir -p /tmp/electrum-build
 
-cd tmp
+cd /tmp/electrum-build
 
 # Install Python
 # note: you might need "sudo apt-get install dirmngr" for the following
