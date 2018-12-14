@@ -1,9 +1,6 @@
 #!/bin/bash
-source `dirname "$0"`/vars.sh
-if [[ -z "${WINEPREFIX}" ]]; then
-	echo Failed to import variables.
-	exit 0
-fi
+# Lucky number
+export PYTHONHASHSEED=22
 
 here=$(dirname "$0")
 test -n "$here" -a -d "$here" || exit

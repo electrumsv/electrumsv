@@ -1,9 +1,4 @@
 #!/bin/bash
-source `dirname "$0"`/vars.sh
-if [[ -z "${WINEPREFIX}" ]]; then
-	echo Failed to import variables.
-	exit 0
-fi
 
 # Please update these carefully, some versions won't work under Wine
 NSIS_FILENAME=nsis-3.03-setup.exe
@@ -19,6 +14,10 @@ LIBUSB_URL=https://prdownloads.sourceforge.net/project/libusb/libusb-1.0/libusb-
 LIBUSB_SHA256=671f1a420757b4480e7fadc8313d6fb3cbb75ca00934c417c1efa6e77fb8779b
 
 PYTHON_VERSION=3.6.6
+
+## These settings probably don't need change
+export WINEPREFIX=/opt/wine64
+#export WINEARCH='win32'
 
 PYTHON_FOLDER="python3"
 PYHOME="c:/$PYTHON_FOLDER"
