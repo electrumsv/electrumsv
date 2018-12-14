@@ -36,28 +36,33 @@ from .util import format_satoshis_plain
 mainnet_block_explorers = {
     'bchsvexplorer.com': (
         'https://bchsvexplorer.com',
-        Address.FMT_CASHADDR,
+        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'svblox.com': (
         'https://svblox.com',
-        Address.FMT_CASHADDR,
+        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'whatsonchain.com': (
         'https://whatsonchain.com',
-        Address.FMT_CASHADDR,
+        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'bsvexplorer.io': (
         'https://bsvexplorer.io',
-        Address.FMT_CASHADDR,
+        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'bitcoinsvexplorer.com': (
         'https://www.bitcoinsvexplorer.com',
-        Address.FMT_CASHADDR,
+        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
+    ),
+    'btc.com': (
+        'https://bsv.btc.com',
+        Address.FMT_BITCOIN,
+        {'tx': '', 'addr': ''},
     ),
 }
 
