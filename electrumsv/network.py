@@ -1410,13 +1410,9 @@ class Network(util.DaemonThread):
 
     # NOTE this method handles exceptions and a special edge case, counter to
     # what the other ElectrumX methods do. This is unexpected.
-    def broadcast_transaction(self, transaction, callback=None):
+    def broadcast_transaction(self, transaction):
         command = 'blockchain.transaction.broadcast'
         invocation = lambda c: self.send([(command, [str(transaction)])], c)
-
-        if callback:
-            invocation(callback)
-            return
 
         try:
             out = Network.__wait_for(invocation)
