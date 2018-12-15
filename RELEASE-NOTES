@@ -149,7 +149,7 @@ and there is no warning message.
 
 
 # Release 3.1.1
-  * Requires Python 3.5 or greater
+  * Requires Python 3.6 or greater
   * Fixes JSONPRC security threat
   * Fixes included for ledger for windows
 
