@@ -29,9 +29,9 @@ binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]
 binaries += [('C:/tmp/libsecp256k1.dll', '.')]
 
 datas = [
-    (home+'electrumsv/lib/*.json', 'electrumsv'),
-    (home+'electrumsv/lib/wordlist/english.txt', 'electrumsv/wordlist'),
-    (home+'electrumsv/lib/locale', 'electrumsv/locale'),
+    (home+'electrumsv/*.json', 'electrumsv'),
+    (home+'electrumsv/wordlist/english.txt', 'electrumsv/wordlist'),
+    (home+'electrumsv/locale', 'electrumsv/locale'),
     (home+'electrumsv/plugins', 'electrumsv_plugins'),
     ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),
 ]
@@ -43,12 +43,12 @@ datas += collect_data_files('keepkeylib')
 a = Analysis([home+'electrum-sv',
               home+'electrumsv/gui/qt/main_window.py',
               home+'electrumsv/gui/text.py',
-              home+'electrumsv/lib/util.py',
-              home+'electrumsv/lib/wallet.py',
-              home+'electrumsv/lib/simple_config.py',
-              home+'electrumsv/lib/bitcoin.py',
-              home+'electrumsv/lib/dnssec.py',
-              home+'electrumsv/lib/commands.py',
+              home+'electrumsv/util.py',
+              home+'electrumsv/wallet.py',
+              home+'electrumsv/simple_config.py',
+              home+'electrumsv/bitcoin.py',
+              home+'electrumsv/dnssec.py',
+              home+'electrumsv/commands.py',
               home+'electrumsv/plugins/cosigner_pool/qt.py',
               home+'electrumsv/plugins/email_requests/qt.py',
               home+'electrumsv/plugins/trezor/client.py',

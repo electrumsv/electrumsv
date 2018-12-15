@@ -3,7 +3,7 @@
 LOCALE_REPO_NAME=electrum-locale
 ICONS_REPO_NAME=electrum-icons
 
-NAME_ROOT=electrum
+NAME_ROOT=electrumsv
 
 # These settings probably don't need any change
 export WINEPREFIX=/opt/wine64
@@ -37,9 +37,9 @@ if ! which msgfmt > /dev/null 2>&1; then
     exit 1
 fi
 for i in ./locale/*; do
-    dir=$WINEPREFIX/drive_c/electrum/electrum/$i/LC_MESSAGES
+    dir=$WINEPREFIX/drive_c/electrum/electrumsv/$i/LC_MESSAGES
     mkdir -p $dir
-    msgfmt --output-file=$dir/electrum.mo $i/electrum.po || true
+    msgfmt --output-file=$dir/electrum-sv.mo $i/electron-cash.po || true
 done
 popd
 
@@ -47,7 +47,7 @@ find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
 cp $WINEPREFIX/drive_c/electrum/LICENCE .
-cp $WINEPREFIX/drive_c/electrum/contrib/deterministic-build/$ICONS_REPO_NAME/icons_rc.py $WINEPREFIX/drive_c/electrum/gui/qt/
+cp $WINEPREFIX/drive_c/electrum/contrib/deterministic-build/$ICONS_REPO_NAME/icons_rc.py $WINEPREFIX/drive_c/electrum/electrumsv/gui/qt/
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
@@ -75,7 +75,7 @@ popd
 wine "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
 
 cd dist
-mv electrum-setup.exe $NAME_ROOT-$VERSION-setup.exe
+mv electrumsv-setup.exe $NAME_ROOT-$VERSION-setup.exe
 cd ..
 
 echo "Done."
