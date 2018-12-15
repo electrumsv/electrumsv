@@ -1417,10 +1417,10 @@ class Network(util.DaemonThread):
         try:
             out = Network.__wait_for(invocation)
         except BaseException as e:
-            return False, "error: " + str(e)
+            return False, "error broadcasting: " + str(e)
 
         if out != transaction.txid():
-            return False, "error: " + out
+            return False, "unexpected tx id: " + out
 
         return True, out
 
