@@ -2,7 +2,6 @@
 
 # python setup.py sdist --format=zip,gztar
 
-from setuptools import setup
 import os
 import sys
 import platform
@@ -11,6 +10,8 @@ import argparse
 
 from setuptools import setup, find_packages
 
+if sys.version_info[:3] < (3, 6, 0):
+    sys.exit("Error: Electrum SV requires Python version >= 3.6.0...")
 
 with open('contrib/requirements/requirements.txt') as f:
     requirements = f.read().splitlines()
@@ -19,9 +20,6 @@ with open('contrib/requirements/requirements-hw.txt') as f:
     requirements_hw = f.read().splitlines()
 
 version = imp.load_source('version', 'electrumsv/version.py')
-
-if sys.version_info[:3] < (3, 6, 0):
-    sys.exit("Error: Electrum SV requires Python version >= 3.6.0...")
 
 data_files = []
 
