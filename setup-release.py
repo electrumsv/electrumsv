@@ -21,8 +21,8 @@ from lib.version import PACKAGE_VERSION as version
 name = "Electrum SV"
 mainscript = 'electrum-sv'
 
-if sys.version_info[:3] < (3, 5, 2):
-    print_error("Error: " + name + " requires Python version >= 3.5.2...")
+if sys.version_info[:3] < (3, 6, 0):
+    print_error("Error: " + name + " requires Python version >= 3.6.0...")
     sys.exit(1)
 
 if sys.platform == 'darwin':
