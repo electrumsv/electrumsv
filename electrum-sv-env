@@ -17,7 +17,7 @@ else
     python3 setup.py install
 fi
 
-export PYTHONPATH="/usr/local/lib/python3.5/site-packages:$PYTHONPATH"
+export PYTHONPATH="/usr/local/lib/python3.6/site-packages:$PYTHONPATH"
 
 if [ ! -e ./gui/qt/icons_rc.py ]; then
     pyrcc5 icons.qrc -o electrumsv/gui/qt/icons_rc.py
