@@ -1,5 +1,0 @@
-<!-- The following strings are the same in all languages. -->
-<resources>
-    <string name="app_name">Electrum SV</string>
-    <string name="bsv">BSV</string>
-</resources>

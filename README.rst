@@ -111,8 +111,3 @@ Windows
 -------
 
 See `contrib/build-wine/`.
-
-iOS
--------
-
-See `ios/`.
