@@ -65,6 +65,7 @@ from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
 from .transaction_dialog import show_transaction
 from .fee_slider import FeeSlider
+from .coinsplitting_tab import CoinSplittingTab
 
 from .util import *
 
@@ -149,6 +150,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.console_tab = self.create_console_tab()
         self.contacts_tab = self.create_contacts_tab()
         self.converter_tab = self.create_converter_tab()
+        self.coinsplitting_tab = self.create_coinsplitting_tab()
+
         tabs.addTab(self.create_history_tab(), QIcon(":icons/tab_history.png"), _('History'))
         tabs.addTab(self.send_tab, QIcon(":icons/tab_send.png"), _('Send'))
         tabs.addTab(self.receive_tab, QIcon(":icons/tab_receive.png"), _('Receive'))
@@ -166,9 +169,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         add_optional_tab(tabs, self.contacts_tab, QIcon(":icons/tab_contacts.png"), _("Con&tacts"), "contacts")
         add_optional_tab(tabs, self.converter_tab, QIcon(":icons/tab_converter.png"), _("Address Converter"), "converter", True)
         add_optional_tab(tabs, self.console_tab, QIcon(":icons/tab_console.png"), _("Con&sole"), "console")
+        add_optional_tab(tabs, self.coinsplitting_tab, QIcon(":icons/tab_coins.png"), _("Coin Splitting"), "coinsplitter", True)
 
         tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setCentralWidget(tabs)
+
+        # Some tabs may want to be refreshed to show current state when selected.
+        def on_tab_changed(to_tab_index):
+            current_tab = self.tabs.currentWidget()
+            if current_tab is self.coinsplitting_tab:
+                self.coinsplitting_tab.update_layout()
+        self.tabs.currentChanged.connect(on_tab_changed)
 
         if self.config.get("is_maximized"):
             self.showMaximized()
@@ -1793,6 +1804,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         w = QWidget()
         w.setLayout(vbox)
 
+        return w
+
+    def create_coinsplitting_tab(self):
+        w = CoinSplittingTab(self)
+        # We do not have the wallet loaded at this point, but the tab is refreshed when it is selected.
+        w.update_layout()
         return w
 
     def create_list_tab(self, l, list_header=None):
