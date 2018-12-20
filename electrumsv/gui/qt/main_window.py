@@ -1582,7 +1582,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         WaitingDialog(self, _('Signing transaction...'), task,
                       on_signed, on_failed)
 
-    def broadcast_transaction(self, tx, tx_desc):
+    def broadcast_transaction(self, tx, tx_desc, success_text=None):
+        if success_text is None:
+            success_text = _('Payment sent.')
 
         def broadcast_thread():
             # non-GUI thread
@@ -1615,7 +1617,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                 if status:
                     if tx_desc is not None and tx.is_complete():
                         self.wallet.set_label(tx.txid(), tx_desc)
-                    parent.show_message(_('Payment sent.') + '\n' + msg)
+                    parent.show_message(success_text + '\n' + msg)
                     self.invoice_list.update()
                     self.do_clear()
                 else:
