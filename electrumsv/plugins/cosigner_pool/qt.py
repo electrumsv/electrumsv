@@ -23,6 +23,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
+import sys
 import time
 from xmlrpc.client import ServerProxy
 
@@ -38,10 +40,6 @@ from electrumsv.wallet import Multisig_Wallet
 from electrumsv.util import bh2u, bfh
 
 from electrumsv.gui.qt.transaction_dialog import show_transaction
-
-import sys
-import traceback
-
 
 PORT = 12344
 HOST = 'cosigner.electrum.org'
@@ -179,7 +177,7 @@ class Plugin(BasePlugin):
             try:
                 server.put(_hash, message)
             except Exception as e:
-                traceback.print_exc(file=sys.stdout)
+                logging.exception()
                 window.show_message(_("Failed to send transaction to cosigning pool."))
                 return
             window.show_message(_("Your transaction was sent to the cosigning pool.") + '\n' +
@@ -219,7 +217,7 @@ class Plugin(BasePlugin):
             EC = bitcoin.EC_KEY(bfh(k))
             message = bh2u(EC.decrypt_message(message))
         except Exception as e:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             window.show_message(str(e))
             return
 

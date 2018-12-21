@@ -23,14 +23,12 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 import hashlib
+import json
+import logging
+import requests
 import sys
 import time
-import traceback
-import json
-import requests
-
 import urllib.parse
-
 
 try:
     from . import paymentrequest_pb2 as pb2
@@ -46,6 +44,7 @@ from . import x509
 from . import rsakey
 
 from .bitcoin import TYPE_ADDRESS
+
 
 REQUEST_HEADERS = {'Accept': 'application/bitcoincash-paymentrequest', 'User-Agent': 'Electrum-SV'}
 ACK_HEADERS = {'Content-Type':'application/bitcoincash-payment','Accept':'application/bitcoincash-paymentack','User-Agent':'Electrum-SV'}
@@ -173,7 +172,7 @@ class PaymentRequest:
         try:
             x, ca = verify_cert_chain(cert.certificate)
         except BaseException as e:
-            traceback.print_exc(file=sys.stderr)
+            logging.exception()
             self.error = str(e)
             return False
         # get requestor name
@@ -482,10 +481,10 @@ class InvoiceStore(object):
                 d = json.loads(f.read())
                 self.load(d)
         except json.decoder.JSONDecodeError:
-            traceback.print_exc(file=sys.stderr)
+            logging.exception()
             raise FileImportFailedEncrypted()
         except BaseException:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             raise FileImportFailed()
         self.save()
 

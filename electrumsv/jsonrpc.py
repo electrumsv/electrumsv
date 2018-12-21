@@ -23,8 +23,9 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from jsonrpclib.SimpleJSONRPCServer import SimpleJSONRPCServer, SimpleJSONRPCRequestHandler
 from base64 import b64decode
+from jsonrpclib.SimpleJSONRPCServer import SimpleJSONRPCServer, SimpleJSONRPCRequestHandler
+import logging
 import time
 
 from . import util
@@ -65,8 +66,7 @@ class VerifyingJSONRPCServer(SimpleJSONRPCServer):
                             RPCAuthUnsupportedType) as e:
                         myself.send_error(401, str(e))
                     except BaseException as e:
-                        import traceback, sys
-                        traceback.print_exc(file=sys.stderr)
+                        logging.exception()
                         myself.send_error(500, str(e))
                 return False
 

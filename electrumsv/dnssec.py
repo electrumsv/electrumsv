@@ -264,7 +264,7 @@ def query(url, rtype):
         out = get_and_validate(ns, url, rtype)
         validated = True
     except BaseException as e:
-        #traceback.print_exc(file=sys.stderr)
+        # logging.exception()
         print_error("DNSSEC error:", str(e))
         resolver = dns.resolver.get_default_resolver()
         out = resolver.query(url, rtype)

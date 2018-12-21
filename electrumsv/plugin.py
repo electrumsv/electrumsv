@@ -24,13 +24,13 @@
 # SOFTWARE.
 
 from collections import namedtuple
-import traceback
+import importlib.util
+import logging
 import os
 import pkgutil
-import importlib.util
 import sys
-import time
 import threading
+import time
 
 from .i18n import _
 from .util import print_error, user_dir, make_dir, versiontuple
@@ -106,8 +106,7 @@ class Plugins(DaemonThread):
                 try:
                     self.load_plugin(name)
                 except BaseException as e:
-                    traceback.print_exc(file=sys.stdout)
-                    self.print_error("cannot initialize plugin %s:" % name, str(e))
+                    logging.exception("cannot initialize plugin %s", name)
 
     def get(self, name):
         return self.plugins.get(name)
@@ -183,8 +182,7 @@ class Plugins(DaemonThread):
                                                         plugin=p,
                                                         exception=None))
                 except Exception as e:
-                    traceback.print_exc()
-                    self.print_error("cannot load plugin for:", name)
+                    logging.exception("cannot load plugin for %s", name)
                     out.append(HardwarePluginToScan(name=name,
                                                     description=details[2],
                                                     plugin=None,
@@ -236,8 +234,7 @@ def run_hook(name, *args):
             try:
                 r = f(*args)
             except Exception:
-                print_error("Plugin error")
-                traceback.print_exc(file=sys.stdout)
+                logging.exception("Plugin error")
                 r = False
             if r:
                 results.append(r)

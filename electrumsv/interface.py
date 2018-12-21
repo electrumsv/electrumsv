@@ -22,16 +22,15 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import logging
 import os
 import re
+import requests
 import socket
 import ssl
 import sys
 import threading
 import time
-import traceback
-
-import requests
 
 from .util import print_error
 
@@ -212,8 +211,7 @@ class TcpConnection(threading.Thread, util.PrintError):
                         b = pem.dePem(cert, 'CERTIFICATE')
                         x = x509.X509(b)
                     except:
-                        traceback.print_exc(file=sys.stderr)
-                        self.print_error("wrong certificate")
+                        logging.exception("wrong certificate")
                         return
                     try:
                         x.check_date()
@@ -226,8 +224,7 @@ class TcpConnection(threading.Thread, util.PrintError):
                     return
                 return
             except BaseException as e:
-                self.print_error(e)
-                traceback.print_exc(file=sys.stderr)
+                logging.exception()
                 return
 
             if is_new:
@@ -379,7 +376,7 @@ def check_cert(host, cert):
         b = pem.dePem(cert, 'CERTIFICATE')
         x = x509.X509(b)
     except:
-        traceback.print_exc(file=sys.stdout)
+        logging.exception()
         return
 
     try:

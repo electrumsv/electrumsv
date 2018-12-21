@@ -24,7 +24,7 @@
 # SOFTWARE.
 
 import sys, time, threading
-import os, json, traceback
+import os, json, logging
 import shutil
 import weakref
 import webbrowser
@@ -306,7 +306,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
     def on_error(self, exc_info):
         if not isinstance(exc_info[1], UserCancelled):
             try:
-                traceback.print_exception(*exc_info)
+                logging.exception(exc_info=exc_info)
             except OSError:
                 # Issue #662, user got IO error.
                 # We want them to still get the error displayed to them.
@@ -1499,7 +1499,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.show_message(_("Your fee is too high.  Max is 50 sat/byte."))
             return
         except BaseException as e:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             self.show_message(str(e))
             return
 
@@ -2047,7 +2047,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.show_error(str(e))
             return
         except:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             self.show_error(_('Failed to update password'))
             return
         msg = _('Password was updated successfully') if new_password else _('Password is disabled, this wallet is not protected')
@@ -2170,7 +2170,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         try:
             pk = self.wallet.export_private_key(address, password)
         except Exception as e:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             self.show_message(str(e))
             return
         xtype = bitcoin.deserialize_privkey(pk)[0]
@@ -2292,7 +2292,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             encrypted = bitcoin.encrypt_message(message, pubkey_e.text())
             encrypted_e.setText(encrypted.decode('ascii'))
         except BaseException as e:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             self.show_warning(str(e))
 
     def encrypt_message(self, address=None):
@@ -2358,7 +2358,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                         tx._inputs[i]['value'] = my_coins[my_index]['value']
             return tx
         except:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             self.show_critical(_("Electrum SV was unable to parse your transaction"))
             return
 
@@ -3197,8 +3197,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                     msg += '\n\n' + _('Requires') + ':\n' + '\n'.join(map(lambda x: x[1], descr.get('requires')))
                 grid.addWidget(HelpButton(msg), i, 2)
             except Exception:
-                self.print_msg("error: cannot display plugin", name)
-                traceback.print_exc(file=sys.stdout)
+                logging.exception("error: cannot display plugin %s", name)
         grid.setRowStretch(len(plugins.internal_plugin_metadata.values()), 1)
         vbox.addLayout(Buttons(CloseButton(d)))
         d.exec_()

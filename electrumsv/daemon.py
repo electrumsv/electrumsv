@@ -28,7 +28,7 @@ import os
 import sys
 import time
 import threading
-import traceback
+import logging
 
 import jsonrpclib
 from .jsonrpc import VerifyingJSONRPCServer
@@ -309,5 +309,5 @@ class Daemon(DaemonThread):
         try:
             self.gui.main()
         except BaseException as e:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             # app will exit now

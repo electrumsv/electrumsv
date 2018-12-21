@@ -1,11 +1,10 @@
-import hashlib
-import requests
-import threading
-import json
-import sys
-import traceback
-
 import base64
+import json
+import hashlib
+import logging
+import requests
+import sys
+import threading
 
 from electrumsv.bitcoin import aes_decrypt_with_iv, aes_encrypt_with_iv
 from electrumsv.plugin import BasePlugin, hook
@@ -128,8 +127,7 @@ class LabelsPlugin(BasePlugin):
             self.on_pulled(wallet)
 
         except Exception as e:
-            traceback.print_exc(file=sys.stderr)
-            self.print_error("could not retrieve labels")
+            logging.exception("could not retrieve labels")
 
     def start_wallet(self, wallet):
         nonce = self.get_nonce(wallet)

@@ -1,6 +1,7 @@
 from binascii import hexlify, unhexlify
-import traceback
+import logging
 import sys
+import traceback
 
 from electrumsv.util import bfh, bh2u, versiontuple, UserCancelled
 from electrumsv.bitcoin import (b58_address_to_hash160, xpub_from_pubkey, deserialize_xpub,
@@ -200,7 +201,7 @@ class TrezorPlugin(HW_PluginBase):
         except UserCancelled:
             exit_code = 1
         except BaseException as e:
-            traceback.print_exc(file=sys.stderr)
+            logging.exception()
             handler.show_error(str(e))
             exit_code = 1
         finally:

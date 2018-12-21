@@ -1,7 +1,7 @@
-from struct import pack, unpack
+import logging
 import hashlib
+from struct import pack, unpack
 import sys
-import traceback
 
 from electrumsv import bitcoin
 from electrumsv.address import Address
@@ -438,10 +438,10 @@ class Ledger_KeyStore(Hardware_KeyStore):
             if e.sw == 0x6985:  # cancelled by user
                 return
             else:
-                traceback.print_exc(file=sys.stderr)
+                logging.exception()
                 self.give_error(e, True)
         except BaseException as e:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             self.give_error(e, True)
         finally:
             self.handler.finished()

@@ -3,7 +3,7 @@ import os
 import shutil
 import sys
 import threading
-import traceback
+import logging
 
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -322,7 +322,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                     QMessageBox.information(None, _('Error'), str(e))
                     continue
                 except BaseException as e:
-                    traceback.print_exc(file=sys.stdout)
+                    logging.exception()
                     QMessageBox.information(None, _('Error'), str(e))
                     return
 
@@ -376,7 +376,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     def on_error(self, exc_info):
         if not isinstance(exc_info[1], UserCancelled):
-            traceback.print_exception(*exc_info)
+            logging.exception(exc_info=exc_info)
             self.show_error(str(exc_info[1]))
 
     def set_icon(self, filename):

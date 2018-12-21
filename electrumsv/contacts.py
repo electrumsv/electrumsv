@@ -24,7 +24,7 @@ import re
 import dns
 from dns.exception import DNSException
 import json
-import traceback
+import logging
 import sys
 
 from .address import Address
@@ -57,10 +57,10 @@ class Contacts(dict):
             with open(path, 'r') as f:
                 d = self._validate(json.loads(f.read()))
         except json.decoder.JSONDecodeError:
-            traceback.print_exc(file=sys.stderr)
+            logging.exception()
             raise FileImportFailedEncrypted()
         except BaseException:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             raise FileImportFailed()
         self.update(d)
         self.save()

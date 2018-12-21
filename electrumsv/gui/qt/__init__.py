@@ -23,9 +23,9 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
 import signal
 import sys
-import traceback
 
 try:
     import PyQt5
@@ -206,7 +206,7 @@ class ElectrumGui:
                     wallet.start_threads(self.daemon.network)
                     self.daemon.add_wallet(wallet)
             except BaseException as e:
-                traceback.print_exc(file=sys.stdout)
+                logging.exception()
                 if '2fa' in str(e):
                     d = QMessageBox(QMessageBox.Warning, _('Error'), '2FA wallets for Bitcoin SV are currently unsupported by <a href="https://api.trustedcoin.com/#/">TrustedCoin</a>. Follow <a href="https://github.com/Electrum-SV/Electrum-SV/issues/41#issuecomment-357468208">this guide</a> in order to recover your funds.')
                     d.exec_()
@@ -248,7 +248,7 @@ class ElectrumGui:
         except GoBack:
             return
         except BaseException as e:
-            traceback.print_exc(file=sys.stdout)
+            logging.exception()
             return
         self.timer.start()
         self.config.open_last_wallet()

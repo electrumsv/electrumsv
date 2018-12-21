@@ -22,22 +22,24 @@
 # SOFTWARE.
 
 import binascii
+import hmac
+import logging
 import os, sys, re, json
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
-import traceback
-import threading
-import hmac
+import queue
 import stat
+import threading
+import traceback
+
+logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
 from .i18n import _
 
-import queue
 
 def inv_dict(d):
     return {v: k for k, v in d.items()}
-
 
 fee_levels = [_('Within 25 blocks'), _('Within 10 blocks'), _('Within 5 blocks'), _('Within 2 blocks'), _('In the next block')]
 
@@ -151,7 +153,7 @@ class DaemonThread(threading.Thread, PrintError):
                 try:
                     job.run()
                 except Exception as e:
-                    traceback.print_exc(file=sys.stderr)
+                    logging.exception()
 
     def remove_jobs(self, jobs):
         with self.job_lock:
@@ -208,14 +210,12 @@ def print_error(*args):
 
 def print_stderr(*args):
     args = [str(item) for item in args]
-    sys.stderr.write(" ".join(args) + "\n")
-    sys.stderr.flush()
+    logging.error(" ".join(args))
 
 def print_msg(*args):
     # Stringify args
     args = [str(item) for item in args]
-    sys.stdout.write(" ".join(args) + "\n")
-    sys.stdout.flush()
+    logging.info(" ".join(args))
 
 def json_encode(obj):
     try:
@@ -564,7 +564,7 @@ class SocketPipe:
                     print_error("pipe: socket error", err)
                     data = b''
             except:
-                traceback.print_exc(file=sys.stderr)
+                logging.exception()
                 data = b''
 
             if not data:  # Connection closed remotely

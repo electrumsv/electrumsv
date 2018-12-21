@@ -3,7 +3,6 @@
 
 import os
 import sys
-import traceback
 import ctypes
 from ctypes.util import find_library
 from ctypes import (
@@ -89,7 +88,7 @@ def load_library():
             print_stderr('[ecc] warning: secp256k1_context_randomize failed')
             return None
     except (OSError, AttributeError):
-        #traceback.print_exc(file=sys.stderr)
+        # logging.exception()
         print_stderr('[ecc] warning: libsecp256k1 library was found and loaded but there was an error when using it')
         return None
 
@@ -219,6 +218,6 @@ try:
     _libsecp256k1 = load_library()
 except:
     _libsecp256k1 = None
-    #traceback.print_exc(file=sys.stderr)
+    # logging.exception()
 
 _prepare_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1()
