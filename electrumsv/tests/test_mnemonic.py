@@ -1,8 +1,9 @@
 import unittest
-from .. import keystore
-from .. import mnemonic
-from .. import old_mnemonic
-from ..util import bh2u
+
+from electrumsv import keystore
+from electrumsv import mnemonic
+from electrumsv import old_mnemonic
+from electrumsv.util import bh2u
 
 
 class Test_NewMnemonic(unittest.TestCase):

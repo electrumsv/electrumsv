@@ -1,16 +1,15 @@
 import ast
-import sys
-import os
-import unittest
-import tempfile
-import shutil
-
 from io import StringIO
-from ..simple_config import (SimpleConfig, read_user_config)
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+
+from electrumsv.simple_config import (SimpleConfig, read_user_config)
 
 
 class Test_SimpleConfig(unittest.TestCase):
-
     def setUp(self):
         super(Test_SimpleConfig, self).setUp()
         # make sure "read_user_config" and "user_dir" return a temporary directory.

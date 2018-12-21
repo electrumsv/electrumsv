@@ -1,13 +1,13 @@
-import shutil
-import tempfile
-import sys
-import unittest
-import os
-import json
-
 from io import StringIO
-from ..storage import WalletStorage, FINAL_SEED_VERSION
-from .. import wallet
+import json
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+
+from electrumsv.storage import WalletStorage, FINAL_SEED_VERSION
+from electrumsv import wallet
 
 
 class FakeSynchronizer(object):

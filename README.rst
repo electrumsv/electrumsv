@@ -3,7 +3,7 @@ Electrum SV - Lightweight Bitcoin SV client
 
 ::
 
-  Licence: MIT Licence
+  Licence: Electrum SV Licence
   Author: Roger Taylor
   Language: Python
   Homepage: https://electrumsv.org/
@@ -69,15 +69,11 @@ Create translations (optional)::
     sudo apt-get install python-requests gettext
     ./contrib/make_locale
 
-For plugin development, see the `plugin documentation <plugins/README.rst>`_.
+Plugin development is not currently supported in Electrum SV.
 
 Running unit tests::
 
-    pip install tox
-    tox
-
-Tox will take care of building a faux installation environment, and ensure that
-the mapped import paths work correctly.
+    py -3 -m unittest discover electrumx/tests
 
 Creating Binaries
 =================

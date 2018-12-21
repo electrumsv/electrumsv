@@ -1,6 +1,6 @@
 import unittest
 
-from .. import interface
+from electrumsv import interface
 
 
 class TestInterface(unittest.TestCase):

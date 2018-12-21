@@ -1,5 +1,5 @@
 import unittest
-from .. import blockchain as bc
+from electrumsv import blockchain as bc
 
 
 class MyBlockchain(bc.Blockchain):

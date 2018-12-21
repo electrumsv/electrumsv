@@ -1,15 +1,14 @@
 import unittest
 from unittest import mock
 
-from ..address import Address
-from .. import bitcoin
-from .. import keystore
-from .. import storage
-from .. import wallet
+from electrumsv.address import Address
+from electrumsv import bitcoin
+from electrumsv import keystore
+from electrumsv import storage
+from electrumsv import wallet
 
 
 class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
-
     gap_limit = 1  # make tests run faster
 
     def _check_seeded_keystore_sanity(self, ks):

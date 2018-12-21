@@ -1,16 +1,15 @@
 import shutil
 import tempfile
 
-from ..storage import WalletStorage
-from ..wallet import Wallet
+from electrumsv.storage import WalletStorage
+from electrumsv.wallet import Wallet
 
-from ..tests.test_wallet import WalletTestCase
+from electrumsv.tests.test_wallet import WalletTestCase
 
 
 # TODO add other wallet types: xpub-only
 # TODO hw wallet with client version 2.6.x (single-, and multiacc)
 class TestStorageUpgrade(WalletTestCase):
-
     def test_upgrade_from_client_1_9_8_seeded(self):
         wallet_str = "{'addr_history':{'177hEYTccmuYH8u68pYfaLteTxwJrVgvJj':[],'15V7MsQK2vjF5aEXLVG11qi2eZPZsXdnYc':[],'1DgrwN2JCDZ6uPMSvSz8dPeUtaxLxWM2kf':[],'1H3mPXHFzA8UbvhQVabcDjYw3CPb3djvxs':[],'1DjtUCcQwwzA3GSPA7Kd79PMnri7tLDPYC':[],'1PGEgaPG1XJqmuSj68GouotWeYkCtwo4wm':[],'1PAgpPxnL42Hp3cWxmSfdChPqqGiM8g7zj':[],'1HocPduHmQUJerpdaLG8DnmxvnDCVQwWsa':[]},'accounts_expanded':{},'master_public_key':'756d1fe6ded28d43d4fea902a9695feb785447514d6e6c3bdf369f7c3432fdde4409e4efbffbcf10084d57c5a98d1f34d20ac1f133bdb64fa02abf4f7bde1dfb','use_encryption':False,'seed':'2605aafe50a45bdf2eb155302437e678','accounts':{0:{0:['1DjtUCcQwwzA3GSPA7Kd79PMnri7tLDPYC','1PAgpPxnL42Hp3cWxmSfdChPqqGiM8g7zj','177hEYTccmuYH8u68pYfaLteTxwJrVgvJj','1PGEgaPG1XJqmuSj68GouotWeYkCtwo4wm','15V7MsQK2vjF5aEXLVG11qi2eZPZsXdnYc'],1:['1H3mPXHFzA8UbvhQVabcDjYw3CPb3djvxs','1HocPduHmQUJerpdaLG8DnmxvnDCVQwWsa','1DgrwN2JCDZ6uPMSvSz8dPeUtaxLxWM2kf']}},'seed_version':4}"
         self._upgrade_storage(wallet_str)
@@ -256,8 +255,8 @@ class TestStorageUpgrade(WalletTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        from ..plugins import Plugins
-        from ..simple_config import SimpleConfig
+        from electrumsv.plugin import Plugins
+        from electrumsv.simple_config import SimpleConfig
 
         cls.electrum_sv_path = tempfile.mkdtemp()
         config = SimpleConfig({'electrum_sv_path': cls.electrum_sv_path})

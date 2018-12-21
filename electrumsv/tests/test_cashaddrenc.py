@@ -26,7 +26,7 @@
 import binascii
 import unittest
 import random
-from .. import cashaddr
+from electrumsv import cashaddr
 
 
 BSV_PREFIX = "bitcoincash"
