@@ -20,7 +20,7 @@ for i in '' '-hw' '-binaries'; do
 
     echo "OK."
 
-    requirements=$(pip freeze)
+    requirements=$(pip freeze --all)
     echo "Generating package hashes..."
 
     echo "$requirements" | while IFS= read -r requirement ; do
