@@ -1,28 +1,61 @@
 Building Mac OS binaries
 ========================
 
-This guide explains how to build Electrum binaries for macOS systems.
+This guide explains how to build Electrum SV binaries for macOS systems.
 We build our binaries on El Capitan (10.11.6) as building it on High Sierra
 makes the binaries incompatible with older versions.
 
-This assumes that the Xcode + Xcode Command Line tools (and thus git) are already installed. You can install older (and newer!) versions of Xcode from Apple provided you have a devloper account [from the Apple developer downloads site](https://developer.apple.com/download/more/).
+## 1. Building the binary
+
+This needs to be done on a system running macOS or OS X. We use El
+Capitan (10.11.6) as building it on High Sierra (or later) makes the
+binaries [incompatible with older
+versions](https://github.com/pyinstaller/pyinstaller/issues/1191).
+
+Before starting, make sure that the Xcode command line tools are
+installed (e.g. you have `git`).
+
+#### 1.1 Get Xcode
+
+Building the QR scanner (CalinsQRReader) requires full Xcode (not just
+command line tools).
+
+The last Xcode version compatible with El Capitan is Xcode 8.2.1
+
+Get it from [here](https://developer.apple.com/download/more/).
+
+Unfortunately, you need an "Apple ID" account.
+
+After downloading, uncompress it.
+
+Make sure it is the "selected" xcode (e.g.):
+
+    sudo xcode-select -s $HOME/Downloads/Xcode.app/Contents/Developer/
 
 
-## 1. Make sure to freshen git submodules
+#### 1.2 Build Electrum SV
 
-    git submodule init
-    git submodule update
+    cd electrum-sv
+    ./contrib/osx/make_osx
 
-The above ensures that you pull in the OSX helper app, CalinsQRReader.
+This creates both a folder named `Electrum.app` and the `.dmg` file.
 
-## 2. Use the provided script to begin building.
 
-    ./make_osx
-    
-Or, if you wish to sign the app when building, provide an Apple developer identity installed on the system for signing:
+## 2. Building the image deterministically (WIP)
 
-    ./make_osx "Developer ID Application: MY NAME (123456789)"
+The usual way to distribute macOS applications is to use image files
+containing the application. Although these images can be created on a
+Mac with the built-in `hdiutil`, they are not deterministic.
 
-## 2. Done
+Instead, we use the toolchain that Bitcoin uses: genisoimage and
+libdmg-hfsplus.  These tools do not work on macOS, so you need a
+separate Linux machine (or VM).
 
-You should see Electron-Cash.app and Electron-Cash-macosx-3.x.x.dmg in ../dist/. If you provided an identity for signing, these files can even be distributed to other Macs and they will run there without warnings from GateKeeper.
+Copy the Electrum.app directory over and install the dependencies, e.g.:
+
+    apt install libcap-dev cmake make gcc faketime
+
+Then you can just invoke `package.sh` with the path to the app directory:
+
+    cd electrum-sv
+    ./contrib/osx/package.sh ~/Electrum-SV.app/
