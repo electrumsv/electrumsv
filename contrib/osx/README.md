@@ -59,3 +59,6 @@ Then you can just invoke `package.sh` with the path to the app directory:
 
     cd electrum-sv
     ./contrib/osx/package.sh ~/Electrum-SV.app/
+
+This will place an electrum-SV `.dmg` file in the parent directory of the
+app directory and print its md5 sum.
