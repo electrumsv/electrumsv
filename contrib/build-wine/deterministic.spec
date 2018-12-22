@@ -73,9 +73,7 @@ for d in a.datas:
 # Strip out parts of Qt that we never use. Reduces binary size by tens of MBs. see #4815
 qt_bins2remove=('qt5web', 'qt53d', 'qt5game', 'qt5designer', 'qt5quick',
                 'qt5location', 'qt5test', 'qt5xml', r'pyqt5\qt\qml\qtquick',
-                r'PyQt5\Qt\bin\d3dcompiler_47.dll',r'PyQt5\Qt\bin\libEGL.dll',r'PyQt5\Qt\bin\opengl32sw.dll',
-                r'PyQt5\Qt\bin\libGLESv2.dll'
-				'')
+                r'PyQt5\Qt\bin')
 print("Removing Qt binaries:", *qt_bins2remove)
 for x in a.binaries.copy():
     for r in qt_bins2remove:
