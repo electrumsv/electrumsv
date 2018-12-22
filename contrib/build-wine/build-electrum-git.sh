@@ -79,4 +79,4 @@ mv electrumsv-setup.exe $NAME_ROOT-$VERSION-setup.exe
 cd ..
 
 echo "Done."
-md5sum dist/electrum*exe
+sha256sum dist/electrum*exe
