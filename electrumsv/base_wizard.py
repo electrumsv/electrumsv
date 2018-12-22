@@ -80,7 +80,7 @@ class BaseWizard(object):
         wallet_kinds = [
             ('standard',  _("Standard wallet")),
             ('multisig',  _("Multi-signature wallet")),
-            ('imported',  _("Import Bitcoin Cash addresses or private keys")),
+            ('imported',  _("Import Bitcoin addresses or private keys")),
         ]
         choices = [pair for pair in wallet_kinds if pair[0] in wallet_types]
         self.choice_dialog(title=title, message=message, choices=choices, run_next=self.on_wallet_type)
@@ -128,7 +128,7 @@ class BaseWizard(object):
     def import_addresses_or_keys(self):
         v = lambda x: keystore.is_address_list(x) or keystore.is_private_key_list(x)
         title = _("Import Bitcoin Addresses")
-        message = _("Enter a list of Bitcoin Cash addresses (this will create a watching-only wallet), or a list of private keys.")
+        message = _("Enter a list of Bitcoin addresses (this will create a watching-only wallet), or a list of private keys.")
         self.add_xpub_dialog(title=title, message=message, run_next=self.on_import,
                              is_valid=v, allow_multi=True)
 
@@ -232,8 +232,8 @@ class BaseWizard(object):
         message = '\n'.join([
             _('Enter your wallet derivation here.'),
             _('If you are not sure what this is, leave this field unchanged.'),
-            _("If you want the wallet to use legacy Bitcoin addresses use m/44'/0'/0'"),
-            _("If you want the wallet to use Bitcoin Cash addresses use m/44'/145'/0'"),
+            _("If you want the wallet to use BTC addresses use m/44'/0'/0'"),
+            _("If you want the wallet to use BCH(ABC) or BSV addresses use m/44'/145'/0'"),
             _("The placeholder value of {} is the default derivation for {} wallets.").format(default_derivation, self.wallet_type),
         ])
         self.line_dialog(run_next=f, title=_('Derivation for {} wallet').format(self.wallet_type), message=message, default=default_derivation, test=bitcoin.is_bip32_derivation)

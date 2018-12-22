@@ -1,4 +1,4 @@
-# Electrum SV - lightweight Bitcoin Cash client
+# Electrum SV - lightweight Bitcoin SV client
 # Copyright (C) 2011 thomasv@gitorious
 # Copyright (C) 2017 Neil Booth
 #
