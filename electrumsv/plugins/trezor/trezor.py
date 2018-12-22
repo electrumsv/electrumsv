@@ -1,7 +1,6 @@
 from binascii import hexlify, unhexlify
 import logging
 import sys
-import traceback
 
 from electrumsv.util import bfh, bh2u, versiontuple, UserCancelled
 from electrumsv.bitcoin import (b58_address_to_hash160, xpub_from_pubkey, deserialize_xpub,

@@ -31,8 +31,6 @@
 #  https://github.com/rthalley/dnspython/blob/master/tests/test_dnssec.py
 
 
-# import traceback
-# import sys
 import time
 import struct
 

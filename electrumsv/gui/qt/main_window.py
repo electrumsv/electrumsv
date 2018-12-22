@@ -3195,8 +3195,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                     msg += '\n\n' + _('Requires') + ':\n' + '\n'.join(map(lambda x: x[1], descr.get('requires')))
                 grid.addWidget(HelpButton(msg), i, 2)
             except Exception:
-                self.print_msg("error: cannot display plugin", name)
-                traceback.print_exc(file=sys.stdout)
+                logging.exception("error: cannot display plugin '%s'", name)
         grid.setRowStretch(len(plugins.descriptions.values()), 1)
         vbox.addLayout(Buttons(CloseButton(d)))
         d.exec_()

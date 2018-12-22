@@ -146,8 +146,7 @@ class Synchronizer(ThreadJob):
         try:
             tx.deserialize()
         except Exception:
-            traceback.print_exc()
-            self.print_msg("cannot deserialize transaction, skipping", tx_hash)
+            logging.exception("cannot deserialize transaction, skipping %s", tx_hash)
             return
         tx_height = self.requested_tx.pop(tx_hash)
         self.wallet.receive_tx_callback(tx_hash, tx, tx_height)
