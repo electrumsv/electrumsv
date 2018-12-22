@@ -177,7 +177,7 @@ class Plugin(BasePlugin):
             try:
                 server.put(_hash, message)
             except Exception as e:
-                logging.exception()
+                logging.exception("")
                 window.show_message(_("Failed to send transaction to cosigning pool."))
                 return
             window.show_message(_("Your transaction was sent to the cosigning pool.") + '\n' +
@@ -217,7 +217,7 @@ class Plugin(BasePlugin):
             EC = bitcoin.EC_KEY(bfh(k))
             message = bh2u(EC.decrypt_message(message))
         except Exception as e:
-            logging.exception()
+            logging.exception("")
             window.show_message(str(e))
             return
 

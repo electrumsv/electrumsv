@@ -153,7 +153,7 @@ class DaemonThread(threading.Thread, PrintError):
                 try:
                     job.run()
                 except Exception as e:
-                    logging.exception()
+                    logging.exception("")
 
     def remove_jobs(self, jobs):
         with self.job_lock:
@@ -564,7 +564,7 @@ class SocketPipe:
                     print_error("pipe: socket error", err)
                     data = b''
             except:
-                logging.exception()
+                logging.exception("")
                 data = b''
 
             if not data:  # Connection closed remotely

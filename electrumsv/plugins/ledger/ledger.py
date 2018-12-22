@@ -438,10 +438,10 @@ class Ledger_KeyStore(Hardware_KeyStore):
             if e.sw == 0x6985:  # cancelled by user
                 return
             else:
-                logging.exception()
+                logging.exception("")
                 self.give_error(e, True)
         except BaseException as e:
-            logging.exception()
+            logging.exception("")
             self.give_error(e, True)
         finally:
             self.handler.finished()

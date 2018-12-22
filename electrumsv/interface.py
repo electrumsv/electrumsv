@@ -224,7 +224,7 @@ class TcpConnection(threading.Thread, util.PrintError):
                     return
                 return
             except BaseException as e:
-                logging.exception()
+                logging.exception("")
                 return
 
             if is_new:
@@ -376,7 +376,7 @@ def check_cert(host, cert):
         b = pem.dePem(cert, 'CERTIFICATE')
         x = x509.X509(b)
     except:
-        logging.exception()
+        logging.exception("")
         return
 
     try:

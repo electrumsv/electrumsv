@@ -322,7 +322,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                     QMessageBox.information(None, _('Error'), str(e))
                     continue
                 except BaseException as e:
-                    logging.exception()
+                    logging.exception("")
                     QMessageBox.information(None, _('Error'), str(e))
                     return
 
@@ -376,7 +376,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     def on_error(self, exc_info):
         if not isinstance(exc_info[1], UserCancelled):
-            logging.exception(exc_info=exc_info)
+            logging.exception("", exc_info=exc_info)
             self.show_error(str(exc_info[1]))
 
     def set_icon(self, filename):

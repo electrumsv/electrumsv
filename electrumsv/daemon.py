@@ -309,5 +309,5 @@ class Daemon(DaemonThread):
         try:
             self.gui.main()
         except BaseException as e:
-            logging.exception()
+            logging.exception("")
             # app will exit now

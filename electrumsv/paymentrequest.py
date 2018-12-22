@@ -172,7 +172,7 @@ class PaymentRequest:
         try:
             x, ca = verify_cert_chain(cert.certificate)
         except BaseException as e:
-            logging.exception()
+            logging.exception("")
             self.error = str(e)
             return False
         # get requestor name
@@ -481,10 +481,10 @@ class InvoiceStore(object):
                 d = json.loads(f.read())
                 self.load(d)
         except json.decoder.JSONDecodeError:
-            logging.exception()
+            logging.exception("")
             raise FileImportFailedEncrypted()
         except BaseException:
-            logging.exception()
+            logging.exception("")
             raise FileImportFailed()
         self.save()
 

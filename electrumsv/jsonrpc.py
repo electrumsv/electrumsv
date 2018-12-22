@@ -66,7 +66,7 @@ class VerifyingJSONRPCServer(SimpleJSONRPCServer):
                             RPCAuthUnsupportedType) as e:
                         myself.send_error(401, str(e))
                     except BaseException as e:
-                        logging.exception()
+                        logging.exception("")
                         myself.send_error(500, str(e))
                 return False
 

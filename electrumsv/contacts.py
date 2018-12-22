@@ -57,10 +57,10 @@ class Contacts(dict):
             with open(path, 'r') as f:
                 d = self._validate(json.loads(f.read()))
         except json.decoder.JSONDecodeError:
-            logging.exception()
+            logging.exception("")
             raise FileImportFailedEncrypted()
         except BaseException:
-            logging.exception()
+            logging.exception("")
             raise FileImportFailed()
         self.update(d)
         self.save()

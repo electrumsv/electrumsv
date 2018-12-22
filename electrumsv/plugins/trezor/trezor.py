@@ -201,7 +201,7 @@ class TrezorPlugin(HW_PluginBase):
         except UserCancelled:
             exit_code = 1
         except BaseException as e:
-            logging.exception()
+            logging.exception("")
             handler.show_error(str(e))
             exit_code = 1
         finally:
