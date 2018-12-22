@@ -44,25 +44,6 @@ hook_names = set()
 hooks = {}
 
 
-class ExternalPluginCodes:
-    SUCCESS = 0
-    MISSING_MANIFEST = 1
-    NAME_ALREADY_IN_USE = 2
-    UNABLE_TO_COPY_FILE = 3
-    INSTALLED_BUT_FAILED_LOAD = 4
-    INCOMPATIBLE_VERSION = 5
-    INCOMPATIBLE_ZIP_FORMAT = 6
-    INVALID_MANIFEST_JSON = 7
-    INVALID_MAMIFEST_DISPLAY_NAME = 8
-    INVALID_MAMIFEST_DESCRIPTION = 9
-    INVALID_MAMIFEST_VERSION = 10
-    INVALID_MAMIFEST_MINIMUM_EC_VERSION = 11
-    INVALID_MAMIFEST_PACKAGE_NAME = 12
-
-INTERNAL_USE_PREFIX = 'use_'
-EXTERNAL_USE_PREFIX = 'use_external_'
-
-
 class Plugins(DaemonThread):
 
     @profiler
@@ -189,14 +170,11 @@ class Plugins(DaemonThread):
                                                     exception=e))
         return out
 
-    def register_wallet_type(self, name, gui_good, wallet_type, is_external):
+    def register_wallet_type(self, name, gui_good, wallet_type):
         from .wallet import register_wallet_type, register_constructor
         self.print_error("registering wallet type", (wallet_type, name))
         def loader():
-            if is_external:
-                plugin = self.get_external_plugin(name, force_load=True)
-            else:
-                plugin = self.get_internal_plugin(name, force_load=True)
+            plugin = self.get_plugin(name)
             register_constructor(wallet_type, plugin.wallet_class)
         register_wallet_type(wallet_type)
         plugin_loaders[wallet_type] = loader
@@ -257,10 +235,6 @@ class BasePlugin(PrintError):
                 l.append((self, getattr(self, k)))
                 hooks[k] = l
 
-    def set_enabled_prefix(self, prefix):
-        # This is set via a method in order not to break the existing API.
-        self.enabled_use_prefix = prefix
-
     def diagnostic_name(self):
         return self.name
 
@@ -284,7 +258,7 @@ class BasePlugin(PrintError):
         return []
 
     def is_enabled(self):
-        return self.is_available() and self.config.get(self.enabled_use_prefix + self.name) is True
+        return self.is_available() and self.config.get('use_' + self.name) is True
 
     def is_available(self):
         return True
@@ -292,16 +266,8 @@ class BasePlugin(PrintError):
     def can_user_disable(self):
         return True
 
-    # Internal plugin settings support. `settings_widget(dialog)` is called on the plugin.
-    def requires_settings(self):
-        return False
-
     def settings_dialog(self, parent):
         pass
-
-    # External plugin settings support. `settings_dialog(parent_dialog)` is called on the plugin.
-    def has_settings_dialog(self):
-        return False
 
 
 class DeviceNotFoundError(Exception):
@@ -545,7 +511,8 @@ class DeviceMgr(ThreadJob, PrintError):
         info = infos[c]
         # save new label
         keystore.set_label(info.label)
-        handler.win.wallet.save_keystore()
+        if handler.win.wallet:
+            handler.win.wallet.save_keystore()
         return info
 
     def _scan_devices_with_hid(self):

@@ -123,10 +123,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.payment_request = None
         self.checking_accounts = False
         self.qr_window = None
+        self.pluginsdialog = None
         self.not_enough_funds = False
         self.op_return_toolong = False
-        self.internalpluginsdialog = None
-        self.externalpluginsdialog = None
         self.require_fee_update = False
         self.tx_notifications = []
         self.tx_notify_timer = None
@@ -558,8 +557,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         # Settings / Preferences are all reserved keywords in OSX using this as work around
         tools_menu.addAction(_("Electrum SV preferences") if sys.platform == 'darwin' else _("Preferences"), self.settings_dialog)
         tools_menu.addAction(_("&Network"), lambda: self.gui_object.show_network_dialog(self))
-        tools_menu.addAction(_("Optional &Features"), self.internal_plugins_dialog)
-        tools_menu.addAction(_("Installed &Plugins"), self.external_plugins_dialog)
+        tools_menu.addAction(_("&Plugins"), self.plugins_dialog)
         tools_menu.addSeparator()
         tools_menu.addAction(_("&Sign/verify message"), self.sign_verify_message)
         tools_menu.addAction(_("&Encrypt/decrypt message"), self.encrypt_message)
@@ -3138,8 +3136,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
         self.gui_object.close_window(self)
 
-    def internal_plugins_dialog(self):
-        self.internalpluginsdialog = d = WindowModalDialog(self, _('Optional Features'))
+    def plugins_dialog(self):
+        self.pluginsdialog = d = WindowModalDialog(self, _('Electrum SV Plugins'))
 
         plugins = self.gui_object.plugins
 
@@ -3154,7 +3152,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
         w = QWidget()
         scroll.setWidget(w)
-        w.setMinimumHeight(plugins.get_internal_plugin_count() * 35)
+        w.setMinimumHeight(plugins.count() * 35)
 
         grid = QGridLayout()
         grid.setColumnStretch(0,1)
@@ -3171,21 +3169,21 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                 widget.setEnabled(bool(p and p.is_enabled()))
 
         def do_toggle(cb, name, i):
-            p = plugins.toggle_internal_plugin(name)
+            p = plugins.toggle(name)
             cb.setChecked(bool(p))
             enable_settings_widget(p, name, i)
-            # All plugins get this whenever one is toggled.
             run_hook('init_qt', self.gui_object)
 
-        for i, descr in enumerate(plugins.internal_plugin_metadata.values()):
-            name = descr['__name__']
-            p = plugins.get_internal_plugin(name)
+        for i, descr in enumerate(plugins.descriptions.values()):
+            full_name = descr['__name__']
+            prefix, _separator, name = full_name.rpartition('.')
+            p = plugins.get(name)
             if descr.get('registers_keystore'):
                 continue
             try:
                 cb = QCheckBox(descr['fullname'])
                 plugin_is_loaded = p is not None
-                cb_enabled = (not plugin_is_loaded and plugins.is_internal_plugin_available(name, self.wallet)
+                cb_enabled = (not plugin_is_loaded and plugins.is_available(name, self.wallet)
                               or plugin_is_loaded and p.can_user_disable())
                 cb.setEnabled(cb_enabled)
                 cb.setChecked(plugin_is_loaded and p.is_enabled())
@@ -3197,14 +3195,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                     msg += '\n\n' + _('Requires') + ':\n' + '\n'.join(map(lambda x: x[1], descr.get('requires')))
                 grid.addWidget(HelpButton(msg), i, 2)
             except Exception:
-                logging.exception("error: cannot display plugin %s", name)
-        grid.setRowStretch(len(plugins.internal_plugin_metadata.values()), 1)
+                self.print_msg("error: cannot display plugin", name)
+                traceback.print_exc(file=sys.stdout)
+        grid.setRowStretch(len(plugins.descriptions.values()), 1)
         vbox.addLayout(Buttons(CloseButton(d)))
-        d.exec_()
-
-    def external_plugins_dialog(self):
-        from . import external_plugins_window
-        self.externalpluginsdialog = d = external_plugins_window.ExternalPluginsDialog(self, _('Plugin Manager'))
         d.exec_()
 
     def cpfp(self, parent_tx, new_tx):
