@@ -211,8 +211,8 @@ class CoinSplittingTab(QWidget):
             text += "<li>"+ _("As this wallet is password protected, you will be prompted to enter your password to sign the transaction.") + "</li>"
         text += (
             "<li>"+ _("The transaction will then be broadcast, and immediately added to your wallet history so you can see it confirmed. It will be labeled as splitting related, so you can easily identify it.") + "</li>" +
-            _("</ol>") +
-            "<br/><br/>")
+            "<li>"+ _("You can then open Electron Cash and move your ABC coins to a different address, in order to finalise the split.") + "</li>" +
+            _("</ol>"))
 
         self.intro_label.setText(text)
 
@@ -234,9 +234,20 @@ class CoinSplittingTab(QWidget):
             split_button.setMaximumWidth(120)
             split_button.clicked.connect(self._on_split_button_clicked)
 
+            help_content = "".join([
+                "<ol>",
+                "<li>"+ _("Frozen coins will not be included in any split you make. You can use the Coins tab to freeze or unfreeze selected coins, and by doing so only split chosen amounts of your coins at a time.  The View menu can be used to toggle tabs.") +"</li>",
+                "<li>"+ _("In order to prevent abuse, the faucet will limit how often you can obtain dust to split with. But that's okay, you can wait and split more coins. Or, if you are not concerned with your coins being linked, you can split dust from your already split coins, and use that to split further subsets.") +"</li>",
+                "</ol>",
+            ])
+
+            button_row = QHBoxLayout()
+            button_row.addWidget(split_button)
+            button_row.addWidget(util.HelpButton(help_content, textFormat=Qt.RichText, title="Additional Information"))
+
             grid.addWidget(self.intro_label, 0, 1, 1, 3)
             # grid.addWidget(balance_widget, 2, 1, 1, 3, Qt.AlignHCenter)
-            grid.addWidget(split_button, 3, 1, 1, 3, Qt.AlignHCenter)
+            grid.addLayout(button_row, 2, 1, 1, 3, Qt.AlignHCenter)
 
             vbox = QVBoxLayout()
             vbox.addStretch(1)

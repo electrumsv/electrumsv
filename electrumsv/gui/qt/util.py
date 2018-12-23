@@ -117,7 +117,9 @@ class HelpLabel(QLabel):
 
 
 class HelpButton(QPushButton):
-    def __init__(self, text):
+    def __init__(self, text, textFormat=Qt.AutoText, title="Help"):
+        self.textFormat = textFormat
+        self.title = title
         QPushButton.__init__(self, '?')
         self.help_text = text
         self.setFocusPolicy(Qt.NoFocus)
@@ -125,7 +127,12 @@ class HelpButton(QPushButton):
         self.clicked.connect(self.onclick)
 
     def onclick(self):
-        QMessageBox.information(self, 'Help', self.help_text)
+        b = QMessageBox()
+        b.setIcon(QMessageBox.Information)
+        b.setTextFormat(self.textFormat)
+        b.setText(self.help_text)
+        b.setWindowTitle(self.title)
+        b.exec()
 
 class Buttons(QHBoxLayout):
     def __init__(self, *buttons):
