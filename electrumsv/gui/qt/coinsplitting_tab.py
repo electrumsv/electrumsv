@@ -1,5 +1,3 @@
-# TODO: Bug, split coins are not labelled correctly, get dust label.
-
 import requests
 import threading
 
@@ -273,7 +271,7 @@ class CoinSplittingTab(QWidget):
 
 class SplitWaitingDialog(QProgressDialog):
     update_signal = pyqtSignal()
-    
+
     update_label = None
 
     def __init__(self, parent, splitter, task, on_success=None, on_error=None):

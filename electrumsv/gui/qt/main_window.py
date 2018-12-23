@@ -546,6 +546,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             tab.menu_action = view_menu.addAction(item_name, lambda: self.toggle_tab(tab))
 
         view_menu = menubar.addMenu(_("&View"))
+        add_toggle_action(view_menu, self.coinsplitting_tab)
         add_toggle_action(view_menu, self.addresses_tab)
         add_toggle_action(view_menu, self.utxo_tab)
         add_toggle_action(view_menu, self.contacts_tab)
