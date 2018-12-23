@@ -457,7 +457,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
                 self.show_message(_("A copy of your wallet file was created in")+" '%s'" % str(new_path), title=_("Wallet backup created"))
             except (IOError, os.error) as reason:
-                self.show_critical(_("Electrum SV was unable to copy your wallet file to the specified location.") + "\n" + str(reason), title=_("Unable to create backup"))
+                self.show_critical(_("ElectrumSV was unable to copy your wallet file to the specified location.") + "\n" + str(reason), title=_("Unable to create backup"))
 
     def update_recently_visited(self, filename):
         recent = self.config.get('recently_open', [])
@@ -555,7 +555,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         tools_menu = menubar.addMenu(_("&Tools"))
 
         # Settings / Preferences are all reserved keywords in OSX using this as work around
-        tools_menu.addAction(_("Electrum SV preferences") if sys.platform == 'darwin' else _("Preferences"), self.settings_dialog)
+        tools_menu.addAction(_("ElectrumSV preferences") if sys.platform == 'darwin' else _("Preferences"), self.settings_dialog)
         tools_menu.addAction(_("&Network"), lambda: self.gui_object.show_network_dialog(self))
         tools_menu.addAction(_("&Plugins"), self.plugins_dialog)
         tools_menu.addSeparator()
@@ -594,19 +594,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.show_error(_('No donation address for this server'))
 
     def show_about(self):
-        QMessageBox.about(self, "Electrum SV",
+        QMessageBox.about(self, "ElectrumSV",
             _("Version")+" %s" % (self.wallet.electrum_version) + "\n\n" +
-                _("Electrum SV's focus is speed, with low resource usage and simplifying Bitcoin SV. You do not need to perform regular backups, because your wallet can be recovered from a secret phrase that you can memorize or write on paper. Startup times are instant because it operates in conjunction with high-performance servers that handle the most complicated parts of the Bitcoin SV system."  + "\n\n" +
+                _("ElectrumSV's focus is speed, with low resource usage and simplifying Bitcoin SV. You do not need to perform regular backups, because your wallet can be recovered from a secret phrase that you can memorize or write on paper. Startup times are instant because it operates in conjunction with high-performance servers that handle the most complicated parts of the Bitcoin SV system."  + "\n\n" +
                 _("Uses icons from the Icons8 icon pack (icons8.com).")))
 
     def show_report_bug(self):
         msg = ' '.join([
             _("Please report any bugs as issues on github:<br/>"),
             "<a href=\"https://github.com/Electrum-SV/Electrum-SV/issues\">https://github.com/Electrum-SV/Electrum-SV/issues</a><br/><br/>",
-            _("Before reporting a bug, upgrade to the most recent version of Electrum SV (latest release or git HEAD), and include the version number in your report."),
+            _("Before reporting a bug, upgrade to the most recent version of ElectrumSV (latest release or git HEAD), and include the version number in your report."),
             _("Try to explain not only what the bug is, but how it occurs.")
          ])
-        self.show_message(msg, title="Electrum SV - " + _("Reporting Bugs"))
+        self.show_message(msg, title="ElectrumSV - " + _("Reporting Bugs"))
 
     last_notify_tx_time = 0.0
     notify_tx_rate = 30.0
@@ -661,9 +661,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         if self.tray:
             try:
                 # this requires Qt 5.9
-                self.tray.showMessage("Electrum SV", message, QIcon(":icons/electrum_dark_icon"), 20000)
+                self.tray.showMessage("ElectrumSV", message, QIcon(":icons/electrum_dark_icon"), 20000)
             except TypeError:
-                self.tray.showMessage("Electrum SV", message, QSystemTrayIcon.Information, 20000)
+                self.tray.showMessage("ElectrumSV", message, QSystemTrayIcon.Information, 20000)
 
 
 
@@ -881,7 +881,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             _('Expiration date of your request.'),
             _('This information is seen by the recipient if you send them a signed payment request.'),
             _('Expired requests have to be deleted manually from your list, in order to free the corresponding Bitcoin SV addresses.'),
-            _('The Bitcoin SV address never expires and will always be part of this Electrum SV wallet.'),
+            _('The Bitcoin SV address never expires and will always be part of this ElectrumSV wallet.'),
         ])
         grid.addWidget(HelpLabel(_('Request expires'), msg), 3, 0)
         grid.addWidget(self.expires_combo, 3, 1)
@@ -2193,7 +2193,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                 "private key, and verifying with the corresponding public key. The "
                 "address you have entered does not have a unique public key, so these "
                 "operations cannot be performed.") + '\n\n' + \
-               _('The operation is undefined. Not just in Electrum SV, but in general.')
+               _('The operation is undefined. Not just in ElectrumSV, but in general.')
 
     @protected
     def do_sign(self, address, message, signature, password):
@@ -2357,7 +2357,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             return tx
         except:
             logging.exception("")
-            self.show_critical(_("Electrum SV was unable to parse your transaction"))
+            self.show_critical(_("ElectrumSV was unable to parse your transaction"))
             return
 
     def read_tx_from_qrcode(self):
@@ -2388,7 +2388,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             with open(fileName, "r") as f:
                 file_content = f.read()
         except (ValueError, IOError, os.error) as reason:
-            self.show_critical(_("Electrum SV was unable to open your transaction file") + "\n" + str(reason), title=_("Unable to read file or no transaction found"))
+            self.show_critical(_("ElectrumSV was unable to open your transaction file") + "\n" + str(reason), title=_("Unable to read file or no transaction found"))
             return
         file_content = file_content.strip()
         tx_file_dict = json.loads(str(file_content))
@@ -2405,7 +2405,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             if tx:
                 self.show_transaction(tx)
         except SerializationError as e:
-            self.show_critical(_("Electrum SV was unable to deserialize the transaction:") + "\n" + str(e))
+            self.show_critical(_("ElectrumSV was unable to deserialize the transaction:") + "\n" + str(e))
 
     def do_process_from_file(self):
         from electrumsv.transaction import SerializationError
@@ -2414,7 +2414,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             if tx:
                 self.show_transaction(tx)
         except SerializationError as e:
-            self.show_critical(_("Electrum SV was unable to deserialize the transaction:") + "\n" + str(e))
+            self.show_critical(_("ElectrumSV was unable to deserialize the transaction:") + "\n" + str(e))
 
     def do_process_from_txid(self):
         from electrumsv import transaction
@@ -2511,7 +2511,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.do_export_privkeys(filename, private_keys, csv_button.isChecked())
         except (IOError, os.error) as reason:
             txt = "\n".join([
-                _("Electrum SV was unable to produce a private key-export."),
+                _("ElectrumSV was unable to produce a private key-export."),
                 str(reason)
             ])
             self.show_critical(txt, title=_("Unable to create csv"))
@@ -2546,7 +2546,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                 self.wallet.set_label(key, value)
             self.show_message(_("Your labels were imported from") + " '%s'" % str(labelsFile))
         except (IOError, os.error) as reason:
-            self.show_critical(_("Electrum SV was unable to import your labels.") + "\n" + str(reason))
+            self.show_critical(_("ElectrumSV was unable to import your labels.") + "\n" + str(reason))
         self.address_list.update()
         self.history_list.update()
         self.history_updated_signal.emit() # inform things like address_dialog that there's a new history
@@ -2560,7 +2560,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                     json.dump(labels, f, indent=4, sort_keys=True)
                 self.show_message(_("Your labels were exported to") + " '%s'" % str(fileName))
         except (IOError, os.error) as reason:
-            self.show_critical(_("Electrum SV was unable to export your labels.") + "\n" + str(reason))
+            self.show_critical(_("ElectrumSV was unable to export your labels.") + "\n" + str(reason))
 
     def export_history_dialog(self):
         d = WindowModalDialog(self, _('Export History'))
@@ -2583,7 +2583,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         try:
             self.do_export_history(self.wallet, filename, csv_button.isChecked())
         except (IOError, os.error) as reason:
-            export_error_label = _("Electrum SV was unable to produce a transaction export.")
+            export_error_label = _("ElectrumSV was unable to produce a transaction export.")
             self.show_critical(export_error_label + "\n" + str(reason), title=_("Unable to export history"))
             return
         self.show_message(_("Your wallet history has been successfully exported."))
@@ -3094,7 +3094,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
         run_hook('close_settings_dialog')
         if self.need_restart:
-            self.show_warning(_('Please restart Electrum SV to activate the new GUI settings'), title=_('Success'))
+            self.show_warning(_('Please restart ElectrumSV to activate the new GUI settings'), title=_('Success'))
 
 
     def closeEvent(self, event):
@@ -3137,7 +3137,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.gui_object.close_window(self)
 
     def plugins_dialog(self):
-        self.pluginsdialog = d = WindowModalDialog(self, _('Electrum SV Plugins'))
+        self.pluginsdialog = d = WindowModalDialog(self, _('ElectrumSV Plugins'))
 
         plugins = self.gui_object.plugins
 

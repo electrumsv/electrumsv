@@ -11,7 +11,7 @@ import argparse
 from setuptools import setup, find_packages
 
 if sys.version_info[:3] < (3, 6, 0):
-    sys.exit("Error: Electrum SV requires Python version >= 3.6.0...")
+    sys.exit("Error: ElectrumSV requires Python version >= 3.6.0...")
 
 with open('contrib/requirements/requirements.txt') as f:
     requirements = f.read().splitlines()
@@ -62,7 +62,7 @@ if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
     ]
 
 setup(
-    name="Electrum SV",
+    name="ElectrumSV",
     version=version.PACKAGE_VERSION,
     install_requires=[
         'pyaes>=0.1a1',

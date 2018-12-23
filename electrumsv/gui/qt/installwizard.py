@@ -23,7 +23,7 @@ from .password_dialog import PasswordLayout, PW_NEW
 class GoBack(Exception):
     pass
 
-MSG_GENERATING_WAIT = _("Electrum SV is generating your addresses, please wait...")
+MSG_GENERATING_WAIT = _("ElectrumSV is generating your addresses, please wait...")
 MSG_ENTER_ANYTHING = _("Please enter a seed phrase, a master key, a list of "
                        "Bitcoin addresses, or a list of private keys")
 MSG_ENTER_SEED_OR_MPK = _("Please enter a seed phrase or a master key (xpub or xprv):")
@@ -103,7 +103,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
     def __init__(self, config, app, plugins, storage):
         BaseWizard.__init__(self, config, storage)
         QDialog.__init__(self, None)
-        self.setWindowTitle('Electrum SV  -  ' + _('Install Wizard'))
+        self.setWindowTitle('ElectrumSV  -  ' + _('Install Wizard'))
         self.app = app
         self.config = config
         # Set for base base class
@@ -165,7 +165,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
     def _copy_electron_cash_wallets(self):
         """
         Work out whether we should show UI to offer to copy the user's
-        Electron Cash wallets to their Electrum SV wallet directory, and
+        Electron Cash wallets to their ElectrumSV wallet directory, and
         if so, show it and give them the chance.
         """
         def ignore_wallet_file(wallet_path):
@@ -181,7 +181,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 return len(filenames)
             return 0
 
-        # If the user has Electrum SV wallets already, we do not offer to copy the one's Electron Cash has.
+        # If the user has ElectrumSV wallets already, we do not offer to copy the one's Electron Cash has.
         esv_wallets_dir = os.path.join(user_dir(), "wallets")
         if count_user_wallets(esv_wallets_dir) > 0:
             return
@@ -210,7 +210,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         file_list.itemSelectionChanged.connect(update_summary_label)
 
         vbox = QVBoxLayout()
-        introduction_label = QLabel(_("Your Electron Cash wallet directory was found. If you want Electrum SV to import any of them on your behalf, select the ones you want copied from the list below before clicking the Next button."))
+        introduction_label = QLabel(_("Your Electron Cash wallet directory was found. If you want ElectrumSV to import any of them on your behalf, select the ones you want copied from the list below before clicking the Next button."))
         introduction_label.setWordWrap(True)
         vbox.setSpacing(20)
         vbox.addWidget(introduction_label)
@@ -261,7 +261,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         hbox2.addWidget(self.pw_e)
         hbox2.addStretch()
         vbox.addLayout(hbox2)
-        self.set_layout(vbox, title=_('Electrum SV wallet'))
+        self.set_layout(vbox, title=_('ElectrumSV wallet'))
 
         wallet_folder = os.path.dirname(self.storage.path)
 
@@ -342,7 +342,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
         if self.storage.requires_upgrade():
             self.hide()
-            msg = _("The format of your wallet '%s' must be upgraded for Electrum SV. This change will not be backward compatible"%path)
+            msg = _("The format of your wallet '%s' must be upgraded for ElectrumSV. This change will not be backward compatible"%path)
             if not self.question(msg):
                 return
             self.storage.upgrade()
@@ -580,10 +580,10 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         return None
 
     def init_network(self, network):
-        message = _("Electrum SV communicates with remote servers to get "
+        message = _("ElectrumSV communicates with remote servers to get "
                   "information about your transactions and addresses. The "
                   "servers all fulfil the same purpose only differing in "
-                  "hardware. In most cases you simply want to let Electrum SV "
+                  "hardware. In most cases you simply want to let ElectrumSV "
                   "pick one at random.  However if you prefer feel free to "
                   "select a server manually.")
         choices = [_("Auto connect"), _("Select server manually")]

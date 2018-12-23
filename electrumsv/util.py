@@ -288,7 +288,7 @@ def assert_datadir_available(config_path):
         return
     else:
         raise FileNotFoundError(
-            'Electrum SV datadir does not exist. Was it deleted while running?' + '\n' +
+            'ElectrumSV datadir does not exist. Was it deleted while running?' + '\n' +
             'Should be at {}'.format(path))
 
 def assert_file_in_datadir_available(path, config_path):
@@ -366,7 +366,7 @@ def get_electron_cash_user_dir(esv_user_dir):
     located.
 
     Arguments:
-    esv_user_dir --- the Electrum SV `user_dir` generated path.
+    esv_user_dir --- the ElectrumSV `user_dir` generated path.
     """
     esv_user_dir = esv_user_dir.replace(".electrum-sv", ".electron-cash")
     esv_user_dir = esv_user_dir.replace("ElectrumSV", "ElectronCash")

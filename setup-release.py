@@ -1,5 +1,5 @@
 """
-py2app/py2exe build script for Electrum SV
+py2app/py2exe build script for ElectrumSV
 
 Usage (Mac OS X):
      python setup.py py2app
@@ -18,7 +18,7 @@ from lib.util import print_error
 from lib.version import PACKAGE_VERSION as version
 
 
-name = "Electrum SV"
+name = "ElectrumSV"
 mainscript = 'electrum-sv'
 
 if sys.version_info[:3] < (3, 6, 0):

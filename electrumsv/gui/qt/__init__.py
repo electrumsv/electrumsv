@@ -51,7 +51,7 @@ try:
 except Exception as e:
     print(e)
     print("Error: Could not find icons file.")
-    print("Run 'pyrcc5 icons.qrc -o electrumsv/gui/qt/icons_rc.py', and re-run Electrum SV")
+    print("Run 'pyrcc5 icons.qrc -o electrumsv/gui/qt/icons_rc.py', and re-run ElectrumSV")
     sys.exit(1)
 
 from .util import *   # * needed for plugins
@@ -106,7 +106,7 @@ class ElectrumGui:
         # init tray
         self.dark_icon = self.config.get("dark_icon", False)
         self.tray = QSystemTrayIcon(self.tray_icon(), None)
-        self.tray.setToolTip('Electrum SV')
+        self.tray.setToolTip('ElectrumSV')
         self.tray.activated.connect(self.tray_activated)
         self.build_tray_menu()
         self.tray.show()
@@ -128,7 +128,7 @@ class ElectrumGui:
             submenu.addAction(_("Close"), window.close)
         m.addAction(_("Dark/Light"), self.toggle_tray_icon)
         m.addSeparator()
-        m.addAction(_("Exit Electrum SV"), self.close)
+        m.addAction(_("Exit ElectrumSV"), self.close)
         self.tray.setContextMenu(m)
 
     def tray_icon(self):
@@ -161,7 +161,7 @@ class ElectrumGui:
 
     def show_network_dialog(self, parent):
         if not self.daemon.network:
-            parent.show_warning(_('You are using Electrum SV in offline mode; restart Electrum SV if you want to get connected'), title=_('Offline'))
+            parent.show_warning(_('You are using ElectrumSV in offline mode; restart ElectrumSV if you want to get connected'), title=_('Offline'))
             return
         if self.nd:
             self.nd.on_update()

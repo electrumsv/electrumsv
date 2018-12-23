@@ -69,10 +69,10 @@ class SeedLayout(QVBoxLayout):
                 if b:
                     msg = ' '.join([
                         '<b>' + _('Warning') + ':</b>  ',
-                        _('BIP39 seeds can be imported in Electrum SV, so that users can access funds locked in other wallets.'),
+                        _('BIP39 seeds can be imported in ElectrumSV, so that users can access funds locked in other wallets.'),
                         _('However, we do not generate BIP39 seeds, because they do not meet our safety standard.'),
                         _('BIP39 seeds do not include a version number, which compromises compatibility with future software.'),
-                        _('We do not guarantee that BIP39 imports will always be supported in Electrum SV.'),
+                        _('We do not guarantee that BIP39 imports will always be supported in ElectrumSV.'),
                     ])
                 else:
                     msg = ''
@@ -92,11 +92,11 @@ class SeedLayout(QVBoxLayout):
                 if b:
                     msg = ' '.join([
                         '<b>' + _('Warning') + ': BIP39 seeds are dangerous!' + '</b><br/><br/>',
-                        _('BIP39 seeds can be imported in Electrum SV so that users can access funds locked in other wallets.'),
+                        _('BIP39 seeds can be imported in ElectrumSV so that users can access funds locked in other wallets.'),
                         _('However, BIP39 seeds do not include a version number, which compromises compatibility with future wallet software.'),
                         '<br/><br/>',
-                        _('We do not guarantee that BIP39 imports will always be supported in Electrum SV.'),
-                        _('In addition, Electrum SV does not verify the checksum of BIP39 seeds; make sure you type your seed correctly.'),
+                        _('We do not guarantee that BIP39 imports will always be supported in ElectrumSV.'),
+                        _('In addition, ElectrumSV does not verify the checksum of BIP39 seeds; make sure you type your seed correctly.'),
                     ])
                 else:
                     msg = ''
@@ -200,7 +200,7 @@ class KeysLayout(QVBoxLayout):
 class SeedDialog(WindowModalDialog):
 
     def __init__(self, parent, seed, passphrase):
-        WindowModalDialog.__init__(self, parent, ('Electrum SV - ' + _('Seed')))
+        WindowModalDialog.__init__(self, parent, ('ElectrumSV - ' + _('Seed')))
         self.setMinimumWidth(400)
         vbox = QVBoxLayout(self)
         title =  _("Your wallet generation seed is:")
