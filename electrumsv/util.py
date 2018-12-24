@@ -33,9 +33,12 @@ import stat
 import threading
 import traceback
 
-logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-
 from .i18n import _
+
+
+LOGGING_FORMAT = '%(asctime)s %(message)s'
+LOGGING_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+logging.basicConfig(format=LOGGING_FORMAT, datefmt=LOGGING_DATE_FORMAT)
 
 
 def inv_dict(d):

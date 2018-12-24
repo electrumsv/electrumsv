@@ -30,8 +30,11 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
 import os
 import sys
+import time
+
 
 if sys.version_info < (3, 6, 0):
     sys.exit("Error: Must be using Python 3.6.0 or higher")
@@ -73,7 +76,6 @@ if not is_android:  # Avoid unnecessarily slowing down app startup.
 
 from electrumsv import bitcoin, util
 from electrumsv import SimpleConfig, Network
-from electrumsv.logger import Logger
 from electrumsv.networks import NetworkConstants
 from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
 from electrumsv.storage import WalletStorage
@@ -325,12 +327,14 @@ def main():
         config_options['electrum_sv_path'] = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'electrum_sv_data')
 
     if config_options.get('file_logging'):
-        # Force verbose logging, if the user is using file logging.
-        set_verbosity(True)
-        Logger().enable_log_files()
-    else:
-        # Otherwise, rely on the user command line parameter.
-        set_verbosity(config_options.get('verbose'))
+        log_path = os.path.join(util.user_dir(prefer_local=True), "logs")
+        os.makedirs(log_path, exist_ok=True)
+        log_path = os.path.join(log_path, time.strftime("%Y%m%d-%H%M%S") +".log")
+        file_handler = logging.FileHandler(log_path)
+        file_handler.setFormatter(logging.Formatter(util.LOGGING_FORMAT, datefmt=util.LOGGING_DATE_FORMAT))
+        logging.getLogger().addHandler(file_handler)
+
+    set_verbosity(config_options.get('verbose'))
 
     if config_options.get('testnet'):
         NetworkConstants.set_testnet()
