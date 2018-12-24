@@ -330,9 +330,7 @@ def main():
         log_path = os.path.join(util.user_dir(prefer_local=True), "logs")
         os.makedirs(log_path, exist_ok=True)
         log_path = os.path.join(log_path, time.strftime("%Y%m%d-%H%M%S") +".log")
-        file_handler = logging.FileHandler(log_path)
-        file_handler.setFormatter(logging.Formatter(util.LOGGING_FORMAT, datefmt=util.LOGGING_DATE_FORMAT))
-        logging.getLogger().addHandler(file_handler)
+        util.add_logging_handler(logging.FileHandler(log_path))
 
     set_verbosity(config_options.get('verbose'))
 

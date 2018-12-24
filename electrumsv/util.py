@@ -36,9 +36,15 @@ import traceback
 from .i18n import _
 
 
-LOGGING_FORMAT = '%(asctime)s %(message)s'
-LOGGING_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
-logging.basicConfig(format=LOGGING_FORMAT, datefmt=LOGGING_DATE_FORMAT)
+log = logging.getLogger()
+log.setLevel(logging.CRITICAL)
+
+def add_logging_handler(handler):
+    formatter = logging.Formatter('%(asctime)s:'+ logging.BASIC_FORMAT)
+    handler.setFormatter(formatter)
+    log.addHandler(handler)
+
+add_logging_handler(logging.StreamHandler())
 
 
 def inv_dict(d):
@@ -191,6 +197,7 @@ class DaemonThread(threading.Thread, PrintError):
 is_verbose = True
 def set_verbosity(b):
     global is_verbose
+    log.setLevel(logging.DEBUG if b else logging.CRITICAL)
     is_verbose = b
 
 # Method decorator.  To be used for calculations that will always
@@ -213,7 +220,7 @@ def print_error(*args):
 
 def print_stderr(*args):
     args = [str(item) for item in args]
-    logging.error(" ".join(args))
+    logging.debug(" ".join(args))
 
 def print_msg(*args):
     # Stringify args
