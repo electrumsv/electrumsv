@@ -279,6 +279,8 @@ class DeviceUnpairableError(Exception):
 Device = namedtuple("Device", "path interface_number id_ product_key usage_page")
 DeviceInfo = namedtuple("DeviceInfo", "device label initialized")
 
+HardwarePluginToScan = namedtuple("HardwarePluginToScan", 'name,description,plugin,exception')
+
 class DeviceMgr(ThreadJob, PrintError):
     '''Manages hardware clients.  A client communicates over a hardware
     channel with the device.

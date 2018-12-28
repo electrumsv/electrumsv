@@ -163,31 +163,46 @@ class BaseWizard(object):
     def choose_hw_device(self):
         title = _('Hardware Keystore')
         # check available plugins
-        support = self.plugins.get_hardware_support()
-        if not support:
-            msg = '\n'.join([
-                _('No hardware wallet support found on your system.'),
-                _('Please install the relevant libraries (eg python-trezor for Trezor).'),
-            ])
-            self.confirm_dialog(title=title, message=msg, run_next= lambda x: self.choose_hw_device())
-            return
+        supported_plugins = self.plugins.get_hardware_support()
         # scan devices
         devices = []
         devmgr = self.plugins.device_manager
-        for name, description, plugin in support:
-            try:
-                # FIXME: side-effect: unpaired_device_info sets client.handler
-                u = devmgr.unpaired_device_infos(None, plugin)
-            except:
-                devmgr.print_error("error", name)
-                continue
-            devices += list(map(lambda x: (name, x), u))
+        debug_msg = ''
+        try:
+            scanned_devices = devmgr.scan_devices()
+        except:
+            logging.exception(f'error scanning devices')
+        else:
+            for splugin in supported_plugins:
+                name, plugin = splugin.name, splugin.plugin
+                # plugin init errored?
+                if not plugin:
+                    e = splugin.exception
+                    indented_error_msg = '    '.join([''] + str(e).splitlines(keepends=True))
+                    debug_msg += f'  {name}: (error during plugin init)\n'
+                    debug_msg += '    {}\n'.format(_('You might have an incompatible library.'))
+                    debug_msg += f'{indented_error_msg}\n'
+                    continue
+                # see if plugin recognizes 'scanned_devices'
+                try:
+                    # FIXME: side-effect: unpaired_device_info sets client.handler
+                    u = devmgr.unpaired_device_infos(None, plugin, devices=scanned_devices)
+                except:
+                    logging.exception(f'error getting device infos for {name}: {e}')
+                    indented_error_msg = '    '.join([''] + str(e).splitlines(keepends=True))
+                    debug_msg += f'  {name}: (error getting device infos)\n{indented_error_msg}\n'
+                    continue
+                devices += list(map(lambda x: (name, x), u))
+        if not debug_msg:
+            debug_msg = '  {}'.format(_('No exceptions encountered.'))
         if not devices:
             msg = ''.join([
                 _('No hardware device detected.') + '\n',
                 _('To trigger a rescan, press \'Next\'.') + '\n\n',
                 _('If your device is not detected on Windows, go to "Settings", "Devices", "Connected devices", and do "Remove device". Then, plug your device again.') + ' ',
-                _('On Linux, you might have to add a new permission to your udev rules.'),
+                _('On Linux, you might have to add a new permission to your udev rules.') + '\n\n',
+                _('Debug message') + '\n',
+                debug_msg
             ])
             self.confirm_dialog(title=title, message=msg, run_next= lambda x: self.choose_hw_device())
             return
@@ -203,7 +218,7 @@ class BaseWizard(object):
         self.choice_dialog(title=title, message=msg, choices=choices, run_next=self.on_device)
 
     def on_device(self, name, device_info):
-        self.plugin = self.plugins.find_plugin(name, force_load=True)
+        self.plugin = self.plugins.get_plugin(name)
         try:
             self.plugin.setup_device(device_info, self)
         except OSError as e:
