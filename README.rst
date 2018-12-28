@@ -57,7 +57,7 @@ Run install (this should install dependencies)::
 Compile the icons file for Qt::
 
     sudo apt-get install pyqt5-dev-tools
-    pyrcc5 icons.qrc -o gui/qt/icons_rc.py
+    pyrcc5 icons.qrc -o electrumsv/gui/qt/icons_rc.py
 
 Compile the protobuf description file::
 
