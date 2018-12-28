@@ -8,7 +8,7 @@ import os
 PACKAGE='Electrum-SV'
 PYPKG='electrumsv'
 MAIN_SCRIPT='electrum-sv'
-ICONS_FILE='electrum-sv.icns'
+ICONS_FILE='contrib/osx/electrum-sv.icns'
 
 for i, x in enumerate(sys.argv):
     if x == '--name':
@@ -17,7 +17,7 @@ for i, x in enumerate(sys.argv):
 else:
     raise Exception('no version')
 
-electrum = os.path.abspath(".") + "/"
+home_dir = os.path.abspath(".") + "/"
 block_cipher = None
 
 # see https://github.com/pyinstaller/pyinstaller/issues/2005
@@ -27,40 +27,40 @@ hiddenimports += collect_submodules('btchip')
 hiddenimports += collect_submodules('keepkeylib')
 
 datas = [
-    (electrum + PYPKG + '/*.json', PYPKG),
-    (electrum + PYPKG + '/wordlist/english.txt', PYPKG + '/wordlist'),
-    (electrum + PYPKG + '/locale', PYPKG + '/locale'),
-    (electrum + PYPKG + '/plugins', PYPKG + '/plugins'),
+    (home_dir + PYPKG + '/*.json', PYPKG),
+    (home_dir + PYPKG + '/wordlist/english.txt', PYPKG + '/wordlist'),
+    (home_dir + PYPKG + '/locale', PYPKG + '/locale'),
+    (home_dir + PYPKG + '/plugins', PYPKG + '/plugins'),
 ]
 datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
 datas += collect_data_files('keepkeylib')
 
 # Add the QR Scanner helper app
-datas += [(electrum + "contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app", "./contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app")]
+datas += [(home_dir + "contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app", "./contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app")]
 
 # Add libusb so Trezor and Safe-T mini will work
-binaries = [(electrum + "contrib/osx/libusb-1.0.dylib", ".")]
-binaries += [(electrum + "contrib/osx/libsecp256k1.0.dylib", ".")]
+binaries = [(home_dir + "contrib/osx/libusb-1.0.dylib", ".")]
+binaries += [(home_dir + "contrib/osx/libsecp256k1.0.dylib", ".")]
 
 # Workaround for "Retro Look":
 binaries += [b for b in collect_dynamic_libs('PyQt5') if 'macstyle' in b[0]]
 
 # We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
-a = Analysis([electrum+ MAIN_SCRIPT,
-              electrum+'electrumsv/gui/qt/main_window.py',
-              electrum+'electrumsv/gui/text.py',
-              electrum+'electrumsv/util.py',
-              electrum+'electrumsv/wallet.py',
-              electrum+'electrumsv/simple_config.py',
-              electrum+'electrumsv/bitcoin.py',
-              electrum+'electrumsv/dnssec.py',
-              electrum+'electrumsv/commands.py',
-              electrum+'electrumsv/plugins/cosigner_pool/qt.py',
-              electrum+'electrumsv/plugins/email_requests/qt.py',
-              electrum+'electrumsv/plugins/trezor/qt.py',
-              electrum+'electrumsv/plugins/keepkey/qt.py',
-              electrum+'electrumsv/plugins/ledger/qt.py',
+a = Analysis([home_dir +  MAIN_SCRIPT,
+              home_dir + 'electrumsv/gui/qt/main_window.py',
+              home_dir + 'electrumsv/gui/text.py',
+              home_dir + 'electrumsv/util.py',
+              home_dir + 'electrumsv/wallet.py',
+              home_dir + 'electrumsv/simple_config.py',
+              home_dir + 'electrumsv/bitcoin.py',
+              home_dir + 'electrumsv/dnssec.py',
+              home_dir + 'electrumsv/commands.py',
+              home_dir + 'electrumsv/plugins/cosigner_pool/qt.py',
+              home_dir + 'electrumsv/plugins/email_requests/qt.py',
+              home_dir + 'electrumsv/plugins/trezor/qt.py',
+              home_dir + 'electrumsv/plugins/keepkey/qt.py',
+              home_dir + 'electrumsv/plugins/ledger/qt.py',
               ],
              binaries=binaries,
              datas=datas,
@@ -92,13 +92,13 @@ exe = EXE(pyz,
           debug=False,
           strip=False,
           upx=True,
-          icon=electrum+ICONS_FILE,
+          icon=home_dir + ICONS_FILE,
           console=False)
 
 app = BUNDLE(exe,
              version = VERSION,
              name=PACKAGE + '.app',
-             icon=electrum+ICONS_FILE,
+             icon=home_dir + ICONS_FILE,
              bundle_identifier=None,
              info_plist={
                 'NSHighResolutionCapable': 'True',

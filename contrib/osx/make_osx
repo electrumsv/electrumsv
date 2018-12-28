@@ -93,12 +93,11 @@ info "Installing hardware wallet requirements..."
 python3 -m pip install -Ir ./contrib/deterministic-build/requirements-hw.txt || \
 fail "Could not install hardware wallet requirements"
 
-info "Downloading icons..."
-for repo in icons; do
-  git clone $GIT_REPO_ACCT/electrum-$repo $BUILDDIR/electrum-$repo
-done
-
-cp $BUILDDIR/electrum-icons/icons_rc.py ./electrumsv/gui/qt/
+info "Making icons..."
+#for repo in icons; do
+#  git clone $GIT_REPO_ACCT/electrum-$repo $BUILDDIR/electrum-$repo
+#done
+#cp $BUILDDIR/electrum-icons/icons_rc.py ./electrumsv/gui/qt/
 
 info "Making locale..."
 ./contrib/make_locale || fail "Failed to make locale..."
@@ -147,7 +146,7 @@ plutil -insert 'CFBundleURLTypes' \
 DoCodeSignMaybe "app bundle" "dist/${PACKAGE}.app" "$APP_SIGN" # If APP_SIGN is empty will be a noop
 
 info "Creating .DMG"
-hdiutil create -fs HFS+ -volname $PACKAGE -srcfolder dist/$PACKAGE.app dist/$PACKAGE-$VERSION.dmg || fail "Could not create .DMG"
+dmgbuild -D PACKAGE=$PACKAGE -s contrib/osx/dmg-settings.py "" dist/$PACKAGE-$VERSION.dmg || fail "Could not create .DMG"
 
 DoCodeSignMaybe ".DMG" "dist/${PACKAGE}-${VERSION}.dmg" "$APP_SIGN" # If APP_SIGN is empty will be a noop
 
