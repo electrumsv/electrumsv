@@ -20,6 +20,13 @@ else:
 home_dir = os.path.abspath(".") + "/"
 block_cipher = None
 
+# see https://github.com/pyinstaller/pyinstaller/issues/2005
+hiddenimports = []
+hiddenimports += collect_submodules('trezorlib')
+hiddenimports += collect_submodules('btchip')
+hiddenimports += collect_submodules('keepkeylib')
+hiddenimports += collect_submodules('websocket')
+
 datas = [
     (home_dir + PYPKG + '/*.json', PYPKG),
     (home_dir + PYPKG + '/wordlist/english.txt', PYPKG + '/wordlist'),
@@ -33,9 +40,7 @@ datas += collect_data_files('keepkeylib')
 # Add the QR Scanner helper app
 datas += [(home_dir + "contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app", "./contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app")]
 
-# Add libusb so Trezor and Safe-T mini will work
-binaries = [(home_dir + "contrib/osx/libusb-1.0.dylib", ".")]
-binaries += [(home_dir + "contrib/osx/libsecp256k1.0.dylib", ".")]
+binaries = [(home_dir + "contrib/osx/libsecp256k1.0.dylib", ".")]
 
 # Workaround for "Retro Look":
 binaries += [b for b in collect_dynamic_libs('PyQt5') if 'macstyle' in b[0]]
@@ -58,6 +63,7 @@ a = Analysis([home_dir +  MAIN_SCRIPT,
               ],
              binaries=binaries,
              datas=datas,
+             hiddenimports=hiddenimports,
              hookspath=[])
 
 # http://stackoverflow.com/questions/19055089/pyinstaller-onefile-warning-pyconfig-h-when-importing-scipy-or-scipy-signal

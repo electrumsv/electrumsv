@@ -102,12 +102,6 @@ info "Making icons..."
 info "Making locale..."
 ./contrib/make_locale || fail "Failed to make locale..."
 
-info "Downloading libusb..."
-curl https://homebrew.bintray.com/bottles/libusb-1.0.21.el_capitan.bottle.tar.gz | \
-tar xz --directory $BUILDDIR
-cp $BUILDDIR/libusb/1.0.21/lib/libusb-1.0.dylib contrib/osx
-DoCodeSignMaybe "libusb" "contrib/osx/libusb-1.0.dylib" "$APP_SIGN" # If APP_SIGN is empty will be a noop
-
 info "Building libsecp256k1"
 brew install autoconf automake libtool
 git clone https://github.com/bitcoin-core/secp256k1 $BUILDDIR/secp256k1
