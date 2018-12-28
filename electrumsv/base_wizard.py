@@ -23,7 +23,9 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
 import os
+
 from . import bitcoin
 from . import keystore
 from .keystore import bip44_derivation, bip44_derivation_145
@@ -187,8 +189,8 @@ class BaseWizard(object):
                 try:
                     # FIXME: side-effect: unpaired_device_info sets client.handler
                     u = devmgr.unpaired_device_infos(None, plugin, devices=scanned_devices)
-                except:
-                    logging.exception(f'error getting device infos for {name}: {e}')
+                except Exception as e:
+                    logging.exception(f'error getting device infos for {name}')
                     indented_error_msg = '    '.join([''] + str(e).splitlines(keepends=True))
                     debug_msg += f'  {name}: (error getting device infos)\n{indented_error_msg}\n'
                     continue

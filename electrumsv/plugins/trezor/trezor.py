@@ -13,11 +13,35 @@ from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 from electrumsv.address import ScriptOutput
 
 from ..hw_wallet import HW_PluginBase
+from ..hw_wallet.plugin import LibraryFoundButUnusable
 
 
-# TREZOR initialization methods
-TIM_NEW, TIM_RECOVER, TIM_MNEMONIC, TIM_PRIVKEY = range(0, 4)
-RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX = range(0, 2)
+try:
+    import trezorlib
+    import trezorlib.transport
+
+    from .clientbase import TrezorClientBase
+
+    from trezorlib.messages import (
+        RecoveryDeviceType, HDNodeType, HDNodePathType,
+        InputScriptType, OutputScriptType, MultisigRedeemScriptType,
+        TxInputType, TxOutputType, TxOutputBinType, TransactionType, SignTx)
+
+    RECOVERY_TYPE_SCRAMBLED_WORDS = RecoveryDeviceType.ScrambledWords
+    RECOVERY_TYPE_MATRIX = RecoveryDeviceType.Matrix
+
+    TREZORLIB = True
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    TREZORLIB = False
+
+    RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX = range(2)
+
+# Trezor initialization methods
+TIM_NEW, TIM_RECOVER = range(2)
+
+TREZOR_PRODUCT_KEY = 'Trezor'
 
 
 class TrezorKeyStore(Hardware_KeyStore):
@@ -67,52 +91,44 @@ class TrezorPlugin(HW_PluginBase):
     libraries_URL = 'https://github.com/trezor/python-trezor'
     minimum_firmware = (1, 5, 2)
     keystore_class = TrezorKeyStore
-    minimum_library = (0, 9, 0)
+    minimum_library = (0, 11, 0)
+    maximum_library = (0, 12)
+    DEVICE_IDS = (TREZOR_PRODUCT_KEY,)
 
     MAX_LABEL_LEN = 32
 
     def __init__(self, parent, config, name):
-        HW_PluginBase.__init__(self, parent, config, name)
-
-        try:
-            # Minimal test if python-trezor is installed
-            import trezorlib
-            try:
-                library_version = trezorlib.__version__
-            except AttributeError:
-                # python-trezor only introduced __version__ in 0.9.0
-                library_version = 'unknown'
-            if library_version == 'unknown' or \
-                    versiontuple(library_version) < self.minimum_library:
-                self.libraries_available_message = (
-                        _("Library version for '{}' is too old.").format(name)
-                        + '\nInstalled: {}, Needed: {}'
-                        .format(library_version, self.minimum_library))
-                self.print_stderr(self.libraries_available_message)
-                raise ImportError()
-            self.libraries_available = True
-        except ImportError:
-            self.libraries_available = False
+        super().__init__(parent, config, name)
+        self.libraries_available = self.check_libraries_available()
+        if not self.libraries_available:
             return
-
-        from . import client
-        from . import transport
-        import trezorlib.messages
-        self.client_class = client.TrezorClient
-        self.types = trezorlib.messages
-        self.DEVICE_IDS = ('TREZOR',)
-
-        self.transport_handler = transport.TrezorTransport()
         self.device_manager().register_enumerate_func(self.enumerate)
 
+    def get_library_version(self):
+        import trezorlib
+        try:
+            version = trezorlib.__version__
+        except Exception:
+            version = 'unknown'
+        if TREZORLIB:
+            return version
+        else:
+            raise LibraryFoundButUnusable(library_version=version)
+
     def enumerate(self):
-        devices = self.transport_handler.enumerate_devices()
-        return [Device(d.get_path(), -1, d.get_path(), 'TREZOR', 0) for d in devices]
+        devices = trezorlib.transport.enumerate_devices()
+        return [Device(path=d.get_path(),
+                       interface_number=-1,
+                       id_=d.get_path(),
+                       product_key=TREZOR_PRODUCT_KEY,
+                       usage_page=0,
+                       transport_ui_string=d.get_path())
+                for d in devices]
 
     def create_client(self, device, handler):
         try:
             self.print_error("connecting to device at", device.path)
-            transport = self.transport_handler.get_transport(device.path)
+            transport = trezorlib.transport.get_transport(device.path)
         except BaseException as e:
             self.print_error("cannot connect at", device.path, str(e))
             return None
@@ -122,24 +138,8 @@ class TrezorPlugin(HW_PluginBase):
             return
 
         self.print_error("connected to device at", device.path)
-        client = self.client_class(transport, handler, self)
-
-        # Try a ping for device sanity
-        try:
-            client.ping('t')
-        except BaseException as e:
-            self.print_error("ping failed", str(e))
-            return None
-
-        if not client.atleast_version(*self.minimum_firmware):
-            msg = (_('Outdated {} firmware for device labelled {}. Please '
-                     'download the updated firmware from {}')
-                   .format(self.device, client.label(), self.firmware_URL))
-            self.print_error(msg)
-            handler.show_error(msg)
-            return None
-
-        return client
+        # note that this call can still raise!
+        return TrezorClientBase(transport, handler, self)
 
     def get_client(self, keystore, force_pair=True):
         devmgr = self.device_manager()
@@ -163,18 +163,12 @@ class TrezorPlugin(HW_PluginBase):
         # Initialization method
         msg = _("Choose how you want to initialize your {}.\n\n"
                 "The first two methods are secure as no secret information "
-                "is entered into your computer.\n\n"
-                "For the last two methods you input secrets on your keyboard "
-                "and upload them to your {}, and so you should "
-                "only do those on a computer you know to be trustworthy "
-                "and free of malware."
+                "is entered into your computer."
         ).format(self.device, self.device)
         choices = [
             # Must be short as QT doesn't word-wrap radio button text
             (TIM_NEW, _("Let the device generate a completely new seed randomly")),
             (TIM_RECOVER, _("Recover from a seed you have previously written down")),
-            (TIM_MNEMONIC, _("Upload a BIP39 mnemonic to generate the seed")),
-            (TIM_PRIVKEY, _("Upload a master private key"))
         ]
         devmgr = self.device_manager()
         client = devmgr.client_by_id(device_id)

@@ -20,12 +20,6 @@ else:
 home_dir = os.path.abspath(".") + "/"
 block_cipher = None
 
-# see https://github.com/pyinstaller/pyinstaller/issues/2005
-hiddenimports = []
-hiddenimports += collect_submodules('trezorlib')
-hiddenimports += collect_submodules('btchip')
-hiddenimports += collect_submodules('keepkeylib')
-
 datas = [
     (home_dir + PYPKG + '/*.json', PYPKG),
     (home_dir + PYPKG + '/wordlist/english.txt', PYPKG + '/wordlist'),
@@ -64,7 +58,6 @@ a = Analysis([home_dir +  MAIN_SCRIPT,
               ],
              binaries=binaries,
              datas=datas,
-             hiddenimports=hiddenimports,
              hookspath=[])
 
 # http://stackoverflow.com/questions/19055089/pyinstaller-onefile-warning-pyconfig-h-when-importing-scipy-or-scipy-signal
