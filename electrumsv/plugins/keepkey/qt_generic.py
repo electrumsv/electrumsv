@@ -1,13 +1,14 @@
 from functools import partial
 import threading
 
-from PyQt5.Qt import Qt
-from PyQt5.Qt import QGridLayout, QInputDialog, QPushButton
-from PyQt5.Qt import QVBoxLayout, QLabel
-from electrumsv.gui.qt.util import *
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QGridLayout, QInputDialog, QPushButton
+from PyQt5.QtWidgets import QVBoxLayout, QLabel
+
 from .plugin import TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 
+from electrumsv.gui.qt.util import *
 from electrumsv.i18n import _
 from electrumsv.plugin import hook, DeviceMgr
 from electrumsv.util import PrintError, UserCancelled, bh2u

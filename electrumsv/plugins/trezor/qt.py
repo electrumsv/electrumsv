@@ -1,9 +1,9 @@
 from functools import partial
 import threading
 
-from PyQt5.Qt import Qt
-from PyQt5.Qt import QGridLayout, QInputDialog, QPushButton
-from PyQt5.Qt import QVBoxLayout, QLabel
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QGridLayout, QInputDialog, QPushButton
+from PyQt5.QtWidgets import QVBoxLayout, QLabel
 
 from electrumsv.gui.qt.util import *
 from electrumsv.i18n import _

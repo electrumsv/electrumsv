@@ -1,6 +1,6 @@
 import threading
 
-from PyQt5.Qt import QInputDialog, QLineEdit, QVBoxLayout, QLabel
+from PyQt5.QtWidgets import QInputDialog, QLineEdit, QVBoxLayout, QLabel
 
 from electrumsv.i18n import _
 from electrumsv.plugin import hook
