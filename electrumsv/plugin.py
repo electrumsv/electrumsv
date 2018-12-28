@@ -276,7 +276,8 @@ class DeviceNotFoundError(Exception):
 class DeviceUnpairableError(Exception):
     pass
 
-Device = namedtuple("Device", "path interface_number id_ product_key usage_page")
+Device = namedtuple("Device", "path interface_number id_ product_key "
+                    "usage_page transport_ui_string")
 DeviceInfo = namedtuple("DeviceInfo", "device label initialized")
 
 HardwarePluginToScan = namedtuple("HardwarePluginToScan", 'name,description,plugin,exception')
@@ -484,8 +485,6 @@ class DeviceMgr(ThreadJob, PrintError):
                 continue
             try:
                 client = self.create_client(device, handler, plugin)
-            except UserFacingException:
-                raise
             except BaseException as e:
                 self.print_error(f'failed to create client for {plugin.name} at {device.path}: {repr(e)}')
                 continue
@@ -534,7 +533,7 @@ class DeviceMgr(ThreadJob, PrintError):
 
         with self.hid_lock:
             hid_list = hid.enumerate(0, 0)
-        # First see what's connected that we know about
+
         devices = []
         for d in hid_list:
             product_key = (d['vendor_id'], d['product_id'])
@@ -546,8 +545,12 @@ class DeviceMgr(ThreadJob, PrintError):
                 if len(id_) == 0:
                     id_ = str(d['path'])
                 id_ += str(interface_number) + str(usage_page)
-                devices.append(Device(d['path'], interface_number,
-                                      id_, product_key, usage_page))
+                devices.append(Device(path=d['path'],
+                                      interface_number=interface_number,
+                                      id_=id_,
+                                      product_key=product_key,
+                                      usage_page=usage_page,
+                                      transport_ui_string='hid'))
         return devices
 
     def scan_devices(self):
