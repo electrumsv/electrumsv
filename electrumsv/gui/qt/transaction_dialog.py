@@ -28,9 +28,10 @@ import datetime
 from functools import partial
 import json
 
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
+from PyQt5.QtGui import QIcon, QFont, QBrush, QTextCharFormat, QColor
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit
+)
 
 from electrumsv.address import Address, PublicKey
 from electrumsv.bitcoin import base_encode
