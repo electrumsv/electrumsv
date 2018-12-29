@@ -46,6 +46,10 @@ from . import blockchain
 from .version import PACKAGE_VERSION, PROTOCOL_VERSION
 
 
+class RPCError(Exception):
+    pass
+
+
 NODES_RETRY_INTERVAL = 60
 SERVER_RETRY_INTERVAL = 10
 
@@ -1396,7 +1400,8 @@ class Network(util.DaemonThread):
             raise util.TimeoutException(_('Server did not answer'))
 
         if result.get('error'):
-            raise Exception(result.get('error'))
+            # Text should not be sanitized before user display
+            raise RPCError(result['error'])
 
         return result.get('result')
 
@@ -1416,8 +1421,11 @@ class Network(util.DaemonThread):
 
         try:
             their_txid = Network.__wait_for(invocation)
-        except BaseException as e:
-            return False, "error broadcasting: " + str(e)
+        except RPCError as e:
+            msg = sanitized_broadcast_message(e.args[0])
+            return False, _('transaction broadcast failed: ') + msg
+        except util.TimeoutException:
+            return False, e.args[0]
 
         if their_txid != our_txid:
             try:
@@ -1436,3 +1444,46 @@ class Network(util.DaemonThread):
         invocation = lambda c: self.send([(command, [tx_hash, tx_height])], c)
 
         return Network.__with_default_synchronous_callback(invocation, callback)
+
+
+def sanitized_broadcast_message(error):
+    unknown_reason = _('reason unknown')
+    try:
+        msg = str(error['message'])
+    except:
+        msg = ''   # fall-through
+
+    if 'dust' in msg:
+        return _('very small "dust" payments')
+    if ('Missing inputs' in msg or 'Inputs unavailable' in msg or
+        'bad-txns-inputs-spent' in msg):
+        return _('missing, already-spent, or otherwise invalid coins')
+    if 'insufficient priority' in msg:
+        return _('insufficient fees or priority')
+    if 'bad-txns-premature-spend-of-coinbase' in msg:
+        return _('attempt to spend an unmatured coinbase')
+    if 'txn-already-in-mempool' in msg or 'txn-already-known' in msg:
+        return _("it already exists in the server's mempool")
+    if 'txn-mempool-conflict' in msg:
+        return _("it conflicts with one already in the server's mempool")
+    if 'bad-txns-nonstandard-inputs' in msg:
+        return _('use of non-standard input scripts')
+    if 'absurdly-high-fee' in msg:
+        return _('fee is absurdly high')
+    if 'non-mandatory-script-verify-flag' in msg:
+        return _('the script fails verification')
+    if 'tx-size' in msg:
+        return _('transaction is too large')
+    if 'scriptsig-size' in msg:
+        return _('it contains an oversized script')
+    if 'scriptpubkey' in msg:
+        return _('it contains a non-standard signature')
+    if 'bare-multisig' in msg:
+        return _('it contains a bare multisig input')
+    if 'multi-op-return' in msg:
+        return _('it contains more than 1 OP_RETURN input')
+    if 'scriptsig-not-pushonly' in msg:
+        return _('a scriptsig is not simply data')
+
+    logging.debug(f'server error (untrusted): {error}')
+    return unknown_reason
