@@ -76,10 +76,6 @@ class QElectrumApplication(QApplication):
     new_window_signal = pyqtSignal(str, object)
 
 
-class QNetworkUpdatedSignalObject(QObject):
-    network_updated_signal = pyqtSignal(str, object)
-
-
 class ElectrumGui:
 
     def __init__(self, config, daemon, plugins):
@@ -102,7 +98,6 @@ class ElectrumGui:
         self.app.installEventFilter(self.efilter)
         self.timer = Timer()
         self.nd = None
-        self.network_updated_signal_obj = QNetworkUpdatedSignalObject()
         # init tray
         self.dark_icon = self.config.get("dark_icon", False)
         self.tray = QSystemTrayIcon(self.tray_icon(), None)
@@ -168,8 +163,7 @@ class ElectrumGui:
             self.nd.show()
             self.nd.raise_()
             return
-        self.nd = NetworkDialog(self.daemon.network, self.config,
-                                self.network_updated_signal_obj)
+        self.nd = NetworkDialog(self.daemon.network, self.config)
         self.nd.show()
 
     def create_window_for_wallet(self, wallet):
