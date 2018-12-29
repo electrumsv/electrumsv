@@ -26,6 +26,8 @@ hiddenimports += collect_submodules('trezorlib')
 hiddenimports += collect_submodules('btchip')
 hiddenimports += collect_submodules('keepkeylib')
 hiddenimports += collect_submodules('websocket')
+# Keepkey imports PyQt5.Qt.  Provide our own until they fix it
+hiddenimports.remove('keepkeylib.qt.pinmatrix')
 
 datas = [
     (home_dir + PYPKG + '/*.json', PYPKG),
@@ -72,14 +74,18 @@ for d in a.datas:
         a.datas.remove(d)
         break
 
-# Strip out parts of Qt that we never use. Reduces binary size by tens of MBs. see #4815
-qt_bins2remove=('qtweb', 'qt3d', 'qtgame', 'qtdesigner', 'qtquick', 'qtlocation', 'qttest', 'qtxml')
-print("Removing Qt binaries:", *qt_bins2remove)
+# Strip out parts of Qt that we never use to reduce binary size
+# Note we need qtdbus and qtprintsupport.
+qt_bins2remove = {
+    'qtquick', 'qtwebsockets', 'qtnetwork', 'qtqml',
+}
+print("Searching for Qt binaries to remove...")
 for x in a.binaries.copy():
-    for r in qt_bins2remove:
-        if x[0].lower().startswith(r):
-            a.binaries.remove(x)
-            print('----> Removed x =', x)
+    lower = x[0].lower()
+    if lower in qt_bins2remove:
+        a.binaries.remove(x)
+    elif lower.startswith('qt'):
+        print('----> Keeping ', x)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
