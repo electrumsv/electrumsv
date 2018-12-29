@@ -56,9 +56,8 @@ class NetworkDialog(QDialog):
 
     def on_network(self, event, *args):
         ''' This may run in network thread '''
-        self.network_updated_signal.emit() # this enquues call to on_update in GUI thread
+        self.network_updated_signal.emit()
 
-    @rate_limited(0.333) # limit network window updates to max 3 per second. More frequent isn't that useful anyway -- and on large wallets/big synchs the network spams us with events which we would rather collapse into 1
     def on_update(self):
         ''' This always runs in main GUI thread '''
         self.nlayout.update()
