@@ -33,6 +33,7 @@ from collections import defaultdict
 import threading
 import socket
 import json
+import logging
 
 import socks
 from . import util
@@ -1411,16 +1412,23 @@ class Network(util.DaemonThread):
     def broadcast_transaction(self, transaction):
         command = 'blockchain.transaction.broadcast'
         invocation = lambda c: self.send([(command, [str(transaction)])], c)
+        our_txid = transaction.txid()
 
         try:
-            out = Network.__wait_for(invocation)
+            their_txid = Network.__wait_for(invocation)
         except BaseException as e:
             return False, "error broadcasting: " + str(e)
 
-        if out != transaction.txid():
-            return False, "unexpected tx id: " + out
+        if their_txid != our_txid:
+            try:
+                their_txid = int(out, 16)
+            except ValueError:
+                return False, _('bad server response; it is unknown whether '
+                                'the transaction broadcast succeeded')
+            logging.warning(f'server TxID {their_txid} differs from '
+                            f'ours {our_txid}')
 
-        return True, out
+        return True, our_txid
 
     # Used by the verifier job.
     def get_merkle_for_transaction(self, tx_hash, tx_height, callback=None):
