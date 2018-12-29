@@ -23,21 +23,22 @@
 # SOFTWARE.
 
 
+import html
 import json
 import locale
+import logging
 import platform
+import sys
 import traceback
-import html
 
 import requests
-from PyQt5.QtCore import QObject
-import PyQt5.QtCore as QtCore
+from PyQt5.QtCore import QObject, pyqtSignal, Qt
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import *
 
 from electrumsv.i18n import _
-import sys
 from electrumsv import PACKAGE_VERSION
+from .main_window import ElectrumWindow
 
 
 issue_template = """<h2>Traceback</h2>
@@ -60,10 +61,10 @@ report_server = "https://crashhub.electrumsv.io/crash"
 class Exception_Window(QWidget):
     _active_window = None
 
-    def __init__(self, main_window, exctype, value, tb):
-        self.exc_args = (exctype, value, tb)
-        self.main_window = main_window
-        QWidget.__init__(self)
+    def __init__(self, app, exc_triple):
+        super().__init__()
+        self.exc_triple = exc_triple
+        self.app = app
         self.setWindowTitle('ElectrumSV - ' + _('An Error Occurred'))
         self.setMinimumSize(600, 300)
 
@@ -71,19 +72,27 @@ class Exception_Window(QWidget):
 
         heading = QLabel('<h2>' + _('Sorry!') + '</h2>')
         main_box.addWidget(heading)
-        main_box.addWidget(QLabel(_('Something went wrong running ElectrumSV.')))
+        main_box.addWidget(QLabel(_(
+            'Something went wrong running ElectrumSV.')))
 
         main_box.addWidget(QLabel(
-            _('To help us diagnose and fix the problem, you can send us a bug report that contains useful debug '
-              'information:')))
+            _('To help us diagnose and fix the problem, you can send us a '
+              'bug report that contains useful debug information:')))
 
         collapse_info = QPushButton(_("Show report contents"))
-        collapse_info.clicked.connect(lambda: QMessageBox.about(self, "Report contents", self.get_report_string()))
+        collapse_info.clicked.connect(self.show_contents)
         main_box.addWidget(collapse_info)
 
-        label = QLabel(_("Please briefly describe what led to the error (optional):") +"<br/>"+
-            "<i>"+ _("Feel free to add your email address if you are willing to provide further detail, but note that it will appear in the relevant github issue.") +"</i>")
-        label.setTextFormat(QtCore.Qt.RichText)
+        label = QLabel(''.join([
+            _("Please briefly describe what led to the error (optional):"),
+            "<br/>",
+            "<i>",
+            _("Add your email address if you are willing to provide further "
+              "detail, but note that it will appear in the relevant github "
+              "issue."),
+            "</i>",
+        ]))
+        label.setTextFormat(Qt.RichText)
         main_box.addWidget(label)
 
         self.description_textfield = QTextEdit()
@@ -122,11 +131,11 @@ class Exception_Window(QWidget):
 
     def on_close(self):
         Exception_Window._active_window = None
-        sys.__excepthook__(*self.exc_args)
+        sys.__excepthook__(*self.exc_triple)
         self.close()
 
     def show_never(self):
-        self.main_window.config.set_key("show_crash_reporter", False)
+        self.app.config.set_key("show_crash_reporter", False)
         self.close()
 
     def closeEvent(self, event):
@@ -134,13 +143,13 @@ class Exception_Window(QWidget):
         event.accept()
 
     def get_traceback_info(self):
-        exc_string = str(self.exc_args[1])
-        stack = traceback.extract_tb(self.exc_args[2])
+        exc_string = str(self.exc_triple[1])
+        stack = traceback.extract_tb(self.exc_triple[2])
         readable_trace = "".join(traceback.format_list(stack))
         id = {
             "file": stack[-1].filename,
             "name": stack[-1].name,
-            "type": self.exc_args[0].__name__
+            "type": self.exc_triple[0].__name__
         }
         return {
             "exc_string": exc_string,
@@ -149,45 +158,44 @@ class Exception_Window(QWidget):
         }
 
     def get_additional_info(self):
-        args = {
+        wallet_types = ','.join(
+            getattr(w.wallet, 'wallet_type', 'Unknown')
+            for w in self.app.topLevelWindows()
+            if isinstance(w, ElectrumWindow)) or 'Unknown'
+        return {
             "app_version": PACKAGE_VERSION,
             "python_version": sys.version,
             "os": platform.platform(),
             "wallet_type": "unknown",
             "locale": locale.getdefaultlocale()[0],
-            "description": self.description_textfield.toPlainText()
+            "description": self.description_textfield.toPlainText(),
+            "wallet_type": wallet_types,
         }
-        try:
-            args["wallet_type"] = self.main_window.wallet.wallet_type
-        except:
-            # Maybe the wallet isn't loaded yet
-            pass
-        return args
 
-    def get_report_string(self):
+    def show_contents(self):
         info = self.get_additional_info()
-        info["traceback"] = html.escape("".join(traceback.format_exception(*self.exc_args)), quote=False)
-        return issue_template.format(**info)
-
-
-def _show_window(main_window, exctype, value, tb):
-    if not Exception_Window._active_window:
-        Exception_Window._active_window = Exception_Window(main_window, exctype, value, tb)
+        lines = traceback.format_exception(*self.exc_triple)
+        info["traceback"] = html.escape(''.join(lines), quote=False)
+        msg = issue_template.format(**info)
+        QMessageBox.about(self, "Report contents", msg)
 
 
 class Exception_Hook(QObject):
-    _report_exception = QtCore.pyqtSignal(object, object, object, object)
+    uncaught_signal = pyqtSignal(object)
 
-    def __init__(self, main_window, *args, **kwargs):
-        super(Exception_Hook, self).__init__(*args, **kwargs)
-        if not main_window.config.get("show_crash_reporter", default=True):
-            return
-        self.main_window = main_window
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
         sys.excepthook = self.handler
-        self._report_exception.connect(_show_window)
+        self.uncaught_signal.connect(self.show)
 
     def handler(self, exctype, value, tb):
         if exctype is KeyboardInterrupt or exctype is SystemExit:
             sys.__excepthook__(exctype, value, tb)
         else:
-            self._report_exception.emit(self.main_window, exctype, value, tb)
+            self.uncaught_signal.emit((exctype, value, tb))
+
+    def show(self, exc_triple):
+        cls = Exception_Window
+        if not cls._active_window:
+            cls._active_window = cls(self.app, exc_triple)

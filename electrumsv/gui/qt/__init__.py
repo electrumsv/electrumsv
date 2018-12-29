@@ -43,6 +43,7 @@ from electrumsv import WalletStorage
 from electrumsv.util import UserCancelled, print_error
 from electrumsv.networks import NetworkConstants
 
+from .exception_window import Exception_Hook
 from .installwizard import InstallWizard, GoBack
 
 
@@ -99,6 +100,7 @@ class ElectrumGui:
         self.app.installEventFilter(self.efilter)
         self.timer = Timer()
         self.nd = None
+        self.exception_hook = None
         # init tray
         self.dark_icon = self.config.get("dark_icon", False)
         self.tray = QSystemTrayIcon(self.tray_icon(), None)
@@ -244,6 +246,8 @@ class ElectrumGui:
     def event_loop_started(self):
         self.app.aboutToQuit.connect(self.cleanup)
         self.app.lastWindowClosed.connect(self.quit_after_last_window)
+        if self.config.get("show_crash_reporter", default=True):
+            self.exception_hook = Exception_Hook(self.app)
         self.timer.start()
         signal.signal(signal.SIGINT, lambda *args: self.app.quit())
         self.maybe_choose_server()
