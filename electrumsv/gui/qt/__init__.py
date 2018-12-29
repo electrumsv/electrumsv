@@ -74,6 +74,7 @@ class OpenFileEventFilter(QObject):
 
 class QElectrumApplication(QApplication):
     new_window_signal = pyqtSignal(str, object)
+    event_loop_started_signal = pyqtSignal()
 
 
 class ElectrumGui:
@@ -106,6 +107,7 @@ class ElectrumGui:
         self.build_tray_menu()
         self.tray.show()
         self.app.new_window_signal.connect(self.start_new_window)
+        self.app.event_loop_started_signal.connect(self.event_loop_started)
         run_hook('init_qt', self)
         ColorScheme.update_from_widget(QWidget())
 
@@ -226,47 +228,45 @@ class ElectrumGui:
             self.config.save_last_wallet(window.wallet)
         run_hook('on_close_window', window)
 
-    def init_network(self):
+    def maybe_choose_server(self):
         # Show network dialog if config does not exist
-        if self.daemon.network:
-            if self.config.get('auto_connect') is None:
-                wizard = InstallWizard(self.config, self.app, self.plugins, None)
+        if self.daemon.network and self.config.get('auto_connect') is None:
+            try:
+                wizard = InstallWizard(self.config, self.app,
+                                       self.plugins, None)
                 wizard.init_network(self.daemon.network)
                 wizard.terminate()
+            except Exception as e:
+                if not isinstance(e, (UserCancelled, GoBack)):
+                    logging.exception("")
+                self.app.quit()
 
-    def main(self):
-        try:
-            self.init_network()
-        except UserCancelled:
-            return
-        except GoBack:
-            return
-        except BaseException as e:
-            logging.exception("")
-            return
+    def event_loop_started(self):
+        self.app.aboutToQuit.connect(self.cleanup)
+        self.app.lastWindowClosed.connect(self.quit_after_last_window)
         self.timer.start()
+        signal.signal(signal.SIGINT, lambda *args: self.app.quit())
+        self.maybe_choose_server()
         self.config.open_last_wallet()
         path = self.config.get_wallet_path()
         if not self.start_new_window(path, self.config.get('url')):
-            return
-        signal.signal(signal.SIGINT, lambda *args: self.app.quit())
+            self.app.quit()
 
-        def quit_after_last_window():
-            # on some platforms, not only does exec_ not return but not even
-            # aboutToQuit is emitted (but following this, it should be emitted)
-            if self.app.quitOnLastWindowClosed():
-                self.app.quit()
-        self.app.lastWindowClosed.connect(quit_after_last_window)
+    def quit_after_last_window(self):
+        # on some platforms, not only does exec_ not return but not even
+        # aboutToQuit is emitted (but following this, it should be emitted)
+        if self.app.quitOnLastWindowClosed():
+            self.app.quit()
 
-        def clean_up():
-            # Shut down the timer cleanly
-            self.timer.stop()
-            # clipboard persistence. see http://www.mail-archive.com/pyqt@riverbankcomputing.com/msg17328.html
-            event = QtCore.QEvent(QtCore.QEvent.Clipboard)
-            self.app.sendEvent(self.app.clipboard(), event)
-            self.tray.hide()
-        self.app.aboutToQuit.connect(clean_up)
+    def cleanup(self):
+        # Shut down the timer cleanly
+        self.timer.stop()
+        # clipboard persistence. see http://www.mail-archive.com/pyqt@riverbankcomputing.com/msg17328.html
+        event = QtCore.QEvent(QtCore.QEvent.Clipboard)
+        self.app.sendEvent(self.app.clipboard(), event)
+        self.tray.hide()
 
-        # main loop
+    def main(self):
+        self.app.event_loop_started_signal.emit()
         self.app.exec_()
-        # on some platforms the exec_ call may not return, so use clean_up()
+        # on some platforms the exec_ call may not return, so use cleanup()
