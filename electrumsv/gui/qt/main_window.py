@@ -544,11 +544,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             tab.menu_action = view_menu.addAction(item_name, lambda: self.toggle_tab(tab))
 
         view_menu = menubar.addMenu(_("&View"))
-        add_toggle_action(view_menu, self.coinsplitting_tab)
         add_toggle_action(view_menu, self.addresses_tab)
         add_toggle_action(view_menu, self.utxo_tab)
         add_toggle_action(view_menu, self.contacts_tab)
         add_toggle_action(view_menu, self.converter_tab)
+        add_toggle_action(view_menu, self.coinsplitting_tab)
         add_toggle_action(view_menu, self.console_tab)
 
         tools_menu = menubar.addMenu(_("&Tools"))
@@ -1806,10 +1806,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         return w
 
     def create_coinsplitting_tab(self):
-        w = CoinSplittingTab(self)
-        # We do not have the wallet loaded at this point, but the tab is refreshed when it is selected.
-        w.update_layout()
-        return w
+        return CoinSplittingTab(self)
 
     def create_list_tab(self, l, list_header=None):
         w = QWidget()
