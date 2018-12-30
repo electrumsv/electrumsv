@@ -35,14 +35,17 @@ import traceback
 
 from .i18n import _
 
+# Get the root logger.
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.CRITICAL)
 
-log = logging.getLogger()
-log.setLevel(logging.CRITICAL)
+profiler_logger = logging.getLogger("profiler")
+
 
 def add_logging_handler(handler):
     formatter = logging.Formatter('%(asctime)s:'+ logging.BASIC_FORMAT)
     handler.setFormatter(formatter)
-    log.addHandler(handler)
+    root_logger.addHandler(handler)
 
 add_logging_handler(logging.StreamHandler())
 
@@ -89,22 +92,8 @@ class MyEncoder(json.JSONEncoder):
             return obj.as_dict()
         return super(MyEncoder, self).default(obj)
 
-class PrintError(object):
-    '''A handy base class'''
-    def diagnostic_name(self):
-        return self.__class__.__name__
 
-    def print_error(self, *msg):
-        # only prints with --verbose flag
-        print_error("[%s]" % self.diagnostic_name(), *msg)
-
-    def print_stderr(self, *msg):
-        print_stderr("[%s]" % self.diagnostic_name(), *msg)
-
-    def print_msg(self, *msg):
-        print_msg("[%s]" % self.diagnostic_name(), *msg)
-
-class ThreadJob(PrintError):
+class ThreadJob:
     """A job that is run periodically from a thread's main loop.  run() is
     called from that thread's context.
     """
@@ -122,7 +111,7 @@ class DebugMem(ThreadJob):
 
     def mem_stats(self):
         import gc
-        self.print_error("Start memscan")
+        root_logger.debug("Start memscan")
         gc.collect()
         objmap = defaultdict(list)
         for obj in gc.get_objects():
@@ -130,15 +119,15 @@ class DebugMem(ThreadJob):
                 if isinstance(obj, class_):
                     objmap[class_].append(obj)
         for class_, objs in objmap.items():
-            self.print_error("%s: %d" % (class_.__name__, len(objs)))
-        self.print_error("Finish memscan")
+            root_logger.debug("%s: %d", class_.__name__, len(objs))
+        root_logger.debug("Finish memscan")
 
     def run(self):
         if time.time() > self.next_time:
             self.mem_stats()
             self.next_time = time.time() + self.interval
 
-class DaemonThread(threading.Thread, PrintError):
+class DaemonThread(threading.Thread):
     """ daemon thread that terminates cleanly """
 
     def __init__(self):
@@ -187,17 +176,25 @@ class DaemonThread(threading.Thread, PrintError):
             try:
                 import jnius
                 jnius.detach()
-                self.print_error("jnius detach")
+                root_logger.debug("jnius detach")
             except ImportError:
                 pass  # Chaquopy detaches automatically.
-        self.print_error("stopped")
+        root_logger.debug("stopped")
 
+def disable_verbose_logging():
+    root_logger.setLevel(logging.ERROR)
+
+def enable_verbose_logging():
+    root_logger.setLevel(logging.DEBUG)
+    
+def is_logging_verbose():
+    return logging.getLogger().level == logging.DEBUG
 
 # TODO: disable
 is_verbose = True
 def set_verbosity(b):
     global is_verbose
-    log.setLevel(logging.DEBUG if b else logging.CRITICAL)
+    root_logger.setLevel(logging.DEBUG if b else logging.CRITICAL)
     is_verbose = b
 
 # Method decorator.  To be used for calculations that will always
@@ -213,19 +210,6 @@ class cachedproperty(object):
         value = self.f(obj)
         setattr(obj, self.f.__name__, value)
         return value
-
-def print_error(*args):
-    if not is_verbose: return
-    print_stderr(*args)
-
-def print_stderr(*args):
-    args = [str(item) for item in args]
-    logging.debug(" ".join(args))
-
-def print_msg(*args):
-    # Stringify args
-    args = [str(item) for item in args]
-    logging.info(" ".join(args))
 
 def json_encode(obj):
     try:
@@ -254,7 +238,7 @@ def profiler(func):
         t0 = time.time()
         o = func(*args, **kw_args)
         t = time.time() - t0
-        print_error("[profiler]", n, "%.4f"%t)
+        profiler_logger.debug("%s %.4f", n, t)
         return o
     return lambda *args, **kw_args: do_profile(func, args, kw_args)
 
@@ -318,7 +302,7 @@ def assert_bytes(*args):
         for x in args:
             assert isinstance(x, (bytes, bytearray))
     except:
-        print('assert bytes failed', list(map(type, args)))
+        logger.error('assert bytes failed %s', list(map(type, args)))
         raise
 
 
@@ -567,14 +551,14 @@ class SocketPipe:
                 if err.errno == 60:
                     raise timeout
                 elif err.errno in [11, 35, 10035]:
-                    print_error("socket errno %d (resource temporarily unavailable)"% err.errno)
+                    root_logger.debug("socket errno %d (resource temporarily unavailable)", err.errno)
                     time.sleep(0.2)
                     raise timeout
                 else:
-                    print_error("pipe: socket error", err)
+                    root_logger.exception("pipe: socket error")
                     data = b''
             except:
-                logging.exception("")
+                root_logger.exception("")
                 data = b''
 
             if not data:  # Connection closed remotely

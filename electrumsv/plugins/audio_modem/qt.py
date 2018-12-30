@@ -1,13 +1,13 @@
 from functools import partial
-import zlib
-import json
 from io import BytesIO
-import sys
+import json
+import logging
 import platform
+import sys
+import zlib
 
 from electrumsv.plugin import BasePlugin, hook
 from electrumsv.gui.qt.util import WaitingDialog, EnterButton, WindowModalDialog
-from electrumsv.util import print_msg, print_error
 from electrumsv.i18n import _
 
 from PyQt5.QtGui import *
@@ -18,12 +18,12 @@ try:
     import amodem.audio
     import amodem.main
     import amodem.config
-    print_error('Audio MODEM is available.')
+    logging.debug('Audio MODEM is available.')
     amodem.log.addHandler(amodem.logging.StreamHandler(sys.stderr))
     amodem.log.setLevel(amodem.logging.INFO)
 except ImportError:
     amodem = None
-    print_error('Audio MODEM is not found.')
+    logging.error('Audio MODEM is not found.')
 
 
 class Plugin(BasePlugin):
@@ -102,7 +102,7 @@ class Plugin(BasePlugin):
                 dst = interface.player()
                 amodem.main.send(config=self.modem_config, src=src, dst=dst)
 
-        print_msg('Sending:', repr(blob))
+        logging.debug('Sending %r', blob)
         blob = zlib.compress(blob.encode('ascii'))
 
         kbps = self.modem_config.modem_bps / 1e3
@@ -120,7 +120,7 @@ class Plugin(BasePlugin):
         def on_finished(blob):
             if blob:
                 blob = zlib.decompress(blob).decode('ascii')
-                print_msg('Received:', repr(blob))
+                logging.debug('Received %r', blob)
                 parent.setText(blob)
 
         kbps = self.modem_config.modem_bps / 1e3

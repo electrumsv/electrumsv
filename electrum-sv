@@ -79,8 +79,8 @@ from electrumsv import SimpleConfig, Network
 from electrumsv.networks import NetworkConstants
 from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
 from electrumsv.storage import WalletStorage
-from electrumsv.util import print_msg, print_stderr, json_encode, json_decode
-from electrumsv.util import set_verbosity, InvalidPassword
+from electrumsv.util import json_encode, json_decode
+from electrumsv.util import InvalidPassword
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
 from electrumsv import daemon
 from electrumsv import keystore
@@ -137,13 +137,13 @@ def run_non_RPC(config):
             network = Network(config)
             network.start()
             wallet.start_threads(network)
-            print_msg("Recovering wallet...")
+            print("Recovering wallet...")
             wallet.synchronize()
             wallet.wait_until_synchronized()
             msg = "Recovery successful" if wallet.is_found() else "Found no history for this wallet"
         else:
             msg = "This wallet was restored offline. It may contain more addresses than displayed."
-        print_msg(msg)
+        print(msg)
 
     elif cmdname == 'create':
         password = password_dialog()
@@ -156,11 +156,11 @@ def run_non_RPC(config):
         wallet = Wallet(storage)
         wallet.update_password(None, password, True)
         wallet.synchronize()
-        print_msg("Your wallet generation seed is:\n\"%s\"" % seed)
-        print_msg("Please keep it in a safe place; if you lose it, you will not be able to restore your wallet.")
+        print("Your wallet generation seed is:\n\"%s\"" % seed)
+        print("Please keep it in a safe place; if you lose it, you will not be able to restore your wallet.")
 
     wallet.storage.write()
-    print_msg("Wallet saved in '%s'" % wallet.storage.path)
+    print("Wallet saved in '%s'" % wallet.storage.path)
     sys.exit(0)
 
 
@@ -168,19 +168,19 @@ def init_daemon(config_options):
     config = SimpleConfig(config_options)
     storage = WalletStorage(config.get_wallet_path())
     if not storage.file_exists():
-        print_msg("Error: Wallet file not found.")
-        print_msg("Type 'electrum-sv create' to create a new wallet, or provide a path to a wallet with the -w option")
+        print("Error: Wallet file not found.")
+        print("Type 'electrum-sv create' to create a new wallet, or provide a path to a wallet with the -w option")
         sys.exit(0)
     if storage.is_encrypted():
         if 'wallet_password' in config_options:
-            print_msg('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
+            print('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
             password = config_options['wallet_password']
         elif config.get('password'):
             password = config.get('password')
         else:
             password = prompt_password('Password:', False)
             if not password:
-                print_msg("Error: Password required")
+                print("Error: Password required")
                 sys.exit(1)
     else:
         password = None
@@ -206,15 +206,15 @@ def init_cmdline(config_options, server):
     storage = WalletStorage(config.get_wallet_path())
 
     if cmd.requires_wallet and not storage.file_exists():
-        print_msg("Error: Wallet file not found.")
-        print_msg("Type 'electrum-sv create' to create a new wallet, or provide a path to a wallet with the -w option")
+        print("Error: Wallet file not found.")
+        print("Type 'electrum-sv create' to create a new wallet, or provide a path to a wallet with the -w option")
         sys.exit(0)
 
     # important warning
     if cmd.name in ['getprivatekeys']:
-        print_stderr("WARNING: ALL your private keys are secret.")
-        print_stderr("Exposing a single private key can compromise your entire wallet!")
-        print_stderr("In particular, DO NOT use 'redeem private key' services proposed by third parties.")
+        print("WARNING: ALL your private keys are secret.", file=sys.stderr)
+        print("Exposing a single private key can compromise your entire wallet!", file=sys.stderr)
+        print("In particular, DO NOT use 'redeem private key' services proposed by third parties.", file=sys.stderr)
 
     # commands needing password
     if (cmd.requires_wallet and storage.is_encrypted() and server is None)\
@@ -224,7 +224,7 @@ def init_cmdline(config_options, server):
         else:
             password = prompt_password('Password:', False)
             if not password:
-                print_msg("Error: Password required")
+                print("Error: Password required")
                 sys.exit(1)
     else:
         password = None
@@ -254,10 +254,10 @@ def run_offline_command(config, config_options):
         try:
             seed = wallet.check_password(password)
         except InvalidPassword:
-            print_msg("Error: This password does not decode this wallet.")
+            print("Error: This password does not decode this wallet.")
             sys.exit(1)
     if cmd.requires_network:
-        print_msg("Warning: running command offline")
+        print("Warning: running command offline")
     # arguments passed to function
     args = [config.get(x) for x in cmd.params]
     # decode json arguments
@@ -332,7 +332,10 @@ def main():
         log_path = os.path.join(log_path, time.strftime("%Y%m%d-%H%M%S") +".log")
         util.add_logging_handler(logging.FileHandler(log_path))
 
-    set_verbosity(config_options.get('verbose'))
+    if config_options.get('verbose'):
+        util.enable_verbose_logging()
+    else:
+        util.disable_verbose_logging()
 
     if config_options.get('testnet'):
         NetworkConstants.set_testnet()
@@ -341,7 +344,7 @@ def main():
     uri = config_options.get('url')
     if uri:
         if not uri.startswith(NetworkConstants.CASHADDR_PREFIX + ':'):
-            print_stderr('unknown command:', uri)
+            print('unknown command:', uri, file=sys.stderr)
             sys.exit(1)
         config_options['url'] = uri
 
@@ -376,7 +379,7 @@ def main():
                 if subcommand == 'start':
                     pid = os.fork()
                     if pid:
-                        print_stderr("starting daemon (PID %d)" % pid)
+                        print("starting daemon (PID %d)" % pid, file=sys.stderr)
                         sys.exit(0)
                 init_plugins(config, 'cmdline')
                 d = daemon.Daemon(config, fd, False)
@@ -399,7 +402,7 @@ def main():
             if server is not None:
                 result = server.daemon(config_options)
             else:
-                print_msg("Daemon not running")
+                print("Daemon not running")
                 sys.exit(1)
     else:
         # command line
@@ -410,18 +413,18 @@ def main():
         else:
             cmd = known_commands[cmdname]
             if cmd.requires_network:
-                print_msg("Daemon not running; try 'electrum-sv daemon start'")
+                print("Daemon not running; try 'electrum-sv daemon start'")
                 sys.exit(1)
             else:
                 init_plugins(config, 'cmdline')
                 result = run_offline_command(config, config_options)
                 # print result
     if isinstance(result, str):
-        print_msg(result)
+        print(result)
     elif type(result) is dict and result.get('error'):
-        print_stderr(result.get('error'))
+        print(result.get('error'), file=sys.stderr)
     elif result is not None:
-        print_msg(json_encode(result))
+        print(json_encode(result))
     sys.exit(0)
 
 

@@ -27,20 +27,20 @@
 #   - Standard_Wallet: one keystore, P2PKH
 #   - Multisig_Wallet: several keystores, P2SH
 
-
-import os
-import threading
-import random
-import time
-import json
 import copy
-import errno
 from collections import defaultdict, namedtuple
 from decimal import Decimal
+import errno
 from functools import partial
+import json
+import logging
+import os
+import random
+import threading
+import time
 
 from .i18n import _
-from .util import NotEnoughFunds, ExcessiveFee, PrintError, UserCancelled, profiler, format_satoshis
+from .util import NotEnoughFunds, ExcessiveFee, UserCancelled, profiler, format_satoshis
 
 from .address import Address, Script, ScriptOutput, PublicKey
 from .bitcoin import *
@@ -61,6 +61,8 @@ from . import paymentrequest
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .paymentrequest import InvoiceStore
 from .contacts import Contacts
+
+logger = logging.getLogger("wallet")
 
 TX_STATUS = [
     _('Unconfirmed parent'),
@@ -154,7 +156,7 @@ def sweep(privkeys, network, config, recipient, fee=None, imax=100):
     return tx
 
 
-class Abstract_Wallet(PrintError):
+class Abstract_Wallet:
     """
     Wallet classes are created to handle various address generation methods.
     Completion states (watching-only, single account, no seed, etc) are handled inside classes.
@@ -163,8 +165,9 @@ class Abstract_Wallet(PrintError):
     max_change_outputs = 3
 
     def __init__(self, storage):
-        self.electrum_version = PACKAGE_VERSION
         self.storage = storage
+        self.logger = logging.getLogger("wallet[{}]".format(self.basename()))
+        self.electrum_version = PACKAGE_VERSION
         self.network = None
         # verifier (SPV) and synchronizer are started in start_threads
         self.synchronizer = None
@@ -235,9 +238,6 @@ class Abstract_Wallet(PrintError):
         return {addr.to_string(Address.FMT_BITCOIN): value
                 for addr, value in d.items()}
 
-    def diagnostic_name(self):
-        return self.basename()
-
     def __str__(self):
         return self.basename()
 
@@ -260,7 +260,7 @@ class Abstract_Wallet(PrintError):
             tx = Transaction(raw)
             self.transactions[tx_hash] = tx
             if self.txi.get(tx_hash) is None and self.txo.get(tx_hash) is None and (tx_hash not in self.pruned_txo.values()):
-                self.print_error("removing unreferenced tx", tx_hash)
+                self.logger.debug("removing unreferenced tx %s", tx_hash)
                 self.transactions.pop(tx_hash)
 
     @profiler
@@ -773,7 +773,7 @@ class Abstract_Wallet(PrintError):
 
     def remove_transaction(self, tx_hash):
         with self.transaction_lock:
-            self.print_error("removing tx from history", tx_hash)
+            self.logger.debug("removing tx from history %s", tx_hash)
             #tx = self.transactions.pop(tx_hash)
             for ser, hh in list(self.pruned_txo.items()):
                 if hh == tx_hash:
@@ -796,7 +796,7 @@ class Abstract_Wallet(PrintError):
                 self.txi.pop(tx_hash)
                 self.txo.pop(tx_hash)
             except KeyError:
-                self.print_error("tx was not in history", tx_hash)
+                self.logger.error("tx was not in history %s", tx_hash)
 
     def receive_tx_callback(self, tx_hash, tx, tx_height):
         self.add_transaction(tx_hash, tx)
@@ -1059,7 +1059,7 @@ class Abstract_Wallet(PrintError):
         if isinstance(utxo, dict):
             ret = ("{}:{}".format(utxo['prevout_hash'], utxo['prevout_n'])) in self.frozen_coins
             if ret != utxo['is_frozen_coin']:
-                self.print_error("*** WARNING: utxo has stale is_frozen_coin flag")
+                self.logger.warning("utxo has stale is_frozen_coin flag")
                 utxo['is_frozen_coin'] = ret # update stale flag
             return ret
         return utxo in self.frozen_coins
@@ -1117,7 +1117,7 @@ class Abstract_Wallet(PrintError):
             vr = list(self.verified_tx.keys()) + list(self.unverified_tx.keys())
         for tx_hash in list(self.transactions):
             if tx_hash not in vr:
-                self.print_error("removing transaction", tx_hash)
+                self.logger.debug("removing transaction %s", tx_hash)
                 self.transactions.pop(tx_hash)
 
     def start_threads(self, network):
@@ -2060,7 +2060,7 @@ class Wallet(object):
         # a seed and plugins do not need to handle having one.
         rwc = getattr(wallet, 'restore_wallet_class', None)
         if rwc and storage.get('seed', ''):
-            storage.print_error("converting wallet type to " + rwc.wallet_type)
+            logger.debug("converting wallet type to %s", rwc.wallet_type)
             storage.put('wallet_type', rwc.wallet_type)
             wallet = rwc(storage)
         return wallet

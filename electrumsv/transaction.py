@@ -23,16 +23,15 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-
+import logging
+import struct
 
 # Note: The deserialization code originally comes from ABE.
-
-from .util import print_error, profiler
 
 from .bitcoin import *
 from .address import (PublicKey, Address, Script, ScriptOutput, hash160,
                       UnknownAddress, OpCodes as opcodes)
-import struct
+from .util import profiler
 
 #
 # Workalike python implementation of Bitcoin's CDataStream class.
@@ -40,6 +39,8 @@ import struct
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 
 NO_SIGNATURE = 'ff'
+
+logger = logging.getLogger("transaction")
 
 
 class SerializationError(Exception):
@@ -228,9 +229,9 @@ def safe_parse_pubkey(x):
 def parse_scriptSig(d, _bytes):
     try:
         decoded = list(script_GetOp(_bytes))
-    except Exception as e:
+    except Exception:
         # coinbase transactions raise an exception
-        print_error("cannot find address in input script", bh2u(_bytes))
+        logger.exception("cannot find address in input script %s", bh2u(_bytes))
         return
 
     match = [ opcodes.OP_PUSHDATA4 ]
@@ -255,7 +256,7 @@ def parse_scriptSig(d, _bytes):
             signatures = parse_sig([sig])
             pubkey, address = xpubkey_to_address(x_pubkey)
         except:
-            print_error("cannot find address in input script", bh2u(_bytes))
+            logger.exception("cannot find address in input script %s", bh2u(_bytes))
             return
         d['type'] = 'p2pkh'
         d['signatures'] = signatures
@@ -268,7 +269,7 @@ def parse_scriptSig(d, _bytes):
     # p2sh transaction, m of n
     match = [ opcodes.OP_0 ] + [ opcodes.OP_PUSHDATA4 ] * (len(decoded) - 1)
     if not match_decoded(decoded, match):
-        print_error("cannot find address in input script", bh2u(_bytes))
+        logger.error("cannot find address in input script %s", bh2u(_bytes))
         return
     x_sig = [bh2u(x[1]) for x in decoded[1:-1]]
     m, n, x_pubkeys, pubkeys, redeemScript = parse_redeemScript(decoded[-1][1])
@@ -290,7 +291,7 @@ def parse_redeemScript(s):
     op_n = opcodes.OP_1 + n - 1
     match_multisig = [ op_m ] + [opcodes.OP_PUSHDATA4]*n + [ op_n, opcodes.OP_CHECKMULTISIG ]
     if not match_decoded(dec2, match_multisig):
-        print_error("cannot find address in input script", bh2u(s))
+        logger.error("cannot find address in input script %s", bh2u(s))
         return
     x_pubkeys = [bh2u(x[1]) for x in dec2[1:-2]]
     pubkeys = [safe_parse_pubkey(x) for x in x_pubkeys]
@@ -469,7 +470,7 @@ class Transaction:
                     if pubkey in pubkeys:
                         public_key.verify_digest(sig_string, pre_hash, sigdecode = ecdsa.util.sigdecode_string)
                         j = pubkeys.index(pubkey)
-                        print_error("adding sig", i, j, pubkey, sig)
+                        logger.debug("adding sig %s %s %s %s", i, j, pubkey, sig)
                         self._inputs[i]['signatures'][j] = sig
                         break
         # redo raw
@@ -664,7 +665,7 @@ class Transaction:
         return nVersion + txins + txouts + nLocktime
 
     def hash(self):
-        print("warning: deprecated tx.hash()")
+        logger.warning("deprecated tx.hash()")
         return self.txid()
 
     def txid(self):
@@ -729,7 +730,7 @@ class Transaction:
                     # txin is complete
                     break
                 if x_pubkey in keypairs.keys():
-                    print_error("adding signature for", x_pubkey)
+                    logger.debug("adding signature for %s", x_pubkey)
                     sec, compressed = keypairs.get(x_pubkey)
                     pubkey = public_key_from_private_key(sec, compressed)
                     # add signature
@@ -743,7 +744,7 @@ class Transaction:
                     txin['signatures'][j] = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
                     txin['pubkeys'][j] = pubkey # needed for fd keys
                     self._inputs[i] = txin
-        print_error("is_complete", self.is_complete())
+        logger.debug("is_complete %s", self.is_complete())
         self.raw = self.serialize()
 
     def get_outputs(self):

@@ -22,12 +22,17 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 from collections import defaultdict, namedtuple
+import logging
 from math import floor, log10
 
 from .bitcoin import sha256, COIN, TYPE_ADDRESS
 from .transaction import Transaction
-from .util import NotEnoughFunds, PrintError
+from .util import NotEnoughFunds
+
+
+logger = logging.getLogger("coinchooser")
 
 
 # A simple deterministic PRNG.  Used to deterministically shuffle a
@@ -79,8 +84,7 @@ def strip_unneeded(bkts, sufficient_funds):
     # Shouldn't get here
     return bkts
 
-class CoinChooserBase(PrintError):
-
+class CoinChooserBase:
     def keys(self, coins):
         raise NotImplementedError
 
@@ -160,9 +164,9 @@ class CoinChooserBase(PrintError):
         amounts = [amount for amount in amounts if amount >= dust_threshold]
         change = [(TYPE_ADDRESS, addr, amount)
                   for addr, amount in zip(change_addrs, amounts)]
-        self.print_error('change:', change)
+        logger.debug('change %s', change)
         if dust:
-            self.print_error('not keeping dust', dust)
+            logger.debug('not keeping dust %s', dust)
         return change, dust
 
     def make_tx(self, coins, outputs, change_addrs, fee_estimator,
@@ -204,8 +208,8 @@ class CoinChooserBase(PrintError):
         tx.add_outputs(change)
         tx.ephemeral['dust_to_fee'] = dust
 
-        self.print_error("using %d inputs" % len(tx.inputs()))
-        self.print_error("using buckets:", [bucket.desc for bucket in buckets])
+        logger.debug("using %d inputs", len(tx.inputs()))
+        logger.debug("using buckets: %s", [bucket.desc for bucket in buckets])
 
         return tx
 
@@ -246,8 +250,8 @@ class CoinChooserRandom(CoinChooserBase):
         candidates = self.bucket_candidates(buckets, sufficient_funds)
         penalties = [penalty_func(cand) for cand in candidates]
         winner = candidates[penalties.index(min(penalties))]
-        self.print_error("Bucket sets:", len(buckets))
-        self.print_error("Winning penalty:", min(penalties))
+        logger.debug("Bucket sets: %d", len(buckets))
+        logger.debug("Winning penalty: %d", min(penalties))
         return winner
 
 class CoinChooserPrivacy(CoinChooserRandom):

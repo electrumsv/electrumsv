@@ -40,7 +40,7 @@ import PyQt5.QtCore as QtCore
 from electrumsv.i18n import _, set_language
 from electrumsv.plugin import run_hook
 from electrumsv import WalletStorage
-from electrumsv.util import UserCancelled, print_error
+from electrumsv.util import UserCancelled
 from electrumsv.networks import NetworkConstants
 
 from .exception_window import Exception_Hook
@@ -198,7 +198,7 @@ class ElectrumGui:
                     except UserCancelled:
                         pass
                     except GoBack as e:
-                        print_error('[start_new_window] Exception caught (GoBack)', e)
+                        logger.error('[start_new_window] Exception caught (GoBack) %s', e)
                     finally:
                         wizard.terminate()
                     if not wallet:

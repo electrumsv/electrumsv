@@ -5,7 +5,7 @@ import getpass
 
 import electrum
 from electrumsv.address import Address
-from electrumsv.util import format_satoshis, set_verbosity
+from electrumsv.util import format_satoshis, disable_verbose_logging
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS
 from electrumsv import Wallet, WalletStorage
 
@@ -47,7 +47,7 @@ class ElectrumGui:
         self.set_cursor(0)
         self.w = curses.newwin(10, 50, 5, 5)
 
-        set_verbosity(False)
+        disable_verbose_logging()
         self.tab = 0
         self.pos = 0
         self.popup_pos = 0

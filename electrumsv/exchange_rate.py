@@ -1,18 +1,21 @@
-import inspect
-import requests
-import sys
-import os
-import json
-from threading import Thread
-import time
 import csv
 import datetime
 import decimal
 from decimal import Decimal
+import inspect
+import json
+import logging
+import os
+import requests
+import sys
+from threading import Thread
+import time
 
 from .bitcoin import COIN
 from .i18n import _
-from .util import PrintError, ThreadJob
+from .util import ThreadJob
+
+logger = logging.getLogger("exchangerate")
 
 
 # See https://en.wikipedia.org/wiki/ISO_4217
@@ -24,7 +27,7 @@ CCY_PRECISIONS = {'BHD': 3, 'BIF': 0, 'BYR': 0, 'CLF': 4, 'CLP': 0,
                   'VUV': 0, 'XAF': 0, 'XAU': 4, 'XOF': 0, 'XPF': 0}
 
 
-class ExchangeBase(PrintError):
+class ExchangeBase(object):
 
     def __init__(self, on_quotes, on_history):
         self.history = {}
@@ -49,11 +52,11 @@ class ExchangeBase(PrintError):
 
     def update_safe(self, ccy):
         try:
-            self.print_error("getting fx quotes for", ccy)
+            logger.debug("getting fx quotes for %s", ccy)
             self.quotes = self.get_rates(ccy)
-            self.print_error("received fx quotes")
-        except BaseException as e:
-            self.print_error("failed fx quotes:", e)
+            logger.debug("received fx quotes")
+        except BaseException:
+            logger.exception("failed fx quotes")
         self.on_quotes()
 
     def update(self, ccy):
@@ -82,12 +85,12 @@ class ExchangeBase(PrintError):
         h, timestamp = self.read_historical_rates(ccy, cache_dir)
         if h is None or time.time() - timestamp < 24*3600:
             try:
-                self.print_error("requesting fx history for", ccy)
+                logger.debug("requesting fx history for %s", ccy)
                 h = self.request_history(ccy)
-                self.print_error("received fx history for", ccy)
+                logger.debug("received fx history for %s", ccy)
                 self.on_history()
             except BaseException as e:
-                self.print_error("failed fx history:", e)
+                logger.exception("failed fx history")
                 return
             filename = os.path.join(cache_dir, self.name() + '_' + ccy)
             with open(filename, 'w', encoding='utf-8') as f:
@@ -282,7 +285,6 @@ def dictinvert(d):
     return inv
 
 def get_exchanges_and_currencies():
-    import os, json
     path = os.path.join(os.path.dirname(__file__), 'currencies.json')
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -298,9 +300,9 @@ def get_exchanges_and_currencies():
         exchange = klass(None, None)
         try:
             d[name] = exchange.get_currencies()
-            print(name, "ok")
+            logger.debug("get_exchanges_and_currencies %s = ok", name)
         except:
-            print(name, "error")
+            logger.exception("get_exchanges_and_currencies %s = error", name)
             continue
     with open(path, 'w', encoding='utf-8') as f:
         f.write(json.dumps(d, indent=4, sort_keys=True))
@@ -323,7 +325,6 @@ def get_exchanges_by_ccy(history=True):
 
 
 class FxThread(ThreadJob):
-
     def __init__(self, config, network):
         self.config = config
         self.network = network
@@ -399,7 +400,7 @@ class FxThread(ThreadJob):
 
     def set_exchange(self, name):
         class_ = globals().get(name, Kraken)
-        self.print_error("using exchange", name)
+        logger.debug("using exchange %s", name)
         if self.config_exchange() != name:
             self.config.set_key('use_exchange', name, True)
         self.exchange = class_(self.on_quotes, self.on_history)

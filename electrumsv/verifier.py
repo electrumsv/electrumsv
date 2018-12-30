@@ -20,9 +20,15 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
+import logging
+
 from .util import ThreadJob, bh2u
 from .bitcoin import Hash, hash_decode, hash_encode, NetworkConstants
 from .transaction import Transaction
+
+logger = logging.getLogger("verifier")
+
 
 class InnerNodeOfSpvProofIsValidTx(Exception): pass
 
@@ -39,12 +45,12 @@ class SPV(ThreadJob):
     def run(self):
         interface = self.network.interface
         if not interface:
-            self.print_error("v.no interface")
+            logger.error("no interface")
             return
 
         blockchain = interface.blockchain
         if not blockchain:
-            self.print_error("v.no blockchain", interface.server)
+            logger.error("no blockchain for interface '%s'", interface.server)
             return
 
         local_height = self.network.get_local_height()
@@ -66,14 +72,14 @@ class SPV(ThreadJob):
                     # currently designed for catching up post-checkpoint headers.
                     index = tx_height // 2016
                     if self.network.request_chunk(interface, index):
-                        interface.print_error("verifier requesting chunk {} for height {}".format(index, tx_height))
+                        interface.logger.debug("verifier requesting chunk %s for height %s", index, tx_height)
                 continue
             # request now
             self.network.get_merkle_for_transaction(
                     tx_hash,
                     tx_height,
                     self.verify_merkle)
-            self.print_error('requested merkle', tx_hash)
+            logger.debug('requested merkle %s', tx_hash)
             self.requested_merkle.add(tx_hash)
 
         if self.network.blockchain() != self.blockchain:
@@ -84,7 +90,7 @@ class SPV(ThreadJob):
         if self.wallet.verifier is None:
             return  # we have been killed, this was just an orphan callback
         if response.get('error'):
-            self.print_error('received an error:', response)
+            logger.error('received an error %s', response)
             return
         params = response['params']
         merkle = response['result']
@@ -96,8 +102,8 @@ class SPV(ThreadJob):
         try:
             merkle_root = self.hash_merkle_root(merkle['merkle'], tx_hash, pos)
         except InnerNodeOfSpvProofIsValidTx:
-            self.print_error("merkle verification failed for {} (inner node looks like tx)"
-                             .format(tx_hash))
+            logger.error("merkle verification failed for %s (inner node looks like tx)",
+                             tx_hash)
             return
             
         header = self.network.blockchain().read_header(tx_height)
@@ -105,14 +111,14 @@ class SPV(ThreadJob):
         # we should make a fresh connection to a server to
         # recover from this, as this TX will now never verify
         if not header:
-            self.print_error(
-                "merkle verification failed for {} (missing header {})"
-                .format(tx_hash, tx_height))
+            logger.error(
+                "merkle verification failed for %s (missing header %s)",
+                tx_hash, tx_height)
             return
         if header.get('merkle_root') != merkle_root:
-            self.print_error(
-                "merkle verification failed for {} (merkle root mismatch {} != {})"
-                .format(tx_hash, header.get('merkle_root'), merkle_root))
+            logger.error(
+                "merkle verification failed for %s (merkle root mismatch %s != %s)",
+                tx_hash, header.get('merkle_root'), merkle_root)
             return
         # we passed all the tests
         self.merkle_roots[tx_hash] = merkle_root
@@ -122,7 +128,7 @@ class SPV(ThreadJob):
             self.requested_merkle.remove(tx_hash)
         except KeyError:
             pass
-        self.print_error("verified %s" % tx_hash)
+        logger.debug("verified %s", tx_hash)
         self.wallet.add_verified_tx(tx_hash, (tx_height, header.get('timestamp'), pos))
         if self.is_up_to_date() and self.wallet.is_up_to_date():
             self.wallet.save_verified_tx(write=True)
@@ -153,7 +159,7 @@ class SPV(ThreadJob):
         height = self.blockchain.get_base_height()
         tx_hashes = self.wallet.undo_verifications(self.blockchain, height)
         for tx_hash in tx_hashes:
-            self.print_error("redoing", tx_hash)
+            logger.debug("redoing %s", tx_hash)
             self.remove_spv_proof_for_tx(tx_hash)
             
     def remove_spv_proof_for_tx(self, tx_hash):

@@ -23,17 +23,17 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import time
-import threading
 import base64
-from functools import partial
-
-import smtplib
-import imaplib
 import email
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.encoders import encode_base64
+from functools import partial
+import imaplib
+import logging
+import smtplib
+import time
+import threading
 
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -45,6 +45,8 @@ from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.i18n import _
 from electrumsv.gui.qt.util import EnterButton, Buttons, CloseButton
 from electrumsv.gui.qt.util import OkButton, WindowModalDialog
+
+logger = logging.getLogger("emailrequests")
 
 
 class Processor(threading.Thread):
@@ -132,7 +134,7 @@ class Plugin(BasePlugin):
         self.obj.email_new_invoice_signal.connect(self.new_invoice)
 
     def on_receive(self, pr_str):
-        self.print_error('received payment request')
+        logger.debug('received payment request')
         self.pr = PaymentRequest(pr_str)
         self.obj.email_new_invoice_signal.emit()
 
@@ -160,7 +162,7 @@ class Plugin(BasePlugin):
             return
         recipient = str(recipient)
         payload = pr.SerializeToString()
-        self.print_error('sending mail to', recipient)
+        logger.debug("sending mail to '%s'", recipient)
         try:
             self.processor.send(recipient, message, payload)
         except BaseException as e:
@@ -168,7 +170,6 @@ class Plugin(BasePlugin):
             return
 
         window.show_message(_('Request sent.'))
-
 
     def requires_settings(self):
         return True

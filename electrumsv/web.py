@@ -22,6 +22,7 @@
 # SOFTWARE.
 
 from decimal import Decimal
+import logging
 import os
 import re
 import shutil
@@ -32,6 +33,8 @@ from .address import Address
 from . import bitcoin
 from .networks import NetworkConstants
 from .util import format_satoshis_plain
+
+logger = logging.getLogger("web")
 
 mainnet_block_explorers = {
     'bchsvexplorer.com': (
@@ -196,7 +199,7 @@ def check_www_dir(rdir):
         os.mkdir(rdir)
     index = os.path.join(rdir, 'index.html')
     if not os.path.exists(index):
-        print_error("copying index.html")
+        logger.debug("copying index.html")
         src = os.path.join(os.path.dirname(__file__), 'www', 'index.html')
         shutil.copy(src, index)
     files = [
@@ -210,5 +213,5 @@ def check_www_dir(rdir):
         filename = os.path.basename(path)
         path = os.path.join(rdir, filename)
         if not os.path.exists(path):
-            print_error("downloading ", URL)
+            logger.debug("downloading %s", URL)
             urllib.request.urlretrieve(URL, path)

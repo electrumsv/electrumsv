@@ -1,11 +1,14 @@
+import datetime
 from decimal import Decimal
+import getpass
+
+# rt12: The localisation disabled with no comment.
 _ = lambda x:x
 #from i18n import _
 from electrumsv import WalletStorage, Wallet
-from electrumsv.util import format_satoshis, set_verbosity
+from electrumsv.util import format_satoshis, disable_verbose_logging
 from electrumsv.address import Address
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS
-import getpass, datetime
 
 # minimal fdisk like gui for console usage
 # written by rofl0r, with some bits stolen from the text gui (ncurses)
@@ -26,7 +29,7 @@ class ElectrumGui:
         self.done = 0
         self.last_balance = ""
 
-        set_verbosity(False)
+        disable_verbose_logging()
 
         self.str_recipient = ""
         self.str_description = ""

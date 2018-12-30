@@ -1,11 +1,13 @@
-import time
+import logging
 from struct import pack
+import time
 
 from electrumsv.i18n import _
-from electrumsv.util import PrintError, UserCancelled
+from electrumsv.util import UserCancelled
 from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.bitcoin import serialize_xpub
 
+logger = logging.getLogger("plugin.keepkey")
 
 class GuiMixin(object):
     # Requires: self.proto, self.device
@@ -83,8 +85,7 @@ class GuiMixin(object):
         return self.proto.CharacterAck(**char_info)
 
 
-class KeepKeyClientBase(GuiMixin, PrintError):
-
+class KeepKeyClientBase(GuiMixin):
     def __init__(self, handler, plugin, proto):
         assert hasattr(self, 'tx_api')  # ProtocolMixin already constructed?
         self.proto = proto
@@ -127,7 +128,7 @@ class KeepKeyClientBase(GuiMixin, PrintError):
     def timeout(self, cutoff):
         '''Time out the client if the last operation was before cutoff.'''
         if self.last_operation < cutoff:
-            self.print_error("timed out")
+            logger.error("timed out")
             self.clear_session()
 
     @staticmethod
@@ -189,14 +190,13 @@ class KeepKeyClientBase(GuiMixin, PrintError):
     def clear_session(self):
         '''Clear the session to force pin (and passphrase if enabled)
         re-entry.  Does not leak exceptions.'''
-        self.print_error("clear session:", self)
+        logger.debug("clear session: %s", self)
         self.prevent_timeouts()
         try:
             super(KeepKeyClientBase, self).clear_session()
         except BaseException as e:
             # If the device was removed it has the same effect...
-            self.print_error("clear_session: ignoring error", str(e))
-            pass
+            logger.error("clear_session: ignoring error %s", e)
 
     def get_public_node(self, address_n, creating):
         self.creating_wallet = creating
@@ -204,7 +204,7 @@ class KeepKeyClientBase(GuiMixin, PrintError):
 
     def close(self):
         '''Called when Our wallet was closed or the device removed.'''
-        self.print_error("closing client")
+        logger.debug("closing client")
         self.clear_session()
         # Release the device
         self.transport.close()

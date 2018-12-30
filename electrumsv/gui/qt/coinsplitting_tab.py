@@ -1,3 +1,4 @@
+import logging
 import requests
 import threading
 
@@ -9,6 +10,8 @@ from electrumsv import bitcoin
 from electrumsv.i18n import _
 from electrumsv.address import Address
 from . import util
+
+logger = logging.getLogger("coinsplitting")
 
 TX_DESC_PREFIX = "ElectrumSV coin splitting"
 
@@ -116,7 +119,7 @@ class CoinSplittingTab(QWidget):
             self._split_cleanup()
 
     def _on_split_prepare_task_error(self, exc_info):
-        print("on_split_prepare_task_error", exc_info)
+        logger.exception("on_split_prepare_task_error", exc_info=exc_info)
         self._split_cleanup()
 
     def _ask_send_split_transaction(self):

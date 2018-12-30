@@ -1,10 +1,14 @@
-import select, time, queue
-from electrumsv import Connection, Interface, SimpleConfig
-
-from electrumsv.network import parse_servers
 from collections import defaultdict
+import queue
+import select
+import time
 
-# electrum.util.set_verbosity(1)
+from electrumsv import Connection, Interface, SimpleConfig
+from electrumsv.network import parse_servers
+
+# import logging
+# logging.getLogger().setLevel(logging.DEBUG)
+
 def get_interfaces(servers, timeout=10):
     '''Returns a map of servers to connected interfaces.  If any
     connections fail or timeout, they will be missing from the map.

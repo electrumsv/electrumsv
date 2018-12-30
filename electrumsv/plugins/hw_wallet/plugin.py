@@ -24,6 +24,9 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
+import sys
+
 from electrumsv.plugin import BasePlugin, hook
 from electrumsv.i18n import _
 from electrumsv.util import versiontuple
@@ -40,6 +43,8 @@ class HW_PluginBase(BasePlugin):
         BasePlugin.__init__(self, parent, config, name)
         self.device = self.keystore_class.device
         self.keystore_class.plugin = self
+
+        self.logger = logging.getLogger("plugin.hwbase")
 
     def is_enabled(self):
         return True
@@ -84,7 +89,7 @@ class HW_PluginBase(BasePlugin):
                     _("Library version for '{}' is incompatible.").format(self.name)
                     + '\nInstalled: {}, Needed: {} <= x < {}'
                     .format(library_version, version_str(self.minimum_library), max_version_str))
-            self.print_stderr(self.libraries_available_message)
+            print(self.libraries_available_message, file=sys.stderr)
             return False
 
         return True

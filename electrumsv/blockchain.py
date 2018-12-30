@@ -21,14 +21,17 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
 import os
 import sys
 import threading
 
-
 from . import util
 from .networks import NetworkConstants
 from .bitcoin import *
+
+logger = logging.getLogger("blockchain")
+
 
 class VerifyError(Exception):
     '''Exception used for blockchain verification errors.'''
@@ -187,7 +190,7 @@ class HeaderChunk:
     def get_header_at_index(self, index):
         return self.headers[index]
 
-class Blockchain(util.PrintError):
+class Blockchain:
     """
     Manages blockchain headers and their verification
     """
@@ -298,7 +301,7 @@ class Blockchain(util.PrintError):
         parent_branch_size = self.parent().height() - self.base_height + 1
         if parent_branch_size >= self.size():
             return
-        self.print_error("swap", self.base_height, self.parent_base_height)
+        logger.debug("swap %s %s", self.base_height, self.parent_base_height)
         parent_base_height = self.parent_base_height
         base_height = self.base_height
         parent = self.parent()
@@ -320,7 +323,7 @@ class Blockchain(util.PrintError):
         for b in blockchains.values():
             if b in [self, parent]: continue
             if b.old_path != b.path():
-                self.print_error("renaming", b.old_path, b.path())
+                logger.debug("renaming %s %s", b.old_path, b.path())
                 os.rename(b.old_path, b.path())
         # update pointers
         blockchains[self.base_height] = self
@@ -519,8 +522,8 @@ class Blockchain(util.PrintError):
         try:
             self.verify_header(header, previous_header, bits)
         except VerifyError as e:
-            self.print_error('verify header {} failed at height {:d}: {}'
-                             .format(hash_header(header), height, e))
+            logger.error('verify header %s failed at height %d %e',
+                             hash_header(header), height, e)
             return False
         return True
 
@@ -570,5 +573,5 @@ class Blockchain(util.PrintError):
             self.save_chunk(base_height, hexdata)
             return CHUNK_ACCEPTED
         except VerifyError as e:
-            self.print_error('verify_chunk failed: {}'.format(e))
+            logger.error('verify_chunk failed %s', e)
             return CHUNK_BAD

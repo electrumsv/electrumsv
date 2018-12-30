@@ -1,12 +1,16 @@
 
 # source: http://stackoverflow.com/questions/2758159/how-to-embed-a-python-interpreter-in-a-pyqt-widget
 
+import logging
 import sys, os, re
 import traceback, platform
 from PyQt5 import QtCore
 from PyQt5 import QtGui
 from PyQt5 import QtWidgets
+
 from electrumsv import util
+
+logger = logging.getLogger("console")
 
 
 if platform.system() == 'Windows':
@@ -215,7 +219,7 @@ class Console(QtWidgets.QPlainTextEdit):
                     result = eval(command, self.namespace, self.namespace)
                     if result != None:
                         if self.is_json:
-                            util.print_msg(util.json_encode(result))
+                            print(util.json_encode(result))
                         else:
                             self.appendPlainText(repr(result))
                 except SyntaxError:
@@ -233,7 +237,6 @@ class Console(QtWidgets.QPlainTextEdit):
             sys.stdout = tmp_stdout
         self.newPrompt()
         self.set_json(False)
-
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Tab:

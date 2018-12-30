@@ -40,6 +40,8 @@ from electrumsv.util import bh2u, bfh
 
 from electrumsv.gui.qt.transaction_dialog import show_transaction
 
+logger = logging.getLogger("cosignerpool")
+
 PORT = 12344
 HOST = 'cosigner.electrum.org'
 server = ServerProxy('http://%s:%d'%(HOST,PORT), allow_none=True)
@@ -72,12 +74,12 @@ class Listener(util.DaemonThread):
                 try:
                     message = server.get(keyhash)
                 except Exception as e:
-                    self.print_error("cannot contact cosigner pool")
+                    logger.error("cannot contact cosigner pool")
                     time.sleep(30)
                     continue
                 if message:
                     self.received.add(keyhash)
-                    self.print_error("received message for", keyhash)
+                    logger.debug("received message for", keyhash)
                     self.parent.obj.cosigner_receive_signal.emit(
                         keyhash, message)
             # poll every 30 seconds
@@ -119,11 +121,11 @@ class Plugin(BasePlugin):
         if type(wallet) != Multisig_Wallet:
             return
         if self.listener is None:
-            self.print_error("starting listener")
+            logger.debug("starting listener")
             self.listener = Listener(self)
             self.listener.start()
         elif self.listener:
-            self.print_error("shutting down listener")
+            logger.debug("shutting down listener")
             self.listener.stop()
             self.listener = None
         self.keys = []
@@ -183,12 +185,12 @@ class Plugin(BasePlugin):
                                 _("Open your cosigner wallet to retrieve it."))
 
     def on_receive(self, keyhash, message):
-        self.print_error("signal arrived for", keyhash)
+        logger.debug("signal arrived for '%s'", keyhash)
         for key, _hash, window in self.keys:
             if _hash == keyhash:
                 break
         else:
-            self.print_error("keyhash not found")
+            logger.error("keyhash not found")
             return
 
         wallet = window.wallet

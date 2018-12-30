@@ -30,10 +30,9 @@
 #  http://backreference.org/2010/11/17/dnssec-verification-with-dig/
 #  https://github.com/rthalley/dnspython/blob/master/tests/test_dnssec.py
 
-
-import time
+import logging
 import struct
-
+import time
 
 import dns.name
 import dns.query
@@ -55,10 +54,11 @@ import dns.rdtypes.ANY.TXT
 import dns.rdtypes.IN.A
 import dns.rdtypes.IN.AAAA
 
-
 # Pure-Python version of dns.dnssec._validate_rsig
 import ecdsa
 from . import rsakey
+
+logger = logging.getLogger("dnssec")
 
 
 def python_validate_rrsig(rrset, rrsig, keys, origin=None, now=None):
@@ -172,10 +172,6 @@ dns.dnssec.validate_rrsig = python_validate_rrsig
 dns.dnssec.validate = dns.dnssec._validate
 
 
-
-from .util import print_error
-
-
 # hard-coded trust anchors (root KSKs)
 trust_anchors = [
     # KSK-2017:
@@ -262,8 +258,7 @@ def query(url, rtype):
         out = get_and_validate(ns, url, rtype)
         validated = True
     except BaseException as e:
-        # logging.exception("")
-        print_error("DNSSEC error:", str(e))
+        logger.error("DNSSEC error: %s", e)
         resolver = dns.resolver.get_default_resolver()
         out = resolver.query(url, rtype)
         validated = False

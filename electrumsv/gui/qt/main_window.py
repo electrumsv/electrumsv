@@ -45,7 +45,7 @@ from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
 from electrumsv.networks import NetworkConstants
 from electrumsv.plugin import run_hook
 from electrumsv.i18n import _
-from electrumsv.util import (format_time, format_satoshis, PrintError,
+from electrumsv.util import (format_time, format_satoshis,
                            format_satoshis_plain, NotEnoughFunds, ExcessiveFee,
                            UserCancelled, bh2u, bfh, format_fee_satoshis)
 import electrumsv.web as web
@@ -67,6 +67,9 @@ from .fee_slider import FeeSlider
 from .coinsplitting_tab import CoinSplittingTab
 
 from .util import *
+
+logger = logging.getLogger("mainwindow")
+
 
 class StatusBarButton(QPushButton):
     def __init__(self, icon, tooltip, func):
@@ -90,7 +93,7 @@ class StatusBarButton(QPushButton):
 from electrumsv.paymentrequest import PR_PAID
 
 
-class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
+class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     payment_request_ok_signal = pyqtSignal()
     payment_request_error_signal = pyqtSignal()
@@ -105,6 +108,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
     def __init__(self, gui_object, wallet):
         QMainWindow.__init__(self)
+
+        self.logger = logger
 
         self.gui_object = gui_object
         self.config = config = gui_object.config
@@ -279,10 +284,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         override = self.tl_windows[-1] if self.tl_windows else None
         return self.top_level_window_recurse(override)
 
-    def diagnostic_name(self):
-        return "%s/%s" % (PrintError.diagnostic_name(self),
-                          self.wallet.basename() if self.wallet else "None")
-
     def is_hidden(self):
         return self.isMinimized() or self.isHidden()
 
@@ -299,7 +300,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
     def on_error(self, exc_info):
         if not isinstance(exc_info[1], UserCancelled):
             try:
-                logging.exception("", exc_info=exc_info)
+                self.logger.exception("", exc_info=exc_info)
             except OSError:
                 # Issue #662, user got IO error.
                 # We want them to still get the error displayed to them.
@@ -319,7 +320,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             # Handle in GUI thread
             self.network_signal.emit(event, args)
         else:
-            self.print_error("unexpected network message:", event, args)
+            self.logger.debug("unexpected network message event='%s' args='%s'", event, args)
 
     def on_network_qt(self, event, args=None):
         # Handle a network message in the GUI thread
@@ -332,7 +333,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         elif event == 'fee':
             pass
         else:
-            self.print_error("unexpected network_qt signal:", event, args)
+            self.logger.debug("unexpected network_qt signal event='%s' args='%s'", event, args)
 
     def fetch_alias(self):
         self.alias_info = None
@@ -348,12 +349,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
     def close_wallet(self):
         if self.wallet:
-            self.print_error('close_wallet', self.wallet.storage.path)
+            self.logger.debug('close_wallet %s', self.wallet.storage.path)
         run_hook('close_wallet', self.wallet)
 
     def load_wallet(self, wallet):
         wallet.thread = TaskThread(self, self.on_error)
         self.wallet = wallet
+        self.logger = logging.getLogger("mainwindow[{}]".format(self.wallet.basename()))
         self.update_recently_visited(wallet.storage.path)
         # address used to create a dummy transaction and estimate transaction fee
         self.history_list.update()
@@ -386,7 +388,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             assert screen.contains(QRect(*winpos))
             self.setGeometry(*winpos)
         except:
-            self.print_error("using default geometry")
+            self.logger.debug("using default geometry")
             self.setGeometry(100, 100, 840, 400)
 
     def watching_only_changed(self):
@@ -618,7 +620,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                             total_amount += v
                             n_ok += 1
                 if n_ok:
-                    self.print_error("Notifying GUI %d tx"%(n_ok))
+                    self.logger.debug("Notifying GUI %d tx", n_ok)
                     if n_ok > 1:
                         self.notify(_("{} new transactions received: Total amount received in the new transactions {}")
                                     .format(n_ok, self.format_amount_and_units(total_amount)))
@@ -643,7 +645,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.tx_notify_timer.setSingleShot(True)
             self.tx_notify_timer.timeout.connect(self.notify_tx_cb)
             when = (self.notify_tx_rate - elapsed)
-            self.print_error("Notify spam control: will notify GUI of %d new tx's in %f seconds"%(len(self.tx_notifications),when))
+            self.logger.debug("Notify spam control: will notify GUI of %d new tx's in %f seconds", len(self.tx_notifications), when)
             self.tx_notify_timer.start(when * 1e3) # time in ms
         else:
             # it's been a while since we got a tx notify -- so do it immediately (no timer necessary)
@@ -1487,7 +1489,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.show_message(_("Your fee is too high.  Max is 50 sat/byte."))
             return
         except BaseException as e:
-            logging.exception("")
+            self.logger.exception("")
             self.show_message(str(e))
             return
 
@@ -2032,7 +2034,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.show_error(str(e))
             return
         except:
-            logging.exception("")
+            self.logger.exception("")
             self.show_error(_('Failed to update password'))
             return
         msg = _('Password was updated successfully') if new_password else _('Password is disabled, this wallet is not protected')
@@ -2155,7 +2157,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         try:
             pk = self.wallet.export_private_key(address, password)
         except Exception as e:
-            logging.exception("")
+            self.logger.exception("")
             self.show_message(str(e))
             return
         xtype = bitcoin.deserialize_privkey(pk)[0]
@@ -2277,7 +2279,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             encrypted = bitcoin.encrypt_message(message, pubkey_e.text())
             encrypted_e.setText(encrypted.decode('ascii'))
         except BaseException as e:
-            logging.exception("")
+            self.logger.exception("")
             self.show_warning(str(e))
 
     def encrypt_message(self, address=None):
@@ -2343,7 +2345,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                         tx._inputs[i]['value'] = my_coins[my_index]['value']
             return tx
         except:
-            logging.exception("")
+            self.logger.exception("")
             self.show_critical(_("ElectrumSV was unable to parse your transaction"))
             return
 
@@ -3106,15 +3108,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         try:
             self.config.set_key("is_maximized", self.isMaximized())
             self.config.set_key("console-history", self.console.history[-50:], True)
-        except (OSError, PermissionError) as e:
-            self.print_error("unable to write to config (directory removed?)", e)
+        except (OSError, PermissionError):
+            self.logger.exception("unable to write to config (directory removed?)")
 
         if not self.isMaximized():
             try:
                 g = self.geometry()
                 self.wallet.storage.put("winpos-qt", [g.left(),g.top(),g.width(),g.height()])
-            except (OSError, PermissionError) as e:
-                self.print_error("unable to write to wallet storage (directory removed?)", e)
+            except (OSError, PermissionError):
+                self.logger.exception("unable to write to wallet storage (directory removed?)")
 
         # Should be no side-effects in this function relating to file access past this point.
         if self.qr_window:
@@ -3183,7 +3185,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                     msg += '\n\n' + _('Requires') + ':\n' + '\n'.join(map(lambda x: x[1], descr.get('requires')))
                 grid.addWidget(HelpButton(msg), i, 2)
             except Exception:
-                logging.exception("error: cannot display plugin '%s'", name)
+                self.logger.exception("error: cannot display plugin '%s'", name)
         grid.setRowStretch(len(plugins.descriptions.values()), 1)
         vbox.addLayout(Buttons(CloseButton(d)))
         d.exec_()

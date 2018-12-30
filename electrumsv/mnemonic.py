@@ -22,18 +22,21 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import os
-import hmac
-import math
 import hashlib
-import unicodedata
+import hmac
+import logging
+import math
+import os
 import string
+import unicodedata
 
 import ecdsa
 
-from .util import print_error
 from .bitcoin import is_old_seed, is_new_seed
 from . import version
+
+logger = logging.getLogger("mnemonic")
+
 
 # http://www.asahi-net.or.jp/~ax2s-kmtn/ref/unicode/e_asia.html
 CJK_INTERVALS = [
@@ -120,10 +123,10 @@ class Mnemonic(object):
 
     def __init__(self, lang=None):
         lang = lang or 'en'
-        print_error('language', lang)
+        logger.debug("language '%s'", lang)
         filename = filenames.get(lang[0:2], 'english.txt')
         self.wordlist = load_wordlist(filename)
-        print_error("wordlist has %d words"%len(self.wordlist))
+        logger.debug("wordlist has %d words", len(self.wordlist))
 
     @classmethod
     def mnemonic_to_seed(self, mnemonic, passphrase):
@@ -162,7 +165,7 @@ class Mnemonic(object):
         bpw = math.log(len(self.wordlist), 2)
         # rounding
         n = int(math.ceil(num_bits/bpw) * bpw)
-        print_error("make_seed. prefix: '%s'"%prefix, "entropy: %d bits"%n)
+        logger.debug("make_seed() prefix='%s' entropy=%d bits", prefix, n)
         entropy = 1
         while entropy < pow(2, n - bpw):
             # try again if seed would not contain enough words
@@ -177,5 +180,5 @@ class Mnemonic(object):
                 continue
             if is_new_seed(seed, prefix):
                 break
-        print_error('%d words'%len(seed.split()))
+        logger.debug('%d words', len(seed.split()))
         return seed

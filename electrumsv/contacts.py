@@ -30,7 +30,8 @@ import sys
 from .address import Address
 from . import dnssec
 from .util import FileImportFailed, FileImportFailedEncrypted
-from .util import print_error
+
+logger = logging.getLogger("contacts")
 
 
 class Contacts(dict):
@@ -105,7 +106,7 @@ class Contacts(dict):
         try:
             records, validated = dnssec.query(url, dns.rdatatype.TXT)
         except DNSException as e:
-            print_error('Error resolving openalias: ', str(e))
+            logger.exception('Error resolving openalias: %s', e)
             return None
         prefix = 'btc'
         for record in records:

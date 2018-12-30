@@ -1,3 +1,5 @@
+import logger
+
 from .labels import LabelsPlugin
 from electrumsv.plugin import hook
 
@@ -9,5 +11,5 @@ class Plugin(LabelsPlugin):
         self.start_wallet(wallet)
 
     def on_pulled(self, wallet):
-        self.print_error('on pulled')
+        logger.debug('on pulled')
         self.window._trigger_update_history()

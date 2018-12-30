@@ -23,12 +23,15 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from threading import Lock
 import hashlib
+import logging
+from threading import Lock
 import traceback
 
 from .transaction import Transaction
 from .util import ThreadJob, bh2u
+
+logger = logging.getLogger("synchronizer")
 
 
 class Synchronizer(ThreadJob):
@@ -56,7 +59,7 @@ class Synchronizer(ThreadJob):
 
     def parse_response(self, response):
         if response.get('error'):
-            self.print_error("response error:", response)
+            logger.error("response error='%s'", response)
             return None, None
         return response['params'], response['result']
 
@@ -112,7 +115,7 @@ class Synchronizer(ThreadJob):
         addr = self.h2addr.get(scripthash, None)
         if not addr or not scripthash in self.requested_histories:
             return  # Bad server response?
-        self.print_error("receiving history {} {}".format(addr, len(result)))
+        logger.debug("receiving history %s %s", addr, len(result))
         # Remove request; this allows up_to_date to be True
         server_status = self.requested_histories.pop(scripthash)
         hashes = set(map(lambda item: item['tx_hash'], result))
@@ -122,14 +125,13 @@ class Synchronizer(ThreadJob):
         tx_fees = dict(filter(lambda x:x[1] is not None, tx_fees))
         # Note if the server hasn't been patched to sort the items properly
         if hist != sorted(hist, key=lambda x:x[1]):
-            self.network.interface.print_error("serving improperly sorted address histories")
+            self.network.interface.logger.error("serving improperly sorted address histories")
         # Check that txids are unique
         if len(hashes) != len(result):
-            self.print_error("error: server history has non-unique txids: {}"
-                             .format(addr))
+            logger.error("server history has non-unique txids: %s", addr)
         # Check that the status corresponds to what was announced
         elif self.get_status(hist) != server_status:
-            self.print_error("error: status mismatch: {}".format(addr))
+            logger.error("error: status mismatch: %s", addr)
         else:
             # Store received history
             self.wallet.receive_history_callback(addr, hist, tx_fees)
@@ -150,8 +152,8 @@ class Synchronizer(ThreadJob):
             return
         tx_height = self.requested_tx.pop(tx_hash)
         self.wallet.receive_tx_callback(tx_hash, tx, tx_height)
-        self.print_error("received tx %s height: %d bytes: %d" %
-                         (tx_hash, tx_height, len(tx.raw)))
+        logger.debug("received tx %s height: %d bytes: %d",
+                         tx_hash, tx_height, len(tx.raw))
         # callbacks
         self.network.trigger_callback('new_transaction', tx, self.wallet)
         if not self.requested_tx:
@@ -181,7 +183,7 @@ class Synchronizer(ThreadJob):
             self.request_missing_txs(history)
 
         if self.requested_tx:
-            self.print_error("missing tx", self.requested_tx)
+            logger.error("missing tx %s", self.requested_tx)
         self.subscribe_to_addresses(self.wallet.get_addresses())
 
     def run(self):

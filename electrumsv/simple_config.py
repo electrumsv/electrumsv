@@ -1,14 +1,17 @@
+from copy import deepcopy
 import json
-import threading
-import time
+import logging
 import os
 import stat
+import sys
+import threading
+import time
 
 from . import util
-from copy import deepcopy
-from .util import user_dir, make_dir, print_error, PrintError
-
+from .util import user_dir, make_dir
 from .bitcoin import MAX_FEE_RATE, FEE_TARGETS
+
+logger = logging.getLogger("config")
 
 config = None
 
@@ -26,7 +29,7 @@ def set_config(c):
 FINAL_CONFIG_VERSION = 2
 
 
-class SimpleConfig(PrintError):
+class SimpleConfig:
     """
     The SimpleConfig class is responsible for handling operations involving
     configuration files.
@@ -100,7 +103,7 @@ class SimpleConfig(PrintError):
         obsolete_file = os.path.join(path, 'recent_servers')
         if os.path.exists(obsolete_file):
             os.remove(obsolete_file)
-        self.print_error("electrum-sv directory", path)
+        logger.debug("electrum-sv directory '%s'", path)
         return path
 
     def rename_config_keys(self, config, keypairs, deprecation_warning=False):
@@ -111,15 +114,15 @@ class SimpleConfig(PrintError):
                 if new_key not in config:
                     config[new_key] = config[old_key]
                     if deprecation_warning:
-                        self.print_stderr('Note that the {} variable has been deprecated. '
-                                     'You should use {} instead.'.format(old_key, new_key))
+                        logger.warning('Note that the %s variable has been deprecated. '
+                              'You should use %s instead.', old_key, new_key)
                 del config[old_key]
                 updated = True
         return updated
 
     def set_key(self, key, value, save=True):
         if not self.is_modifiable(key):
-            self.print_stderr("Warning: not changing config key '%s' set on the command line" % key)
+            logger.warning("not changing config key '%s' set on the command line", key)
             return
         self._set_key_in_user_config(key, value, save)
 
@@ -144,7 +147,7 @@ class SimpleConfig(PrintError):
 
     def upgrade(self):
         with self.lock:
-            self.print_error('upgrading config')
+            logger.debug('upgrading config')
 
             self.convert_version_2()
 
@@ -183,8 +186,8 @@ class SimpleConfig(PrintError):
     def get_config_version(self):
         config_version = self.get('config_version', 1)
         if config_version > FINAL_CONFIG_VERSION:
-            self.print_stderr('WARNING: config version ({}) is higher than ours ({})'
-                             .format(config_version, FINAL_CONFIG_VERSION))
+            logger.warning('WARNING: config version (%s) is higher than ours (%s)',
+                             config_version, FINAL_CONFIG_VERSION)
         return config_version
 
     def is_modifiable(self, key):
@@ -232,7 +235,7 @@ class SimpleConfig(PrintError):
             self.set_key('recently_open', recent)
 
     def set_session_timeout(self, seconds):
-        self.print_error("session timeout -> %d seconds" % seconds)
+        logger.debug("session timeout -> %d seconds", seconds)
         self.set_key('session_timeout', seconds)
 
     def get_session_timeout(self):
@@ -350,7 +353,7 @@ def read_user_config(path):
             data = f.read()
         result = json.loads(data)
     except:
-        print_error("Warning: Cannot read config file.", config_path)
+        logger.error("Cannot read config file %s.", config_path)
         return {}
     if not type(result) is dict:
         return {}

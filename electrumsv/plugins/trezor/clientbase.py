@@ -1,8 +1,9 @@
-import time
+import logging
 from struct import pack
+import time
 
 from electrumsv.i18n import _
-from electrumsv.util import PrintError, UserCancelled
+from electrumsv.util import UserCancelled
 from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.bitcoin import serialize_xpub, convert_bip32_path_to_list_of_uint32 as parse_path
 
@@ -11,6 +12,8 @@ from trezorlib.exceptions import TrezorFailure, Cancelled, OutdatedFirmwareError
 from trezorlib.messages import WordRequestType, FailureType, RecoveryDeviceType
 import trezorlib.btc
 import trezorlib.device
+
+logger = logging.getLogger("plugin.trezor")
 
 MESSAGES = {
     3: _("Confirm the transaction output on your {} device"),
@@ -25,7 +28,7 @@ MESSAGES = {
 }
 
 
-class TrezorClientBase(PrintError):
+class TrezorClientBase:
     def __init__(self, transport, handler, plugin):
         self.client = TrezorClient(transport, ui=self)
         self.plugin = plugin
@@ -110,7 +113,7 @@ class TrezorClientBase(PrintError):
     def timeout(self, cutoff):
         '''Time out the client if the last operation was before cutoff.'''
         if self.last_operation < cutoff:
-            self.print_error("timed out")
+            logger.error("timed out")
             self.clear_session()
 
     def i4b(self, x):
@@ -152,17 +155,17 @@ class TrezorClientBase(PrintError):
     def clear_session(self):
         '''Clear the session to force pin (and passphrase if enabled)
         re-entry.  Does not leak exceptions.'''
-        self.print_error("clear session:", self)
+        logger.debug("clear session %s", self)
         self.prevent_timeouts()
         try:
             self.client.clear_session()
         except BaseException as e:
             # If the device was removed it has the same effect...
-            self.print_error("clear_session: ignoring error", str(e))
+            logger.error("clear_session: ignoring error %s", e)
 
     def close(self):
         '''Called when Our wallet was closed or the device removed.'''
-        self.print_error("closing client")
+        logger.debug("closing client")
         self.clear_session()
 
     def is_uptodate(self):

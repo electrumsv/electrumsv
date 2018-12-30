@@ -24,6 +24,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
 from unicodedata import normalize
 
 from . import bitcoin
@@ -33,13 +34,12 @@ from .address import Address, PublicKey
 from .networks import NetworkConstants
 from .mnemonic import Mnemonic, load_wordlist
 from .plugin import run_hook
-from .util import PrintError, InvalidPassword, hfu
+from .util import InvalidPassword, hfu
 
+logger = logging.getLogger("keystore")
 
-class KeyStore(PrintError):
-
+class KeyStore:
     def __init__(self):
-        PrintError.__init__(self)
         self.wallet_advice = {}
 
     def has_seed(self):
@@ -478,7 +478,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         master_private_key = ecdsa.SigningKey.from_secret_exponent( secexp, curve = SECP256k1 )
         master_public_key = master_private_key.get_verifying_key().to_string()
         if master_public_key != bfh(self.mpk):
-            print_error('invalid password (mpk)', self.mpk, bh2u(master_public_key))
+            logger.error('invalid password (mpk) %s %s', self.mpk, bh2u(master_public_key))
             raise InvalidPassword()
 
     def check_password(self, password):
@@ -566,12 +566,12 @@ class Hardware_KeyStore(KeyStore, Xpub):
     def unpaired(self):
         '''A device paired with the wallet was diconnected.  This can be
         called in any thread context.'''
-        self.print_error("unpaired")
+        logger.debug("unpaired")
 
     def paired(self):
         '''A device paired with the wallet was (re-)connected.  This can be
         called in any thread context.'''
-        self.print_error("paired")
+        logger.debug("paired")
 
     def can_export(self):
         return False

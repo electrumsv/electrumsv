@@ -31,8 +31,7 @@ import ssl
 import sys
 import threading
 import time
-
-from .util import print_error
+import traceback
 
 ca_path = requests.certs.where()
 
@@ -57,7 +56,7 @@ def Connection(server, queue, config_path):
     return c
 
 
-class TcpConnection(threading.Thread, util.PrintError):
+class TcpConnection(threading.Thread):
 
     def __init__(self, server, queue, config_path):
         threading.Thread.__init__(self)
@@ -70,8 +69,7 @@ class TcpConnection(threading.Thread, util.PrintError):
         self.use_ssl = (self.protocol == 's')
         self.daemon = True
 
-    def diagnostic_name(self):
-        return self.host
+        self.logger = logging.getLogger("connection-tcp[{}]".format(self.host))
 
     def check_host_name(self, peercert, name):
         """Simple certificate/host name checker.  Returns True if the
@@ -101,10 +99,10 @@ class TcpConnection(threading.Thread, util.PrintError):
         try:
             l = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC, socket.SOCK_STREAM)
         except socket.gaierror:
-            self.print_error("cannot resolve hostname")
+            self.logger.error("cannot resolve hostname")
             return
         except UnicodeDecodeError:
-            self.print_error("hostname cannot be decoded with 'idna' codec")
+            self.logger.error("hostname cannot be decoded with 'idna' codec")
             return
         e = None
         for res in l:
@@ -119,7 +117,7 @@ class TcpConnection(threading.Thread, util.PrintError):
                 e = _e
                 continue
         else:
-            self.print_error("failed to connect", str(e))
+            self.logger.error("failed to connect %s", e)
 
     @staticmethod
     def get_ssl_context(cert_reqs, ca_certs):
@@ -146,13 +144,13 @@ class TcpConnection(threading.Thread, util.PrintError):
                     context = self.get_ssl_context(cert_reqs=ssl.CERT_REQUIRED, ca_certs=ca_path)
                     s = context.wrap_socket(s, do_handshake_on_connect=True)
                 except ssl.SSLError as e:
-                    self.print_error(e)
+                    self.logger.exception("")
                     s = None
                 except:
                     return
 
                 if s and self.check_host_name(s.getpeercert(), self.host):
-                    self.print_error("SSL certificate signed by CA")
+                    self.logger.error("SSL certificate signed by CA")
                     return s
                 # get server certificate.
                 # Do not use ssl.get_server_certificate because it does not work with proxy
@@ -163,7 +161,7 @@ class TcpConnection(threading.Thread, util.PrintError):
                     context = self.get_ssl_context(cert_reqs=ssl.CERT_NONE, ca_certs=None)
                     s = context.wrap_socket(s)
                 except ssl.SSLError as e:
-                    self.print_error("SSL error retrieving SSL certificate:", e)
+                    self.logger.exception("SSL error retrieving SSL certificate")
                     return
                 except:
                     return
@@ -192,10 +190,10 @@ class TcpConnection(threading.Thread, util.PrintError):
                                                ca_certs=(temporary_path if is_new else cert_path))
                 s = context.wrap_socket(s, do_handshake_on_connect=True)
             except socket.timeout:
-                self.print_error('timeout')
+                self.logger.error('timeout')
                 return
             except ssl.SSLError as e:
-                self.print_error("SSL error:", e)
+                self.logger.exception("SSL error")
                 if e.errno != 1:
                     return
                 if is_new:
@@ -211,24 +209,24 @@ class TcpConnection(threading.Thread, util.PrintError):
                         b = pem.dePem(cert, 'CERTIFICATE')
                         x = x509.X509(b)
                     except:
-                        logging.exception("wrong certificate")
+                        self.logger.exception("wrong certificate")
                         return
                     try:
                         x.check_date()
                     except:
-                        self.print_error("certificate has expired:", cert_path)
+                        self.logger.error("certificate has expired '%s'", cert_path)
                         os.unlink(cert_path)
                         return
-                    self.print_error("wrong certificate")
+                    self.logger.error("wrong certificate")
                 if e.errno == 104:
                     return
                 return
-            except BaseException as e:
-                logging.exception("")
+            except BaseException:
+                self.logger.exception("")
                 return
 
             if is_new:
-                self.print_error("saving certificate")
+                self.logger.debug("saving certificate")
                 os.rename(temporary_path, cert_path)
 
         return s
@@ -236,11 +234,11 @@ class TcpConnection(threading.Thread, util.PrintError):
     def run(self):
         socket = self.get_socket()
         if socket:
-            self.print_error("connected")
+            self.logger.debug("connected")
         self.queue.put((self.server, socket))
 
 
-class Interface(util.PrintError):
+class Interface:
     """The Interface class handles a socket connected to a single remote
     electrum server.  It's exposed API is:
 
@@ -270,13 +268,11 @@ class Interface(util.PrintError):
         self.closed_remotely = False
         
         self.mode = None
+        self.logger = logging.getLogger("interface[{}]".format(self.host))
         
     def set_mode(self, mode):
-        self.print_error("set_mode({})".format(mode))
+        self.logger.debug("set_mode(%s)", mode)
         self.mode = mode
-
-    def diagnostic_name(self):
-        return self.host
 
     def fileno(self):
         # Needed for select
@@ -311,12 +307,12 @@ class Interface(util.PrintError):
         try:
             self.pipe.send_all([make_dict(*r) for r in wire_requests])
         except (OSError, ssl.SSLError) as e:
-            self.print_error("send_requests: {}: {}".format(type(e).__name__, e))
+            self.logger.error("send_requests %s %s", type(e).__name__, e)
             return False
         self.unsent_requests = self.unsent_requests[n:]
         for request in wire_requests:
             if self.debug:
-                self.print_error("-->", request)
+                self.logger.debug("--> %s", request)
             self.unanswered_requests[request[2]] = request
         return True
 
@@ -328,9 +324,8 @@ class Interface(util.PrintError):
         '''Returns True if the interface has timed out.'''
         if (self.unanswered_requests and time.time() - self.request_time > 10
             and self.pipe.idle_time() > 10):
-            self.print_error("timeout", len(self.unanswered_requests))
+            self.logger.debug("timeout %d", len(self.unanswered_requests))
             return True
-
         return False
 
     def get_responses(self):
@@ -352,10 +347,10 @@ class Interface(util.PrintError):
                 responses.append((None, None))
                 if response is None:
                     self.closed_remotely = True
-                    self.print_error("connection closed remotely")
+                    self.logger.debug("connection closed remotely")
                 break
             if self.debug:
-                self.print_error("<--", response)
+                self.logger.debug("<-- %s", response)
             wire_id = response.get('id', None)
             if wire_id is None:  # Notification
                 responses.append((None, response))
@@ -364,7 +359,7 @@ class Interface(util.PrintError):
                 if request:
                     responses.append((request, response))
                 else:
-                    self.print_error("unknown wire ID", wire_id)
+                    self.logger.debug("unknown wire ID '%s'", wire_id)
                     responses.append((None, None)) # Signal
                     break
 
@@ -376,7 +371,7 @@ def check_cert(host, cert):
         b = pem.dePem(cert, 'CERTIFICATE')
         x = x509.X509(b)
     except:
-        logging.exception("")
+        traceback.print_exc(file=sys.stdout)
         return
 
     try:
@@ -387,7 +382,8 @@ def check_cert(host, cert):
 
     m = "host: %s\n"%host
     m += "has_expired: %s\n"% expired
-    util.print_msg(m)
+    # rt12: All code paths here are standalone.
+    print(m)
 
 
 # Used by tests

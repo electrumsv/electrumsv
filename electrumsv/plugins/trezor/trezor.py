@@ -38,6 +38,8 @@ except Exception as e:
 
     RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX = range(2)
 
+logger = logging.getLogger("plugin.trezor")
+
 # Trezor initialization methods
 TIM_NEW, TIM_RECOVER = range(2)
 
@@ -99,6 +101,8 @@ class TrezorPlugin(HW_PluginBase):
 
     def __init__(self, parent, config, name):
         super().__init__(parent, config, name)
+        self.logger = logger
+
         self.libraries_available = self.check_libraries_available()
         if not self.libraries_available:
             return
@@ -127,17 +131,17 @@ class TrezorPlugin(HW_PluginBase):
 
     def create_client(self, device, handler):
         try:
-            self.print_error("connecting to device at", device.path)
+            logger.debug("connecting to device at %s", device.path)
             transport = trezorlib.transport.get_transport(device.path)
         except BaseException as e:
-            self.print_error("cannot connect at", device.path, str(e))
+            logger.error("cannot connect at %s %s", device.path, e)
             return None
 
         if not transport:
-            self.print_error("cannot connect at", device.path)
+            logger.error("cannot connect at %s", device.path)
             return
 
-        self.print_error("connected to device at", device.path)
+        logger.debug("connected to device at %s", device.path)
         # note that this call can still raise!
         return TrezorClientBase(transport, handler, self)
 
@@ -194,7 +198,7 @@ class TrezorPlugin(HW_PluginBase):
         except UserCancelled:
             exit_code = 1
         except BaseException as e:
-            logging.exception("")
+            self.logger.exception("")
             handler.show_error(str(e))
             exit_code = 1
         finally:

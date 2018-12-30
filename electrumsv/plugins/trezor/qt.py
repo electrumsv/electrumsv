@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import QVBoxLayout, QLabel
 from electrumsv.gui.qt.util import *
 from electrumsv.i18n import _
 from electrumsv.plugin import hook, DeviceMgr
-from electrumsv.util import PrintError, UserCancelled, bh2u
+from electrumsv.util import UserCancelled, bh2u
 from electrumsv.wallet import Wallet, Standard_Wallet
 
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase

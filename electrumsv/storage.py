@@ -22,22 +22,26 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import os
 import ast
-import threading
-import json
+import base64
 import copy
+import hashlib
+import hmac
+import json
+import logging
+import os
 import re
 import stat
-import hmac, hashlib
-import base64
+import threading
 import zlib
 
 from .address import Address
-from .util import PrintError, profiler
+from .util import profiler
 from .plugin import run_hook, plugin_loaders
 from .keystore import bip44_derivation
 from . import bitcoin
+
+logger = logging.getLogger("storage")
 
 
 # seed_version is now used for the version of the wallet file
@@ -60,10 +64,9 @@ def multisig_type(wallet_type):
     return match
 
 
-class WalletStorage(PrintError):
-
+class WalletStorage:
     def __init__(self, path, manual_upgrades=False):
-        self.print_error("wallet path", path)
+        logger.debug("wallet path '%s'", path)
         self.manual_upgrades = manual_upgrades
         self.lock = threading.RLock()
         self.data = {}
@@ -97,7 +100,7 @@ class WalletStorage(PrintError):
                     json.dumps(key)
                     json.dumps(value)
                 except:
-                    self.print_error('Failed to convert label to json format', key)
+                    logger.error('Failed to convert label to json format %s', key)
                     continue
                 self.data[key] = value
 
@@ -155,7 +158,7 @@ class WalletStorage(PrintError):
             json.dumps(key)
             json.dumps(value)
         except:
-            self.print_error("json error: cannot save", key)
+            logger.error("json error: cannot save %s", key)
             return
         with self.lock:
             if value is not None:
@@ -173,7 +176,7 @@ class WalletStorage(PrintError):
 
     def _write(self):
         if threading.currentThread().isDaemon():
-            self.print_error('warning: daemon thread cannot write wallet')
+            logger.error('daemon thread cannot write wallet')
             return
         if not self.modified:
             return
@@ -199,7 +202,7 @@ class WalletStorage(PrintError):
             os.rename(temp_path, self.path)
         os.chmod(self.path, mode)
         self.raw = s
-        self.print_error("saved", self.path)
+        logger.debug("saved '%s'", self.path)
         self.modified = False
 
     def requires_split(self):
@@ -256,7 +259,7 @@ class WalletStorage(PrintError):
         return self.file_exists() and self.get_seed_version() < FINAL_SEED_VERSION
 
     def upgrade(self):
-        self.print_error('upgrading wallet format')
+        logger.debug('upgrading wallet format')
 
         self.convert_imported()
         self.convert_wallet_type()

@@ -10,6 +10,7 @@ from electrumsv.bitcoin import aes_decrypt_with_iv, aes_encrypt_with_iv
 from electrumsv.plugin import BasePlugin, hook
 from electrumsv.i18n import _
 
+logger = logging.getLogger("plugin.labels")
 
 class LabelsPlugin(BasePlugin):
 
@@ -38,7 +39,7 @@ class LabelsPlugin(BasePlugin):
         return nonce
 
     def set_nonce(self, wallet, nonce):
-        self.print_error("set", wallet.basename(), "nonce to", nonce)
+        logger.debug("set %s nonce to %s", wallet.basename(), nonce)
         wallet.storage.put("wallet_nonce", nonce)
 
     @hook
@@ -86,7 +87,7 @@ class LabelsPlugin(BasePlugin):
                 encoded_key = self.encode(wallet, key)
                 encoded_value = self.encode(wallet, value)
             except:
-                self.print_error('cannot encode', repr(key), repr(value))
+                logger.error('cannot encode %r %r', key, value)
                 continue
             bundle["labels"].append({'encryptedLabel': encoded_value,
                                      'externalId': encoded_key})
@@ -95,11 +96,11 @@ class LabelsPlugin(BasePlugin):
     def pull_thread(self, wallet, force):
         wallet_id = self.wallets[wallet][2]
         nonce = 1 if force else self.get_nonce(wallet) - 1
-        self.print_error("asking for labels since nonce", nonce)
+        logger.debug("asking for labels since nonce %s", nonce)
         try:
             response = self.do_request("GET", ("/labels/since/%d/for/%s" % (nonce, wallet_id) ))
             if response["labels"] is None:
-                self.print_error('no new labels')
+                logger.debug('no new labels')
                 return
             result = {}
             for label in response["labels"]:
@@ -112,7 +113,7 @@ class LabelsPlugin(BasePlugin):
                     json.dumps(key)
                     json.dumps(value)
                 except:
-                    self.print_error('error: no json', key)
+                    logger.error('no json %s', key)
                     continue
                 result[key] = value
 
@@ -120,7 +121,7 @@ class LabelsPlugin(BasePlugin):
                 if force or not wallet.labels.get(key):
                     wallet.labels[key] = value
 
-            self.print_error("received %d labels" % len(response))
+            logger.debug("received %d labels", len(response))
             # do not write to disk because we're in a daemon thread
             wallet.storage.put('labels', wallet.labels)
             self.set_nonce(wallet, response["nonce"] + 1)
@@ -131,7 +132,7 @@ class LabelsPlugin(BasePlugin):
 
     def start_wallet(self, wallet):
         nonce = self.get_nonce(wallet)
-        self.print_error("wallet", wallet.basename(), "nonce is", nonce)
+        logger.debug("wallet %s nonce is %s", wallet.basename(), nonce)
         mpk = wallet.get_fingerprint()
         if not mpk:
             return

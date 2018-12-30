@@ -3,6 +3,18 @@
 # digitalbitbox.com
 #
 
+import base64
+import binascii
+import hashlib
+import json
+import logging
+import math
+import os
+import requests
+import struct
+import sys
+import time
+
 try:
     from electrumsv.bitcoin import TYPE_ADDRESS, push_script, var_int, msg_magic, Hash, verify_message, pubkey_from_signature, point_to_ser, public_key_to_p2pkh, EncodeAES, DecodeAES, MyVerifyingKey, int_to_hex
     from electrumsv.bitcoin import serialize_xpub, deserialize_xpub
@@ -10,19 +22,9 @@ try:
     from electrumsv.i18n import _
     from electrumsv.keystore import Hardware_KeyStore
     from ..hw_wallet import HW_PluginBase
-    from electrumsv.util import print_error, to_string, UserCancelled
+    from electrumsv.util import to_string, UserCancelled
 
-    import time
     import hid
-    import json
-    import math
-    import binascii
-    import struct
-    import hashlib
-    import requests
-    import base64
-    import os
-    import sys
     from ecdsa.ecdsa import generator_secp256k1
     from ecdsa.util import sigencode_der
     from ecdsa.curves import SECP256k1
@@ -30,7 +32,7 @@ try:
 except ImportError as e:
     DIGIBOX = False
 
-
+logger = logging.getLogger("plugin.bitbox")
 
 # ----------------------------------------------------------------------------------
 # USB HID interface
@@ -372,7 +374,7 @@ class DigitalBitbox_Client():
             r = to_string(r, 'utf8')
             reply = json.loads(r)
         except Exception as e:
-            print_error('Exception caught ' + str(e))
+            logger.error('Exception caught %s', e)
         return reply
 
 
@@ -389,7 +391,7 @@ class DigitalBitbox_Client():
             if 'error' in reply:
                 self.password = None
         except Exception as e:
-            print_error('Exception caught ' + str(e))
+            logger.error('Exception caught %s', e)
         return reply
 
 
@@ -635,7 +637,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
         except BaseException as e:
             self.give_error(e, True)
         else:
-            print_error("Transaction is_complete", tx.is_complete())
+            logger.debug("Transaction is_complete %s", tx.is_complete())
             tx.raw = tx.serialize()
 
 
@@ -650,6 +652,8 @@ class DigitalBitboxPlugin(HW_PluginBase):
 
     def __init__(self, parent, config, name):
         HW_PluginBase.__init__(self, parent, config, name)
+        self.logger = logger
+
         if self.libraries_available:
             self.device_manager().register_devices(self.DEVICE_IDS)
 

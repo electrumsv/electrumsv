@@ -33,11 +33,13 @@ import threading
 import time
 
 from .i18n import _
-from .util import print_error, user_dir, make_dir, versiontuple
-from .util import profiler, PrintError, DaemonThread, UserCancelled, ThreadJob
+from .util import user_dir, make_dir, versiontuple
+from .util import profiler, DaemonThread, UserCancelled, ThreadJob
 from . import bitcoin
 from . import plugins
 from . import version
+
+logger = logging.getLogger("plugin")
 
 plugin_loaders = {}
 hook_names = set()
@@ -111,7 +113,7 @@ class Plugins(DaemonThread):
             raise Exception(f"Error loading {name} plugin: {repr(e)}") from e
         self.add_jobs(plugin.thread_jobs())
         self.plugins[name] = plugin
-        self.print_error("loaded", name)
+        logger.debug("loaded %s", name)
         return plugin
 
     def close_plugin(self, plugin):
@@ -131,7 +133,7 @@ class Plugins(DaemonThread):
             return
         self.plugins.pop(name)
         p.close()
-        self.print_error("closed", name)
+        logger.debug("closed %s", name)
 
     def toggle(self, name):
         p = self.get(name)
@@ -146,7 +148,7 @@ class Plugins(DaemonThread):
             try:
                 __import__(dep)
             except ImportError as e:
-                self.print_error('Plugin', name, 'unavailable:', repr(e))
+                logger.debug('Plugin %s unavailable %r', name, e)
                 return False
         requires = d.get('requires_wallet_type', [])
         return not requires or w.wallet_type in requires
@@ -172,7 +174,7 @@ class Plugins(DaemonThread):
 
     def register_wallet_type(self, name, gui_good, wallet_type):
         from .wallet import register_wallet_type, register_constructor
-        self.print_error("registering wallet type", (wallet_type, name))
+        logger.debug("registering wallet type %s %s", wallet_type, name)
         def loader():
             plugin = self.get_plugin(name)
             register_constructor(wallet_type, plugin.wallet_class)
@@ -185,7 +187,7 @@ class Plugins(DaemonThread):
             return self.get_plugin(name).keystore_class(d)
         if details[0] == 'hardware':
             self.hw_wallets[name] = (gui_good, details)
-            self.print_error("registering hardware %s: %s" %(name, details))
+            logger.debug("registering hardware %s: %s", name, details)
             register_keystore(details[1], dynamic_constructor)
 
     def get_plugin(self, name):
@@ -222,7 +224,7 @@ def run_hook(name, *args):
         return results[0]
 
 
-class BasePlugin(PrintError):
+class BasePlugin:
     def __init__(self, parent, config, name):
         self.parent = parent  # The plugins object
         self.name = name
@@ -234,9 +236,6 @@ class BasePlugin(PrintError):
                 l = hooks.get(k, [])
                 l.append((self, getattr(self, k)))
                 hooks[k] = l
-
-    def diagnostic_name(self):
-        return self.name
 
     def __str__(self):
         return self.name
@@ -282,7 +281,7 @@ DeviceInfo = namedtuple("DeviceInfo", "device label initialized")
 
 HardwarePluginToScan = namedtuple("HardwarePluginToScan", 'name,description,plugin,exception')
 
-class DeviceMgr(ThreadJob, PrintError):
+class DeviceMgr(ThreadJob):
     '''Manages hardware clients.  A client communicates over a hardware
     channel with the device.
 
@@ -358,7 +357,7 @@ class DeviceMgr(ThreadJob, PrintError):
             return client
         client = plugin.create_client(device, handler)
         if client:
-            self.print_error("Registering", client)
+            logger.debug("Registering %s", client)
             with self.lock:
                 self.clients[client] = (device.path, device.id_)
         return client
@@ -413,7 +412,7 @@ class DeviceMgr(ThreadJob, PrintError):
         return self.client_lookup(id_)
 
     def client_for_keystore(self, plugin, handler, keystore, force_pair):
-        self.print_error("getting client for keystore")
+        logger.debug("getting client for keystore")
         if handler is None:
             raise BaseException(_("Handler not found for") + ' ' + plugin.name + '\n' + _("A library is probably missing."))
         handler.update_status(False)
@@ -426,7 +425,7 @@ class DeviceMgr(ThreadJob, PrintError):
             client = self.force_pair_xpub(plugin, handler, info, xpub, derivation, devices)
         if client:
             handler.update_status(True)
-        self.print_error("end client for keystore")
+        logger.debug("end client for keystore")
         return client
 
     def client_by_xpub(self, plugin, xpub, handler, devices):
@@ -486,7 +485,7 @@ class DeviceMgr(ThreadJob, PrintError):
             try:
                 client = self.create_client(device, handler, plugin)
             except BaseException as e:
-                self.print_error(f'failed to create client for {plugin.name} at {device.path}: {repr(e)}')
+                logger.debug('failed to create client for %s at %s: %r', plugin.name, device.path, e)
                 continue
             if not client:
                 continue
@@ -554,7 +553,7 @@ class DeviceMgr(ThreadJob, PrintError):
         return devices
 
     def scan_devices(self):
-        self.print_error("scanning devices...")
+        logger.debug("scanning devices...")
 
         # First see what's connected that we know about
         devices = self._scan_devices_with_hid()
@@ -564,8 +563,8 @@ class DeviceMgr(ThreadJob, PrintError):
             try:
                 new_devices = f()
             except BaseException as e:
-                self.print_error('custom device enum failed. func {}, error {}'
-                                 .format(str(f), str(e)))
+                logger.error('custom device enum failed. func %s, error %s',
+                    f, e)
             else:
                 devices.extend(new_devices)
 

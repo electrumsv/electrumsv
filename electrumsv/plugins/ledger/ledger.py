@@ -1,5 +1,5 @@
-import logging
 import hashlib
+import logging
 from struct import pack, unpack
 import sys
 
@@ -11,7 +11,7 @@ from electrumsv.plugin import BasePlugin
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.transaction import Transaction
 from ..hw_wallet import HW_PluginBase
-from electrumsv.util import print_error, is_verbose, bfh, bh2u, versiontuple
+from electrumsv.util import is_logging_verbose, bfh, bh2u, versiontuple
 
 try:
     import hid
@@ -22,9 +22,11 @@ try:
     from btchip.btchipFirmwareWizard import checkFirmware, updateFirmware
     from btchip.btchipException import BTChipException
     BTCHIP = True
-    BTCHIP_DEBUG = is_verbose
+    BTCHIP_DEBUG = is_logging_verbose()
 except ImportError:
     BTCHIP = False
+
+logger = logging.getLogger("plugin.ledger")
 
 MSG_NEEDS_FW_UPDATE_CASHADDR = _('Firmware version (or "Bitcoin Cash" app) too old for CashAddr support. ') + \
                                _('Please update at https://www.ledgerwallet.com')
@@ -232,7 +234,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
         return self.plugin.get_client(self)
 
     def give_error(self, message, clear_client = False):
-        print_error(message)
+        logger.error(message)
         if not self.signing:
             self.handler.show_error(message)
         else:
@@ -484,6 +486,8 @@ class LedgerPlugin(HW_PluginBase):
 
     def __init__(self, parent, config, name):
         HW_PluginBase.__init__(self, parent, config, name)
+        self.logger = logger
+
         if self.libraries_available:
             self.device_manager().register_devices(self.DEVICE_IDS)
 

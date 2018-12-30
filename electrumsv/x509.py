@@ -22,10 +22,13 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
+import hashlib
+import logging
+
 from . import util
 from .util import profiler, bh2u
 import ecdsa
-import hashlib
 
 # algo OIDs
 ALGO_RSA_SHA1 = '1.2.840.113549.1.1.5'
@@ -323,7 +326,7 @@ def load_certificates(ca_path):
         except BaseException as e:
             # with open('/tmp/tmp.txt', 'w') as f:
             #     f.write(pem.pem(b, 'CERTIFICATE').decode('ascii'))
-            util.print_error("cert error:", e)
+            logging.error("cert error %s", e)
             continue
 
         fp = x.getFingerprint()
@@ -334,8 +337,9 @@ def load_certificates(ca_path):
 
 
 if __name__ == "__main__":
+    import logging
     import requests
-
-    util.set_verbosity(True)
+    
+    logging.getLogger().setLevel(logging.DEBUG)
     ca_path = requests.certs.where()
     ca_list, ca_keyID = load_certificates(ca_path)

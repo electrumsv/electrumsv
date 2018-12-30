@@ -36,12 +36,14 @@ from .jsonrpc import VerifyingJSONRPCServer
 from .version import PACKAGE_VERSION
 from .network import Network
 from .util import json_decode, DaemonThread
-from .util import print_error, to_string
+from .util import to_string
 from .wallet import Wallet
 from .storage import WalletStorage
 from .commands import known_commands, Commands
 from .simple_config import SimpleConfig
 from .exchange_rate import FxThread
+
+logger = logging.getLogger("daemon")
 
 
 def get_lockfile(config):
@@ -75,6 +77,7 @@ def get_server(config):
     lockfile = get_lockfile(config)
     while True:
         create_time = None
+        server_url = None
         try:
             with open(lockfile) as f:
                 (host, port), create_time = ast.literal_eval(f.read())
@@ -89,8 +92,11 @@ def get_server(config):
             # Test daemon is running
             server.ping()
             return server
-        except Exception as e:
-            print_error("[get_server]", e)
+        except ConnectionRefusedError:
+            logger.warning("get_server could not connect to the rpc server, possibly not running.")
+        except Exception:
+            # We do not want the full stacktrace, this will limit it.
+            logger.exception("attempt to connect to the RPC server failed")
         if not create_time or create_time < time.time() - 1.0:
             return None
         # Sleep a bit and try again; it might have just been started
@@ -112,8 +118,7 @@ def get_rpc_credentials(config):
         config.set_key('rpcuser', rpc_user)
         config.set_key('rpcpassword', rpc_password, save=True)
     elif rpc_password == '':
-        from .util import print_stderr
-        print_stderr('WARNING: RPC authentication is disabled.')
+        logger.warning('RPC authentication is disabled.')
     return rpc_user, rpc_password
 
 
@@ -144,7 +149,7 @@ class Daemon(DaemonThread):
             server = VerifyingJSONRPCServer((host, port), logRequests=False,
                                             rpc_user=rpc_user, rpc_password=rpc_password)
         except Exception as e:
-            self.print_error('Warning: cannot initialize RPC server on host', host, e)
+            logger.error('Warning: cannot initialize RPC server on host %s %s', host, e)
             self.server = None
             os.close(fd)
             return
@@ -289,13 +294,13 @@ class Daemon(DaemonThread):
         for k, wallet in self.wallets.items():
             wallet.stop_threads()
         if self.network:
-            self.print_error("shutting down network")
+            logger.debug("shutting down network")
             self.network.stop()
             self.network.join()
         self.on_stop()
 
     def stop(self):
-        self.print_error("stopping, removing lockfile")
+        logger.debug("stopping, removing lockfile")
         remove_lockfile(get_lockfile(self.config))
         DaemonThread.stop(self)
 

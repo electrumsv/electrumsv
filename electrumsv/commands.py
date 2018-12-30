@@ -23,17 +23,18 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import sys
-import datetime
 import argparse
-import json
 import ast
 import base64
-from functools import wraps
+import datetime
 from decimal import Decimal
+from functools import wraps
+import json
+import logging
+import sys
 
 from .import util
-from .util import bfh, bh2u, format_satoshis, json_decode, print_error
+from .util import bfh, bh2u, format_satoshis, json_decode
 from .import bitcoin
 from .address import Address
 from .bitcoin import hash_160, COIN, TYPE_ADDRESS
@@ -41,6 +42,9 @@ from .i18n import _
 from .transaction import Transaction, multisig_script
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .plugin import run_hook
+
+
+logger = logging.getLogger("commands")
 
 known_commands = {}
 
@@ -674,9 +678,9 @@ class Commands:
             try:
                 req = urllib.request.Request(URL, serialized_data, headers)
                 response_stream = urllib.request.urlopen(req, timeout=5)
-                util.print_error('Got Response for %s' % address)
+                logger.debug('Got Response for %s', address)
             except BaseException as e:
-                util.print_error(str(e))
+                logger.error("exception processing response %s", e)
         h = Address.from_string(address).to_scripthash_hex()
         self.network.send([('blockchain.scripthash.subscribe', [h])], callback)
         return True

@@ -1,6 +1,6 @@
-import threading
-
 from binascii import hexlify, unhexlify
+import logging
+import threading
 
 from electrumsv.util import bfh, bh2u
 from electrumsv.bitcoin import (b58_address_to_hash160, xpub_from_pubkey,
@@ -12,7 +12,6 @@ from electrumsv.transaction import deserialize
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 
 from ..hw_wallet import HW_PluginBase
-
 
 # TREZOR initialization methods
 TIM_NEW, TIM_RECOVER, TIM_MNEMONIC, TIM_PRIVKEY = range(0, 4)
@@ -67,13 +66,15 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
 
     def __init__(self, parent, config, name):
         HW_PluginBase.__init__(self, parent, config, name)
+        self.logger = logging.getLogger("plugin.keepkey")
+
         self.main_thread = threading.current_thread()
         # FIXME: move to base class when Ledger is fixed
         if self.libraries_available:
             self.device_manager().register_devices(self.DEVICE_IDS)
 
     def _try_hid(self, device):
-        self.print_error("Trying to connect over USB...")
+        self.logger.debug("Trying to connect over USB...")
         if device.interface_number == 1:
             pair = [None, device.path]
         else:
@@ -84,15 +85,15 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
         except BaseException as e:
             # see fdb810ba622dc7dbe1259cbafb5b28e19d2ab114
             # raise
-            self.print_error("cannot connect at", device.path, str(e))
+            self.logger.error("cannot connect at %s %s", device.path, e)
             return None
 
     def _try_bridge(self, device):
-        self.print_error("Trying to connect over Trezor Bridge...")
+        self.logger.debug("Trying to connect over Trezor Bridge...")
         try:
             return self.bridge_transport({'path': hexlify(device.path)})
         except BaseException as e:
-            self.print_error("cannot connect to bridge", str(e))
+            self.logger.error("cannot connect to bridge %s", e)
             return None
 
     def create_client(self, device, handler):
@@ -100,10 +101,10 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
         #transport = self._try_bridge(device) or self._try_hid(device)
         transport = self._try_hid(device)
         if not transport:
-            self.print_error("cannot connect to device")
+            self.logger.error("cannot connect to device")
             return
 
-        self.print_error("connected to device at", device.path)
+        self.logger.debug("connected to device at %s", device.path)
 
         client = self.client_class(transport, handler, self)
 
@@ -111,14 +112,14 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
         try:
             client.ping('t')
         except BaseException as e:
-            self.print_error("ping failed", str(e))
+            self.logger.error("ping failed %s", e)
             return None
 
         if not client.atleast_version(*self.minimum_firmware):
             msg = (_('Outdated {} firmware for device labelled {}. Please '
                      'download the updated firmware from {}')
                    .format(self.device, client.label(), self.firmware_URL))
-            self.print_error(msg)
+            self.logger.error(msg)
             handler.show_error(msg)
             return None
 

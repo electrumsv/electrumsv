@@ -1,4 +1,10 @@
 from binascii import hexlify, unhexlify
+import copy
+import hashlib
+import json
+import logging
+import os
+import websocket
 
 from PyQt5.QtWidgets import QDialog, QLineEdit, QTextEdit, QVBoxLayout, QLabel
 import PyQt5.QtCore as QtCore
@@ -6,11 +12,11 @@ from PyQt5.QtWidgets import *
 
 from electrumsv.i18n import _
 from electrumsv.gui.qt.util import *
-from electrumsv.util import print_msg
 
-import os, hashlib, websocket, logging, json, copy
 from electrumsv.gui.qt.qrcodewidget import QRCodeWidget
 from btchip.btchip import *
+
+logger = logging.getLogger("plugin.ledger.auth2fa")
 
 DEBUG = False
 
@@ -340,4 +346,4 @@ class LedgerWebSocket(QThread):
 
 def debug_msg(*args):
     if DEBUG:
-        print_msg(*args)
+        logger.debug(*args)

@@ -8,10 +8,12 @@ from ctypes.util import find_library
 from ctypes import (
     byref, c_byte, c_int, c_uint, c_char_p, c_size_t, c_void_p, create_string_buffer, CFUNCTYPE, POINTER
 )
+import logging
 
 import ecdsa
 
-from .util import print_stderr, print_error
+
+logger = logging.getLogger("ecc")
 
 
 SECP256K1_FLAGS_TYPE_MASK = ((1 << 8) - 1)
@@ -43,7 +45,7 @@ def load_library():
 
     secp256k1 = ctypes.cdll.LoadLibrary(library_path)
     if not secp256k1:
-        print_stderr('[ecc] warning: libsecp256k1 library failed to load')
+        logger.warning('libsecp256k1 library failed to load')
         return None
 
     try:
@@ -85,11 +87,10 @@ def load_library():
         if r:
             return secp256k1
         else:
-            print_stderr('[ecc] warning: secp256k1_context_randomize failed')
+            logger.warning('secp256k1_context_randomize failed')
             return None
     except (OSError, AttributeError):
-        # logging.exception("")
-        print_stderr('[ecc] warning: libsecp256k1 library was found and loaded but there was an error when using it')
+        logger.exception('libsecp256k1 library was found and loaded but there was an error when using it')
         return None
 
 
@@ -183,8 +184,7 @@ def _prepare_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1():
 
 def do_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1():
     if not _libsecp256k1:
-        # FIXME print_error will always print as 'verbosity' is not yet initialised
-        print_error('[ecc] info: libsecp256k1 library not available, falling back to python-ecdsa. '
+        logger.info('libsecp256k1 library not available, falling back to python-ecdsa. '
                     'This means signing operations will be slower.')
         return
     if not _patched_functions.prepared_to_patch:
@@ -195,7 +195,7 @@ def do_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1():
     # ecdsa.ellipticcurve.Point.__add__ = ...  # TODO??
 
     _patched_functions.monkey_patching_active = True
-    print_error('[ecc] info: libsecp256k1 library found and will be used for ecdsa signing operations.')
+    logger.info('libsecp256k1 library found and will be used for ecdsa signing operations.')
 
 
 def undo_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1():

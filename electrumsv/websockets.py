@@ -22,9 +22,12 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import queue
-import threading, os, json
 from collections import defaultdict
+import json
+import logging
+import os
+import queue
+import threading
 try:
     from SimpleWebSocketServer import WebSocket, SimpleSSLWebSocketServer
 except ImportError:
@@ -34,21 +37,23 @@ except ImportError:
 from . import util
 from .address import Address
 
+logger = logging.getLogger("websockets")
+
 request_queue = queue.Queue()
 
 class ElectrumWebSocket(WebSocket):
 
     def handleMessage(self):
         assert self.data[0:3] == 'id:'
-        util.print_error("message received", self.data)
+        logger.debug("message received %s", self.data)
         request_id = self.data[3:]
         request_queue.put((self, request_id))
 
     def handleConnected(self):
-        util.print_error("connected", self.address)
+        logger.debug("connected %s", self.address)
 
     def handleClose(self):
-        util.print_error("closed", self.address)
+        logger.debug("closed %s", self.address)
 
 
 
@@ -96,7 +101,7 @@ class WsClientThread(util.DaemonThread):
                 r = self.response_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-            util.print_error('response', r)
+            logger.debug('response %s', r)
             method = r.get('method')
             params = r.get('params')
             result = r.get('result')
@@ -108,7 +113,7 @@ class WsClientThread(util.DaemonThread):
                 h = params[0]
                 addr = self.network.h2addr.get(h, None)
                 if addr is None:
-                    util.print_error("can't find address for scripthash: %s" % h)
+                    logger.debug("can't find address for scripthash: %s", h)
                 l = self.subscriptions.get(addr, [])
                 for ws, amount in l:
                     if not ws.closed:

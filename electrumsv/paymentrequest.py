@@ -37,14 +37,13 @@ except ImportError:
 
 from . import bitcoin
 from . import util
-from .util import print_error, bh2u, bfh
+from .util import bh2u, bfh
 from .util import FileImportFailed, FileImportFailedEncrypted
 from . import transaction
 from . import x509
 from . import rsakey
 
-from .bitcoin import TYPE_ADDRESS
-
+logger = logging.getLogger("paymentrequest")
 
 REQUEST_HEADERS = {'Accept': 'application/bitcoincash-paymentrequest', 'User-Agent': 'Electrum-SV'}
 ACK_HEADERS = {'Content-Type':'application/bitcoincash-payment','Accept':'application/bitcoincash-paymentack','User-Agent':'Electrum-SV'}
@@ -83,7 +82,7 @@ def get_payment_request(url):
                 error = "payment URL not pointing to a bitcoincash payment request handling server"
             else:
                 data = response.content
-            print_error('fetched payment request', url, len(response.content))
+            logger.debug('fetched payment request \'%s\' (%d)', url, len(response.content))
         except requests.exceptions.RequestException:
             data = None
             if response is not None:
@@ -130,7 +129,7 @@ class PaymentRequest:
         self.outputs = []
         for o in self.details.outputs:
             addr = transaction.get_address_from_output_script(o.script)[1]
-            self.outputs.append((TYPE_ADDRESS, addr, o.amount))
+            self.outputs.append((bitcoin.TYPE_ADDRESS, addr, o.amount))
         self.memo = self.details.memo
         self.payment_url = self.details.payment_url
 
@@ -231,7 +230,7 @@ class PaymentRequest:
 
     def get_address(self):
         o = self.outputs[0]
-        assert o[0] == TYPE_ADDRESS
+        assert o[0] == bitcoin.TYPE_ADDRESS
         return o[1].to_ui_string()
 
     def get_requestor(self):
@@ -275,11 +274,11 @@ class PaymentRequest:
         try:
             r = requests.post(payurl.geturl(), data=pm, headers=ACK_HEADERS, verify=ca_path)
         except requests.exceptions.SSLError:
-            print("Payment Message/PaymentACK verify Failed")
+            logger.debug("Payment Message/PaymentACK verify Failed")
             try:
                 r = requests.post(payurl.geturl(), data=pm, headers=ACK_HEADERS, verify=False)
             except Exception as e:
-                print(e)
+                logger.exception("Payment Message/PaymentACK")
                 return False, "Payment Message/PaymentACK Failed"
         if r.status_code != 200:
             # Propagate 'Bad request' (HTTP 400) messages to the user since they
@@ -294,7 +293,7 @@ class PaymentRequest:
             paymntack.ParseFromString(r.content)
         except Exception:
             return False, "PaymentACK could not be processed. Payment was sent; please manually verify that payment was received."
-        print("PaymentACK message received: %s" % paymntack.memo)
+        logger.debug("PaymentACK message received: %s", paymntack.memo)
         return True, paymntack.memo
 
 
@@ -382,7 +381,7 @@ def verify_cert_chain(chain):
             verify = pubkey.verify(sig, x509.PREFIX_RSA_SHA512 + hashBytes)
         else:
             raise BaseException("Algorithm not supported")
-            util.print_error(self.error, algo.getComponentByName('algorithm'))
+            # logger.error("%s %s", self.error, algo.getComponentByName('algorithm'))
         if not verify:
             raise BaseException("Certificate not Signed by Provided CA Certificate Chain")
 
@@ -501,7 +500,7 @@ class InvoiceStore(object):
     def get_status(self, key):
         pr = self.get(key)
         if pr is None:
-            print_error("[InvoiceStore] get_status() can't find pr for", key)
+            logger.debug("[InvoiceStore] get_status() can't find pr for %s", key)
             return
         if pr.tx is not None:
             return PR_PAID

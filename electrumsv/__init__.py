@@ -1,5 +1,5 @@
 from .version import PACKAGE_VERSION
-from .util import format_satoshis, print_msg, print_error, set_verbosity
+from .util import format_satoshis
 from .wallet import Synchronizer, Wallet
 from .storage import WalletStorage
 from .network import Network, pick_random_server
