@@ -1,3 +1,4 @@
+import http
 import logging
 import requests
 import threading
@@ -113,7 +114,16 @@ class CoinSplittingTab(QWidget):
                 window.show_error(_("You aborted the process."))
             elif result == RESULT_HTTP_FAILURE:
                 status_code = self.faucet_result.status_code
-                window.show_error(_("Unexpected response from faucet:\nHTTP status code = {}").format(status_code))
+                status_code_data = None
+                try:
+                    status_code_data = http.HTTPStatus(int(status_code))
+                except ValueError:
+                    # The int() cast will raise this.
+                    # A HTTPStatus lookup with no matchign entry will raise this.
+                    pass
+                status_code_description = "Unknown" if status_code_data is None else status_code_data.description
+                status_code_name = "Unknown" if status_code_data is None else status_code_data.name
+                window.show_error(_("Unexpected response from faucet:\n{} ({})\n{}").format(status_code, status_code_name, status_code_description))
             elif result == RESULT_JSON_ERROR:
                 window.show_error(_("Unexpected response from faucet:\n{}").format(self.faucet_result_json["message"]))
             elif result == RESULT_DUST_TIMEOUT:
