@@ -64,9 +64,14 @@ class CoinSplittingTab(QWidget):
         #    return RESULT_DIALOG_CLOSED
 
         self.split_stage = STAGE_OBTAINING_DUST
+        
+        if bitcoin.NetworkConstants.TESTNET:
+            faucet_url = "https://testnet.satoshisvision.network"
+        else:
+            faucet_url = "https://faucet.satoshisvision.network"
 
         address_text = self.receiving_address.to_full_string(Address.FMT_BITCOIN)
-        result = requests.get("https://faucet.satoshisvision.network/submit/{}".format(address_text))
+        result = requests.get("{}/submit/{}".format(faucet_url, address_text))
         self.faucet_result = result
         if result.status_code != 200:
             return RESULT_HTTP_FAILURE
@@ -219,7 +224,7 @@ class CoinSplittingTab(QWidget):
 
     def update_layout(self):
         window = self.window()
-        if bitcoin.NetworkConstants.TESTNET and hasattr(window, "wallet"):
+        if hasattr(window, "wallet"):
             wallet = window.wallet
 
             grid = QGridLayout()
@@ -257,7 +262,7 @@ class CoinSplittingTab(QWidget):
 
             self.update_balances()
         else:
-            label = QLabel("Disabled (not currently enabled on mainnet)")
+            label = QLabel("Wallet not loaded, change tabs and come back.")
 
             hbox = QHBoxLayout()
             hbox.addWidget(label, 0, Qt.AlignHCenter | Qt.AlignVCenter)
