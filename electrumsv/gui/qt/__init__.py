@@ -75,7 +75,6 @@ class OpenFileEventFilter(QObject):
 
 class QElectrumApplication(QApplication):
     new_window_signal = pyqtSignal(str, object)
-    event_loop_started_signal = pyqtSignal()
 
 
 class ElectrumGui:
@@ -113,7 +112,6 @@ class ElectrumGui:
         self.build_tray_menu()
         self.tray.show()
         self.app.new_window_signal.connect(self.start_new_window)
-        self.app.event_loop_started_signal.connect(self.event_loop_started)
         run_hook('init_qt', self)
         ColorScheme.update_from_widget(QWidget())
 
