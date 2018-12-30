@@ -248,8 +248,6 @@ class ElectrumGui:
                 self.app.quit()
 
     def event_loop_started(self):
-        self.app.aboutToQuit.connect(self.cleanup)
-        self.app.lastWindowClosed.connect(self.quit_after_last_window)
         if self.config.get("show_crash_reporter", default=True):
             self.exception_hook = Exception_Hook(self.app)
         self.timer.start()
@@ -260,21 +258,12 @@ class ElectrumGui:
         if not self.start_new_window(path, self.config.get('url')):
             self.app.quit()
 
-    def quit_after_last_window(self):
-        # on some platforms, not only does exec_ not return but not even
-        # aboutToQuit is emitted (but following this, it should be emitted)
-        if self.app.quitOnLastWindowClosed():
-            self.app.quit()
-
-    def cleanup(self):
+    def main(self):
+        QTimer.singleShot(0, self.event_loop_started)
+        self.app.exec_()
         # Shut down the timer cleanly
         self.timer.stop()
         # clipboard persistence. see http://www.mail-archive.com/pyqt@riverbankcomputing.com/msg17328.html
         event = QtCore.QEvent(QtCore.QEvent.Clipboard)
         self.app.sendEvent(self.app.clipboard(), event)
         self.tray.hide()
-
-    def main(self):
-        self.app.event_loop_started_signal.emit()
-        self.app.exec_()
-        # on some platforms the exec_ call may not return, so use cleanup()
