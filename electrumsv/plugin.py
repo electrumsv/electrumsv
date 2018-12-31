@@ -265,8 +265,11 @@ class BasePlugin:
     def can_user_disable(self):
         return True
 
-    def settings_dialog(self, parent):
-        pass
+    def settings_dialog(self, window):
+        raise NotImplementedError()
+
+    def requires_settings(self):
+        return False
 
 
 class DeviceNotFoundError(Exception):
