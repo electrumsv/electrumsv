@@ -7,7 +7,8 @@ from electrumsv import network
 from electrumsv.address import Address
 from electrumsv.util import format_satoshis, disable_verbose_logging
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS
-from electrumsv import Wallet, WalletStorage
+from electrumsv.wallet import Wallet
+from electrumsv.storage WalletStorage
 
 _ = lambda x:x
 

@@ -5,7 +5,8 @@ import getpass
 # rt12: The localisation disabled with no comment.
 _ = lambda x:x
 #from i18n import _
-from electrumsv import WalletStorage, Wallet
+from electrumsv.storage import WalletStorage
+from electrumsv.wallet import Wallet
 from electrumsv.util import format_satoshis, disable_verbose_logging
 from electrumsv.address import Address
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS

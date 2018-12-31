@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
 import os
 import qrcode
 
-from electrumsv import get_config
+from electrumsv.simple_config import get_config
 from electrumsv.i18n import _
 from .util import WindowModalDialog
 

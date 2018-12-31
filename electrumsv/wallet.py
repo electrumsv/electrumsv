@@ -44,7 +44,7 @@ from .util import NotEnoughFunds, ExcessiveFee, UserCancelled, profiler, format_
 
 from .address import Address, Script, ScriptOutput, PublicKey
 from .bitcoin import *
-from .version import *
+from .version import PACKAGE_VERSION
 from .keystore import load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore, xpubkey_to_address
 from .networks import NetworkConstants
 from .storage import multisig_type

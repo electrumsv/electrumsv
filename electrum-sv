@@ -75,7 +75,8 @@ if not is_android:  # Avoid unnecessarily slowing down app startup.
 
 
 from electrumsv import bitcoin, util
-from electrumsv import SimpleConfig, Network
+from electrumsv.simple_config import SimpleConfig
+from electrumsv.network import Network
 from electrumsv.networks import NetworkConstants
 from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
 from electrumsv.storage import WalletStorage

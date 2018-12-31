@@ -49,7 +49,7 @@ from electrumsv.util import (format_time, format_satoshis,
                            format_satoshis_plain, NotEnoughFunds, ExcessiveFee,
                            UserCancelled, bh2u, bfh, format_fee_satoshis)
 import electrumsv.web as web
-from electrumsv import Transaction
+from electrumsv.transaction import Transaction
 from electrumsv import util, bitcoin, commands
 from electrumsv import paymentrequest
 from electrumsv.wallet import Multisig_Wallet, sweep_preparations

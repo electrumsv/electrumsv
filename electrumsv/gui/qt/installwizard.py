@@ -9,7 +9,8 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 
-from electrumsv import Wallet, WalletStorage
+from electrumsv.wallet import Wallet
+from electrumsv.storage import WalletStorage
 from electrumsv.util import UserCancelled, InvalidPassword, user_dir, get_electron_cash_user_dir
 from electrumsv.base_wizard import BaseWizard
 from electrumsv.i18n import _

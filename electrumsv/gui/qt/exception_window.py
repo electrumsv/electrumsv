@@ -37,7 +37,7 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import *
 
 from electrumsv.i18n import _
-from electrumsv import PACKAGE_VERSION
+from electrumsv.version import PACKAGE_VERSION
 from .main_window import ElectrumWindow
 
 

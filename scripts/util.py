@@ -3,7 +3,8 @@ import queue
 import select
 import time
 
-from electrumsv import Connection, Interface, SimpleConfig
+from electrumsv.interface import Connection, Interface
+from electrumsv.simple_config import SimpleConfig
 from electrumsv.network import parse_servers
 
 # import logging
