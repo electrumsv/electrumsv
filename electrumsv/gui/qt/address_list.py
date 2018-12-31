@@ -41,6 +41,7 @@ class AddressList(MyTreeWidget):
     filter_columns = [0, 1, 2]  # Address, Label, Balance
 
     def __init__(self, parent=None):
+        self.wallet = None
         super().__init__(parent, self.create_menu, [], 2)
         self.refresh_headers()
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)

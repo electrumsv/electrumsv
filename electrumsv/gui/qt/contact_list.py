@@ -29,8 +29,7 @@ import electrumsv.web as web
 from electrumsv.address import Address
 from electrumsv.plugin import run_hook
 from electrumsv.util import FileImportFailed
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QAbstractItemView, QFileDialog, QMenu, QTreeWidgetItem)
 from .util import MyTreeWidget
@@ -48,7 +47,7 @@ class ContactList(MyTreeWidget):
         # openalias items shouldn't be editable
         return item.text(1) != "openalias"
 
-    def on_edited(self, item, column, prior_value):
+    def on_edited(self, item, column, _prior):
         self.parent.set_contact(item.text(0), item.text(1))
 
     def import_contacts(self):
@@ -66,10 +65,9 @@ class ContactList(MyTreeWidget):
         menu = QMenu()
         selected = self.selectedItems()
         if not selected:
-            menu.addAction(_("New contact"), lambda: self.parent.new_contact_dialog())
-            menu.addAction(_("Import file"), lambda: self.import_contacts())
+            menu.addAction(_("New contact"), self.parent.new_contact_dialog)
+            menu.addAction(_("Import file"), self.import_contacts)
         else:
-            names = [item.text(0) for item in selected]
             keys = [item.text(1) for item in selected]
             column = self.currentColumn()
             column_title = self.headerItem().text(column)

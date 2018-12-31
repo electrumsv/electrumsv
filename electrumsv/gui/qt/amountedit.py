@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtGui import QPalette, QPainter
 from PyQt5.QtWidgets import (QLineEdit, QStyle, QStyleOptionFrame)
 
 from decimal import Decimal
@@ -20,7 +20,7 @@ class AmountEdit(MyLineEdit):
     shortcut = pyqtSignal()
 
     def __init__(self, base_unit, is_int = False, parent=None):
-        QLineEdit.__init__(self, parent)
+        super().__init__(parent)
         # This seems sufficient for hundred-BTC amounts with 8 decimals
         self.setFixedWidth(140)
         self.base_unit = base_unit
@@ -66,7 +66,7 @@ class AmountEdit(MyLineEdit):
     def get_amount(self):
         try:
             return (int if self.is_int else Decimal)(str(self.text()))
-        except:
+        except Exception:
             return None
 
 
@@ -90,7 +90,7 @@ class BTCAmountEdit(AmountEdit):
     def get_amount(self):
         try:
             x = Decimal(str(self.text()))
-        except:
+        except Exception:
             return None
         p = pow(10, self.decimal_point())
         return int( p * x )
@@ -113,9 +113,9 @@ class BTCSatsByteEdit(BTCAmountEdit):
     def get_amount(self):
         try:
             x = float(Decimal(str(self.text())))
-        except:
+        except Exception:
             return None
-        return x if x > 0.0 else None    
+        return x if x > 0.0 else None
     def setAmount(self, amount):
         if amount is None:
             self.setText(" ") # Space forces repaint in case units changed

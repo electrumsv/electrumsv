@@ -26,7 +26,6 @@
 import html
 import json
 import locale
-import logging
 import platform
 import sys
 import traceback
@@ -34,7 +33,8 @@ import traceback
 import requests
 from PyQt5.QtCore import QObject, pyqtSignal, Qt
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import *
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, \
+    QPushButton, QTextEdit, QMessageBox
 
 from electrumsv.i18n import _
 from electrumsv.version import PACKAGE_VERSION
@@ -146,7 +146,7 @@ class Exception_Window(QWidget):
         exc_string = str(self.exc_triple[1])
         stack = traceback.extract_tb(self.exc_triple[2])
         readable_trace = "".join(traceback.format_list(stack))
-        id = {
+        traceback_id = {
             "file": stack[-1].filename,
             "name": stack[-1].name,
             "type": self.exc_triple[0].__name__
@@ -154,7 +154,7 @@ class Exception_Window(QWidget):
         return {
             "exc_string": exc_string,
             "stack": readable_trace,
-            "id": id
+            "id": traceback_id
         }
 
     def get_additional_info(self):

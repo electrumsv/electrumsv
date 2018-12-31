@@ -1,7 +1,6 @@
 
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-import PyQt5.QtGui as QtGui
+#from PyQt5.QtCore import *
+from PyQt5.QtGui import QColor, QPainter
 from PyQt5.QtWidgets import (
     QApplication, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QWidget)
 
@@ -48,7 +47,7 @@ class QRCodeWidget(QWidget):
         white = QColor(255, 255, 255, 255)
 
         if not self.qr:
-            qp = QtGui.QPainter()
+            qp = QPainter()
             qp.begin(self)
             qp.setBrush(white)
             qp.setPen(white)
@@ -59,7 +58,7 @@ class QRCodeWidget(QWidget):
 
         matrix = self.qr.get_matrix()
         k = len(matrix)
-        qp = QtGui.QPainter()
+        qp = QPainter()
         qp.begin(self)
         r = qp.viewport()
 

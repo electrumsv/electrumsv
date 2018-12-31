@@ -1,8 +1,6 @@
 
 from electrumsv.i18n import _
 from electrumsv.plugin import run_hook
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
 from PyQt5.QtWidgets import QFileDialog
 
 from .util import ButtonsTextEdit, MessageBoxMixin, ColorScheme

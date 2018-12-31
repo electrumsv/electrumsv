@@ -1,11 +1,10 @@
+import threading
 
 from electrumsv.i18n import _
 
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QSlider, QToolTip
-
-import threading
 
 class FeeSlider(QSlider):
 
@@ -36,8 +35,8 @@ class FeeSlider(QSlider):
             tooltip = fee_levels[pos] + '\n' + rate_str
         else:
             tooltip = _('Fixed rate: ') + rate_str
-            if self.config.has_fee_estimates():
-                i = self.config.reverse_dynfee(fee_rate)
+            #if self.config.has_fee_estimates():
+                #i = self.config.reverse_dynfee(fee_rate)
                 #tooltip += '\n' + (_('Low fee') if i < 0 else 'Within %d blocks'%i)
         return tooltip
 

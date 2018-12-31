@@ -33,11 +33,14 @@ from decimal import Decimal
 import base64
 from functools import partial
 
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
-import PyQt5.QtCore as QtCore
-
-from PyQt5.QtWidgets import *
+from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, \
+    qVersion
+from PyQt5.QtGui import QIcon, QKeySequence, QCursor
+from PyQt5.QtWidgets import QPushButton, QMainWindow, QTabWidget, QSizePolicy, \
+    QShortcut, QFileDialog, QMenuBar, QMessageBox, QSystemTrayIcon, \
+    QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout, QVBoxLayout, \
+    QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit, \
+    QInputDialog, QSpinBox, QCheckBox, QScrollArea
 
 from electrumsv import keystore
 from electrumsv.address import Address, ScriptOutput
@@ -58,14 +61,20 @@ try:
 except Exception:
     plot_history = None
 
-from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit, BTCkBEdit, BTCSatsByteEdit
+from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit, BTCSatsByteEdit
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
 from .transaction_dialog import show_transaction
 from .fee_slider import FeeSlider
 from .coinsplitting_tab import CoinSplittingTab
 
-from .util import *
+from .util import MessageBoxMixin, TaskThread, ColorScheme, HelpLabel, \
+    expiration_values, ButtonsLineEdit, WindowModalDialog, Buttons, \
+    CopyCloseButton, MyTreeWidget, EnterButton, OPReturnError, \
+    OPReturnTooLarge, WaitingDialog, ChoicesLayout, OkButton, WWLabel, \
+    CloseButton, CancelButton, text_dialog, filename_field, address_combo, \
+    HelpButton
+
 
 logger = logging.getLogger("mainwindow")
 

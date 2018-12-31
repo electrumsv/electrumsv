@@ -28,8 +28,8 @@ from electrumsv.i18n import _
 from electrumsv.util import format_time, age
 from electrumsv.plugin import run_hook
 from electrumsv.paymentrequest import PR_UNKNOWN
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
 from .util import MyTreeWidget, pr_tooltips, pr_icons
 

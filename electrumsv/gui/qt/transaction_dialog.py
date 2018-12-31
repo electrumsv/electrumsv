@@ -25,7 +25,6 @@
 
 import copy
 import datetime
-from functools import partial
 import json
 
 from PyQt5.QtGui import QIcon, QFont, QBrush, QTextCharFormat, QColor
@@ -39,7 +38,8 @@ from electrumsv.i18n import _
 from electrumsv.plugin import run_hook
 
 from electrumsv.util import bfh
-from .util import *
+from .util import MessageBoxMixin, ButtonsLineEdit, CopyButton, Buttons, \
+    MONOSPACE_FONT, ColorScheme
 
 dialogs = []  # Otherwise python randomly garbage collects the dialogs...
 

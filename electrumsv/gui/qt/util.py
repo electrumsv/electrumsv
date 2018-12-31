@@ -6,11 +6,16 @@ import queue
 from collections import namedtuple
 from functools import partial
 
+from PyQt5.QtCore import Qt, QCoreApplication, QTimer, QThread, pyqtSignal
+from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
+from PyQt5.QtWidgets import QPushButton, QLabel, QMessageBox, QHBoxLayout, \
+    QDialog, QVBoxLayout, QLineEdit, QGroupBox, QRadioButton, QFileDialog, \
+    QStyledItemDelegate, QTreeWidget, QButtonGroup, QComboBox, QHeaderView, \
+    QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem, \
+    QApplication
+
 from electrumsv.i18n import _
-from electrumsv.address import Address
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
+from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
 
 if platform.system() == 'Windows':
     MONOSPACE_FONT = 'Lucida Console'
@@ -21,8 +26,6 @@ else:
 
 
 dialogs = []
-
-from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
 
 pr_icons = {
     PR_UNPAID:":icons/unpaid.png",

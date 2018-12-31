@@ -23,7 +23,12 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .util import *
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon, QFont
+from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QFileDialog, QMenu
+
+from .util import MyTreeWidget, MONOSPACE_FONT, pr_icons, pr_tooltips, \
+    PR_UNPAID
 
 from electrumsv.i18n import _
 from electrumsv.util import format_time, FileImportFailed

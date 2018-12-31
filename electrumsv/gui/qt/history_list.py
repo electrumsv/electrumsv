@@ -23,9 +23,14 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import time
 import webbrowser
 
-from .util import *
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont, QBrush, QColor, QIcon
+from PyQt5.QtWidgets import QMenu
+
+from .util import MyTreeWidget, MONOSPACE_FONT, SortableTreeWidgetItem
 import electrumsv.web as web
 from electrumsv.i18n import _
 from electrumsv.util import timestamp_to_datetime, profiler
@@ -70,7 +75,7 @@ class HistoryList(MyTreeWidget):
     def get_domain(self):
         '''Replaced in address_dialog.py'''
         return self.wallet.get_addresses()
-        
+
     @profiler
     def on_update(self):
         self.wallet = self.parent.wallet
@@ -159,10 +164,10 @@ class HistoryList(MyTreeWidget):
             column_data = item.text(column)
 
         tx_URL = web.BE_URL(self.config, 'tx', tx_hash)
-        height, conf, timestamp = self.wallet.get_tx_height(tx_hash)
+        height, _conf, _timestamp = self.wallet.get_tx_height(tx_hash)
         tx = self.wallet.transactions.get(tx_hash)
         if not tx: return # this happens sometimes on wallet synch when first starting up.
-        is_relevant, is_mine, v, fee = self.wallet.get_wallet_delta(tx)
+        # is_relevant, is_mine, v, fee = self.wallet.get_wallet_delta(tx)
         is_unconfirmed = height <= 0
         pr_key = self.wallet.invoices.paid.get(tx_hash)
 

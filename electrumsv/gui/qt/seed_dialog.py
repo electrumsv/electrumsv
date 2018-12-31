@@ -23,13 +23,15 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
+#from PyQt5.QtCore import *
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import QVBoxLayout, QDialog, QCheckBox, QHBoxLayout, \
+    QLabel, QLineEdit
 from electrumsv.i18n import _
 
-from .util import *
-from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
+from .util import WWLabel, ButtonsTextEdit, EnterButton, Buttons, OkButton, \
+    WindowModalDialog, CloseButton
+from .qrtextedit import ScanQRTextEdit
 
 
 def seed_warning_msg(seed):

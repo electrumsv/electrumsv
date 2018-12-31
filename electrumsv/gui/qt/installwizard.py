@@ -1,13 +1,15 @@
 
+import logging
 import os
 import shutil
-import sys
 import threading
-import logging
 
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
+from PyQt5.QtCore import Qt, pyqtSignal, QEventLoop, QRect
+from PyQt5.QtGui import QPalette, QPen, QPainter, QPixmap
+from PyQt5.QtWidgets import QWidget, QDialog, QLabel, QPushButton, \
+    QScrollArea, QHBoxLayout, QVBoxLayout, QListWidget, QAbstractItemView, \
+    QListWidgetItem, QLineEdit, QFileDialog, QMessageBox, QSlider, \
+    QGridLayout
 
 from electrumsv.wallet import Wallet
 from electrumsv.storage import WalletStorage
@@ -17,7 +19,7 @@ from electrumsv.i18n import _
 
 from .seed_dialog import SeedLayout, KeysLayout
 from .network_dialog import NetworkChoiceLayout
-from .util import *
+from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout
 from .password_dialog import PasswordLayout, PW_NEW
 
 

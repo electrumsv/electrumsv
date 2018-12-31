@@ -22,7 +22,13 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-from .util import *
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtWidgets import QAbstractItemView, QMenu
+
+from .util import SortableTreeWidgetItem, MyTreeWidget, MONOSPACE_FONT, \
+    ColorScheme
 from electrumsv.i18n import _
 
 
@@ -98,7 +104,6 @@ class UTXOList(MyTreeWidget):
             frozen_flags = list(selected.values())[0]
             tx = self.wallet.transactions.get(txid)
             menu.addAction(_("Details"), lambda: self.parent.show_transaction(tx))
-            act = None
             needsep = True
             if 'c' in frozen_flags:
                 menu.addSeparator()

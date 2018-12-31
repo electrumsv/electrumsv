@@ -26,16 +26,17 @@
 import logging
 import socket
 
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
-import PyQt5.QtCore as QtCore
+from PyQt5.QtCore import pyqtSignal, Qt, QThread
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTreeWidget, QMenu, \
+    QTreeWidgetItem, QHeaderView, QTabWidget, QWidget, QGridLayout, \
+    QLineEdit, QCheckBox, QLabel, QComboBox
 
 from electrumsv.i18n import _
 from electrumsv.networks import NetworkConstants
 from electrumsv.network import serialize_server, deserialize_server
 
-from .util import *
+from .util import Buttons, CloseButton, HelpButton
 
 logger = logging.getLogger("networkui")
 

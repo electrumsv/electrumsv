@@ -26,11 +26,10 @@
 from electrumsv.i18n import _
 from electrumsv.address import Address
 
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
+from PyQt5.QtWidgets import QVBoxLayout, QLabel
 
-from .util import *
+from .util import WindowModalDialog, ButtonsLineEdit, ColorScheme, Buttons, \
+    CloseButton
 from .history_list import HistoryList
 from .qrtextedit import ShowQRTextEdit
 
@@ -63,12 +62,12 @@ class AddressDialog(WindowModalDialog):
         try:
             # the below line only works for deterministic wallets, other wallets lack this method
             pubkeys = self.wallet.get_public_keys(address)
-        except BaseException as e:
+        except BaseException:
             try:
                 # ok, now try the usual method for imported wallets, etc
                 pubkey = self.wallet.get_public_key(address)
                 pubkeys = [pubkey.to_ui_string()]
-            except:
+            except Exception:
                 # watching only wallets (totally lacks a private/public key pair for this address)
                 pubkeys = None
         if pubkeys:
@@ -80,7 +79,7 @@ class AddressDialog(WindowModalDialog):
 
         try:
             redeem_script = self.wallet.pubkeys_to_redeem_script(pubkeys)
-        except BaseException as e:
+        except BaseException:
             redeem_script = None
         if redeem_script:
             vbox.addWidget(QLabel(_("Redeem Script") + ':'))

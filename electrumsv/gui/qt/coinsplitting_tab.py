@@ -3,9 +3,9 @@ import logging
 import requests
 import threading
 
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QWidget, QGridLayout, QLabel, QPushButton, \
+    QHBoxLayout, QVBoxLayout, QProgressDialog
 
 from electrumsv import bitcoin
 from electrumsv.i18n import _
@@ -41,6 +41,7 @@ class CoinSplittingTab(QWidget):
     split_stage = STAGE_INACTIVE
     faucet_status_code = None
     faucet_result_json = None
+    faucet_result = None
 
     intro_label = None
     splittable_balance_label = None
@@ -206,11 +207,11 @@ class CoinSplittingTab(QWidget):
         self.unfrozen_balance = wallet.get_balance(exclude_frozen_coins=True, exclude_frozen_addresses=True)
         self.frozen_balance = wallet.get_frozen_balance()
 
-        unfrozen_confirmed, unfrozen_unconfirmed, unfrozen_unmature = self.unfrozen_balance
-        frozen_confirmed, frozen_unconfirmed, frozen_unmature = self.frozen_balance
+        unfrozen_confirmed, unfrozen_unconfirmed, _unfrozen_unmature = self.unfrozen_balance
+        _frozen_confirmed, _frozen_unconfirmed, _frozen_unmature = self.frozen_balance
 
         splittable_amount = unfrozen_confirmed + unfrozen_unconfirmed
-        unsplittable_amount = unfrozen_unmature + frozen_confirmed + frozen_unconfirmed + frozen_unmature
+        # unsplittable_amount = unfrozen_unmature + frozen_confirmed + frozen_unconfirmed + frozen_unmature
 
         splittable_amount_text = window.format_amount(splittable_amount)
         unit_text = window.base_unit()
@@ -236,8 +237,6 @@ class CoinSplittingTab(QWidget):
     def update_layout(self):
         window = self.window()
         if hasattr(window, "wallet"):
-            wallet = window.wallet
-
             grid = QGridLayout()
             grid.setColumnStretch(0, 1)
             grid.setColumnStretch(4, 1)

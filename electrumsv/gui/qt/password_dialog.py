@@ -24,10 +24,11 @@
 # SOFTWARE.
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import QLineEdit, QVBoxLayout, QGridLayout, QLabel, \
+    QCheckBox
 from electrumsv.i18n import _
-from .util import *
+from .util import WindowModalDialog, OkButton, Buttons, CancelButton
 import re
 import math
 
