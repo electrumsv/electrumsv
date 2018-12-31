@@ -25,7 +25,7 @@
 
 # This module uses functions from TLSLite (public domain)
 #
-# TLSLite Authors: 
+# TLSLite Authors:
 #   Trevor Perrin
 #   Martin von Loewis - python 3 port
 #   Yngve Pettersen (ported by Paul Sokolovsky) - TLS 1.2
@@ -65,22 +65,13 @@ prngName = "os.urandom"
 # Converter Functions
 # **************************************************************************
 
-def bytesToNumber(b):
-    total = 0
-    multiplier = 1
-    for count in range(len(b)-1, -1, -1):
-        byte = b[count]
-        total += multiplier * byte
-        multiplier *= 256
-    return total
-
 def numberToByteArray(n, howManyBytes=None):
     """Convert an integer into a bytearray, zero-pad to howManyBytes.
 
     The returned bytearray may be smaller than howManyBytes, but will
     not be larger.  The returned bytearray will contain a big-endian
     encoding of the input integer (n).
-    """    
+    """
     if howManyBytes == None:
         howManyBytes = numBytes(n)
     b = bytearray(howManyBytes)
@@ -331,7 +322,7 @@ class RSAKey(object):
         @return: Whether the signature matches the passed-in data.
         """
         hashBytes = SHA1(bytearray(bytes))
-        
+
         # Try it with/without the embedded NULL
         prefixedHashBytes1 = self._addPKCS1SHA1Prefix(hashBytes, False)
         prefixedHashBytes2 = self._addPKCS1SHA1Prefix(hashBytes, True)
@@ -445,21 +436,21 @@ class RSAKey(object):
     # **************************************************************************
 
     def _addPKCS1SHA1Prefix(self, bytes, withNULL=True):
-        # There is a long history of confusion over whether the SHA1 
-        # algorithmIdentifier should be encoded with a NULL parameter or 
-        # with the parameter omitted.  While the original intention was 
+        # There is a long history of confusion over whether the SHA1
+        # algorithmIdentifier should be encoded with a NULL parameter or
+        # with the parameter omitted.  While the original intention was
         # apparently to omit it, many toolkits went the other way.  TLS 1.2
         # specifies the NULL should be included, and this behavior is also
         # mandated in recent versions of PKCS #1, and is what tlslite has
-        # always implemented.  Anyways, verification code should probably 
-        # accept both.  However, nothing uses this code yet, so this is 
+        # always implemented.  Anyways, verification code should probably
+        # accept both.  However, nothing uses this code yet, so this is
         # all fairly moot.
         if not withNULL:
             prefixBytes = bytearray(\
-            [0x30,0x1f,0x30,0x07,0x06,0x05,0x2b,0x0e,0x03,0x02,0x1a,0x04,0x14])            
+            [0x30,0x1f,0x30,0x07,0x06,0x05,0x2b,0x0e,0x03,0x02,0x1a,0x04,0x14])
         else:
             prefixBytes = bytearray(\
-            [0x30,0x21,0x30,0x09,0x06,0x05,0x2b,0x0e,0x03,0x02,0x1a,0x05,0x00,0x04,0x14])            
+            [0x30,0x21,0x30,0x09,0x06,0x05,0x2b,0x0e,0x03,0x02,0x1a,0x05,0x00,0x04,0x14])
         prefixedBytes = prefixBytes + bytes
         return prefixedBytes
 

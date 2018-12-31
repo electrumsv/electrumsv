@@ -730,7 +730,8 @@ def _CKD_priv(k, c, s, is_prime):
 # This function allows us to find the nth public key, as long as n is
 #  non-negative. If n is negative, we need the master private key to find it.
 def CKD_pub(cK, c, n):
-    if n & BIP32_PRIME: raise
+    if n & BIP32_PRIME:
+        raise Exception("presumably negative")
     return _CKD_pub(cK, c, bfh(rev_hex(int_to_hex(n,4))))
 
 # helper function, callable with arbitrary string

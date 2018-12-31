@@ -246,7 +246,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
                 script.extend(Script.push_data(binascii.unhexlify(word)))
         return ScriptOutput(bytes(script))
 
-    def to_ui_string(self,):
+    def to_ui_string(self):
         '''Convert to user-readable OP-codes (plus pushdata as text if possible)
         eg OP_RETURN (12) "Hello there!"
         '''
@@ -288,7 +288,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
         return self.script
 
     def __str__(self):
-        return self.to_ui_string(True)
+        return self.to_ui_string()
 
     def __repr__(self):
         return '<ScriptOutput {}>'.format(self.__str__())

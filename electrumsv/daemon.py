@@ -24,11 +24,11 @@
 # SOFTWARE.
 
 import ast
+import logging
 import os
 import sys
 import time
 import threading
-import logging
 
 import jsonrpclib
 from .jsonrpc import VerifyingJSONRPCServer

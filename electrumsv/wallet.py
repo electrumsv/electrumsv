@@ -2062,7 +2062,7 @@ class Wallet(object):
         if rwc and storage.get('seed', ''):
             logger.debug("converting wallet type to %s", rwc.wallet_type)
             storage.put('wallet_type', rwc.wallet_type)
-            wallet = rwc(storage)
+            wallet = rwc(storage) # pylint: disable=not-callable
         return wallet
 
     @staticmethod

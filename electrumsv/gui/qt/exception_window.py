@@ -166,7 +166,6 @@ class Exception_Window(QWidget):
             "app_version": PACKAGE_VERSION,
             "python_version": sys.version,
             "os": platform.platform(),
-            "wallet_type": "unknown",
             "locale": locale.getdefaultlocale()[0],
             "description": self.description_textfield.toPlainText(),
             "wallet_type": wallet_types,

@@ -33,8 +33,7 @@ import json
 import logging
 import sys
 
-from .import util
-from .util import bfh, bh2u, format_satoshis, json_decode
+from .util import bfh, bh2u, format_satoshis, json_decode, to_bytes
 from .import bitcoin
 from .address import Address
 from .bitcoin import hash_160, COIN, TYPE_ADDRESS
@@ -449,7 +448,7 @@ class Commands:
         """Verify a signature."""
         address = Address.from_string(address)
         sig = base64.b64decode(signature)
-        message = util.to_bytes(message)
+        message = to_bytes(message)
         return bitcoin.verify_message(address, sig, message)
 
     def _mktx(self, outputs, fee=None, change_addr=None, domain=None, nocheck=False,
@@ -674,7 +673,7 @@ class Commands:
             import urllib.request
             headers = {'content-type':'application/json'}
             data = {'address':address, 'status':x.get('result')}
-            serialized_data = util.to_bytes(json.dumps(data))
+            serialized_data = to_bytes(json.dumps(data))
             try:
                 req = urllib.request.Request(URL, serialized_data, headers)
                 response_stream = urllib.request.urlopen(req, timeout=5)

@@ -198,7 +198,7 @@ class ElectrumGui:
                     except UserCancelled:
                         pass
                     except GoBack as e:
-                        logger.error('[start_new_window] Exception caught (GoBack) %s', e)
+                        logging.error('[start_new_window] Exception caught (GoBack) %s', e)
                     finally:
                         wizard.terminate()
                     if not wallet:

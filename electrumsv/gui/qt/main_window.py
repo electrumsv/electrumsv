@@ -55,9 +55,8 @@ from electrumsv import paymentrequest
 from electrumsv.wallet import Multisig_Wallet, sweep_preparations
 try:
     from electrumsv.plot import plot_history
-except:
+except Exception:
     plot_history = None
-import electrumsv.web as web
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit, BTCkBEdit, BTCSatsByteEdit
 from .qrcodewidget import QRCodeWidget, QRDialog
@@ -1393,7 +1392,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         l = [self.get_contact_payto(key) for key in self.contacts.keys()]
         self.completions.setStringList(l)
 
-    def protected(func):
+    def protected(func): # pylint: disable=no-self-argument
         '''Password request wrapper.  The password is passed to the function
         as the 'password' named argument.  "None" indicates either an
         unencrypted wallet, or the user cancelled the password request.
@@ -2116,7 +2115,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 _('Delete wallet file?'),
                 "%s"%self.wallet.storage.path,
                 _('If your wallet contains funds, make sure you have saved its seed.')])):
-            self._delete_wallet()
+            self._delete_wallet() # pylint: disable=no-value-for-parameter
 
     @protected
     def _delete_wallet(self, password):
@@ -2250,7 +2249,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox = QHBoxLayout()
 
         b = QPushButton(_("Sign"))
-        b.clicked.connect(lambda: self.do_sign(address_e, message_e, signature_e))
+        b.clicked.connect(lambda: self.do_sign(address_e, message_e, signature_e)) # pylint: disable=no-value-for-parameter
         hbox.addWidget(b)
 
         b = QPushButton(_("Verify"))
@@ -2313,7 +2312,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox.addWidget(b)
 
         b = QPushButton(_("Decrypt"))
-        b.clicked.connect(lambda: self.do_decrypt(message_e, pubkey_e, encrypted_e))
+        b.clicked.connect(lambda: self.do_decrypt(message_e, pubkey_e, encrypted_e)) # pylint: disable=no-value-for-parameter
         hbox.addWidget(b)
 
         b = QPushButton(_("Close"))
@@ -2528,9 +2527,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         try:
             with open(labelsFile, 'r') as f:
                 data = f.read()
-            if type(data) is not dict or len(data) and not all(type(v) is str for v in next(iter(d))):
-                self.show_critical(_("The file you selected does not appear to contain labels."))
-                return
             for key, value in json.loads(data).items():
                 self.wallet.set_label(key, value)
             self.show_message(_("Your labels were imported from") + " '%s'" % str(labelsFile))

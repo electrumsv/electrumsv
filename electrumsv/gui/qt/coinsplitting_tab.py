@@ -65,7 +65,7 @@ class CoinSplittingTab(QWidget):
         #    return RESULT_DIALOG_CLOSED
 
         self.split_stage = STAGE_OBTAINING_DUST
-        
+
         if bitcoin.NetworkConstants.TESTNET:
             faucet_url = "https://testnet.satoshisvision.network"
         else:
@@ -116,10 +116,11 @@ class CoinSplittingTab(QWidget):
                 status_code = self.faucet_result.status_code
                 status_code_data = None
                 try:
+                    # pylint: disable=no-value-for-parameter
                     status_code_data = http.HTTPStatus(int(status_code))
                 except ValueError:
-                    # The int() cast will raise this.
-                    # A HTTPStatus lookup with no matchign entry will raise this.
+                    # The int() cast raises this.
+                    # A HTTPStatus lookup with no matching entry raises this.
                     pass
                 status_code_description = "Unknown" if status_code_data is None else status_code_data.description
                 status_code_name = "Unknown" if status_code_data is None else status_code_data.name

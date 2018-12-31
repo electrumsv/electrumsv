@@ -2,8 +2,9 @@
 
 import sys
 import time
-from electrumsv import SimpleConfig, Network
-from electrumsv.util import print_msg, json_encode
+from electrumsv.simple_config import SimpleConfig
+from electrumsv.network import Network
+from electrumsv.util import json_encode
 from electrumsv.address import Address
 
 try:
@@ -22,12 +23,12 @@ while network.is_connecting():
     time.sleep(0.1)
 
 if not network.is_connected():
-    print_msg("daemon is not connected")
+    print("daemon is not connected")
     sys.exit(1)
 
 # 2. send the subscription
 sh = addr.to_scripthash_hex()
-callback = lambda response: print_msg(json_encode(response.get('result')))
+callback = lambda response: print(json_encode(response.get('result')))
 network.send([('blockchain.scripthash.subscribe',[sh])], callback)
 
 # 3. wait for results

@@ -61,29 +61,6 @@ class SeedLayout(QVBoxLayout):
             cb_ext = QCheckBox(_('Extend this seed with custom words'))
             cb_ext.setChecked(self.is_ext)
             vbox.addWidget(cb_ext)
-        if 'bip39' in self.options:
-            def f(b):
-                self.is_seed = (lambda x: bool(x)) if b else self.saved_is_seed
-                self.is_bip39 = b
-                self.on_edit()
-                if b:
-                    msg = ' '.join([
-                        '<b>' + _('Warning') + ':</b>  ',
-                        _('BIP39 seeds can be imported in ElectrumSV, so that users can access funds locked in other wallets.'),
-                        _('However, we do not generate BIP39 seeds, because they do not meet our safety standard.'),
-                        _('BIP39 seeds do not include a version number, which compromises compatibility with future software.'),
-                        _('We do not guarantee that BIP39 imports will always be supported in ElectrumSV.'),
-                    ])
-                else:
-                    msg = ''
-                self.seed_warning.setText(msg)
-            cb_bip39 = QCheckBox(_('BIP39 seed'))
-            cb_bip39.toggled.connect(f)
-            cb_bip39.setChecked(self.is_bip39)
-            vbox.addWidget(cb_bip39)
-
-
-
         if 'bip39_145' in self.options:
             def f(b):
                 self.is_seed = (lambda x: bool(x)) if b else self.saved_is_seed
@@ -105,7 +82,26 @@ class SeedLayout(QVBoxLayout):
             cb_bip39_145.toggled.connect(f)
             cb_bip39_145.setChecked(self.is_bip39_145)
             vbox.addWidget(cb_bip39_145)
-
+        elif 'bip39' in self.options:
+            def f(b):
+                self.is_seed = (lambda x: bool(x)) if b else self.saved_is_seed
+                self.is_bip39 = b
+                self.on_edit()
+                if b:
+                    msg = ' '.join([
+                        '<b>' + _('Warning') + ':</b>  ',
+                        _('BIP39 seeds can be imported in ElectrumSV, so that users can access funds locked in other wallets.'),
+                        _('However, we do not generate BIP39 seeds, because they do not meet our safety standard.'),
+                        _('BIP39 seeds do not include a version number, which compromises compatibility with future software.'),
+                        _('We do not guarantee that BIP39 imports will always be supported in ElectrumSV.'),
+                    ])
+                else:
+                    msg = ''
+                self.seed_warning.setText(msg)
+            cb_bip39 = QCheckBox(_('BIP39 seed'))
+            cb_bip39.toggled.connect(f)
+            cb_bip39.setChecked(self.is_bip39)
+            vbox.addWidget(cb_bip39)
 
         vbox.addLayout(Buttons(OkButton(dialog)))
         if not dialog.exec_():

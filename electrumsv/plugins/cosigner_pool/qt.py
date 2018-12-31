@@ -79,7 +79,7 @@ class Listener(util.DaemonThread):
                     continue
                 if message:
                     self.received.add(keyhash)
-                    logger.debug("received message for", keyhash)
+                    logger.debug("received message for %s", keyhash)
                     self.parent.obj.cosigner_receive_signal.emit(
                         keyhash, message)
             # poll every 30 seconds

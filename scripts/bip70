@@ -26,8 +26,9 @@ certificates.certificate.extend(map(lambda x: str(x.bytes), chain.x509List))
 with open(cert_file, 'r') as f:
     rsakey = tlslite.utils.python_rsakey.Python_RSAKey.parsePEM(f.read())
 
-script = bytes.from_hex(Transaction.pay_script(address))
+script = bytes.fromhex(Transaction.pay_script(address))
 
+# TODO rt12 -- fix this or delete this script. non-existent in electrum too.
 pr_string = paymentrequest.make_payment_request(amount, script, memo, rsakey)
 
 with open(out_file,'wb') as f:

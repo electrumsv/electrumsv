@@ -494,7 +494,7 @@ class MyTreeWidget(QTreeWidget):
 class ButtonsWidget(QWidget):
 
     def __init__(self):
-        super(QWidget, self).__init__()
+        super().__init__()
         self.buttons = []
 
     def resizeButtons(self):

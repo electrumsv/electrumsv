@@ -86,11 +86,12 @@ class UserCancelled(Exception):
     pass
 
 class MyEncoder(json.JSONEncoder):
-    def default(self, obj):
+    # https://github.com/PyCQA/pylint/issues/414
+    def default(self, o): # pylint: disable=method-hidden
         from .transaction import Transaction
-        if isinstance(obj, Transaction):
-            return obj.as_dict()
-        return super(MyEncoder, self).default(obj)
+        if isinstance(o, Transaction):
+            return o.as_dict()
+        return super(MyEncoder, self).default(o)
 
 
 class ThreadJob:
@@ -186,7 +187,7 @@ def disable_verbose_logging():
 
 def enable_verbose_logging():
     root_logger.setLevel(logging.DEBUG)
-    
+
 def is_logging_verbose():
     return logging.getLogger().level == logging.DEBUG
 
@@ -251,21 +252,6 @@ def android_ext_dir():
         from android.os import Environment as env  # Chaquopy import hook
     return env.getExternalStorageDirectory().getPath()
 
-def android_data_dir():
-    from com.chaquo.python import Python
-    context = Python.getPlatform().getApplication()
-    return context.getFilesDir().getPath() + '/data'
-
-def android_headers_dir():
-    try:
-        import jnius
-        d = android_ext_dir() + '/org.electrumsv.electrumsv'
-        if not os.path.exists(d):
-            os.mkdir(d)
-        return d
-    except ImportError:
-        return android_data_dir()
-
 def ensure_sparse_file(filename):
     if os.name == "nt":
         try:
@@ -274,7 +260,7 @@ def ensure_sparse_file(filename):
             pass
 
 def get_headers_dir(config):
-    return android_headers_dir() if 'ANDROID_DATA' in os.environ else config.path
+    return config.path
 
 def assert_datadir_available(config_path):
     path = config_path
@@ -301,8 +287,8 @@ def assert_bytes(*args):
     try:
         for x in args:
             assert isinstance(x, (bytes, bytearray))
-    except:
-        logger.error('assert bytes failed %s', list(map(type, args)))
+    except Exception:
+        root_logger.error('assert bytes failed %s', list(map(type, args)))
         raise
 
 
@@ -367,9 +353,7 @@ def get_electron_cash_user_dir(esv_user_dir):
     return esv_user_dir
 
 def user_dir(prefer_local=False):
-    if 'ANDROID_DATA' in os.environ:
-        return android_data_dir()
-    elif os.name == 'posix' and "HOME" in os.environ:
+    if os.name == 'posix' and "HOME" in os.environ:
         return os.path.join(os.environ["HOME"], ".electrum-sv" )
     elif "APPDATA" in os.environ or "LOCALAPPDATA" in os.environ:
         app_dir = os.environ.get("APPDATA")

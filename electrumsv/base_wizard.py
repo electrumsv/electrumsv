@@ -385,10 +385,6 @@ class BaseWizard(object):
     def show_xpub_and_add_cosigners(self, xpub):
         self.show_xpub_dialog(xpub=xpub, run_next=lambda x: self.run('choose_keystore'))
 
-    def on_cosigner(self, text, password, i):
-        k = keystore.from_master_key(text, password)
-        self.on_keystore(k)
-
     def create_standard_seed(self): self.create_seed('standard')
 
     def create_seed(self, seed_type):

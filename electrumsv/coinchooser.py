@@ -214,7 +214,7 @@ class CoinChooserBase:
         return tx
 
     def choose_buckets(self, buckets, sufficient_funds, penalty_func):
-        raise NotImplemented('To be subclassed')
+        raise NotImplementedError('To be subclassed')
 
 class CoinChooserRandom(CoinChooserBase):
 
@@ -286,10 +286,3 @@ class CoinChooserPrivacy(CoinChooserRandom):
             return badness
 
         return penalty
-
-
-def get_name(config):
-    kind = config.get('coin_chooser')
-    if not kind in COIN_CHOOSERS:
-        kind = 'Priority'
-    return kind

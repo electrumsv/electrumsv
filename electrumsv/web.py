@@ -32,7 +32,7 @@ import urllib
 from .address import Address
 from . import bitcoin
 from .networks import NetworkConstants
-from .util import format_satoshis_plain
+from .util import format_satoshis_plain, bh2u
 
 logger = logging.getLogger("web")
 

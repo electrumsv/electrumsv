@@ -59,6 +59,9 @@ class ExchangeBase(object):
             logger.exception("failed fx quotes")
         self.on_quotes()
 
+    def get_rates(self, ccy):
+        raise NotImplementedError()
+
     def update(self, ccy):
         t = Thread(target=self.update_safe, args=(ccy,))
         t.setDaemon(True)
@@ -97,6 +100,9 @@ class ExchangeBase(object):
                 f.write(json.dumps(h))
         self.history[ccy] = h
         self.on_history()
+
+    def request_history(self, ccy):
+        raise NotImplementedError()
 
     def get_historical_rates(self, ccy, cache_dir):
         result = self.history.get(ccy)
@@ -235,12 +241,6 @@ class CoinCap(ExchangeBase):
     def get_rates(self, ccy):
         json = self.get_json('api.coincap.io', '/v2/assets/bitcoin-sv')
         return {'USD': Decimal(json['data']['priceUsd'])}
-
-    # They do not support SV rates.
-    if False:
-        def get_rates(self, ccy):
-            json = self.get_json('api.coincap.io', '/v2/rates/bitcoin-sv/')
-            return {'USD': Decimal(json['data']['rateUsd'])}
 
     def history_ccys(self):
         return ['USD']

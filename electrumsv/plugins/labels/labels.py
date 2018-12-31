@@ -126,9 +126,11 @@ class LabelsPlugin(BasePlugin):
             wallet.storage.put('labels', wallet.labels)
             self.set_nonce(wallet, response["nonce"] + 1)
             self.on_pulled(wallet)
-
         except Exception as e:
             logging.exception("could not retrieve labels")
+
+    def on_pulled(self, _wallet):
+        raise NotImplementedError()
 
     def start_wallet(self, wallet):
         nonce = self.get_nonce(wallet)

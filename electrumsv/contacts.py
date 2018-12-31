@@ -20,11 +20,11 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import re
 import dns
 from dns.exception import DNSException
 import json
 import logging
+import re
 import sys
 
 from .address import Address

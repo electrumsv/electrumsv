@@ -209,22 +209,22 @@ class WalletStorage:
         d = self.get('accounts', {})
         return len(d) > 1
 
-    def split_accounts(storage):
+    def split_accounts(self):
         result = []
         # backward compatibility with old wallets
-        d = storage.get('accounts', {})
+        d = self.get('accounts', {})
         if len(d) < 2:
             return
-        wallet_type = storage.get('wallet_type')
+        wallet_type = self.get('wallet_type')
         if wallet_type == 'old':
             assert len(d) == 2
-            storage1 = WalletStorage(storage.path + '.deterministic')
-            storage1.data = copy.deepcopy(storage.data)
+            storage1 = WalletStorage(self.path + '.deterministic')
+            storage1.data = copy.deepcopy(self.data)
             storage1.put('accounts', {'0': d['0']})
             storage1.upgrade()
             storage1.write()
-            storage2 = WalletStorage(storage.path + '.imported')
-            storage2.data = copy.deepcopy(storage.data)
+            storage2 = WalletStorage(self.path + '.imported')
+            storage2.data = copy.deepcopy(self.data)
             storage2.put('accounts', {'/x': d['/x']})
             storage2.put('seed', None)
             storage2.put('seed_version', None)
@@ -234,16 +234,16 @@ class WalletStorage:
             storage2.write()
             result = [storage1.path, storage2.path]
         elif wallet_type in ['bip44', 'trezor', 'keepkey', 'ledger', 'btchip', 'digitalbitbox']:
-            mpk = storage.get('master_public_keys')
+            mpk = self.get('master_public_keys')
             for k in d.keys():
                 i = int(k)
                 x = d[k]
                 if x.get("pending"):
                     continue
                 xpub = mpk["x/%d'"%i]
-                new_path = storage.path + '.' + k
+                new_path = self.path + '.' + k
                 storage2 = WalletStorage(new_path)
-                storage2.data = copy.deepcopy(storage.data)
+                storage2.data = copy.deepcopy(self.data)
                 # save account, derivation and xpub at index 0
                 storage2.put('accounts', {'0': x})
                 storage2.put('master_public_keys', {"x/0'": xpub})

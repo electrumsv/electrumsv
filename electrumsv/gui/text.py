@@ -3,7 +3,7 @@ import curses, datetime, locale
 from decimal import Decimal
 import getpass
 
-import electrum
+from electrumsv import network
 from electrumsv.address import Address
 from electrumsv.util import format_satoshis, disable_verbose_logging
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS
@@ -393,7 +393,7 @@ class ElectrumGui:
                         self.show_message("Error:" + server + "\nIn doubt, type \"auto-connect\"")
                         return False
             if out.get('server') or out.get('proxy'):
-                proxy = electrum.network.deserialize_proxy(out.get('proxy')) if out.get('proxy') else proxy_config
+                proxy = network.deserialize_proxy(out.get('proxy')) if out.get('proxy') else proxy_config
                 self.network.set_parameters(host, port, protocol, proxy, auto_connect)
 
     def settings_dialog(self):

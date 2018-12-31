@@ -227,12 +227,12 @@ class Blockchain:
         height = header.get('block_height')
         return header_hash == self.get_hash(height)
 
-    def fork(parent, header):
+    def fork(self, header):
         base_height = header.get('block_height')
-        self = Blockchain(parent.config, base_height, parent.base_height)
-        open(self.path(), 'w+').close()
-        self.save_header(header)
-        return self
+        child = Blockchain(self.config, base_height, self.base_height)
+        open(child.path(), 'w+').close()
+        child.save_header(header)
+        return child
 
     def height(self):
         return self.base_height + self.size() - 1

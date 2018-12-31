@@ -47,28 +47,28 @@ class RPCAuthUnsupportedType(Exception):
 
 
 # based on http://acooke.org/cute/BasicHTTPA0.html by andrew cooke
+class VerifyingRequestHandler(SimpleJSONRPCRequestHandler):
+    def parse_request(self):
+        # first, call the original implementation which returns
+        # True if all OK so far
+        if SimpleJSONRPCRequestHandler.parse_request(self):
+            try:
+                self.authenticate(self.headers)
+                return True
+            except (RPCAuthCredentialsInvalid, RPCAuthCredentialsMissing,
+                    RPCAuthUnsupportedType) as e:
+                self.send_error(401, str(e))
+            except BaseException as e:
+                logging.exception("")
+                self.send_error(500, str(e))
+        return False
+
 class VerifyingJSONRPCServer(SimpleJSONRPCServer):
 
     def __init__(self, *args, rpc_user, rpc_password, **kargs):
 
         self.rpc_user = rpc_user
         self.rpc_password = rpc_password
-
-        class VerifyingRequestHandler(SimpleJSONRPCRequestHandler):
-            def parse_request(myself):
-                # first, call the original implementation which returns
-                # True if all OK so far
-                if SimpleJSONRPCRequestHandler.parse_request(myself):
-                    try:
-                        self.authenticate(myself.headers)
-                        return True
-                    except (RPCAuthCredentialsInvalid, RPCAuthCredentialsMissing,
-                            RPCAuthUnsupportedType) as e:
-                        myself.send_error(401, str(e))
-                    except BaseException as e:
-                        logging.exception("")
-                        myself.send_error(500, str(e))
-                return False
 
         SimpleJSONRPCServer.__init__(
             self, requestHandler=VerifyingRequestHandler, *args, **kargs)

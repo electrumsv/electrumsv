@@ -137,8 +137,8 @@ class ASN1_Node(bytes):
             raise TypeError('Can only open constructed types.', hex(self[ixs]))
         return self.get_node(ixf)
 
-    def is_child_of(node1, node2):
-        ixs, ixf, ixl = node1
+    def is_child_of(self, node2):
+        ixs, ixf, ixl = self
         jxs, jxf, jxl = node2
         return ((ixf <= jxs) and (jxl <= ixl)) or ((jxf <= ixs) and (ixl <= jxl))
 
@@ -339,7 +339,7 @@ def load_certificates(ca_path):
 if __name__ == "__main__":
     import logging
     import requests
-    
+
     logging.getLogger().setLevel(logging.DEBUG)
     ca_path = requests.certs.where()
     ca_list, ca_keyID = load_certificates(ca_path)

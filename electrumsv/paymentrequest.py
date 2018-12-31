@@ -331,7 +331,7 @@ def sign_request_with_alias(pr, alias, alias_privkey):
     ec_key = bitcoin.regenerate_key(alias_privkey)
     address = bitcoin.address_from_private_key(alias_privkey)
     compressed = bitcoin.is_compressed(alias_privkey)
-    pr.signature = ec_key.sign_message(message, compressed, address)
+    pr.signature = ec_key.sign_message(message, compressed)
 
 
 def verify_cert_chain(chain):
