@@ -289,7 +289,7 @@ class TestStorageUpgrade(WalletTestCase):
     def _sanity_check_upgraded_storage(self, storage):
         self.assertFalse(storage.requires_split())
         self.assertFalse(storage.requires_upgrade())
-        w = Wallet(storage)
+        Wallet(storage)
 
     def _load_storage_from_json_string(self, wallet_json, manual_upgrades=True):
         with open(self.wallet_path, "w") as f:

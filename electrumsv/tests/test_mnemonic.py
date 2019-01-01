@@ -35,7 +35,7 @@ class Test_OldMnemonic(unittest.TestCase):
 class Test_BIP39Checksum(unittest.TestCase):
 
     def test(self):
-        mnemonic = u'gravity machine north sort system female filter attitude volume fold club stay feature office ecology stable narrow fog'
-        is_checksum_valid, is_wordlist_valid = keystore.bip39_is_checksum_valid(mnemonic)
+        mnemonic_ = u'gravity machine north sort system female filter attitude volume fold club stay feature office ecology stable narrow fog'
+        is_checksum_valid, is_wordlist_valid = keystore.bip39_is_checksum_valid(mnemonic_)
         self.assertTrue(is_wordlist_valid)
         self.assertTrue(is_checksum_valid)

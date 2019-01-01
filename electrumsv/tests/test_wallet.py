@@ -7,7 +7,6 @@ import tempfile
 import unittest
 
 from electrumsv.storage import WalletStorage, FINAL_SEED_VERSION
-from electrumsv import wallet
 
 
 class FakeSynchronizer(object):

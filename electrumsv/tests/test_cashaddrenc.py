@@ -23,7 +23,6 @@
 
 """Reference tests for cashaddr adresses"""
 
-import binascii
 import unittest
 import random
 from electrumsv import cashaddr
@@ -115,12 +114,12 @@ class TestCashAddrAddress(unittest.TestCase):
             # Check decode fails.  This can trigger the length mismatch,
             # excess padding, or non-zero padding errors
             with self.assertRaises(ValueError):
-               cashaddr.decode(addr)
+                cashaddr.decode(addr)
 
     def test_address_case(self):
-        prefix, kind, hash160 = cashaddr.decode("bitcoincash:ppm2qsznhks23z7629mms6s4cwef74vcwvn0h829pq")
+        prefix, _kind, _hash160 = cashaddr.decode("bitcoincash:ppm2qsznhks23z7629mms6s4cwef74vcwvn0h829pq")
         assert prefix == "bitcoincash"
-        prefix, kind, hash160 = cashaddr.decode("BITCOINCASH:PPM2QSZNHKS23Z7629MMS6S4CWEF74VCWVN0H829PQ")
+        prefix, _kind, _hash160 = cashaddr.decode("BITCOINCASH:PPM2QSZNHKS23Z7629MMS6S4CWEF74VCWVN0H829PQ")
         assert prefix == "BITCOINCASH"
         with self.assertRaises(ValueError):
             cashaddr.decode("bitcoincash:PPM2QSZNHKS23Z7629MMS6S4CWEF74VCWVN0H829PQ")

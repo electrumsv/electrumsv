@@ -1,9 +1,7 @@
-from pprint import pprint
 import unittest
 
 from electrumsv import transaction
 from electrumsv.address import Address
-from electrumsv.bitcoin import TYPE_ADDRESS
 from electrumsv.keystore import xpubkey_to_address
 from electrumsv.util import bh2u
 
@@ -130,8 +128,10 @@ class TestTransaction(unittest.TestCase):
         self.assertEqual(tx.estimated_size(), 191)
 
     def test_errors(self):
-        with self.assertRaises(TypeError):
-            transaction.Transaction.pay_script(output_type=None, addr='')
+        # This tries to access some attribute of the string, expecting an
+        # address object.
+        with self.assertRaises(AttributeError):
+            transaction.Transaction.pay_script('')
 
         with self.assertRaises(BaseException):
             xpubkey_to_address('')
@@ -182,5 +182,5 @@ class NetworkMock(object):
     def __init__(self, unspent):
         self.unspent = unspent
 
-    def synchronous_get(self, arg):
+    def synchronous_get(self, _arg):
         return self.unspent

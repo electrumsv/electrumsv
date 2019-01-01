@@ -124,8 +124,8 @@ class TestUserConfig(unittest.TestCase):
         sys.stdout = self._saved_stdout
 
     def test_no_path_means_no_result(self):
-       result = read_user_config(None)
-       self.assertEqual({}, result)
+        result = read_user_config(None)
+        self.assertEqual({}, result)
 
     def test_path_without_config_file(self):
         """We pass a path but if does not contain a "config" file."""
