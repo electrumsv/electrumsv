@@ -1428,10 +1428,13 @@ class Network(util.DaemonThread):
             return False, e.args[0]
 
         if their_txid != our_txid:
-            logging.warning('server TxID %s differs from '
-                            'ours %s', their_txid, our_txid)
-            return False, _('bad server response; it is unknown whether '
-                            'the transaction broadcast succeeded')
+            try:
+                their_txid = int(their_txid, 16)
+            except ValueError:
+                return False, _('bad server response; it is unknown whether '
+                                'the transaction broadcast succeeded')
+            logging.warning(f'server TxID {their_txid} differs from '
+                            f'ours {our_txid}')
 
         return True, our_txid
 
