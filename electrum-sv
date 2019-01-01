@@ -42,7 +42,6 @@ if sys.version_info < (3, 6, 0):
 script_dir = os.path.dirname(os.path.realpath(__file__))
 is_bundle = getattr(sys, 'frozen', False)
 is_local = not is_bundle and os.path.exists(os.path.join(script_dir, "electrum-sv.desktop"))
-is_android = 'ANDROID_DATA' in os.environ
 
 if is_local:
     sys.path.insert(0, os.path.join(script_dir, 'packages'))
@@ -68,10 +67,6 @@ def check_imports():
     from jsonrpclib import SimpleJSONRPCServer
     # make sure that certificates are here
     assert os.path.exists(requests.utils.DEFAULT_CA_BUNDLE_PATH)
-
-
-if not is_android:  # Avoid unnecessarily slowing down app startup.
-    check_imports()
 
 
 from electrumsv import bitcoin, util
