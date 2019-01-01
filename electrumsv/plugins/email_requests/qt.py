@@ -35,10 +35,10 @@ import smtplib
 import time
 import threading
 
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
-import PyQt5.QtGui as QtGui
-from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QGridLayout, QLineEdit)
+from PyQt5.QtCore import QObject, pyqtSignal
+#from PyQt5.QtGui import *
+from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QGridLayout, QLineEdit,
+    QInputDialog)
 
 from electrumsv.plugin import BasePlugin, hook
 from electrumsv.paymentrequest import PaymentRequest
@@ -63,9 +63,9 @@ class Processor(threading.Thread):
     def poll(self):
         try:
             self.M.select()
-        except:
+        except Exception:
             return
-        typ, data = self.M.search(None, 'ALL')
+        _typ, data = self.M.search(None, 'ALL')
         for num in data[0].split():
             typ, msg_data = self.M.fetch(num, '(RFC822)')
             if type(msg_data[0][1]) is bytes:
@@ -157,7 +157,7 @@ class Plugin(BasePlugin):
             pr = paymentrequest.make_request(self.config, r)
         if not pr:
             return
-        recipient, ok = QtGui.QInputDialog.getText(window, 'Send request', 'Email invoice to:')
+        recipient, ok = QInputDialog.getText(window, 'Send request', 'Email invoice to:')
         if not ok:
             return
         recipient = str(recipient)

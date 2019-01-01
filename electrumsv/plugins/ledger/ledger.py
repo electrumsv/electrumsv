@@ -1,13 +1,11 @@
 import hashlib
 import logging
 from struct import pack, unpack
-import sys
 
 from electrumsv import bitcoin
 from electrumsv.address import Address
 from electrumsv.bitcoin import TYPE_ADDRESS, int_to_hex, var_int
 from electrumsv.i18n import _
-from electrumsv.plugin import BasePlugin
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.transaction import Transaction
 from ..hw_wallet import HW_PluginBase
@@ -15,11 +13,11 @@ from electrumsv.util import is_logging_verbose, bfh, bh2u, versiontuple
 
 try:
     import hid
-    from btchip.btchipComm import HIDDongleHIDAPI, DongleWait
+    from btchip.btchipComm import HIDDongleHIDAPI
     from btchip.btchip import btchip
-    from btchip.btchipUtils import compress_public_key,format_transaction, get_regular_input_script, get_p2sh_input_script
+    from btchip.btchipUtils import compress_public_key
     from btchip.bitcoinTransaction import bitcoinTransaction
-    from btchip.btchipFirmwareWizard import checkFirmware, updateFirmware
+    from btchip.btchipFirmwareWizard import checkFirmware
     from btchip.btchipException import BTChipException
     BTCHIP = True
     BTCHIP_DEBUG = is_logging_verbose()

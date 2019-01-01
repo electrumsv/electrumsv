@@ -24,7 +24,6 @@
 # SOFTWARE.
 
 import logging
-import sys
 import time
 from xmlrpc.client import ServerProxy
 
@@ -130,11 +129,11 @@ class Plugin(BasePlugin):
             self.listener = None
         self.keys = []
         self.cosigner_list = []
-        for key, keystore in wallet.keystores.items():
-            xpub = keystore.get_master_public_key()
+        for key, keystore_ in wallet.keystores.items():
+            xpub = keystore_.get_master_public_key()
             K = bitcoin.deserialize_xpub(xpub)[-1]
             _hash = bh2u(bitcoin.Hash(K))
-            if not keystore.is_watching_only():
+            if not keystore_.is_watching_only():
                 self.keys.append((key, _hash, window))
             else:
                 self.cosigner_list.append((window, xpub, K, _hash))
@@ -186,6 +185,7 @@ class Plugin(BasePlugin):
 
     def on_receive(self, keyhash, message):
         logger.debug("signal arrived for '%s'", keyhash)
+        window = None
         for key, _hash, window in self.keys:
             if _hash == keyhash:
                 break

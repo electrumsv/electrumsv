@@ -238,11 +238,11 @@ class TrezorPlugin(HW_PluginBase):
                                    type=recovery_type_trezor)
             if recovery_type == RECOVERY_TYPE_MATRIX:
                 handler.close_matrix_dialog()
-        elif method == TIM_MNEMONIC:
-            pin = pin_protection  # It's the pin, not a boolean
-            client.load_device_by_mnemonic(str(item), pin,
-                                           passphrase_protection,
-                                           label, language)
+        #elif method == TIM_MNEMONIC:
+        #    pin = pin_protection  # It's the pin, not a boolean
+        #    client.load_device_by_mnemonic(str(item), pin,
+        #                                   passphrase_protection,
+        #                                   label, language)
         else:
             pin = pin_protection  # It's the pin, not a boolean
             client.load_device_by_xprv(item, pin, passphrase_protection,

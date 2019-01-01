@@ -3,12 +3,10 @@ import json
 import hashlib
 import logging
 import requests
-import sys
 import threading
 
 from electrumsv.bitcoin import aes_decrypt_with_iv, aes_encrypt_with_iv
 from electrumsv.plugin import BasePlugin, hook
-from electrumsv.i18n import _
 
 logger = logging.getLogger("plugin.labels")
 

@@ -16,8 +16,10 @@ import sys
 import time
 
 try:
-    from electrumsv.bitcoin import TYPE_ADDRESS, push_script, var_int, msg_magic, Hash, verify_message, pubkey_from_signature, point_to_ser, public_key_to_p2pkh, EncodeAES, DecodeAES, MyVerifyingKey, int_to_hex
-    from electrumsv.bitcoin import serialize_xpub, deserialize_xpub
+    from electrumsv.bitcoin import TYPE_ADDRESS, push_script, msg_magic, \
+        Hash, verify_message, pubkey_from_signature, point_to_ser, \
+        public_key_to_p2pkh, EncodeAES, DecodeAES, MyVerifyingKey, \
+        int_to_hex
     from electrumsv.transaction import Transaction
     from electrumsv.i18n import _
     from electrumsv.keystore import Hardware_KeyStore
@@ -113,7 +115,6 @@ class DigitalBitbox_Client():
 
 
     def stretch_key(self, key):
-        import hmac
         return binascii.hexlify(hashlib.pbkdf2_hmac('sha512', key.encode('utf-8'), b'Digital Bitbox', iterations = 20480))
 
     def backup_password_dialog(self):

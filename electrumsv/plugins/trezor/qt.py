@@ -1,15 +1,16 @@
 from functools import partial
-import threading
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGridLayout, QInputDialog, QPushButton
-from PyQt5.QtWidgets import QVBoxLayout, QLabel
+from PyQt5.QtCore import Qt, QEventLoop, pyqtSignal
+from PyQt5.QtWidgets import QGridLayout, QPushButton, \
+    QVBoxLayout, QLabel, QCheckBox, QDialog, QLineEdit, QHBoxLayout, \
+    QGroupBox, QButtonGroup, QRadioButton, QFileDialog, QMessageBox, \
+    QWidget, QSlider, QTabWidget
 
-from electrumsv.gui.qt.util import *
+from electrumsv.gui.qt.util import WindowModalDialog, WWLabel, Buttons, \
+    CancelButton, OkButton, CloseButton
 from electrumsv.i18n import _
-from electrumsv.plugin import hook, DeviceMgr
-from electrumsv.util import UserCancelled, bh2u
-from electrumsv.wallet import Wallet, Standard_Wallet
+from electrumsv.plugin import hook
+from electrumsv.util import bh2u
 
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 from .trezor import (TrezorPlugin, TIM_RECOVER,

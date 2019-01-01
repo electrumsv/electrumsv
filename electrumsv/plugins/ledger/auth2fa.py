@@ -7,14 +7,12 @@ import os
 import websocket
 
 from PyQt5.QtWidgets import QDialog, QLineEdit, QTextEdit, QVBoxLayout, QLabel
-import PyQt5.QtCore as QtCore
-from PyQt5.QtWidgets import *
-
-from electrumsv.i18n import _
-from electrumsv.gui.qt.util import *
+from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QComboBox, QPushButton
 
 from electrumsv.gui.qt.qrcodewidget import QRCodeWidget
-from btchip.btchip import *
+from electrumsv.i18n import _
+from btchip.btchip import BTChipException
 
 logger = logging.getLogger("plugin.ledger.auth2fa")
 

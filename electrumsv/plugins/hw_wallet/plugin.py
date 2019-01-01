@@ -105,4 +105,5 @@ class HW_PluginBase(BasePlugin):
 
 class LibraryFoundButUnusable(Exception):
     def __init__(self, library_version='unknown'):
+        super().__init__()
         self.library_version = library_version

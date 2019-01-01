@@ -24,12 +24,16 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from functools import partial
 import threading
 
-from PyQt5.QtWidgets import QVBoxLayout, QLabel
+from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout
 
 from electrumsv.gui.qt.password_dialog import PasswordDialog, PW_PASSPHRASE
-from electrumsv.gui.qt.util import *
+from electrumsv.gui.qt.util import WindowModalDialog, Buttons, OkButton, \
+    CancelButton, TaskThread, WWLabel
 from electrumsv.gui.qt.main_window import StatusBarButton
 from electrumsv.plugin import hook
 from electrumsv.util import UserCancelled

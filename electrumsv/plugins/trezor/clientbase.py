@@ -9,7 +9,7 @@ from electrumsv.bitcoin import serialize_xpub, convert_bip32_path_to_list_of_uin
 
 from trezorlib.client import TrezorClient
 from trezorlib.exceptions import TrezorFailure, Cancelled, OutdatedFirmwareError
-from trezorlib.messages import WordRequestType, FailureType, RecoveryDeviceType
+from trezorlib.messages import WordRequestType, RecoveryDeviceType
 import trezorlib.btc
 import trezorlib.device
 

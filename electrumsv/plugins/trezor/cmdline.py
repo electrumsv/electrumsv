@@ -10,5 +10,5 @@ class Plugin(TrezorPlugin):
             return
         keystore.handler = self.handler
 
-    def create_handler(self, window):
+    def create_handler(self, _window):
         return self.handler

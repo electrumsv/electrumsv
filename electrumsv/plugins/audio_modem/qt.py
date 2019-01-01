@@ -10,8 +10,7 @@ from electrumsv.plugin import BasePlugin, hook
 from electrumsv.gui.qt.util import WaitingDialog, EnterButton, WindowModalDialog
 from electrumsv.i18n import _
 
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (QComboBox, QGridLayout, QLabel, QPushButton)
 
 try:

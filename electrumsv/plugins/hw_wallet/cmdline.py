@@ -1,11 +1,10 @@
 import logging
-import sys
 
 from electrumsv.util import raw_input
 
 class CmdLineHandler:
 
-    def get_passphrase(self, msg, confirm):
+    def get_passphrase(self, msg, _confirm):
         import getpass
         print(msg)
         return getpass.getpass('')

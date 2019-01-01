@@ -1,18 +1,21 @@
 from functools import partial
-import threading
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGridLayout, QInputDialog, QPushButton
-from PyQt5.QtWidgets import QVBoxLayout, QLabel
+from PyQt5.QtCore import Qt, QEventLoop, pyqtSignal, QRegExp
+from PyQt5.QtGui import QRegExpValidator
+from PyQt5.QtWidgets import QGridLayout, QTabWidget, QPushButton, \
+    QVBoxLayout, QLabel, QHBoxLayout, QDialog, QLineEdit, QGroupBox, \
+    QButtonGroup, QRadioButton, QCheckBox, QTextEdit, QFileDialog, \
+    QMessageBox, QWidget, QSlider
 
 from .plugin import TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 
-from electrumsv.gui.qt.util import *
+from electrumsv.gui.qt.util import WindowModalDialog, WWLabel, Buttons, \
+    CancelButton, OkButton, CloseButton
 from electrumsv.i18n import _
-from electrumsv.plugin import hook, DeviceMgr
+from electrumsv.plugin import hook
 from electrumsv.util import UserCancelled, bh2u
-from electrumsv.wallet import Wallet, Standard_Wallet
+from electrumsv.wallet import Standard_Wallet
 
 PASSPHRASE_HELP_SHORT =_(
     "Passphrases allow you to access new wallets, each "

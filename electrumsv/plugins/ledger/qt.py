@@ -1,5 +1,6 @@
-import threading
+from functools import partial
 
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QInputDialog, QLineEdit, QVBoxLayout, QLabel
 
 from electrumsv.i18n import _
@@ -7,9 +8,7 @@ from electrumsv.plugin import hook
 from electrumsv.wallet import Standard_Wallet
 from .ledger import LedgerPlugin
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
-from electrumsv.gui.qt.util import *
-
-#from btchip.btchipPersoWizard import StartBTChipPersoDialog
+from electrumsv.gui.qt.util import WindowModalDialog
 
 class Plugin(LedgerPlugin, QtPluginBase):
     icon_unpaired = ":icons/ledger_unpaired.png"
@@ -45,7 +44,7 @@ class Ledger_Handler(QtHandlerBase):
             self.word = str(response[0])
         self.done.set()
 
-    def message_dialog(self, msg):
+    def message_dialog(self, msg, _on_cancel=None):
         self.clear_dialog()
         self.dialog = dialog = WindowModalDialog(self.top_level_window(), _("Ledger Status"))
         l = QLabel(msg)
@@ -77,5 +76,7 @@ class Ledger_Handler(QtHandlerBase):
         return
 
     def setup_dialog(self):
-        dialog = StartBTChipPersoDialog()
-        dialog.exec_()
+        #from btchip.btchipPersoWizard import StartBTChipPersoDialog
+        #dialog = StartBTChipPersoDialog()
+        #dialog.exec_()
+        raise Exception("?? Import was disabled, but code remained, now raises")

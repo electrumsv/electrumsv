@@ -3,11 +3,8 @@ import logging
 import threading
 
 from electrumsv.util import bfh, bh2u
-from electrumsv.bitcoin import (b58_address_to_hash160, xpub_from_pubkey,
-                              TYPE_ADDRESS, TYPE_SCRIPT)
+from electrumsv.bitcoin import (xpub_from_pubkey, TYPE_ADDRESS, TYPE_SCRIPT)
 from electrumsv.i18n import _
-from electrumsv.networks import NetworkConstants
-from electrumsv.plugin import BasePlugin
 from electrumsv.transaction import deserialize
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 
@@ -153,7 +150,6 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
             (TIM_PRIVKEY, _("Upload a master private key"))
         ]
         def f(method):
-            import threading
             settings = self.request_trezor_init_settings(wizard, method, self.device)
             t = threading.Thread(target = self._initialize_device, args=(settings, method, device_id, wizard, handler))
             t.setDaemon(True)
