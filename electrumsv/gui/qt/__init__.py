@@ -32,9 +32,10 @@ try:
 except Exception:
     sys.exit("Error: Could not import PyQt5 on Linux systems, you may try 'sudo apt-get install python3-pyqt5'")
 
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
+from PyQt5.QtCore import QObject, pyqtSignal, QTimer
+from PyQt5.QtGui import QGuiApplication, QIcon
+from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMessageBox, \
+    QMenu, QWidget
 import PyQt5.QtCore as QtCore
 
 from electrumsv.i18n import _, set_language
@@ -55,7 +56,9 @@ except Exception as e:
     print("Run 'pyrcc5 icons.qrc -o electrumsv/gui/qt/icons_rc.py', and re-run ElectrumSV")
     sys.exit(1)
 
-from .util import *   # * needed for plugins
+# * needed for plugins
+#from .util import ColorScheme
+from .util import *
 from .main_window import ElectrumWindow
 from .network_dialog import NetworkDialog
 

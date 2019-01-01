@@ -36,7 +36,6 @@ import time
 import threading
 
 from PyQt5.QtCore import QObject, pyqtSignal
-#from PyQt5.QtGui import *
 from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QGridLayout, QLineEdit,
     QInputDialog)
 

@@ -14,7 +14,7 @@ from electrumsv.gui.qt.util import WindowModalDialog, WWLabel, Buttons, \
     CancelButton, OkButton, CloseButton
 from electrumsv.i18n import _
 from electrumsv.plugin import hook
-from electrumsv.util import UserCancelled, bh2u
+from electrumsv.util import bh2u
 from electrumsv.wallet import Standard_Wallet
 
 PASSPHRASE_HELP_SHORT =_(

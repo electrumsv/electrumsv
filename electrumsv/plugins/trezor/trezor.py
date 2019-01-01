@@ -1,16 +1,13 @@
-from binascii import hexlify, unhexlify
+from binascii import unhexlify
 import logging
-import sys
 
-from electrumsv.util import bfh, bh2u, versiontuple, UserCancelled
-from electrumsv.bitcoin import (b58_address_to_hash160, xpub_from_pubkey, deserialize_xpub,
+from electrumsv.util import bfh, bh2u, UserCancelled
+from electrumsv.bitcoin import (xpub_from_pubkey, deserialize_xpub,
                                   TYPE_ADDRESS, TYPE_SCRIPT)
 from electrumsv.i18n import _
 from electrumsv.networks import NetworkConstants
-from electrumsv.plugin import BasePlugin, Device
-from electrumsv.transaction import deserialize
+from electrumsv.plugin import Device
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
-from electrumsv.address import ScriptOutput
 
 from ..hw_wallet import HW_PluginBase
 from ..hw_wallet.plugin import LibraryFoundButUnusable
