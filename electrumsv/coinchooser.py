@@ -102,12 +102,12 @@ class CoinChooserBase:
 
         return list(map(make_Bucket, buckets.keys(), buckets.values()))
 
-    def penalty_func(self, tx):
-        def penalty(candidate):
+    def penalty_func(self, _tx):
+        def penalty(_candidate):
             return 0
         return penalty
 
-    def change_amounts(self, tx, count, fee_estimator, dust_threshold):
+    def change_amounts(self, tx, count, fee_estimator, _dust_threshold):
         # Break change up if bigger than max_change
         output_amounts = [o[2] for o in tx.outputs()]
         # Don't split change of less than 0.02 BTC
@@ -230,7 +230,7 @@ class CoinChooserRandom(CoinChooserBase):
         # And now some random ones
         attempts = min(100, (len(buckets) - 1) * 10 + 1)
         permutation = list(range(len(buckets)))
-        for i in range(attempts):
+        for _i in range(attempts):
             # Get a random permutation of the buckets, and
             # incrementally combine buckets until sufficient
             self.p.shuffle(permutation)

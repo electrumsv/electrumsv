@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import stat
-import sys
 import threading
 import time
 
@@ -294,13 +293,13 @@ class SimpleConfig:
         f = self.get('customfee')
         return f
 
-    def fee_per_kb(self): 
-       retval = self.get('customfee')
-       if retval is None:
-           retval = self.get('fee_per_kb')                
-       if retval is None:
-           retval = 1000  # New wallet
-       return retval
+    def fee_per_kb(self):
+        retval = self.get('customfee')
+        if retval is None:
+            retval = self.get('fee_per_kb')
+        if retval is None:
+            retval = 1000  # New wallet
+        return retval
 
     def has_custom_fee_rate(self):
         i = -1

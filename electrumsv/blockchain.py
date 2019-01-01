@@ -23,12 +23,11 @@
 
 import logging
 import os
-import sys
 import threading
 
 from . import util
 from .networks import NetworkConstants
-from .bitcoin import *
+from .bitcoin import int_to_hex, rev_hex, hash_encode, Hash, bfh
 
 logger = logging.getLogger("blockchain")
 
@@ -142,7 +141,6 @@ def verify_proven_chunk(chunk_base_height, chunk_data):
     chunk = HeaderChunk(chunk_base_height, chunk_data)
 
     header_count = len(chunk_data) // HEADER_SIZE
-    prev_header = None
     prev_header_hash = None
     for i in range(header_count):
         header = chunk.get_header_at_index(i)
@@ -154,17 +152,17 @@ def verify_proven_chunk(chunk_base_height, chunk_data):
         prev_header_hash = this_header_hash
 
 # Copied from electrumx
-def root_from_proof(hash, branch, index):
+def root_from_proof(hash_, branch, index):
     hash_func = Hash
     for elt in branch:
         if index & 1:
-            hash = hash_func(elt + hash)
+            hash_ = hash_func(elt + hash_)
         else:
-            hash = hash_func(hash + elt)
+            hash_ = hash_func(hash_ + elt)
         index >>= 1
     if index:
         raise ValueError('index out of range for branch')
-    return hash
+    return hash_
 
 class HeaderChunk:
     def __init__(self, base_height, data):

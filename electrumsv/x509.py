@@ -26,7 +26,6 @@
 import hashlib
 import logging
 
-from . import util
 from .util import profiler, bh2u
 import ecdsa
 
@@ -168,7 +167,7 @@ class ASN1_Node(bytes):
         return nodes
 
     def get_sequence(self):
-        return list(map(lambda j: self.get_value(j), self.get_children(self.root())))
+        return list(map(self.get_value, self.get_children(self.root())))
 
     def get_dict(self, node):
         p = {}
@@ -337,7 +336,6 @@ def load_certificates(ca_path):
 
 
 if __name__ == "__main__":
-    import logging
     import requests
 
     logging.getLogger().setLevel(logging.DEBUG)

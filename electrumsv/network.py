@@ -38,8 +38,7 @@ import time
 import socks
 from . import util
 from . import bitcoin
-from .bitcoin import *
-from .networks import NetworkConstants
+from .bitcoin import COIN, bfh, Hash
 from .i18n import _
 from .interface import Connection, Interface
 from . import blockchain
@@ -58,7 +57,6 @@ SERVER_RETRY_INTERVAL = 10
 
 def parse_servers(result):
     """ parse servers list into dict format"""
-    from .version import PROTOCOL_VERSION
     servers = {}
     for item in result:
         host = item[1]
@@ -67,13 +65,13 @@ def parse_servers(result):
         pruning_level = '-'
         if len(item) > 2:
             for v in item[2]:
-                if re.match("[st]\d*", v):
+                if re.match(r"[st]\d*", v):
                     protocol, port = v[0], v[1:]
                     if port == '': port = bitcoin.NetworkConstants.DEFAULT_PORTS[protocol]
                     out[protocol] = port
-                elif re.match("v(.?)+", v):
+                elif re.match(r"v(.?)+", v):
                     version = v[1:]
-                elif re.match("p\d*", v):
+                elif re.match(r"p\d*", v):
                     pruning_level = v[1:]
                 if pruning_level == '': pruning_level = '0'
         if out:
@@ -1430,8 +1428,8 @@ class Network(util.DaemonThread):
             return False, e.args[0]
 
         if their_txid != our_txid:
-            logging.warning(f'server TxID {their_txid} differs from '
-                            f'ours {our_txid}')
+            logging.warning('server TxID %s differs from '
+                            'ours %s', their_txid, our_txid)
             return False, _('bad server response; it is unknown whether '
                             'the transaction broadcast succeeded')
 

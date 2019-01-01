@@ -26,7 +26,6 @@
 import hashlib
 import logging
 from threading import Lock
-import traceback
 
 from .transaction import Transaction
 from .util import ThreadJob, bh2u

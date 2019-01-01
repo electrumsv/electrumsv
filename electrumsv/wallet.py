@@ -40,10 +40,11 @@ import threading
 import time
 
 from .i18n import _
-from .util import NotEnoughFunds, ExcessiveFee, UserCancelled, profiler, format_satoshis
+from .util import NotEnoughFunds, ExcessiveFee, UserCancelled, profiler, \
+    format_satoshis, bh2u, format_time, timestamp_to_datetime
 
 from .address import Address, Script, ScriptOutput, PublicKey
-from .bitcoin import *
+from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, is_minikey, Hash
 from .version import PACKAGE_VERSION
 from .keystore import load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore, xpubkey_to_address
 from .networks import NetworkConstants
@@ -493,8 +494,8 @@ class Abstract_Wallet:
         return len(self.get_address_history(address))
 
     def get_tx_delta(self, tx_hash, address):
-        assert isinstance(address, Address)
         "effect of tx on address"
+        assert isinstance(address, Address)
         # pruned
         if tx_hash in self.pruned_txo.values():
             return None
@@ -870,7 +871,6 @@ class Abstract_Wallet:
         return h2
 
     def export_history(self, domain=None, from_timestamp=None, to_timestamp=None, fx=None, show_addresses=False):
-        from .util import format_time, format_satoshis, timestamp_to_datetime
         h = self.get_history(domain)
         out = []
         for tx_hash, height, conf, timestamp, value, balance in h:
@@ -931,7 +931,6 @@ class Abstract_Wallet:
         return ''
 
     def get_tx_status(self, tx_hash, height, conf, timestamp):
-        from .util import format_time
         if conf == 0:
             tx = self.transactions.get(tx_hash)
             if not tx:
@@ -1029,7 +1028,6 @@ class Abstract_Wallet:
         sats_per_byte=fee_in_satoshis/tx_in_bytes
         if (sats_per_byte > 50):
             raise ExcessiveFee()
-            return
 
         # Sort the inputs and outputs deterministically
         tx.BIP_LI01_sort()

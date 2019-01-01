@@ -27,7 +27,6 @@ import hashlib
 import base64
 import hmac
 import os
-import json
 
 import ecdsa
 import pyaes
@@ -367,16 +366,16 @@ def base_decode(v, length, base):
 
 
 def EncodeBase58Check(vchIn):
-    hash = Hash(vchIn)
-    return base_encode(vchIn + hash[0:4], base=58)
+    hash_ = Hash(vchIn)
+    return base_encode(vchIn + hash_[0:4], base=58)
 
 
 def DecodeBase58Check(psz):
     vchRet = base_decode(psz, None, base=58)
     key = vchRet[0:-4]
     csum = vchRet[-4:]
-    hash = Hash(key)
-    cs32 = hash[0:4]
+    hash_ = Hash(key)
+    cs32 = hash_[0:4]
     if cs32 != csum:
         return None
     else:

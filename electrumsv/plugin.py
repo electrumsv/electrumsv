@@ -28,16 +28,13 @@ import importlib.util
 import logging
 import os
 import pkgutil
-import sys
 import threading
 import time
 
 from .i18n import _
-from .util import user_dir, make_dir, versiontuple
 from .util import profiler, DaemonThread, UserCancelled, ThreadJob
 from . import bitcoin
 from . import plugins
-from . import version
 
 logger = logging.getLogger("plugin")
 

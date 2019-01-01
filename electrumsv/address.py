@@ -273,7 +273,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
                     # if too many escaped characters, it's too ugly!
                     if friendlystring.count('\\')*3 > len(astext):
                         friendlystring = None
-                except:
+                except Exception:
                     friendlystring = None
 
                 if not friendlystring:
@@ -308,11 +308,11 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     # We are Bitcoin.  Default to it
     FMT_UI = FMT_BITCOIN
 
-    def __new__(cls, hash160, kind):
+    def __new__(cls, hash160value, kind):
         assert kind in (cls.ADDR_P2PKH, cls.ADDR_P2SH)
-        hash160 = to_bytes(hash160)
-        assert len(hash160) == 20
-        return super().__new__(cls, hash160, kind)
+        hash160value = to_bytes(hash160value)
+        assert len(hash160value) == 20
+        return super().__new__(cls, hash160value, kind)
 
     @classmethod
     def from_cashaddr_string(cls, string):
@@ -351,7 +351,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         if len(raw) != 21:
             raise AddressError('invalid address: {}'.format(string))
 
-        verbyte, hash160 = raw[0], raw[1:]
+        verbyte, hash160_ = raw[0], raw[1:]
         if verbyte == NetworkConstants.ADDRTYPE_P2PKH:
             kind = cls.ADDR_P2PKH
         elif verbyte == NetworkConstants.ADDRTYPE_P2SH:
@@ -359,7 +359,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         else:
             raise AddressError('unknown version byte: {}'.format(verbyte))
 
-        return cls(hash160, kind)
+        return cls(hash160_, kind)
 
     @classmethod
     def is_valid(cls, string):
@@ -384,14 +384,14 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         return cls(hash160(pubkey), cls.ADDR_P2PKH)
 
     @classmethod
-    def from_P2PKH_hash(cls, hash160):
+    def from_P2PKH_hash(cls, hash160value):
         '''Construct from a P2PKH hash160.'''
-        return cls(hash160, cls.ADDR_P2PKH)
+        return cls(hash160value, cls.ADDR_P2PKH)
 
     @classmethod
-    def from_P2SH_hash(cls, hash160):
+    def from_P2SH_hash(cls, hash160value):
         '''Construct from a P2PKH hash160.'''
-        return cls(hash160, cls.ADDR_P2SH)
+        return cls(hash160value, cls.ADDR_P2SH)
 
     @classmethod
     def from_multisig_script(cls, script):
@@ -496,15 +496,15 @@ def _match_ops(ops, pattern):
 class Script(object):
 
     @classmethod
-    def P2SH_script(cls, hash160):
+    def P2SH_script(cls, hash160value):
         return (bytes([OpCodes.OP_HASH160])
-                + cls.push_data(hash160)
+                + cls.push_data(hash160value)
                 + bytes([OpCodes.OP_EQUAL]))
 
     @classmethod
-    def P2PKH_script(cls, hash160):
+    def P2PKH_script(cls, hash160value):
         return (bytes([OpCodes.OP_DUP, OpCodes.OP_HASH160])
-                + cls.push_data(hash160)
+                + cls.push_data(hash160value)
                 + bytes([OpCodes.OP_EQUALVERIFY, OpCodes.OP_CHECKSIG]))
 
     @classmethod

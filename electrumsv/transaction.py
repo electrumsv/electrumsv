@@ -23,15 +23,22 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import hashlib
 import logging
 import struct
 
+import ecdsa
+from ecdsa.curves import SECP256k1
+
 # Note: The deserialization code originally comes from ABE.
 
-from .bitcoin import *
+from .bitcoin import to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, \
+    hash_encode, op_push, Hash, MyVerifyingKey, point_to_ser, push_script, \
+    public_key_to_p2pk_script, int_to_hex, var_int, \
+    public_key_from_private_key, regenerate_key, MySigningKey
 from .address import (PublicKey, Address, Script, ScriptOutput, hash160,
                       UnknownAddress, OpCodes as opcodes)
-from .util import profiler
+from .util import profiler, bfh, bh2u
 
 #
 # Workalike python implementation of Bitcoin's CDataStream class.

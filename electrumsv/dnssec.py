@@ -139,7 +139,7 @@ def python_validate_rrsig(rrset, rrsig, keys, origin=None, now=None):
         rrnamebuf = rrname.to_digestable(origin)
         rrfixed = struct.pack('!HHI', rdataset.rdtype, rdataset.rdclass,
                               rrsig.original_ttl)
-        rrlist = sorted(rdataset);
+        rrlist = sorted(rdataset)
         for rr in rrlist:
             hash.update(rrnamebuf)
             hash.update(rrfixed)

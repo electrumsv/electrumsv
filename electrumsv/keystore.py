@@ -24,11 +24,20 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import hashlib
 import logging
 from unicodedata import normalize
 
+import ecdsa
+from ecdsa.ecdsa import generator_secp256k1
+from ecdsa.curves import SECP256k1
+from ecdsa.util import string_to_number, number_to_string
 from . import bitcoin
-from .bitcoin import *
+from .bitcoin import bip32_public_derivation, deserialize_xpub, \
+    CKD_pub, bh2u, bfh, DecodeBase58Check, deserialize_xprv, \
+    pw_encode, bip32_root, bip32_private_derivation, \
+    bip32_private_key, pw_decode, Hash, is_xpub, is_xprv, is_seed, \
+    seed_type
 
 from .address import Address, PublicKey
 from .networks import NetworkConstants
@@ -92,12 +101,12 @@ class Software_KeyStore(KeyStore):
 
     def sign_message(self, sequence, message, password):
         privkey, compressed = self.get_private_key(sequence, password)
-        key = regenerate_key(privkey)
+        key = bitcoin.regenerate_key(privkey)
         return key.sign_message(message, compressed)
 
     def decrypt_message(self, sequence, message, password):
         privkey, compressed = self.get_private_key(sequence, password)
-        ec = regenerate_key(privkey)
+        ec = bitcoin.regenerate_key(privkey)
         decrypted = ec.decrypt_message(message)
         return decrypted
 
@@ -172,7 +181,7 @@ class Imported_KeyStore(Software_KeyStore):
 
     def import_privkey(self, WIF_privkey, password):
         pubkey = PublicKey.from_WIF_privkey(WIF_privkey)
-        self.keypairs[pubkey] = pw_encode(WIF_privkey, password)
+        self.keypairs[pubkey] = bitcoin.pw_encode(WIF_privkey, password)
         self._sorted = None
         return pubkey
 
@@ -181,7 +190,7 @@ class Imported_KeyStore(Software_KeyStore):
 
     def export_private_key(self, pubkey, password):
         '''Returns a WIF string'''
-        WIF_privkey = pw_decode(self.keypairs[pubkey], password)
+        WIF_privkey = bitcoin.pw_decode(self.keypairs[pubkey], password)
         # this checks the password
         if pubkey != PublicKey.from_WIF_privkey(WIF_privkey):
             raise InvalidPassword()
@@ -206,8 +215,8 @@ class Imported_KeyStore(Software_KeyStore):
         if new_password == '':
             new_password = None
         for k, v in self.keypairs.items():
-            b = pw_decode(v, old_password)
-            c = pw_encode(b, new_password)
+            b = bitcoin.pw_decode(v, old_password)
+            c = bitcoin.pw_encode(b, new_password)
             self.keypairs[k] = c
 
 
@@ -245,10 +254,12 @@ class Deterministic_KeyStore(Software_KeyStore):
         self.seed = self.format_seed(seed)
 
     def get_seed(self, password):
-        return pw_decode(self.seed, password)
+        return bitcoin.pw_decode(self.seed, password)
 
     def get_passphrase(self, password):
-        return pw_decode(self.passphrase, password) if self.passphrase else ''
+        if self.passphrase:
+            return bitcoin.pw_decode(self.passphrase, password)
+        return ''
 
 
 class Xpub:
@@ -338,10 +349,10 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         return d
 
     def get_master_private_key(self, password):
-        return pw_decode(self.xprv, password)
+        return bitcoin.pw_decode(self.xprv, password)
 
     def check_password(self, password):
-        xprv = pw_decode(self.xprv, password)
+        xprv = bitcoin.pw_decode(self.xprv, password)
         try:
             assert DecodeBase58Check(xprv) is not None
         except Exception:
@@ -401,8 +412,8 @@ class Old_KeyStore(Deterministic_KeyStore):
         d['type'] = 'old'
         return d
 
-    def add_seed(self, seedphrase):
-        Deterministic_KeyStore.add_seed(self, seedphrase)
+    def add_seed(self, seed):
+        Deterministic_KeyStore.add_seed(self, seed)
         s = self.get_hex_seed(None)
         self.mpk = self.mpk_from_seed(s)
 
@@ -596,7 +607,6 @@ def bip39_normalize_passphrase(passphrase):
     return normalize('NFKD', passphrase or '')
 
 def bip39_to_seed(mnemonic, passphrase):
-    import hashlib, hmac
     PBKDF2_ROUNDS = 2048
     mnemonic = normalize('NFKD', ' '.join(mnemonic.split()))
     passphrase = bip39_normalize_passphrase(passphrase)
@@ -741,7 +751,7 @@ def bip44_derivation(account_id):
     return "m/%d'/%d'/%d'" % (bip, coin, int(account_id))
 
 def bip44_derivation_145(account_id):
-	return "m/44'/145'/%d'"% int(account_id)
+    return "m/44'/145'/%d'"% int(account_id)
 
 def from_seed(seed, passphrase, is_p2sh):
     t = seed_type(seed)

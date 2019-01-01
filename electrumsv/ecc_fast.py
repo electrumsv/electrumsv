@@ -2,9 +2,8 @@
 # https://github.com/richardkiss/pycoin/blob/01b1787ed902df23f99a55deb00d8cd076a906fe/pycoin/ecdsa/native/secp256k1.py
 
 import ctypes
-from ctypes.util import find_library
 from ctypes import (
-    byref, c_byte, c_int, c_uint, c_char_p, c_size_t, c_void_p, create_string_buffer, CFUNCTYPE, POINTER
+    byref, c_int, c_uint, c_char_p, c_size_t, c_void_p, create_string_buffer
 )
 import logging
 import os

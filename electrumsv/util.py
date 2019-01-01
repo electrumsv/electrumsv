@@ -28,10 +28,8 @@ import os, sys, re, json
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
-import queue
 import stat
 import threading
-import traceback
 
 from .i18n import _
 

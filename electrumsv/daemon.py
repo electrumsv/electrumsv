@@ -26,7 +26,6 @@
 import ast
 import logging
 import os
-import sys
 import time
 import threading
 
@@ -276,7 +275,7 @@ class Daemon(DaemonThread):
         else:
             wallet = None
         # arguments passed to function
-        args = map(lambda x: config.get(x), cmd.params)
+        args = map(config.get, cmd.params)
         # decode json arguments
         args = [json_decode(i) for i in args]
         # options

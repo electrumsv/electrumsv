@@ -25,7 +25,6 @@ from dns.exception import DNSException
 import json
 import logging
 import re
-import sys
 
 from .address import Address
 from . import dnssec
@@ -37,11 +36,13 @@ logger = logging.getLogger("contacts")
 class Contacts(dict):
 
     def __init__(self, storage):
+        super().__init__()
+
         self.storage = storage
         d = self.storage.get('contacts', {})
         try:
             self.update(d)
-        except:
+        except Exception:
             return
         # backward compatibility
         for k, v in self.items():

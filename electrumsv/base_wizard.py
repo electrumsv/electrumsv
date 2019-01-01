@@ -190,7 +190,8 @@ class BaseWizard(object):
                     # FIXME: side-effect: unpaired_device_info sets client.handler
                     u = devmgr.unpaired_device_infos(None, plugin, devices=scanned_devices)
                 except Exception as e:
-                    logging.exception(f'error getting device infos for {name}')
+                    logging.exception('error getting device infos for %s',
+                                       name)
                     indented_error_msg = '    '.join([''] + str(e).splitlines(keepends=True))
                     debug_msg += f'  {name}: (error getting device infos)\n{indented_error_msg}\n'
                     continue
@@ -425,3 +426,4 @@ class BaseWizard(object):
             self.terminate()
         msg = _("ElectrumSV is generating your addresses, please wait.")
         self.waiting_dialog(task, msg)
+

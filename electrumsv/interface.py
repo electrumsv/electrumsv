@@ -116,8 +116,7 @@ class TcpConnection(threading.Thread):
             except BaseException as _e:
                 e = _e
                 continue
-        else:
-            self.logger.error("failed to connect %s", e)
+        self.logger.error("failed to connect %s", e)
 
     @staticmethod
     def get_ssl_context(cert_reqs, ca_certs):
@@ -232,10 +231,10 @@ class TcpConnection(threading.Thread):
         return s
 
     def run(self):
-        socket = self.get_socket()
-        if socket:
+        socket_ = self.get_socket()
+        if socket_:
             self.logger.debug("connected")
-        self.queue.put((self.server, socket))
+        self.queue.put((self.server, socket_))
 
 
 class Interface:
@@ -266,10 +265,10 @@ class Interface:
         self.unanswered_requests = {}
         self.last_send = time.time()
         self.closed_remotely = False
-        
+
         self.mode = None
         self.logger = logging.getLogger("interface[{}]".format(self.host))
-        
+
     def set_mode(self, mode):
         self.logger.debug("set_mode(%s)", mode)
         self.mode = mode
