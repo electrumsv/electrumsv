@@ -2,7 +2,7 @@
 import util, sys
 try:
     tx = sys.argv[1]
-except:
+except IndexError:
     print("usage: txradar txid")
     sys.exit(1)
 

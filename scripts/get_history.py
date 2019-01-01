@@ -2,7 +2,7 @@
 
 import sys
 
-from electrumsv import Network
+from electrumsv.network import Network
 from electrumsv.util import json_encode
 from electrumsv.address import Address
 
