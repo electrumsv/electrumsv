@@ -22,14 +22,20 @@
 # SOFTWARE.
 
 import binascii
-import hmac
-import logging
-import os, sys, re, json
+from decimal import Decimal
 from collections import defaultdict
 from datetime import datetime
-from decimal import Decimal
+import json
+import hmac
+import logging
+import os
+import re
+import socket
+import ssl
 import stat
+import sys
 import threading
+import time
 
 from .i18n import _
 
@@ -498,11 +504,6 @@ class timeout(Exception):
     pass
 
 TimeoutException = timeout # Future compat. with Electrum codebase/cherrypicking
-
-import socket
-import json
-import ssl
-import time
 
 
 class SocketPipe:

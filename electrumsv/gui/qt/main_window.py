@@ -23,15 +23,19 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import sys, time, threading
-import os, json, logging
-import shutil
-import weakref
-import webbrowser
+import base64
 import csv
 from decimal import Decimal
-import base64
 from functools import partial
+import json
+import logging
+import os
+import shutil
+import sys
+import threading
+import time
+import weakref
+import webbrowser
 
 from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, \
     qVersion
@@ -60,6 +64,7 @@ try:
     from electrumsv.plot import plot_history
 except Exception:
     plot_history = None
+from electrumsv.paymentrequest import PR_PAID
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit, BTCSatsByteEdit
 from .qrcodewidget import QRCodeWidget, QRDialog
@@ -97,8 +102,6 @@ class StatusBarButton(QPushButton):
         if e.key() == Qt.Key_Return:
             self.func()
 
-
-from electrumsv.paymentrequest import PR_PAID
 
 
 class ElectrumWindow(QMainWindow, MessageBoxMixin):
@@ -2527,7 +2530,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 for addr, pk in pklist.items():
                     transaction.writerow(["%34s"%addr,pk])
             else:
-                import json
                 f.write(json.dumps(pklist, indent = 4))
 
     def do_import_labels(self):
@@ -2607,7 +2609,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 for line in lines:
                     transaction.writerow(line)
             else:
-                import json
                 f.write(json.dumps(lines, indent=4))
 
     def sweep_key_dialog(self):

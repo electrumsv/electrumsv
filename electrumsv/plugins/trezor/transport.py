@@ -13,6 +13,7 @@ class TrezorTransport:
             # only to detect trezorlib version
             from trezorlib.transport import all_transports
         except ImportError:
+            # pylint: disable=import-error
             # old trezorlib. compat for trezorlib < 0.9.2
             transports = []
             #try:
