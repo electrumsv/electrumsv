@@ -64,7 +64,7 @@ class SeedLayout(QVBoxLayout):
             vbox.addWidget(cb_ext)
         if 'bip39_145' in self.options:
             def f(b):
-                self.is_seed = (lambda x: bool(x)) if b else self.saved_is_seed
+                self.is_seed = bool if b else self.saved_is_seed
                 self.on_edit()
                 self.is_bip39 = b
                 if b:
@@ -85,7 +85,7 @@ class SeedLayout(QVBoxLayout):
             vbox.addWidget(cb_bip39_145)
         elif 'bip39' in self.options:
             def f(b):
-                self.is_seed = (lambda x: bool(x)) if b else self.saved_is_seed
+                self.is_seed = bool if b else self.saved_is_seed
                 self.is_bip39 = b
                 self.on_edit()
                 if b:

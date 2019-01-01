@@ -264,7 +264,7 @@ class PayToEdit(ScanQRTextEdit):
         if key == self.previous_payto:
             return
         self.previous_payto = key
-        if not (('.' in key) and (not '<' in key) and (not ' ' in key)):
+        if not (('.' in key) and ('<' not in key) and (' ' not in key)):
             return
         parts = key.split(sep=',')  # assuming single lie
         if parts and len(parts) > 0 and Address.is_valid(parts[0]):

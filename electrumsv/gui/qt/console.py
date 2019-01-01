@@ -47,9 +47,8 @@ class Console(QtWidgets.QPlainTextEdit):
             script = f.read()
 
         # eval is generally considered bad practice. use it wisely!
-        result = eval(script, self.namespace, self.namespace)
-
-
+        # pylint: disable=eval-used
+        eval(script, self.namespace, self.namespace)
 
     def updateNamespace(self, namespace):
         self.namespace.update(namespace)
@@ -216,14 +215,16 @@ class Console(QtWidgets.QPlainTextEdit):
             try:
                 try:
                     # eval is generally considered bad practice. use it wisely!
+                    # pylint: disable=eval-used
                     result = eval(command, self.namespace, self.namespace)
-                    if result != None:
+                    if result is not None:
                         if self.is_json:
                             print(util.json_encode(result))
                         else:
                             self.appendPlainText(repr(result))
                 except SyntaxError:
                     # exec is generally considered bad practice. use it wisely!
+                    # pylint: disable=exec-used
                     exec(command, self.namespace, self.namespace)
             except SystemExit:
                 self.close()

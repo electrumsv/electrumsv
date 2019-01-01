@@ -99,12 +99,16 @@ def filter_protocol(hostmap, protocol = 's'):
             eligible.append(serialize_server(host, port, protocol))
     return eligible
 
-def get_eligible_servers(hostmap=None, protocol="s", exclude_set=set()):
+def get_eligible_servers(hostmap=None, protocol="s", exclude_set=None):
+    if exclude_set is None:
+        exclude_set = set()
     if hostmap is None:
         hostmap = bitcoin.NetworkConstants.DEFAULT_SERVERS
     return list(set(filter_protocol(hostmap, protocol)) - exclude_set)
 
-def pick_random_server(hostmap = None, protocol = 's', exclude_set = set()):
+def pick_random_server(hostmap=None, protocol='s', exclude_set=None):
+    if exclude_set is None:
+        exclude_set = set()
     eligible = get_eligible_servers(hostmap, protocol, exclude_set)
     return random.choice(eligible) if eligible else None
 

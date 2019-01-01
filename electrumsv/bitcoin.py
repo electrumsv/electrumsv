@@ -624,8 +624,7 @@ class EC_KEY(object):
                 return sig
             except Exception as e:
                 continue
-        else:
-            raise Exception("error: cannot sign message")
+        raise Exception("cannot sign message")
 
     def verify_message(self, sig, message):
         assert_bytes(message)

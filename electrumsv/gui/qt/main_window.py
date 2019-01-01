@@ -535,9 +535,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         labels_menu.addAction(_("&Export"), self.do_export_labels)
         contacts_menu = wallet_menu.addMenu(_("Contacts"))
         contacts_menu.addAction(_("&New"), self.new_contact_dialog)
-        contacts_menu.addAction(_("Import"), lambda: self.contact_list.import_contacts())
+        contacts_menu.addAction(_("Import"), self.contact_list.import_contacts
         invoices_menu = wallet_menu.addMenu(_("Invoices"))
-        invoices_menu.addAction(_("Import"), lambda: self.invoice_list.import_invoices())
+        invoices_menu.addAction(_("Import"), self.invoice_list.import_invoices
         hist_menu = wallet_menu.addMenu(_("&History"))
         hist_menu.addAction("Plot", self.plot_history_dialog).setEnabled(plot_history is not None)
         hist_menu.addAction("Export", self.export_history_dialog)

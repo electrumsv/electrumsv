@@ -900,7 +900,7 @@ class Abstract_Wallet:
                 for x in tx.inputs():
                     if x['type'] == 'coinbase': continue
                     addr = x.get('address')
-                    if addr == None: continue
+                    if addr is None: continue
                     input_addresses.append(addr.to_ui_string())
                 for addr, v in tx.get_outputs():
                     output_addresses.append(addr.to_ui_string())
@@ -1860,7 +1860,7 @@ class Deterministic_Wallet(Abstract_Wallet):
             if len(addresses) < limit:
                 self.create_new_address(for_change)
                 continue
-            if list(map(lambda a: self.address_is_old(a), addresses[-limit:] )) == limit*[False]:
+            if list(map(self.address_is_old, addresses[-limit:])) == limit*[False]:
                 break
             else:
                 self.create_new_address(for_change)
