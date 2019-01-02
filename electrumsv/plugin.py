@@ -414,7 +414,8 @@ class DeviceMgr(ThreadJob):
     def client_for_keystore(self, plugin, handler, keystore, force_pair):
         logger.debug("getting client for keystore")
         if handler is None:
-            raise BaseException(_("Handler not found for") + ' ' + plugin.name + '\n' + _("A library is probably missing."))
+            raise Exception(_("Handler not found for") + ' ' + plugin.name + '\n' +
+                            _("A library is probably missing."))
         handler.update_status(False)
         devices = self.scan_devices()
         xpub = keystore.xpub
@@ -485,7 +486,8 @@ class DeviceMgr(ThreadJob):
             try:
                 client = self.create_client(device, handler, plugin)
             except BaseException as e:
-                logger.debug('failed to create client for %s at %s: %r', plugin.name, device.path, e)
+                logger.debug('failed to create client for %s at %s: %r',
+                             plugin.name, device.path, e)
                 continue
             if not client:
                 continue
@@ -513,7 +515,9 @@ class DeviceMgr(ThreadJob):
             if info.label == keystore.label:
                 return info
         msg = _("Please select which {} device to use:").format(plugin.device)
-        descriptions = [info.label + ' (%s)'%(_("initialized") if info.initialized else _("wiped")) for info in infos]
+        descriptions = [info.label +
+                        ' (%s)' % (_("initialized") if info.initialized else _("wiped"))
+                        for info in infos]
         c = handler.query_choice(msg, descriptions)
         if c is None:
             raise UserCancelled()

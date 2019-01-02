@@ -38,8 +38,9 @@ from electrumsv.i18n import _
 from electrumsv.plugin import run_hook
 
 from electrumsv.util import bfh
-from .util import MessageBoxMixin, ButtonsLineEdit, CopyButton, Buttons, \
-    MONOSPACE_FONT, ColorScheme
+from .util import (
+    MessageBoxMixin, ButtonsLineEdit, CopyButton, Buttons, MONOSPACE_FONT, ColorScheme
+)
 
 dialogs = []  # Otherwise python randomly garbage collects the dialogs...
 
@@ -75,8 +76,11 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         vbox.addWidget(QLabel(_("Transaction ID:")))
         self.tx_hash_e  = ButtonsLineEdit()
-        qr_show = lambda: parent.show_qrcode(str(self.tx_hash_e.text()), 'Transaction ID', parent=self)
+
+        def qr_show():
+            parent.show_qrcode(str(self.tx_hash_e.text()), 'Transaction ID', parent=self)
         self.tx_hash_e.addButton(":icons/qrcode.png", qr_show, _("Show as QR code"))
+
         self.tx_hash_e.setReadOnly(True)
         vbox.addWidget(self.tx_hash_e)
         self.tx_desc = QLabel()
@@ -149,8 +153,9 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.update()
 
     def closeEvent(self, event):
-        if (self.prompt_if_unsaved and not self.saved
-            and not self.question(_('This transaction is not saved. Close anyway?'), title=_("Warning"))):
+        if (self.prompt_if_unsaved and not self.saved and
+            not self.question(_('This transaction is not saved.  Close anyway?'),
+                              title=_("Warning"))):
             event.ignore()
         else:
             event.accept()
@@ -184,8 +189,12 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.main_window.sign_tx(self.tx, sign_done)
 
     def save(self):
-        name = 'signed_%s.txn' % (self.tx.txid()[0:8]) if self.tx.is_complete() else 'unsigned.txn'
-        fileName = self.main_window.getSaveFileName(_("Select where to save your signed transaction"), name, "*.txn")
+        if self.tx_is_complete():
+            name = 'signed_%s.txn' % (self.tx.txid()[0:8])
+        else:
+            name = 'unsigned.txn'
+        fileName = self.main_window.getSaveFileName(
+            _("Select where to save your signed transaction"), name, "*.txn")
         if fileName:
             tx_dict = self.tx.as_dict()
             with open(fileName, "w+") as f:
@@ -247,7 +256,9 @@ class TxDialog(QDialog, MessageBoxMixin):
             fee_str += '  ( {} ) '.format(self.main_window.format_fee_rate(
                 tx_info.fee / size * 1000))
             if dusty_fee:
-                fee_str += ' <font color=#999999>' + (_("( %s in dust was added to fee )") % format_amount(dusty_fee)) + '</font>'
+                fee_str += (' <font color=#999999>' +
+                            (_("( %s in dust was added to fee )") % format_amount(dusty_fee)) +
+                            '</font>')
         self.amount_label.setText(amount_str)
         self.fee_label.setText(fee_str)
         self.size_label.setText(size_str)

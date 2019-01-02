@@ -73,17 +73,18 @@ def scan_barcode_ctypes(device='', timeout=-1, display=True, threaded=False, try
 
 def scan_barcode_osx(*args_ignored, **kwargs_ignored):
     import subprocess
-    # NOTE: This code needs to be modified if the positions of this file changes with respect to the helper app!
-    # This assumes the built macOS .app bundle which ends up putting the helper app in
+    # NOTE: This code needs to be modified if the positions of this file changes with respect
+    # to the helper app!  This assumes the built macOS .app bundle which puts the helper app in
     # .app/contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app.
     root_ec_dir = os.path.abspath(os.path.dirname(__file__) + "/../")
-    prog = root_ec_dir + "/" + "contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app/Contents/MacOS/CalinsQRReader"
+    prog = (root_ec_dir + "/" + "contrib/osx/CalinsQRReader/build/Release/"
+            "CalinsQRReader.app/Contents/MacOS/CalinsQRReader")
     if not os.path.exists(prog):
         raise RuntimeError("Cannot start QR scanner; helper app not found.")
     data = ''
     try:
-        # This will run the "CalinsQRReader" helper app (which also gets bundled with the built .app)
-        # Just like the zbar implementation -- the main app will hang until the QR window returns a QR code
+        # This will run the "CalinsQRReader" helper app (which gets bundled with the built .app)
+        # Like for zbar the main app will hang until the QR window returns a QR code
         # (or is closed). Communication with the subprocess is done via stdout.
         # See contrib/CalinsQRReader for the helper app source code.
         with subprocess.Popen([prog], stdout=subprocess.PIPE) as p:

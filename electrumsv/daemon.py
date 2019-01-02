@@ -92,7 +92,7 @@ def get_server(config):
             server.ping()
             return server
         except ConnectionRefusedError:
-            logger.warning("get_server could not connect to the rpc server, possibly not running.")
+            logger.warning("get_server could not connect to the rpc server, is it running?")
         except Exception:
             # We do not want the full stacktrace, this will limit it.
             logger.exception("attempt to connect to the RPC server failed")
@@ -221,7 +221,7 @@ class Daemon(DaemonThread):
             else:
                 response = "error: current GUI does not support multiple windows"
         else:
-            response = "Error: ElectrumSV is running in daemon mode. Please stop the daemon first."
+            response = "error: ElectrumSV is running in daemon mode; stop the daemon first."
         return response
 
     def load_wallet(self, path, password):
@@ -271,7 +271,8 @@ class Daemon(DaemonThread):
             path = config.get_wallet_path()
             wallet = self.wallets.get(path)
             if wallet is None:
-                return {'error': 'Wallet "%s" is not loaded. Use "electrum-sv daemon load_wallet"'%os.path.basename(path) }
+                return {'error': 'Wallet "%s" is not loaded. Use "electrum-sv daemon load_wallet"'
+                        % os.path.basename(path)}
         else:
             wallet = None
         # arguments passed to function
@@ -281,7 +282,8 @@ class Daemon(DaemonThread):
         # options
         kwargs = {}
         for x in cmd.options:
-            kwargs[x] = (config_options.get(x) if x in ['password', 'new_password'] else config.get(x))
+            kwargs[x] = (config_options.get(x) if x in ['password', 'new_password']
+                         else config.get(x))
         cmd_runner = Commands(config, wallet, self.network)
         func = getattr(cmd_runner, cmd.name)
         result = func(*args, **kwargs)

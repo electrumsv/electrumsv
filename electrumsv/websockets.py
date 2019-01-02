@@ -22,16 +22,18 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 from collections import defaultdict
 import json
 import logging
 import os
 import queue
+import sys
 import threading
+
 try:
     from SimpleWebSocketServer import WebSocket, SimpleSSLWebSocketServer
 except ImportError:
-    import sys
     sys.exit("install SimpleWebSocketServer")
 
 from . import util
@@ -69,7 +71,8 @@ class WsClientThread(util.DaemonThread):
     def make_request(self, request_id):
         # read json file
         rdir = self.config.get('requests_dir')
-        n = os.path.join(rdir, 'req', request_id[0], request_id[1], request_id, request_id + '.json')
+        n = os.path.join(rdir, 'req', request_id[0], request_id[1],
+                         request_id, request_id + '.json')
         with open(n, encoding='utf-8') as f:
             s = f.read()
         d = json.loads(s)
@@ -108,7 +111,8 @@ class WsClientThread(util.DaemonThread):
             if result is None:
                 continue
             if method == 'blockchain.scripthash.subscribe':
-                self.network.send([('blockchain.scripthash.get_balance', params)], self.response_queue.put)
+                self.network.send([('blockchain.scripthash.get_balance', params)],
+                                  self.response_queue.put)
             elif method == 'blockchain.scripthash.get_balance':
                 h = params[0]
                 addr = self.network.h2addr.get(h, None)
@@ -140,5 +144,3 @@ class WebSocketServer(threading.Thread):
         keyfile = self.config.get('ssl_privkey')
         self.server = SimpleSSLWebSocketServer(host, port, ElectrumWebSocket, certfile, keyfile)
         self.server.serveforever()
-
-

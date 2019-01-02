@@ -610,8 +610,10 @@ class EC_KEY(object):
     def sign(self, msg_hash):
         private_key = MySigningKey.from_secret_exponent(self.secret, curve = SECP256k1)
         public_key = private_key.get_verifying_key()
-        signature = private_key.sign_digest_deterministic(msg_hash, hashfunc=hashlib.sha256, sigencode = ecdsa.util.sigencode_string)
-        assert public_key.verify_digest(signature, msg_hash, sigdecode = ecdsa.util.sigdecode_string)
+        signature = private_key.sign_digest_deterministic(
+            msg_hash, hashfunc=hashlib.sha256, sigencode = ecdsa.util.sigencode_string)
+        assert public_key.verify_digest(signature, msg_hash,
+                                        sigdecode=ecdsa.util.sigdecode_string)
         return signature
 
     def sign_message(self, message, is_compressed):
@@ -631,13 +633,15 @@ class EC_KEY(object):
         h = Hash(msg_magic(message))
         public_key, compressed = pubkey_from_signature(sig, h)
         # check public key
-        if point_to_ser(public_key.pubkey.point, compressed) != point_to_ser(self.pubkey.point, compressed):
+        if (point_to_ser(public_key.pubkey.point, compressed) !=
+                point_to_ser(self.pubkey.point, compressed)):
             raise Exception("Bad signature")
         # check message
         public_key.verify_digest(sig[1:], h, sigdecode = ecdsa.util.sigdecode_string)
 
 
-    # ECIES encryption/decryption methods; AES-128-CBC with PKCS7 is used as the cipher; hmac-sha256 is used as the mac
+    # ECIES encryption/decryption methods; AES-128-CBC with PKCS7 is
+    # used as the cipher; hmac-sha256 is used as the mac
 
     @classmethod
     def encrypt_message(self, message, pubkey):
@@ -647,7 +651,8 @@ class EC_KEY(object):
         if not ecdsa.ecdsa.point_is_valid(generator_secp256k1, pk.x(), pk.y()):
             raise Exception('invalid pubkey')
 
-        ephemeral_exponent = number_to_string(ecdsa.util.randrange(pow(2,256)), generator_secp256k1.order())
+        ephemeral_exponent = number_to_string(ecdsa.util.randrange(pow(2,256)),
+                                              generator_secp256k1.order())
         ephemeral = EC_KEY(ephemeral_exponent)
         ecdh_key = point_to_ser(pk * ephemeral.privkey.secret_multiplier)
         key = hashlib.sha512(ecdh_key).digest()
@@ -673,7 +678,8 @@ class EC_KEY(object):
             ephemeral_pubkey = ser_to_point(ephemeral_pubkey)
         except AssertionError as e:
             raise Exception('invalid ciphertext: invalid ephemeral pubkey')
-        if not ecdsa.ecdsa.point_is_valid(generator_secp256k1, ephemeral_pubkey.x(), ephemeral_pubkey.y()):
+        if not ecdsa.ecdsa.point_is_valid(generator_secp256k1, ephemeral_pubkey.x(),
+                                          ephemeral_pubkey.y()):
             raise Exception('invalid ciphertext: invalid ephemeral pubkey')
         ecdh_key = point_to_ser(ephemeral_pubkey * self.privkey.secret_multiplier)
         key = hashlib.sha512(ecdh_key).digest()

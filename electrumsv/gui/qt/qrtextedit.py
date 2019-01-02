@@ -48,7 +48,11 @@ class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
             with open(fileName, "r", encoding='utf-8') as f:
                 data = f.read()
         except UnicodeDecodeError as reason:
-            self.show_critical(_("The selected file appears to be a binary file.") +"\n"+ _("Please ensure you only import text files."), title=_("Not a text file"))
+            self.show_critical(
+                _("The selected file appears to be a binary file.") + "\n" +
+                _("Please ensure you only import text files."),
+                title=_("Not a text file")
+            )
             return
         self.setText(data)
 

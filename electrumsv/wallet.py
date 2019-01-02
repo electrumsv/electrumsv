@@ -40,13 +40,17 @@ import threading
 import time
 
 from .i18n import _
-from .util import NotEnoughFunds, ExcessiveFee, UserCancelled, profiler, \
-    format_satoshis, bh2u, format_time, timestamp_to_datetime
+from .util import (
+    NotEnoughFunds, ExcessiveFee, UserCancelled, profiler, format_satoshis, bh2u,
+    format_time, timestamp_to_datetime
+)
 
 from .address import Address, Script, ScriptOutput, PublicKey
 from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, is_minikey, Hash
 from .version import PACKAGE_VERSION
-from .keystore import load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore, xpubkey_to_address
+from .keystore import (
+    load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore, xpubkey_to_address
+)
 from .networks import NetworkConstants
 from .storage import multisig_type
 
@@ -144,9 +148,12 @@ def sweep(privkeys, network, config, recipient, fee=None, imax=100):
         tx = Transaction.from_io(inputs, outputs)
         fee = config.estimate_fee(tx.estimated_size())
     if total - fee < 0:
-        raise BaseException(_('Not enough funds on address.') + '\nTotal: %d satoshis\nFee: %d'%(total, fee))
+        raise Exception(_('Not enough funds on address.') +
+                        '\nTotal: %d satoshis\nFee: %d'%(total, fee))
     if total - fee < dust_threshold(network):
-        raise BaseException(_('Not enough funds on address.') + '\nTotal: %d satoshis\nFee: %d\nDust Threshold: %d'%(total, fee, dust_threshold(network)))
+        raise Exception(_('Not enough funds on address.') +
+                        '\nTotal: %d satoshis\nFee: %d\nDust Threshold: %d' %
+                        (total, fee, dust_threshold(network)))
 
     outputs = [(TYPE_ADDRESS, recipient, total - fee)]
     locktime = network.get_local_height()
@@ -183,9 +190,11 @@ class Abstract_Wallet:
         frozen_addresses = storage.get('frozen_addresses',[])
         self.frozen_addresses = set(Address.from_string(addr)
                                     for addr in frozen_addresses)
-        # Frozen coins (UTXOs) -- note that we have 2 independent levels of "freezing": address-level and coin-level.
-        # The two types of freezing are flagged independently of each other and 'spendable' is defined as a coin that satisfies
-        # BOTH levels of freezing.
+        # Frozen coins (UTXOs) -- note that we have 2 independent
+        # levels of "freezing": address-level and coin-level.  The two
+        # types of freezing are flagged independently of each other
+        # and 'spendable' is defined as a coin that satisfies BOTH
+        # levels of freezing.
         self.frozen_coins = set(storage.get('frozen_coins', []))
         # address -> list(txid, height)
         history = storage.get('addr_history',{})
@@ -207,14 +216,15 @@ class Abstract_Wallet:
         # height.  Access is not contended so no lock is needed.
         self.unverified_tx = defaultdict(int)
 
-        # Verified transactions.  Each value is a (height, timestamp, block_pos) tuple.  Access with self.lock.
+        # Verified transactions.  Each value is a (height, timestamp,
+        # block_pos) tuple.  Access with self.lock.
         self.verified_tx = storage.get('verified_tx3', {})
 
         # there is a difference between wallet.up_to_date and interface.is_up_to_date()
         # interface.is_up_to_date() returns true when all requests have been answered and processed
         # wallet.up_to_date is true when the wallet is synchronized (stronger requirement)
         self.up_to_date = False
-        # locks: if you need to take multiple ones, acquire them in the order they are defined here!
+        # locks: if you need to take several, acquire them in the order they are defined here!
         self.lock = threading.RLock()
         self.transaction_lock = threading.RLock()
 
@@ -260,7 +270,9 @@ class Abstract_Wallet:
         for tx_hash, raw in tx_list.items():
             tx = Transaction(raw)
             self.transactions[tx_hash] = tx
-            if self.txi.get(tx_hash) is None and self.txo.get(tx_hash) is None and (tx_hash not in self.pruned_txo.values()):
+            if (self.txi.get(tx_hash) is None and
+                    self.txo.get(tx_hash) is None and
+                    tx_hash not in self.pruned_txo.values()):
                 self.logger.debug("removing unreferenced tx %s", tx_hash)
                 self.transactions.pop(tx_hash)
 
@@ -323,7 +335,9 @@ class Abstract_Wallet:
             hist = self._history[addr]
 
             for tx_hash, tx_height in hist:
-                if tx_hash in self.pruned_txo.values() or self.txi.get(tx_hash) or self.txo.get(tx_hash):
+                if (tx_hash in self.pruned_txo.values() or
+                        self.txi.get(tx_hash) or
+                        self.txo.get(tx_hash)):
                     continue
                 tx = self.transactions.get(tx_hash)
                 if tx is not None:
@@ -461,7 +475,8 @@ class Abstract_Wallet:
 
     def get_local_height(self):
         """ return last known height if we are offline """
-        return self.network.get_local_height() if self.network else self.storage.get('stored_height', 0)
+        return (self.network.get_local_height() if self.network else
+                self.storage.get('stored_height', 0))
 
     def get_tx_height(self, tx_hash):
         """ return the height and timestamp of a verified transaction. """
@@ -626,7 +641,8 @@ class Abstract_Wallet:
         for txi in spent:
             coins.pop(txi)
             if txi in self.frozen_coins:
-                # cleanup/detect if the 'frozen coin' was spent and remove it from the frozen coin set
+                # cleanup/detect if the 'frozen coin' was spent and
+                # remove it from the frozen coin set
                 self.frozen_coins.remove(txi)
         out = {}
         for txo, v in coins.items():
@@ -649,8 +665,9 @@ class Abstract_Wallet:
         received, sent = self.get_addr_io(address)
         return sum([v for height, v, is_cb in received.values()])
 
-    # return the balance of a bitcoin address: confirmed and matured, unconfirmed, unmatured
-    # Note that 'exclude_frozen_coins = True' only checks for coin-level freezing, not address-level.
+    # return the balance of a bitcoin address: confirmed and matured,
+    # unconfirmed, unmatured Note that 'exclude_frozen_coins = True'
+    # only checks for coin-level freezing, not address-level.
     def get_addr_balance(self, address, exclude_frozen_coins = False):
         assert isinstance(address, Address)
         received, sent = self.get_addr_io(address)
@@ -675,10 +692,11 @@ class Abstract_Wallet:
         confirmed_only = config.get('confirmed_only', False)
         if isInvoice:
             confirmed_only = True
-        return self.get_utxos(domain, exclude_frozen=True, mature=True, confirmed_only=confirmed_only)
+        return self.get_utxos(domain, exclude_frozen=True, mature=True,
+                              confirmed_only=confirmed_only)
 
-    def get_utxos(self, domain = None, exclude_frozen = False, mature = False, confirmed_only = False):
-        ''' Note that exclude_frozen = True checks for BOTH address-level and coin-level frozen status. '''
+    def get_utxos(self, domain=None, exclude_frozen=False, mature=False, confirmed_only=False):
+        '''Note exclude_frozen=True checks for BOTH address-level and coin-level frozen status. '''
         coins = []
         if domain is None:
             domain = self.get_addresses()
@@ -691,7 +709,8 @@ class Abstract_Wallet:
                     continue
                 if confirmed_only and x['height'] <= 0:
                     continue
-                if mature and x['coinbase'] and x['height'] + COINBASE_MATURITY > self.get_local_height():
+                if (mature and x['coinbase'] and
+                        x['height'] + COINBASE_MATURITY > self.get_local_height()):
                     continue
                 coins.append(x)
                 continue
@@ -705,11 +724,14 @@ class Abstract_Wallet:
 
     def get_frozen_balance(self):
         if not self.frozen_coins:
-            # performance short-cut -- get the balance of the frozen address set only IFF we don't have any frozen coins
+            # performance short-cut -- get the balance of the frozen
+            # address set only IFF we don't have any frozen coins
             return self.get_balance(self.frozen_addresses)
         # otherwise, do this more costly calculation...
-        cc_no_f, uu_no_f, xx_no_f = self.get_balance(None, exclude_frozen_coins = True, exclude_frozen_addresses = True)
-        cc_all, uu_all, xx_all = self.get_balance(None, exclude_frozen_coins = False, exclude_frozen_addresses = False)
+        cc_no_f, uu_no_f, xx_no_f = self.get_balance(None, exclude_frozen_coins=True,
+                                                     exclude_frozen_addresses=True)
+        cc_all, uu_all, xx_all = self.get_balance(None, exclude_frozen_coins=False,
+                                                  exclude_frozen_addresses=False)
         return (cc_all-cc_no_f), (uu_all-uu_no_f), (xx_all-xx_no_f)
 
     def get_balance(self, domain=None, exclude_frozen_coins=False, exclude_frozen_addresses=False):
@@ -823,7 +845,9 @@ class Abstract_Wallet:
             self.tx_addr_hist[tx_hash] = s
             # if addr is new, we have to recompute txi and txo
             tx = self.transactions.get(tx_hash)
-            if tx is not None and self.txi.get(tx_hash, {}).get(addr) is None and self.txo.get(tx_hash, {}).get(addr) is None:
+            if (tx is not None and
+                    self.txi.get(tx_hash, {}).get(addr) is None and
+                    self.txo.get(tx_hash, {}).get(addr) is None):
                 self.add_transaction(tx_hash, tx)
 
         # Store fees
@@ -870,7 +894,8 @@ class Abstract_Wallet:
 
         return h2
 
-    def export_history(self, domain=None, from_timestamp=None, to_timestamp=None, fx=None, show_addresses=False):
+    def export_history(self, domain=None, from_timestamp=None, to_timestamp=None,
+                       fx=None, show_addresses=False):
         h = self.get_history(domain)
         out = []
         for tx_hash, height, conf, timestamp, value, balance in h:
@@ -1022,7 +1047,8 @@ class Abstract_Wallet:
             outputs[i_max] = (_type, data, amount)
             tx = Transaction.from_io(inputs, outputs)
 
-        # If user tries to send too big of a fee (more than 50 sat/byte), stop them from shooting themselves in the foot
+        # If user tries to send too big of a fee (more than 50
+        # sat/byte), stop them from shooting themselves in the foot
         tx_in_bytes=tx.estimated_size()
         fee_in_satoshis=tx.get_fee()
         sats_per_byte=fee_in_satoshis/tx_in_bytes
@@ -1046,13 +1072,16 @@ class Abstract_Wallet:
         return tx
 
     def is_frozen(self, addr):
-        ''' Address-level frozen query. Note: this is set/unset independent of 'coin' level freezing. '''
+        '''Address-level frozen query. Note: this is set/unset independent of
+        'coin' level freezing.'''
         assert isinstance(addr, Address)
         return addr in self.frozen_addresses
 
     def is_frozen_coin(self, utxo):
-        ''' 'coin' level frozen query. `utxo' is a prevout:n string, or a dict as returned from get_utxos().
-            Note: this is set/unset independent of 'address' level freezing. '''
+        ''''coin' level frozen query. `utxo' is a prevout:n string, or a dict
+            as returned from get_utxos().  Note: this is set/unset
+            independent of 'address' level freezing.
+        '''
         assert isinstance(utxo, (str, dict))
         if isinstance(utxo, dict):
             ret = ("{}:{}".format(utxo['prevout_hash'], utxo['prevout_n'])) in self.frozen_coins
@@ -1063,9 +1092,10 @@ class Abstract_Wallet:
         return utxo in self.frozen_coins
 
     def set_frozen_state(self, addrs, freeze):
-        ''' Set frozen state of the addresses to FREEZE, True or False
-            Note that address-level freezing is set/unset independent of coin-level freezing, however both must
-            be satisfied for a coin to be defined as spendable.. '''
+        '''Set frozen state of the addresses to FREEZE, True or False.  Note that address-level
+        freezing is set/unset independent of coin-level freezing, however both must be
+        satisfied for a coin to be defined as spendable.
+        '''
         if all(self.is_mine(addr) for addr in addrs):
             if freeze:
                 self.frozen_addresses |= set(addrs)
@@ -1078,11 +1108,13 @@ class Abstract_Wallet:
         return False
 
     def set_frozen_coin_state(self, utxos, freeze):
-        ''' Set frozen state of the COINS to FREEZE, True or False.
-            utxos is a (possibly mixed) list of either "prevout:n" strings and/or coin-dicts as returned from get_utxos().
-            Note that if passing prevout:n strings as input, 'is_mine()' status is not checked for the specified coin.
-            Also note that coin-level freezing is set/unset independent of address-level freezing, however both must
-            be satisfied for a coin to be defined as spendable. '''
+        '''Set frozen state of the COINS to FREEZE, True or False.  utxos is a (possibly mixed)
+        list of either "prevout:n" strings and/or coin-dicts as returned from get_utxos().
+        Note that if passing prevout:n strings as input, 'is_mine()' status is not checked
+        for the specified coin.  Also note that coin-level freezing is set/unset
+        independent of address-level freezing, however both must be satisfied for a coin
+        to be defined as spendable.
+        '''
         ok = 0
         for utxo in utxos:
             if isinstance(utxo, str):
@@ -1260,7 +1292,8 @@ class Abstract_Wallet:
 
     def add_hw_info(self, tx):
         # add previous tx for hw wallets, if needed and not already there
-        if any([(isinstance(k, Hardware_KeyStore) and k.can_sign(tx) and k.needs_prevtx()) for k in self.get_keystores()]):
+        if any(isinstance(k, Hardware_KeyStore) and k.can_sign(tx) and k.needs_prevtx()
+               for k in self.get_keystores()):
             for txin in tx.inputs():
                 if 'prev_tx' not in txin:
                     txin['prev_tx'] = self.get_input_tx(txin['prevout_hash'])
@@ -1274,7 +1307,8 @@ class Abstract_Wallet:
                 pubkeys = self.get_public_keys(addr)
                 # sort xpubs using the order of pubkeys
                 sorted_pubkeys, sorted_xpubs = zip(*sorted(zip(pubkeys, xpubs)))
-                info[addr] = index, sorted_xpubs, self.m if isinstance(self, Multisig_Wallet) else None
+                info[addr] = (index, sorted_xpubs, self.m if isinstance(self, Multisig_Wallet)
+                              else None)
         tx.output_info = info
 
     def sign_transaction(self, tx, password):
@@ -1283,7 +1317,8 @@ class Abstract_Wallet:
         # add input values for signing
         self.add_input_values_to_tx(tx)
         # hardware wallets require extra info
-        if any([(isinstance(k, Hardware_KeyStore) and k.can_sign(tx)) for k in self.get_keystores()]):
+        if any([(isinstance(k, Hardware_KeyStore) and k.can_sign(tx))
+                for k in self.get_keystores()]):
             self.add_hw_info(tx)
         # sign
         for k in self.get_keystores():
@@ -1388,7 +1423,8 @@ class Abstract_Wallet:
             if self.up_to_date:
                 paid, conf = self.get_payment_status(address, amount)
                 status = PR_PAID if paid else PR_UNPAID
-                if status == PR_UNPAID and expiration is not None and time.time() > timestamp + expiration:
+                if (status == PR_UNPAID and expiration is not None and
+                       time.time() > timestamp + expiration):
                     status = PR_EXPIRED
             else:
                 status = PR_UNKNOWN
@@ -1486,7 +1522,8 @@ class Abstract_Wallet:
                 return self.get_address_index(addr) or addr
             except:
                 return addr
-        return sorted(map(lambda x: self.get_payment_request(x, config), self.receive_requests.keys()), key=f)
+        return sorted(map(lambda x: self.get_payment_request(x, config),
+                          self.receive_requests.keys()), key=f)
 
     def get_fingerprint(self):
         raise NotImplementedError()
@@ -1856,7 +1893,8 @@ class Deterministic_Wallet(Abstract_Wallet):
     def synchronize_sequence(self, for_change):
         limit = self.gap_limit_for_change if for_change else self.gap_limit
         while True:
-            addresses = self.get_change_addresses() if for_change else self.get_receiving_addresses()
+            addresses = (self.get_change_addresses() if for_change
+                         else self.get_receiving_addresses())
             if len(addresses) < limit:
                 self.create_new_address(for_change)
                 continue

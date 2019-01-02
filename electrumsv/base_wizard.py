@@ -85,7 +85,8 @@ class BaseWizard(object):
             ('imported',  _("Import Bitcoin addresses or private keys")),
         ]
         choices = [pair for pair in wallet_kinds if pair[0] in wallet_types]
-        self.choice_dialog(title=title, message=message, choices=choices, run_next=self.on_wallet_type)
+        self.choice_dialog(title=title, message=message, choices=choices,
+                           run_next=self.on_wallet_type)
 
     def on_wallet_type(self, choice):
         self.wallet_type = choice
@@ -108,9 +109,11 @@ class BaseWizard(object):
     def choose_keystore(self):
         assert self.wallet_type in ['standard', 'multisig']
         i = len(self.keystores)
-        title = _('Add cosigner') + ' (%d of %d)'%(i+1, self.n) if self.wallet_type=='multisig' else _('Keystore')
+        title = (_('Add cosigner') + ' (%d of %d)'%(i+1, self.n)
+                 if self.wallet_type=='multisig' else _('Keystore'))
         if self.wallet_type =='standard' or i==0:
-            message = _('Do you want to create a new seed, or to restore a wallet using an existing seed?')
+            message = _('Do you want to create a new seed, or to restore a '
+                        'wallet using an existing seed?')
             choices = [
                 ('create_standard_seed', _('Create a new seed')),
                 ('restore_from_seed', _('I already have a seed')),
@@ -130,7 +133,8 @@ class BaseWizard(object):
     def import_addresses_or_keys(self):
         v = lambda x: keystore.is_address_list(x) or keystore.is_private_key_list(x)
         title = _("Import Bitcoin Addresses")
-        message = _("Enter a list of Bitcoin addresses (this will create a watching-only wallet), or a list of private keys.")
+        message = _("Enter a list of Bitcoin addresses (this will create a "
+                    "watching-only wallet), or a list of private keys.")
         self.add_xpub_dialog(title=title, message=message, run_next=self.on_import,
                              is_valid=v, allow_multi=True)
 
@@ -150,13 +154,17 @@ class BaseWizard(object):
             v = keystore.is_master_key
             title = _("Create keystore from a master key")
             message = ' '.join([
-                _("To create a watching-only wallet, please enter your master public key (xpub/ypub/zpub)."),
-                _("To create a spending wallet, please enter a master private key (xprv/yprv/zprv).")
+                _("To create a watching-only wallet, please enter your master "
+                  "public key (xpub/ypub/zpub)."),
+                _("To create a spending wallet, please enter a master private "
+                  "key (xprv/yprv/zprv).")
             ])
-            self.add_xpub_dialog(title=title, message=message, run_next=self.on_restore_from_key, is_valid=v)
+            self.add_xpub_dialog(title=title, message=message,
+                                 run_next=self.on_restore_from_key, is_valid=v)
         else:
             i = len(self.keystores) + 1
-            self.add_cosigner_dialog(index=i, run_next=self.on_restore_from_key, is_valid=keystore.is_bip32_key)
+            self.add_cosigner_dialog(index=i, run_next=self.on_restore_from_key,
+                                     is_valid=keystore.is_bip32_key)
 
     def on_restore_from_key(self, text):
         k = keystore.from_master_key(text)
@@ -202,12 +210,15 @@ class BaseWizard(object):
             msg = ''.join([
                 _('No hardware device detected.') + '\n',
                 _('To trigger a rescan, press \'Next\'.') + '\n\n',
-                _('If your device is not detected on Windows, go to "Settings", "Devices", "Connected devices", and do "Remove device". Then, plug your device again.') + ' ',
+                _('If your device is not detected on Windows, go to "Settings", "Devices", '
+                  '"Connected devices", and do "Remove device". '
+                  'Then, plug your device again.') + ' ',
                 _('On Linux, you might have to add a new permission to your udev rules.') + '\n\n',
                 _('Debug message') + '\n',
                 debug_msg
             ])
-            self.confirm_dialog(title=title, message=msg, run_next= lambda x: self.choose_hw_device())
+            self.confirm_dialog(title=title, message=msg,
+                                run_next= lambda x: self.choose_hw_device())
             return
         # select device
         self.devices = devices
@@ -254,9 +265,13 @@ class BaseWizard(object):
             _('If you are not sure what this is, leave this field unchanged.'),
             _("If you want the wallet to use BTC addresses use m/44'/0'/0'"),
             _("If you want the wallet to use BCH(ABC) or BSV addresses use m/44'/145'/0'"),
-            _("The placeholder value of {} is the default derivation for {} wallets.").format(default_derivation, self.wallet_type),
+            _("The placeholder value of {} is the default derivation for {} wallets.")
+            .format(default_derivation, self.wallet_type),
         ])
-        self.line_dialog(run_next=f, title=_('Derivation for {} wallet').format(self.wallet_type), message=message, default=default_derivation, test=bitcoin.is_bip32_derivation)
+        self.line_dialog(run_next=f,
+                         title=_('Derivation for {} wallet').format(self.wallet_type),
+                         message=message, default=default_derivation,
+                         test=bitcoin.is_bip32_derivation)
 
     def on_hw_derivation(self, name, device_info, derivation):
         from .keystore import hardware_keystore
@@ -286,7 +301,8 @@ class BaseWizard(object):
             _('Note that this is NOT your encryption password.'),
             _('If you do not know what this is, leave this field empty.'),
         ])
-        self.line_dialog(title=title, message=message, warning=warning, default='', test=lambda x:True, run_next=run_next)
+        self.line_dialog(title=title, message=message, warning=warning, default='',
+                         test=lambda x:True, run_next=run_next)
 
     def restore_from_seed(self):
         self.opt_bip39 = True
@@ -344,7 +360,8 @@ class BaseWizard(object):
             if len(self.keystores)>0:
                 t2 = xpub_type(self.keystores[0].xpub)
                 if t1 != t2:
-                    self.show_error(_('Cannot add this cosigner:') + '\n' + "Their key type is '%s', we are '%s'"%(t1, t2))
+                    self.show_error(_('Cannot add this cosigner:') + '\n' +
+                                    "Their key type is '%s', we are '%s'"%(t1, t2))
                     self.run('choose_keystore')
                     return
             self.keystores.append(k)
@@ -415,7 +432,8 @@ class BaseWizard(object):
                 _('Your seed extension must be saved together with your seed.'),
                 _('Please type it here.'),
             ])
-            self.line_dialog(run_next=f, title=title, message=message, default='', test=lambda x: x==passphrase)
+            self.line_dialog(run_next=f, title=title, message=message, default='',
+                             test=lambda x: x==passphrase)
         else:
             f('')
 
@@ -426,4 +444,3 @@ class BaseWizard(object):
             self.terminate()
         msg = _("ElectrumSV is generating your addresses, please wait.")
         self.waiting_dialog(task, msg)
-

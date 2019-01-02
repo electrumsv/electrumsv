@@ -1,5 +1,6 @@
 # taken (with minor modifications) from pycoin
-# https://github.com/richardkiss/pycoin/blob/01b1787ed902df23f99a55deb00d8cd076a906fe/pycoin/ecdsa/native/secp256k1.py
+# https://github.com/richardkiss/pycoin/blob/01b1787ed902df23f99a55deb00d8cd076a906fe/
+# pycoin/ecdsa/native/secp256k1.py
 
 import ctypes
 from ctypes import (
@@ -57,7 +58,8 @@ def load_library():
         secp256k1.secp256k1_ec_pubkey_create.argtypes = [c_void_p, c_void_p, c_char_p]
         secp256k1.secp256k1_ec_pubkey_create.restype = c_int
 
-        secp256k1.secp256k1_ecdsa_sign.argtypes = [c_void_p, c_char_p, c_char_p, c_char_p, c_void_p, c_void_p]
+        secp256k1.secp256k1_ecdsa_sign.argtypes = [c_void_p, c_char_p, c_char_p,
+                                                   c_char_p, c_void_p, c_void_p]
         secp256k1.secp256k1_ecdsa_sign.restype = c_int
 
         secp256k1.secp256k1_ecdsa_verify.argtypes = [c_void_p, c_char_p, c_char_p, c_char_p]
@@ -66,7 +68,8 @@ def load_library():
         secp256k1.secp256k1_ec_pubkey_parse.argtypes = [c_void_p, c_char_p, c_char_p, c_size_t]
         secp256k1.secp256k1_ec_pubkey_parse.restype = c_int
 
-        secp256k1.secp256k1_ec_pubkey_serialize.argtypes = [c_void_p, c_char_p, c_void_p, c_char_p, c_uint]
+        secp256k1.secp256k1_ec_pubkey_serialize.argtypes = [c_void_p, c_char_p, c_void_p,
+                                                            c_char_p, c_uint]
         secp256k1.secp256k1_ec_pubkey_serialize.restype = c_int
 
         secp256k1.secp256k1_ecdsa_signature_parse_compact.argtypes = [c_void_p, c_char_p, c_char_p]
@@ -75,13 +78,15 @@ def load_library():
         secp256k1.secp256k1_ecdsa_signature_normalize.argtypes = [c_void_p, c_char_p, c_char_p]
         secp256k1.secp256k1_ecdsa_signature_normalize.restype = c_int
 
-        secp256k1.secp256k1_ecdsa_signature_serialize_compact.argtypes = [c_void_p, c_char_p, c_char_p]
+        secp256k1.secp256k1_ecdsa_signature_serialize_compact.argtypes = [c_void_p, c_char_p,
+                                                                          c_char_p]
         secp256k1.secp256k1_ecdsa_signature_serialize_compact.restype = c_int
 
         secp256k1.secp256k1_ec_pubkey_tweak_mul.argtypes = [c_void_p, c_char_p, c_char_p]
         secp256k1.secp256k1_ec_pubkey_tweak_mul.restype = c_int
 
-        secp256k1.ctx = secp256k1.secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY)
+        secp256k1.ctx = secp256k1.secp256k1_context_create(SECP256K1_CONTEXT_SIGN |
+                                                           SECP256K1_CONTEXT_VERIFY)
         r = secp256k1.secp256k1_context_randomize(secp256k1.ctx, os.urandom(32))
         if r:
             return secp256k1
@@ -89,7 +94,8 @@ def load_library():
             logger.warning('secp256k1_context_randomize failed')
             return None
     except (OSError, AttributeError):
-        logger.exception('libsecp256k1 library was found and loaded but there was an error when using it')
+        logger.exception('libsecp256k1 library was found and loaded but '
+                         'there was an error when using it')
         return None
 
 
@@ -119,19 +125,22 @@ def _prepare_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1():
         if self == point_at_infinity or other == 0:
             return point_at_infinity
         pubkey = create_string_buffer(64)
-        public_pair_bytes = b'\4' + self.x().to_bytes(32, byteorder="big") + self.y().to_bytes(32, byteorder="big")
+        public_pair_bytes = (b'\4' + self.x().to_bytes(32, byteorder="big") +
+                             self.y().to_bytes(32, byteorder="big"))
         r = _libsecp256k1.secp256k1_ec_pubkey_parse(
             _libsecp256k1.ctx, pubkey, public_pair_bytes, len(public_pair_bytes))
         if not r:
             return False
-        r = _libsecp256k1.secp256k1_ec_pubkey_tweak_mul(_libsecp256k1.ctx, pubkey, other.to_bytes(32, byteorder="big"))
+        r = _libsecp256k1.secp256k1_ec_pubkey_tweak_mul(_libsecp256k1.ctx, pubkey,
+                                                        other.to_bytes(32, byteorder="big"))
         if not r:
             return point_at_infinity
 
         pubkey_serialized = create_string_buffer(65)
         pubkey_size = c_size_t(65)
         _libsecp256k1.secp256k1_ec_pubkey_serialize(
-            _libsecp256k1.ctx, pubkey_serialized, byref(pubkey_size), pubkey, SECP256K1_EC_UNCOMPRESSED)
+            _libsecp256k1.ctx, pubkey_serialized, byref(pubkey_size), pubkey,
+            SECP256K1_EC_UNCOMPRESSED)
         x = int.from_bytes(pubkey_serialized[1:33], byteorder="big")
         y = int.from_bytes(pubkey_serialized[33:], byteorder="big")
         return ecdsa.ellipticcurve.Point(curve_secp256k1, x, y, curve_order)
@@ -146,9 +155,11 @@ def _prepare_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1():
         sig = create_string_buffer(64)
         sig_hash_bytes = hash.to_bytes(32, byteorder="big")
         _libsecp256k1.secp256k1_ecdsa_sign(
-            _libsecp256k1.ctx, sig, sig_hash_bytes, secret_exponent.to_bytes(32, byteorder="big"), nonce_function, None)
+            _libsecp256k1.ctx, sig, sig_hash_bytes,
+            secret_exponent.to_bytes(32, byteorder="big"), nonce_function, None)
         compact_signature = create_string_buffer(64)
-        _libsecp256k1.secp256k1_ecdsa_signature_serialize_compact(_libsecp256k1.ctx, compact_signature, sig)
+        _libsecp256k1.secp256k1_ecdsa_signature_serialize_compact(
+            _libsecp256k1.ctx, compact_signature, sig)
         r = int.from_bytes(compact_signature[:32], byteorder="big")
         s = int.from_bytes(compact_signature[32:], byteorder="big")
         return ecdsa.ecdsa.Signature(r, s)
@@ -158,20 +169,23 @@ def _prepare_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1():
             # this operation is not on the secp256k1 curve; use original implementation
             return _patched_functions.orig_verify(self, hash, signature)
         sig = create_string_buffer(64)
-        input64 = signature.r.to_bytes(32, byteorder="big") + signature.s.to_bytes(32, byteorder="big")
+        input64 = (signature.r.to_bytes(32, byteorder="big") +
+                   signature.s.to_bytes(32, byteorder="big"))
         r = _libsecp256k1.secp256k1_ecdsa_signature_parse_compact(_libsecp256k1.ctx, sig, input64)
         if not r:
             return False
         r = _libsecp256k1.secp256k1_ecdsa_signature_normalize(_libsecp256k1.ctx, sig, sig)
 
-        public_pair_bytes = b'\4' + self.point.x().to_bytes(32, byteorder="big") + self.point.y().to_bytes(32, byteorder="big")
+        public_pair_bytes = (b'\4' + self.point.x().to_bytes(32, byteorder="big") +
+                             self.point.y().to_bytes(32, byteorder="big"))
         pubkey = create_string_buffer(64)
         r = _libsecp256k1.secp256k1_ec_pubkey_parse(
             _libsecp256k1.ctx, pubkey, public_pair_bytes, len(public_pair_bytes))
         if not r:
             return False
 
-        return 1 == _libsecp256k1.secp256k1_ecdsa_verify(_libsecp256k1.ctx, sig, hash.to_bytes(32, byteorder="big"), pubkey)
+        return 1 == _libsecp256k1.secp256k1_ecdsa_verify(
+            _libsecp256k1.ctx, sig, hash.to_bytes(32, byteorder="big"), pubkey)
 
     # save new functions so that we can (re-)do patching
     _patched_functions.fast_sign   = sign

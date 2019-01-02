@@ -22,6 +22,7 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import ast
 import base64
 import copy
@@ -192,7 +193,8 @@ class WalletStorage:
             f.flush()
             os.fsync(f.fileno())
 
-        mode = os.stat(self.path).st_mode if os.path.exists(self.path) else stat.S_IREAD | stat.S_IWRITE
+        mode = (os.stat(self.path).st_mode if os.path.exists(self.path)
+                else stat.S_IREAD | stat.S_IWRITE)
         # perform atomic write on POSIX systems
         try:
             os.rename(temp_path, self.path)
@@ -523,7 +525,8 @@ class WalletStorage:
     def get_seed_version(self):
         seed_version = self.get('seed_version')
         if not seed_version:
-            seed_version = OLD_SEED_VERSION if len(self.get('master_public_key','')) == 128 else NEW_SEED_VERSION
+            seed_version = (OLD_SEED_VERSION if len(self.get('master_public_key','')) == 128
+                            else NEW_SEED_VERSION)
         if seed_version > FINAL_SEED_VERSION:
             raise BaseException('This version of Electrum is too old to open this wallet')
         if seed_version >=12:
@@ -538,12 +541,17 @@ class WalletStorage:
         if seed_version in [5, 7, 8, 9, 10, 14]:
             msg += "\n\nTo open this wallet, try 'git checkout seed_v%d'"%seed_version
         if seed_version == 6:
-            # version 1.9.8 created v6 wallets when an incorrect seed was entered in the restore dialog
+            # version 1.9.8 created v6 wallets when an incorrect seed
+            # was entered in the restore dialog
             msg += '\n\nThis file was created because of a bug in version 1.9.8.'
-            if self.get('master_public_keys') is None and self.get('master_private_keys') is None and self.get('imported_keys') is None:
-                # pbkdf2 (at that time an additional dependency) was not included with the binaries, and wallet creation aborted.
+            if (self.get('master_public_keys') is None and
+                self.get('master_private_keys') is None and
+                self.get('imported_keys') is None):
+                # pbkdf2 (at that time an additional dependency) was not included
+                # with the binaries, and wallet creation aborted.
                 msg += "\nIt does not contain any keys, and can safely be removed."
             else:
                 # creation was complete if electrum was run from source
-                msg += "\nPlease open this file with Electrum 1.9.8, and move your coins to a new wallet."
+                msg += ("\nPlease open this file with Electrum 1.9.8, and move "
+                        "your coins to a new wallet.")
         raise BaseException(msg)

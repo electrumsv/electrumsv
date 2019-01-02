@@ -32,12 +32,14 @@ from ecdsa.curves import SECP256k1
 
 # Note: The deserialization code originally comes from ABE.
 
-from .bitcoin import to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, \
-    hash_encode, op_push, Hash, MyVerifyingKey, point_to_ser, push_script, \
-    public_key_to_p2pk_script, int_to_hex, var_int, \
-    public_key_from_private_key, regenerate_key, MySigningKey
-from .address import (PublicKey, Address, Script, ScriptOutput, hash160,
-                      UnknownAddress, OpCodes as opcodes)
+from .bitcoin import (
+    to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, hash_encode, op_push, Hash,
+    MyVerifyingKey, point_to_ser, push_script, public_key_to_p2pk_script, int_to_hex,
+    var_int, public_key_from_private_key, regenerate_key, MySigningKey
+)
+from .address import (
+    PublicKey, Address, Script, ScriptOutput, hash160, UnknownAddress, OpCodes as opcodes
+)
 from .util import profiler, bfh, bh2u
 
 #
@@ -186,12 +188,14 @@ def script_GetOp(_bytes):
                 nSize = _bytes[i] if i < blen else 0
                 i += 1
             elif opcode == opcodes.OP_PUSHDATA2:
-                (nSize,) = struct.unpack_from('<H', _bytes, i) if i+2 <= blen else (0,) # tolerate truncated script
+                # tolerate truncated script
+                (nSize,) = struct.unpack_from('<H', _bytes, i) if i+2 <= blen else (0,)
                 i += 2
             elif opcode == opcodes.OP_PUSHDATA4:
                 (nSize,) = struct.unpack_from('<I', _bytes, i) if i+4 <= blen else (0,)
                 i += 4
-            vch = _bytes[i:i + nSize] # array slicing here never throws exception even if truncated script
+            # array slicing here never throws exception even if truncated script
+            vch = _bytes[i:i + nSize]
             i += nSize
 
         yield opcode, vch, i
@@ -217,8 +221,10 @@ def match_decoded(decoded, to_match):
     if len(decoded) != len(to_match):
         return False
     for i in range(len(decoded)):
-        if to_match[i] == opcodes.OP_PUSHDATA4 and decoded[i][0] <= opcodes.OP_PUSHDATA4 and decoded[i][0]>0:
-            continue  # Opcodes below OP_PUSHDATA4 all just push data onto stack, and are equivalent.
+        # Opcodes below OP_PUSHDATA4 all just push data
+        if (to_match[i] == opcodes.OP_PUSHDATA4 and
+                decoded[i][0] <= opcodes.OP_PUSHDATA4 and decoded[i][0] > 0):
+            continue
         if to_match[i] != decoded[i][0]:
             return False
     return True
@@ -317,7 +323,8 @@ def get_address_from_output_script(_bytes):
 
     # Pay-by-Bitcoin-address TxOuts look like:
     # DUP HASH160 20 BYTES:... EQUALVERIFY CHECKSIG
-    match = [ opcodes.OP_DUP, opcodes.OP_HASH160, opcodes.OP_PUSHDATA4, opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG ]
+    match = [ opcodes.OP_DUP, opcodes.OP_HASH160, opcodes.OP_PUSHDATA4,
+              opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG ]
     if match_decoded(decoded, match):
         return TYPE_ADDRESS, Address.from_P2PKH_hash(decoded[2][1])
 
@@ -422,10 +429,10 @@ class Transaction:
         self.locktime = 0
         self.version = 1
 
-        # Ephemeral meta-data used internally to keep track of interesting things.
-        # This is currently written-to by coinchooser to tell UI code about 'dust_to_fee', which
-        # is change that's too small to go to change outputs (below dust threshold) and needed
-        # to go to the fee. Values in this dict are advisory only and may or may not always be there!
+        # Ephemeral meta-data used internally to keep track of interesting things.  This is
+        # written-to by coinchooser to tell UI code about 'dust_to_fee', which is change
+        # that's too small to go to change outputs (below dust threshold) so added to the fee.
+        # Values in this dict are advisory only and may or may not always be there!
         self.ephemeral = dict()
 
     def update(self, raw):
@@ -472,10 +479,12 @@ class Transaction:
                 sig_string = ecdsa.util.sigencode_string(r, s, order)
                 compressed = True
                 for recid in range(4):
-                    public_key = MyVerifyingKey.from_signature(sig_string, recid, pre_hash, curve = SECP256k1)
+                    public_key = MyVerifyingKey.from_signature(
+                        sig_string, recid, pre_hash, curve = SECP256k1)
                     pubkey = bh2u(point_to_ser(public_key.pubkey.point, compressed))
                     if pubkey in pubkeys:
-                        public_key.verify_digest(sig_string, pre_hash, sigdecode = ecdsa.util.sigdecode_string)
+                        public_key.verify_digest(sig_string, pre_hash,
+                                                 sigdecode=ecdsa.util.sigdecode_string)
                         j = pubkeys.index(pubkey)
                         logger.debug("adding sig %s %s %s %s", i, j, pubkey, sig)
                         self._inputs[i]['signatures'][j] = sig
@@ -599,7 +608,8 @@ class Transaction:
             pubkey = txin['pubkeys'][0]
             return public_key_to_p2pk_script(pubkey)
         elif _type == 'unknown':
-            # this approach enables most P2SH smart contracts (but take care if using OP_CODESEPARATOR)
+            # this approach enables most P2SH smart contracts
+            # (but take care if using OP_CODESEPARATOR)
             return txin['scriptCode']
         else:
             raise RuntimeError('Unknown txin type', _type)
@@ -649,7 +659,8 @@ class Transaction:
         txin = inputs[i]
 
         hashPrevouts = bh2u(Hash(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
-        hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4) for txin in inputs))))
+        hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
+                                             for txin in inputs))))
         hashOutputs = bh2u(Hash(bfh(''.join(self.serialize_output(o) for o in outputs))))
         outpoint = self.serialize_outpoint(txin)
         preimage_script = self.get_preimage_script(txin)
@@ -659,7 +670,8 @@ class Transaction:
         except KeyError:
             raise InputValueMissing
         nSequence = int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
-        preimage = nVersion + hashPrevouts + hashSequence + outpoint + scriptCode + amount + nSequence + hashOutputs + nLocktime + nHashType
+        preimage = (nVersion + hashPrevouts + hashSequence + outpoint +
+                    scriptCode + amount + nSequence + hashOutputs + nLocktime + nHashType)
         return preimage
 
     def serialize(self, estimate_size=False):
@@ -667,7 +679,10 @@ class Transaction:
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
-        txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size), estimate_size) for txin in inputs)
+        txins = var_int(len(inputs)) + ''.join(
+            self.serialize_input(txin, self.input_script(txin, estimate_size), estimate_size)
+            for txin in inputs
+        )
         txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
         return nVersion + txins + txouts + nLocktime
 
@@ -746,8 +761,11 @@ class Transaction:
                     secexp = pkey.secret
                     private_key = MySigningKey.from_secret_exponent(secexp, curve = SECP256k1)
                     public_key = private_key.get_verifying_key()
-                    sig = private_key.sign_digest_deterministic(pre_hash, hashfunc=hashlib.sha256, sigencode = ecdsa.util.sigencode_der)
-                    assert public_key.verify_digest(sig, pre_hash, sigdecode = ecdsa.util.sigdecode_der)
+                    sig = private_key.sign_digest_deterministic(
+                        pre_hash, hashfunc=hashlib.sha256,
+                        sigencode = ecdsa.util.sigencode_der)
+                    assert public_key.verify_digest(sig, pre_hash,
+                                                    sigdecode=ecdsa.util.sigdecode_der)
                     txin['signatures'][j] = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
                     txin['pubkeys'][j] = pubkey # needed for fd keys
                     self._inputs[i] = txin
@@ -766,7 +784,8 @@ class Transaction:
 
 
     def has_address(self, addr):
-        return (addr in self.get_output_addresses()) or (addr in (tx.get("address") for tx in self.inputs()))
+        return (addr in self.get_output_addresses() or
+                addr in (tx.get("address") for tx in self.inputs()))
 
     def is_final(self):
         return not any([x.get('sequence', 0xffffffff - 1) < 0xffffffff - 1

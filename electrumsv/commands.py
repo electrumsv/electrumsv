@@ -134,9 +134,10 @@ class Commands:
 
     @staticmethod
     def _EnsureDictNamedTuplesAreJSONSafe(d):
-        """ Address, ScriptOutput and other objects contain bytes.  They cannot be serialized
-            using JSON. This makes sure they get serialized properly by calling .to_ui_string() on them.
-            See issue #638 """
+        """Address, ScriptOutput and other objects contain bytes.  They cannot be serialized
+            using JSON. This makes sure they get serialized properly by calling
+            .to_ui_string() on them.  See issue #638
+        """
         def DoChk(v):
             def ChkList(l):
                 for i in range(0,len(l)): l[i] = DoChk(l[i]) # recurse
@@ -262,7 +263,8 @@ class Commands:
                 txin['signatures'] = [None]
                 txin['num_sig'] = 1
 
-        outputs = [(TYPE_ADDRESS, Address.from_string(x['address']), int(x['value'])) for x in outputs]
+        outputs = [(TYPE_ADDRESS, Address.from_string(x['address']), int(x['value']))
+                   for x in outputs]
         tx = Transaction.from_io(inputs, outputs, locktime=locktime)
         tx.sign(keypairs)
         return tx.as_dict()
@@ -315,7 +317,8 @@ class Commands:
 
     @command('wp')
     def getprivatekeys(self, address, password=None):
-        """Get private keys of addresses. You may pass a single wallet address, or a list of wallet addresses."""
+        """Get private keys of addresses. You may pass a single wallet address, or a list of
+        wallet addresses."""
         def get_pk(address):
             address = Address.from_string(address)
             return self.wallet.export_private_key(address, password)
@@ -334,7 +337,8 @@ class Commands:
     @command('')
     def dumpprivkeys(self):
         """Deprecated."""
-        return "This command is deprecated. Use a pipe instead: 'electrum-sv listaddresses | electrum-sv getprivatekeys - '"
+        return ("This command is deprecated. Use a pipe instead: "
+                "'electrum-sv listaddresses | electrum-sv getprivatekeys - '")
 
     @command('')
     def validateaddress(self, address):
@@ -373,7 +377,8 @@ class Commands:
     def getmerkle(self, txid, height):
         """Get Merkle branch of a transaction included in a block. Electrum
         uses this to verify transactions (Simple Payment Verification)."""
-        return self.network.synchronous_get(('blockchain.transaction.get_merkle', [txid, int(height)]))
+        return self.network.synchronous_get(('blockchain.transaction.get_merkle',
+                                             [txid, int(height)]))
 
     @command('n')
     def getservers(self):
@@ -406,7 +411,8 @@ class Commands:
     def importprivkey(self, privkey, password=None):
         """Import a private key."""
         if not self.wallet.can_import_privkey():
-            return "Error: This type of wallet cannot import private keys. Try to create a new wallet with that key."
+            return ("Error: This type of wallet cannot import private keys. "
+                    "Try to create a new wallet with that key.")
         try:
             addr = self.wallet.import_private_key(privkey, password)
             out = "Keypair imported: " + addr
@@ -418,7 +424,9 @@ class Commands:
         if x is None:
             return None
         out = self.wallet.contacts.resolve(x)
-        if out.get('type') == 'openalias' and self.nocheck is False and out.get('validated') is False:
+        if (out.get('type') == 'openalias' and
+                self.nocheck is False and
+                out.get('validated') is False):
             raise BaseException('cannot verify alias', x)
         return out['address']
 
@@ -463,7 +471,8 @@ class Commands:
             final_outputs.append((TYPE_ADDRESS, address, amount))
 
         coins = self.wallet.get_spendable_coins(domain, self.config)
-        tx = self.wallet.make_unsigned_transaction(coins, final_outputs, self.config, fee, change_addr)
+        tx = self.wallet.make_unsigned_transaction(coins, final_outputs, self.config,
+                                                   fee, change_addr)
         if locktime is not None:
             tx.locktime = locktime
         if not unsigned:
@@ -472,19 +481,23 @@ class Commands:
         return tx
 
     @command('wp')
-    def payto(self, destination, amount, fee=None, from_addr=None, change_addr=None, nocheck=False, unsigned=False, password=None, locktime=None):
+    def payto(self, destination, amount, fee=None, from_addr=None, change_addr=None,
+              nocheck=False, unsigned=False, password=None, locktime=None):
         """Create a transaction. """
         tx_fee = satoshis(fee)
         domain = from_addr.split(',') if from_addr else None
-        tx = self._mktx([(destination, amount)], tx_fee, change_addr, domain, nocheck, unsigned, password, locktime)
+        tx = self._mktx([(destination, amount)], tx_fee, change_addr, domain,
+                        nocheck, unsigned, password, locktime)
         return tx.as_dict()
 
     @command('wp')
-    def paytomany(self, outputs, fee=None, from_addr=None, change_addr=None, nocheck=False, unsigned=False, password=None, locktime=None):
+    def paytomany(self, outputs, fee=None, from_addr=None, change_addr=None, nocheck=False,
+                  unsigned=False, password=None, locktime=None):
         """Create a multi-output transaction. """
         tx_fee = satoshis(fee)
         domain = from_addr.split(',') if from_addr else None
-        tx = self._mktx(outputs, tx_fee, change_addr, domain, nocheck, unsigned, password, locktime)
+        tx = self._mktx(outputs, tx_fee, change_addr, domain, nocheck, unsigned,
+                        password, locktime)
         return tx.as_dict()
 
     @command('w')
@@ -529,8 +542,11 @@ class Commands:
         return results
 
     @command('w')
-    def listaddresses(self, receiving=False, change=False, labels=False, frozen=False, unused=False, funded=False, balance=False):
-        """List wallet addresses. Returns the list of all addresses in your wallet. Use optional arguments to filter the results."""
+    def listaddresses(self, receiving=False, change=False, labels=False, frozen=False,
+                      unused=False, funded=False, balance=False):
+        """List wallet addresses. Returns the list of all addresses in your wallet. Use optional
+        arguments to filter the results.
+        """
         out = []
         for addr in self.wallet.get_addresses():
             if frozen and not self.wallet.is_frozen(addr):
@@ -596,11 +612,6 @@ class Commands:
             raise BaseException("Request not found")
         return self._format_request(r)
 
-    #@command('w')
-    #def ackrequest(self, serialized):
-    #    """<Not implemented>"""
-    #    pass
-
     @command('w')
     def listrequests(self, pending=False, expired=False, paid=False):
         """List the payment requests you made."""
@@ -624,15 +635,19 @@ class Commands:
 
     @command('w')
     def getunusedaddress(self):
-        """Returns the first unused address of the wallet, or None if all addresses are used.
-        An address is considered as used if it has received a transaction, or if it is used in a payment request."""
+        """Returns the first unused address of the wallet, or None if all addresses are used.  An
+        address is considered as used if it has received a transaction, or if it is used
+        in a payment request.
+        """
         return self.wallet.get_unused_address().to_ui_string()
 
     @command('w')
     def addrequest(self, amount, memo='', expiration=None, force=False):
-        """Create a payment request, using the first unused address of the wallet.
-        The address will be condidered as used after this operation.
-        If no payment is received, the address will be considered as unused if the payment request is deleted from the wallet."""
+        """Create a payment request, using the first unused address of the wallet.  The address
+        will be condidered as used after this operation.  If no payment is received, the
+        address will be considered as unused if the payment request is deleted from the
+        wallet.
+        """
         addr = self.wallet.get_unused_address()
         if addr is None:
             if force:
@@ -732,8 +747,10 @@ command_options = {
     'nocheck':     (None, "Do not verify aliases"),
     'imax':        (None, "Maximum number of inputs"),
     'fee':         ("-f", "Transaction fee (in BTC)"),
-    'from_addr':   ("-F", "Source address (must be a wallet address; use sweep to spend from non-wallet address)."),
-    'change_addr': ("-c", "Change address. Default is a spare address, or the source address if it's not in the wallet"),
+    'from_addr':   ("-F", "Source address (must be a wallet address; "
+                    "use sweep to spend from non-wallet address)."),
+    'change_addr': ("-c", "Change address. Default is a spare address, or the source "
+                    "address if it's not in the wallet"),
     'nbits':       (None, "Number of bits of entropy"),
     'language':    ("-L", "Default language for wordlist"),
     'privkey':     (None, "Private key. Set to '?' to get a prompt."),
@@ -743,7 +760,8 @@ command_options = {
     'memo':        ("-m", "Description of the request"),
     'expiration':  (None, "Time in seconds"),
     'timeout':     (None, "Timeout in seconds"),
-    'force':       (None, "Create new address beyond gap limit, if no more addresses are available."),
+    'force':       (None, "Create new address beyond gap limit, if no more addresses "
+                    "are available."),
     'pending':     (None, "Show only pending requests."),
     'expired':     (None, "Show only expired requests."),
     'paid':        (None, "Show only paid requests."),
@@ -776,16 +794,21 @@ config_variables = {
     'addrequest': {
         'requests_dir': 'directory where a bip70 file will be written.',
         'ssl_privkey': 'Path to your SSL private key, needed to sign the request.',
-        'ssl_chain': 'Chain of SSL certificates, needed for signed requests. Put your certificate at the top and the root CA at the end',
-        'url_rewrite': 'Parameters passed to str.replace(), in order to create the r= part of bitcoincash: URIs. Example: \"(\'file:///var/www/\',\'https://electrum.org/\')\"',
+        'ssl_chain': ('Chain of SSL certificates, needed for signed requests. '
+                      'Put your certificate at the top and the root CA at the end'),
+        'url_rewrite': ('Parameters passed to str.replace(), in order to create the r= part '
+                        'of bitcoincash: URIs. Example: '
+                        '\"(\'file:///var/www/\',\'https://electrum.org/\')\"'),
     },
     'listrequests':{
-        'url_rewrite': 'Parameters passed to str.replace(), in order to create the r= part of bitcoincash: URIs. Example: \"(\'file:///var/www/\',\'https://electrum.org/\')\"',
+        'url_rewrite': ('Parameters passed to str.replace(), in order to create the r= part '
+                        'of bitcoincash: URIs. Example: '
+                        '\"(\'file:///var/www/\',\'https://electrum.org/\')\"'),
     }
 }
 
 def set_default_subparser(self, name, args=None):
-    """see http://stackoverflow.com/questions/5176691/argparse-how-to-specify-a-default-subcommand"""
+    """see http://stackoverflow.com/questions/5176691"""
     subparser_found = False
     for arg in sys.argv[1:]:
         if arg in ['-h', '--help']:  # global help if no subparser
@@ -837,19 +860,28 @@ argparse._SubParsersAction.__call__ = subparser_call
 
 
 def add_network_options(parser):
-    parser.add_argument("-1", "--oneserver", action="store_true", dest="oneserver", default=False, help="connect to one server only")
-    parser.add_argument("-s", "--server", dest="server", default=None, help="set server host:port:protocol, where protocol is either t (tcp) or s (ssl)")
-    parser.add_argument("-p", "--proxy", dest="proxy", default=None, help="set proxy [type:]host[:port], where type is socks4,socks5 or http")
+    parser.add_argument("-1", "--oneserver", action="store_true", dest="oneserver",
+                        default=False, help="connect to one server only")
+    parser.add_argument("-s", "--server", dest="server", default=None,
+                        help="set server host:port:protocol, where protocol is either "
+                        "t (tcp) or s (ssl)")
+    parser.add_argument("-p", "--proxy", dest="proxy", default=None,
+                        help="set proxy [type:]host[:port], where type is socks4,socks5 or http")
 
 def add_global_options(parser):
     group = parser.add_argument_group('global options')
-    group.add_argument("-v", "--verbose", action="store_true", dest="verbose", default=False, help="Show debugging information")
+    group.add_argument("-v", "--verbose", action="store_true", dest="verbose", default=False,
+                       help="Show debugging information")
     group.add_argument("-D", "--dir", dest="electrum_sv_path", help="ElectrumSV directory")
-    group.add_argument("-P", "--portable", action="store_true", dest="portable", default=False, help="Use local 'electrum_data' directory")
+    group.add_argument("-P", "--portable", action="store_true", dest="portable", default=False,
+                       help="Use local 'electrum_data' directory")
     group.add_argument("-w", "--wallet", dest="wallet_path", help="wallet path")
-    group.add_argument("-wp", "--walletpassword", dest="wallet_password", default=None, help="Supply wallet password")
-    group.add_argument("--testnet", action="store_true", dest="testnet", default=False, help="Use Testnet")
-    group.add_argument("--file-logging", action="store_true", dest="file_logging", default=False, help="Redirect logging to log file")
+    group.add_argument("-wp", "--walletpassword", dest="wallet_password", default=None,
+                       help="Supply wallet password")
+    group.add_argument("--testnet", action="store_true", dest="testnet", default=False,
+                       help="Use Testnet")
+    group.add_argument("--file-logging", action="store_true", dest="file_logging", default=False,
+                       help="Redirect logging to log file")
 
 def get_parser():
     # create main parser
@@ -858,17 +890,24 @@ def get_parser():
     add_global_options(parser)
     subparsers = parser.add_subparsers(dest='cmd', metavar='<command>')
     # gui
-    parser_gui = subparsers.add_parser('gui', description="Run Electrum's Graphical User Interface.", help="Run GUI (default)")
+    parser_gui = subparsers.add_parser('gui',
+                                       description="Run Electrum's Graphical User Interface.",
+                                       help="Run GUI (default)")
     parser_gui.add_argument("url", nargs='?', default=None, help="bitcoin URI (or bip70 file)")
-    parser_gui.add_argument("-g", "--gui", dest="gui", help="select graphical user interface", choices=['qt', 'text', 'stdio'])
-    parser_gui.add_argument("-o", "--offline", action="store_true", dest="offline", default=False, help="Run offline")
-    parser_gui.add_argument("-m", action="store_true", dest="hide_gui", default=False, help="hide GUI on startup")
-    parser_gui.add_argument("-L", "--lang", dest="language", default=None, help="default language used in GUI")
+    parser_gui.add_argument("-g", "--gui", dest="gui", help="select graphical user interface",
+                            choices=['qt', 'text', 'stdio'])
+    parser_gui.add_argument("-o", "--offline", action="store_true", dest="offline", default=False,
+                            help="Run offline")
+    parser_gui.add_argument("-m", action="store_true", dest="hide_gui", default=False,
+                            help="hide GUI on startup")
+    parser_gui.add_argument("-L", "--lang", dest="language", default=None,
+                            help="default language used in GUI")
     add_network_options(parser_gui)
     add_global_options(parser_gui)
     # daemon
     parser_daemon = subparsers.add_parser('daemon', help="Run Daemon")
-    parser_daemon.add_argument("subcommand", choices=['start', 'status', 'stop', 'load_wallet', 'close_wallet'], nargs='?')
+    parser_daemon.add_argument("subcommand", choices=['start', 'status', 'stop',
+                                                      'load_wallet', 'close_wallet'], nargs='?')
     #parser_daemon.set_defaults(func=run_daemon)
     add_network_options(parser_daemon)
     add_global_options(parser_daemon)
@@ -878,7 +917,8 @@ def get_parser():
         p = subparsers.add_parser(cmdname, help=cmd.help, description=cmd.description)
         add_global_options(p)
         if cmdname == 'restore':
-            p.add_argument("-o", "--offline", action="store_true", dest="offline", default=False, help="Run offline")
+            p.add_argument("-o", "--offline", action="store_true", dest="offline", default=False,
+                           help="Run offline")
         for optname, default in zip(cmd.options, cmd.defaults):
             a, help = command_options[optname]
             b = '--' + optname
@@ -886,7 +926,8 @@ def get_parser():
             args = (a, b) if a else (b,)
             if action == 'store':
                 _type = arg_types.get(optname, str)
-                p.add_argument(*args, dest=optname, action=action, default=default, help=help, type=_type)
+                p.add_argument(*args, dest=optname, action=action, default=default,
+                               help=help, type=_type)
             else:
                 p.add_argument(*args, dest=optname, action=action, default=default, help=help)
 
@@ -897,7 +938,8 @@ def get_parser():
 
         cvh = config_variables.get(cmdname)
         if cvh:
-            group = p.add_argument_group('configuration variables', '(set with setconfig/getconfig)')
+            group = p.add_argument_group('configuration variables',
+                                         '(set with setconfig/getconfig)')
             for k, v in cvh.items():
                 group.add_argument(k, nargs='?', help=v)
 

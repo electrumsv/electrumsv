@@ -30,23 +30,27 @@ import sys
 import time
 import urllib.parse
 
-try:
-    from . import paymentrequest_pb2 as pb2
-except ImportError:
-    sys.exit("Error: could not find paymentrequest_pb2.py. Create it with 'protoc --proto_path=lib/ --python_out=lib/ lib/paymentrequest.proto'")
-
 from . import bitcoin
-from . import util
-from .util import bh2u, bfh
-from .util import FileImportFailed, FileImportFailedEncrypted
-from . import transaction
-from . import x509
+# Create with 'protoc --proto_path=lib/ --python_out=lib/ lib/paymentrequest.proto'
+from . import paymentrequest_pb2 as pb2
 from . import rsakey
+from . import transaction
+from . import util
+from . import x509
+from .util import FileImportFailed, FileImportFailedEncrypted
+from .util import bh2u, bfh
 
 logger = logging.getLogger("paymentrequest")
 
-REQUEST_HEADERS = {'Accept': 'application/bitcoincash-paymentrequest', 'User-Agent': 'Electrum-SV'}
-ACK_HEADERS = {'Content-Type':'application/bitcoincash-payment','Accept':'application/bitcoincash-paymentack','User-Agent':'Electrum-SV'}
+REQUEST_HEADERS = {
+    'Accept': 'application/bitcoincash-paymentrequest',
+    'User-Agent': 'Electrum-SV'
+}
+ACK_HEADERS = {
+    'Content-Type': 'application/bitcoincash-payment',
+    'Accept': 'application/bitcoincash-paymentack',
+    'User-Agent': 'Electrum-SV'
+}
 
 ca_path = requests.certs.where()
 ca_list = None
@@ -292,7 +296,8 @@ class PaymentRequest:
             paymntack = pb2.PaymentACK()
             paymntack.ParseFromString(r.content)
         except Exception:
-            return False, "PaymentACK could not be processed. Payment was sent; please manually verify that payment was received."
+            return False, ("PaymentACK could not be processed. Payment was sent; "
+                           "please manually verify that payment was received.")
         logger.debug("PaymentACK message received: %s", paymntack.memo)
         return True, paymntack.memo
 
@@ -531,4 +536,5 @@ class InvoiceStore(object):
         return self.invoices.values()
 
     def unpaid_invoices(self):
-        return [ self.invoices[k] for k in filter(lambda x: self.get_status(x)!=PR_PAID, self.invoices.keys())]
+        return [invoice for key, invoice in self.invoices.items()
+                if self.get_status(key) != PR_PAID]

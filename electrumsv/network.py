@@ -201,7 +201,7 @@ class Network(util.DaemonThread):
             self.default_server = pick_random_server()
 
         self.lock = threading.Lock()
-        # locks: if you need to take multiple ones, acquire them in the order they are defined here!
+        # locks: if you need to take several acquire them in the order they are defined here!
         self.interface_lock = threading.RLock()            # <- re-entrant
         self.pending_sends_lock = threading.Lock()
 
@@ -249,7 +249,8 @@ class Network(util.DaemonThread):
         self.connecting = set()
         self.requested_chunks = set()
         self.socket_queue = queue.Queue()
-        self.start_network(deserialize_server(self.default_server)[2], deserialize_proxy(self.config.get('proxy')))
+        self.start_network(deserialize_server(self.default_server)[2],
+                           deserialize_proxy(self.config.get('proxy')))
 
     def register_callback(self, callback, events):
         with self.lock:
@@ -330,7 +331,8 @@ class Network(util.DaemonThread):
         return message_id
 
     def send_subscriptions(self):
-        logger.debug('sending subscriptions to %s %d %d', self.interface.server, len(self.unanswered_requests), len(self.subscribed_addresses))
+        logger.debug('sending subscriptions to %s %d %d', self.interface.server,
+                     len(self.unanswered_requests), len(self.subscribed_addresses))
         self.sub_cache.clear()
         # Resend unanswered requests
         requests = self.unanswered_requests.values()
@@ -446,7 +448,8 @@ class Network(util.DaemonThread):
                                   password=(proxy.get("password", "") or None))
             socket.socket = socks.socksocket
             # prevent dns leaks, see http://stackoverflow.com/questions/13184205/dns-over-proxy
-            socket.getaddrinfo = lambda *args: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (args[0], args[1]))]
+            socket.getaddrinfo = lambda *args: [(socket.AF_INET, socket.SOCK_STREAM,
+                                                 6, '', (args[0], args[1]))]
         else:
             socket.socket = socket._socketobject
             socket.getaddrinfo = socket._getaddrinfo
@@ -514,7 +517,8 @@ class Network(util.DaemonThread):
         if self.server_is_lagging() and self.auto_connect:
             # switch to one that has the correct header (not height)
             header = self.blockchain().read_header(self.get_local_height())
-            filtered = list(map(lambda x:x[0], filter(lambda x: x[1].tip_header==header, self.interfaces.items())))
+            filtered = list(map(lambda x:x[0], filter(lambda x: x[1].tip_header==header,
+                                                      self.interfaces.items())))
             if filtered:
                 choice = random.choice(filtered)
                 self.switch_to_interface(choice, self.SWITCH_LAGGING)
@@ -814,24 +818,34 @@ class Network(util.DaemonThread):
 
     def request_headers(self, interface, base_height, count, silent=False):
         if not silent:
-            interface.logger.debug("requesting multiple consecutive headers, from %s count %s", base_height, count)
+            interface.logger.debug("requesting multiple consecutive headers, from %s count %s",
+                                   base_height, count)
         if count > 2016:
-            raise Exception("Server does not support requesting more than 2016 consecutive headers")
+            raise ValueError("too many headers")
 
         top_height = base_height + count - 1
         if top_height > bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT:
             if base_height < bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT:
-                # As part of the verification process, we fetched the set of headers that allowed manual verification of the post-checkpoint headers that were fetched
-                # as part of the "catch-up" process.  This requested header batch overlaps the checkpoint, so we know we have the post-checkpoint segment from the
-                # "catch-up".  This leaves us needing some header preceding the checkpoint, and we can clip the batch to the checkpoint to ensure we can verify the
-                # fetched batch, which we wouldn't otherwise be able to do manually as we cannot guarantee we have the headers preceding the batch.
-                interface.logger.debug("clipping request across checkpoint height %s (%s -> %s)", bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT, base_height, top_height)
-                verified_count = bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT - base_height + 1
-                self._request_headers(interface, base_height, verified_count, bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT)
+                # As part of the verification process, we fetched the set of headers that
+                # allowed manual verification of the post-checkpoint headers that were
+                # fetched as part of the "catch-up" process.  This requested header batch
+                # overlaps the checkpoint, so we know we have the post-checkpoint segment
+                # from the "catch-up".  This leaves us needing some header preceding the
+                # checkpoint, and we can clip the batch to the checkpoint to ensure we can
+                # verify the fetched batch, which we wouldn't otherwise be able to do
+                # manually as we cannot guarantee we have the headers preceding the batch.
+                interface.logger.debug("clipping request across checkpoint height %s (%s -> %s)",
+                                       bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT,
+                                       base_height, top_height)
+                verified_count = (bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT
+                                  - base_height + 1)
+                self._request_headers(interface, base_height, verified_count,
+                                      bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT)
             else:
                 self._request_headers(interface, base_height, count)
         else:
-            self._request_headers(interface, base_height, count, bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT)
+            self._request_headers(interface, base_height, count,
+                                  bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT)
 
     def _request_headers(self, interface, base_height, count, checkpoint_height=0):
         params = [base_height, count, checkpoint_height]
@@ -855,7 +869,8 @@ class Network(util.DaemonThread):
         expected_header_count = request_params[1]
         index = request_base_height // 2016
         if request_params != params:
-            interface.logger.error("unsolicited chunk base_height=%s count=%s", request_base_height, expected_header_count)
+            interface.logger.error("unsolicited chunk base_height=%s count=%s",
+                                   request_base_height, expected_header_count)
             return
         if index in self.requested_chunks:
             self.requested_chunks.remove(index)
@@ -863,9 +878,11 @@ class Network(util.DaemonThread):
         header_hexsize = 80 * 2
         hexdata = result['hex']
         actual_header_count = len(hexdata) // header_hexsize
-        # We accept less headers than we asked for, to cover the case where the distance to the tip was unknown.
+        # We accept less headers than we asked for, to cover the case where the distance
+        # to the tip was unknown.
         if actual_header_count > expected_header_count:
-            interface.logger.error("chunk data size incorrect expected_size=%s actual_size=%s", expected_header_count * header_hexsize, len(hexdata))
+            interface.logger.error("chunk data size incorrect expected_size=%s actual_size=%s",
+                                   expected_header_count * header_hexsize, len(hexdata))
             return
 
         proof_was_provided = False
@@ -873,7 +890,8 @@ class Network(util.DaemonThread):
             header_height = request_base_height + actual_header_count - 1
             header_offset = (actual_header_count - 1) * header_hexsize
             header = hexdata[header_offset : header_offset + header_hexsize]
-            if not self.validate_checkpoint_result(interface, result["root"], result["branch"], header, header_height):
+            if not self.validate_checkpoint_result(interface, result["root"],
+                                                   result["branch"], header, header_height):
                 # Got checkpoint validation data, server failed to provide proof.
                 interface.logger.error("disconnecting server for incorrect checkpoint proof")
                 self.connection_down(interface.server, blacklist=True)
@@ -883,7 +901,8 @@ class Network(util.DaemonThread):
             try:
                 blockchain.verify_proven_chunk(request_base_height, data)
             except blockchain.VerifyError as e:
-                interface.logger.error('disconnecting server for failed verify_proven_chunk: %s', e)
+                interface.logger.error('disconnecting server for failed verify_proven_chunk: %s',
+                                       e)
                 self.connection_down(interface.server, blacklist=True)
                 return
 
@@ -893,21 +912,27 @@ class Network(util.DaemonThread):
             self.connection_down(interface.server)
             return
 
-        verification_top_height = self.checkpoint_servers_verified.get(interface.server, {}).get('height', None)
-        was_verification_request = verification_top_height and request_base_height == verification_top_height - 147 + 1 and actual_header_count == 147
+        verification_top_height = self.checkpoint_servers_verified.get(
+            interface.server, {}).get('height')
+        was_verification_request = (verification_top_height and
+                                    request_base_height == verification_top_height - 147 + 1 and
+                                    actual_header_count == 147)
 
         initial_interface_mode = interface.mode
         if interface.mode == Interface.MODE_VERIFICATION:
             if not was_verification_request:
-                interface.logger.error("disconnecting unverified server for sending unrelated header chunk")
+                interface.logger.error("disconnecting unverified server for sending "
+                                       "unrelated header chunk")
                 self.connection_down(interface.server, blacklist=True)
                 return
             if not proof_was_provided:
-                interface.logger.error("disconnecting unverified server for sending verification header chunk without proof")
+                interface.logger.error("disconnecting unverified server for sending "
+                                       "verification header chunk without proof")
                 self.connection_down(interface.server, blacklist=True)
                 return
 
-            if not self.apply_successful_verification(interface, request_params[2], result['root']):
+            if not self.apply_successful_verification(interface, request_params[2],
+                                                      result['root']):
                 return
             # We connect this verification chunk into the longest chain.
             target_blockchain = self.blockchains[0]
@@ -915,11 +940,14 @@ class Network(util.DaemonThread):
             target_blockchain = interface.blockchain
 
         chunk_data = bfh(hexdata)
-        connect_state = target_blockchain.connect_chunk(request_base_height, chunk_data, proof_was_provided)
+        connect_state = target_blockchain.connect_chunk(request_base_height, chunk_data,
+                                                        proof_was_provided)
         if connect_state == blockchain.CHUNK_ACCEPTED:
-            interface.logger.debug("connected chunk, height=%s count=%s proof_was_provided=%s", request_base_height, actual_header_count, proof_was_provided)
+            interface.logger.debug("connected chunk, height=%s count=%s proof_was_provided=%s",
+                                   request_base_height, actual_header_count, proof_was_provided)
         elif connect_state == blockchain.CHUNK_FORKS:
-            interface.logger.error("identified forking chunk, height=%s count=%s", request_base_height, actual_header_count)
+            interface.logger.error("identified forking chunk, height=%s count=%s",
+                                   request_base_height, actual_header_count)
             # We actually have all the headers up to the bad point. In theory we
             # can use them to detect a fork point in some cases. But that's bonus
             # work for someone later.
@@ -931,11 +959,13 @@ class Network(util.DaemonThread):
                 interface.blockchain = None
                 interface.set_mode(Interface.MODE_BACKWARD)
                 interface.bad = request_base_height + actual_header_count - 1
-                interface.bad_header = blockchain.HeaderChunk(request_base_height, chunk_data).get_header_at_height(interface.bad)
+                interface.bad_header = blockchain.HeaderChunk(
+                    request_base_height, chunk_data).get_header_at_height(interface.bad)
                 self.request_header(interface, min(interface.tip, interface.bad - 1))
             return
         else:
-            interface.logger.error("discarded bad chunk, height=%s count=%s reason=%s", request_base_height, actual_header_count, connect_state)
+            interface.logger.error("discarded bad chunk, height=%s count=%s reason=%s",
+                                   request_base_height, actual_header_count, connect_state)
             self.connection_down(interface.server)
             return
 
@@ -986,16 +1016,19 @@ class Network(util.DaemonThread):
             return
 
         if not request:
-            interface.logger.error("disconnecting server for sending unsolicited header, no request, params=%s", response['params'])
+            interface.logger.error("disconnecting server for sending unsolicited header, "
+                                   "no request, params=%s", response['params'])
             self.connection_down(interface.server, blacklist=True)
             return
         request_params = request[1]
         height = request_params[0]
 
         response_height = response['params'][0]
-        # This check can be removed if request/response params are reconciled in some sort of rewrite.
+        # This check can be removed if request/response params are reconciled in some sort
+        # of rewrite.
         if height != response_height:
-            interface.logger.error("unsolicited header request=%s request_height=%s response_height=%s", request_params, height, response_height)
+            interface.logger.error("unsolicited header request=%s request_height=%s "
+                                   "response_height=%s", request_params, height, response_height)
             self.connection_down(interface.server)
             return
 
@@ -1003,9 +1036,11 @@ class Network(util.DaemonThread):
         hexheader = None
         if 'root' in result and 'branch' in result and 'header' in result:
             hexheader = result["header"]
-            if not self.validate_checkpoint_result(interface, result["root"], result["branch"], hexheader, height):
+            if not self.validate_checkpoint_result(interface, result["root"],
+                                                   result["branch"], hexheader, height):
                 # Got checkpoint validation data, failed to provide proof.
-                interface.logger.error("unprovable header request=%s height=%s", request_params, height)
+                interface.logger.error("unprovable header request=%s height=%s",
+                                       request_params, height)
                 self.connection_down(interface.server)
                 return
             proof_was_provided = True
@@ -1024,11 +1059,13 @@ class Network(util.DaemonThread):
                 interface.good = height
                 next_height = (interface.bad + interface.good) // 2
             else:
-                # A backwards header request should not happen before the checkpoint height. It isn't requested in this
-                # context, and it isn't requested anywhere else. If this happens it is an error. Additionally, if the
-                # checkpoint height header was requested and it does not connect, then there's not much Electrum-SV
-                # can do about it (that we're going to bother). We depend on the checkpoint being relevant for the
-                # blockchain the user is running against.
+                # A backwards header request should not happen before the checkpoint
+                # height. It isn't requested in this context, and it isn't requested
+                # anywhere else. If this happens it is an error. Additionally, if the
+                # checkpoint height header was requested and it does not connect, then
+                # there's not much Electrum-SV can do about it (that we're going to
+                # bother). We depend on the checkpoint being relevant for the blockchain
+                # the user is running against.
                 if height <= bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT:
                     self.connection_down(interface.server)
                     next_height = None
@@ -1036,9 +1073,11 @@ class Network(util.DaemonThread):
                     interface.bad = height
                     interface.bad_header = header
                     delta = interface.tip - height
-                    # If the longest chain does not connect at any point we check to the chain this interface is
-                    # serving, then we fall back on the checkpoint height which is expected to work.
-                    next_height = max(bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT, interface.tip - 2 * delta)
+                    # If the longest chain does not connect at any point we check to the
+                    # chain this interface is serving, then we fall back on the checkpoint
+                    # height which is expected to work.
+                    next_height = max(bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT,
+                                      interface.tip - 2 * delta)
 
         elif interface.mode == Interface.MODE_BINARY:
             if chain:
@@ -1063,7 +1102,8 @@ class Network(util.DaemonThread):
                         interface.blockchain = branch.parent()
                         next_height = None
                     else:
-                        interface.logger.debug('checkpoint conflicts with existing fork %s', branch.path())
+                        interface.logger.debug('checkpoint conflicts with existing fork %s',
+                                               branch.path())
                         branch.write(b'', 0)
                         branch.save_header(interface.bad_header)
                         interface.set_mode(Interface.MODE_CATCH_UP)
@@ -1112,7 +1152,8 @@ class Network(util.DaemonThread):
                 self.switch_lagging_interface()
                 self.notify('updated')
         elif interface.mode == Interface.MODE_DEFAULT:
-            interface.logger.error("ignored header %d received in default mode, %d", height, result)
+            interface.logger.error("ignored header %d received in default mode, %d",
+                                   height, result)
             return
 
         # If not finished, get the next header
@@ -1210,8 +1251,10 @@ class Network(util.DaemonThread):
         height = header_dict['height']
         header = blockchain.deserialize_header(bfh(header_hex), height)
 
-        # If the server is behind the verification height, then something is wrong with it.  Drop it.
-        if bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT is not None and height <= bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT:
+        # If the server is behind the verification height, then something is wrong with
+        # it.  Drop it.
+        if (bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT is not None and
+                height <= bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT):
             self.connection_down(interface.server)
             return
 
@@ -1252,7 +1295,8 @@ class Network(util.DaemonThread):
         heights = [x.height() for x in self.blockchains.values()]
         tip = max(heights)
         if tip > bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT:
-            interface.logger.debug("attempt to reconcile longest chain tip=%s heights=%s", tip, heights)
+            interface.logger.debug("attempt to reconcile longest chain tip=%s heights=%s",
+                                   tip, heights)
             interface.set_mode(Interface.MODE_BACKWARD)
             interface.bad = height
             interface.bad_header = header
@@ -1265,7 +1309,8 @@ class Network(util.DaemonThread):
                 interface.set_mode(Interface.MODE_CATCH_UP)
                 interface.blockchain = chain
                 interface.logger.debug("switching to catchup mode %s", tip)
-                self.request_header(interface, bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT + 1)
+                self.request_header(interface,
+                                    bitcoin.NetworkConstants.VERIFICATION_BLOCK_HEIGHT + 1)
             else:
                 interface.logger.debug("chain already catching up with %s", chain.catch_up.server)
 
@@ -1279,9 +1324,11 @@ class Network(util.DaemonThread):
             # a given number of confirmations for the same conservative height.
             if self.checkpoint_height is None:
                 self.checkpoint_height = interface.tip - 100
-            self.checkpoint_servers_verified[interface.server] = { 'root': None, 'height': self.checkpoint_height }
+            self.checkpoint_servers_verified[interface.server] = {
+                'root': None, 'height': self.checkpoint_height }
             # We need at least 147 headers before the post checkpoint headers for daa calculations.
-            self._request_headers(interface, self.checkpoint_height - 147 + 1, 147, self.checkpoint_height)
+            self._request_headers(interface, self.checkpoint_height - 147 + 1,
+                                  147, self.checkpoint_height)
         else:
             # We already have them verified, maybe we got disconnected.
             interface.logger.debug("request_initial_proof_and_headers bypassed")
@@ -1289,7 +1336,8 @@ class Network(util.DaemonThread):
             self._process_latest_tip(interface)
 
     def apply_successful_verification(self, interface, checkpoint_height, checkpoint_root):
-        known_roots = [ v['root'] for v in self.checkpoint_servers_verified.values() if v['root'] is not None ]
+        known_roots = [v['root'] for v in self.checkpoint_servers_verified.values()
+                       if v['root'] is not None]
         if len(known_roots) > 0 and checkpoint_root != known_roots[0]:
             interface.logger.error("server sent inconsistent root '%s'", checkpoint_root)
             self.connection_down(interface.server)
@@ -1308,7 +1356,9 @@ class Network(util.DaemonThread):
                 bitcoin.NetworkConstants.VERIFICATION_BLOCK_MERKLE_ROOT = checkpoint_root
 
                 network_name = "TESTNET" if bitcoin.NetworkConstants.TESTNET else "MAINNET"
-                interface.logger.debug("found verified checkpoint for %s at height %s with merkle root %r", network_name, checkpoint_height, checkpoint_root)
+                interface.logger.debug(
+                    "found verified checkpoint for %s at height %s with merkle root %r",
+                    network_name, checkpoint_height, checkpoint_root)
 
         if not self.verified_checkpoint:
             self.init_headers_file()
@@ -1318,7 +1368,8 @@ class Network(util.DaemonThread):
         interface.set_mode(Interface.MODE_DEFAULT)
         return True
 
-    def validate_checkpoint_result(self, interface, merkle_root, merkle_branch, header, header_height):
+    def validate_checkpoint_result(self, interface, merkle_root, merkle_branch,
+                                   header, header_height):
         '''
         header: hex representation of the block header.
         merkle_root: hex representation of the server's calculated merkle root.
@@ -1328,19 +1379,24 @@ class Network(util.DaemonThread):
         '''
         received_merkle_root = bytes(reversed(bfh(merkle_root)))
         if bitcoin.NetworkConstants.VERIFICATION_BLOCK_MERKLE_ROOT:
-            expected_merkle_root = bytes(reversed(bfh(bitcoin.NetworkConstants.VERIFICATION_BLOCK_MERKLE_ROOT)))
+            expected_merkle_root = bytes(reversed(bfh(
+                bitcoin.NetworkConstants.VERIFICATION_BLOCK_MERKLE_ROOT)))
         else:
             expected_merkle_root = received_merkle_root
 
         if received_merkle_root != expected_merkle_root:
-            interface.logger.error("Sent unexpected merkle root, expected: '%s', got: '%s'", bitcoin.NetworkConstants.VERIFICATION_BLOCK_MERKLE_ROOT, merkle_root)
+            interface.logger.error("Sent unexpected merkle root, expected: '%s', got: '%s'",
+                                   bitcoin.NetworkConstants.VERIFICATION_BLOCK_MERKLE_ROOT,
+                                   merkle_root)
             return False
 
         header_hash = Hash(bfh(header))
         byte_branches = [ bytes(reversed(bfh(v))) for v in merkle_branch ]
         proven_merkle_root = blockchain.root_from_proof(header_hash, byte_branches, header_height)
         if proven_merkle_root != expected_merkle_root:
-            interface.logger.error("Sent incorrect merkle branch, expected: '%s', proved: '%s'", bitcoin.NetworkConstants.VERIFICATION_BLOCK_MERKLE_ROOT, util.hfu(reversed(proven_merkle_root)))
+            interface.logger.error("Sent incorrect merkle branch, expected: '%s', proved: '%s'",
+                                   bitcoin.NetworkConstants.VERIFICATION_BLOCK_MERKLE_ROOT,
+                                   util.hfu(reversed(proven_merkle_root)))
             return False
 
         return True

@@ -36,13 +36,16 @@ ALGO_RSA_SHA384 = '1.2.840.113549.1.1.12'
 ALGO_RSA_SHA512 = '1.2.840.113549.1.1.13'
 ALGO_ECDSA_SHA256 = '1.2.840.10045.4.3.2'
 
-# prefixes, see http://stackoverflow.com/questions/3713774/c-sharp-how-to-calculate-asn-1-der-encoding-of-a-particular-hash-algorithm
+# prefixes, see http://stackoverflow.com/questions/3713774
 PREFIX_RSA_SHA256 = bytearray(
-    [0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20])
+    [0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01,
+     0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20])
 PREFIX_RSA_SHA384 = bytearray(
-    [0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30])
+    [0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01,
+     0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30])
 PREFIX_RSA_SHA512 = bytearray(
-    [0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40])
+    [0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01,
+     0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40])
 
 # types used in ASN1 structured data
 ASN1_TYPES = {
@@ -279,7 +282,7 @@ class X509(object):
         self.signature = der.get_value(cert_sig)[1:]
 
     def get_keyID(self):
-        # http://security.stackexchange.com/questions/72077/validating-an-ssl-certificate-chain-according-to-rfc-5280-am-i-understanding-th
+        # https://security.stackexchange.com/questions/72077/
         return self.SKI if self.SKI else repr(self.subject)
 
     def get_issuer_keyID(self):
@@ -301,7 +304,8 @@ class X509(object):
         not_before = time.mktime(time.strptime(self.notBefore.decode('ascii'), TIMESTAMP_FMT))
         not_after = time.mktime(time.strptime(self.notAfter.decode('ascii'), TIMESTAMP_FMT))
         if not_before > now:
-            raise CertificateError('Certificate has not entered its valid date range. (%s)' % self.get_common_name())
+            raise CertificateError('Certificate has not entered its valid date range. (%s)' %
+                                   self.get_common_name())
         if not_after <= now:
             raise CertificateError('Certificate has expired. (%s)' % self.get_common_name())
 

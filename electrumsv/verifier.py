@@ -72,7 +72,8 @@ class SPV(ThreadJob):
                     # currently designed for catching up post-checkpoint headers.
                     index = tx_height // 2016
                     if self.network.request_chunk(interface, index):
-                        interface.logger.debug("verifier requesting chunk %s for height %s", index, tx_height)
+                        interface.logger.debug("verifier requesting chunk %s for height %s",
+                                               index, tx_height)
                 continue
             # request now
             self.network.get_merkle_for_transaction(
@@ -145,8 +146,8 @@ class SPV(ThreadJob):
     def _raise_if_valid_tx(cls, raw_tx: str):
         # If an inner node of the merkle proof is also a valid tx, chances are, this is an attack.
         # https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-June/016105.html
-        # https://lists.linuxfoundation.org/pipermail/bitcoin-dev/attachments/20180609/9f4f5b1f/attachment-0001.pdf
-        # https://bitcoin.stackexchange.com/questions/76121/how-is-the-leaf-node-weakness-in-merkle-trees-exploitable/76122#76122
+        # https://goo.gl/qJnSbQ
+        # https://bitcoin.stackexchange.com/questions/76121
         tx = Transaction(raw_tx)
         try:
             tx.deserialize()
@@ -171,4 +172,3 @@ class SPV(ThreadJob):
 
     def is_up_to_date(self):
         return not self.requested_merkle
-

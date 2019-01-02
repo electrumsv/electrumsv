@@ -6,10 +6,11 @@ import threading
 
 from PyQt5.QtCore import Qt, pyqtSignal, QEventLoop, QRect
 from PyQt5.QtGui import QPalette, QPen, QPainter, QPixmap
-from PyQt5.QtWidgets import QWidget, QDialog, QLabel, QPushButton, \
-    QScrollArea, QHBoxLayout, QVBoxLayout, QListWidget, QAbstractItemView, \
-    QListWidgetItem, QLineEdit, QFileDialog, QMessageBox, QSlider, \
+from PyQt5.QtWidgets import (
+    QWidget, QDialog, QLabel, QPushButton, QScrollArea, QHBoxLayout, QVBoxLayout, QListWidget,
+    QAbstractItemView, QListWidgetItem, QLineEdit, QFileDialog, QMessageBox, QSlider,
     QGridLayout
+)
 
 from electrumsv.wallet import Wallet
 from electrumsv.storage import WalletStorage
@@ -180,11 +181,13 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
         def count_user_wallets(wallets_path):
             if os.path.exists(wallets_path):
-                filenames = [ filename for filename in os.listdir(wallets_path) if not ignore_wallet_file(os.path.join(wallets_path, filename)) ]
+                filenames = [filename for filename in os.listdir(wallets_path)
+                             if not ignore_wallet_file(os.path.join(wallets_path, filename))]
                 return len(filenames)
             return 0
 
-        # If the user has ElectrumSV wallets already, we do not offer to copy the one's Electron Cash has.
+        # If the user has ElectrumSV wallets already, we do not offer
+        # to copy the one's Electron Cash has.
         esv_wallets_dir = os.path.join(user_dir(), "wallets")
         if count_user_wallets(esv_wallets_dir) > 0:
             return
@@ -201,7 +204,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             elif selection_count == 1:
                 summary_label.setText(_("1 wallet is selected / will be copied."))
             else:
-                summary_label.setText(_("%d wallets are selected / will be copied.") % selection_count)
+                summary_label.setText(_("%d wallets are selected / will be copied.")
+                                      % selection_count)
 
         wallet_filenames = sorted(os.listdir(ec_wallets_dir), key=lambda s: s.lower())
 
@@ -213,7 +217,10 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         file_list.itemSelectionChanged.connect(update_summary_label)
 
         vbox = QVBoxLayout()
-        introduction_label = QLabel(_("Your Electron Cash wallet directory was found. If you want ElectrumSV to import any of them on your behalf, select the ones you want copied from the list below before clicking the Next button."))
+        introduction_label = QLabel(
+            _("Your Electron Cash wallet directory was found. If you want ElectrumSV to import "
+              "any of them on your behalf, select the ones you want copied from the list below "
+              "before clicking the Next button."))
         introduction_label.setWordWrap(True)
         vbox.setSpacing(20)
         vbox.addWidget(introduction_label)
@@ -228,7 +235,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             if v == 0:
                 return -1
             if v != 2:  # 2 = next
-                # If the user is not selecting close or next, I do not know what they are selecting. Cancel?
+                # If the user is not selecting close or next, I do not
+                # know what they are selecting. Cancel?
                 return -1
 
             # If the user selected any files, then we copy them before exiting to the next page.
@@ -287,7 +295,10 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                           + _("Press 'Next' to create this wallet, or choose another file.")
                     pw = False
                 elif self.storage.file_exists() and self.storage.is_encrypted():
-                    msg = _("This file is encrypted.") + '\n' + _('Enter your password or choose another file.')
+                    msg = '\n'.join([
+                        _("This file is encrypted."),
+                        _('Enter your password or choose another file.'),
+                    ])
                     pw = True
                 else:
                     msg = _("Press 'Next' to open this wallet.")
@@ -332,12 +343,13 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         path = self.storage.path
         if self.storage.requires_split():
             self.hide()
-            msg = _("The wallet '{}' contains multiple accounts, which are no longer supported since Electrum 2.7.\n\n"
+            msg = _("The wallet '{}' contains multiple accounts, which are not supported.\n\n"
                     "Do you want to split your wallet into multiple files?").format(path)
             if not self.question(msg):
                 return
             file_list = '\n'.join(self.storage.split_accounts())
-            msg = _('Your accounts have been moved to') + ':\n' + file_list + '\n\n'+ _('Do you want to delete the old file') + ':\n' + path
+            msg = (_('Your accounts have been moved to') + ':\n' + file_list + '\n\n' +
+                   _('Do you want to delete the old file') + ':\n' + path)
             if self.question(msg):
                 os.remove(path)
                 self.show_warning(_('The file was removed'))
@@ -345,7 +357,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
         if self.storage.requires_upgrade():
             self.hide()
-            msg = _("The format of your wallet '%s' must be upgraded for ElectrumSV. This change will not be backward compatible"%path)
+            msg = _("The format of your wallet '%s' must be upgraded for ElectrumSV. "
+                    "This change will not be backward compatible" % path)
             if not self.question(msg):
                 return
             self.storage.upgrade()
@@ -633,7 +646,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         on_m(2)
         vbox = QVBoxLayout()
         vbox.addWidget(cw)
-        vbox.addWidget(WWLabel(_("Choose the number of signatures needed to unlock funds in your wallet:")))
+        vbox.addWidget(WWLabel(_("Choose the number of signatures needed to unlock "
+                                 "funds in your wallet:")))
         vbox.addLayout(grid)
         self.exec_layout(vbox, _("Multi-Signature Wallet"))
         m = int(m_edit.value())

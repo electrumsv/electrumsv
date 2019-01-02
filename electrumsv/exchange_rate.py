@@ -234,8 +234,13 @@ class CoinPaprika(ExchangeBase):
         limit = 1000
         end_date = datetime.date.today()
         start_date = end_date - datetime.timedelta(days=limit-1)
-        history = self.get_json('api.coinpaprika.com', "/v1/tickers/bsv-bitcoin-sv/historical?start={}&quote=USD&limit={}&interval=24h".format(start_date.strftime("%Y-%m-%d"), limit))
-        return dict([(datetime.datetime.strptime(h['timestamp'], '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d'), h['price']) for h in history])
+        history = self.get_json(
+            'api.coinpaprika.com',
+            "/v1/tickers/bsv-bitcoin-sv/historical?start={}&quote=USD&limit={}&interval=24h"
+            .format(start_date.strftime("%Y-%m-%d"), limit))
+        return dict([(datetime.datetime.strptime(
+            h['timestamp'], '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d'), h['price'])
+                     for h in history])
 
 class CoinCap(ExchangeBase):
     def get_rates(self, ccy):
@@ -258,7 +263,8 @@ class CoinCap(ExchangeBase):
 class CoinGecko(ExchangeBase):
 
     def get_rates(self, ccy):
-        json = self.get_json('api.coingecko.com', '/api/v3/coins/bitcoin-cash-sv?localization=False&sparkline=false')
+        json = self.get_json('api.coingecko.com',
+                             '/api/v3/coins/bitcoin-cash-sv?localization=False&sparkline=false')
         prices = json["market_data"]["current_price"]
         return dict([(a[0].upper(),Decimal(a[1])) for a in prices.items()])
 
@@ -271,7 +277,9 @@ class CoinGecko(ExchangeBase):
                 'TRY', 'TWD', 'USD', 'VEF', 'XAG', 'XAU', 'XDR', 'ZAR']
 
     def request_history(self, ccy):
-        history = self.get_json('api.coingecko.com', '/api/v3/coins/bitcoin-cash/market_chart?vs_currency=%s&days=max' % ccy)
+        history = self.get_json(
+            'api.coingecko.com',
+            '/api/v3/coins/bitcoin-cash/market_chart?vs_currency=%s&days=max' % ccy)
         return dict([(datetime.datetime.utcfromtimestamp(h[0]/1000).strftime('%Y-%m-%d'), h[1])
                      for h in history['prices']])
 
@@ -389,7 +397,8 @@ class FxThread(ThreadJob):
         return self.config.get('use_exchange', 'Kraken')
 
     def show_history(self):
-        return self.is_enabled() and self.get_history_config() and self.ccy in self.exchange.history_ccys()
+        return (self.is_enabled() and self.get_history_config() and
+                self.ccy in self.exchange.history_ccys())
 
     def set_currency(self, ccy):
         self.ccy = ccy

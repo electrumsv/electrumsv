@@ -57,7 +57,8 @@ add_logging_handler(logging.StreamHandler())
 def inv_dict(d):
     return {v: k for k, v in d.items()}
 
-fee_levels = [_('Within 25 blocks'), _('Within 10 blocks'), _('Within 5 blocks'), _('Within 2 blocks'), _('In the next block')]
+fee_levels = [_('Within 25 blocks'), _('Within 10 blocks'), _('Within 5 blocks'),
+              _('Within 2 blocks'), _('In the next block')]
 
 def normalize_version(v):
     return [int(x) for x in re.sub(r'(\.0+)*$','', v).split(".")]
@@ -387,7 +388,8 @@ def format_satoshis_plain(x, decimal_point = 8):
     return "{:.8f}".format(Decimal(x) / scale_factor).rstrip('0').rstrip('.')
 
 
-def format_satoshis(x, num_zeros=0, decimal_point=8, precision=None, is_diff=False, whitespaces=False):
+def format_satoshis(x, num_zeros=0, decimal_point=8, precision=None,
+                    is_diff=False, whitespaces=False):
     from locale import localeconv
     if x is None:
         return 'unknown'
@@ -534,7 +536,8 @@ class SocketPipe:
                 if err.errno == 60:
                     raise timeout
                 elif err.errno in [11, 35, 10035]:
-                    root_logger.debug("socket errno %d (resource temporarily unavailable)", err.errno)
+                    root_logger.debug("socket errno %d (resource temporarily unavailable)",
+                                      err.errno)
                     time.sleep(0.2)
                     raise timeout
                 else:

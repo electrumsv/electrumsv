@@ -87,7 +87,9 @@ def normalize_text(seed):
     # normalize whitespaces
     seed = u' '.join(seed.split())
     # remove whitespaces between CJK
-    seed = u''.join([seed[i] for i in range(len(seed)) if not (seed[i] in string.whitespace and is_CJK(seed[i-1]) and is_CJK(seed[i+1]))])
+    seed = u''.join(seed[i] for i in range(len(seed))
+                    if not (seed[i] in string.whitespace and
+                            is_CJK(seed[i-1]) and is_CJK(seed[i+1])))
     return seed
 
 def load_wordlist(filename):
@@ -132,7 +134,9 @@ class Mnemonic(object):
         PBKDF2_ROUNDS = 2048
         mnemonic = normalize_text(mnemonic)
         passphrase = normalize_text(passphrase)
-        return hashlib.pbkdf2_hmac('sha512', mnemonic.encode('utf-8'), b'electrum' + passphrase.encode('utf-8'), iterations = PBKDF2_ROUNDS)
+        return hashlib.pbkdf2_hmac('sha512', mnemonic.encode('utf-8'),
+                                   b'electrum' + passphrase.encode('utf-8'),
+                                   iterations = PBKDF2_ROUNDS)
 
     def mnemonic_encode(self, i):
         n = len(self.wordlist)

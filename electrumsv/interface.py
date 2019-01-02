@@ -168,8 +168,6 @@ class TcpConnection(threading.Thread):
                 dercert = s.getpeercert(True)
                 s.close()
                 cert = ssl.DER_cert_to_PEM_cert(dercert)
-                # workaround android bug
-                cert = re.sub("([^\n])-----END CERTIFICATE-----","\\1\n-----END CERTIFICATE-----",cert)
                 temporary_path = cert_path + '.temp'
                 util.assert_datadir_available(self.config_path)
                 with open(temporary_path, "w", encoding='utf-8') as f:
