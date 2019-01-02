@@ -85,7 +85,7 @@ class SPV(ThreadJob):
         if self.network.blockchain() != self.blockchain:
             self.blockchain = self.network.blockchain()
             self.undo_verifications()
-        
+
     def verify_merkle(self, response):
         if self.wallet.verifier is None:
             return  # we have been killed, this was just an orphan callback
@@ -105,7 +105,7 @@ class SPV(ThreadJob):
             logger.error("merkle verification failed for %s (inner node looks like tx)",
                              tx_hash)
             return
-            
+
         header = self.network.blockchain().read_header(tx_height)
         # FIXME: if verification fails below,
         # we should make a fresh connection to a server to
@@ -154,14 +154,14 @@ class SPV(ThreadJob):
             pass
         else:
             raise InnerNodeOfSpvProofIsValidTx()
-        
+
     def undo_verifications(self):
         height = self.blockchain.get_base_height()
         tx_hashes = self.wallet.undo_verifications(self.blockchain, height)
         for tx_hash in tx_hashes:
             logger.debug("redoing %s", tx_hash)
             self.remove_spv_proof_for_tx(tx_hash)
-            
+
     def remove_spv_proof_for_tx(self, tx_hash):
         self.merkle_roots.pop(tx_hash, None)
         try:
@@ -171,4 +171,4 @@ class SPV(ThreadJob):
 
     def is_up_to_date(self):
         return not self.requested_merkle
-            
+
