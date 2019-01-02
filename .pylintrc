@@ -30,7 +30,7 @@ limit-inference-results=100
 
 # List of plugins (as comma separated values of python modules names) to load,
 # usually to register additional checkers.
-load-plugins=
+load-plugins=pylint.extensions.bad_builtin
 
 # Pickle collected data for later comparisons.
 persistent=yes
@@ -76,6 +76,7 @@ enable=abstract-class-instantiated,
        assert-on-tuple,
        assignment-from-no-return,
        assignment-from-none,
+       bad-builtin,
        bad-except-order,
        bad-exception-context,
        bad-reversed-sequence,
