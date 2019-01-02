@@ -254,11 +254,10 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
                                 s = []
                             node = self.ckd_public.deserialize(xpub)
                             return self.types.HDNodePathType(node=node, address_n=s)
-                        pubkeys = map(f, x_pubkeys)
+                        pubkeys = [f(x) for x in x_pubkeys]
                         multisig = self.types.MultisigRedeemScriptType(
                             pubkeys=pubkeys,
-                            signatures=map(lambda x: bfh(x)[:-1] if x else b'',
-                                           txin.get('signatures')),
+                            signatures=[bfh(x)[:-1] if x else b'' for x in txin.get('signatures')],
                             m=txin.get('num_sig'),
                         )
                         script_type = self.types.SPENDMULTISIG
@@ -313,7 +312,7 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
                 else:
                     script_type = self.types.PAYTOMULTISIG
                     address_n = self.client_class.expand_path("/%d/%d"%index)
-                    nodes = map(self.ckd_public.deserialize, xpubs)
+                    nodes = [self.ckd_public.deserialize(xpub) for xpub in xpubs]
                     pubkeys = [self.types.HDNodePathType(node=node, address_n=address_n)
                                for node in nodes]
                     multisig = self.types.MultisigRedeemScriptType(

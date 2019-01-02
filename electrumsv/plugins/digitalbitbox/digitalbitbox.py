@@ -634,7 +634,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             for i, txin in enumerate(tx.inputs()):
                 num = txin['num_sig']
                 for pubkey in txin['pubkeys']:
-                    signatures = list(filter(None, txin['signatures']))
+                    signatures = [sig for sig in txin['signatures'] if sig]
                     if len(signatures) == num:
                         break # txin is complete
                     ii = txin['pubkeys'].index(pubkey)

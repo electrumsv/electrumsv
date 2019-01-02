@@ -318,7 +318,7 @@ class TrezorPlugin(HW_PluginBase):
             pubkeys = wallet.get_public_keys(address)
             # sort xpubs using the order of pubkeys
             sorted_pubkeys, sorted_xpubs = zip(*sorted(zip(pubkeys, xpubs)))
-            pubkeys = list(map(f, sorted_xpubs))
+            pubkeys = [f(x) for x in sorted_xpubs]
             multisig = self.types.MultisigRedeemScriptType(
                pubkeys=pubkeys,
                signatures=[b''] * wallet.n,
@@ -353,11 +353,10 @@ class TrezorPlugin(HW_PluginBase):
                                 xpub = xpub_from_pubkey('standard', bfh(x_pubkey))
                                 s = []
                             return self._make_node_path(xpub, s)
-                        pubkeys = list(map(f, x_pubkeys))
+                        pubkeys = [f(x) for x in x_pubkeys]
                         multisig = self.types.MultisigRedeemScriptType(
                             pubkeys=pubkeys,
-                            signatures=list(map(lambda x: bfh(x)[:-1] if x else b'',
-                                                txin.get('signatures'))),
+                            signatures=[bfh(x)[:-1] if x else b'' for x in txin.get('signatures')],
                             m=txin.get('num_sig'),
                         )
                         script_type = self.get_trezor_input_script_type(is_multisig=True)
