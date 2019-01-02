@@ -22,7 +22,8 @@ class KeepKeyCompatibleKeyStore(Hardware_KeyStore):
         return self.plugin.get_client(self, force_pair)
 
     def decrypt_message(self, sequence, message, password):
-        raise RuntimeError(_('Encryption and decryption are not implemented by {}').format(self.device))
+        raise RuntimeError(_('Encryption and decryption are not implemented by {}').format(
+            self.device))
 
     def sign_message(self, sequence, message, password):
         client = self.get_client()
@@ -151,11 +152,13 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
         ]
         def f(method):
             settings = self.request_trezor_init_settings(wizard, method, self.device)
-            t = threading.Thread(target = self._initialize_device, args=(settings, method, device_id, wizard, handler))
+            t = threading.Thread(target = self._initialize_device,
+                                 args=(settings, method, device_id, wizard, handler))
             t.setDaemon(True)
             t.start()
             wizard.loop.exec_()
-        wizard.choice_dialog(title=_('Initialize Device'), message=msg, choices=choices, run_next=f)
+        wizard.choice_dialog(title=_('Initialize Device'), message=msg,
+                             choices=choices, run_next=f)
 
     def _initialize_device(self, settings, method, device_id, wizard, handler):
         item, label, pin_protection, passphrase_protection = settings
@@ -254,7 +257,8 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
                         pubkeys = map(f, x_pubkeys)
                         multisig = self.types.MultisigRedeemScriptType(
                             pubkeys=pubkeys,
-                            signatures=map(lambda x: bfh(x)[:-1] if x else b'', txin.get('signatures')),
+                            signatures=map(lambda x: bfh(x)[:-1] if x else b'',
+                                           txin.get('signatures')),
                             m=txin.get('num_sig'),
                         )
                         script_type = self.types.SPENDMULTISIG
@@ -310,7 +314,8 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
                     script_type = self.types.PAYTOMULTISIG
                     address_n = self.client_class.expand_path("/%d/%d"%index)
                     nodes = map(self.ckd_public.deserialize, xpubs)
-                    pubkeys = [ self.types.HDNodePathType(node=node, address_n=address_n) for node in nodes]
+                    pubkeys = [self.types.HDNodePathType(node=node, address_n=address_n)
+                               for node in nodes]
                     multisig = self.types.MultisigRedeemScriptType(
                         pubkeys = pubkeys,
                         signatures = [b''] * len(pubkeys),

@@ -160,7 +160,8 @@ class KeepKeyClientBase(GuiMixin):
         address_n = self.expand_path(bip32_path)
         creating = False
         node = self.get_public_node(address_n, creating).node
-        return serialize_xpub(xtype, node.chain_code, node.public_key, node.depth, self.i4b(node.fingerprint), self.i4b(node.child_num))
+        return serialize_xpub(xtype, node.chain_code, node.public_key, node.depth,
+                              self.i4b(node.fingerprint), self.i4b(node.child_num))
 
     def toggle_passphrase(self):
         if self.features.passphrase_protection:

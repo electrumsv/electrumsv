@@ -64,7 +64,7 @@ class HW_PluginBase(BasePlugin):
 
         Returns 'unknown' if library is found but cannot determine version.
         Raises 'ImportError' if library is not found.
-        Raises 'LibraryFoundButUnusable' if found but there was some problem (includes version num).
+        Raises 'LibraryFoundButUnusable' if found but there was a problem (includes version num).
         """
         raise NotImplementedError()
 
@@ -76,15 +76,17 @@ class HW_PluginBase(BasePlugin):
             # this might raise ImportError or LibraryFoundButUnusable
             library_version = self.get_library_version()
             # if no exception so far, we might still raise LibraryFoundButUnusable
-            if (library_version == 'unknown'
-                    or versiontuple(library_version) < self.minimum_library
-                    or hasattr(self, "maximum_library") and versiontuple(library_version) >= self.maximum_library):
+            if (library_version == 'unknown' or
+                    versiontuple(library_version) < self.minimum_library or
+                    hasattr(self, "maximum_library") and
+                    versiontuple(library_version) >= self.maximum_library):
                 raise LibraryFoundButUnusable(library_version=library_version)
         except ImportError:
             return False
         except LibraryFoundButUnusable as e:
             library_version = e.library_version
-            max_version_str = version_str(self.maximum_library) if hasattr(self, "maximum_library") else "inf"
+            max_version_str = (version_str(self.maximum_library)
+                               if hasattr(self, "maximum_library") else "inf")
             self.libraries_available_message = (
                     _("Library version for '{}' is incompatible.").format(self.name)
                     + '\nInstalled: {}, Needed: {} <= x < {}'

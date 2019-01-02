@@ -127,7 +127,8 @@ class Plugin(BasePlugin):
         self.username = self.config.get('email_username', '')
         self.password = self.config.get('email_password', '')
         if self.imap_server and self.username and self.password:
-            self.processor = Processor(self.imap_server, self.username, self.password, self.on_receive)
+            self.processor = Processor(self.imap_server, self.username, self.password,
+                                       self.on_receive)
             self.processor.start()
         self.obj = QEmailSignalObject()
         self.obj.email_new_invoice_signal.connect(self.new_invoice)

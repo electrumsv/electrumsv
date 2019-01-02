@@ -54,7 +54,8 @@ class TrezorKeyStore(Hardware_KeyStore):
         return self.plugin.get_client(self, force_pair)
 
     def decrypt_message(self, sequence, message, password):
-        raise RuntimeError(_('Encryption and decryption are not implemented by {}').format(self.device))
+        raise RuntimeError(_('Encryption and decryption are not implemented by {}').format(
+            self.device))
 
     def sign_message(self, sequence, message, password):
         client = self.get_client()
@@ -177,7 +178,8 @@ class TrezorPlugin(HW_PluginBase):
         def f(method):
             import threading
             settings = self.request_trezor_init_settings(wizard, method, model)
-            t = threading.Thread(target=self._initialize_device_safe, args=(settings, method, device_id, wizard, handler))
+            t = threading.Thread(target=self._initialize_device_safe,
+                                 args=(settings, method, device_id, wizard, handler))
             t.setDaemon(True)
             t.start()
             exit_code = wizard.loop.exec_()
@@ -186,7 +188,8 @@ class TrezorPlugin(HW_PluginBase):
                 # of leaving the device in an initialized state when finishing.
                 # signal that this is not the case:
                 raise UserCancelled()
-        wizard.choice_dialog(title=_('Initialize Device'), message=msg, choices=choices, run_next=f)
+        wizard.choice_dialog(title=_('Initialize Device'), message=msg,
+                             choices=choices, run_next=f)
 
     def _initialize_device_safe(self, settings, method, device_id, wizard, handler):
         exit_code = 0
@@ -340,7 +343,8 @@ class TrezorPlugin(HW_PluginBase):
                         xpub, s = parse_xpubkey(x_pubkey)
                         xpub_n = self.client_class.expand_path(self.xpub_path[xpub])
                         txinputtype._extend_address_n(xpub_n + s)
-                        txinputtype.script_type = self.get_trezor_input_script_type(is_multisig=False)
+                        txinputtype.script_type = self.get_trezor_input_script_type(
+                            is_multisig=False)
                     else:
                         def f(x_pubkey):
                             if is_xpubkey(x_pubkey):
@@ -352,7 +356,8 @@ class TrezorPlugin(HW_PluginBase):
                         pubkeys = list(map(f, x_pubkeys))
                         multisig = self.types.MultisigRedeemScriptType(
                             pubkeys=pubkeys,
-                            signatures=list(map(lambda x: bfh(x)[:-1] if x else b'', txin.get('signatures'))),
+                            signatures=list(map(lambda x: bfh(x)[:-1] if x else b'',
+                                                txin.get('signatures'))),
                             m=txin.get('num_sig'),
                         )
                         script_type = self.get_trezor_input_script_type(is_multisig=True)

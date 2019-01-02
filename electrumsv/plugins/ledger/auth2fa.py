@@ -18,24 +18,26 @@ logger = logging.getLogger("plugin.ledger.auth2fa")
 
 DEBUG = False
 
-helpTxt = [_("Your Ledger Wallet wants to tell you a one-time PIN code.<br><br>" \
-            "For best security you should unplug your device, open a text editor on another computer, " \
-            "put your cursor into it, and plug your device into that computer. " \
-            "It will output a summary of the transaction being signed and a one-time PIN.<br><br>" \
-            "Verify the transaction summary and type the PIN code here.<br><br>" \
-            "Before pressing enter, plug the device back into this computer.<br>" ),
-        _("Verify the address below.<br>Type the character from your security card corresponding to the <u><b>BOLD</b></u> character."),
-        _("Waiting for authentication on your mobile phone"),
-        _("Transaction accepted by mobile phone. Waiting for confirmation."),
-        _("Click Pair button to begin pairing a mobile phone."),
-        _("Scan this QR code with your LedgerWallet phone app to pair it with this Ledger device.<br>"
-            "To complete pairing you will need your security card to answer a challenge." )
-        ]
+helpTxt = [
+    _("Your Ledger Wallet wants to tell you a one-time PIN code.<br><br>"
+      "For best security you should unplug your device, open a text editor on another computer, "
+      "put your cursor into it, and plug your device into that computer. "
+      "It will output a summary of the transaction being signed and a one-time PIN.<br><br>"
+      "Verify the transaction summary and type the PIN code here.<br><br>"
+      "Before pressing enter, plug the device back into this computer.<br>" ),
+    _("Verify the address below.<br>Type the character from your security card corresponding "
+      "to the <u><b>BOLD</b></u> character."),
+    _("Waiting for authentication on your mobile phone"),
+    _("Transaction accepted by mobile phone. Waiting for confirmation."),
+    _("Click Pair button to begin pairing a mobile phone."),
+    _("Scan this QR code with your LedgerWallet phone app to pair it with this Ledger device.<br>"
+      "To complete pairing you will need your security card to answer a challenge." )
+]
 
 class LedgerAuthDialog(QDialog):
     def __init__(self, handler, data):
-        '''Ask user for 2nd factor authentication. Support text, security card and paired mobile methods.
-        Use last method from settings, but support new pairing and downgrade.
+        '''Ask user for 2nd factor authentication. Support text, security card and paired mobile
+        methods.  Use last method from settings, but support new pairing and downgrade.
         '''
         QDialog.__init__(self, handler.top_level_window())
         self.handler = handler
@@ -69,7 +71,8 @@ class LedgerAuthDialog(QDialog):
         def add_pairing():
             self.do_pairing()
         def return_pin():
-            self.pin = self.pintxt.text() if self.txdata['confirmationType'] == 1 else self.cardtxt.text()
+            self.pin = (self.pintxt.text() if self.txdata['confirmationType'] == 1
+                        else self.cardtxt.text())
             if self.cfg['mode'] == 1:
                 self.pin = ''.join(chr(int(str(i),16)) for i in self.pin)
             self.accept()
@@ -114,7 +117,8 @@ class LedgerAuthDialog(QDialog):
         card = QVBoxLayout()
         self.cardbox.setLayout(card)
         self.addrtext = QTextEdit()
-        self.addrtext.setStyleSheet("QTextEdit { color:blue; background-color:lightgray; padding:15px 10px; border:none; font-size:20pt; }")
+        self.addrtext.setStyleSheet("QTextEdit { color:blue; background-color:lightgray; "
+                                    "padding:15px 10px; border:none; font-size:20pt; }")
         self.addrtext.setReadOnly(True)
         self.addrtext.setMaximumHeight(120)
         card.addWidget(self.addrtext)
@@ -162,7 +166,9 @@ class LedgerAuthDialog(QDialog):
     def populate_modes(self):
         self.modes.blockSignals(True)
         self.modes.clear()
-        self.modes.addItem(_("Summary Text PIN (requires dongle replugging)") if self.txdata['confirmationType'] == 1 else _("Summary Text PIN is Disabled"))
+        self.modes.addItem(_("Summary Text PIN (requires dongle replugging)")
+                           if self.txdata['confirmationType'] == 1 else
+                           _("Summary Text PIN is Disabled"))
         if self.txdata['confirmationType'] > 1:
             self.modes.addItem(_("Security Card Challenge"))
             if not self.cfg['pair']:
@@ -176,7 +182,8 @@ class LedgerAuthDialog(QDialog):
         self.modebox.setVisible(True)
         self.addPair.setText(_("Pair") if not self.cfg['pair'] else _("Re-Pair"))
         self.addPair.setVisible(self.txdata['confirmationType'] > 2)
-        self.helpmsg.setText(helpTxt[self.cfg['mode'] if self.cfg['mode'] < 2 else 2 if self.cfg['pair'] else 4])
+        self.helpmsg.setText(helpTxt[self.cfg['mode'] if self.cfg['mode'] < 2
+                                     else 2 if self.cfg['pair'] else 4])
         self.helpmsg.setMinimumHeight(180 if self.txdata['confirmationType'] == 1 else 100)
         self.pairbox.setVisible(False)
         self.helpmsg.setVisible(True)
@@ -250,7 +257,9 @@ class LedgerWebSocket(QThread):
         QThread.__init__(self)
         self.stopping = False
         self.pairID = pairID
-        self.txreq = '{"type":"request","second_factor_data":"' + hexlify(txdata['secureScreenData']).decode('utf-8') + '"}' if txdata else None
+        self.txreq = ('{"type":"request","second_factor_data":"' +
+                      hexlify(txdata['secureScreenData']).decode('utf-8') + '"}'
+                      if txdata else None)
         self.dlg = dlg
         self.dongle = self.dlg.dongle
         self.data = None
