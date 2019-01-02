@@ -37,8 +37,6 @@ from electrumsv.i18n import _
 from electrumsv.wallet import Multisig_Wallet
 from electrumsv.util import bh2u, bfh
 
-from electrumsv.gui.qt.transaction_dialog import show_transaction
-
 logger = logging.getLogger("cosignerpool")
 
 PORT = 12344
@@ -227,4 +225,4 @@ class Plugin(BasePlugin):
 
         self.listener.clear(keyhash)
         tx = transaction.Transaction(message)
-        show_transaction(tx, window, prompt_if_unsaved=True)
+        window.show_transaction(tx, prompt_if_unsaved=True)

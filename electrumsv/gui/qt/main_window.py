@@ -880,9 +880,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d = address_dialog.AddressDialog(self, addr)
         d.exec_()
 
-    def show_transaction(self, tx, tx_desc = None):
+    def show_transaction(self, tx, tx_desc=None, prompt_if_unsaved=False):
         '''tx_desc is set only for txs created in the Send tab'''
-        show_transaction(tx, self, tx_desc)
+        show_transaction(tx, self, desc=tx_desc, prompt_if_unsaved=prompt_if_unsaved)
 
     def create_receive_tab(self):
         # A 4-column grid layout.  All the stretch is in the last column.
