@@ -53,7 +53,7 @@ class VerifyingRequestHandler(SimpleJSONRPCRequestHandler):
         # True if all OK so far
         if SimpleJSONRPCRequestHandler.parse_request(self):
             try:
-                self.authenticate(self.headers)
+                self.server.authenticate(self.headers)
                 return True
             except (RPCAuthCredentialsInvalid, RPCAuthCredentialsMissing,
                     RPCAuthUnsupportedType) as e:
