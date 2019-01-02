@@ -39,7 +39,8 @@ class RequestList(MyTreeWidget):
 
 
     def __init__(self, parent):
-        MyTreeWidget.__init__(self, parent, self.create_menu, [_('Date'), _('Address'), '', _('Description'), _('Amount'), _('Status')], 3)
+        MyTreeWidget.__init__(self, parent, self.create_menu, [
+            _('Date'), _('Address'), '', _('Description'), _('Amount'), _('Status')], 3)
         self.currentItemChanged.connect(self.item_changed)
         self.itemClicked.connect(self.item_changed)
         self.setSortingEnabled(True)
@@ -76,7 +77,8 @@ class RequestList(MyTreeWidget):
 
         # update the receive address if necessary
         current_address_string = self.parent.receive_address_e.text().strip()
-        current_address = Address.from_string(current_address_string) if len(current_address_string) else None
+        current_address = (Address.from_string(current_address_string)
+                           if len(current_address_string) else None)
         domain = self.wallet.get_receiving_addresses()
         addr = self.wallet.get_unused_address()
         if not current_address in domain and addr:
@@ -119,8 +121,11 @@ class RequestList(MyTreeWidget):
         column_title = self.headerItem().text(column)
         column_data = item.text(column)
         menu = QMenu(self)
-        menu.addAction(_("Copy {}").format(column_title), lambda: self.parent.app.clipboard().setText(column_data))
-        menu.addAction(_("Copy URI"), lambda: self.parent.view_and_paste('URI', '', self.parent.get_request_URI(addr)))
+        menu.addAction(_("Copy {}").format(column_title),
+                       lambda: self.parent.app.clipboard().setText(column_data))
+        menu.addAction(_("Copy URI"),
+                       lambda: self.parent.view_and_paste(
+                           'URI', '', self.parent.get_request_URI(addr)))
         menu.addAction(_("Save as BIP70 file"), lambda: self.parent.export_payment_request(addr))
         menu.addAction(_("Delete"), lambda: self.parent.delete_payment_request(addr))
         run_hook('receive_list_menu', menu, addr)

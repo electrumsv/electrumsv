@@ -42,15 +42,17 @@ class ElectrumGui:
         self.contacts = self.wallet.contacts
 
         self.network.register_callback(self.on_network, ['updated', 'banner'])
-        self.commands = [_("[h] - displays this help text"), \
-                         _("[i] - display transaction history"), \
-                         _("[o] - enter payment order"), \
-                         _("[p] - print stored payment order"), \
-                         _("[s] - send stored payment order"), \
-                         _("[r] - show own receipt addresses"), \
-                         _("[c] - display contacts"), \
-                         _("[b] - print server banner"), \
-                         _("[q] - quit") ]
+        self.commands = [
+            _("[h] - displays this help text"),
+            _("[i] - display transaction history"),
+            _("[o] - enter payment order"),
+            _("[p] - print stored payment order"),
+            _("[s] - send stored payment order"),
+            _("[r] - show own receipt addresses"),
+            _("[c] - display contacts"),
+            _("[b] - print server banner"),
+            _("[q] - quit"),
+        ]
         self.num_commands = len(self.commands)
 
     def on_network(self, event, *args):
@@ -88,8 +90,8 @@ class ElectrumGui:
     def print_history(self):
         width = [20, 40, 14, 14]
         delta = (80 - sum(width) - 4)/3
-        format_str = "%"+"%d"%width[0]+"s"+"%"+"%d"%(width[1]+delta)+"s"+"%" \
-        + "%d"%(width[2]+delta)+"s"+"%"+"%d"%(width[3]+delta)+"s"
+        format_str = ("%"+"%d"%width[0]+"s"+"%"+"%d"%(width[1]+delta)+"s"+"%"
+                      + "%d"%(width[2]+delta)+"s"+"%"+"%d"%(width[3]+delta)+"s")
         messages = []
 
         for item in self.wallet.get_history():
@@ -103,9 +105,11 @@ class ElectrumGui:
                 time_str = 'unconfirmed'
 
             label = self.wallet.get_label(tx_hash)
-            messages.append( format_str%( time_str, label, format_satoshis(delta, whitespaces=True), format_satoshis(balance, whitespaces=True) ) )
+            messages.append(format_str%(time_str, label, format_satoshis(delta, whitespaces=True),
+                                        format_satoshis(balance, whitespaces=True) ) )
 
-        self.print_list(messages[::-1], format_str%( _("Date"), _("Description"), _("Amount"), _("Balance")))
+        self.print_list(messages[::-1], format_str%( _("Date"), _("Description"),
+                                                     _("Amount"), _("Balance")))
 
 
     def print_balance(self):
@@ -133,11 +137,12 @@ class ElectrumGui:
         self.print_list(messages, "%19s  %25s "%("Key", "Value"))
 
     def print_addresses(self):
-        messages = map(lambda addr: "%30s    %30s       "%(addr, self.wallet.labels.get(addr,"")), self.wallet.get_addresses())
+        messages = map(lambda addr: "%30s    %30s       " %
+                       (addr, self.wallet.labels.get(addr,"")), self.wallet.get_addresses())
         self.print_list(messages, "%19s  %25s "%("Address", "Label"))
 
     def print_order(self):
-        print("send order to " + self.str_recipient + ", amount: " + self.str_amount \
+        print("send order to " + self.str_recipient + ", amount: " + self.str_amount
               + "\nfee: " + self.str_fee + ", desc: " + self.str_description)
 
     def enter_order(self):
@@ -194,7 +199,8 @@ class ElectrumGui:
             if c == "n": return
 
         try:
-            tx = self.wallet.mktx([(TYPE_ADDRESS, self.str_recipient, amount)], password, self.config, fee)
+            tx = self.wallet.mktx([(TYPE_ADDRESS, self.str_recipient, amount)],
+                                  password, self.config, fee)
         except Exception as e:
             print(str(e))
             return

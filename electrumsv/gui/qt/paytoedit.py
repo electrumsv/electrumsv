@@ -243,7 +243,8 @@ class PayToEdit(ScanQRTextEdit):
             self.c.popup().setCurrentIndex(self.c.completionModel().index(0, 0))
 
         cr = self.cursorRect()
-        cr.setWidth(self.c.popup().sizeHintForColumn(0) + self.c.popup().verticalScrollBar().sizeHint().width())
+        cr.setWidth(self.c.popup().sizeHintForColumn(0)
+                    + self.c.popup().verticalScrollBar().sizeHint().width())
         self.c.complete(cr)
 
     def qr_input(self):

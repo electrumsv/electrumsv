@@ -8,11 +8,12 @@ from functools import partial
 
 from PyQt5.QtCore import Qt, QCoreApplication, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
-from PyQt5.QtWidgets import QPushButton, QLabel, QMessageBox, QHBoxLayout, \
-    QDialog, QVBoxLayout, QLineEdit, QGroupBox, QRadioButton, QFileDialog, \
-    QStyledItemDelegate, QTreeWidget, QButtonGroup, QComboBox, QHeaderView, \
-    QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem, \
+from PyQt5.QtWidgets import (
+    QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
+    QRadioButton, QFileDialog, QStyledItemDelegate, QTreeWidget, QButtonGroup, QComboBox,
+    QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem,
     QApplication
+)
 
 from electrumsv.i18n import _
 from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
@@ -330,7 +331,9 @@ def filename_field(parent, config, defaultname, select_msg):
 
     def func():
         text = filename_e.text()
-        _filter = "*.csv" if text.endswith(".csv") else "*.json" if text.endswith(".json") else None
+        _filter = ("*.csv" if text.endswith(".csv") else
+                   "*.json" if text.endswith(".json") else
+                   None)
         p, __ = QFileDialog.getSaveFileName(None, select_msg, text, _filter)
         if p:
             filename_e.setText(p)
@@ -386,7 +389,8 @@ class MyTreeWidget(QTreeWidget):
         self.setHeaderLabels(headers)
         self.header().setStretchLastSection(False)
         for col in range(len(headers)):
-            sm = QHeaderView.Stretch if col == self.stretch_column else QHeaderView.ResizeToContents
+            sm = (QHeaderView.Stretch if col == self.stretch_column
+                  else QHeaderView.ResizeToContents)
             self.header().setSectionResizeMode(col, sm)
 
     def editItem(self, item, column):
@@ -469,7 +473,8 @@ class MyTreeWidget(QTreeWidget):
                 self.updateGeometry()
                 self.verticalScrollBar().setValue(scroll_pos_val) # restore scroll bar to previous
                 self.setUpdatesEnabled(True)
-            QTimer.singleShot(1.0, restoreScrollBar) # need to do this from a timer some time later due to Qt quirks
+            # need to do this from a timer some time later due to Qt quirks
+            QTimer.singleShot(1.0, restoreScrollBar)
         if self.current_filter:
             self.filter(self.current_filter)
 
@@ -512,7 +517,8 @@ class ButtonsWidget(QWidget):
     def addButton(self, icon_name, on_click, tooltip):
         button = QToolButton(self)
         button.setIcon(QIcon(icon_name))
-        button.setStyleSheet("QToolButton { border: none; hover {border: 1px} pressed {border: 1px} padding: 0px; }")
+        button.setStyleSheet("QToolButton { border: none; hover {border: 1px} "
+                             "pressed {border: 1px} padding: 0px; }")
         button.setVisible(True)
         button.setToolTip(tooltip)
         button.clicked.connect(on_click)
@@ -654,6 +660,7 @@ class OPReturnTooLarge(OPReturnError):
 
 if __name__ == "__main__":
     app = QApplication([])
-    t = WaitingDialog(None, 'testing ...', lambda: [time.sleep(1)], lambda x: QMessageBox.information(None, 'done', "done"))
+    t = WaitingDialog(None, 'testing ...', lambda: [time.sleep(1)],
+                      lambda x: QMessageBox.information(None, 'done', "done"))
     t.start()
     app.exec_()

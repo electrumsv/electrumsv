@@ -56,8 +56,8 @@ class AddressList(MyTreeWidget):
 
     def on_update(self):
         def remember_expanded_items():
-            # save the set of expanded items... so that address list updates don't annoyingly collapse
-            # our tree list widget due to the update.
+            # save the set of expanded items... so that address list updates don't
+            # annoyingly collapse our tree list widget due to the update.
             expanded_item_names = set()
             for i in range(0, self.topLevelItemCount()):
                 it = self.topLevelItem(i)
@@ -71,9 +71,11 @@ class AddressList(MyTreeWidget):
             return expanded_item_names
         def restore_expanded_items(seq_item, used_item, expanded_item_names):
             # restore expanded items.
-            if isinstance(seq_item, QTreeWidgetItem) and not seq_item.isExpanded() and seq_item.text(0) in expanded_item_names:
+            if (isinstance(seq_item, QTreeWidgetItem) and not seq_item.isExpanded() and
+                   seq_item.text(0) in expanded_item_names):
                 seq_item.setExpanded(True)
-            used_item_name = used_item.text(0) if not used_item.parent() else used_item.parent().text(0) + "/" + used_item.text(0)
+            used_item_name = (used_item.text(0) if not used_item.parent()
+                              else used_item.parent().text(0) + "/" + used_item.text(0))
             if not used_item.isExpanded() and used_item_name in expanded_item_names:
                 used_item.setExpanded(True)
         self.wallet = self.parent.wallet
@@ -96,7 +98,8 @@ class AddressList(MyTreeWidget):
                 name = _("Receiving") if not is_change else _("Change")
                 seq_item = QTreeWidgetItem( [ name, '', '', '', '', ''] )
                 account_item.addChild(seq_item)
-                if not is_change and not had_item_count: # first time we create this widget, auto-expand the default address list
+                # first time we create this widget, auto-expand the default address list
+                if not is_change and not had_item_count:
                     seq_item.setExpanded(True)
             else:
                 seq_item = account_item
@@ -168,7 +171,8 @@ class AddressList(MyTreeWidget):
                 copy_text = addr.to_full_ui_string()
             else:
                 copy_text = item.text(col)
-            menu.addAction(_("Copy {}").format(column_title), lambda: self.parent.app.clipboard().setText(copy_text))
+            menu.addAction(_("Copy {}").format(column_title),
+                           lambda: self.parent.app.clipboard().setText(copy_text))
             menu.addAction(_('Details'), lambda: self.parent.show_address(addr))
             if col in self.editable_columns:
                 menu.addAction(_("Edit {}").format(column_title), lambda: self.editItem(item, col))
@@ -176,8 +180,10 @@ class AddressList(MyTreeWidget):
             if self.wallet.can_export():
                 menu.addAction(_("Private key"), lambda: self.parent.show_private_key(addr))
             if not is_multisig and not self.wallet.is_watching_only():
-                menu.addAction(_("Sign/verify message"), lambda: self.parent.sign_verify_message(addr))
-                menu.addAction(_("Encrypt/decrypt message"), lambda: self.parent.encrypt_message(addr))
+                menu.addAction(_("Sign/verify message"),
+                               lambda: self.parent.sign_verify_message(addr))
+                menu.addAction(_("Encrypt/decrypt message"),
+                               lambda: self.parent.encrypt_message(addr))
             if can_delete:
                 menu.addAction(_("Remove from wallet"), lambda: self.parent.remove_address(addr))
             addr_URL = web.BE_URL(self.config, 'addr', addr)

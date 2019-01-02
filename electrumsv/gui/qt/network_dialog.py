@@ -28,9 +28,10 @@ import socket
 
 from PyQt5.QtCore import pyqtSignal, Qt, QThread
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTreeWidget, QMenu, \
-    QTreeWidgetItem, QHeaderView, QTabWidget, QWidget, QGridLayout, \
-    QLineEdit, QCheckBox, QLabel, QComboBox
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QTreeWidget, QMenu, QTreeWidgetItem, QHeaderView, QTabWidget,
+    QWidget, QGridLayout, QLineEdit, QCheckBox, QLabel, QComboBox,
+)
 
 from electrumsv.i18n import _
 from electrumsv.networks import NetworkConstants
@@ -222,8 +223,10 @@ class NetworkChoiceLayout(object):
         self.autoconnect_cb.clicked.connect(self.update)
 
         msg = ' '.join([
-            _("If auto-connect is enabled, ElectrumSV will always use a server that is on the longest blockchain."),
-            _("If it is disabled, you have to choose a server you want to use. ElectrumSV will warn you if your server is lagging.")
+            _("If auto-connect is enabled, ElectrumSV will always use a server that "
+              "is on the longest blockchain."),
+            _("If it is disabled, you have to choose a server you want to use. "
+              "ElectrumSV will warn you if your server is lagging.")
         ])
         grid.addWidget(self.autoconnect_cb, 0, 0, 1, 3)
         grid.addWidget(HelpButton(msg), 0, 4)
@@ -278,7 +281,8 @@ class NetworkChoiceLayout(object):
 
         grid.addWidget(self.tor_cb, 1, 0, 1, 3)
         grid.addWidget(self.proxy_cb, 2, 0, 1, 3)
-        grid.addWidget(HelpButton(_('Proxy settings apply to all connections: with ElectrumSV servers, but also with third-party services.')), 2, 4)
+        grid.addWidget(HelpButton(_('Proxy settings apply to all connections: both '
+                                    'ElectrumSV servers and third-party services.')), 2, 4)
         grid.addWidget(self.proxy_mode, 4, 1)
         grid.addWidget(self.proxy_host, 4, 2)
         grid.addWidget(self.proxy_port, 4, 3)
@@ -289,8 +293,10 @@ class NetworkChoiceLayout(object):
         # Blockchain Tab
         grid = QGridLayout(blockchain_tab)
         msg =  ' '.join([
-            _("ElectrumSV connects to several nodes in order to download block headers and find out the longest blockchain."),
-            _("This blockchain is used to verify the transactions sent by your transaction server.")
+            _("ElectrumSV connects to several nodes in order to download block headers "
+              "and find out the longest blockchain."),
+            _("This blockchain is used to verify the transactions sent by your "
+              "transaction server.")
         ])
         self.status_label = QLabel('')
         grid.addWidget(QLabel(_('Status') + ':'), 0, 0)
@@ -298,7 +304,8 @@ class NetworkChoiceLayout(object):
         grid.addWidget(HelpButton(msg), 0, 4)
 
         self.server_label = QLabel('')
-        msg = _("ElectrumSV sends your wallet addresses to a single server, in order to receive your transaction history.")
+        msg = _("ElectrumSV sends your wallet addresses to a single server, in order to "
+                "receive your transaction history.")
         grid.addWidget(QLabel(_('Server') + ':'), 1, 0)
         grid.addWidget(self.server_label, 1, 1, 1, 3)
         grid.addWidget(HelpButton(msg), 1, 4)
@@ -329,7 +336,8 @@ class NetworkChoiceLayout(object):
     def check_disable_proxy(self, b):
         if not self.config.is_modifiable('proxy'):
             b = False
-        for w in [self.proxy_mode, self.proxy_host, self.proxy_port, self.proxy_user, self.proxy_password]:
+        for w in [self.proxy_mode, self.proxy_host, self.proxy_port,
+                  self.proxy_user, self.proxy_password]:
             w.setEnabled(b)
 
     def enable_set_server(self):
@@ -367,7 +375,8 @@ class NetworkChoiceLayout(object):
             checkpoint = chain.get_base_height()
             name = chain.get_name()
             msg = _('Chain split detected at block %d')%checkpoint + '\n'
-            msg += (_('You are following branch') if auto_connect else _('Your server is on branch'))+ ' ' + name
+            msg += (_('You are following branch') if auto_connect
+                    else _('Your server is on branch'))+ ' ' + name
             msg += ' (%d %s)' % (chain.get_branch_size(), _('blocks'))
         else:
             msg = ''
@@ -469,9 +478,9 @@ class NetworkChoiceLayout(object):
     def suggest_proxy(self, found_proxy):
         self.tor_proxy = found_proxy
         self.tor_cb.setText("Use Tor proxy at port " + str(found_proxy[1]))
-        if self.proxy_mode.currentIndex() == self.proxy_mode.findText('SOCKS5') \
-            and self.proxy_host.text() == "127.0.0.1" \
-                and self.proxy_port.text() == str(found_proxy[1]):
+        if (self.proxy_mode.currentIndex() == self.proxy_mode.findText('SOCKS5') and
+                self.proxy_host.text() == "127.0.0.1" and
+                self.proxy_port.text() == str(found_proxy[1])):
             self.tor_cb.setChecked(True)
         self.tor_cb.show()
 
@@ -514,7 +523,8 @@ class TorDetector(QThread):
     @staticmethod
     def is_tor_port(port):
         try:
-            s = (socket._socketobject if hasattr(socket, "_socketobject") else socket.socket)(socket.AF_INET, socket.SOCK_STREAM)
+            s = (socket._socketobject if hasattr(socket, "_socketobject")
+                 else socket.socket)(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(0.1)
             s.connect(("127.0.0.1", port))
             # Tor responds uniquely to HTTP-like requests

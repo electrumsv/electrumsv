@@ -52,7 +52,8 @@ class ContactList(MyTreeWidget):
 
     def import_contacts(self):
         wallet_folder = self.parent.get_wallet_folder()
-        filename, __ = QFileDialog.getOpenFileName(self.parent, "Select your wallet file", wallet_folder)
+        filename, __ = QFileDialog.getOpenFileName(self.parent, "Select your wallet file",
+                                                   wallet_folder)
         if not filename:
             return
         try:
@@ -72,16 +73,19 @@ class ContactList(MyTreeWidget):
             column = self.currentColumn()
             column_title = self.headerItem().text(column)
             column_data = '\n'.join([item.text(column) for item in selected])
-            menu.addAction(_("Copy {}").format(column_title), lambda: self.parent.app.clipboard().setText(column_data))
+            menu.addAction(_("Copy {}").format(column_title),
+                           lambda: self.parent.app.clipboard().setText(column_data))
             if column in self.editable_columns:
                 item = self.currentItem()
-                menu.addAction(_("Edit {}").format(column_title), lambda: self.editItem(item, column))
+                menu.addAction(_("Edit {}").format(column_title),
+                               lambda: self.editItem(item, column))
             menu.addAction(_("Pay to"), lambda: self.parent.payto_contacts(keys))
             menu.addAction(_("Delete"), lambda: self.parent.delete_contacts(keys))
             URLs = [web.BE_URL(self.config, 'addr', Address.from_string(key))
                     for key in keys if Address.is_valid(key)]
             if URLs:
-                menu.addAction(_("View on block explorer"), lambda: [webbrowser.open(URL) for URL in URLs])
+                menu.addAction(_("View on block explorer"),
+                               lambda: [webbrowser.open(URL) for URL in URLs])
 
         run_hook('create_contact_menu', menu, selected)
         menu.exec_(self.viewport().mapToGlobal(position))

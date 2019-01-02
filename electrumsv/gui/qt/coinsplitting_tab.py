@@ -4,8 +4,9 @@ import requests
 import threading
 
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QWidget, QGridLayout, QLabel, QPushButton, \
-    QHBoxLayout, QVBoxLayout, QProgressDialog
+from PyQt5.QtWidgets import (
+    QWidget, QGridLayout, QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QProgressDialog
+)
 
 from electrumsv import bitcoin
 from electrumsv.i18n import _
@@ -58,13 +59,11 @@ class CoinSplittingTab(QWidget):
         self.new_transaction_cv = threading.Condition()
 
         window.network.register_callback(self._on_network_event, ['new_transaction'])
-        self.waiting_dialog = SplitWaitingDialog(window, self, self._split_prepare_task, self._on_split_prepare_task_success, self._on_split_prepare_task_error)
+        self.waiting_dialog = SplitWaitingDialog(window, self, self._split_prepare_task,
+                                                 self._on_split_prepare_task_success,
+                                                 self._on_split_prepare_task_error)
 
     def _split_prepare_task(self):
-        # rt12 --- the close button is removed and the cancel button is removed, which means this should not be needed.
-        # if not self.waiting_dialog.isVisible():
-        #    return RESULT_DIALOG_CLOSED
-
         self.split_stage = STAGE_OBTAINING_DUST
 
         if bitcoin.NetworkConstants.TESTNET:
@@ -83,8 +82,8 @@ class CoinSplittingTab(QWidget):
         if d["error"]:
             return RESULT_JSON_ERROR
 
-        # Wait for the transaction to arrive.
-        # How long it takes before the progress bar stalls (should easily cover normal expected time required).
+        # Wait for the transaction to arrive.  How long it takes before the progress bar
+        # stalls (should easily cover normal expected time required).
         max_time_passed_for_progress = 40.0
         # How long to wait before failing the process.
         max_time_passed_for_failure = 120.0
@@ -123,11 +122,14 @@ class CoinSplittingTab(QWidget):
                     # The int() cast raises this.
                     # A HTTPStatus lookup with no matching entry raises this.
                     pass
-                status_code_description = "Unknown" if status_code_data is None else status_code_data.description
+                status_code_description = ("Unknown" if status_code_data is None else
+                                           status_code_data.description)
                 status_code_name = "Unknown" if status_code_data is None else status_code_data.name
-                window.show_error(_("Unexpected response from faucet:\n{} ({})\n{}").format(status_code, status_code_name, status_code_description))
+                window.show_error(_("Unexpected response from faucet:\n{} ({})\n{}").format(
+                    status_code, status_code_name, status_code_description))
             elif result == RESULT_JSON_ERROR:
-                window.show_error(_("Unexpected response from faucet:\n{}").format(self.faucet_result_json["message"]))
+                window.show_error(_("Unexpected response from faucet:\n{}").format(
+                    self.faucet_result_json["message"]))
             elif result == RESULT_DUST_TIMEOUT:
                 window.show_error(_("It took too long to get the dust from the faucet."))
             else:
@@ -172,7 +174,8 @@ class CoinSplittingTab(QWidget):
                 if not tx.is_complete():
                     window.show_error(_("Signed transaction is unexpectedly incomplete."))
                     return
-                window.broadcast_transaction(tx, "{}: Your split coins".format(TX_DESC_PREFIX), success_text=_("Your coins have now been split."))
+                window.broadcast_transaction(tx, "{}: Your split coins".format(TX_DESC_PREFIX),
+                                             success_text=_("Your coins have now been split."))
         window.sign_tx_with_password(tx, sign_done, password)
 
     def _split_cleanup(self):
@@ -193,7 +196,8 @@ class CoinSplittingTab(QWidget):
                 our_storage_string = self.receiving_address.to_storage_string()
                 for tx_output in tx.outputs():
                     if tx_output[1].to_storage_string() == our_storage_string:
-                        wallet.set_label(tx.txid(), "{}: Dust from BSV faucet".format(TX_DESC_PREFIX))
+                        wallet.set_label(tx.txid(), "{}: Dust from BSV faucet".format(
+                            TX_DESC_PREFIX))
                         break
 
                 # Notify the progress dialog task thread.
@@ -204,35 +208,62 @@ class CoinSplittingTab(QWidget):
         window = self.window()
         wallet = window.wallet
 
-        self.unfrozen_balance = wallet.get_balance(exclude_frozen_coins=True, exclude_frozen_addresses=True)
+        self.unfrozen_balance = wallet.get_balance(exclude_frozen_coins=True,
+                                                   exclude_frozen_addresses=True)
         self.frozen_balance = wallet.get_frozen_balance()
 
         unfrozen_confirmed, unfrozen_unconfirmed, _unfrozen_unmature = self.unfrozen_balance
         _frozen_confirmed, _frozen_unconfirmed, _frozen_unmature = self.frozen_balance
 
         splittable_amount = unfrozen_confirmed + unfrozen_unconfirmed
-        # unsplittable_amount = unfrozen_unmature + frozen_confirmed + frozen_unconfirmed + frozen_unmature
+        # unsplittable_amount = unfrozen_unmature + frozen_confirmed + frozen_unconfirmed
+        # + frozen_unmature
 
         splittable_amount_text = window.format_amount(splittable_amount)
         unit_text = window.base_unit()
 
-        text = (
-            "<p>" +
-            _("As of the November 2018 hard-fork, Bitcoin Cash split into Bitcoin ABC and Bitcoin SV.") + " " +
-            _("This tab allows you to easily split the available coins in this wallet (approximately {} {}) on the Bitcoin SV chain.".format(splittable_amount_text, unit_text)) + " " +
-            _("This will involve the following steps if you choose to proceed:") +
-            "</p>" +
-            _("<ol>") +
-            "<li>"+ _("A small amount of SV coin will be obtained from a faucet.") + "</li>" +
-            "<li>"+ _("A transaction will be constructed including your entire spendable balance combined with the new known SV coin from the faucet, to be sent back into this wallet.") + "</li>")
+        text = [
+            "<p>",
+            _("As of the November 2018 hard-fork, Bitcoin Cash split into Bitcoin ABC "
+              "and Bitcoin SV."),
+            " ",
+            _("This tab allows you to easily split the available coins in this wallet "
+              "(approximately {} {}) on the Bitcoin SV chain.".format(
+                  splittable_amount_text, unit_text)),
+            " ",
+            _("This will involve the following steps if you choose to proceed:"),
+            "</p>",
+            "<ol>",
+            "<li>",
+            _("A small amount of SV coin will be obtained from a faucet."),
+            "</li>",
+            "<li>",
+            _("A transaction will be constructed including your entire spendable balance "
+              "combined with the new known SV coin from the faucet, to be sent back into "
+              "this wallet."),
+            "</li>",
+        ]
         if wallet.has_password():
-            text += "<li>"+ _("As this wallet is password protected, you will be prompted to enter your password to sign the transaction.") + "</li>"
-        text += (
-            "<li>"+ _("The transaction will then be broadcast, and immediately added to your wallet history so you can see it confirmed. It will be labeled as splitting related, so you can easily identify it.") + "</li>" +
-            "<li>"+ _("You can then open Electron Cash and move your ABC coins to a different address, in order to finalise the split.") + "</li>" +
-            _("</ol>"))
+            text.extend([
+                "<li>",
+                _("As this wallet is password protected, you will be prompted to "
+                  "enter your password to sign the transaction."),
+                "</li>",
+            ])
+        text.extend([
+            "<li>",
+            _("The transaction will then be broadcast, and immediately added to your "
+              "wallet history so you can see it confirmed. It will be labeled as splitting "
+              "related, so you can easily identify it."),
+            "</li>",
+            "<li>",
+            _("You can then open Electron Cash and move your ABC coins to a different address, "
+              "in order to finalise the split."),
+            "</li>",
+            "</ol>",
+        ])
 
-        self.intro_label.setText(text)
+        self.intro_label.setText("".join(text))
 
     def update_layout(self):
         window = self.window()
@@ -252,14 +283,25 @@ class CoinSplittingTab(QWidget):
 
             help_content = "".join([
                 "<ol>",
-                "<li>"+ _("Frozen coins will not be included in any split you make. You can use the Coins tab to freeze or unfreeze selected coins, and by doing so only split chosen amounts of your coins at a time.  The View menu can be used to toggle tabs.") +"</li>",
-                "<li>"+ _("In order to prevent abuse, the faucet will limit how often you can obtain dust to split with. But that's okay, you can wait and split more coins. Or, if you are not concerned with your coins being linked, you can split dust from your already split coins, and use that to split further subsets.") +"</li>",
+                "<li>",
+                _("Frozen coins will not be included in any split you make. You can use the "
+                  "Coins tab to freeze or unfreeze selected coins, and by doing so only split "
+                  "chosen amounts of your coins at a time.  The View menu can be used to toggle "
+                  "tabs."),
+                "</li>",
+                "<li>",
+                _("In order to prevent abuse, the faucet will limit how often you can obtain "
+                  "dust to split with. But that's okay, you can wait and split more coins. "
+                  "Or, if you are not concerned with your coins being linked, you can split "
+                  "dust from your already split coins, and use that to split further subsets."),
+                "</li>",
                 "</ol>",
             ])
 
             button_row = QHBoxLayout()
             button_row.addWidget(split_button)
-            button_row.addWidget(util.HelpButton(help_content, textFormat=Qt.RichText, title="Additional Information"))
+            button_row.addWidget(util.HelpButton(help_content, textFormat=Qt.RichText,
+                                                 title="Additional Information"))
 
             grid.addWidget(self.intro_label, 0, 1, 1, 3)
             # grid.addWidget(balance_widget, 2, 1, 1, 3, Qt.AlignHCenter)
@@ -280,7 +322,8 @@ class CoinSplittingTab(QWidget):
             vbox = QVBoxLayout()
             vbox.addLayout(hbox )
 
-        # If the tab is already laid out, it's current layout needs to be reparented/removed before we can replace it.
+        # If the tab is already laid out, it's current layout needs to be
+        # reparented/removed before we can replace it.
         existingLayout = self.layout()
         if existingLayout:
             QWidget().setLayout(existingLayout)
@@ -295,8 +338,10 @@ class SplitWaitingDialog(QProgressDialog):
     def __init__(self, parent, splitter, task, on_success=None, on_error=None):
         self.splitter = splitter
 
-        # These flags remove the close button, which removes a corner case that we'd otherwise have to handle.
-        QProgressDialog.__init__(self, "", None, 0, 100, parent, Qt.Window | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
+        # These flags remove the close button, which removes a corner case that we'd
+        # otherwise have to handle.
+        QProgressDialog.__init__(self, "", None, 0, 100, parent,
+                                 Qt.Window | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
 
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle(_("Please wait"))

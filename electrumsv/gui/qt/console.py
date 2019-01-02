@@ -1,5 +1,5 @@
 
-# source: http://stackoverflow.com/questions/2758159/how-to-embed-a-python-interpreter-in-a-pyqt-widget
+# source: http://stackoverflow.com/questions/2758159
 
 import logging
 import sys, os, re
@@ -206,8 +206,9 @@ class Console(QtWidgets.QPlainTextEdit):
                     self.skip = not self.skip
 
             if type(self.namespace.get(command)) == type(lambda:None):
-                self.appendPlainText("'{}' is a function. Type '{}()' to use it in the Python console."
-                                     .format(command, command))
+                self.appendPlainText(
+                    "'{}' is a function. Type '{}()' to use it in the Python console."
+                    .format(command, command))
                 self.newPrompt()
                 return
 

@@ -24,13 +24,25 @@
 # SOFTWARE.
 
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import QVBoxLayout, QDialog, QCheckBox, QHBoxLayout, \
-    QLabel, QLineEdit
+from PyQt5.QtWidgets import QVBoxLayout, QDialog, QCheckBox, QHBoxLayout, QLabel, QLineEdit
 from electrumsv.i18n import _
 
-from .util import WWLabel, ButtonsTextEdit, EnterButton, Buttons, OkButton, \
-    WindowModalDialog, CloseButton
+from .util import (
+    WWLabel, ButtonsTextEdit, EnterButton, Buttons, OkButton, WindowModalDialog, CloseButton
+)
 from .qrtextedit import ScanQRTextEdit
+
+
+BIP39_WARNING = ' '.join([
+    '<b>' + _('Warning') + ': BIP39 seeds are dangerous!' + '</b><br/><br/>',
+    _('BIP39 seeds can be imported so that users can access funds locked in other wallets.'),
+    _('However, BIP39 seeds do not include a version number, which compromises '
+      'compatibility with future wallet software.'),
+    '<br/><br/>',
+    _('We do not guarantee that BIP39 imports will always be supported in ElectrumSV.'),
+    _('In addition, ElectrumSV does not verify the checksum of BIP39 seeds; make sure you '
+      'type your seed correctly.'),
+])
 
 
 def seed_warning_msg(seed):
@@ -68,14 +80,7 @@ class SeedLayout(QVBoxLayout):
                 self.on_edit()
                 self.is_bip39 = b
                 if b:
-                    msg = ' '.join([
-                        '<b>' + _('Warning') + ': BIP39 seeds are dangerous!' + '</b><br/><br/>',
-                        _('BIP39 seeds can be imported in ElectrumSV so that users can access funds locked in other wallets.'),
-                        _('However, BIP39 seeds do not include a version number, which compromises compatibility with future wallet software.'),
-                        '<br/><br/>',
-                        _('We do not guarantee that BIP39 imports will always be supported in ElectrumSV.'),
-                        _('In addition, ElectrumSV does not verify the checksum of BIP39 seeds; make sure you type your seed correctly.'),
-                    ])
+                    msg = BIP39_WARNING
                 else:
                     msg = ''
                 self.seed_warning.setText(msg)
@@ -89,13 +94,7 @@ class SeedLayout(QVBoxLayout):
                 self.is_bip39 = b
                 self.on_edit()
                 if b:
-                    msg = ' '.join([
-                        '<b>' + _('Warning') + ':</b>  ',
-                        _('BIP39 seeds can be imported in ElectrumSV, so that users can access funds locked in other wallets.'),
-                        _('However, we do not generate BIP39 seeds, because they do not meet our safety standard.'),
-                        _('BIP39 seeds do not include a version number, which compromises compatibility with future software.'),
-                        _('We do not guarantee that BIP39 imports will always be supported in ElectrumSV.'),
-                    ])
+                    msg = BIP39_WARNING
                 else:
                     msg = ''
                 self.seed_warning.setText(msg)
@@ -111,7 +110,8 @@ class SeedLayout(QVBoxLayout):
         self.is_bip39 = cb_bip39.isChecked() if 'bip39' in self.options else False
         self.is_bip39_145 = cb_bip39_145.isChecked() if 'bip39_145' in self.options else False
 
-    def __init__(self, seed=None, title=None, icon=True, msg=None, options=None, is_seed=None, passphrase=None, parent=None):
+    def __init__(self, seed=None, title=None, icon=True, msg=None, options=None,
+                 is_seed=None, passphrase=None, parent=None):
         QVBoxLayout.__init__(self)
         self.parent = parent
         self.options = options
@@ -170,7 +170,8 @@ class SeedLayout(QVBoxLayout):
         else:
             from electrumsv.keystore import bip39_is_checksum_valid
             is_checksum, is_wordlist = bip39_is_checksum_valid(s)
-            status = ('checksum: ' + ('ok' if is_checksum else 'failed')) if is_wordlist else 'unknown wordlist'
+            status = ('checksum: ' + ('ok' if is_checksum else 'failed')
+                      if is_wordlist else 'unknown wordlist')
             label = 'BIP39' + ' (%s)'%status
         self.seed_type_label.setText(label)
         self.parent.next_button.setEnabled(b)

@@ -173,9 +173,11 @@ class HistoryList(MyTreeWidget):
 
         menu = QMenu()
 
-        menu.addAction(_("Copy {}").format(column_title), lambda: self.parent.app.clipboard().setText(column_data))
+        menu.addAction(_("Copy {}").format(column_title),
+                       lambda: self.parent.app.clipboard().setText(column_data))
         if column in self.editable_columns:
-            # We grab a fresh reference to the current item, as it has been deleted in a reported issue.
+            # We grab a fresh reference to the current item, as it has been deleted in a
+            # reported issue.
             menu.addAction(_("Edit {}").format(column_title),
                 lambda: self.currentItem() and self.editItem(self.currentItem(), column))
         label = self.wallet.get_label(tx_hash) or None
@@ -185,7 +187,8 @@ class HistoryList(MyTreeWidget):
             if child_tx:
                 menu.addAction(_("Child pays for parent"), lambda: self.parent.cpfp(tx, child_tx))
         if pr_key:
-            menu.addAction(QIcon(":icons/seal"), _("View invoice"), lambda: self.parent.show_invoice(pr_key))
+            menu.addAction(QIcon(":icons/seal"), _("View invoice"),
+                           lambda: self.parent.show_invoice(pr_key))
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
         menu.exec_(self.viewport().mapToGlobal(position))

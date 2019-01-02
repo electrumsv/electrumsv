@@ -30,12 +30,12 @@ import sys
 try:
     import PyQt5
 except Exception:
-    sys.exit("Error: Could not import PyQt5 on Linux systems, you may try 'sudo apt-get install python3-pyqt5'")
+    sys.exit("Error: Could not import PyQt5 on Linux systems, you may try "
+             "'sudo apt-get install python3-pyqt5'")
 
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 from PyQt5.QtGui import QGuiApplication, QIcon
-from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMessageBox, \
-    QMenu, QWidget
+from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMessageBox, QMenu, QWidget
 import PyQt5.QtCore as QtCore
 
 from electrumsv.i18n import _, set_language
@@ -163,7 +163,8 @@ class ElectrumGui:
 
     def show_network_dialog(self, parent):
         if not self.daemon.network:
-            parent.show_warning(_('You are using ElectrumSV in offline mode; restart ElectrumSV if you want to get connected'), title=_('Offline'))
+            parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
+                                  'ElectrumSV if you want to get connected'), title=_('Offline'))
             return
         if self.nd:
             self.nd.on_update()
@@ -209,10 +210,12 @@ class ElectrumGui:
             except BaseException as e:
                 logging.exception("")
                 if '2fa' in str(e):
-                    d = QMessageBox(QMessageBox.Warning, _('Error'), '2FA wallets for Bitcoin SV are currently unsupported by <a href="https://api.trustedcoin.com/#/">TrustedCoin</a>. Follow <a href="https://github.com/Electrum-SV/Electrum-SV/issues/41#issuecomment-357468208">this guide</a> in order to recover your funds.')
+                    d = QMessageBox(QMessageBox.Warning, _('Error'),
+                                    '2FA wallets are not unsupported.')
                     d.exec_()
                 else:
-                    d = QMessageBox(QMessageBox.Warning, _('Error'), 'Cannot load wallet:\n' + str(e))
+                    d = QMessageBox(QMessageBox.Warning, _('Error'),
+                                    'Cannot load wallet:\n' + str(e))
                     d.exec_()
                 return
             w = self.create_window_for_wallet(wallet)
@@ -262,7 +265,8 @@ class ElectrumGui:
         self.app.exec_()
         # Shut down the timer cleanly
         self.timer.stop()
-        # clipboard persistence. see http://www.mail-archive.com/pyqt@riverbankcomputing.com/msg17328.html
+        # clipboard persistence
+        # see http://www.mail-archive.com/pyqt@riverbankcomputing.com/msg17328.html
         event = QtCore.QEvent(QtCore.QEvent.Clipboard)
         self.app.sendEvent(self.app.clipboard(), event)
         self.tray.hide()

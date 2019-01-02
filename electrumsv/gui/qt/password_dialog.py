@@ -25,8 +25,7 @@
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import QLineEdit, QVBoxLayout, QGridLayout, QLabel, \
-    QCheckBox
+from PyQt5.QtWidgets import QLineEdit, QVBoxLayout, QGridLayout, QLabel, QCheckBox
 from electrumsv.i18n import _
 from .util import WindowModalDialog, OkButton, Buttons, CancelButton
 import re
@@ -174,7 +173,8 @@ class ChangePasswordDialog(WindowModalDialog):
             msg += ' ' + _('Use this dialog to add a password to your wallet.')
         else:
             if not is_encrypted:
-                msg = _('Your bitcoins are password protected. However, your wallet file is not encrypted.')
+                msg = _('Your bitcoins are password protected. However, your wallet file '
+                        'is not encrypted.')
             else:
                 msg = _('Your wallet is password protected and encrypted.')
             msg += ' ' + _('Use this dialog to change your password.')
@@ -190,7 +190,8 @@ class ChangePasswordDialog(WindowModalDialog):
     def run(self):
         if not self.exec_():
             return False, None, None, None
-        return True, self.playout.old_password(), self.playout.new_password(), self.playout.encrypt_cb.isChecked()
+        return (True, self.playout.old_password(), self.playout.new_password(),
+                self.playout.encrypt_cb.isChecked())
 
 
 class PasswordDialog(WindowModalDialog):
