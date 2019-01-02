@@ -125,7 +125,7 @@ class ElectrumGui:
         else:
                 msg = _( "Not connected" )
 
-        return(msg)
+        return msg
 
 
     def print_contacts(self):

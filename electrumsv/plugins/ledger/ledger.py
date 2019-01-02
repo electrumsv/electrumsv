@@ -122,9 +122,9 @@ class Ledger_Client():
             # Invalid SET OPERATION MODE to verify the PIN status
             client.dongle.exchange(bytearray([0xe0, 0x26, 0x00, 0x00, 0x01, 0xAB]))
         except BTChipException as e:
-            if (e.sw == 0x6982):
+            if e.sw == 0x6982:
                 return False
-            if (e.sw == 0x6A80):
+            if e.sw == 0x6A80:
                 return True
             raise e
 
@@ -153,7 +153,7 @@ class Ledger_Client():
             try:
                 self.dongleObject.getOperationMode()
             except BTChipException as e:
-                if (e.sw == 0x6985):
+                if e.sw == 0x6985:
                     self.dongleObject.dongle.close()
                     self.handler.get_setup( )
                     # Acquire the new client on the next run
@@ -178,9 +178,9 @@ class Ledger_Client():
                 self.cashaddrSWSupported = False
 
         except BTChipException as e:
-            if (e.sw == 0x6faa):
+            if e.sw == 0x6faa:
                 raise Exception("Dongle is temporarily locked - please unplug it and replug it again")
-            if ((e.sw & 0xFFF0) == 0x63c0):
+            if (e.sw & 0xFFF0) == 0x63c0:
                 raise Exception("Invalid PIN - please unplug the dongle and plug it again before retrying")
             if e.sw == 0x6f00 and e.message == 'Invalid channel':
                 # based on docs 0x6f00 might be a more general error, hence we also compare message to be sure
@@ -193,7 +193,7 @@ class Ledger_Client():
             try:
                 self.perform_hw1_preflight()
             except BTChipException as e:
-                if (e.sw == 0x6d00 or e.sw == 0x6700):
+                if e.sw == 0x6d00 or e.sw == 0x6700:
                     raise BaseException(_("Device not in Bitcoin Cash mode")) from e
                 raise e
             self.preflightDone = True

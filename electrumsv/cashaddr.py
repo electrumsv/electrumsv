@@ -27,15 +27,15 @@ def _polymod(values):
     for d in values:
         c0 = c >> 35
         c = ((c & 0x07ffffffff) << 5) ^ d
-        if (c0 & 0x01):
+        if c0 & 0x01:
             c ^= 0x98f2bc8e61
-        if (c0 & 0x02):
+        if c0 & 0x02:
             c ^= 0x79b76d99e2
-        if (c0 & 0x04):
+        if c0 & 0x04:
             c ^= 0xf33e5fb3c4
-        if (c0 & 0x08):
+        if c0 & 0x08:
             c ^= 0xae2eabe2a8
-        if (c0 & 0x10):
+        if c0 & 0x10:
             c ^= 0x1e4f43e470
     retval= c ^ 1
     return retval
@@ -118,7 +118,7 @@ def _decode_payload(addr):
         raise ValueError('address prefix is missing: {}'.format(addr))
     if not all(33 <= ord(x) <= 126 for x in prefix):
         raise ValueError('invalid address prefix: {}'.format(prefix))
-    if not (8 <= len(payload) <= 124):
+    if not 8 <= len(payload) <= 124:
         raise ValueError('address payload has invalid length: {}'
                          .format(len(addr)))
     try:
@@ -193,7 +193,7 @@ def encode(prefix, kind, addr_hash):
 
     payload = _pack_addr_data(kind, addr_hash)
     checksum = _create_checksum(prefix, payload)
-    return ''.join([_CHARSET[d] for d in (payload + checksum)])
+    return ''.join([ _CHARSET[d] for d in payload + checksum ])
 
 
 def encode_full(prefix, kind, addr_hash):

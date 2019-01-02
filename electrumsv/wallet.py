@@ -673,7 +673,7 @@ class Abstract_Wallet:
 
     def get_spendable_coins(self, domain, config, isInvoice = False):
         confirmed_only = config.get('confirmed_only', False)
-        if (isInvoice):
+        if isInvoice:
             confirmed_only = True
         return self.get_utxos(domain, exclude_frozen=True, mature=True, confirmed_only=confirmed_only)
 
@@ -1026,7 +1026,7 @@ class Abstract_Wallet:
         tx_in_bytes=tx.estimated_size()
         fee_in_satoshis=tx.get_fee()
         sats_per_byte=fee_in_satoshis/tx_in_bytes
-        if (sats_per_byte > 50):
+        if sats_per_byte > 50:
             raise ExcessiveFee()
 
         # Sort the inputs and outputs deterministically

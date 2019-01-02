@@ -51,11 +51,11 @@ def SHA1(x):
 # Check that os.urandom works
 import zlib
 length = len(zlib.compress(os.urandom(1000)))
-assert(length > 900)
+assert length > 900
 
 def getRandomBytes(howMany):
     b = bytearray(os.urandom(howMany))
-    assert(len(b) == howMany)
+    assert len(b) == howMany
     return b
 
 prngName = "os.urandom"
@@ -252,7 +252,7 @@ def getRandomSafePrime(bits, display=False):
     while 1:
         if display: print(".", end=' ')
         q += 30
-        if (q >= high):
+        if q >= high:
             q = getRandomNumber(low, high)
             q += 29 - (q % 30)
         #Ideas from Tom Wu's SRP code
@@ -328,7 +328,7 @@ class RSAKey(object):
         prefixedHashBytes2 = self._addPKCS1SHA1Prefix(hashBytes, True)
         result1 = self.verify(sigBytes, prefixedHashBytes1)
         result2 = self.verify(sigBytes, prefixedHashBytes2)
-        return (result1 or result2)
+        return result1 or result2
 
     def sign(self, bytes):
         """Sign the passed-in bytes.

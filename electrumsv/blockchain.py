@@ -400,11 +400,11 @@ class Blockchain:
         blocks1 = self.read_header(suitableheight-1, chunk)
         blocks = self.read_header(suitableheight-2, chunk)
 
-        if (blocks['timestamp'] > blocks2['timestamp'] ):
+        if blocks['timestamp'] > blocks2['timestamp']:
             blocks,blocks2 = blocks2,blocks
-        if (blocks['timestamp'] > blocks1['timestamp'] ):
+        if blocks['timestamp'] > blocks1['timestamp']:
             blocks,blocks1 = blocks1,blocks
-        if (blocks1['timestamp'] > blocks2['timestamp'] ):
+        if blocks1['timestamp'] > blocks2['timestamp']:
             blocks1,blocks2 = blocks2,blocks1
 
         return blocks1['block_height']
@@ -427,9 +427,8 @@ class Blockchain:
         prevheight = height -1
         daa_mtp = self.get_median_time_past(prevheight, chunk)
 
-        #if (daa_mtp >= 1509559291):  #leave this here for testing
-        if (daa_mtp >= 1510600000):
-
+        #if daa_mtp >= 1509559291:  #leave this here for testing
+        if daa_mtp >= 1510600000:
             if NetworkConstants.TESTNET:
                 # testnet 20 minute rule
                 if header['timestamp'] - prior['timestamp'] > 20*60:
@@ -451,10 +450,10 @@ class Blockchain:
             daa_starting_timestamp = self.read_header(daa_starting_height, chunk)['timestamp']
             daa_ending_timestamp = self.read_header(daa_ending_height, chunk)['timestamp']
             daa_elapsed_time = daa_ending_timestamp - daa_starting_timestamp
-            if (daa_elapsed_time>172800):
-                daa_elapsed_time=172800
-            if (daa_elapsed_time<43200):
-                daa_elapsed_time=43200
+            if daa_elapsed_time > 172800:
+                daa_elapsed_time = 172800
+            if daa_elapsed_time < 43200:
+                daa_elapsed_time = 43200
 
             # calculate and return new target
             daa_Wn = (daa_cumulative_work*600) // daa_elapsed_time

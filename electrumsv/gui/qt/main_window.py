@@ -1531,7 +1531,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         #if fee > confirm_rate * tx.estimated_size() / 1000:
         #    msg.append(_('Warning') + ': ' + _("The fee for this transaction seems unusually high."))
 
-        if (fee < (tx.estimated_size())):
+        if fee < (tx.estimated_size()):
             msg.append(_('Warning') + ': ' + _("You're using a fee less than 1000 sats/kb.  It may take a very long time to confirm."))
 
         if self.config.get('enable_opreturn') and self.message_opreturn_e.text():
