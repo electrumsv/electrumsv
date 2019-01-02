@@ -56,9 +56,7 @@ except Exception as e:
     print("Run 'pyrcc5 icons.qrc -o electrumsv/gui/qt/icons_rc.py', and re-run ElectrumSV")
     sys.exit(1)
 
-# * needed for plugins
-#from .util import ColorScheme
-from .util import *
+from .util import ColorScheme
 from .main_window import ElectrumWindow
 from .network_dialog import NetworkDialog
 
