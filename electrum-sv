@@ -136,9 +136,11 @@ def run_non_RPC(config):
             print("Recovering wallet...")
             wallet.synchronize()
             wallet.wait_until_synchronized()
-            msg = "Recovery successful" if wallet.is_found() else "Found no history for this wallet"
+            msg = ("Recovery successful" if wallet.is_found()
+                   else "Found no history for this wallet")
         else:
-            msg = "This wallet was restored offline. It may contain more addresses than displayed."
+            msg = ("This wallet was restored offline. "
+                   "It may contain more addresses than displayed.")
         print(msg)
 
     elif cmdname == 'create':
@@ -153,7 +155,8 @@ def run_non_RPC(config):
         wallet.update_password(None, password, True)
         wallet.synchronize()
         print("Your wallet generation seed is:\n\"%s\"" % seed)
-        print("Please keep it in a safe place; if you lose it, you will not be able to restore your wallet.")
+        print("Please keep it in a safe place; if you lose it, "
+              "you will not be able to restore your wallet.")
 
     wallet.storage.write()
     print("Wallet saved in '%s'" % wallet.storage.path)
@@ -165,7 +168,8 @@ def init_daemon(config_options):
     storage = WalletStorage(config.get_wallet_path())
     if not storage.file_exists():
         print("Error: Wallet file not found.")
-        print("Type 'electrum-sv create' to create a new wallet, or provide a path to a wallet with the -w option")
+        print("Type 'electrum-sv create' to create a new wallet, "
+              "or provide a path to a wallet with the -w option")
         sys.exit(0)
     if storage.is_encrypted():
         if 'wallet_password' in config_options:
@@ -203,18 +207,21 @@ def init_cmdline(config_options, server):
 
     if cmd.requires_wallet and not storage.file_exists():
         print("Error: Wallet file not found.")
-        print("Type 'electrum-sv create' to create a new wallet, or provide a path to a wallet with the -w option")
+        print("Type 'electrum-sv create' to create a new wallet, "
+              "or provide a path to a wallet with the -w option")
         sys.exit(0)
 
     # important warning
     if cmd.name in ['getprivatekeys']:
         print("WARNING: ALL your private keys are secret.", file=sys.stderr)
         print("Exposing a single private key can compromise your entire wallet!", file=sys.stderr)
-        print("In particular, DO NOT use 'redeem private key' services proposed by third parties.", file=sys.stderr)
+        print("In particular, DO NOT use 'redeem private key' services "
+              "proposed by third parties.", file=sys.stderr)
 
     # commands needing password
-    if (cmd.requires_wallet and storage.is_encrypted() and server is None)\
-       or (cmd.requires_password and (storage.get('use_encryption') or storage.is_encrypted())):
+    if ((cmd.requires_wallet and storage.is_encrypted() and server is None)
+           or (cmd.requires_password
+               and (storage.get('use_encryption') or storage.is_encrypted()))):
         if config.get('password'):
             password = config.get('password')
         else:
@@ -306,8 +313,11 @@ def main():
 
     # config is an object passed to the various constructors (wallet, interface, gui)
     config_options = args.__dict__
-    f = lambda key: config_options[key] is not None and key not in config_variables.get(args.cmd, {}).keys()
-    config_options = {key: config_options[key] for key in filter(f, config_options.keys())}
+    config_options = {
+        key: value for key, value in config_options.items()
+        if value is not None and key not in config_variables.get(args.cmd, {})
+    }
+
     if config_options.get('server'):
         config_options['auto_connect'] = False
     config_options['cwd'] = os.getcwd()
@@ -320,7 +330,8 @@ def main():
         config_options['portable'] = False
 
     if config_options.get('portable'):
-        config_options['electrum_sv_path'] = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'electrum_sv_data')
+        config_options['electrum_sv_path'] = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), 'electrum_sv_data')
 
     if config_options.get('file_logging'):
         log_path = os.path.join(util.user_dir(prefer_local=True), "logs")
@@ -387,7 +398,8 @@ def main():
                     path = os.path.join(config.get('requests_dir'), 'index.html')
                     if not os.path.exists(path):
                         print("Requests directory not configured.")
-                        print("You can configure it using https://github.com/spesmilo/electrum-merchant")
+                        print("You can configure it using "
+                              "https://github.com/spesmilo/electrum-merchant")
                         sys.exit(1)
                 d.join()
                 sys.exit(0)

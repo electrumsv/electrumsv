@@ -9,7 +9,7 @@ extension-pkg-whitelist=PyQt5,
 
 # Add files or directories to the blacklist. They should be base names, not
 # paths.
-ignore=CVS
+ignore=CVS,paymentrequest_pb2.py,icons_rc.py,tests
 
 # Add files or directories matching the regex patterns to the blacklist. The
 # regex matches against base names, not paths.
@@ -109,6 +109,7 @@ enable=abstract-class-instantiated,
        invalid-star-assignment-target,
        invalid-unary-operand-type,
        keyword-arg-before-vararg,
+       line-too-long,
        literal-comparison,
        lost-exception,
        misplaced-bare-raise,
