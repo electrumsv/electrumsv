@@ -98,8 +98,8 @@ class UTXOList(MyTreeWidget):
         if not selected:
             return
         menu = QMenu()
-        coins = filter(lambda x: self.get_name(x) in selected, self.utxos)
-        spendable_coins = list(filter(lambda x: not selected.get(self.get_name(x), ''), coins))
+        coins = [coin for coin in self.utxos if self.get_name(coin) in selected]
+        spendable_coins = [coin for coin in coins if not selected.get(self.get_name(coin), '')]
         # Unconditionally add the "Spend" option but leave it disabled if there are no
         # spendable_coins
         action = menu.addAction(_("Spend"), lambda: self.parent.spend_coins(spendable_coins))

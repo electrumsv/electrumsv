@@ -1037,7 +1037,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_error(_('No message or amount'))
             return False
         i = self.expires_combo.currentIndex()
-        expiration = list(map(lambda x: x[1], expiration_values))[i]
+        expiration = [x[1] for x in expiration_values][i]
         req = self.wallet.make_payment_request(self.receive_address, amount,
                                                message, expiration)
         self.wallet.add_payment_request(req, self.config)
@@ -1585,7 +1585,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_message(str(e))
             return
 
-        amount = tx.output_value() if self.is_max else sum(map(lambda x:x[2], outputs))
+        amount = tx.output_value() if self.is_max else sum(x[2] for x in outputs)
         fee = tx.get_fee()
 
         if preview:
@@ -2009,8 +2009,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(QLabel(_("Requestor") + ':'), 0, 0)
         grid.addWidget(QLabel(pr.get_requestor()), 0, 1)
         grid.addWidget(QLabel(_("Amount") + ':'), 1, 0)
-        outputs_str = '\n'.join(map(lambda x: self.format_amount(x[2])+ self.base_unit() +
-                                    ' @ ' + x[1].to_ui_string(), pr.get_outputs()))
+        outputs_str = '\n'.join(self.format_amount(x[2]) + self.base_unit() +
+                                ' @ ' + x[1].to_ui_string()
+                                for x in pr.get_outputs())
         grid.addWidget(QLabel(outputs_str), 1, 1)
         expires = pr.get_expiration_date()
         grid.addWidget(QLabel(_("Memo") + ':'), 2, 0)
@@ -3302,7 +3303,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 msg = descr['description']
                 if descr.get('requires'):
                     msg += ('\n\n' + _('Requires') + ':\n' +
-                            '\n'.join(map(lambda x: x[1], descr.get('requires'))))
+                            '\n'.join(x[1] for x in descr.get('requires')))
                 grid.addWidget(HelpButton(msg), i, 2)
             except Exception:
                 self.logger.exception("error: cannot display plugin '%s'", name)
