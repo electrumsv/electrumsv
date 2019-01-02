@@ -1429,8 +1429,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return request_password
 
     def read_send_tab(self):
-
-        isInvoice= False;
+        isInvoice= False
 
         if self.payment_request and self.payment_request.has_expired():
             self.show_error(_('Payment request has expired'))
@@ -1438,7 +1437,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         label = self.message_e.text()
 
         if self.payment_request:
-            isInvoice = True;
+            isInvoice = True
             outputs = self.payment_request.get_outputs()
         else:
             errors = self.payto_e.get_errors()
