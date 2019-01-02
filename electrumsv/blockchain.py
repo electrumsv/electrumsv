@@ -114,7 +114,7 @@ def read_blockchains(config):
     fdir = os.path.join(util.get_headers_dir(config), 'forks')
     if not os.path.exists(fdir):
         os.mkdir(fdir)
-    l = filter(lambda x: x.startswith('fork_'), os.listdir(fdir))
+    l = [x for x in os.listdir(fdir) if x.startswith('fork_')]
     l = sorted(l, key = lambda x: int(x.split('_')[1]))
     for filename in l:
         parent_base_height = int(filename.split('_')[1])

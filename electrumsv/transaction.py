@@ -559,7 +559,7 @@ class Transaction:
         else:
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
             x_signatures = txin['signatures']
-            signatures = list(filter(None, x_signatures))
+            signatures = [sig for sig in x_signatures if sig]
             is_complete = len(signatures) == num_sig
             if is_complete:
                 pk_list = pubkeys
@@ -593,7 +593,7 @@ class Transaction:
     def is_txin_complete(self, txin):
         num_sig = txin.get('num_sig', 1)
         x_signatures = txin['signatures']
-        signatures = list(filter(None, x_signatures))
+        signatures = [sig for sig in x_signatures if sig]
         return len(signatures) == num_sig
 
     @classmethod
@@ -733,7 +733,7 @@ class Transaction:
         for txin in self.inputs():
             if txin['type'] == 'coinbase':
                 continue
-            signatures = list(filter(None, txin.get('signatures',[])))
+            signatures = [sig for sig in txin.get('signatures', []) if sig]
             s += len(signatures)
             r += txin.get('num_sig',-1)
         return s, r
@@ -747,7 +747,7 @@ class Transaction:
             num = txin['num_sig']
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
             for j, x_pubkey in enumerate(x_pubkeys):
-                signatures = list(filter(None, txin['signatures']))
+                signatures = [sig for sig in txin['signatures'] if sig]
                 if len(signatures) == num:
                     # txin is complete
                     break

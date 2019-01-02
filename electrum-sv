@@ -265,7 +265,7 @@ def run_offline_command(config, config_options):
     args = [config.get(x) for x in cmd.params]
     # decode json arguments
     if cmdname not in ('setconfig',):
-        args = list(map(json_decode, args))
+        args = [json_decode(arg) for arg in args]
     # options
     kwargs = {}
     for x in cmd.options:
@@ -287,7 +287,7 @@ def main():
     # The hook will only be used in the Qt GUI right now
     util.setup_thread_excepthook()
     # on osx, delete Process Serial Number arg generated for apps launched in Finder
-    sys.argv = list(filter(lambda x: not x.startswith('-psn'), sys.argv))
+    sys.argv = [x for x in sys.argv if not x.startswith('-psn')]
 
     # old 'help' syntax
     if len(sys.argv) > 1 and sys.argv[1] == 'help':

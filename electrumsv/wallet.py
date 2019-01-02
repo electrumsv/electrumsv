@@ -1038,7 +1038,7 @@ class Abstract_Wallet:
             tx = coin_chooser.make_tx(inputs, outputs, change_addrs[:max_change],
                                       fee_estimator, self.dust_threshold())
         else:
-            sendable = sum(map(lambda x:x['value'], inputs))
+            sendable = sum(x['value'] for x in inputs)
             _type, data, value = outputs[i_max]
             outputs[i_max] = (_type, data, 0)
             tx = Transaction.from_io(inputs, outputs)
@@ -1522,8 +1522,7 @@ class Abstract_Wallet:
                 return self.get_address_index(addr) or addr
             except:
                 return addr
-        return sorted(map(lambda x: self.get_payment_request(x, config),
-                          self.receive_requests.keys()), key=f)
+        return sorted((self.get_payment_request(x, config) for x in self.receive_requests), key=f)
 
     def get_fingerprint(self):
         raise NotImplementedError()
@@ -1898,7 +1897,7 @@ class Deterministic_Wallet(Abstract_Wallet):
             if len(addresses) < limit:
                 self.create_new_address(for_change)
                 continue
-            if list(map(self.address_is_old, addresses[-limit:])) == limit*[False]:
+            if [self.address_is_old(x) for x in addresses[-limit:]] == limit*[False]:
                 break
             else:
                 self.create_new_address(for_change)

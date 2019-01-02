@@ -164,13 +164,13 @@ class ElectrumGui:
         self.print_qr(addr)
 
     def print_contacts(self):
-        messages = map(lambda x: "%20s   %45s "%(x[0], x[1][1]), self.contacts.items())
+        messages = ["%20s   %45s "%(x[0], x[1][1]) for x in self.contacts.items()]
         self.print_list(messages, "%19s  %15s "%("Key", "Value"))
 
     def print_addresses(self):
         fmt = "%-35s  %-30s"
-        messages = map(lambda addr: fmt % (addr, self.wallet.labels.get(addr,"")),
-                       self.wallet.get_addresses())
+        messages = [fmt % (addr, self.wallet.labels.get(addr,""))
+                    for addr in self.wallet.get_addresses()]
         self.print_list(messages,   fmt % ("Address", "Label"))
 
     def print_edit_line(self, y, label, text, index, size):
@@ -385,7 +385,7 @@ class ElectrumGui:
         if getchar: c = self.stdscr.getch()
 
     def run_popup(self, title, items):
-        return self.run_dialog(title, list(map(lambda x: {'type':'button','label':x}, items)),
+        return self.run_dialog(title, [{'type':'button','label':x} for x in items],
                                interval=1, y_pos = self.pos+3)
 
     def network_dialog(self):

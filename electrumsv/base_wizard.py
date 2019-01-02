@@ -203,7 +203,7 @@ class BaseWizard(object):
                     indented_error_msg = '    '.join([''] + str(e).splitlines(keepends=True))
                     debug_msg += f'  {name}: (error getting device infos)\n{indented_error_msg}\n'
                     continue
-                devices += list(map(lambda x: (name, x), u))
+                devices += [(name, x) for x in u]
         if not debug_msg:
             debug_msg = '  {}'.format(_('No exceptions encountered.'))
         if not devices:
@@ -353,7 +353,7 @@ class BaseWizard(object):
                 self.show_error(_('Wrong key type') + ' %s'%t1)
                 self.run('choose_keystore')
                 return
-            if k.xpub in map(lambda x: x.xpub, self.keystores):
+            if k.xpub in [x.xpub for x in self.keystores]:
                 self.show_error(_('Error: duplicate master public key'))
                 self.run('choose_keystore')
                 return

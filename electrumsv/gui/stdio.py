@@ -133,12 +133,12 @@ class ElectrumGui:
 
 
     def print_contacts(self):
-        messages = map(lambda x: "%20s   %45s "%(x[0], x[1][1]), self.contacts.items())
+        messages = ["%20s   %45s "%(x[0], x[1][1]) for x in self.contacts.items()]
         self.print_list(messages, "%19s  %25s "%("Key", "Value"))
 
     def print_addresses(self):
-        messages = map(lambda addr: "%30s    %30s       " %
-                       (addr, self.wallet.labels.get(addr,"")), self.wallet.get_addresses())
+        messages = ["%30s    %30s       " % (addr, self.wallet.labels.get(addr,""))
+                    for addr in self.wallet.get_addresses()]
         self.print_list(messages, "%19s  %25s "%("Address", "Label"))
 
     def print_order(self):

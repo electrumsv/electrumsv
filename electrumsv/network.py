@@ -517,8 +517,8 @@ class Network(util.DaemonThread):
         if self.server_is_lagging() and self.auto_connect:
             # switch to one that has the correct header (not height)
             header = self.blockchain().read_header(self.get_local_height())
-            filtered = list(map(lambda x:x[0], filter(lambda x: x[1].tip_header==header,
-                                                      self.interfaces.items())))
+            filtered = [key for key, value in self.interfaces.items()
+                        if value.tip_header==header]
             if filtered:
                 choice = random.choice(filtered)
                 self.switch_to_interface(choice, self.SWITCH_LAGGING)
@@ -1409,7 +1409,7 @@ class Network(util.DaemonThread):
     def get_blockchains(self):
         out = {}
         for k, b in self.blockchains.items():
-            r = list(filter(lambda i: i.blockchain==b, list(self.interfaces.values())))
+            r = [i for i in self.interfaces.values() if i.blockchain==b]
             if r:
                 out[k] = r
         return out

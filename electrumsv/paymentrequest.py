@@ -22,6 +22,7 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import hashlib
 import json
 import logging
@@ -230,7 +231,7 @@ class PaymentRequest:
         return self.details.expires
 
     def get_amount(self):
-        return sum(map(lambda x:x[2], self.outputs))
+        return sum(x[2] for x in self.outputs)
 
     def get_address(self):
         o = self.outputs[0]
@@ -424,7 +425,7 @@ def sign_request_with_x509(pr, key_path, cert_path):
         s = f.read()
         bList = pem.dePemList(s, "CERTIFICATE")
     certificates = pb2.X509Certificates()
-    certificates.certificate.extend(map(bytes, bList))
+    certificates.certificate.extend(bytes(x) for x in bList)
     pr.pki_type = 'x509+sha256'
     pr.pki_data = certificates.SerializeToString()
     msgBytes = bytearray(pr.SerializeToString())

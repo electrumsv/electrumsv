@@ -273,7 +273,7 @@ class SimpleConfig:
     def reverse_dynfee(self, fee_per_kb):
         import operator
         l = list(self.fee_estimates.items()) + [(1, self.dynfee(4))]
-        dist = map(lambda x: (x[0], abs(x[1] - fee_per_kb)), l)
+        dist = [(x[0], abs(x[1] - fee_per_kb)) for x in l]
         min_target, min_value = min(dist, key=operator.itemgetter(1))
         if fee_per_kb < self.fee_estimates.get(25)/2:
             min_target = -1
@@ -283,7 +283,7 @@ class SimpleConfig:
         return self.fee_rates[i]
 
     def static_fee_index(self, value):
-        dist = list(map(lambda x: abs(x - value), self.fee_rates))
+        dist = [abs(x - value) for x in self.fee_rates]
         return min(range(len(dist)), key=dist.__getitem__)
 
     def has_fee_estimates(self):

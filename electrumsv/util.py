@@ -293,7 +293,7 @@ def assert_bytes(*args):
         for x in args:
             assert isinstance(x, (bytes, bytearray))
     except Exception:
-        root_logger.error('assert bytes failed %s', list(map(type, args)))
+        root_logger.error('assert bytes failed %s', [type(arg) for arg in args])
         raise
 
 
@@ -558,7 +558,7 @@ class SocketPipe:
         self._send(out)
 
     def send_all(self, requests):
-        out = b''.join(map(lambda x: (json.dumps(x) + '\n').encode('utf8'), requests))
+        out = b''.join((json.dumps(request) + '\n').encode('utf8') for request in requests)
         self._send(out)
 
     def _send(self, out):
@@ -594,4 +594,4 @@ def setup_thread_excepthook():
 
 
 def versiontuple(v):
-    return tuple(map(int, (v.split("."))))
+    return tuple(int(x) for x in v.split("."))

@@ -290,7 +290,7 @@ class Xpub:
         return bh2u(cK)
 
     def get_xpubkey(self, c, i):
-        s = ''.join(map(lambda x: bitcoin.int_to_hex(x,2), (c, i)))
+        s = ''.join(bitcoin.int_to_hex(x,2) for x in (c, i))
         return 'ff' + bh2u(bitcoin.DecodeBase58Check(self.xpub)) + s
 
     @classmethod
@@ -500,7 +500,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         return self.mpk
 
     def get_xpubkey(self, for_change, n):
-        s = ''.join(map(lambda x: bitcoin.int_to_hex(x,2), (for_change, n)))
+        s = ''.join(bitcoin.int_to_hex(x,2) for x in (for_change, n))
         return 'fe' + self.mpk + s
 
     @classmethod
@@ -728,9 +728,9 @@ def is_address_list(text):
 
 def get_private_keys(text):
     parts = text.split('\n')
-    parts = map(lambda x: ''.join(x.split()), parts)
-    parts = list(filter(bool, parts))
-    if bool(parts) and all(bitcoin.is_private_key(x) for x in parts):
+    parts = [''.join(part.split()) for part in parts]
+    parts = [part for part in parts if part]
+    if parts and all(bitcoin.is_private_key(x) for x in parts):
         return parts
 
 

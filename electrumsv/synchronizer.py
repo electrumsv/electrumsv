@@ -117,11 +117,11 @@ class Synchronizer(ThreadJob):
         logger.debug("receiving history %s %s", addr, len(result))
         # Remove request; this allows up_to_date to be True
         server_status = self.requested_histories.pop(scripthash)
-        hashes = set(map(lambda item: item['tx_hash'], result))
-        hist = list(map(lambda item: (item['tx_hash'], item['height']), result))
+        hashes = set(item['tx_hash'] for item in result)
+        hist = [(item['tx_hash'], item['height']) for item in result]
         # tx_fees
         tx_fees = [(item['tx_hash'], item.get('fee')) for item in result]
-        tx_fees = dict(filter(lambda x:x[1] is not None, tx_fees))
+        tx_fees = dict(x for x in tx_fees if x[1] is not None)
         # Note if the server hasn't been patched to sort the items properly
         if hist != sorted(hist, key=lambda x:x[1]):
             self.network.interface.logger.error("serving improperly sorted address histories")

@@ -463,7 +463,7 @@ class Commands:
               unsigned=False, password=None, locktime=None):
         self.nocheck = nocheck
         change_addr = self._resolver(change_addr)
-        domain = None if domain is None else map(self._resolver, domain)
+        domain = None if domain is None else [self._resolver(x) for x in domain]
         final_outputs = []
         for address, amount in outputs:
             address = self._resolver(address)
@@ -625,8 +625,8 @@ class Commands:
         else:
             f = None
         if f is not None:
-            out = list(filter(lambda x: x.get('status')==f, out))
-        return list(map(self._format_request, out))
+            out = [x for x in out if x.get('status')==f]
+        return [self._format_request(x) for x in out]
 
     @command('w')
     def createnewaddress(self):

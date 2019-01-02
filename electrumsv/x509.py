@@ -96,7 +96,7 @@ def decode_OID(s):
             k = 0
         else:
             k = (i - 128) + 128 * k
-    return '.'.join(map(str, r))
+    return '.'.join(str(x) for x in r)
 
 
 def encode_OID(oid):
@@ -170,7 +170,7 @@ class ASN1_Node(bytes):
         return nodes
 
     def get_sequence(self):
-        return list(map(self.get_value, self.get_children(self.root())))
+        return [self.get_value(x) for x in self.get_children(self.root())]
 
     def get_dict(self, node):
         p = {}
