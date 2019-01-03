@@ -638,8 +638,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def show_report_bug(self):
         msg = ' '.join([
             _("Please report any bugs as issues on github:<br/>"),
-            "<a href=\"https://github.com/Electrum-SV/Electrum-SV/issues"
-            "\">Https.com/Electrum-SV/Electrum-SV/issues</a><br/><br/>",
+            "<a href=\"https://github.com/ElectrumSV/ElectrumSV/issues"
+            "\">https://github.com/ElectrumSV/ElectrumSV/issues</a><br/><br/>",
             _("Before reporting a bug, upgrade to the most recent version of ElectrumSV "
               "(latest release or git HEAD), and include the version number in your report."),
             _("Try to explain not only what the bug is, but how it occurs.")
@@ -2559,7 +2559,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         e.setReadOnly(True)
         vbox.addWidget(e)
 
-        defaultname = 'electrum-sv-private-keys.csv'
+        defaultname = 'electrumsv-private-keys.csv'
         select_msg = _('Select file to export your private keys to')
         hbox, filename_e, csv_button = filename_field(self, self.config, defaultname, select_msg)
         vbox.addLayout(hbox)
@@ -2660,7 +2660,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         labels = self.wallet.labels
         try:
             fileName = self.getSaveFileName(_("Select file to save your labels"),
-                                            'electrum-sv_labels.json', "*.json")
+                                            'electrumsv_labels.json', "*.json")
             if fileName:
                 with open(fileName, 'w+') as f:
                     json.dump(labels, f, indent=4, sort_keys=True)
@@ -2673,7 +2673,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d = WindowModalDialog(self, _('Export History'))
         d.setMinimumSize(400, 200)
         vbox = QVBoxLayout(d)
-        defaultname = os.path.expanduser('~/electrum-sv-history.csv')
+        defaultname = os.path.expanduser('~/electrumsv-history.csv')
         select_msg = _('Select file to export your wallet transactions to')
         hbox, filename_e, csv_button = filename_field(self, self.config, defaultname, select_msg)
         vbox.addLayout(hbox)

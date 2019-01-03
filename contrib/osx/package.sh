@@ -17,7 +17,7 @@ export PATH=$PATH:~/bin
 . $(dirname "$0")/base.sh
 
 if [ -z "$1" ]; then
-    echo "Usage: $0 Electrum-SV.app"
+    echo "Usage: $0 ElectrumSV.app"
     exit -127
 fi
 
@@ -74,16 +74,16 @@ ${genisoimage} \
     -D \
     -l \
     -probe \
-    -V "Electrum-SV" \
+    -V "ElectrumSV" \
     -no-pad \
     -r \
     -dir-mode 0755 \
     -apple \
-    -o Electrum-SV_uncompressed.dmg \
+    -o ElectrumSV_uncompressed.dmg \
     $DIR/image || fail "Unable to create uncompressed dmg"
 
-dmg dmg Electrum-SV_uncompressed.dmg electrum-SV-$VERSION.dmg || fail "Unable to create compressed dmg"
-rm Electrum-SV_uncompressed.dmg
+dmg dmg ElectrumSV_uncompressed.dmg electrumSV-$VERSION.dmg || fail "Unable to create compressed dmg"
+rm ElectrumSV_uncompressed.dmg
 
 echo "Done."
-md5sum electrum-SV-$VERSION.dmg
+md5sum electrumSV-$VERSION.dmg
