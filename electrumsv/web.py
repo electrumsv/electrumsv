@@ -75,6 +75,16 @@ mainnet_block_explorers = {
 }
 
 testnet_block_explorers = {
+    'satoshisvision.network': (
+        'http://explore.satoshisvision.network',
+        Address.FMT_BITCOIN,
+        {'tx': 'tx', 'addr': 'address'},
+    ),
+    'bitcoincloud.net': (
+        'https://testnet.bitcoincloud.net',
+        Address.FMT_BITCOIN,
+        {'tx': 'tx', 'addr': 'address'},
+    ),
     'system default': (
         'blockchain:',
         Address.FMT_BITCOIN,
