@@ -1,7 +1,5 @@
 #!/bin/bash
 
-LOCALE_REPO_NAME=electrum-locale
-
 NAME_ROOT=electrumsv
 
 # These settings probably don't need any change
@@ -23,19 +21,15 @@ cd tmp
 
 pushd $WINEPREFIX/drive_c/electrum
 
-# Load electrum-locale for this release
-git submodule init
-git submodule update
-
 VERSION=`git describe --tags --dirty --always`
 echo "Last commit: $VERSION"
 
-pushd ./contrib/deterministic-build/$LOCALE_REPO_NAME
+pushd locale
 if ! which msgfmt > /dev/null 2>&1; then
     echo "Please install gettext"
     exit 1
 fi
-for i in ./locale/*; do
+for i in ./*; do
     dir=$WINEPREFIX/drive_c/electrum/electrumsv/$i/LC_MESSAGES
     mkdir -p $dir
     msgfmt --output-file=$dir/electrum-sv.mo $i/electron-cash.po || true

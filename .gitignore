@@ -5,9 +5,9 @@ build/
 dist/
 *.egg/
 /electrum.py
-contrib/pyinstaller/
+/contrib/pyinstaller/
 Electrum_SV.egg-info/
-locale/
+/electrumsv/locale/
 .devlocaltmp/
 *_trial_temp
 packages
