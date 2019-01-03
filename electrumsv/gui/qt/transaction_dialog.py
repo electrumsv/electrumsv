@@ -70,10 +70,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         vbox.addWidget(QLabel(_("Transaction ID:")))
         self.tx_hash_e  = ButtonsLineEdit()
-
-        def qr_show():
-            parent.show_qrcode(str(self.tx_hash_e.text()), 'Transaction ID', parent=self)
-        self.tx_hash_e.addButton(":icons/qrcode.png", qr_show, _("Show as QR code"))
+        self.tx_hash_e.addButton(":icons/qrcode.png", self.show_tx_hash_qr, _("Show as QR code"))
 
         self.tx_hash_e.setReadOnly(True)
         vbox.addWidget(self.tx_hash_e)
@@ -109,13 +106,15 @@ class TxDialog(QDialog, MessageBoxMixin):
         b.setIcon(QIcon(":icons/qrcode.png"))
         b.clicked.connect(self.show_qr)
 
-        self.copy_button = CopyButton(lambda: str(self.tx), parent.app)
+        self.copy_button = QPushButton(_("Copy"))
+        self.copy_button.clicked.connect(self.copy_tx_to_clipboard)
 
         # Action buttons
         self.buttons = [self.sign_button, self.broadcast_button, self.cancel_button]
         # Transaction sharing buttons
         self.sharing_buttons = [self.copy_button, self.qr_button, self.save_button]
 
+        # FIXME: if enabled, cosigner plugin takes reference to us, preventing GC
         run_hook('transaction_dialog', self)
 
         hbox = QHBoxLayout()
@@ -128,6 +127,12 @@ class TxDialog(QDialog, MessageBoxMixin):
         # connect slots so we update in realtime as blocks come in, etc
         parent.history_updated_signal.connect(self.update_tx_if_in_wallet)
         parent.network_signal.connect(self.got_verified_tx)
+
+    def copy_tx_to_clipboard(self):
+        self.main_window.app.clipboard().setText(str(self.tx))
+
+    def show_tx_hash_qr(self):
+        self.main_window.show_qrcode(str(self.tx_hash_e.text()), 'Transaction ID', parent=self)
 
     def got_verified_tx(self, event, args):
         if event == 'verified' and args[0] == self.tx.txid():
