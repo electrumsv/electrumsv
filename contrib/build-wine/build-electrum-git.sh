@@ -1,7 +1,6 @@
 #!/bin/bash
 
 LOCALE_REPO_NAME=electrum-locale
-ICONS_REPO_NAME=electrum-icons
 
 NAME_ROOT=electrumsv
 
@@ -24,7 +23,7 @@ cd tmp
 
 pushd $WINEPREFIX/drive_c/electrum
 
-# Load electrum-icons and electrum-locale for this release
+# Load electrum-locale for this release
 git submodule init
 git submodule update
 
@@ -47,11 +46,9 @@ find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
 cp $WINEPREFIX/drive_c/electrum/LICENCE .
-cp $WINEPREFIX/drive_c/electrum/contrib/deterministic-build/$ICONS_REPO_NAME/icons_rc.py $WINEPREFIX/drive_c/electrum/electrumsv/gui/qt/
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
-
 $PYTHON -m pip install -r ../../deterministic-build/requirements-hw.txt
 
 pushd $WINEPREFIX/drive_c/electrum
