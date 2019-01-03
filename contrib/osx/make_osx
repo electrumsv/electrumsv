@@ -12,7 +12,7 @@ export PYTHONHASHSEED=22
 # Paramterize
 PYTHON_VERSION=3.6.4
 BUILDDIR=/tmp/electrum-sv-build
-PACKAGE=Electrum-SV
+PACKAGE=ElectrumSV
 GIT_REPO_ACCT=https://github.com/Electron-Cash
 GIT_REPO=$GIT_REPO_ACCT/Electron-Cash
 LIBSECP_VERSION=452d8e4d2a2f9f1b5be6b02e18f1ba102e5ca0b4

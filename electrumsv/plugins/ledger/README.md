@@ -1,7 +1,7 @@
 ![Bitcoin Cash](https://raw.githubusercontent.com/The-Bitcoin-Cash-Fund/Branding/master/Bitcoin_Cash/BCH%20Logo%20Long%20Text%20WhiteBG.png "")
-# Using Electrum-SV with Ledger Nano S
+# Using ElectrumSV with Ledger Nano S
 
-Successfully tested with Ledger Nano S (1.3.1) Electrum-SV (3.1.2) and Bitcoin Cash Ledger App (1.1.5)
+Successfully tested with Ledger Nano S (1.3.1) ElectrumSV (3.1.2) and Bitcoin Cash Ledger App (1.1.5)
 
 ---
 
@@ -36,10 +36,10 @@ PLEASE NOTE: Ensure that you do not have another application (like Electrum, Bit
 
 The latest Nano S firmware was released on March 2017 (Secure Element 1.3.1)
 
-It is strongly recommended to upgrade to the latest firmware. 
+It is strongly recommended to upgrade to the latest firmware.
 
-To check which firmware version your Nano S is currently running, open the "Settings" application on your device and scroll until "Firmware" is displayed. 
-Press both buttons to enter the menu which displays your firmware version. 
+To check which firmware version your Nano S is currently running, open the "Settings" application on your device and scroll until "Firmware" is displayed.
+Press both buttons to enter the menu which displays your firmware version.
 
 Firmware Update Guide: https://ledger.zendesk.com/hc/en-us/articles/115005165409-How-can-I-update-my-Nano-S-
 
@@ -51,20 +51,20 @@ Install the Ledger Manager to download and install Bitcoin Cash application onto
 
 ---
 
-### Using Ledger Nano S with Electrum-SV
+### Using Ledger Nano S with ElectrumSV
 
 1. Connect your Ledger device to USB
 2. Enter your PIN code
 3. Open the Bitcoin Cash application on the Ledger (required for Nano S and Blue)
 4. Disable the "Browser support" setting in this application (required for Nano S and Blue)
-5. Launch Electrum-SV and start the new wallet wizard:
+5. Launch ElectrumSV and start the new wallet wizard:
     * Select "Use a Hardware Device" - press Next
     * Select your Ledger device - press Next
     * Select your desired Wallet Derivation (or leave default value for Bitcoin Cash)
        - If you want to use legacy Bitcoin addresses use m/44'/0'/0'
        - If you want to use Bitcoin Cash addresses use m/44'/145'/0'
 6. ???
-7. PROFIT!!! (Your Bitcoin wallet should now open in Electrum-SV)
+7. PROFIT!!! (Your Bitcoin wallet should now open in ElectrumSV)
 
 ---
 
@@ -72,5 +72,5 @@ Install the Ledger Manager to download and install Bitcoin Cash application onto
 
 1. Uninstall and reinstall the Bitcoin Cash app on your Ledger device
 2. Try a different USB cable
-3. Try a different USB port 
+3. Try a different USB port
 4. Try on another computer (see compatibility)
