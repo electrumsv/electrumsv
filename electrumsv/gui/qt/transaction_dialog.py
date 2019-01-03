@@ -42,12 +42,6 @@ from .util import (
     MessageBoxMixin, ButtonsLineEdit, CopyButton, Buttons, MONOSPACE_FONT, ColorScheme
 )
 
-dialogs = []  # Otherwise python randomly garbage collects the dialogs...
-
-def show_transaction(tx, parent, desc=None, prompt_if_unsaved=False):
-    d = TxDialog(tx, parent, desc, prompt_if_unsaved)
-    dialogs.append(d)
-    d.show()
 
 class TxDialog(QDialog, MessageBoxMixin):
 
@@ -152,21 +146,24 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.saved = True
         self.update()
 
-    def closeEvent(self, event):
-        if (self.prompt_if_unsaved and not self.saved and
-            not self.question(_('This transaction is not saved.  Close anyway?'),
-                              title=_("Warning"))):
-            event.ignore()
-        else:
-            event.accept()
-            try:
-                dialogs.remove(self)
-            except ValueError:  # wasn't in list
-                pass
+    def ok_to_close(self):
+        if self.prompt_if_unsaved and not self.saved:
+            return self.question(_('This transaction is not saved.  Close anyway?'),
+                                 title=_("Warning"))
+        return True
 
     def reject(self):
-        # Override escape-key to close normally (and invoke closeEvent)
-        self.close()
+        # Invoked on user escape key
+        if self.ok_to_close():
+            super().reject()
+
+    def closeEvent(self, event):
+        # Invoked by user closing in window manager
+        if self.ok_to_close():
+            event.accept()
+            self.accept()
+        else:
+            event.ignore()
 
     def show_qr(self):
         text = bfh(str(self.tx))

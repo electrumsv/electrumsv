@@ -69,7 +69,7 @@ from electrumsv.paymentrequest import PR_PAID
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit, BTCSatsByteEdit
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
-from .transaction_dialog import show_transaction
+from .transaction_dialog import TxDialog
 from .fee_slider import FeeSlider
 from .coinsplitting_tab import CoinSplittingTab
 
@@ -142,6 +142,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.require_fee_update = False
         self.tx_notifications = []
         self.tx_notify_timer = None
+        self.tx_dialogs = []
         self.tl_windows = []
         self.tx_external_keypairs = {}
 
@@ -882,7 +883,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def show_transaction(self, tx, tx_desc=None, prompt_if_unsaved=False):
         '''tx_desc is set only for txs created in the Send tab'''
-        show_transaction(tx, self, desc=tx_desc, prompt_if_unsaved=prompt_if_unsaved)
+        tx_dialog = TxDialog(tx, self, tx_desc, prompt_if_unsaved)
+        tx_dialog.finished.connect(partial(self.on_tx_dialog_finished, tx_dialog))
+        self.tx_dialogs.append(tx_dialog)
+        tx_dialog.show()
+
+    def on_tx_dialog_finished(self, tx_dialog, status):
+        self.tx_dialogs.remove(tx_dialog)
 
     def create_receive_tab(self):
         # A 4-column grid layout.  All the stretch is in the last column.
@@ -3207,12 +3214,22 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                               title=_('Success'))
 
 
+    def ok_to_close(self):
+        # Close our tx dialogs; return False if any cannot be closed
+        for tx_dialog in list(self.tx_dialogs):
+            if not tx_dialog.close():
+                return False
+        return True
+
     def closeEvent(self, event):
-        # It seems in some rare cases this closeEvent() is called twice
-        if not self.cleaned_up:
-            self.cleaned_up = True
-            self.clean_up()
-        event.accept()
+        if self.ok_to_close():
+            # It seems in some rare cases this closeEvent() is called twice
+            if not self.cleaned_up:
+                self.clean_up()
+                self.cleaned_up = True
+            event.accept()
+        else:
+            event.ignore()
 
     def clean_up(self):
         self.wallet.thread.stop()
