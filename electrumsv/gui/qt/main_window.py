@@ -889,6 +889,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tx_dialog.show()
 
     def on_tx_dialog_finished(self, tx_dialog, status):
+        tx_dialog.finished.disconnect()
         self.tx_dialogs.remove(tx_dialog)
 
     def create_receive_tab(self):
