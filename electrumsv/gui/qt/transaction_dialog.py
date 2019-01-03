@@ -26,6 +26,7 @@
 import copy
 import datetime
 import json
+import logging
 
 from PyQt5.QtGui import QIcon, QFont, QBrush, QTextCharFormat, QColor
 from PyQt5.QtWidgets import (
@@ -39,8 +40,11 @@ from electrumsv.plugin import run_hook
 
 from electrumsv.util import bfh
 from .util import (
-    MessageBoxMixin, ButtonsLineEdit, CopyButton, Buttons, MONOSPACE_FONT, ColorScheme
+    MessageBoxMixin, ButtonsLineEdit, Buttons, MONOSPACE_FONT, ColorScheme
 )
+
+
+logger = logging.getLogger("tx_dialog")
 
 
 class TxDialog(QDialog, MessageBoxMixin):
@@ -56,6 +60,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         # sign operation the signatures are lost.
         self.tx = copy.deepcopy(tx)
         self.tx.deserialize()
+        self.logger = logger
         self.main_window = parent
         self.wallet = parent.wallet
         self.prompt_if_unsaved = prompt_if_unsaved
@@ -156,6 +161,9 @@ class TxDialog(QDialog, MessageBoxMixin):
             return self.question(_('This transaction is not saved.  Close anyway?'),
                                  title=_("Warning"))
         return True
+
+    def __del__(self):
+        self.logger.debug('TX dialog destroyed')
 
     def reject(self):
         # Invoked on user escape key
