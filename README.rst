@@ -1,17 +1,17 @@
-Electrum SV - Lightweight Bitcoin SV client
+ElectrumSV - Lightweight Bitcoin SV client
 =====================================
 
 ::
 
-  Licence: Electrum SV Licence
+  Licence: ElectrumSV Licence
   Author: Roger Taylor
   Language: Python
   Homepage: https://electrumsv.org/
 
 
-.. image:: https://d322cqt584bo4o.cloudfront.net/electrum-sv/localized.svg
-    :target: https://crowdin.com/project/electrum-sv
-    :alt: Help translate Electrum SV online
+.. image:: https://d322cqt584bo4o.cloudfront.net/electrumsv/localized.svg
+    :target: https://crowdin.com/project/electrumsv
+    :alt: Help translate ElectrumSV online
 
 Getting started
 ===============
@@ -47,8 +47,8 @@ Development version
 
 Check out the code from Github::
 
-    git clone https://github.com/Electrum-SV/Electrum-SV
-    cd Electrum-SV
+    git clone https://github.com/ElectrumSV/ElectrumSV
+    cd ElectrumSV
 
 Run install (this should install dependencies)::
 
@@ -69,11 +69,13 @@ Create translations (optional)::
     sudo apt-get install python-requests gettext
     ./contrib/make_locale
 
-Plugin development is not currently supported in Electrum SV.
-
 Running unit tests::
 
     py -3 -m unittest discover electrumsv/tests
+
+Running pylint::
+
+    pylint --rcfile=.pylintrc electrumsv
 
 Creating Binaries
 =================
