@@ -31,3 +31,6 @@ xcuserdata/
 
 # IntelliJ Pycharm IDE
 /.idea
+
+# Visual Studio Code
+/.vscode
