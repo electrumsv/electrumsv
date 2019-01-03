@@ -67,6 +67,9 @@ def multisig_type(wallet_type):
 class WalletStorage:
     def __init__(self, path, manual_upgrades=False):
         logger.debug("wallet path '%s'", path)
+        dirname = os.path.dirname(path)
+        if not os.path.exists(dirname):
+            raise RuntimeError(f'directory {dirname} does not exist')
         self.manual_upgrades = manual_upgrades
         self.lock = threading.RLock()
         self.data = {}
