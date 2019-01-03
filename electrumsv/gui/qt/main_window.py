@@ -43,7 +43,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QSystemTrayIcon, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
     QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit,
-    QInputDialog, QSpinBox, QCheckBox, QScrollArea
+    QInputDialog, QSpinBox, QCheckBox, QScrollArea, QDialog
 )
 
 from electrumsv import keystore
@@ -2170,7 +2170,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.set_contact(line2.text(), line1.text())
 
     def show_master_public_keys(self):
-        dialog = WindowModalDialog(self, _("Wallet Information"))
+        dialog = QDialog(self)
+        dialog.setWindowTitle(_("Wallet Information"))
         dialog.setMinimumSize(500, 100)
         mpk_list = self.wallet.get_master_public_keys()
         vbox = QVBoxLayout()
