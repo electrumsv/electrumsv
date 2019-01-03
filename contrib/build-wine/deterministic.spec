@@ -19,6 +19,8 @@ hiddenimports = []
 hiddenimports += collect_submodules('trezorlib')
 hiddenimports += collect_submodules('btchip')
 hiddenimports += collect_submodules('keepkeylib')
+# Keepkey imports PyQt5.Qt.  Provide our own until they fix it
+hiddenimports.remove('keepkeylib.qt.pinmatrix')
 
 # Add libusb binary
 binaries = [(PYHOME+"/libusb-1.0.dll", ".")]
