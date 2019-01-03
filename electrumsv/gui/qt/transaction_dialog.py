@@ -189,7 +189,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.main_window.sign_tx(self.tx, sign_done)
 
     def save(self):
-        if self.tx_is_complete():
+        if self.tx.is_complete():
             name = 'signed_%s.txn' % (self.tx.txid()[0:8])
         else:
             name = 'unsigned.txn'
