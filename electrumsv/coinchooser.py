@@ -100,7 +100,7 @@ class CoinChooserBase:
             value = sum(coin['value'] for coin in coins)
             return Bucket(desc, size, value, coins)
 
-        return [make_Bucket(key, value) for key, value in buckets]
+        return [make_Bucket(key, value) for key, value in buckets.items()]
 
     def penalty_func(self, _tx):
         def penalty(_candidate):
