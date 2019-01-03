@@ -73,7 +73,7 @@ Plugin development is not currently supported in Electrum SV.
 
 Running unit tests::
 
-    py -3 -m unittest discover electrumx/tests
+    py -3 -m unittest discover electrumsv/tests
 
 Creating Binaries
 =================
