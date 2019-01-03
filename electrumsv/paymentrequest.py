@@ -45,12 +45,12 @@ logger = logging.getLogger("paymentrequest")
 
 REQUEST_HEADERS = {
     'Accept': 'application/bitcoincash-paymentrequest',
-    'User-Agent': 'Electrum-SV'
+    'User-Agent': 'ElectrumSV'
 }
 ACK_HEADERS = {
     'Content-Type': 'application/bitcoincash-payment',
     'Accept': 'application/bitcoincash-paymentack',
-    'User-Agent': 'Electrum-SV'
+    'User-Agent': 'ElectrumSV'
 }
 
 ca_path = requests.certs.where()

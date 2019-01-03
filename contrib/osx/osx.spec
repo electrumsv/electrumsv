@@ -5,7 +5,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules, coll
 import sys
 import os
 
-PACKAGE='Electrum-SV'
+PACKAGE='ElectrumSV'
 PYPKG='electrumsv'
 MAIN_SCRIPT='electrum-sv'
 ICONS_FILE='contrib/osx/electrum-sv.icns'

@@ -58,7 +58,7 @@ Copy the Electrum.app directory over and install the dependencies, e.g.:
 Then you can just invoke `package.sh` with the path to the app directory:
 
     cd electrum-sv
-    ./contrib/osx/package.sh ~/Electrum-SV.app/
+    ./contrib/osx/package.sh ~/ElectrumSV.app/
 
 This will place an electrum-SV `.dmg` file in the parent directory of the
 app directory and print its md5 sum.
