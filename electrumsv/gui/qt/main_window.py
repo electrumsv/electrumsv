@@ -60,10 +60,6 @@ from electrumsv.transaction import Transaction
 from electrumsv import util, bitcoin, commands
 from electrumsv import paymentrequest
 from electrumsv.wallet import Multisig_Wallet, sweep_preparations
-try:
-    from electrumsv.plot import plot_history
-except Exception:
-    plot_history = None
 from electrumsv.paymentrequest import PR_PAID
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit, BTCSatsByteEdit
@@ -560,7 +556,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         invoices_menu = wallet_menu.addMenu(_("Invoices"))
         invoices_menu.addAction(_("Import"), self.invoice_list.import_invoices)
         hist_menu = wallet_menu.addMenu(_("&History"))
-        hist_menu.addAction("Plot", self.plot_history_dialog).setEnabled(plot_history is not None)
         hist_menu.addAction("Export", self.export_history_dialog)
 
         wallet_menu.addSeparator()
@@ -2695,15 +2690,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                                title=_("Unable to export history"))
             return
         self.show_message(_("Your wallet history has been successfully exported."))
-
-    def plot_history_dialog(self):
-        if plot_history is None:
-            return
-        wallet = self.wallet
-        history = wallet.get_history()
-        if len(history) > 0:
-            plt = plot_history(self.wallet, history)
-            plt.show()
 
     def do_export_history(self, wallet, fileName, is_csv):
         history = wallet.export_history(fx=self.fx)
