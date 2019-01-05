@@ -61,28 +61,6 @@ if is_local:
     sys.path.insert(0, os.path.join(script_dir, 'packages'))
 
 
-def check_imports():
-    # pure-python dependencies need to be imported here for pyinstaller
-    try:
-        import dns
-        import pyaes
-        import ecdsa
-        import requests
-        import qrcode
-        import google.protobuf
-        import jsonrpclib
-    except ImportError as e:
-        sys.exit(f"Error: {e}. Try 'sudo pip install <module-name>'")
-    # the following imports are for pyinstaller
-    from google.protobuf import descriptor
-    from google.protobuf import message
-    from google.protobuf import reflection
-    from google.protobuf import descriptor_pb2
-    from jsonrpclib import SimpleJSONRPCServer
-    # make sure that certificates are here
-    assert os.path.exists(requests.utils.DEFAULT_CA_BUNDLE_PATH)
-
-
 # get password routine
 def prompt_password(prompt, confirm=True):
     import getpass
