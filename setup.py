@@ -104,6 +104,6 @@ setup(
     author="Roger Taylor",
     author_email="roger.taylor.email@gmail.com",
     license="MIT Licence",
-    url="http://electrumsv.org",
+    url="http://electrumsv.io",
     long_description="""Lightweight Bitcoin SV Wallet"""
 )

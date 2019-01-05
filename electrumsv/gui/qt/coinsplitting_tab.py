@@ -15,7 +15,7 @@ from . import util
 
 logger = logging.getLogger("coinsplitting")
 
-TX_DESC_PREFIX = "ElectrumSV coin splitting"
+TX_DESC_PREFIX = _("ElectrumSV coin splitting")
 
 RESULT_DUST_TIMEOUT = -4
 RESULT_JSON_ERROR = -3
@@ -29,10 +29,10 @@ STAGE_OBTAINING_DUST = 1
 STAGE_SPLITTING = 2
 
 STAGE_NAMES = {
-    STAGE_INACTIVE: "Inactive.",
-    STAGE_PREPARING: "Preparing..",
-    STAGE_OBTAINING_DUST: "Obtaining dust..",
-    STAGE_SPLITTING: "Splitting coins..",
+    STAGE_INACTIVE: _("Inactive") +".",
+    STAGE_PREPARING: _("Preparing") +"..",
+    STAGE_OBTAINING_DUST: _("Obtaining dust") +"..",
+    STAGE_SPLITTING: _("Splitting coins") +"..",
 }
 
 class CoinSplittingTab(QWidget):
@@ -51,8 +51,12 @@ class CoinSplittingTab(QWidget):
     unsplittable_unit_label = None
     waiting_dialog = None
     new_transaction_cv = None
+    split_button = None
 
     def _on_split_button_clicked(self):
+        self.split_button.setText(_("Splitting") +"...")
+        self.split_button.setEnabled(False)
+
         window = self.window()
         self.receiving_address = window.wallet.get_unused_address()
         self.split_stage = STAGE_PREPARING
@@ -135,11 +139,11 @@ class CoinSplittingTab(QWidget):
             else:
                 window.show_error(_("Unexpected situation. You should not even be here."))
         finally:
-            self._split_cleanup()
+            self._cleanup_tx_created()
 
     def _on_split_prepare_task_error(self, exc_info):
         logger.exception("on_split_prepare_task_error", exc_info=exc_info)
-        self._split_cleanup()
+        self._cleanup_tx_created()
 
     def _ask_send_split_transaction(self):
         window = self.window()
@@ -167,6 +171,7 @@ class CoinSplittingTab(QWidget):
             msg.append(_('Proceed?'))
             password = None
             if not window.question('\n'.join(msg)):
+                self._cleanup_tx_signed()
                 return
 
         def sign_done(success):
@@ -174,11 +179,13 @@ class CoinSplittingTab(QWidget):
                 if not tx.is_complete():
                     window.show_error(_("Signed transaction is unexpectedly incomplete."))
                     return
-                window.broadcast_transaction(tx, "{}: Your split coins".format(TX_DESC_PREFIX),
+                extra_text = _("Your split coins")
+                window.broadcast_transaction(tx, f"{TX_DESC_PREFIX}: {extra_text}",
                                              success_text=_("Your coins have now been split."))
+            self._cleanup_tx_signed()
         window.sign_tx_with_password(tx, sign_done, password)
 
-    def _split_cleanup(self):
+    def _cleanup_tx_created(self):
         window = self.window()
         window.network.unregister_callback(self._on_network_event)
 
@@ -187,6 +194,12 @@ class CoinSplittingTab(QWidget):
         self.faucet_status_code = None
         self.faucet_result_json = None
         self.split_stage = STAGE_INACTIVE
+        logger.debug("_cleanup_tx_created")
+
+    def _cleanup_tx_signed(self):
+        logger.debug("_cleanup_tx_signed")
+        self.split_button.setText(_("Split"))
+        self.split_button.setEnabled(True)
 
     def _on_network_event(self, event, *args):
         window = self.window()
@@ -196,8 +209,8 @@ class CoinSplittingTab(QWidget):
                 our_storage_string = self.receiving_address.to_storage_string()
                 for tx_output in tx.outputs():
                     if tx_output[1].to_storage_string() == our_storage_string:
-                        wallet.set_label(tx.txid(), "{}: Dust from BSV faucet".format(
-                            TX_DESC_PREFIX))
+                        extra_text = _("Dust from BSV faucet")
+                        wallet.set_label(tx.txid(), f"{TX_DESC_PREFIX}: {extra_text}")
                         break
 
                 # Notify the progress dialog task thread.
@@ -277,9 +290,9 @@ class CoinSplittingTab(QWidget):
             self.intro_label.setMinimumWidth(600)
             self.intro_label.setWordWrap(True)
 
-            split_button = QPushButton(_("Split"))
-            split_button.setMaximumWidth(120)
-            split_button.clicked.connect(self._on_split_button_clicked)
+            self.split_button = QPushButton(_("Split"))
+            self.split_button.setMaximumWidth(120)
+            self.split_button.clicked.connect(self._on_split_button_clicked)
 
             help_content = "".join([
                 "<ol>",
@@ -299,7 +312,7 @@ class CoinSplittingTab(QWidget):
             ])
 
             button_row = QHBoxLayout()
-            button_row.addWidget(split_button)
+            button_row.addWidget(self.split_button)
             button_row.addWidget(util.HelpButton(help_content, textFormat=Qt.RichText,
                                                  title="Additional Information"))
 

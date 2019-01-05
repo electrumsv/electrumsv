@@ -604,7 +604,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         help_menu = menubar.addMenu(_("&Help"))
         help_menu.addAction(_("&About"), self.show_about)
         help_menu.addAction(_("&Official website"),
-                            lambda: webbrowser.open("http://electrumsv.org"))
+                            lambda: webbrowser.open("http://electrumsv.io"))
         help_menu.addSeparator()
         help_menu.addAction(_("Documentation"),
                             lambda: webbrowser.open("http://electrumsv.readthedocs.io/")

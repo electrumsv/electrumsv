@@ -21,7 +21,7 @@ cd tmp
 
 pushd $WINEPREFIX/drive_c/electrum
 
-VERSION=`git describe --tags --dirty --always`
+VERSION=`git describe --tags --dirty --always --match sv-*`
 echo "Last commit: $VERSION"
 
 pushd locale

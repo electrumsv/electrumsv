@@ -35,40 +35,6 @@ import os
 import sys
 import time
 
-
-if sys.version_info < (3, 6, 0):
-    sys.exit("Error: Must be using Python 3.6.0 or higher")
-
-script_dir = os.path.dirname(os.path.realpath(__file__))
-is_bundle = getattr(sys, 'frozen', False)
-is_local = not is_bundle and os.path.exists(os.path.join(script_dir, "electrum-sv.desktop"))
-
-if is_local:
-    sys.path.insert(0, os.path.join(script_dir, 'packages'))
-
-
-def check_imports():
-    # pure-python dependencies need to be imported here for pyinstaller
-    try:
-        import dns
-        import pyaes
-        import ecdsa
-        import requests
-        import qrcode
-        import google.protobuf
-        import jsonrpclib
-    except ImportError as e:
-        sys.exit("Error: %s. Try 'sudo pip install <module-name>'"%str(e))
-    # the following imports are for pyinstaller
-    from google.protobuf import descriptor
-    from google.protobuf import message
-    from google.protobuf import reflection
-    from google.protobuf import descriptor_pb2
-    from jsonrpclib import SimpleJSONRPCServer
-    # make sure that certificates are here
-    assert os.path.exists(requests.utils.DEFAULT_CA_BUNDLE_PATH)
-
-
 from electrumsv import bitcoin, util
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.network import Network
@@ -83,6 +49,18 @@ from electrumsv import keystore
 from electrumsv.mnemonic import Mnemonic
 import electrumsv.web as web
 
+
+if sys.version_info < (3, 6, 0):
+    sys.exit("Error: Must be using Python 3.6.0 or higher")
+
+script_dir = os.path.dirname(os.path.realpath(__file__))
+is_bundle = getattr(sys, 'frozen', False)
+is_local = not is_bundle and os.path.exists(os.path.join(script_dir, "electrum-sv.desktop"))
+
+if is_local:
+    sys.path.insert(0, os.path.join(script_dir, 'packages'))
+
+
 # get password routine
 def prompt_password(prompt, confirm=True):
     import getpass
@@ -94,7 +72,6 @@ def prompt_password(prompt, confirm=True):
     if not password:
         password = None
     return password
-
 
 
 def run_non_RPC(config):
@@ -220,8 +197,8 @@ def init_cmdline(config_options, server):
 
     # commands needing password
     if ((cmd.requires_wallet and storage.is_encrypted() and server is None)
-           or (cmd.requires_password
-               and (storage.get('use_encryption') or storage.is_encrypted()))):
+        or (cmd.requires_password
+            and (storage.get('use_encryption') or storage.is_encrypted()))):
         if config.get('password'):
             password = config.get('password')
         else:
@@ -277,6 +254,7 @@ def run_offline_command(config, config_options):
     if wallet:
         wallet.storage.write()
     return result
+
 
 def init_plugins(config, gui_name):
     from electrumsv.plugin import Plugins
@@ -336,7 +314,7 @@ def main():
     if config_options.get('file_logging'):
         log_path = os.path.join(util.user_dir(prefer_local=True), "logs")
         os.makedirs(log_path, exist_ok=True)
-        log_path = os.path.join(log_path, time.strftime("%Y%m%d-%H%M%S") +".log")
+        log_path = os.path.join(log_path, time.strftime("%Y%m%d-%H%M%S") + ".log")
         util.add_logging_handler(logging.FileHandler(log_path))
 
     if config_options.get('verbose'):
