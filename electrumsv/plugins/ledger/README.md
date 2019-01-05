@@ -1,4 +1,3 @@
-![Bitcoin Cash](https://raw.githubusercontent.com/The-Bitcoin-Cash-Fund/Branding/master/Bitcoin_Cash/BCH%20Logo%20Long%20Text%20WhiteBG.png "")
 # Using ElectrumSV with Ledger Nano S
 
 Successfully tested with Ledger Nano S (1.3.1) ElectrumSV (3.1.2) and Bitcoin Cash Ledger App (1.1.5)
