@@ -125,8 +125,7 @@ def _serialize_proxy(p):
                      p.get('user', ''), p.get('password', '')])
 
 
-# Called by text.py:network_dialog()
-def deserialize_proxy(s):
+def _deserialize_proxy(s):
     if not isinstance(s, str):
         return None
     if s.lower() == 'none':
@@ -248,7 +247,7 @@ class Network(util.DaemonThread):
         self.requested_chunks = set()
         self.socket_queue = queue.Queue()
         self._start_network(deserialize_server(self.default_server)[2],
-                           deserialize_proxy(self.config.get('proxy')))
+                           _deserialize_proxy(self.config.get('proxy')))
 
     # Called by gui.qt.main_window.py:__init__()
     # Called by gui.qt.coinsplitting_tab.py:_on_split_button_clicked()
@@ -1518,7 +1517,6 @@ class Network(util.DaemonThread):
 
     # Called by commands.py:broadcast()
     # Called by main_window.py:broadcast_transaction()
-    # (also stdio.py and text.py which are going)
     def broadcast_transaction(self, transaction):
         command = 'blockchain.transaction.broadcast'
         invocation = lambda c: self.send([(command, [str(transaction)])], c)

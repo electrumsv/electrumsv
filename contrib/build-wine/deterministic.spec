@@ -44,7 +44,6 @@ datas += collect_data_files('keepkeylib')
 # We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
 a = Analysis([home+'electrum-sv',
               home+'electrumsv/gui/qt/main_window.py',
-              home+'electrumsv/gui/text.py',
               home+'electrumsv/util.py',
               home+'electrumsv/wallet.py',
               home+'electrumsv/simple_config.py',
