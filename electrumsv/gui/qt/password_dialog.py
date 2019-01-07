@@ -27,7 +27,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QLineEdit, QVBoxLayout, QGridLayout, QLabel, QCheckBox
 from electrumsv.i18n import _
-from .util import WindowModalDialog, OkButton, Buttons, CancelButton
+from .util import WindowModalDialog, OkButton, Buttons, CancelButton, icon_path
 import re
 import math
 
@@ -100,10 +100,10 @@ class PasswordLayout(object):
             if wallet and wallet.has_password():
                 grid.addWidget(QLabel(_('Current Password:')), 0, 0)
                 grid.addWidget(self.pw, 0, 1)
-                lockfile = ":icons/lock.png"
+                lockfile = "lock.png"
             else:
-                lockfile = ":icons/unlock.png"
-            logo.setPixmap(QPixmap(lockfile).scaledToWidth(36))
+                lockfile = "unlock.png"
+            logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(36))
 
         grid.addWidget(QLabel(msgs[0]), 1, 0)
         grid.addWidget(self.new_pw, 1, 1)

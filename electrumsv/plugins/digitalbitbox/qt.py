@@ -7,8 +7,8 @@ from electrumsv.wallet import Standard_Wallet
 
 
 class Plugin(DigitalBitboxPlugin, QtPluginBase):
-    icon_unpaired = ":icons/digitalbitbox_unpaired.png"
-    icon_paired = ":icons/digitalbitbox.png"
+    icon_unpaired = "digitalbitbox_unpaired.png"
+    icon_paired = "digitalbitbox.png"
 
     def create_handler(self, window):
         return DigitalBitbox_Handler(window)

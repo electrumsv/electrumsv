@@ -32,13 +32,13 @@ import traceback
 
 import requests
 from PyQt5.QtCore import QObject, pyqtSignal, Qt
-from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, \
     QPushButton, QTextEdit, QMessageBox
 
 from electrumsv.i18n import _
 from electrumsv.version import PACKAGE_VERSION
 from .main_window import ElectrumWindow
+from .util import read_QIcon
 
 
 issue_template = """<h2>Traceback</h2>
@@ -105,7 +105,7 @@ class Exception_Window(QWidget):
 
         report_button = QPushButton(_('Send Bug Report'))
         report_button.clicked.connect(self.send_report)
-        report_button.setIcon(QIcon(":icons/tab_send.png"))
+        report_button.setIcon(read_QIcon("tab_send.png"))
         buttons.addWidget(report_button)
 
         never_button = QPushButton(_('Never'))

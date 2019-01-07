@@ -20,7 +20,7 @@ from electrumsv.i18n import _
 
 from .seed_dialog import SeedLayout, KeysLayout
 from .network_dialog import NetworkChoiceLayout
-from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout
+from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, icon_path
 from .password_dialog import PasswordLayout, PW_NEW
 
 
@@ -152,7 +152,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         hbox.setStretchFactor(scroll, 1)
         outer_vbox.addLayout(hbox)
         outer_vbox.addLayout(Buttons(self.back_button, self.next_button))
-        self.set_icon(':icons/electrum-sv.png')
+        self.set_icon('electrum-sv.png')
         self.show()
         self.raise_()
         self.refresh_gui()  # Need for QT on MacOSX.  Lame.
@@ -397,7 +397,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     def set_icon(self, filename):
         prior_filename, self.icon_filename = self.icon_filename, filename
-        self.logo.setPixmap(QPixmap(filename).scaledToWidth(60, Qt.SmoothTransformation))
+        self.logo.setPixmap(QPixmap(icon_path(filename))
+                            .scaledToWidth(60, Qt.SmoothTransformation))
         return prior_filename
 
     def set_layout(self, layout, title=None, next_enabled=True):

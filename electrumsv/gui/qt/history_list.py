@@ -27,10 +27,10 @@ import time
 import webbrowser
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QBrush, QColor, QIcon
+from PyQt5.QtGui import QFont, QBrush, QColor
 from PyQt5.QtWidgets import QMenu
 
-from .util import MyTreeWidget, MONOSPACE_FONT, SortableTreeWidgetItem
+from .util import MyTreeWidget, MONOSPACE_FONT, SortableTreeWidgetItem, read_QIcon
 import electrumsv.web as web
 from electrumsv.i18n import _
 from electrumsv.util import timestamp_to_datetime, profiler
@@ -62,7 +62,7 @@ class HistoryList(MyTreeWidget):
 
         self.monospaceFont = QFont(MONOSPACE_FONT)
         self.withdrawalBrush = QBrush(QColor("#BC1E1E"))
-        self.invoiceIcon = QIcon(":icons/seal")
+        self.invoiceIcon = read_QIcon("seal")
         self.statusIcons = {}
 
     def refresh_headers(self):
@@ -90,7 +90,7 @@ class HistoryList(MyTreeWidget):
             status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)
             has_invoice = self.wallet.invoices.paid.get(tx_hash)
             if status not in self.statusIcons:
-                self.statusIcons[status] = QIcon(":icons/" + TX_ICONS[status])
+                self.statusIcons[status] = read_QIcon(TX_ICONS[status])
             icon = self.statusIcons[status]
             v_str = self.parent.format_amount(value, True, whitespaces=True)
             balance_str = self.parent.format_amount(balance, whitespaces=True)
@@ -139,7 +139,7 @@ class HistoryList(MyTreeWidget):
 
     def update_item(self, tx_hash, height, conf, timestamp):
         status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)
-        icon = QIcon(":icons/" +  TX_ICONS[status])
+        icon = read_QIcon(TX_ICONS[status])
         items = self.findItems(tx_hash, Qt.UserRole|Qt.MatchContains|Qt.MatchRecursive, column=1)
         if items:
             item = items[0]
@@ -187,7 +187,7 @@ class HistoryList(MyTreeWidget):
             if child_tx:
                 menu.addAction(_("Child pays for parent"), lambda: self.parent.cpfp(tx, child_tx))
         if pr_key:
-            menu.addAction(QIcon(":icons/seal"), _("View invoice"),
+            menu.addAction(read_QIcon("seal"), _("View invoice"),
                            lambda: self.parent.show_invoice(pr_key))
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))

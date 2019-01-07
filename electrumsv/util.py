@@ -595,3 +595,10 @@ def setup_thread_excepthook():
 
 def versiontuple(v):
     return tuple(int(x) for x in v.split("."))
+
+
+def resource_path(*parts):
+    return os.path.join(base_dir, *parts)
+
+
+base_dir, _base_name = os.path.split(os.path.dirname(os.path.realpath(__file__)))

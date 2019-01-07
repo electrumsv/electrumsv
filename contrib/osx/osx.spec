@@ -34,6 +34,8 @@ datas = [
     (home_dir + PYPKG + '/wordlist/english.txt', PYPKG + '/wordlist'),
     (home_dir + PYPKG + '/locale', PYPKG + '/locale'),
     (home_dir + PYPKG + '/plugins', PYPKG + '/plugins'),
+    (home_dir + '/icons/*.png', 'icons'),
+    (home_dir + '/icons/*.svg', 'icons'),
 ]
 datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')

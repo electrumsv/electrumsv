@@ -27,7 +27,6 @@ import logging
 import socket
 
 from PyQt5.QtCore import pyqtSignal, Qt, QThread
-from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTreeWidget, QMenu, QTreeWidgetItem, QHeaderView, QTabWidget,
     QWidget, QGridLayout, QLineEdit, QCheckBox, QLabel, QComboBox,
@@ -37,7 +36,7 @@ from electrumsv.i18n import _
 from electrumsv.networks import NetworkConstants
 from electrumsv.network import serialize_server, deserialize_server
 
-from .util import Buttons, CloseButton, HelpButton
+from .util import Buttons, CloseButton, HelpButton, read_QIcon
 
 logger = logging.getLogger("networkui")
 
@@ -275,7 +274,7 @@ class NetworkChoiceLayout(object):
         self.proxy_password.textEdited.connect(self.proxy_settings_changed)
 
         self.tor_cb = QCheckBox(_("Use Tor Proxy"))
-        self.tor_cb.setIcon(QIcon(":icons/tor_logo.png"))
+        self.tor_cb.setIcon(read_QIcon("tor_logo.png"))
         self.tor_cb.hide()
         self.tor_cb.clicked.connect(self.use_tor_proxy)
 

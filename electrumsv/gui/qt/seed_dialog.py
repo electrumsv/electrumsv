@@ -28,7 +28,8 @@ from PyQt5.QtWidgets import QVBoxLayout, QDialog, QCheckBox, QHBoxLayout, QLabel
 from electrumsv.i18n import _
 
 from .util import (
-    WWLabel, ButtonsTextEdit, EnterButton, Buttons, OkButton, WindowModalDialog, CloseButton
+    WWLabel, ButtonsTextEdit, EnterButton, Buttons, OkButton, WindowModalDialog, CloseButton,
+    icon_path,
 )
 from .qrtextedit import ScanQRTextEdit
 
@@ -129,7 +130,7 @@ class SeedLayout(QVBoxLayout):
         hbox = QHBoxLayout()
         if icon:
             logo = QLabel()
-            logo.setPixmap(QPixmap(":icons/seed.png").scaledToWidth(64))
+            logo.setPixmap(QPixmap(icon_path("seed.png")).scaledToWidth(64))
             logo.setMaximumWidth(60)
             hbox.addWidget(logo)
         hbox.addWidget(self.seed_e)

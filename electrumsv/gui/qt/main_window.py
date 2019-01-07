@@ -38,7 +38,7 @@ import weakref
 import webbrowser
 
 from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, qVersion
-from PyQt5.QtGui import QIcon, QKeySequence, QCursor
+from PyQt5.QtGui import QKeySequence, QCursor, QIcon
 from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QSystemTrayIcon, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
@@ -72,7 +72,7 @@ from .coinsplitting_tab import CoinSplittingTab
 from .util import (
     MessageBoxMixin, TaskThread, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
     WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton, OPReturnError,
-    OPReturnTooLarge, WaitingDialog, ChoicesLayout, OkButton, WWLabel,
+    OPReturnTooLarge, WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
     CloseButton, CancelButton, text_dialog, filename_field, address_combo, HelpButton
 )
 
@@ -161,9 +161,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.converter_tab = self.create_converter_tab()
         self.coinsplitting_tab = self.create_coinsplitting_tab()
 
-        tabs.addTab(self.create_history_tab(), QIcon(":icons/tab_history.png"), _('History'))
-        tabs.addTab(self.send_tab, QIcon(":icons/tab_send.png"), _('Send'))
-        tabs.addTab(self.receive_tab, QIcon(":icons/tab_receive.png"), _('Receive'))
+        tabs.addTab(self.create_history_tab(), read_QIcon("tab_history.png"), _('History'))
+        tabs.addTab(self.send_tab, read_QIcon("tab_send.png"), _('Send'))
+        tabs.addTab(self.receive_tab, read_QIcon("tab_receive.png"), _('Receive'))
 
         def add_optional_tab(tabs, tab, icon, description, name, default=False):
             tab.tab_icon = icon
@@ -173,17 +173,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if self.config.get('show_{}_tab'.format(name), default):
                 tabs.addTab(tab, icon, description.replace("&", ""))
 
-        add_optional_tab(tabs, self.addresses_tab, QIcon(":icons/tab_addresses.png"),
+        add_optional_tab(tabs, self.addresses_tab, read_QIcon("tab_addresses.png"),
                          _("&Addresses"), "addresses")
-        add_optional_tab(tabs, self.utxo_tab, QIcon(":icons/tab_coins.png"),
+        add_optional_tab(tabs, self.utxo_tab, read_QIcon("tab_coins.png"),
                          _("Co&ins"), "utxo")
-        add_optional_tab(tabs, self.contacts_tab, QIcon(":icons/tab_contacts.png"),
+        add_optional_tab(tabs, self.contacts_tab, read_QIcon("tab_contacts.png"),
                          _("Con&tacts"), "contacts")
-        add_optional_tab(tabs, self.converter_tab, QIcon(":icons/tab_converter.png"),
+        add_optional_tab(tabs, self.converter_tab, read_QIcon("tab_converter.png"),
                          _("Address Converter"), "converter", True)
-        add_optional_tab(tabs, self.console_tab, QIcon(":icons/tab_console.png"),
+        add_optional_tab(tabs, self.console_tab, read_QIcon("tab_console.png"),
                          _("Con&sole"), "console")
-        add_optional_tab(tabs, self.coinsplitting_tab, QIcon(":icons/tab_coins.png"),
+        add_optional_tab(tabs, self.coinsplitting_tab, read_QIcon("tab_coins.png"),
                          _("Coin Splitting"), "coinsplitter", True)
 
         tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -199,7 +199,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if self.config.get("is_maximized"):
             self.showMaximized()
 
-        self.setWindowIcon(QIcon(":icons/electrum-sv.png"))
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.init_menubar()
 
         wrtabs = weakref.proxy(tabs)
@@ -700,7 +700,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             try:
                 # this requires Qt 5.9
                 self.tray.showMessage("ElectrumSV", message,
-                                      QIcon(":icons/electrum_dark_icon"), 20000)
+                                      read_QIcon("electrum_dark_icon"), 20000)
             except TypeError:
                 self.tray.showMessage("ElectrumSV", message, QSystemTrayIcon.Information, 20000)
 
@@ -807,8 +807,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         if self.network is None or not self.network.is_running():
             text = _("Offline")
-            icon = QIcon(":icons/status_disconnected.png")
-
+            icon = "status_disconnected.png"
         elif self.network.is_connected():
             server_height = self.network.get_server_height()
             server_lag = self.network.get_local_height() - server_height
@@ -818,11 +817,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # Display the synchronizing message in that case.
             if not self.wallet.up_to_date or server_height == 0:
                 text = _("Synchronizing...")
-                icon = QIcon(":icons/status_waiting.png")
+                icon = "status_waiting.png"
             elif server_lag > 1:
                 text = _("Server is lagging ({} blocks)").format(server_lag)
-                icon = (QIcon(":icons/status_lagging.png") if num_chains <= 1
-                        else QIcon(":icons/status_lagging_fork.png"))
+                icon = "status_lagging.png" if num_chains <= 1 else "status_lagging_fork.png"
             else:
                 c, u, x = self.wallet.get_balance()
                 text =  _("Balance" ) + ": %s "%(self.format_amount_and_units(c))
@@ -836,18 +834,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     text += self.fx.get_fiat_status_text(c + u + x,
                         self.base_unit(), self.get_decimal_point()) or ''
                 if not self.network.proxy:
-                    icon = (QIcon(":icons/status_connected.png") if num_chains <= 1
-                            else QIcon(":icons/status_connected_fork.png"))
+                    icon = ("status_connected.png" if num_chains <= 1
+                            else "status_connected_fork.png")
                 else:
-                    icon = (QIcon(":icons/status_connected_proxy.png") if num_chains <= 1
-                            else QIcon(":icons/status_connected_proxy_fork.png"))
+                    icon = ("status_connected_proxy.png" if num_chains <= 1
+                            else "status_connected_proxy_fork.png")
         else:
             text = _("Not connected")
-            icon = QIcon(":icons/status_disconnected.png")
+            icon = "status_disconnected.png"
 
         self.tray.setToolTip("%s (%s)" % (text, self.wallet.basename()))
         self.balance_label.setText(text)
-        self.status_button.setIcon( icon )
+        self.status_button.setIcon(read_QIcon(icon))
 
 
     def update_wallet(self):
@@ -2101,20 +2099,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                                                self.change_password_dialog)
         sb.addPermanentWidget(self.password_button)
 
-        sb.addPermanentWidget(StatusBarButton(QIcon(":icons/preferences.png"),
+        sb.addPermanentWidget(StatusBarButton(read_QIcon("preferences.png"),
                                               _("Preferences"), self.settings_dialog ) )
-        self.seed_button = StatusBarButton(QIcon(":icons/seed.png"),
+        self.seed_button = StatusBarButton(read_QIcon("seed.png"),
                                            _("Seed"), self.show_seed_dialog )
         sb.addPermanentWidget(self.seed_button)
-        self.status_button = StatusBarButton(QIcon(":icons/status_disconnected.png"), _("Network"),
+        self.status_button = StatusBarButton(read_QIcon("status_disconnected.png"), _("Network"),
                                              lambda: self.gui_object.show_network_dialog(self))
         sb.addPermanentWidget(self.status_button)
         run_hook('create_status_bar', sb)
         self.setStatusBar(sb)
 
     def update_lock_icon(self):
-        icon = (QIcon(":icons/lock.png") if self.wallet.has_password()
-                else QIcon(":icons/unlock.png"))
+        icon = read_QIcon("lock.png" if self.wallet.has_password() else "unlock.png")
         self.password_button.setIcon(icon)
 
     def update_buttons_on_seed(self):

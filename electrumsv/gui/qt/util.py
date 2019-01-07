@@ -4,7 +4,7 @@ import sys
 import platform
 import queue
 from collections import namedtuple
-from functools import partial
+from functools import partial, lru_cache
 
 from PyQt5.QtCore import Qt, QCoreApplication, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import (
 
 from electrumsv.i18n import _
 from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
+from electrumsv.util import resource_path
+
 
 if platform.system() == 'Windows':
     MONOSPACE_FONT = 'Lucida Console'
@@ -29,9 +31,9 @@ else:
 dialogs = []
 
 pr_icons = {
-    PR_UNPAID:":icons/unpaid.png",
-    PR_PAID:":icons/confirmed.png",
-    PR_EXPIRED:":icons/expired.png"
+    PR_UNPAID: "unpaid.png",
+    PR_PAID: "confirmed.png",
+    PR_EXPIRED: "expired.png"
 }
 
 pr_tooltips = {
@@ -516,7 +518,7 @@ class ButtonsWidget(QWidget):
 
     def addButton(self, icon_name, on_click, tooltip):
         button = QToolButton(self)
-        button.setIcon(QIcon(icon_name))
+        button.setIcon(read_QIcon(icon_name))
         button.setStyleSheet("QToolButton { border: none; hover {border: 1px} "
                              "pressed {border: 1px} padding: 0px; }")
         button.setVisible(True)
@@ -527,7 +529,7 @@ class ButtonsWidget(QWidget):
 
     def addCopyButton(self, app):
         self.app = app
-        self.addButton(":icons/copy.png", self.on_copy, _("Copy to clipboard"))
+        self.addButton("copy.png", self.on_copy, _("Copy to clipboard"))
 
     def on_copy(self):
         self.app.clipboard().setText(self.text())
@@ -656,6 +658,15 @@ class OPReturnError(Exception):
 
 class OPReturnTooLarge(OPReturnError):
     """ thrown when the OP_RETURN for a tx is >220 bytes """
+
+
+def icon_path(icon_basename):
+    return resource_path('icons', icon_basename)
+
+
+@lru_cache()
+def read_QIcon(icon_basename):
+    return QIcon(icon_path(icon_basename))
 
 
 if __name__ == "__main__":
