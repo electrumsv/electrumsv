@@ -30,7 +30,7 @@ if ! which msgfmt > /dev/null 2>&1; then
     exit 1
 fi
 for i in ./*; do
-    dir=$WINEPREFIX/drive_c/electrum/electrumsv/$i/LC_MESSAGES
+    dir=$WINEPREFIX/drive_c/electrum/electrumsv/locale/$i/LC_MESSAGES
     mkdir -p $dir
     msgfmt --output-file=$dir/electrum-sv.mo $i/electron-cash.po || true
 done
