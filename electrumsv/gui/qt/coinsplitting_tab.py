@@ -138,6 +138,8 @@ class CoinSplittingTab(QWidget):
                 window.show_error(_("It took too long to get the dust from the faucet."))
             else:
                 window.show_error(_("Unexpected situation. You should not even be here."))
+
+            self._cleanup_tx_final()
         finally:
             self._cleanup_tx_created()
 
@@ -171,7 +173,7 @@ class CoinSplittingTab(QWidget):
             msg.append(_('Proceed?'))
             password = None
             if not window.question('\n'.join(msg)):
-                self._cleanup_tx_signed()
+                self._cleanup_tx_final()
                 return
 
         def sign_done(success):
@@ -182,7 +184,7 @@ class CoinSplittingTab(QWidget):
                 extra_text = _("Your split coins")
                 window.broadcast_transaction(tx, f"{TX_DESC_PREFIX}: {extra_text}",
                                              success_text=_("Your coins have now been split."))
-            self._cleanup_tx_signed()
+            self._cleanup_tx_final()
         window.sign_tx_with_password(tx, sign_done, password)
 
     def _cleanup_tx_created(self):
@@ -196,8 +198,8 @@ class CoinSplittingTab(QWidget):
         self.split_stage = STAGE_INACTIVE
         logger.debug("_cleanup_tx_created")
 
-    def _cleanup_tx_signed(self):
-        logger.debug("_cleanup_tx_signed")
+    def _cleanup_tx_final(self):
+        logger.debug("_cleanup_tx_final")
         self.split_button.setText(_("Split"))
         self.split_button.setEnabled(True)
 
