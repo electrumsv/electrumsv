@@ -41,7 +41,6 @@ before you can run Electrum SV. Read the next section, "Development
 Version".
 
 
-
 Development version
 ===================
 
@@ -53,11 +52,6 @@ Check out the code from Github::
 Run install (this should install dependencies)::
 
     python3 setup.py install
-
-Compile the icons file for Qt::
-
-    sudo apt-get install pyqt5-dev-tools
-    pyrcc5 icons.qrc -o electrumsv/gui/qt/icons_rc.py
 
 Compile the protobuf description file::
 
@@ -77,6 +71,7 @@ Running pylint::
 
     pylint --rcfile=.pylintrc electrumsv
 
+
 Creating Binaries
 =================
 
@@ -93,6 +88,7 @@ upgrade your pip to the official version::
 
     pip install pip --user
 
+
 Linux (source with packages)
 ----------------------------
 
@@ -100,10 +96,12 @@ Run the following to create the release tarball under `dist/`::
 
     ./setup.py sdist
 
+
 Mac OS X / macOS
 --------
 
 See `contrib/osx/`.
+
 
 Windows
 -------
