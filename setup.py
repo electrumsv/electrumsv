@@ -57,8 +57,6 @@ if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
         (os.path.join(share_dir, 'pixmaps/'),                    ['icons/electrum-sv.png']),
         # Menu entry
         (os.path.join(share_dir, 'applications/'), ['electrum-sv.desktop']),
-        # App stream (store) metadata
-        (os.path.join(share_dir, 'metainfo/'), ['org.electrumsv.ElectrumSV.appdata.xml']),
     ]
 
 setup(
