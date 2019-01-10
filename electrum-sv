@@ -345,7 +345,7 @@ def main():
     if cmdname == 'gui':
         fd, server = daemon.get_fd_or_server(config)
         if fd is not None:
-            plugins = init_plugins(config, config.get('gui', 'qt'))
+            plugins = init_plugins(config, 'qt')
             d = daemon.Daemon(config, fd, True)
             d.start()
             d.init_gui(config, plugins)

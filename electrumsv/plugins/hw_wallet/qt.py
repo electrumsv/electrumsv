@@ -28,12 +28,12 @@ from functools import partial
 import threading
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout
 
 from electrumsv.gui.qt.password_dialog import PasswordDialog, PW_PASSPHRASE
-from electrumsv.gui.qt.util import WindowModalDialog, Buttons, OkButton, \
-    CancelButton, TaskThread, WWLabel
+from electrumsv.gui.qt.util import (
+    WindowModalDialog, Buttons, OkButton, CancelButton, TaskThread, WWLabel, read_QIcon,
+)
 from electrumsv.gui.qt.main_window import StatusBarButton
 from electrumsv.plugin import hook
 from electrumsv.util import UserCancelled
@@ -80,7 +80,7 @@ class QtHandlerBase(QObject):
     def _update_status(self, paired):
         button = self.button
         icon = button.icon_paired if paired else button.icon_unpaired
-        button.setIcon(QIcon(icon))
+        button.setIcon(read_QIcon(icon))
 
     def query_choice(self, msg, labels):
         self.done.clear()
@@ -204,7 +204,7 @@ class QtPluginBase(object):
                 return
             tooltip = self.device + '\n' + (keystore.label or 'unnamed')
             cb = partial(self.show_settings_dialog, window, keystore)
-            button = StatusBarButton(QIcon(self.icon_unpaired), tooltip, cb)
+            button = StatusBarButton(read_QIcon(self.icon_unpaired), tooltip, cb)
             button.icon_paired = self.icon_paired
             button.icon_unpaired = self.icon_unpaired
             window.statusBar().addPermanentWidget(button)

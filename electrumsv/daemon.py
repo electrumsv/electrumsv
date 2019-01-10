@@ -306,11 +306,8 @@ class Daemon(DaemonThread):
         DaemonThread.stop(self)
 
     def init_gui(self, config, plugins):
-        gui_name = config.get('gui', 'qt')
-        if gui_name in ['lite', 'classic']:
-            gui_name = 'qt'
-        gui = __import__('electrumsv.gui.' + gui_name, fromlist=['electrumsv'])
-        self.gui = gui.ElectrumGui(config, self, plugins)
+        from electrumsv.gui.qt import ElectrumGui
+        self.gui = ElectrumGui(config, self, plugins)
         threading.current_thread().setName('GUI')
         try:
             self.gui.main()

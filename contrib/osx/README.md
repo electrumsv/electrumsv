@@ -40,6 +40,9 @@ Make sure it is the "selected" xcode (e.g.):
 
 This creates both a folder named `Electrum.app` and the `.dmg` file.
 
+If you get errors about zlib not being found, try the fix at the top of
+https://github.com/pyenv/pyenv/issues/1219.
+
 
 ## 2. Building the image deterministically (WIP)
 

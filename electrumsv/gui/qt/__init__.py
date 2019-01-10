@@ -34,7 +34,7 @@ except Exception:
              "'sudo apt-get install python3-pyqt5'")
 
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
-from PyQt5.QtGui import QGuiApplication, QIcon
+from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMessageBox, QMenu, QWidget
 import PyQt5.QtCore as QtCore
 
@@ -46,17 +46,7 @@ from electrumsv.networks import NetworkConstants
 
 from .exception_window import Exception_Hook
 from .installwizard import InstallWizard, GoBack
-
-
-try:
-    from . import icons_rc
-except Exception as e:
-    print(e)
-    print("Error: Could not find icons file.")
-    print("Run 'pyrcc5 icons.qrc -o electrumsv/gui/qt/icons_rc.py', and re-run ElectrumSV")
-    sys.exit(1)
-
-from .util import ColorScheme
+from .util import ColorScheme, read_QIcon
 from .main_window import ElectrumWindow
 from .network_dialog import NetworkDialog
 
@@ -135,9 +125,9 @@ class ElectrumGui:
 
     def tray_icon(self):
         if self.dark_icon:
-            return QIcon(':icons/electrumsv_dark_icon.png')
+            return read_QIcon('electrumsv_dark_icon.png')
         else:
-            return QIcon(':icons/electrumsv_light_icon.png')
+            return read_QIcon('electrumsv_light_icon.png')
 
     def toggle_tray_icon(self):
         self.dark_icon = not self.dark_icon

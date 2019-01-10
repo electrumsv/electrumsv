@@ -29,9 +29,8 @@ from electrumsv.util import format_time, age
 from electrumsv.plugin import run_hook
 from electrumsv.paymentrequest import PR_UNKNOWN
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
-from .util import MyTreeWidget, pr_tooltips, pr_icons
+from .util import MyTreeWidget, pr_tooltips, pr_icons, read_QIcon
 
 
 class RequestList(MyTreeWidget):
@@ -104,10 +103,10 @@ class RequestList(MyTreeWidget):
                                     amount_str, pr_tooltips.get(status,'')])
             item.setData(0, Qt.UserRole, address)
             if signature is not None:
-                item.setIcon(2, QIcon(":icons/seal.png"))
+                item.setIcon(2, read_QIcon("seal.png"))
                 item.setToolTip(2, 'signed by '+ requestor)
             if status is not PR_UNKNOWN:
-                item.setIcon(6, QIcon(pr_icons.get(status)))
+                item.setIcon(6, read_QIcon(pr_icons.get(status)))
             self.addTopLevelItem(item)
 
 

@@ -28,7 +28,7 @@ import datetime
 import json
 import logging
 
-from PyQt5.QtGui import QIcon, QFont, QBrush, QTextCharFormat, QColor
+from PyQt5.QtGui import QFont, QBrush, QTextCharFormat, QColor
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit
 )
@@ -40,7 +40,7 @@ from electrumsv.plugin import run_hook
 
 from electrumsv.util import bfh
 from .util import (
-    MessageBoxMixin, ButtonsLineEdit, Buttons, MONOSPACE_FONT, ColorScheme
+    MessageBoxMixin, ButtonsLineEdit, Buttons, MONOSPACE_FONT, ColorScheme, read_QIcon
 )
 
 
@@ -75,7 +75,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         vbox.addWidget(QLabel(_("Transaction ID:")))
         self.tx_hash_e  = ButtonsLineEdit()
-        self.tx_hash_e.addButton(":icons/qrcode.png", self.show_tx_hash_qr, _("Show as QR code"))
+        self.tx_hash_e.addButton("qrcode.png", self.show_tx_hash_qr, _("Show as QR code"))
 
         self.tx_hash_e.setReadOnly(True)
         vbox.addWidget(self.tx_hash_e)
@@ -108,7 +108,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         b.setDefault(True)
 
         self.qr_button = b = QPushButton()
-        b.setIcon(QIcon(":icons/qrcode.png"))
+        b.setIcon(read_QIcon("qrcode.png"))
         b.clicked.connect(self.show_qr)
 
         self.copy_button = QPushButton(_("Copy"))

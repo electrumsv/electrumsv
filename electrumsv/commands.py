@@ -895,7 +895,7 @@ def get_parser():
                                        help="Run GUI (default)")
     parser_gui.add_argument("url", nargs='?', default=None, help="bitcoin URI (or bip70 file)")
     parser_gui.add_argument("-g", "--gui", dest="gui", help="select graphical user interface",
-                            choices=['qt', 'text', 'stdio'])
+                            choices=['qt'])
     parser_gui.add_argument("-o", "--offline", action="store_true", dest="offline", default=False,
                             help="Run offline")
     parser_gui.add_argument("-m", action="store_true", dest="hide_gui", default=False,
