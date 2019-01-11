@@ -99,10 +99,10 @@ class TcpConnection(threading.Thread):
         try:
             l = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC, socket.SOCK_STREAM)
         except socket.gaierror:
-            self.logger.error("cannot resolve hostname")
+            self.logger.debug("cannot resolve hostname")
             return
         except UnicodeDecodeError:
-            self.logger.error("hostname cannot be decoded with 'idna' codec")
+            self.logger.debug("hostname cannot be decoded with 'idna' codec")
             return
         e = None
         for res in l:
@@ -116,7 +116,7 @@ class TcpConnection(threading.Thread):
             except BaseException as _e:
                 e = _e
                 continue
-        self.logger.error("failed to connect %s", e)
+        self.logger.debug("failed to connect %s", e)
 
     @staticmethod
     def get_ssl_context(cert_reqs, ca_certs):
