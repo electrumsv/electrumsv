@@ -305,7 +305,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
 
     # Address formats
     FMT_BITCOIN = 0
-    FMT_CASHADDR = 1
 
     # We are Bitcoin.  Default to it
     FMT_UI = FMT_BITCOIN
@@ -414,9 +413,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
 
     def to_string(self, fmt):
         '''Converts to a string of the given format.'''
-        if fmt == self.FMT_CASHADDR:
-            return self.to_cashaddr()
-
         if fmt == self.FMT_BITCOIN:
             if self.kind == self.ADDR_P2PKH:
                 verbyte = NetworkConstants.ADDRTYPE_P2PKH
@@ -429,10 +425,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
 
     def to_full_string(self, fmt):
         '''Convert to text, with a URI prefix for cashaddr format.'''
-        text = self.to_string(fmt)
-        if fmt == self.FMT_CASHADDR:
-            text = ':'.join([NetworkConstants.CASHADDR_PREFIX, text])
-        return text
+        return self.to_string(fmt)
 
     def to_ui_string(self):
         '''Convert to text in the current UI format choice.'''
