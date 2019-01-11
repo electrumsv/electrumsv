@@ -762,7 +762,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def base_unit(self):
         assert self.decimal_point in [2, 5, 8]
         if self.decimal_point == 2:
-            return 'cash'
+            return 'bits'
         if self.decimal_point == 5:
             return 'mBSV'
         if self.decimal_point == 8:
