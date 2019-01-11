@@ -411,25 +411,22 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         return cashaddr.encode(NetworkConstants.CASHADDR_PREFIX, kind,
                                self.hash160)
 
-    def to_string(self, fmt):
+    def to_string(self):
         '''Converts to a string of the given format.'''
-        if fmt == self.FMT_BITCOIN:
-            if self.kind == self.ADDR_P2PKH:
-                verbyte = NetworkConstants.ADDRTYPE_P2PKH
-            else:
-                verbyte = NetworkConstants.ADDRTYPE_P2SH
+        if self.kind == self.ADDR_P2PKH:
+            verbyte = NetworkConstants.ADDRTYPE_P2PKH
         else:
-            raise AddressError('unrecognised format')
+            verbyte = NetworkConstants.ADDRTYPE_P2SH
 
         return Base58.encode_check(bytes([verbyte]) + self.hash160)
 
     def to_ui_string(self):
         '''Convert to text in the current UI format choice.'''
-        return self.to_string(self.FMT_UI)
+        return self.to_string()
 
     def to_storage_string(self):
         '''Convert to text in the storage format.'''
-        return self.to_string(self.FMT_BITCOIN)
+        return self.to_string()
 
     def to_script(self):
         '''Return a binary script to pay to the address.'''

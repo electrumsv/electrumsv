@@ -117,7 +117,7 @@ def BE_URL(config, kind, item):
         return
     if kind == 'addr':
         assert isinstance(item, Address)
-        item = item.to_string(addr_fmt)
+        item = item.to_string()
     return "/".join(part for part in (url_base, kind_str, item) if part)
 
 def BE_sorted_list():
@@ -134,7 +134,7 @@ def create_URI(addr, amount, message):
     if message:
         query.append('message=%s'%urllib.parse.quote(message))
     p = urllib.parse.ParseResult(scheme=NetworkConstants.URI_PREFIX,
-                                 netloc='', path=addr.to_string(addr.FMT_BITCOIN),
+                                 netloc='', path=addr.to_string(),
                                  params='', query='&'.join(query), fragment='')
     return urllib.parse.urlunparse(p)
 

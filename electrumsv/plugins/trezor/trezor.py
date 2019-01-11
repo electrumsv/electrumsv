@@ -433,8 +433,7 @@ class TrezorPlugin(HW_PluginBase):
                     raise Exception(_("Unsupported output script."))
             elif _type == TYPE_ADDRESS:
                 txoutputtype.script_type = self.types.OutputScriptType.PAYTOADDRESS
-                addr_format = address.FMT_BITCOIN
-                txoutputtype.address = address.to_string(addr_format)
+                txoutputtype.address = address.to_string()
             return txoutputtype
 
         outputs = []

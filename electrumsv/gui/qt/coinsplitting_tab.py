@@ -10,7 +10,6 @@ from PyQt5.QtWidgets import (
 
 from electrumsv import bitcoin
 from electrumsv.i18n import _
-from electrumsv.address import Address
 from . import util
 
 logger = logging.getLogger("coinsplitting")
@@ -75,7 +74,7 @@ class CoinSplittingTab(QWidget):
         else:
             faucet_url = "https://faucet.satoshisvision.network"
 
-        address_text = self.receiving_address.to_string(Address.FMT_BITCOIN)
+        address_text = self.receiving_address.to_string()
         result = requests.get("{}/submit/{}".format(faucet_url, address_text))
         self.faucet_result = result
         if result.status_code != 200:

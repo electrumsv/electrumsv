@@ -247,8 +247,7 @@ class Abstract_Wallet:
     @classmethod
     def from_Address_dict(cls, d):
         '''Convert a dict of Address objects to a dict of strings.'''
-        return {addr.to_string(Address.FMT_BITCOIN): value
-                for addr, value in d.items()}
+        return {addr.to_string(): value for addr, value in d.items()}
 
     def __str__(self):
         return self.basename()
