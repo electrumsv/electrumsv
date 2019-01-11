@@ -2301,7 +2301,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox = QHBoxLayout()
 
         b = QPushButton(_("Sign"))
-        b.clicked.connect(partial(self.do_sign, address_e, message_e, signature_e))
+        def do_sign(checked=False):
+            self.do_sign(address_e, message_e, signature_e)
+        b.clicked.connect(do_sign)
         hbox.addWidget(b)
 
         b = QPushButton(_("Verify"))
@@ -2365,7 +2367,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox.addWidget(b)
 
         b = QPushButton(_("Decrypt"))
-        b.clicked.connect(partial(self.do_decrypt, message_e, pubkey_e, encrypted_e))
+        def do_decrypt(checked=False):
+            self.do_decrypt(message_e, pubkey_e, encrypted_e)
+        b.clicked.connect(do_decrypt)
         hbox.addWidget(b)
 
         b = QPushButton(_("Close"))
