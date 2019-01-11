@@ -303,12 +303,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     ADDR_P2PKH = 0
     ADDR_P2SH = 1
 
-    # Address formats
-    FMT_BITCOIN = 0
-
-    # We are Bitcoin.  Default to it
-    FMT_UI = FMT_BITCOIN
-
     def __new__(cls, hash160value, kind):
         assert kind in (cls.ADDR_P2PKH, cls.ADDR_P2SH)
         hash160value = to_bytes(hash160value)
