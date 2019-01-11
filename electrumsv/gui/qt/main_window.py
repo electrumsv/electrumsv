@@ -989,7 +989,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def get_request_URI(self, addr):
         req = self.wallet.receive_requests[addr]
-        message = self.wallet.labels.get(addr.to_storage_string(), '')
+        message = self.wallet.labels.get(addr.to_string(), '')
         amount = req['amount']
         URI = web.create_URI(addr, amount, message)
         if req.get('time'):

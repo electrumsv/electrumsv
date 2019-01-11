@@ -111,7 +111,7 @@ class AddressList(MyTreeWidget):
                 is_used = self.wallet.is_used(address)
                 balance = sum(self.wallet.get_addr_balance(address))
                 address_text = address.to_ui_string()
-                label = self.wallet.labels.get(address.to_storage_string(), '')
+                label = self.wallet.labels.get(address.to_string(), '')
                 balance_text = self.parent.format_amount(balance, whitespaces=True)
                 columns = [address_text, str(n), label, balance_text, str(num)]
                 if fx:

@@ -200,7 +200,7 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
         '''Convert to a hexadecimal string.'''
         return self.pubkey.hex()
 
-    def to_storage_string(self):
+    def to_string(self):
         '''Convert to a hexadecimal string for storage.'''
         return self.pubkey.hex()
 
@@ -403,10 +403,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
 
     def to_ui_string(self):
         '''Convert to text in the current UI format choice.'''
-        return self.to_string()
-
-    def to_storage_string(self):
-        '''Convert to text in the storage format.'''
         return self.to_string()
 
     def to_script(self):

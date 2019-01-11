@@ -565,7 +565,7 @@ class Commands:
             if balance:
                 item += (format_satoshis(sum(self.wallet.get_addr_balance(addr))),)
             if labels:
-                item += (repr(self.wallet.labels.get(addr.to_storage_string(), '')),)
+                item += (repr(self.wallet.labels.get(addr.to_string(), '')),)
             out.append(item)
         return out
 

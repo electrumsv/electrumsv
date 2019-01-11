@@ -207,9 +207,9 @@ class CoinSplittingTab(QWidget):
         if event == 'new_transaction':
             tx, wallet = args
             if wallet == window.wallet: # filter out tx's not for this wallet
-                our_storage_string = self.receiving_address.to_storage_string()
+                our_string = self.receiving_address.to_string()
                 for tx_output in tx.outputs():
-                    if tx_output[1].to_storage_string() == our_storage_string:
+                    if tx_output[1].to_string() == our_string:
                         extra_text = _("Dust from BSV faucet")
                         wallet.set_label(tx.txid(), f"{TX_DESC_PREFIX}: {extra_text}")
                         break

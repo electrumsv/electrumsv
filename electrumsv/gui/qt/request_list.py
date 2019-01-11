@@ -55,7 +55,7 @@ class RequestList(MyTreeWidget):
         req = self.wallet.receive_requests[addr]
         expires = age(req['time'] + req['exp']) if req.get('exp') else _('Never')
         amount = req['amount']
-        message = self.wallet.labels.get(addr.to_storage_string(), '')
+        message = self.wallet.labels.get(addr.to_string(), '')
         self.parent.receive_address_e.setText(addr.to_ui_string())
         self.parent.receive_message_e.setText(message)
         self.parent.receive_amount_e.setAmount(amount)

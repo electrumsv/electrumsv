@@ -145,7 +145,7 @@ class Imported_KeyStore(Software_KeyStore):
         return None
 
     def dump(self):
-        keypairs = {pubkey.to_storage_string(): enc_privkey
+        keypairs = {pubkey.to_string(): enc_privkey
                     for pubkey, enc_privkey in self.keypairs.items()}
         return {
             'type': 'imported',
