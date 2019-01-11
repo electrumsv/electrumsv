@@ -23,10 +23,9 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import sys
 
-import electrumsv.check_version    # Must be first import
-from electrumsv.main import main
-
-
-if __name__ == '__main__':
-    main()
+vtuple = sys.version_info
+if vtuple < (3, 6, 0):
+    sys.exit("error: ElectrumSV requires Python version 3.6 or higher; you are running Python {}"
+             .format('.'.join(str(part) for part in (vtuple.major, vtuple.minor, vtuple.micro))))

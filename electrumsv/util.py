@@ -601,4 +601,19 @@ def resource_path(*parts):
     return os.path.join(base_dir, *parts)
 
 
+def is_bundle():
+    '''True if a pyinstaller binary.'''
+    return getattr(sys, 'frozen', False)
+
+
+def running_from_source():
+    return not is_bundle() and os.path.exists(os.path.join(base_dir, "electrum-sv.desktop"))
+
+
+def use_packages_if_from_source():
+    '''Use packages if running from source.'''
+    if running_from_source():
+        sys.path.insert(0, os.path.join(base_dir, 'packages'))
+
+
 base_dir, _base_name = os.path.split(os.path.dirname(os.path.realpath(__file__)))
