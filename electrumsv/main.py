@@ -2,7 +2,7 @@
 # -*- mode: python -*-
 #
 # Electrum SV - lightweight Bitcoin SV client
-# Copyright (C) 2018 The Electrum SV Developers
+# Copyright (C) 2018-2019 The Electrum SV Developers
 #
 # Electrum Cash - lightweight Bitcoin Cash client
 # Copyright (C) 2017-2018 The Electron Cash Developers
