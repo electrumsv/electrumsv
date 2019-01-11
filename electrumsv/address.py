@@ -122,11 +122,11 @@ def hash160(x):
 
 class UnknownAddress(object):
 
-    def to_ui_string(self):
+    def to_string(self):
         return '<UnknownAddress>'
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<UnknownAddress>'
@@ -196,12 +196,8 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
         '''Returns True if the pubkey is compressed.'''
         return len(self.pubkey) == 33
 
-    def to_ui_string(self):
+    def to_string(self):
         '''Convert to a hexadecimal string.'''
-        return self.pubkey.hex()
-
-    def to_storage_string(self):
-        '''Convert to a hexadecimal string for storage.'''
         return self.pubkey.hex()
 
     def to_script(self):
@@ -225,7 +221,7 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
         return self.address.to_script()
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<PubKey {}>'.format(self.__str__())
@@ -248,7 +244,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
                 script.extend(Script.push_data(binascii.unhexlify(word)))
         return ScriptOutput(bytes(script))
 
-    def to_ui_string(self):
+    def to_string(self):
         '''Convert to user-readable OP-codes (plus pushdata as text if possible)
         eg OP_RETURN (12) "Hello there!"
         '''
@@ -290,7 +286,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
         return self.script
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<ScriptOutput {}>'.format(self.__str__())
@@ -302,13 +298,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     # Address kinds
     ADDR_P2PKH = 0
     ADDR_P2SH = 1
-
-    # Address formats
-    FMT_BITCOIN = 0
-    FMT_CASHADDR = 1
-
-    # We are Bitcoin.  Default to it
-    FMT_UI = FMT_BITCOIN
 
     def __new__(cls, hash160value, kind):
         assert kind in (cls.ADDR_P2PKH, cls.ADDR_P2SH)
@@ -399,52 +388,14 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     def from_multisig_script(cls, script):
         return cls(hash160(script), cls.ADDR_P2SH)
 
-    @classmethod
-    def to_strings(cls, fmt, addrs):
-        '''Construct a list of strings from an iterable of Address objects.'''
-        return [addr.to_string(fmt) for addr in addrs]
-
-    def to_cashaddr(self):
-        if self.kind == self.ADDR_P2PKH:
-            kind  = cashaddr.PUBKEY_TYPE
-        else:
-            kind  = cashaddr.SCRIPT_TYPE
-        return cashaddr.encode(NetworkConstants.CASHADDR_PREFIX, kind,
-                               self.hash160)
-
-    def to_string(self, fmt):
+    def to_string(self):
         '''Converts to a string of the given format.'''
-        if fmt == self.FMT_CASHADDR:
-            return self.to_cashaddr()
-
-        if fmt == self.FMT_BITCOIN:
-            if self.kind == self.ADDR_P2PKH:
-                verbyte = NetworkConstants.ADDRTYPE_P2PKH
-            else:
-                verbyte = NetworkConstants.ADDRTYPE_P2SH
+        if self.kind == self.ADDR_P2PKH:
+            verbyte = NetworkConstants.ADDRTYPE_P2PKH
         else:
-            raise AddressError('unrecognised format')
+            verbyte = NetworkConstants.ADDRTYPE_P2SH
 
         return Base58.encode_check(bytes([verbyte]) + self.hash160)
-
-    def to_full_string(self, fmt):
-        '''Convert to text, with a URI prefix for cashaddr format.'''
-        text = self.to_string(fmt)
-        if fmt == self.FMT_CASHADDR:
-            text = ':'.join([NetworkConstants.CASHADDR_PREFIX, text])
-        return text
-
-    def to_ui_string(self):
-        '''Convert to text in the current UI format choice.'''
-        return self.to_string(self.FMT_UI)
-
-    def to_full_ui_string(self):
-        '''Convert to text, with a URI prefix if cashaddr.'''
-        return self.to_full_string(self.FMT_UI)
-
-    def to_storage_string(self):
-        '''Convert to text in the storage format.'''
-        return self.to_string(self.FMT_BITCOIN)
 
     def to_script(self):
         '''Return a binary script to pay to the address.'''
@@ -466,7 +417,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         return hash_to_hex_str(self.to_scripthash())
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<Address {}>'.format(self.__str__())

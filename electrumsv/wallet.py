@@ -247,8 +247,7 @@ class Abstract_Wallet:
     @classmethod
     def from_Address_dict(cls, d):
         '''Convert a dict of Address objects to a dict of strings.'''
-        return {addr.to_string(Address.FMT_BITCOIN): value
-                for addr, value in d.items()}
+        return {addr.to_string(): value for addr, value in d.items()}
 
     def __str__(self):
         return self.basename()
@@ -352,10 +351,8 @@ class Abstract_Wallet:
 
     def save_addresses(self):
         addr_dict = {
-            'receiving': [addr.to_storage_string()
-                          for addr in self.receiving_addresses],
-            'change': [addr.to_storage_string()
-                       for addr in self.change_addresses],
+            'receiving': [addr.to_string() for addr in self.receiving_addresses],
+            'change': [addr.to_string() for addr in self.change_addresses],
         }
         self.storage.put('addresses', addr_dict)
 
@@ -387,7 +384,7 @@ class Abstract_Wallet:
 
     def set_label(self, name, text = None):
         if isinstance(name, Address):
-            name = name.to_storage_string()
+            name = name.to_string()
         changed = False
         old_text = self.labels.get(name)
         if text:
@@ -927,9 +924,9 @@ class Abstract_Wallet:
                     if x['type'] == 'coinbase': continue
                     addr = x.get('address')
                     if addr is None: continue
-                    input_addresses.append(addr.to_ui_string())
+                    input_addresses.append(addr.to_string())
                 for addr, v in tx.get_outputs():
-                    output_addresses.append(addr.to_ui_string())
+                    output_addresses.append(addr.to_string())
                 item['input_addresses'] = input_addresses
                 item['output_addresses'] = output_addresses
             if fx is not None:
@@ -950,7 +947,7 @@ class Abstract_Wallet:
             d = self.txo.get(tx_hash, {})
             labels = []
             for addr in d.keys():
-                label = self.labels.get(addr.to_storage_string())
+                label = self.labels.get(addr.to_string())
                 if label:
                     labels.append(label)
             return ', '.join(labels)
@@ -1102,8 +1099,7 @@ class Abstract_Wallet:
                 self.frozen_addresses |= set(addrs)
             else:
                 self.frozen_addresses -= set(addrs)
-            frozen_addresses = [addr.to_storage_string()
-                                for addr in self.frozen_addresses]
+            frozen_addresses = [addr.to_string() for addr in self.frozen_addresses]
             self.storage.put('frozen_addresses', frozen_addresses)
             return True
         return False
@@ -1382,7 +1378,7 @@ class Abstract_Wallet:
         # check if bip70 file exists
         rdir = config.get('requests_dir')
         if rdir:
-            key = out.get('id', addr.to_storage_string())
+            key = out.get('id', addr.to_string())
             path = os.path.join(rdir, 'req', key[0], key[1], key)
             if os.path.exists(path):
                 baseurl = 'file://' + rdir
@@ -1433,7 +1429,7 @@ class Abstract_Wallet:
     def make_payment_request(self, addr, amount, message, expiration=None):
         assert isinstance(addr, Address)
         timestamp = int(time.time())
-        _id = bh2u(Hash(addr.to_storage_string() + "%d" % timestamp))[0:10]
+        _id = bh2u(Hash(addr.to_string() + "%d" % timestamp))[0:10]
         return {
             'time': timestamp,
             'amount': amount,
@@ -1445,7 +1441,7 @@ class Abstract_Wallet:
 
     def serialize_request(self, r):
         result = r.copy()
-        result['address'] = r['address'].to_storage_string()
+        result['address'] = r['address'].to_string()
         return result
 
     def save_payment_requests(self):
@@ -1453,7 +1449,7 @@ class Abstract_Wallet:
             del value['address']
             return value
 
-        requests = {addr.to_storage_string() : delete_address(value.copy())
+        requests = {addr.to_string() : delete_address(value.copy())
                     for addr, value in self.receive_requests.items()}
         self.storage.put('payment_requests', requests)
         self.storage.write()
@@ -1470,7 +1466,7 @@ class Abstract_Wallet:
 
     def add_payment_request(self, req, config, set_address_label=True):
         addr = req['address']
-        addr_text = addr.to_storage_string()
+        addr_text = addr.to_string()
         amount = req['amount']
         message = req['memo']
         self.receive_requests[addr] = req
@@ -1493,7 +1489,7 @@ class Abstract_Wallet:
                 f.write(pr.SerializeToString())
             # reload
             req = self.get_payment_request(addr, config)
-            req['address'] = req['address'].to_ui_string()
+            req['address'] = req['address'].to_string()
             with open(os.path.join(path, key + '.json'), 'w', encoding='utf-8') as f:
                 f.write(json.dumps(req))
 
@@ -1505,7 +1501,7 @@ class Abstract_Wallet:
         r = self.receive_requests.pop(addr)
         rdir = config.get('requests_dir')
         if rdir:
-            key = r.get('id', addr.to_storage_string())
+            key = r.get('id', addr.to_string())
             for s in ['.json', '']:
                 n = os.path.join(rdir, 'req', key[0], key[1], key, key + s)
                 if os.path.exists(n):
@@ -1650,7 +1646,7 @@ class ImportedWalletBase(Simple_Wallet):
 
         self.save_transactions()
 
-        self.set_label(address.to_storage_string(), None)
+        self.set_label(address.to_string(), None)
         self.remove_payment_request(address, {})
         self.set_frozen_state([address], False)
 
@@ -1694,8 +1690,7 @@ class ImportedAddressWallet(ImportedWalletBase):
         self.addresses = [Address.from_string(addr) for addr in addresses]
 
     def save_addresses(self):
-        self.storage.put('addresses', [addr.to_storage_string()
-                                       for addr in self.addresses])
+        self.storage.put('addresses', [addr.to_string() for addr in self.addresses])
         self.storage.write()
 
     def can_change_password(self):
@@ -1706,8 +1701,7 @@ class ImportedAddressWallet(ImportedWalletBase):
 
     def get_addresses(self, include_change=False):
         if not self._sorted:
-            self._sorted = sorted(self.addresses,
-                                  key=lambda addr: addr.to_ui_string())
+            self._sorted = sorted(self.addresses, key=Address.to_string)
         return self._sorted
 
     def import_address(self, address):
@@ -1794,7 +1788,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         pubkey = self.keystore.import_privkey(sec, pw)
         self.save_keystore()
         self.storage.write()
-        return pubkey.address.to_ui_string()
+        return pubkey.address.to_string()
 
     def export_private_key(self, address, password):
         '''Returned in WIF format.'''
@@ -1805,7 +1799,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         assert txin['type'] == 'p2pkh'
         pubkey = self.keystore.address_to_pubkey(address)
         txin['num_sig'] = 1
-        txin['x_pubkeys'] = [pubkey.to_ui_string()]
+        txin['x_pubkeys'] = [pubkey.to_string()]
         txin['signatures'] = [None]
 
     def pubkeys_to_address(self, pubkey):

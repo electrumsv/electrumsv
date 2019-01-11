@@ -53,7 +53,7 @@ class UTXOList(MyTreeWidget):
         self.utxos = self.wallet.get_utxos()
         for x in self.utxos:
             address = x['address']
-            address_text = address.to_ui_string()
+            address_text = address.to_string()
             height = x['height']
             name = self.get_name(x)
             label = self.wallet.get_label(x['prevout_hash'])

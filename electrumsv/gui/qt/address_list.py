@@ -110,8 +110,8 @@ class AddressList(MyTreeWidget):
                 num = len(self.wallet.get_address_history(address))
                 is_used = self.wallet.is_used(address)
                 balance = sum(self.wallet.get_addr_balance(address))
-                address_text = address.to_ui_string()
-                label = self.wallet.labels.get(address.to_storage_string(), '')
+                address_text = address.to_string()
+                label = self.wallet.labels.get(address.to_string(), '')
                 balance_text = self.parent.format_amount(balance, whitespaces=True)
                 columns = [address_text, str(n), label, balance_text, str(num)]
                 if fx:
@@ -168,7 +168,7 @@ class AddressList(MyTreeWidget):
 
             column_title = self.headerItem().text(col)
             if col == 0:
-                copy_text = addr.to_full_ui_string()
+                copy_text = addr.to_string()
             else:
                 copy_text = item.text(col)
             menu.addAction(_("Copy {}").format(column_title),
@@ -208,7 +208,6 @@ class AddressList(MyTreeWidget):
         if event.matches(QKeySequence.Copy) and self.currentColumn() == 0:
             addrs = [i.data(0, Qt.UserRole) for i in self.selectedItems()]
             if addrs and isinstance(addrs[0], Address):
-                text = addrs[0].to_full_ui_string()
-                self.parent.app.clipboard().setText(text)
+                self.parent.app.clipboard().setText(addrs[0].to_string())
         else:
             super().keyPressEvent(event)

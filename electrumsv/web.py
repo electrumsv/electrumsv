@@ -42,37 +42,30 @@ logger = logging.getLogger("web")
 mainnet_block_explorers = {
     'bchsvexplorer.com': (
         'https://bchsvexplorer.com',
-        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'svblox.com': (
         'https://svblox.com',
-        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'whatsonchain.com': (
         'https://whatsonchain.com',
-        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'bsvexplorer.io': (
         'https://bsvexplorer.io',
-        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'bitcoinsvexplorer.com': (
         'https://www.bitcoinsvexplorer.com',
-        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'blockchair.com' : (
         'https://blockchair.com/bitcoin-sv',
-        Address.FMT_BITCOIN,
         {'tx': 'transaction', 'addr': 'address'},
     ),
     'btc.com': (
         'https://bsv.btc.com',
-        Address.FMT_BITCOIN,
         {'tx': '', 'addr': ''},
     ),
 }
@@ -80,17 +73,14 @@ mainnet_block_explorers = {
 testnet_block_explorers = {
     'satoshisvision.network': (
         'http://explore.satoshisvision.network',
-        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'bitcoincloud.net': (
         'https://testnet.bitcoincloud.net',
-        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
     'system default': (
         'blockchain:',
-        Address.FMT_BITCOIN,
         {'tx': 'tx', 'addr': 'address'},
     ),
 }
@@ -111,13 +101,13 @@ def BE_URL(config, kind, item):
     be_tuple = BE_tuple(config)
     if not be_tuple:
         return
-    url_base, addr_fmt, parts = be_tuple
+    url_base, parts = be_tuple
     kind_str = parts.get(kind)
     if kind_str is None:
         return
     if kind == 'addr':
         assert isinstance(item, Address)
-        item = item.to_string(addr_fmt)
+        item = item.to_string()
     return "/".join(part for part in (url_base, kind_str, item) if part)
 
 def BE_sorted_list():
@@ -134,7 +124,7 @@ def create_URI(addr, amount, message):
     if message:
         query.append('message=%s'%urllib.parse.quote(message))
     p = urllib.parse.ParseResult(scheme=NetworkConstants.URI_PREFIX,
-                                 netloc='', path=addr.to_string(addr.FMT_BITCOIN),
+                                 netloc='', path=addr.to_string(),
                                  params='', query='&'.join(query), fragment='')
     return urllib.parse.urlunparse(p)
 

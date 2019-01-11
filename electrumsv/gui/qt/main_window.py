@@ -989,7 +989,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def get_request_URI(self, addr):
         req = self.wallet.receive_requests[addr]
-        message = self.wallet.labels.get(addr.to_storage_string(), '')
+        message = self.wallet.labels.get(addr.to_string(), '')
         amount = req['amount']
         URI = web.create_URI(addr, amount, message)
         if req.get('time'):
@@ -1104,7 +1104,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def update_receive_address_widget(self):
         text = ''
         if self.receive_address:
-            text = self.receive_address.to_full_ui_string()
+            text = self.receive_address.to_string()
         self.receive_address_e.setText(text)
 
     def clear_receive_tab(self):
@@ -1866,7 +1866,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def remove_address(self, addr):
         if self.question(_("Do you want to remove {} from your wallet?"
-                           .format(addr.to_ui_string()))):
+                           .format(addr.to_string()))):
             self.wallet.delete_address(addr)
             self.address_list.update()
             self.history_list.update()
@@ -1954,7 +1954,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(QLabel(pr.get_requestor()), 0, 1)
         grid.addWidget(QLabel(_("Amount") + ':'), 1, 0)
         outputs_str = '\n'.join(self.format_amount(x[2]) + self.base_unit() +
-                                ' @ ' + x[1].to_ui_string()
+                                ' @ ' + x[1].to_string()
                                 for x in pr.get_outputs())
         grid.addWidget(QLabel(outputs_str), 1, 1)
         expires = pr.get_expiration_date()
@@ -2281,7 +2281,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         layout.setRowStretch(2,3)
 
         address_e = QLineEdit()
-        address_e.setText(address.to_ui_string() if address else '')
+        address_e.setText(address.to_string() if address else '')
         layout.addWidget(QLabel(_('Address')), 2, 0)
         layout.addWidget(address_e, 2, 1)
 
@@ -2341,7 +2341,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if address:
             pubkey = self.wallet.get_public_key(address)
             if not isinstance(pubkey, str):
-                pubkey = pubkey.to_ui_string()
+                pubkey = pubkey.to_string()
             pubkey_e.setText(pubkey)
         layout.addWidget(QLabel(_('Public key')), 2, 0)
         layout.addWidget(pubkey_e, 2, 1)
@@ -2513,7 +2513,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 if done or cancelled:
                     break
                 privkey = self.wallet.export_private_key(addr, password)
-                private_keys[addr.to_ui_string()] = privkey
+                private_keys[addr.to_string()] = privkey
                 self.computing_privkeys_signal.emit()
             if not cancelled:
                 self.computing_privkeys_signal.disconnect()

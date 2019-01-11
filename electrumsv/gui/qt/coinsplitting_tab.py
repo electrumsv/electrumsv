@@ -10,7 +10,6 @@ from PyQt5.QtWidgets import (
 
 from electrumsv import bitcoin
 from electrumsv.i18n import _
-from electrumsv.address import Address
 from . import util
 
 logger = logging.getLogger("coinsplitting")
@@ -75,7 +74,7 @@ class CoinSplittingTab(QWidget):
         else:
             faucet_url = "https://faucet.satoshisvision.network"
 
-        address_text = self.receiving_address.to_full_string(Address.FMT_BITCOIN)
+        address_text = self.receiving_address.to_string()
         result = requests.get("{}/submit/{}".format(faucet_url, address_text))
         self.faucet_result = result
         if result.status_code != 200:
@@ -208,9 +207,9 @@ class CoinSplittingTab(QWidget):
         if event == 'new_transaction':
             tx, wallet = args
             if wallet == window.wallet: # filter out tx's not for this wallet
-                our_storage_string = self.receiving_address.to_storage_string()
+                our_string = self.receiving_address.to_string()
                 for tx_output in tx.outputs():
-                    if tx_output[1].to_storage_string() == our_storage_string:
+                    if tx_output[1].to_string() == our_string:
                         extra_text = _("Dust from BSV faucet")
                         wallet.set_label(tx.txid(), f"{TX_DESC_PREFIX}: {extra_text}")
                         break

@@ -65,7 +65,7 @@ class AddressDialog(WindowModalDialog):
             try:
                 # ok, now try the usual method for imported wallets, etc
                 pubkey = self.wallet.get_public_key(address)
-                pubkeys = [pubkey.to_ui_string()]
+                pubkeys = [pubkey.to_string()]
             except Exception:
                 # watching only wallets (totally lacks a private/public key pair for this address)
                 pubkeys = None
@@ -104,15 +104,13 @@ class AddressDialog(WindowModalDialog):
             self.hw.update_item(*args)
 
     def update_addr(self):
-        self.addr_e.setText(self.address.to_full_ui_string())
+        self.addr_e.setText(self.address.to_string())
 
     def get_domain(self):
         return [self.address]
 
     def show_qr(self):
-        text = self.address.to_full_ui_string()
-        if self.address.FMT_UI == self.address.FMT_CASHADDR:
-            text = text.upper()
+        text = self.address.to_string()
         try:
             self.parent.show_qrcode(text, 'Address', parent=self)
         except Exception as e:

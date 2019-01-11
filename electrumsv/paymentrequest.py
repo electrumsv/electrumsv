@@ -236,7 +236,7 @@ class PaymentRequest:
     def get_address(self):
         o = self.outputs[0]
         assert o[0] == bitcoin.TYPE_ADDRESS
-        return o[1].to_ui_string()
+        return o[1].to_string()
 
     def get_requestor(self):
         return self.requestor if self.requestor else self.get_address()
