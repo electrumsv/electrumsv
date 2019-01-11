@@ -342,7 +342,7 @@ class SimpleConfig:
 
 
 def read_user_config(path):
-    """Parse and store the user config settings in electrum-sv.conf into user_config[]."""
+    """Parse and return the user config settings as a dictionary."""
     if not path:
         return {}
     config_path = os.path.join(path, "config")
