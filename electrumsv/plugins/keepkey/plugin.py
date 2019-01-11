@@ -333,7 +333,7 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
                 elif _type == TYPE_ADDRESS:
                     addr_format = address.FMT_BITCOIN
                     txoutputtype.script_type = self.types.PAYTOADDRESS
-                    txoutputtype.address = address.to_full_string(addr_format)
+                    txoutputtype.address = address.to_string(addr_format)
 
             outputs.append(txoutputtype)
 

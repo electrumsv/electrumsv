@@ -1104,7 +1104,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def update_receive_address_widget(self):
         text = ''
         if self.receive_address:
-            text = self.receive_address.to_full_ui_string()
+            text = self.receive_address.to_ui_string()
         self.receive_address_e.setText(text)
 
     def clear_receive_tab(self):

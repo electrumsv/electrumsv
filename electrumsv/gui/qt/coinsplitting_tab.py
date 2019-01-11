@@ -75,7 +75,7 @@ class CoinSplittingTab(QWidget):
         else:
             faucet_url = "https://faucet.satoshisvision.network"
 
-        address_text = self.receiving_address.to_full_string(Address.FMT_BITCOIN)
+        address_text = self.receiving_address.to_string(Address.FMT_BITCOIN)
         result = requests.get("{}/submit/{}".format(faucet_url, address_text))
         self.faucet_result = result
         if result.status_code != 200:

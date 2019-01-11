@@ -168,7 +168,7 @@ class AddressList(MyTreeWidget):
 
             column_title = self.headerItem().text(col)
             if col == 0:
-                copy_text = addr.to_full_ui_string()
+                copy_text = addr.to_ui_string()
             else:
                 copy_text = item.text(col)
             menu.addAction(_("Copy {}").format(column_title),
@@ -208,7 +208,7 @@ class AddressList(MyTreeWidget):
         if event.matches(QKeySequence.Copy) and self.currentColumn() == 0:
             addrs = [i.data(0, Qt.UserRole) for i in self.selectedItems()]
             if addrs and isinstance(addrs[0], Address):
-                text = addrs[0].to_full_ui_string()
+                text = addrs[0].to_ui_string()
                 self.parent.app.clipboard().setText(text)
         else:
             super().keyPressEvent(event)
