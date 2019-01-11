@@ -392,19 +392,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     def from_multisig_script(cls, script):
         return cls(hash160(script), cls.ADDR_P2SH)
 
-    @classmethod
-    def to_strings(cls, fmt, addrs):
-        '''Construct a list of strings from an iterable of Address objects.'''
-        return [addr.to_string(fmt) for addr in addrs]
-
-    def to_cashaddr(self):
-        if self.kind == self.ADDR_P2PKH:
-            kind  = cashaddr.PUBKEY_TYPE
-        else:
-            kind  = cashaddr.SCRIPT_TYPE
-        return cashaddr.encode(NetworkConstants.CASHADDR_PREFIX, kind,
-                               self.hash160)
-
     def to_string(self):
         '''Converts to a string of the given format.'''
         if self.kind == self.ADDR_P2PKH:
