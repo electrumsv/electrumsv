@@ -797,12 +797,12 @@ config_variables = {
         'ssl_chain': ('Chain of SSL certificates, needed for signed requests. '
                       'Put your certificate at the top and the root CA at the end'),
         'url_rewrite': ('Parameters passed to str.replace(), in order to create the r= part '
-                        'of bitcoincash: URIs. Example: '
+                        'of bitcoin: URIs. Example: '
                         '\"(\'file:///var/www/\',\'https://electrum.org/\')\"'),
     },
     'listrequests':{
         'url_rewrite': ('Parameters passed to str.replace(), in order to create the r= part '
-                        'of bitcoincash: URIs. Example: '
+                        'of bitcoin: URIs. Example: '
                         '\"(\'file:///var/www/\',\'https://electrum.org/\')\"'),
     }
 }

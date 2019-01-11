@@ -28,11 +28,14 @@ import re
 import shutil
 import threading
 import urllib
+import urllib.parse
 
 from .address import Address
 from . import bitcoin
+from .i18n import _
 from .networks import NetworkConstants
 from .util import format_satoshis_plain, bh2u
+
 
 logger = logging.getLogger("web")
 
@@ -92,6 +95,7 @@ testnet_block_explorers = {
     ),
 }
 
+
 def BE_info():
     if NetworkConstants.TESTNET:
         return testnet_block_explorers
@@ -123,48 +127,48 @@ def BE_sorted_list():
 def create_URI(addr, amount, message):
     if not isinstance(addr, Address):
         return ""
-    scheme, path = addr.to_URI_components()
-    query = []
+
+    query = ['sv']
     if amount:
         query.append('amount=%s'%format_satoshis_plain(amount))
     if message:
         query.append('message=%s'%urllib.parse.quote(message))
-    p = urllib.parse.ParseResult(scheme=scheme,
-                                 netloc='', path=path, params='',
-                                 query='&'.join(query), fragment='')
+    p = urllib.parse.ParseResult(scheme=NetworkConstants.URI_PREFIX,
+                                 netloc='', path=addr.to_string(addr.FMT_BITCOIN),
+                                 params='', query='&'.join(query), fragment='')
     return urllib.parse.urlunparse(p)
 
-# URL decode
-#_ud = re.compile('%([0-9a-hA-H]{2})', re.MULTILINE)
-#urldecode = lambda x: _ud.sub(lambda m: chr(int(m.group(1), 16)), x)
+
+def is_URI(text):
+    '''Returns true if the text looks like a URI.  It is not validated, and is not checked to
+    be a Bitcoin SV URI.
+    '''
+    return text.lower().startswith(NetworkConstants.URI_PREFIX + ':')
+
+
+class URIError(Exception):
+    pass
+
 
 def parse_URI(uri, on_pr=None):
-    if ':' not in uri:
-        # Test it's valid
-        Address.from_string(uri)
+    if Address.is_valid(uri):
         return {'address': uri}
 
     u = urllib.parse.urlparse(uri)
-    # The scheme always comes back in lower case
-    if u.scheme != NetworkConstants.CASHADDR_PREFIX:
-        raise Exception("Not a {} URI".format(NetworkConstants.CASHADDR_PREFIX))
-    address = u.path
 
-    # python for android fails to parse query
-    if address.find('?') > 0:
-        address, query = u.path.split('?')
-        pq = urllib.parse.parse_qs(query)
-    else:
-        pq = urllib.parse.parse_qs(u.query)
+    # The scheme always comes back in lower case
+    pq = urllib.parse.parse_qs(u.query, keep_blank_values=True)
+    if u.scheme != NetworkConstants.URI_PREFIX or 'sv' not in pq:
+        raise URIError(_('invalid BitcoinSV URI: {}').format(uri))
 
     for k, v in pq.items():
-        if len(v)!=1:
-            raise Exception('Duplicate Key', k)
+        if len(v) != 1:
+            raise URIError(_('duplicate query key {0} in BitcoinSV URI {1}').format(key, uri))
 
     out = {k: v[0] for k, v in pq.items()}
-    if address:
-        Address.from_string(address)
-        out['address'] = address
+
+    if Address.is_valid(u.path):
+        out['address'] = u.path
 
     if 'amount' in out:
         am = out['amount']

@@ -48,7 +48,7 @@ from electrumsv.commands import get_parser, known_commands, Commands, config_var
 from electrumsv import daemon
 from electrumsv import keystore
 from electrumsv.mnemonic import Mnemonic
-import electrumsv.web as web
+from electrumsv import web
 
 
 # get password routine
@@ -319,7 +319,7 @@ def main():
     # check uri
     uri = config_options.get('url')
     if uri:
-        if not uri.startswith(NetworkConstants.CASHADDR_PREFIX + ':'):
+        if not web.is_URI(uri):
             print('unknown command:', uri, file=sys.stderr)
             sys.exit(1)
         config_options['url'] = uri

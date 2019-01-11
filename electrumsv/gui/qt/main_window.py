@@ -611,13 +611,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.setMenuBar(menubar)
 
     def donate_to_server(self):
-        d = self.network.get_donation_address()
-        if d:
-            host = self.network.get_parameters()[0]
-            self.pay_to_URI('{}:{}?message=donation for {}'
-                            .format(NetworkConstants.CASHADDR_PREFIX, d, host))
+        server = self.network.get_parameters()[0]
+        addr = self.network.get_donation_address()
+        if addr and Address.is_valid(addr):
+            addr = Address.from_string(addr)
+            self.pay_to_URI(web.create_URI(addr, 0, _('Donation for {}').format(server)))
         else:
-            self.show_error(_('No donation address for this server'))
+            self.show_error(_('The server {} has not provided a valid donation address')
+                            .format(server))
 
     def show_about(self):
         QMessageBox.about(self, "ElectrumSV",
@@ -1771,7 +1772,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         try:
             out = web.parse_URI(URI, self.on_pr)
         except Exception as e:
-            self.show_error(_('Invalid bitcoincash URI:') + '\n' + str(e))
+            self.show_error(str(e))
             return
         self.show_send_tab()
         r = out.get('r')
@@ -2460,8 +2461,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
         if not data:
             return
-        # if the user scanned a bitcoincash URI
-        if data.lower().startswith(NetworkConstants.CASHADDR_PREFIX + ':'):
+        # if the user scanned a bitcoin URI
+        if web.is_URI(data):
             self.pay_to_URI(data)
             return
         # else if the user scanned an offline signed tx
