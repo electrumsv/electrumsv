@@ -3,7 +3,6 @@ import logging
 from struct import pack, unpack
 
 from electrumsv import bitcoin
-from electrumsv.address import Address
 from electrumsv.bitcoin import TYPE_ADDRESS, int_to_hex, var_int
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
