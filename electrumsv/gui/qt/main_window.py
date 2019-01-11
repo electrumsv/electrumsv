@@ -158,7 +158,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.utxo_tab = self.create_utxo_tab()
         self.console_tab = self.create_console_tab()
         self.contacts_tab = self.create_contacts_tab()
-        self.converter_tab = self.create_converter_tab()
         self.coinsplitting_tab = self.create_coinsplitting_tab()
 
         tabs.addTab(self.create_history_tab(), read_QIcon("tab_history.png"), _('History'))
@@ -179,8 +178,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                          _("Co&ins"), "utxo")
         add_optional_tab(tabs, self.contacts_tab, read_QIcon("tab_contacts.png"),
                          _("Con&tacts"), "contacts")
-        add_optional_tab(tabs, self.converter_tab, read_QIcon("tab_converter.png"),
-                         _("Address Converter"), "converter", True)
         add_optional_tab(tabs, self.console_tab, read_QIcon("tab_console.png"),
                          _("Con&sole"), "console")
         add_optional_tab(tabs, self.coinsplitting_tab, read_QIcon("tab_coins.png"),
@@ -570,7 +567,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         add_toggle_action(view_menu, self.addresses_tab)
         add_toggle_action(view_menu, self.utxo_tab)
         add_toggle_action(view_menu, self.contacts_tab)
-        add_toggle_action(view_menu, self.converter_tab)
         add_toggle_action(view_menu, self.coinsplitting_tab)
         add_toggle_action(view_menu, self.console_tab)
 
@@ -1833,60 +1829,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.wallet.set_frozen_coin_state(utxos, freeze)
         self.utxo_list.update()
         self.update_fee()
-
-    def create_converter_tab(self):
-
-        source_address = QLineEdit()
-        bitcoin_address = QLineEdit()
-        bitcoin_address.setReadOnly(True)
-        cash_address = QLineEdit()
-        cash_address.setReadOnly(True)
-
-        widgets = [
-            (bitcoin_address, Address.FMT_BITCOIN),
-            (cash_address, Address.FMT_CASHADDR),
-        ]
-
-        def convert_address():
-            try:
-                addr = Address.from_string(source_address.text().strip())
-            except:
-                addr = None
-            for widget, fmt in widgets:
-                if addr:
-                    widget.setText(addr.to_full_string(fmt))
-                else:
-                    widget.setText('')
-
-        source_address.textChanged.connect(convert_address)
-
-        label = WWLabel(_(
-            "This tool helps convert between address formats for Bitcoin "
-            "(SV) addresses.\nYou are encouraged to use the Bitcoin format."
-        ))
-
-        w = QWidget()
-        grid = QGridLayout()
-        grid.setSpacing(15)
-        grid.setColumnStretch(1, 2)
-        grid.setColumnStretch(2, 1)
-        grid.addWidget(QLabel(_('Address to convert')), 0, 0)
-        grid.addWidget(source_address, 0, 1)
-        grid.addWidget(QLabel(_('Bitcoin address')), 1, 0)
-        grid.addWidget(bitcoin_address, 1, 1)
-        grid.addWidget(QLabel(_('Legacy cash address')), 2, 0)
-        grid.addWidget(cash_address, 2, 1)
-        w.setLayout(grid)
-
-        vbox = QVBoxLayout()
-        vbox.addWidget(label)
-        vbox.addWidget(w)
-        vbox.addStretch(1)
-
-        w = QWidget()
-        w.setLayout(vbox)
-
-        return w
 
     def create_coinsplitting_tab(self):
         return CoinSplittingTab(self)
