@@ -37,8 +37,8 @@ from electrumsv.util import timestamp_to_datetime, profiler
 
 
 TX_ICONS = [
-    "warning.png",
-    "warning.png",
+    "unconfirmed.png",
+    "unconfirmed.png",
     "unconfirmed.png",
     "unconfirmed.png",
     "clock1.png",
@@ -63,7 +63,6 @@ class HistoryList(MyTreeWidget):
         self.monospaceFont = QFont(MONOSPACE_FONT)
         self.withdrawalBrush = QBrush(QColor("#BC1E1E"))
         self.invoiceIcon = read_QIcon("seal")
-        self.statusIcons = {}
 
     def refresh_headers(self):
         headers = ['', '', _('Date'), _('Description') , _('Amount'), _('Balance')]
@@ -89,9 +88,7 @@ class HistoryList(MyTreeWidget):
             tx_hash, height, conf, timestamp, value, balance = h_item
             status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)
             has_invoice = self.wallet.invoices.paid.get(tx_hash)
-            if status not in self.statusIcons:
-                self.statusIcons[status] = read_QIcon(TX_ICONS[status])
-            icon = self.statusIcons[status]
+            icon = read_QIcon(TX_ICONS[status])
             v_str = self.parent.format_amount(value, True, whitespaces=True)
             balance_str = self.parent.format_amount(balance, whitespaces=True)
             label = self.wallet.get_label(tx_hash)
