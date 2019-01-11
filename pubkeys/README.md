@@ -1,12 +1,80 @@
+# Verifying ElectrumSV Downloads using GNU Privacy Guard
+
+## TLDR
+
+    gpg --verify <SIGNATURE> <FILE>
+
+## Detailed Steps
+1. Create your private key with
+
+        gpg --generate-key
+
+    Choose RSA/DSA key with 4096 bits.
+    Enter your name, email and make sure to choose a strong password.
+
+2. Download the public key of the person/institution you want to verify, all should be in the github repo:
+
+    * Find the directory for the release you are wanting to verify, e.g. https://github.com/electrumsv/electrumsv/tree/sv-1.0.0/pubkeys.  Replace `sv-1.0.0` with the version of your release.
+    * Download the keys in that directory.
+    * wget https://github.com/electrumsv/electrumsv/blob/sv-1.0.0/pubkeys/Dave.asc
+
+3. Import the keys into your key ring
+
+        gpg --import Dave.asc
+
+    You should see output similar to
+
+        gpg: key ABCDEFABCDEFABC: public key "Dave Smith (DaveySmith)         <dave.smith@example.com>" imported
+        gpg: Total number processed: 1
+        gpg:               imported: 1
+
+4. You need to sign the person’s public key with your private key, to tell GPG that you “accept” the key.
+
+        gpg --list-keys
+
+        pub   dsa2048 2017-08-20 [SC]
+        ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFAB
+        uid           [ unknown] Dave Smith (DaveySmith) <dave.smmith@example.com>
+        sub   elg2048 2017-08-20 [E]
+
+    The “name” of their key is long string on the second line.
+
+5. Sign their public key with:
+
+        gpg --sign-key ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFAB
+
+6. Download the corresponding signature file
+
+        wget https://electrumsv.io/download/1.0.0/ElectrumSV-1.0.0.exe.asc
+
+7. Now you can verify the signature of the file you downloaded
+
+        gpg --verify ElectrumSV-1.0.0.exe.asc
+
+    Example of successful output
+
+        gpg: assuming signed data in 'ElectrumSV-1.0.0.exe'
+        gpg: Signature made Sat  6 Jan 03:51:06 2018 AEDT
+        gpg:                using DSA key 21810A542031C02C
+        gpg: checking the trustdb
+        gpg: marginals needed: 3  completes needed: 1  trust model: pgp
+        gpg: depth: 0  valid:   2  signed:   1  trust: 0-, 0q, 0n, 0m, 0f, 2u
+        gpg: depth: 1  valid:   1  signed:   0  trust: 1-, 0q, 0n, 0m, 0f, 0u
+        gpg: next trustdb check due at 2020-01-12
+        gpg: Good signature from "Dave Smith (DaveySmith) <dave.smith@example.com>" [full]
+
+### Installing GnuPG MAC OS
+Can be installed using [Homebrew](https://brew.sh/)
+
+    brew install gpg
+
 # Verifying ElectrumSV Downloads using File Hashes
 PLEASE NOTE: sha256sum is known as gsha256sum in MACOS
 
-1. Download the SHA256SUMS file to the same directory as the installer.
+**We do not currently provide file hashes.**
 
+Download the SHA256SUMS file to the same directory as the installer.
 
-    cd Downloads
-
-    wget https://raw.githubusercontent.com/ElectrumSV/keys-n-hashes/master/sigs-and-sums/3.1/mac/SHA256.ElectrumSV-3.1-macosx.dmg.txt
 
 Compare the file hashes
 
@@ -37,71 +105,3 @@ Generate a SHA256 hash of the file you downloaded
 Now compare the hash that your machine calculated with the corresponding hash in the SHA256SUMS file.
 
 When both hashes match exactly then the downloaded file is almost certainly intact.
-
-# Verifying ElectrumSV Downloads using GNU Privacy Guard
-
-## TLDR
-
-    gpg --verify <SIGNATURE> <FILE>
-
-## Detailed Steps
-1. Create your private key with
-
-        gpg --generate-key
-
-    Choose RSA/DSA key with 4096 bits.
-    Enter your name, email and make sure to choose a strong password.
-
-2. Download the public key of the person/institution you want to verify. For TrueCrypt, their public key is available here.
-
-        wget https://raw.githubusercontent.com/ElectrumSV/keys-n-hashes/master/pubkeys/calinkey.txt
-
-3. Import the person’s public key into your key ring
-
-        gpg --import TrueCrypt-Foundation-Public-Key.asc
-
-    You should see output similar to
-
-        gpg: key 21810A542031C02C: public key "Calin Culianu (NilacTheGrim)         <calin.culianu@gmail.com>" imported
-        gpg: Total number processed: 1
-        gpg:               imported: 1
-
-4. You need to sign the person’s public key with your private key, to tell GPG that you “accept” the key.
-
-        gpg --list-keys
-
-        pub   dsa2048 2017-08-20 [SC]
-        D465135F97D0047E18E99DC321810A542031C02C
-        uid           [ unknown] Calin Culianu (NilacTheGrim) <calin.culianu@gmail.com>
-        sub   elg2048 2017-08-20 [E]
-
-    The “name” of their key is long string on the second line.
-
-5. Sign their public key with:
-
-        gpg --sign-key D465135F97D0047E18E99DC321810A542031C02C
-
-6. Download the corresponding signature file
-
-        wget https://github.com/ElectrumSV/keys-n-hashes/raw/master/sigs-and-sums/3.1/mac/ElectrumSV-3.1-macosx.dmg.sig
-
-7. Now you can verify the signature of the file you downloaded
-
-        gpg --verify ElectrumSV-3.1-macosx.dmg.sig
-
-    Example of successful output
-
-        gpg: assuming signed data in 'ElectrumSV-3.1-macosx.dmg'
-        gpg: Signature made Sat  6 Jan 03:51:06 2018 AEDT
-        gpg:                using DSA key 21810A542031C02C
-        gpg: checking the trustdb
-        gpg: marginals needed: 3  completes needed: 1  trust model: pgp
-        gpg: depth: 0  valid:   2  signed:   1  trust: 0-, 0q, 0n, 0m, 0f, 2u
-        gpg: depth: 1  valid:   1  signed:   0  trust: 1-, 0q, 0n, 0m, 0f, 0u
-        gpg: next trustdb check due at 2020-01-12
-        gpg: Good signature from "Calin Culianu (NilacTheGrim) <calin.culianu@gmail.com>" [full]
-
-# Installing GnuPG MAC OS
-Can be installed using [Homebrew](https://brew.sh/)
-
-    brew install gpg
