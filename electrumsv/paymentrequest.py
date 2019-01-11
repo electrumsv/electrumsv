@@ -44,12 +44,12 @@ from .util import bh2u, bfh
 logger = logging.getLogger("paymentrequest")
 
 REQUEST_HEADERS = {
-    'Accept': 'application/bitcoincash-paymentrequest',
+    'Accept': 'application/bitcoin-paymentrequest',
     'User-Agent': 'ElectrumSV'
 }
 ACK_HEADERS = {
-    'Content-Type': 'application/bitcoincash-payment',
-    'Accept': 'application/bitcoincash-paymentack',
+    'Content-Type': 'application/bitcoin-payment',
+    'Accept': 'application/bitcoin-paymentack',
     'User-Agent': 'ElectrumSV'
 }
 
@@ -80,11 +80,11 @@ def get_payment_request(url):
         try:
             response = requests.request('GET', url, headers=REQUEST_HEADERS)
             response.raise_for_status()
-            # Guard against `bitcoincash:`-URIs with invalid payment request URLs
+            # Guard against `bitcoin:`-URIs with invalid payment request URLs
             if "Content-Type" not in response.headers \
-            or response.headers["Content-Type"] != "application/bitcoincash-paymentrequest":
+            or response.headers["Content-Type"] != "application/bitcoin-paymentrequest":
                 data = None
-                error = "payment URL not pointing to a bitcoincash payment request handling server"
+                error = "payment URL not pointing to a bitcoinSV payment request handling server"
             else:
                 data = response.content
             logger.debug('fetched payment request \'%s\' (%d)', url, len(response.content))

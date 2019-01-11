@@ -442,16 +442,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         '''Convert to text, with a URI prefix if cashaddr.'''
         return self.to_full_string(self.FMT_UI)
 
-    def to_URI_components(self):
-        '''Returns a (scheme, path) pair for building a URI.'''
-        scheme = NetworkConstants.CASHADDR_PREFIX
-        path = self.to_ui_string()
-        # Convert to upper case if CashAddr
-        if self.FMT_UI == self.FMT_CASHADDR:
-            scheme = scheme.upper()
-            path = path.upper()
-        return scheme, path
-
     def to_storage_string(self):
         '''Convert to text in the storage format.'''
         return self.to_string(self.FMT_BITCOIN)

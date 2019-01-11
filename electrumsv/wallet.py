@@ -61,6 +61,7 @@ from . import bitcoin
 from . import coinchooser
 from .synchronizer import Synchronizer
 from .verifier import SPV
+from .web import create_URI
 
 from . import paymentrequest
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
@@ -1373,10 +1374,7 @@ class Abstract_Wallet:
         if not r:
             return
         out = copy.copy(r)
-        addr_text = addr.to_ui_string()
-        amount_text = format_satoshis(r['amount'])
-        out['URI'] = '{}:{}?amount={}'.format(NetworkConstants.CASHADDR_PREFIX,
-                                              addr_text, amount_text)
+        out['URI'] = create_URI(addr, r['amount'], None)
         status, conf = self.get_request_status(addr)
         out['status'] = status
         if conf is not None:

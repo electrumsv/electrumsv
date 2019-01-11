@@ -44,15 +44,16 @@ class NetworkConstants:
 
     @classmethod
     def set_mainnet(cls):
-        cls.TESTNET = False
-        cls.WIF_PREFIX = 0x80
         cls.ADDRTYPE_P2PKH = 0
         cls.ADDRTYPE_P2SH = 5
         cls.CASHADDR_PREFIX = "bitcoincash"
-        cls.GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
         cls.DEFAULT_PORTS = {'t': '50001', 's': '50002'}
         cls.DEFAULT_SERVERS = read_json_dict('servers.json')
+        cls.GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
+        cls.TESTNET = False
         cls.TITLE = 'ElectrumSV'
+        cls.URI_PREFIX = "bitcoin"
+        cls.WIF_PREFIX = 0x80
 
         # Bitcoin Cash fork block specification
         cls.BITCOIN_CASH_FORK_BLOCK_HEIGHT = 478559
@@ -74,15 +75,16 @@ class NetworkConstants:
 
     @classmethod
     def set_testnet(cls):
-        cls.TESTNET = True
-        cls.WIF_PREFIX = 0xef
         cls.ADDRTYPE_P2PKH = 111
         cls.ADDRTYPE_P2SH = 196
         cls.CASHADDR_PREFIX = "bchtest"
-        cls.GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
         cls.DEFAULT_PORTS = {'t':'51001', 's':'51002'}
         cls.DEFAULT_SERVERS = read_json_dict('servers_testnet.json')
+        cls.GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
+        cls.TESTNET = True
         cls.TITLE = 'ElectrumSV Testnet'
+        cls.URI_PREFIX = "bitcoin"
+        cls.WIF_PREFIX = 0xef
 
         # Bitcoin Cash fork block specification
         cls.BITCOIN_CASH_FORK_BLOCK_HEIGHT = 1155876
