@@ -1,14 +1,41 @@
+# ElectrumSV - lightweight BitcoinSV client
+# Copyright (C) 2012 thomasv@gitorious
+# Copyright (C) 2019 The Electrum SV Developers
+#
+# Permission is hereby granted, free of charge, to any person
+# obtaining a copy of this software and associated documentation files
+# (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software,
+# and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+# BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+# ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 # source: http://stackoverflow.com/questions/2758159
 
 import logging
-import sys, os, re
-import traceback, platform
-from PyQt5 import QtCore
-from PyQt5 import QtGui
-from PyQt5 import QtWidgets
+import os
+import platform
+import re
+import sys
+import traceback
+
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 from electrumsv import util
+from electrumsv.i18n import _
+
 
 logger = logging.getLogger("console")
 
@@ -19,6 +46,34 @@ elif platform.system() == 'Darwin':
     MONOSPACE_FONT = 'Monaco'
 else:
     MONOSPACE_FONT = 'monospace'
+
+
+class OverlayLabel(QtWidgets.QLabel):
+    STYLESHEET = '''
+    QLabel, QLabel link {
+        color: rgb(0, 0, 0);
+        background-color: rgb(248, 240, 200);
+        border: 1px solid;
+        border-color: rgb(255, 114, 47);
+        padding: 2px;
+    }
+    '''
+
+    def __init__(self, text, parent):
+        super().__init__(text, parent)
+        self.setMinimumHeight(150)
+        self.setGeometry(0, 0, self.width(), self.height())
+        self.setStyleSheet(self.STYLESHEET)
+        self.setMargin(0)
+        parent.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setWordWrap(True)
+
+    def mousePressEvent(self, e):
+        self.hide()
+
+    def on_resize(self, w):
+        padding = 2  # px, from the stylesheet above
+        self.setFixedWidth(w - padding)
 
 
 class Console(QtWidgets.QPlainTextEdit):
@@ -36,8 +91,23 @@ class Console(QtWidgets.QPlainTextEdit):
         self.document().setDefaultFont(QtGui.QFont(MONOSPACE_FONT, 10, QtGui.QFont.Normal))
         self.showMessage(startup_message)
 
-        self.updateNamespace({'run':self.run_script})
+        self.updateNamespace({'run': self.run_script})
         self.set_json(False)
+
+        warning_text = "<h1><center>{}</center></h1><br>{}<br><br>{}<br><br>{}".format(
+            _("Warning!"),
+            _("Do not run code here that you don't understand.  Running bad or malicious code "
+              "could lead to your coins being irreversibly lost."),
+            _("Text shown here is sent by the server and may be malicious; ignore anything it "
+              "might be asking you to do."),
+            _("Click here to hide this message.")
+        )
+        self.messageOverlay = OverlayLabel(warning_text, self)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        scrollbar_width = self.verticalScrollBar().width() * self.verticalScrollBar().isVisible()
+        self.messageOverlay.on_resize(self.width() - scrollbar_width)
 
     def set_json(self, b):
         self.is_json = b
@@ -116,8 +186,8 @@ class Console(QtWidgets.QPlainTextEdit):
             return
         c = self.textCursor()
         c.setPosition(self.completions_pos)
-        l = self.completions_end - self.completions_pos
-        for x in range(l): c.deleteChar()
+        for x in range(self.completions_end - self.completions_pos):
+            c.deleteChar()
 
         self.moveCursor(QtGui.QTextCursor.End)
         self.completions_visible = False
@@ -177,9 +247,8 @@ class Console(QtWidgets.QPlainTextEdit):
             self.moveCursor(QtGui.QTextCursor.Right)
 
     def register_command(self, c, func):
-        methods = { c: func}
+        methods = {c: func}
         self.updateNamespace(methods)
-
 
     def runCommand(self):
         command = self.getCommand()
@@ -205,7 +274,7 @@ class Console(QtWidgets.QPlainTextEdit):
                         QtCore.QCoreApplication.processEvents()
                     self.skip = not self.skip
 
-            if type(self.namespace.get(command)) == type(lambda:None):
+            if callable(self.namespace.get(command)):
                 self.appendPlainText(
                     "'{}' is a function. Type '{}()' to use it in the Python console."
                     .format(command, command))
@@ -233,7 +302,7 @@ class Console(QtWidgets.QPlainTextEdit):
                 # Catch errors in the network layer as well, as long as it uses BaseException.
                 traceback_lines = traceback.format_exc().split('\n')
                 # Remove traceback mentioning this file, and a linebreak
-                for i in (3,2,1,-1):
+                for i in (3, 2, 1, -1):
                     traceback_lines.pop(i)
                 self.appendPlainText('\n'.join(traceback_lines))
             sys.stdout = tmp_stdout
@@ -269,31 +338,32 @@ class Console(QtWidgets.QPlainTextEdit):
 
         super(Console, self).keyPressEvent(event)
 
-
-
     def completions(self):
         cmd = self.getCommand()
-        lastword = re.split(' |\(|\)',cmd)[-1]
-        beginning = cmd[0:-len(lastword)]
+        lastword = re.split(r' |\(|\)', cmd)[-1]
+        beginning = cmd[0: -len(lastword)]
 
         path = lastword.split('.')
+        prefix = '.'.join(path[:-1])
+        prefix = (prefix + '.') if prefix else prefix
         ns = self.namespace.keys()
 
-        if len(path) == 1:
-            ns = ns
-            prefix = ''
-        else:
+        if len(path) > 1:
             obj = self.namespace.get(path[0])
-            prefix = path[0] + '.'
-            ns = dir(obj)
-
+            try:
+                for attr in path[1:-1]:
+                    obj = getattr(obj, attr)
+            except AttributeError:
+                ns = []
+            else:
+                ns = dir(obj)
 
         completions = []
-        for x in ns:
-            if x[0] == '_':continue
-            xx = prefix + x
-            if xx.startswith(lastword):
-                completions.append(xx)
+        for name in ns:
+            if name[0] == '_':
+                continue
+            if name.startswith(path[-1]):
+                completions.append(prefix + name)
         completions.sort()
 
         if not completions:
@@ -304,7 +374,7 @@ class Console(QtWidgets.QPlainTextEdit):
         else:
             # find common prefix
             p = os.path.commonprefix(completions)
-            if len(p)>len(lastword):
+            if len(p) > len(lastword):
                 self.hide_completions()
                 self.setCommand(beginning + p)
             else:
@@ -320,6 +390,6 @@ welcome_message = '''
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     console = Console(startup_message=welcome_message)
-    console.updateNamespace({'myVar1' : app, 'myVar2' : 1234})
+    console.updateNamespace({'myVar1': app, 'myVar2': 1234})
     console.show()
     sys.exit(app.exec_())
