@@ -136,14 +136,14 @@ class Commands:
     def _EnsureDictNamedTuplesAreJSONSafe(d):
         """Address, ScriptOutput and other objects contain bytes.  They cannot be serialized
             using JSON. This makes sure they get serialized properly by calling
-            .to_ui_string() on them.  See issue #638
+            .to_string() on them.  See issue #638
         """
         def DoChk(v):
             def ChkList(l):
                 for i in range(0,len(l)): l[i] = DoChk(l[i]) # recurse
                 return l
             def EncodeNamedTupleObject(nt):
-                if hasattr(nt, 'to_ui_string'): return nt.to_ui_string()
+                if hasattr(nt, 'to_string'): return nt.to_string()
                 return nt
 
             if isinstance(v, tuple): v = EncodeNamedTupleObject(v)
@@ -227,7 +227,7 @@ class Commands:
         for i in l:
             v = i["value"]
             i["value"] = str(Decimal(v)/COIN) if v is not None else None
-            i["address"] = i["address"].to_ui_string()
+            i["address"] = i["address"].to_string()
         return l
 
     @command('n')
@@ -559,7 +559,7 @@ class Commands:
                 continue
             if funded and self.wallet.is_empty(addr):
                 continue
-            item = addr.to_ui_string()
+            item = addr.to_string()
             if labels or balance:
                 item = (item,)
             if balance:
@@ -599,7 +599,7 @@ class Commands:
             PR_PAID: 'Paid',
             PR_EXPIRED: 'Expired',
         }
-        out['address'] = out.get('address').to_ui_string()
+        out['address'] = out.get('address').to_string()
         out['amount (BTC)'] = format_satoshis(out.get('amount'))
         out['status'] = pr_str[out.get('status', PR_UNKNOWN)]
         return out
@@ -631,7 +631,7 @@ class Commands:
     @command('w')
     def createnewaddress(self):
         """Create a new receiving address, beyond the gap limit of the wallet"""
-        return self.wallet.create_new_address(False).to_ui_string()
+        return self.wallet.create_new_address(False).to_string()
 
     @command('w')
     def getunusedaddress(self):
@@ -639,7 +639,7 @@ class Commands:
         address is considered as used if it has received a transaction, or if it is used
         in a payment request.
         """
-        return self.wallet.get_unused_address().to_ui_string()
+        return self.wallet.get_unused_address().to_string()
 
     @command('w')
     def addrequest(self, amount, memo='', expiration=None, force=False):

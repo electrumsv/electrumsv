@@ -924,9 +924,9 @@ class Abstract_Wallet:
                     if x['type'] == 'coinbase': continue
                     addr = x.get('address')
                     if addr is None: continue
-                    input_addresses.append(addr.to_ui_string())
+                    input_addresses.append(addr.to_string())
                 for addr, v in tx.get_outputs():
-                    output_addresses.append(addr.to_ui_string())
+                    output_addresses.append(addr.to_string())
                 item['input_addresses'] = input_addresses
                 item['output_addresses'] = output_addresses
             if fx is not None:
@@ -1489,7 +1489,7 @@ class Abstract_Wallet:
                 f.write(pr.SerializeToString())
             # reload
             req = self.get_payment_request(addr, config)
-            req['address'] = req['address'].to_ui_string()
+            req['address'] = req['address'].to_string()
             with open(os.path.join(path, key + '.json'), 'w', encoding='utf-8') as f:
                 f.write(json.dumps(req))
 
@@ -1701,8 +1701,7 @@ class ImportedAddressWallet(ImportedWalletBase):
 
     def get_addresses(self, include_change=False):
         if not self._sorted:
-            self._sorted = sorted(self.addresses,
-                                  key=lambda addr: addr.to_ui_string())
+            self._sorted = sorted(self.addresses, key=Address.to_string)
         return self._sorted
 
     def import_address(self, address):
@@ -1789,7 +1788,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         pubkey = self.keystore.import_privkey(sec, pw)
         self.save_keystore()
         self.storage.write()
-        return pubkey.address.to_ui_string()
+        return pubkey.address.to_string()
 
     def export_private_key(self, address, password):
         '''Returned in WIF format.'''
@@ -1800,7 +1799,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         assert txin['type'] == 'p2pkh'
         pubkey = self.keystore.address_to_pubkey(address)
         txin['num_sig'] = 1
-        txin['x_pubkeys'] = [pubkey.to_ui_string()]
+        txin['x_pubkeys'] = [pubkey.to_string()]
         txin['signatures'] = [None]
 
     def pubkeys_to_address(self, pubkey):

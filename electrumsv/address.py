@@ -122,11 +122,11 @@ def hash160(x):
 
 class UnknownAddress(object):
 
-    def to_ui_string(self):
+    def to_string(self):
         return '<UnknownAddress>'
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<UnknownAddress>'
@@ -196,12 +196,8 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
         '''Returns True if the pubkey is compressed.'''
         return len(self.pubkey) == 33
 
-    def to_ui_string(self):
-        '''Convert to a hexadecimal string.'''
-        return self.pubkey.hex()
-
     def to_string(self):
-        '''Convert to a hexadecimal string for storage.'''
+        '''Convert to a hexadecimal string.'''
         return self.pubkey.hex()
 
     def to_script(self):
@@ -225,7 +221,7 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
         return self.address.to_script()
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<PubKey {}>'.format(self.__str__())
@@ -248,7 +244,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
                 script.extend(Script.push_data(binascii.unhexlify(word)))
         return ScriptOutput(bytes(script))
 
-    def to_ui_string(self):
+    def to_string(self):
         '''Convert to user-readable OP-codes (plus pushdata as text if possible)
         eg OP_RETURN (12) "Hello there!"
         '''
@@ -290,7 +286,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
         return self.script
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<ScriptOutput {}>'.format(self.__str__())
@@ -401,10 +397,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
 
         return Base58.encode_check(bytes([verbyte]) + self.hash160)
 
-    def to_ui_string(self):
-        '''Convert to text in the current UI format choice.'''
-        return self.to_string()
-
     def to_script(self):
         '''Return a binary script to pay to the address.'''
         if self.kind == self.ADDR_P2PKH:
@@ -425,7 +417,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         return hash_to_hex_str(self.to_scripthash())
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<Address {}>'.format(self.__str__())

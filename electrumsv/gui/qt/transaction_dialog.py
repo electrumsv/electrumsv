@@ -325,7 +325,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 if addr is None:
                     addr_text = _('unknown')
                 else:
-                    addr_text = addr.to_ui_string()
+                    addr_text = addr.to_string()
                 cursor.insertText(addr_text, text_format(addr))
                 if x.get('value'):
                     cursor.insertText(format_amount(x['value']), ext)
@@ -334,7 +334,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         o_text.clear()
         cursor = o_text.textCursor()
         for addr, v in self.tx.get_outputs():
-            addrstr = addr.to_ui_string()
+            addrstr = addr.to_string()
             cursor.insertText(addrstr, text_format(addr))
             if v is not None:
                 if len(addrstr) > 42: # for long outputs, make a linebreak.
