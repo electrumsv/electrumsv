@@ -24,19 +24,19 @@
 
 '''ElectrumSV Preferences dialog.'''
 
-
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QTabWidget, QGridLayout, QLineEdit, QLabel, QComboBox, QVBoxLayout,
     QWidget, QSpinBox, QCheckBox, QDialog
 )
 
+from electrumsv import paymentrequest, qrscanner
+from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
 import electrumsv.web as web
-from electrumsv import paymentrequest, qrscanner
 
 from .amountedit import BTCSatsByteEdit
-from .util import ColorScheme, HelpLabel, Buttons, CloseButton
+from .util import ColorScheme, HelpButton, HelpLabel, Buttons, CloseButton
 
 
 class PreferencesDialog(QDialog):
@@ -381,15 +381,13 @@ class PreferencesDialog(QDialog):
         fiat_widgets.append((QLabel(_('Show Fiat balance for addresses')), fiat_address_checkbox))
         fiat_widgets.append((QLabel(_('Source')), ex_combo))
 
-        extensions_widgets = []
-
         tabs_info = [
             (fee_widgets, _('Fees')),
             (tx_widgets, _('Transactions')),
             (gui_widgets, _('Appearance')),
             (fiat_widgets, _('Fiat')),
             (id_widgets, _('Identity')),
-            (extensions_widgets, _('Extensions')),
+            (self.extensions_widgets(), _('Extensions')),
         ]
         for widgets, name in tabs_info:
             tab = QWidget()
@@ -409,3 +407,14 @@ class PreferencesDialog(QDialog):
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CloseButton(self)))
         self.setLayout(vbox)
+
+    def extensions_widgets(self):
+        widgets = []
+        for extension in extensions:
+            cb = QCheckBox(extension.name)
+            cb.setChecked(extension.is_enabled())
+            cb.clicked.connect(extension.set_enabled)
+            help_widget = HelpButton(extension.description)
+            widgets.append((cb, help_widget))
+
+        return widgets
