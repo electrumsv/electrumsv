@@ -35,7 +35,7 @@ logger = logging.getLogger("platform")
 
 class Platform(object):
 
-    MODULE_MAP = {
+    module_map = {
         'PyQt5': 'PyQt5',
         'SimpleWebSocketServer': 'SimpleWebSocketServer',
         'dns': 'dnspython',
@@ -47,11 +47,12 @@ class Platform(object):
         'requests': 'requests',
         'socks': 'PySocks',
     }
+    monospace_font = 'monospace'
     name = 'unset platform'
 
     def missing_import(self, exception):
         module = exception.name
-        for m, package in self.MODULE_MAP.items():
+        for m, package in self.module_map.items():
             # because submodule could be imported instead
             if module.startswith(m):
                 sys.exit(_('cannot import module "{0}" - try running "pip3 install {1}"'
@@ -60,6 +61,7 @@ class Platform(object):
 
 
 class Darwin(Platform):
+    monospace_font = 'Monaco'
     name = 'MacOSX'
 
 
@@ -72,6 +74,7 @@ class Unix(Platform):
 
 
 class Windows(Platform):
+    monospace_font = 'Lucida Console'
     name = 'Windows'
 
 
