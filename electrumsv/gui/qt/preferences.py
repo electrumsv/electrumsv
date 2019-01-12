@@ -381,12 +381,15 @@ class PreferencesDialog(QDialog):
         fiat_widgets.append((QLabel(_('Show Fiat balance for addresses')), fiat_address_checkbox))
         fiat_widgets.append((QLabel(_('Source')), ex_combo))
 
+        extensions_widgets = []
+
         tabs_info = [
             (fee_widgets, _('Fees')),
             (tx_widgets, _('Transactions')),
             (gui_widgets, _('Appearance')),
             (fiat_widgets, _('Fiat')),
             (id_widgets, _('Identity')),
+            (extensions_widgets, _('Extensions')),
         ]
         for widgets, name in tabs_info:
             tab = QWidget()
