@@ -64,7 +64,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.prompt_if_unsaved = prompt_if_unsaved
         self.saved = False
         self.desc = desc
-        self.monospace_font = QFont(self.monospace_font)
+        self.monospace_font = QFont(platform.monospace_font)
 
         self.setMinimumWidth(750)
         self.setWindowTitle(_("Transaction"))
