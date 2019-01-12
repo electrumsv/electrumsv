@@ -27,12 +27,13 @@ import webbrowser
 
 from functools import partial
 
-from .util import MyTreeWidget, MONOSPACE_FONT, SortableTreeWidgetItem
+from .util import MyTreeWidget, SortableTreeWidgetItem
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor, QKeySequence
 from PyQt5.QtWidgets import QTreeWidgetItem, QAbstractItemView, QMenu
 from electrumsv.i18n import _
 from electrumsv.address import Address
+from electrumsv.platform import platform
 from electrumsv.plugin import run_hook
 import electrumsv.web as web
 
@@ -43,6 +44,7 @@ class AddressList(MyTreeWidget):
     def __init__(self, parent=None):
         self.wallet = None
         super().__init__(parent, self.create_menu, [], 2)
+        self.monospace_font = QFont(platform.monospace_font)
         self.refresh_headers()
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSortingEnabled(True)
@@ -120,12 +122,12 @@ class AddressList(MyTreeWidget):
                     columns.insert(4, fiat_balance)
                 address_item = SortableTreeWidgetItem(columns)
                 address_item.setTextAlignment(3, Qt.AlignRight)
-                address_item.setFont(3, QFont(MONOSPACE_FONT))
+                address_item.setFont(3, QFont(self.monospace_font))
                 if fx:
                     address_item.setTextAlignment(4, Qt.AlignRight)
-                    address_item.setFont(4, QFont(MONOSPACE_FONT))
+                    address_item.setFont(4, QFont(self.monospace_font))
 
-                address_item.setFont(0, QFont(MONOSPACE_FONT))
+                address_item.setFont(0, QFont(self.monospace_font))
                 address_item.setData(0, Qt.UserRole, address)
                 address_item.setData(0, Qt.UserRole+1, True) # label can be edited
                 if self.wallet.is_frozen(address):

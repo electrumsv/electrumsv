@@ -36,12 +36,10 @@ from PyQt5.QtWidgets import (
 from electrumsv.address import Address, PublicKey
 from electrumsv.bitcoin import base_encode
 from electrumsv.i18n import _
+from electrumsv.platform import platform
 from electrumsv.plugin import run_hook
-
 from electrumsv.util import bfh
-from .util import (
-    MessageBoxMixin, ButtonsLineEdit, Buttons, MONOSPACE_FONT, ColorScheme, read_QIcon
-)
+from .util import MessageBoxMixin, ButtonsLineEdit, Buttons, ColorScheme, read_QIcon
 
 
 logger = logging.getLogger("tx_dialog")
@@ -66,6 +64,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.prompt_if_unsaved = prompt_if_unsaved
         self.saved = False
         self.desc = desc
+        self.monospace_font = QFont(self.monospace_font)
 
         self.setMinimumWidth(750)
         self.setWindowTitle(_("Transaction"))
@@ -281,13 +280,13 @@ class TxDialog(QDialog, MessageBoxMixin):
         vbox.addWidget(QLabel(_("Inputs") + ' (%d)'%len(self.tx.inputs())))
 
         i_text = QTextEdit()
-        i_text.setFont(QFont(MONOSPACE_FONT))
+        i_text.setFont(self.monospace_font)
         i_text.setReadOnly(True)
 
         vbox.addWidget(i_text)
         vbox.addWidget(QLabel(_("Outputs") + ' (%d)'%len(self.tx.outputs())))
         o_text = QTextEdit()
-        o_text.setFont(QFont(MONOSPACE_FONT))
+        o_text.setFont(self.monospace_font)
         o_text.setReadOnly(True)
         vbox.addWidget(o_text)
         self.update_io(i_text, o_text)
