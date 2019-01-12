@@ -33,6 +33,7 @@ import jsonrpclib
 
 from .commands import known_commands, Commands
 from .exchange_rate import FxThread
+from .extensions import Extension
 from .jsonrpc import VerifyingJSONRPCServer
 from .network import Network
 from .platform import platform
@@ -308,6 +309,7 @@ class Daemon(DaemonThread):
         DaemonThread.stop(self)
 
     def init_gui(self, config, plugins):
+        Extension.config = config
         try:
             from electrumsv.gui.qt import ElectrumGui
         except ImportError as e:
