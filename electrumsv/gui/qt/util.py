@@ -1,7 +1,6 @@
 import os.path
 import time
 import sys
-import platform
 import queue
 from collections import namedtuple
 from functools import partial, lru_cache
@@ -18,14 +17,6 @@ from PyQt5.QtWidgets import (
 from electrumsv.i18n import _
 from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
 from electrumsv.util import resource_path
-
-
-if platform.system() == 'Windows':
-    MONOSPACE_FONT = 'Lucida Console'
-elif platform.system() == 'Darwin':
-    MONOSPACE_FONT = 'Monaco'
-else:
-    MONOSPACE_FONT = 'monospace'
 
 
 dialogs = []

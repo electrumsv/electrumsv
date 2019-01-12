@@ -30,9 +30,10 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QBrush, QColor
 from PyQt5.QtWidgets import QMenu
 
-from .util import MyTreeWidget, MONOSPACE_FONT, SortableTreeWidgetItem, read_QIcon
+from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon
 import electrumsv.web as web
 from electrumsv.i18n import _
+from electrumsv.platform import platform
 from electrumsv.util import timestamp_to_datetime, profiler
 
 
@@ -60,7 +61,7 @@ class HistoryList(MyTreeWidget):
         self.setSortingEnabled(True)
         self.sortByColumn(0, Qt.AscendingOrder)
 
-        self.monospaceFont = QFont(MONOSPACE_FONT)
+        self.monospace_font = QFont(platform.monospace_font)
         self.withdrawalBrush = QBrush(QColor("#BC1E1E"))
         self.invoiceIcon = read_QIcon("seal")
 
@@ -108,7 +109,7 @@ class HistoryList(MyTreeWidget):
                 if i>3:
                     item.setTextAlignment(i, Qt.AlignRight)
                 if i!=2:
-                    item.setFont(i, self.monospaceFont)
+                    item.setFont(i, self.monospace_font)
             if value and value < 0:
                 item.setForeground(3, self.withdrawalBrush)
                 item.setForeground(4, self.withdrawalBrush)

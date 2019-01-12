@@ -24,6 +24,7 @@
 '''Platform-specific customization for ElectrumSV'''
 
 import logging
+import os
 import platform
 import sys
 
@@ -35,7 +36,7 @@ logger = logging.getLogger("platform")
 
 class Platform(object):
 
-    MODULE_MAP = {
+    module_map = {
         'PyQt5': 'PyQt5',
         'SimpleWebSocketServer': 'SimpleWebSocketServer',
         'dns': 'dnspython',
@@ -47,11 +48,18 @@ class Platform(object):
         'requests': 'requests',
         'socks': 'PySocks',
     }
+    libsecp256k1_name = 'libsecp256k1.so.0'
+    libzbar_name = 'libzbar.so.0'
+    monospace_font = 'monospace'
     name = 'unset platform'
+
+    def dbb_user_dir(self):
+        '''User directory for digital bitbox plugin.'''
+        return os.path.join(os.environ["HOME"], ".dbb")
 
     def missing_import(self, exception):
         module = exception.name
-        for m, package in self.MODULE_MAP.items():
+        for m, package in self.module_map.items():
             # because submodule could be imported instead
             if module.startswith(m):
                 sys.exit(_('cannot import module "{0}" - try running "pip3 install {1}"'
@@ -60,7 +68,13 @@ class Platform(object):
 
 
 class Darwin(Platform):
+    libsecp256k1_name = 'libsecp256k1.0.dylib'
+    libzbar_name = 'libzbar.dylib'
+    monospace_font = 'Monaco'
     name = 'MacOSX'
+
+    def dbb_user_dir(self):
+        return os.path.join(os.environ.get("HOME", ""), "Library", "Application Support", "DBB")
 
 
 class Linux(Platform):
@@ -72,7 +86,13 @@ class Unix(Platform):
 
 
 class Windows(Platform):
+    libsecp256k1_name = 'libsecp256k1.dll'
+    libzbar_name = 'libzbar-0.dll'
+    monospace_font = 'Lucida Console'
     name = 'Windows'
+
+    def dbb_user_dir(self):
+        return os.path.join(os.environ["APPDATA"], "DBB")
 
 
 def _detect():

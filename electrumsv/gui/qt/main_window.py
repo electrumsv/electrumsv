@@ -31,7 +31,6 @@ import json
 import logging
 import os
 import shutil
-import sys
 import threading
 import time
 import weakref
@@ -573,9 +572,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         tools_menu = menubar.addMenu(_("&Tools"))
 
-        # Settings / Preferences are all reserved keywords in OSX using this as work around
-        tools_menu.addAction(_("ElectrumSV preferences") if sys.platform == 'darwin'
-                             else _("Preferences"), self.settings_dialog)
+        tools_menu.addAction(_("Preferences"), self.settings_dialog)
         tools_menu.addAction(_("&Network"), lambda: self.gui_object.show_network_dialog(self))
         tools_menu.addAction(_("&Plugins"), self.plugins_dialog)
         tools_menu.addSeparator()

@@ -24,20 +24,13 @@
 # SOFTWARE.
 
 import os
-import sys
 import ctypes
 
-libzbar = None
+from electrumsv.platform import platform
 
-if sys.platform == 'darwin':
-    name = 'libzbar.dylib'
-elif sys.platform in ('windows', 'win32'):
-    name = 'libzbar-0.dll'
-else:
-    name = 'libzbar.so.0'
 
 try:
-    libzbar = ctypes.cdll.LoadLibrary(name)
+    libzbar = ctypes.cdll.LoadLibrary(platform.libzbar_name)
 except OSError:
     libzbar = None
 
@@ -93,7 +86,7 @@ def scan_barcode_osx(*args_ignored, **kwargs_ignored):
     except OSError as e:
         raise RuntimeError("Cannot start camera helper app; {}".format(e.strerror))
 
-scan_barcode = scan_barcode_osx if sys.platform == 'darwin' else scan_barcode_ctypes
+scan_barcode = scan_barcode_osx if platform.name == 'MacOSX' else scan_barcode_ctypes
 
 def _find_system_cameras():
     device_root = "/sys/class/video4linux"

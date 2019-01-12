@@ -26,26 +26,19 @@
 
 import logging
 import os
-import platform
 import re
 import sys
 import traceback
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtWidgets
+from PyQt5.QtGui import QFont, QTextCursor, QTextOption
 
 from electrumsv import util
 from electrumsv.i18n import _
+from electrumsv.platform import platform
 
 
 logger = logging.getLogger("console")
-
-
-if platform.system() == 'Windows':
-    MONOSPACE_FONT = 'Lucida Console'
-elif platform.system() == 'Darwin':
-    MONOSPACE_FONT = 'Monaco'
-else:
-    MONOSPACE_FONT = 'monospace'
 
 
 class OverlayLabel(QtWidgets.QLabel):
@@ -86,9 +79,9 @@ class Console(QtWidgets.QPlainTextEdit):
         self.construct = []
 
         self.setGeometry(50, 75, 600, 400)
-        self.setWordWrapMode(QtGui.QTextOption.WrapAnywhere)
+        self.setWordWrapMode(QTextOption.WrapAnywhere)
         self.setUndoRedoEnabled(False)
-        self.document().setDefaultFont(QtGui.QFont(MONOSPACE_FONT, 10, QtGui.QFont.Normal))
+        self.document().setDefaultFont(QFont(platform.monospace_font, 10, QFont.Normal))
         self.showMessage(startup_message)
 
         self.updateNamespace({'run': self.run_script})
@@ -141,7 +134,7 @@ class Console(QtWidgets.QPlainTextEdit):
         self.completions_visible = False
 
         self.appendPlainText(prompt)
-        self.moveCursor(QtGui.QTextCursor.End)
+        self.moveCursor(QTextCursor.End)
 
     def getCommand(self):
         doc = self.document()
@@ -156,13 +149,13 @@ class Console(QtWidgets.QPlainTextEdit):
 
         doc = self.document()
         curr_line = doc.findBlockByLineNumber(doc.lineCount() - 1).text()
-        self.moveCursor(QtGui.QTextCursor.End)
+        self.moveCursor(QTextCursor.End)
         for i in range(len(curr_line) - len(self.prompt)):
-            self.moveCursor(QtGui.QTextCursor.Left, QtGui.QTextCursor.KeepAnchor)
+            self.moveCursor(QTextCursor.Left, QTextCursor.KeepAnchor)
 
         self.textCursor().removeSelectedText()
         self.textCursor().insertText(command)
-        self.moveCursor(QtGui.QTextCursor.End)
+        self.moveCursor(QTextCursor.End)
 
     def show_completions(self, completions):
         if self.completions_visible:
@@ -178,7 +171,7 @@ class Console(QtWidgets.QPlainTextEdit):
         c.insertText(t)
         self.completions_end = c.position()
 
-        self.moveCursor(QtGui.QTextCursor.End)
+        self.moveCursor(QTextCursor.End)
         self.completions_visible = True
 
     def hide_completions(self):
@@ -189,7 +182,7 @@ class Console(QtWidgets.QPlainTextEdit):
         for x in range(self.completions_end - self.completions_pos):
             c.deleteChar()
 
-        self.moveCursor(QtGui.QTextCursor.End)
+        self.moveCursor(QTextCursor.End)
         self.completions_visible = False
 
     def getConstruct(self, command):
@@ -242,9 +235,9 @@ class Console(QtWidgets.QPlainTextEdit):
         return c.position() - c.block().position() - len(self.prompt)
 
     def setCursorPosition(self, position):
-        self.moveCursor(QtGui.QTextCursor.StartOfLine)
+        self.moveCursor(QTextCursor.StartOfLine)
         for i in range(len(self.prompt) + position):
-            self.moveCursor(QtGui.QTextCursor.Right)
+            self.moveCursor(QTextCursor.Right)
 
     def register_command(self, c, func):
         methods = {c: func}

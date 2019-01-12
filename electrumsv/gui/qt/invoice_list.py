@@ -25,9 +25,10 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QFileDialog, QMenu
 
-from .util import MyTreeWidget, MONOSPACE_FONT, pr_icons, pr_tooltips, PR_UNPAID, read_QIcon
+from .util import MyTreeWidget, pr_icons, pr_tooltips, PR_UNPAID, read_QIcon
 
 from electrumsv.i18n import _
+from electrumsv.platform import platform
 from electrumsv.util import format_time, FileImportFailed
 
 
@@ -37,6 +38,7 @@ class InvoiceList(MyTreeWidget):
     def __init__(self, parent):
         MyTreeWidget.__init__(self, parent, self.create_menu, [
             _('Expires'), _('Requestor'), _('Description'), _('Amount'), _('Status')], 2)
+        self.monospace_font = QFont(platform.monospace_font)
         self.setSortingEnabled(True)
         self.header().setSectionResizeMode(1, QHeaderView.Interactive)
         self.setColumnWidth(1, 200)
@@ -55,8 +57,8 @@ class InvoiceList(MyTreeWidget):
                                     pr_tooltips.get(status,'')])
             item.setIcon(4, read_QIcon(pr_icons.get(status)))
             item.setData(0, Qt.UserRole, key)
-            item.setFont(1, QFont(MONOSPACE_FONT))
-            item.setFont(3, QFont(MONOSPACE_FONT))
+            item.setFont(1, self.monospace_font)
+            item.setFont(3, self.monospace_font)
             self.addTopLevelItem(item)
         self.setCurrentItem(self.topLevelItem(0))
         self.setVisible(len(inv_list))
