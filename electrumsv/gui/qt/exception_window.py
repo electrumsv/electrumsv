@@ -32,8 +32,9 @@ import traceback
 
 import requests
 from PyQt5.QtCore import QObject, pyqtSignal, Qt
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, \
-    QPushButton, QTextEdit, QMessageBox
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox,
+)
 
 from electrumsv.i18n import _
 from electrumsv.version import PACKAGE_VERSION
@@ -58,7 +59,7 @@ issue_template = """<h2>Traceback</h2>
 report_server = "https://crashhub.electrumsv.io/crash"
 
 
-class Exception_Window(QWidget):
+class Exception_Window(QDialog):
     _active_window = None
 
     def __init__(self, app, exc_triple):
@@ -119,7 +120,6 @@ class Exception_Window(QWidget):
         main_box.addLayout(buttons)
 
         self.setLayout(main_box)
-        self.show()
 
     def send_report(self):
         report = self.get_traceback_info()
@@ -198,3 +198,4 @@ class Exception_Hook(QObject):
         cls = Exception_Window
         if not cls._active_window:
             cls._active_window = cls(self.app, exc_triple)
+            cls._active_window.exec_()
