@@ -24,6 +24,7 @@
 '''Platform-specific customization for ElectrumSV'''
 
 import logging
+import os
 import platform
 import sys
 
@@ -50,6 +51,10 @@ class Platform(object):
     monospace_font = 'monospace'
     name = 'unset platform'
 
+    def dbb_user_dir(self):
+        '''User directory for digital bitbox plugin.'''
+        return os.path.join(os.environ["HOME"], ".dbb")
+
     def missing_import(self, exception):
         module = exception.name
         for m, package in self.module_map.items():
@@ -64,6 +69,9 @@ class Darwin(Platform):
     monospace_font = 'Monaco'
     name = 'MacOSX'
 
+    def dbb_user_dir(self):
+        return os.path.join(os.environ.get("HOME", ""), "Library", "Application Support", "DBB")
+
 
 class Linux(Platform):
     name = 'Linux'
@@ -77,6 +85,8 @@ class Windows(Platform):
     monospace_font = 'Lucida Console'
     name = 'Windows'
 
+    def dbb_user_dir(self):
+        return os.path.join(os.environ["APPDATA"], "DBB")
 
 def _detect():
     system = platform.system()

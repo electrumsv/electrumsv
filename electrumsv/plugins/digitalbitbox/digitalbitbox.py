@@ -12,7 +12,6 @@ import math
 import os
 import requests
 import struct
-import sys
 import time
 
 from ecdsa.ecdsa import generator_secp256k1
@@ -26,6 +25,7 @@ from electrumsv.bitcoin import (
 )
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
+from electrumsv.platform import platform
 from electrumsv.transaction import Transaction
 from electrumsv.util import to_string, UserCancelled
 
@@ -240,20 +240,8 @@ class DigitalBitbox_Client():
         self.isInitialized = True
 
     def mobile_pairing_dialog(self):
-        dbb_user_dir = None
-        if sys.platform == 'darwin':
-            dbb_user_dir = os.path.join(os.environ.get("HOME", ""), "Library",
-                                        "Application Support", "DBB")
-        elif sys.platform == 'win32':
-            dbb_user_dir = os.path.join(os.environ["APPDATA"], "DBB")
-        else:
-            dbb_user_dir = os.path.join(os.environ["HOME"], ".dbb")
-
-        if not dbb_user_dir:
-            return
-
         try:
-            with open(os.path.join(dbb_user_dir, "config.dat")) as f:
+            with open(os.path.join(platform.dbb_user_dir(), "config.dat")) as f:
                 dbb_config = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return
