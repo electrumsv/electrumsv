@@ -29,7 +29,7 @@ import re
 
 from .address import Address
 from . import dnssec
-from .util import FileImportFailed, FileImportFailedEncrypted
+from .util import FileImportFailed, FileImportFailedEncrypted, to_string
 
 logger = logging.getLogger("contacts")
 
@@ -113,7 +113,7 @@ class Contacts(dict):
             return None
         prefix = 'btc'
         for record in records:
-            string = record.strings[0]
+            string = to_string(record.strings[0], 'utf8')
             if string.startswith('oa1:' + prefix):
                 address = self.find_regex(string, r'recipient_address=([A-Za-z0-9]+)')
                 name = self.find_regex(string, r'recipient_name=([^;]+)')
