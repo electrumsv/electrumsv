@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Electrum SV - lightweight Bitcoin SV client
+# ElectrumSV - lightweight Bitcoin SV client
 # Copyright (C) 2019 The Electrum SV Developers
 #
 # Permission is hereby granted, free of charge, to any person
@@ -23,10 +23,15 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import sys
 
-import electrumsv.check_version    # Must be first import
-from electrumsv.main import main
+import electrumsv.check_version    # Must be first electrumsv import
+from electrumsv.platform import platform
 
+try:
+    from electrumsv.main import main
+except ImportError as e:
+    platform.missing_import(e)
 
 if __name__ == '__main__':
     main()

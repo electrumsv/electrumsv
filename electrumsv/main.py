@@ -35,20 +35,18 @@ import os
 import sys
 import time
 
-from electrumsv import bitcoin, util
-from electrumsv.simple_config import SimpleConfig
+from electrumsv import bitcoin, daemon, keystore, util, web
+from electrumsv.commands import get_parser, known_commands, Commands, config_variables
+from electrumsv.mnemonic import Mnemonic
 from electrumsv.network import Network
 from electrumsv.networks import NetworkConstants
-from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
+from electrumsv.platform import platform
+from electrumsv.simple_config import SimpleConfig
 from electrumsv.storage import WalletStorage
 from electrumsv.util import (
     json_encode, json_decode, use_packages_if_from_source, InvalidPassword, is_bundle,
 )
-from electrumsv.commands import get_parser, known_commands, Commands, config_variables
-from electrumsv import daemon
-from electrumsv import keystore
-from electrumsv.mnemonic import Mnemonic
-from electrumsv import web
+from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
 
 
 # get password routine
@@ -361,7 +359,10 @@ def main():
                 d = daemon.Daemon(config, fd, False)
                 d.start()
                 if config.get('websocket_server'):
-                    from electrumsv import websockets
+                    try:
+                        from electrumsv import websockets
+                    except ImportError as e:
+                        platform.missing_import(e)
                     websockets.WebSocketServer(config, d.network).start()
                 if config.get('requests_dir'):
                     path = os.path.join(config.get('requests_dir'), 'index.html')

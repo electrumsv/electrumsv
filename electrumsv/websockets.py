@@ -28,13 +28,9 @@ import json
 import logging
 import os
 import queue
-import sys
 import threading
 
-try:
-    from SimpleWebSocketServer import WebSocket, SimpleSSLWebSocketServer
-except ImportError:
-    sys.exit("install SimpleWebSocketServer")
+from SimpleWebSocketServer import WebSocket, SimpleSSLWebSocketServer
 
 from . import util
 from .address import Address

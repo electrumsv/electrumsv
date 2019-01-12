@@ -30,17 +30,19 @@ import time
 import threading
 
 import jsonrpclib
-from .jsonrpc import VerifyingJSONRPCServer
 
-from .version import PACKAGE_VERSION
+from .commands import known_commands, Commands
+from .exchange_rate import FxThread
+from .jsonrpc import VerifyingJSONRPCServer
 from .network import Network
+from .platform import platform
+from .simple_config import SimpleConfig
+from .storage import WalletStorage
 from .util import json_decode, DaemonThread
 from .util import to_string
+from .version import PACKAGE_VERSION
 from .wallet import Wallet
-from .storage import WalletStorage
-from .commands import known_commands, Commands
-from .simple_config import SimpleConfig
-from .exchange_rate import FxThread
+
 
 logger = logging.getLogger("daemon")
 
@@ -306,7 +308,11 @@ class Daemon(DaemonThread):
         DaemonThread.stop(self)
 
     def init_gui(self, config, plugins):
-        from electrumsv.gui.qt import ElectrumGui
+        try:
+            from electrumsv.gui.qt import ElectrumGui
+        except ImportError as e:
+            platform.missing_import(e)
+
         self.gui = ElectrumGui(config, self, plugins)
         threading.current_thread().setName('GUI')
         try:
