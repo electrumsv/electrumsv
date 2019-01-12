@@ -23,15 +23,21 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from functools import partial
+import math
+import random
+import re
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import QLineEdit, QVBoxLayout, QGridLayout, QLabel, QCheckBox
-from electrumsv.i18n import _
-from .util import WindowModalDialog, OkButton, Buttons, CancelButton, icon_path
-import re
-import math
+from PyQt5.QtWidgets import (
+    QLineEdit, QVBoxLayout, QGridLayout, QLabel, QCheckBox, QPushButton,
+)
 
-from electrumsv.plugin import run_hook
+from electrumsv.i18n import _
+from electrumsv.extensions import virtual_keyboard
+from .util import WindowModalDialog, OkButton, Buttons, CancelButton, icon_path
+
 
 def check_password_strength(password):
 
@@ -196,6 +202,9 @@ class ChangePasswordDialog(WindowModalDialog):
 
 class PasswordDialog(WindowModalDialog):
 
+    vkb_index = 0
+    vkb = None
+
     def __init__(self, parent=None, msg=None):
         msg = msg or _('Please enter your password')
         WindowModalDialog.__init__(self, parent, _("Enter Password"))
@@ -204,13 +213,62 @@ class PasswordDialog(WindowModalDialog):
         vbox = QVBoxLayout()
         vbox.addWidget(QLabel(msg))
         grid = QGridLayout()
+        self.grid = grid
         grid.setSpacing(8)
         grid.addWidget(QLabel(_('Password')), 1, 0)
         grid.addWidget(pw, 1, 1)
         vbox.addLayout(grid)
         vbox.addLayout(Buttons(CancelButton(self), OkButton(self)))
         self.setLayout(vbox)
-        run_hook('password_dialog', pw, grid, 1)
+        if virtual_keyboard.is_enabled():
+            self.vkb_button = QPushButton(_("+"))
+            self.vkb_button.setFixedWidth(20)
+            self.vkb_button.clicked.connect(self.toggle_vkb)
+            grid.addWidget(self.vkb_button, 1, 2)
+            self.kb_pos = 2
+            self.vkb = None
+
+    def toggle_vkb(self, _checked_state):
+        if self.vkb:
+            self.grid.removeItem(self.vkb)
+        self.vkb = self.virtual_keyboard(self.vkb_index, self.pw)
+        self.grid.addLayout(self.vkb, self.kb_pos, 0, 1, 3)
+        self.vkb_index += 1
+
+    def virtual_keyboard(self, i, pw):
+        i = i % 3
+        if i == 0:
+            chars = 'abcdefghijklmnopqrstuvwxyz_ '
+        elif i == 1:
+            chars = 'ABCDEFGHIJKLMNOPQRTSUVWXYZ_ '
+        elif i == 2:
+            chars = '1234567890!?.,;:/%&()[]{}+-$#*'
+
+        n = len(chars)
+        s = []
+        for i in range(n):
+            while True:
+                k = random.randint(0, n - 1)
+                if k not in s:
+                    s.append(k)
+                    break
+
+        def add_target(t):
+            return lambda: pw.setText(str(pw.text()) + t)
+
+        vbox = QVBoxLayout()
+        grid = QGridLayout()
+        grid.setSpacing(2)
+        for i in range(n):
+            l_button = QPushButton(chars[s[i]])
+            l_button.setFixedWidth(35)
+            l_button.setFixedHeight(25)
+            l_button.clicked.connect(add_target(chars[s[i]]))
+            grid.addWidget(l_button, i // 6, i % 6)
+
+        vbox.addLayout(grid)
+
+        return vbox
 
     def run(self):
         if not self.exec_():
