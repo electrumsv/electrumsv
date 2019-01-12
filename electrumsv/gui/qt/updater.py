@@ -57,6 +57,8 @@ class UpdaterWidget(QWidget):
         self._messageLabel.setAlignment(Qt.AlignHCenter)
         self._messageLabel.setTextFormat(Qt.RichText)
         self._messageLabel.setOpenExternalLinks(True)
+        self._messageLabel.setWordWrap(True)
+        self._messageLabel.setMinimumWidth(400)
         vbox.addWidget(self._messageLabel, alignment=Qt.AlignHCenter)
 
         self.setLayout(vbox)
@@ -157,6 +159,8 @@ class Updater:
             message_text = _("Try again later, or consider reporting the problem.")
             if exc_info[0] is requests.exceptions.Timeout:
                 message_text = _("The request took too long.") +" "+ message_text
+            elif exc_info[0] is requests.exceptions.ConnectionError:
+                message_text = _("Unable to connect.") +" "+ message_text
             else:
                 message_text = str(exc_info[1]) +" "+ message_text
 
@@ -166,6 +170,7 @@ class Updater:
                 "stop: 1 #FF0000 );border-bottom-right-radius: 5px;"+
                 "border-bottom-left-radius: 5px;border: .px solid black;}")
             self._parent._progressBar.setStyleSheet(style_sheet)
+            self._parent.set_progress(1.0)
 
             self._parent.set_message(MSG_BODY_ERROR.format(error_message=message_text))
 

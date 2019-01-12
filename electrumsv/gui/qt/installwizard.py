@@ -170,7 +170,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         """
         Poll electrumsv.io for release metadata.
         """
-        if not self.config.get('check_updates', True):
+        if not self.config.get('check_updates', True) or self.config.get("offline", False):
             return
 
         from . import updater
