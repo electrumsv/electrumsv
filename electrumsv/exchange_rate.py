@@ -401,11 +401,11 @@ class FxThread(ThreadJob):
                 self.ccy in self.exchange.history_ccys())
 
     def set_currency(self, ccy):
-        self.ccy = ccy
         if self.get_currency() != ccy:
+            self.ccy = ccy
             self.config.set_key('currency', ccy, True)
-        self.timeout = 0 # Because self.ccy changes
-        self.on_quotes()
+            self.timeout = 0 # Because self.ccy changes
+            self.on_quotes()
 
     def set_exchange(self, name):
         class_ = globals().get(name, Kraken)
