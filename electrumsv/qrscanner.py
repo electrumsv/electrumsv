@@ -88,7 +88,7 @@ def scan_barcode_osx(*args_ignored, **kwargs_ignored):
 
 scan_barcode = scan_barcode_osx if platform.name == 'MacOSX' else scan_barcode_ctypes
 
-def _find_system_cameras():
+def find_system_cameras():
     device_root = "/sys/class/video4linux"
     devices = {} # Name -> device
     if os.path.exists(device_root):
