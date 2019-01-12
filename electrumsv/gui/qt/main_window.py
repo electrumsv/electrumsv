@@ -1,7 +1,6 @@
-#!/usr/bin/env python
-#
-# Electrum - lightweight Bitcoin client
+# ElectrumSV - lightweight Bitcoin client
 # Copyright (C) 2012 thomasv@gitorious
+# Copyright (C) 2019 ElectrumSV developers
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -42,7 +41,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QSystemTrayIcon, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
     QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit,
-    QInputDialog, QSpinBox, QCheckBox, QScrollArea, QDialog
+    QInputDialog, QCheckBox, QScrollArea, QDialog
 )
 
 import electrumsv
@@ -62,12 +61,13 @@ from electrumsv import paymentrequest
 from electrumsv.wallet import Multisig_Wallet, sweep_preparations
 from electrumsv.paymentrequest import PR_PAID
 
-from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit, BTCSatsByteEdit
+from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
+from .coinsplitting_tab import CoinSplittingTab
+from .fee_slider import FeeSlider
+from .preferences import PreferencesDialog
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
 from .transaction_dialog import TxDialog
-from .fee_slider import FeeSlider
-from .coinsplitting_tab import CoinSplittingTab
 
 from .util import (
     MessageBoxMixin, TaskThread, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
@@ -572,7 +572,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         tools_menu = menubar.addMenu(_("&Tools"))
 
-        tools_menu.addAction(_("Preferences"), self.settings_dialog)
+        tools_menu.addAction(_("Preferences"), self.preferences_dialog)
         tools_menu.addAction(_("&Network"), lambda: self.gui_object.show_network_dialog(self))
         tools_menu.addAction(_("&Plugins"), self.plugins_dialog)
         tools_menu.addSeparator()
@@ -1799,6 +1799,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.message_opreturn_e.setHidden(True)
             self.opreturn_label.setHidden(True)
 
+    def on_op_return(self, enabled):
+        self.config.set_key('enable_opreturn', enabled)
+        if not enabled:
+            self.message_opreturn_e.setText("")
+            self.op_return_toolong = False
+        self.message_opreturn_e.setHidden(not enabled)
+        self.opreturn_label.setHidden(not enabled)
+
     def do_clear(self):
         self.is_max = False
         self.not_enough_funds = False
@@ -2048,7 +2056,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         sb.addPermanentWidget(self.password_button)
 
         sb.addPermanentWidget(StatusBarButton(read_QIcon("preferences.png"),
-                                              _("Preferences"), self.settings_dialog ) )
+                                              _("Preferences"), self.preferences_dialog))
         self.seed_button = StatusBarButton(read_QIcon("seed.png"),
                                            _("Seed"), self.show_seed_dialog )
         sb.addPermanentWidget(self.seed_button)
@@ -2768,387 +2776,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.address_list.update()
         self.update_status()
 
-    def settings_dialog(self):
-        self.need_restart = False
-        d = WindowModalDialog(self, _('Preferences'))
-        vbox = QVBoxLayout()
-        tabs = QTabWidget()
-        gui_widgets = []
-        fee_widgets = []
-        tx_widgets = []
-        id_widgets = []
+    def preferences_dialog(self):
+        prior_language = self.config.get("language", None)
 
-        # language
-        lang_help = _('Select which language is used in the GUI (after restart).')
-        lang_label = HelpLabel(_('Language') + ':', lang_help)
-        lang_combo = QComboBox()
-        from electrumsv.i18n import languages
-
-        language_names = []
-        language_keys = []
-        for item in languages.items():
-            language_keys.append(item[0])
-            language_names.append(item[1])
-        lang_combo.addItems(language_names)
-        try:
-            index = language_keys.index(self.config.get("language",''))
-        except ValueError:
-            index = 0
-        lang_combo.setCurrentIndex(index)
-
-        if not self.config.is_modifiable('language'):
-            for w in [lang_combo, lang_label]:
-                w.setEnabled(False)
-
-        def on_lang(x):
-            lang_request = language_keys[lang_combo.currentIndex()]
-            if lang_request != self.config.get('language'):
-                self.config.set_key("language", lang_request, True)
-                self.need_restart = True
-        lang_combo.currentIndexChanged.connect(on_lang)
-        gui_widgets.append((lang_label, lang_combo))
-
-        nz_help = _('Number of zeros displayed after the decimal point. '
-                    'For example, if this is set to 2, "1." will be displayed as "1.00"')
-        nz_label = HelpLabel(_('Zeros after decimal point') + ':', nz_help)
-        nz = QSpinBox()
-        nz.setMinimum(0)
-        nz.setMaximum(self.decimal_point)
-        nz.setValue(self.num_zeros)
-        if not self.config.is_modifiable('num_zeros'):
-            for w in [nz, nz_label]: w.setEnabled(False)
-        def on_nz():
-            value = nz.value()
-            if self.num_zeros != value:
-                self.num_zeros = value
-                self.config.set_key('num_zeros', value, True)
-                self.history_list.update()
-                self.history_updated_signal.emit()
-                self.address_list.update()
-        nz.valueChanged.connect(on_nz)
-        gui_widgets.append((nz_label, nz))
-
-        def on_customfee(x):
-            amt = customfee_e.get_amount()
-            m = int(amt * 1000.0) if amt is not None else None
-            self.config.set_key('customfee', m)
-            self.fee_slider.update()
-            self.fee_slider_mogrifier()
-
-        customfee_e = BTCSatsByteEdit()
-        customfee_e.setAmount(self.config.custom_fee_rate() / 1000.0
-                              if self.config.has_custom_fee_rate() else None)
-        customfee_e.textChanged.connect(on_customfee)
-        customfee_label = HelpLabel(_('Custom Fee Rate'),
-                                    _('Custom Fee Rate in Satoshis per byte'))
-        fee_widgets.append((customfee_label, customfee_e))
-
-        feebox_cb = QCheckBox(_('Edit fees manually'))
-        feebox_cb.setChecked(self.config.get('show_fee', False))
-        feebox_cb.setToolTip(_("Show fee edit box in send tab."))
-        def on_feebox(x):
-            self.config.set_key('show_fee', x == Qt.Checked)
-            self.fee_e.setVisible(bool(x))
-        feebox_cb.stateChanged.connect(on_feebox)
-        fee_widgets.append((feebox_cb, None))
-
-        msg = _('OpenAlias record, used to receive coins and to sign payment requests.') + '\n\n'\
-              + _('The following alias providers are available:') + '\n'\
-              + '\n'.join(['https://cryptoname.co/', 'http://xmr.link']) + '\n\n'\
-              + 'For more information, see http://openalias.org'
-        alias_label = HelpLabel(_('OpenAlias') + ':', msg)
-        alias = self.config.get('alias','')
-        alias_e = QLineEdit(alias)
-        def set_alias_color():
-            if not self.config.get('alias'):
-                alias_e.setStyleSheet("")
-                return
-            if self.alias_info:
-                alias_addr, alias_name, validated = self.alias_info
-                alias_e.setStyleSheet((ColorScheme.GREEN if validated
-                                       else ColorScheme.RED).as_stylesheet(True))
-            else:
-                alias_e.setStyleSheet(ColorScheme.RED.as_stylesheet(True))
-        def on_alias_edit():
-            alias_e.setStyleSheet("")
-            alias = str(alias_e.text())
-            self.config.set_key('alias', alias, True)
-            if alias:
-                self.fetch_alias()
-        set_alias_color()
-        self.alias_received_signal.connect(set_alias_color)
-        alias_e.editingFinished.connect(on_alias_edit)
-        id_widgets.append((alias_label, alias_e))
-
-        # SSL certificate
-        msg = ' '.join([
-            _('SSL certificate used to sign payment requests.'),
-            _('Use setconfig to set ssl_chain and ssl_privkey.'),
-        ])
-        if self.config.get('ssl_privkey') or self.config.get('ssl_chain'):
-            try:
-                SSL_identity = paymentrequest.check_ssl_config(self.config)
-                SSL_error = None
-            except BaseException as e:
-                SSL_identity = "error"
-                SSL_error = str(e)
-        else:
-            SSL_identity = ""
-            SSL_error = None
-        SSL_id_label = HelpLabel(_('SSL certificate') + ':', msg)
-        SSL_id_e = QLineEdit(SSL_identity)
-        SSL_id_e.setStyleSheet((ColorScheme.RED if SSL_error else ColorScheme.GREEN)
-                               .as_stylesheet(True) if SSL_identity else '')
-        if SSL_error:
-            SSL_id_e.setToolTip(SSL_error)
-        SSL_id_e.setReadOnly(True)
-        id_widgets.append((SSL_id_label, SSL_id_e))
-
-        units = ['BSV', 'mBSV', 'bits']
-        msg = _('Base unit of your wallet.')\
-              + '\n1 BSV = 1,000 mBSV = 1,000,000 bits.\n' \
-              + _(' These settings affect the fields in the Send tab')+' '
-        unit_label = HelpLabel(_('Base unit') + ':', msg)
-        unit_combo = QComboBox()
-        unit_combo.addItems(units)
-        unit_combo.setCurrentIndex(units.index(self.base_unit()))
-        def on_unit(x, nz):
-            unit_result = units[unit_combo.currentIndex()]
-            if self.base_unit() == unit_result:
-                return
-            edits = self.amount_e, self.fee_e, self.receive_amount_e
-            amounts = [edit.get_amount() for edit in edits]
-            if unit_result == 'BSV':
-                self.decimal_point = 8
-            elif unit_result == 'mBSV':
-                self.decimal_point = 5
-            elif unit_result == 'bits':
-                self.decimal_point = 2
-            else:
-                raise Exception('Unknown base unit')
-            self.config.set_key('decimal_point', self.decimal_point, True)
-            nz.setMaximum(self.decimal_point)
-            self.history_list.update()
-            self.history_updated_signal.emit()
-            self.request_list.update()
-            self.address_list.update()
-            for edit, amount in zip(edits, amounts):
-                edit.setAmount(amount)
-            self.update_status()
-        unit_combo.currentIndexChanged.connect(lambda x: on_unit(x, nz))
-        gui_widgets.append((unit_label, unit_combo))
-
-        block_explorers = web.BE_sorted_list()
-        msg = _('Choose which online block explorer to use for functions that open a web browser')
-        block_ex_label = HelpLabel(_('Online Block Explorer') + ':', msg)
-        block_ex_combo = QComboBox()
-        block_ex_combo.addItems(block_explorers)
-        block_ex_combo.setCurrentIndex(block_ex_combo.findText(web.BE_from_config(self.config)))
-        def on_be(x):
-            be_result = block_explorers[block_ex_combo.currentIndex()]
-            self.config.set_key('block_explorer', be_result, True)
-        block_ex_combo.currentIndexChanged.connect(on_be)
-        gui_widgets.append((block_ex_label, block_ex_combo))
-
-        from electrumsv import qrscanner
-        system_cameras = qrscanner._find_system_cameras()
-        qr_combo = QComboBox()
-        qr_combo.addItem("Default","default")
-        for camera, device in system_cameras.items():
-            qr_combo.addItem(camera, device)
-        #combo.addItem("Manually specify a device", config.get("video_device"))
-        index = qr_combo.findData(self.config.get("video_device"))
-        qr_combo.setCurrentIndex(index)
-        msg = _("Install the zbar package to enable this.")
-        qr_label = HelpLabel(_('Video Device') + ':', msg)
-        qr_combo.setEnabled(qrscanner.libzbar is not None)
-        on_video_device = lambda x: self.config.set_key("video_device", qr_combo.itemData(x), True)
-        qr_combo.currentIndexChanged.connect(on_video_device)
-        gui_widgets.append((qr_label, qr_combo))
-
-        usechange_cb = QCheckBox(_('Use change addresses'))
-        usechange_cb.setChecked(self.wallet.use_change)
-        if not self.config.is_modifiable('use_change'): usechange_cb.setEnabled(False)
-        def on_usechange(x):
-            usechange_result = x == Qt.Checked
-            if self.wallet.use_change != usechange_result:
-                self.wallet.use_change = usechange_result
-                self.wallet.storage.put('use_change', self.wallet.use_change)
-                multiple_cb.setEnabled(self.wallet.use_change)
-        usechange_cb.stateChanged.connect(on_usechange)
-        usechange_cb.setToolTip(_('Using change addresses makes it more difficult for '
-                                  'other people to track your transactions.'))
-        tx_widgets.append((usechange_cb, None))
-
-        def on_multiple(x):
-            multiple = x == Qt.Checked
-            if self.wallet.multiple_change != multiple:
-                self.wallet.multiple_change = multiple
-                self.wallet.storage.put('multiple_change', multiple)
-        multiple_change = self.wallet.multiple_change
-        multiple_cb = QCheckBox(_('Use multiple change addresses'))
-        multiple_cb.setEnabled(self.wallet.use_change)
-        multiple_cb.setToolTip('\n'.join([
-            _('In some cases, use up to 3 change addresses in order to break '
-              'up large coin amounts and obfuscate the recipient address.'),
-            _('This may result in higher transactions fees.')
-        ]))
-        multiple_cb.setChecked(multiple_change)
-        multiple_cb.stateChanged.connect(on_multiple)
-        tx_widgets.append((multiple_cb, None))
-
-        def fmt_docs(key, klass):
-            lines = [ln.lstrip(" ") for ln in klass.__doc__.split("\n")]
-            return '\n'.join([key, "", " ".join(lines)])
-
-        def on_unconf(x):
-            self.config.set_key('confirmed_only', bool(x))
-        conf_only = self.config.get('confirmed_only', False)
-        unconf_cb = QCheckBox(_('Spend only confirmed coins'))
-        unconf_cb.setToolTip(_('Spend only confirmed inputs.'))
-        unconf_cb.setChecked(conf_only)
-        unconf_cb.stateChanged.connect(on_unconf)
-        tx_widgets.append((unconf_cb, None))
-
-        # Fiat Currency
-        hist_checkbox = QCheckBox()
-        fiat_address_checkbox = QCheckBox()
-        ccy_combo = QComboBox()
-        ex_combo = QComboBox()
-
-
-        def on_opret(x):
-            self.config.set_key('enable_opreturn', bool(x))
-            if not x:
-                self.message_opreturn_e.setText("")
-                self.op_return_toolong = False
-            self.message_opreturn_e.setHidden(not x)
-            self.opreturn_label.setHidden(not x)
-
-        enable_opreturn = bool(self.config.get('enable_opreturn'))
-        opret_cb = QCheckBox(_('Enable OP_RETURN output'))
-        opret_cb.setToolTip(_('Enable posting messages with OP_RETURN.'))
-        opret_cb.setChecked(enable_opreturn)
-        opret_cb.stateChanged.connect(on_opret)
-        tx_widgets.append((opret_cb,None))
-
-        def update_currencies():
-            if not self.fx: return
-            currencies = sorted(self.fx.get_currencies(self.fx.get_history_config()))
-            ccy_combo.clear()
-            ccy_combo.addItems([_('None')] + currencies)
-            if self.fx.is_enabled():
-                ccy_combo.setCurrentIndex(ccy_combo.findText(self.fx.get_currency()))
-
-        def update_history_cb():
-            if not self.fx: return
-            hist_checkbox.setChecked(self.fx.get_history_config())
-            hist_checkbox.setEnabled(self.fx.is_enabled())
-
-        def update_fiat_address_cb():
-            if not self.fx: return
-            fiat_address_checkbox.setChecked(self.fx.get_fiat_address_config())
-
-        def update_exchanges():
-            if not self.fx: return
-            b = self.fx.is_enabled()
-            ex_combo.setEnabled(b)
-            if b:
-                h = self.fx.get_history_config()
-                c = self.fx.get_currency()
-                exchanges = self.fx.get_exchanges_by_ccy(c, h)
-            else:
-                exchanges = self.fx.get_exchanges_by_ccy('USD', False)
-            ex_combo.clear()
-            ex_combo.addItems(sorted(exchanges))
-            ex_combo.setCurrentIndex(ex_combo.findText(self.fx.config_exchange()))
-
-        def on_currency(hh):
-            if not self.fx: return
-            b = bool(ccy_combo.currentIndex())
-            ccy = str(ccy_combo.currentText()) if b else None
-            self.fx.set_enabled(b)
-            if b and ccy != self.fx.ccy:
-                self.fx.set_currency(ccy)
-            update_history_cb()
-            update_exchanges()
-            self.update_fiat()
-
-        def on_exchange(idx):
-            exchange = str(ex_combo.currentText())
-            if (self.fx and self.fx.is_enabled() and
-                    exchange and exchange != self.fx.exchange.name()):
-                self.fx.set_exchange(exchange)
-
-        def on_history(checked):
-            if not self.fx: return
-            self.fx.set_history_config(checked)
-            update_exchanges()
-            self.history_list.refresh_headers()
-            if self.fx.is_enabled() and checked:
-                # reset timeout to get historical rates
-                self.fx.timeout = 0
-
-        def on_fiat_address(checked):
-            if not self.fx: return
-            self.fx.set_fiat_address_config(checked)
-            self.address_list.refresh_headers()
-            self.address_list.update()
-
-        update_currencies()
-        update_history_cb()
-        update_fiat_address_cb()
-        update_exchanges()
-        ccy_combo.currentIndexChanged.connect(on_currency)
-        hist_checkbox.stateChanged.connect(on_history)
-        fiat_address_checkbox.stateChanged.connect(on_fiat_address)
-        ex_combo.currentIndexChanged.connect(on_exchange)
-
-        fiat_widgets = []
-        fiat_widgets.append((QLabel(_('Fiat currency')), ccy_combo))
-        fiat_widgets.append((QLabel(_('Show history rates')), hist_checkbox))
-        fiat_widgets.append((QLabel(_('Show Fiat balance for addresses')), fiat_address_checkbox))
-        fiat_widgets.append((QLabel(_('Source')), ex_combo))
-
-        tabs_info = [
-            (fee_widgets, _('Fees')),
-            (tx_widgets, _('Transactions')),
-            (gui_widgets, _('Appearance')),
-            (fiat_widgets, _('Fiat')),
-            (id_widgets, _('Identity')),
-        ]
-        for widgets, name in tabs_info:
-            tab = QWidget()
-            grid = QGridLayout(tab)
-            grid.setColumnStretch(0,1)
-            for a,b in widgets:
-                i = grid.rowCount()
-                if b:
-                    if a:
-                        grid.addWidget(a, i, 0)
-                    grid.addWidget(b, i, 1)
-                else:
-                    grid.addWidget(a, i, 0, 1, 2)
-            tabs.addTab(tab, name)
-
-        vbox.addWidget(tabs)
-        vbox.addStretch(1)
-        vbox.addLayout(Buttons(CloseButton(d)))
-        d.setLayout(vbox)
-
-        # run the dialog
-        d.exec_()
+        dialog = PreferencesDialog(self)
+        dialog.exec_()
 
         if self.fx:
             self.fx.timeout = 0
 
-        self.alias_received_signal.disconnect(set_alias_color)
-
-        run_hook('close_settings_dialog')
-        if self.need_restart:
-            self.show_warning(_('Please restart ElectrumSV to activate the new GUI settings'),
+        current_language = self.config.get("language", None)
+        if prior_language != current_language:
+            self.show_warning(_('Restart ElectrumSV to activate your updated language setting'),
                               title=_('Success'))
-
 
     def ok_to_close(self):
         # Close our tx dialogs; return False if any cannot be closed
