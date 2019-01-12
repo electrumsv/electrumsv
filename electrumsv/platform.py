@@ -48,6 +48,7 @@ class Platform(object):
         'requests': 'requests',
         'socks': 'PySocks',
     }
+    libsecp256k1_name = 'libsecp256k1.so.0'
     monospace_font = 'monospace'
     name = 'unset platform'
 
@@ -66,6 +67,7 @@ class Platform(object):
 
 
 class Darwin(Platform):
+    libsecp256k1_name = 'libsecp256k1.0.dylib'
     monospace_font = 'Monaco'
     name = 'MacOSX'
 
@@ -82,11 +84,13 @@ class Unix(Platform):
 
 
 class Windows(Platform):
+    libsecp256k1_name = 'libsecp256k1.dll'
     monospace_font = 'Lucida Console'
     name = 'Windows'
 
     def dbb_user_dir(self):
         return os.path.join(os.environ["APPDATA"], "DBB")
+
 
 def _detect():
     system = platform.system()

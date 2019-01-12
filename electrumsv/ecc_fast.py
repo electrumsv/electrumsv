@@ -8,9 +8,10 @@ from ctypes import (
 )
 import logging
 import os
-import sys
 
 import ecdsa
+
+from electrumsv.platform import platform
 
 
 logger = logging.getLogger("ecc")
@@ -34,16 +35,7 @@ SECP256K1_EC_UNCOMPRESSED = (SECP256K1_FLAGS_TYPE_COMPRESSION)
 
 
 def load_library():
-    if sys.platform == 'darwin':
-        library_path = 'libsecp256k1.0.dylib'
-    elif sys.platform in ('windows', 'win32'):
-        library_path = 'libsecp256k1.dll'
-    elif 'ANDROID_DATA' in os.environ:
-        library_path = 'libsecp256k1.so'
-    else:
-        library_path = 'libsecp256k1.so.0'
-
-    secp256k1 = ctypes.cdll.LoadLibrary(library_path)
+    secp256k1 = ctypes.cdll.LoadLibrary(platform.libsecp256k1_name)
     if not secp256k1:
         logger.warning('libsecp256k1 library failed to load')
         return None
