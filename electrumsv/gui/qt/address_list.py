@@ -122,12 +122,12 @@ class AddressList(MyTreeWidget):
                     columns.insert(4, fiat_balance)
                 address_item = SortableTreeWidgetItem(columns)
                 address_item.setTextAlignment(3, Qt.AlignRight)
-                address_item.setFont(3, QFont(self.monospace_font))
+                address_item.setFont(3, self.monospace_font)
                 if fx:
                     address_item.setTextAlignment(4, Qt.AlignRight)
-                    address_item.setFont(4, QFont(self.monospace_font))
+                    address_item.setFont(4, self.monospace_font)
 
-                address_item.setFont(0, QFont(self.monospace_font))
+                address_item.setFont(0, self.monospace_font)
                 address_item.setData(0, Qt.UserRole, address)
                 address_item.setData(0, Qt.UserRole+1, True) # label can be edited
                 if self.wallet.is_frozen(address):
