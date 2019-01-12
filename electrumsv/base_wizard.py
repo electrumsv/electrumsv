@@ -64,7 +64,7 @@ class BaseWizard(object):
             raise BaseException("unknown action", action)
 
     def can_go_back(self):
-        return len(self.stack)>1
+        return len(self.stack) > 1
 
     def go_back(self):
         if not self.can_go_back():

@@ -575,7 +575,7 @@ class TaskThread(QThread):
             try:
                 result = task.task()
                 self.doneSig.emit(result, task.cb_done, task.cb_success)
-            except BaseException:
+            except Exception:
                 self.doneSig.emit(sys.exc_info(), task.cb_done, task.cb_error)
 
     def on_done(self, result, cb_done, cb):

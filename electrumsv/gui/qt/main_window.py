@@ -592,11 +592,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         help_menu = menubar.addMenu(_("&Help"))
         help_menu.addAction(_("&About"), self.show_about)
-        help_menu.addAction(_("&Official website"),
-                            lambda: webbrowser.open("http://electrumsv.io"))
+        help_menu.addAction(_("&Check for updates"), self.show_update_check)
+        help_menu.addAction(_("&Official website"), lambda: webbrowser.open("http://electrumsv.io"))
         help_menu.addSeparator()
         help_menu.addAction(_("Documentation"),
-                            lambda: webbrowser.open("http://electrumsv.readthedocs.io/")
+            lambda: webbrowser.open("http://electrumsv.readthedocs.io/")
         ).setShortcut(QKeySequence.HelpContents)
         help_menu.addAction(_("&Report Bug"), self.show_report_bug)
         help_menu.addSeparator()
@@ -624,6 +624,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
               "conjunction with high-performance servers that handle the most complicated "
               "parts of the Bitcoin SV system."  + "\n\n" +
               _("Uses icons from the Icons8 icon pack (icons8.com).")))
+
+    def show_update_check(self):
+        from . import updater
+        import importlib
+        importlib.reload(updater)
+        self.update_check = updater.UpdaterDialog(self)
 
     def show_report_bug(self):
         msg = ' '.join([

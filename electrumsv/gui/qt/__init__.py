@@ -35,7 +35,7 @@ import PyQt5.QtCore as QtCore
 from electrumsv.i18n import _, set_language
 from electrumsv.plugin import run_hook
 from electrumsv.storage import WalletStorage
-from electrumsv.util import UserCancelled
+from electrumsv.util import UserCancelled, UserQuit
 from electrumsv.networks import NetworkConstants
 
 from .exception_window import Exception_Hook
@@ -166,7 +166,7 @@ class ElectrumGui:
         run_hook('on_new_window', w)
         return w
 
-    def start_new_window(self, path, uri):
+    def start_new_window(self, path, uri, is_startup=False):
         '''Raises the window for the wallet if it is open.  Otherwise
         opens the wallet and creates a new window for it.'''
         for w in self.windows:
@@ -180,7 +180,9 @@ class ElectrumGui:
                     storage = WalletStorage(path, manual_upgrades=True)
                     wizard = InstallWizard(self.config, self.app, self.plugins, storage)
                     try:
-                        wallet = wizard.run_and_get_wallet()
+                        wallet = wizard.start_gui(is_startup=is_startup)
+                    except UserQuit:
+                        pass
                     except UserCancelled:
                         pass
                     except GoBack as e:
@@ -241,7 +243,7 @@ class ElectrumGui:
         self.maybe_choose_server()
         self.config.open_last_wallet()
         path = self.config.get_wallet_path()
-        if not self.start_new_window(path, self.config.get('url')):
+        if not self.start_new_window(path, self.config.get('url'), is_startup=True):
             self.app.quit()
 
     def main(self):

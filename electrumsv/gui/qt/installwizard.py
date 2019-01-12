@@ -14,7 +14,9 @@ from PyQt5.QtWidgets import (
 
 from electrumsv.wallet import Wallet
 from electrumsv.storage import WalletStorage
-from electrumsv.util import UserCancelled, InvalidPassword, user_dir, get_electron_cash_user_dir
+from electrumsv.util import (
+    UserCancelled, InvalidPassword, user_dir, get_electron_cash_user_dir, UserQuit
+)
 from electrumsv.base_wizard import BaseWizard
 from electrumsv.i18n import _
 
@@ -79,24 +81,28 @@ class CosignWidget(QWidget):
 
 def wizard_dialog(func):
     def func_wrapper(*args, **kwargs):
-        run_next = kwargs['run_next']
+        run_next = kwargs.get('run_next')
         wizard = args[0]
-        wizard.back_button.setText(_('Back') if wizard.can_go_back() else _('Cancel'))
+        wizard.back_button.setText(_(MSG_BUTTON_BACK) if wizard.can_go_back() else _(MSG_BUTTON_CANCEL))
         try:
             out = func(*args, **kwargs)
         except GoBack:
-            wizard.go_back() if wizard.can_go_back() else wizard.close()
+            if wizard.can_go_back():
+                wizard.go_back()
+            else:
+                wizard.close()
             return
         except UserCancelled:
             return
-        #if out is None:
-        #    out = ()
-        if type(out) is not tuple:
-            out = (out,)
-        run_next(*out)
+        if run_next is not None:
+            if type(out) is not tuple:
+                out = (out,)
+            run_next(*out)
     return func_wrapper
 
-
+MSG_BUTTON_NEXT = "Next"
+MSG_BUTTON_BACK = "Back"
+MSG_BUTTON_CANCEL = "Cancel"
 
 # WindowModalDialog must come first as it overrides show_error
 class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
@@ -107,7 +113,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
     def __init__(self, config, app, plugins, storage):
         BaseWizard.__init__(self, config, storage)
         QDialog.__init__(self, None)
-        self.setWindowTitle('ElectrumSV  -  ' + _('Install Wizard'))
+        self.setWindowTitle('ElectrumSV')
         self.app = app
         self.config = config
         # Set for base base class
@@ -115,56 +121,76 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         self.language_for_seed = config.get('language')
         self.setMinimumSize(600, 400)
         self.accept_signal.connect(self.accept)
-        self.title = QLabel()
-        self.main_widget = QWidget()
-        self.back_button = QPushButton(_("Back"), self)
-        self.back_button.setText(_('Back') if self.can_go_back() else _('Cancel'))
-        self.next_button = QPushButton(_("Next"), self)
+        self.back_button = QPushButton(_(MSG_BUTTON_BACK), self)
+        self.back_button.setText(_(MSG_BUTTON_BACK) if self.can_go_back() else _(MSG_BUTTON_CANCEL))
+        self.next_button = QPushButton(_(MSG_BUTTON_NEXT), self)
         self.next_button.setDefault(True)
-        self.logo = QLabel()
-        self.please_wait = QLabel(_("Please wait..."))
-        self.please_wait.setAlignment(Qt.AlignCenter)
         self.icon_filename = None
         self.loop = QEventLoop()
         self.rejected.connect(lambda: self.loop.exit(0))
         self.back_button.clicked.connect(lambda: self.loop.exit(1))
         self.next_button.clicked.connect(lambda: self.loop.exit(2))
-        outer_vbox = QVBoxLayout(self)
-        inner_vbox = QVBoxLayout()
-        inner_vbox.addWidget(self.title)
-        inner_vbox.addWidget(self.main_widget)
-        inner_vbox.addStretch(1)
-        inner_vbox.addWidget(self.please_wait)
-        inner_vbox.addStretch(1)
-        scroll_widget = QWidget()
-        scroll_widget.setLayout(inner_vbox)
+        self.scroll_widget = QWidget()
+        self.scroll_widget.setLayout(self.create_template_layout())
         scroll = QScrollArea()
-        scroll.setWidget(scroll_widget)
+        scroll.setWidget(self.scroll_widget)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidgetResizable(True)
-        icon_vbox = QVBoxLayout()
-        icon_vbox.addWidget(self.logo)
-        icon_vbox.addStretch(1)
-        hbox = QHBoxLayout()
-        hbox.addLayout(icon_vbox)
-        hbox.addSpacing(5)
-        hbox.addWidget(scroll)
-        hbox.setStretchFactor(scroll, 1)
-        outer_vbox.addLayout(hbox)
+        outer_vbox = QVBoxLayout(self)
+        outer_vbox.addWidget(scroll)
         outer_vbox.addLayout(Buttons(self.back_button, self.next_button))
-        self.set_icon('electrum-sv.png')
         self.show()
         self.raise_()
         self.refresh_gui()  # Need for QT on MacOSX.  Lame.
 
-    def run_and_get_wallet(self):
-        ret = self._copy_electron_cash_wallets()
-        # Whether the user exited the application.
-        if ret == -1:
+    def create_template_layout(self):
+        """
+        The standard layout divides creates a three part template.
+        """
+        self.title = QLabel()
+        self.main_widget = QWidget()
+        self.please_wait = QLabel(_("Please wait..."))
+        self.please_wait.setAlignment(Qt.AlignCenter)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(self.title)
+        vbox.addWidget(self.main_widget)
+        vbox.addStretch(1)
+        vbox.addWidget(self.please_wait)
+        vbox.addStretch(1)
+        return vbox
+
+    def start_gui(self, is_startup=False):
+        if is_startup:
+            self._check_for_updates()
+            self._copy_electron_cash_wallets()
+        return self.run_and_get_wallet()
+
+    def _check_for_updates(self):
+        """
+        Poll electrumsv.io for release metadata.
+        """
+        if not self.config.get('check_updates', True):
             return
 
-        # Otherwise, move onto the wallet selection.
-        return self._run_and_get_wallet()
+        from . import updater
+        widget = updater.UpdaterWidget()
+
+        vbox = QVBoxLayout()
+        vbox.addStretch(1)
+        vbox.addWidget(widget)
+        vbox.addStretch(1)
+
+        self._set_layout(vbox, back_text=_("Quit"))
+
+        u = updater.Updater(widget)
+        u.start_gui()
+
+        v = self.loop.exec_()
+        if v != 2: # Cancel/Quit/Back. Exit application.
+            raise UserQuit()
+
+        u.stop_gui()
 
     def _copy_electron_cash_wallets(self):
         """
@@ -186,8 +212,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 return len(filenames)
             return 0
 
-        # If the user has ElectrumSV wallets already, we do not offer
-        # to copy the one's Electron Cash has.
+        # If the user has ElectrumSV wallets already, we do not offer to copy the one's Electron Cash has.
         esv_wallets_dir = os.path.join(user_dir(), "wallets")
         if count_user_wallets(esv_wallets_dir) > 0:
             return
@@ -228,30 +253,27 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         summary_label = QLabel()
         update_summary_label()
         vbox.addWidget(summary_label)
-        self.set_layout(vbox, title=_('Import Electron Cash wallets'))
+        self._set_standard_layout(vbox, title=_('Import Electron Cash wallets'))
 
-        while True:
-            v = self.loop.exec_()
-            if v == 0:
-                return -1
-            if v != 2:  # 2 = next
-                # If the user is not selecting close or next, I do not
-                # know what they are selecting. Cancel?
-                return -1
+        v = self.loop.exec_()
+        # Cancel, exit application.
+        if v == -1:
+            raise UserCancelled()
+        if v != 2:
+            raise GoBack()
 
-            # If the user selected any files, then we copy them before exiting to the next page.
-            for item in file_list.selectedItems():
-                filename = item.text()
-                source_path = os.path.join(ec_wallets_dir, filename)
-                target_path = os.path.join(esv_wallets_dir, filename)
-                try:
-                    shutil.copyfile(source_path, target_path)
-                except shutil.Error:
-                    # For now we ignore copy errors.
-                    pass
-            break
+        # If the user selected any files, then we copy them before exiting to the next page.
+        for item in file_list.selectedItems():
+            filename = item.text()
+            source_path = os.path.join(ec_wallets_dir, filename)
+            target_path = os.path.join(esv_wallets_dir, filename)
+            try:
+                shutil.copyfile(source_path, target_path)
+            except shutil.Error:
+                # For now we ignore copy errors.
+                pass
 
-    def _run_and_get_wallet(self):
+    def run_and_get_wallet(self):
         vbox = QVBoxLayout()
         hbox = QHBoxLayout()
         hbox.addWidget(QLabel(_('Wallet') + ':'))
@@ -272,7 +294,9 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         hbox2.addWidget(self.pw_e)
         hbox2.addStretch()
         vbox.addLayout(hbox2)
-        self.set_layout(vbox, title=_('ElectrumSV wallet'))
+        self._set_standard_layout(vbox,
+            title=_('ElectrumSV wallet'),
+            back_text=_(MSG_BUTTON_CANCEL))
 
         wallet_folder = os.path.dirname(self.storage.path)
 
@@ -395,21 +419,46 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             logging.exception("", exc_info=exc_info)
             self.show_error(str(exc_info[1]))
 
-    def set_icon(self, filename):
-        prior_filename, self.icon_filename = self.icon_filename, filename
-        self.logo.setPixmap(QPixmap(icon_path(filename))
-                            .scaledToWidth(60, Qt.SmoothTransformation))
-        return prior_filename
+    def _remove_layout_from_widget(self, widget):
+        """
+        The only way to remove a layout from a first widget, is to transfer it to a second one.
+        This needs to be done, to be able to set a new layout on the first widget.
+        """
+        existing_layout = widget.layout()
+        QWidget().setLayout(existing_layout)
 
-    def set_layout(self, layout, title=None, next_enabled=True):
+    def _set_layout(self, layout, next_enabled=True, back_text=None):
+        """
+        Set a layout that is in control of the whole display area.
+        """
+        self._remove_layout_from_widget(self.scroll_widget)
+        self.scroll_widget.setLayout(layout)
+
+        self.back_button.setEnabled(True)
+        if back_text is not None:
+            self.back_button.setText(back_text)
+        self.next_button.setEnabled(next_enabled)
+        if next_enabled:
+            self.next_button.setFocus()
+
+    def _set_standard_layout(self, layout, title=None, next_enabled=True, back_text=None):
+        """
+        Ensure the standard template layout is in place.
+        And put the current stage's sub-layout in the defined place.
+        """
+        self._remove_layout_from_widget(self.scroll_widget)
+        self.scroll_widget.setLayout(self.create_template_layout())
+
         self.title.setText("<b>%s</b>"%title if title else "")
         self.title.setVisible(bool(title))
-        # Get rid of any prior layout by assigning it to a temporary widget
-        prior_layout = self.main_widget.layout()
-        if prior_layout:
-            QWidget().setLayout(prior_layout)
         self.main_widget.setLayout(layout)
+
+        if back_text is None:
+            self.back_button.setText(_(MSG_BUTTON_BACK))
+        else:
+            self.back_button.setText(back_text)
         self.back_button.setEnabled(True)
+        self.next_button.setText(_(MSG_BUTTON_NEXT))
         self.next_button.setEnabled(next_enabled)
         if next_enabled:
             self.next_button.setFocus()
@@ -418,7 +467,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     def exec_layout(self, layout, title=None, raise_on_cancel=True,
                         next_enabled=True):
-        self.set_layout(layout, title, next_enabled)
+        self._set_standard_layout(layout, title, next_enabled)
         result = self.loop.exec_()
         if not result and raise_on_cancel:
             raise UserCancelled
@@ -606,7 +655,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         choices = [_("Auto connect"), _("Select server manually")]
         title = _("How do you want to connect to a server? ")
         clayout = ChoicesLayout(message, choices)
-        self.back_button.setText(_('Cancel'))
+        self.back_button.setText(_(MSG_BUTTON_CANCEL))
         self.exec_layout(clayout.layout(), title)
         r = clayout.selected_index()
         network.auto_connect = (r == 0)

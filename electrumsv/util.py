@@ -90,6 +90,9 @@ class UserCancelled(Exception):
     '''An exception that is suppressed from the user'''
     pass
 
+class UserQuit(Exception):
+    pass
+
 class MyEncoder(json.JSONEncoder):
     # https://github.com/PyCQA/pylint/issues/414
     def default(self, o): # pylint: disable=method-hidden
