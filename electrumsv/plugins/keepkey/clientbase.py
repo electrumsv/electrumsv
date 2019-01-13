@@ -1,13 +1,15 @@
-import logging
 from struct import pack
 import time
 
-from electrumsv.i18n import _
-from electrumsv.exceptions import UserCancelled
-from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.bitcoin import serialize_xpub
+from electrumsv.exceptions import UserCancelled
+from electrumsv.i18n import _
+from electrumsv.keystore import bip39_normalize_passphrase
+from electrumsv.logs import logs
 
-logger = logging.getLogger("plugin.keepkey")
+
+logger = logs.get_logger("plugin.keepkey")
+
 
 class GuiMixin(object):
     # Requires: self.proto, self.device

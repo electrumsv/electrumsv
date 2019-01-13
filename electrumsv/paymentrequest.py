@@ -25,7 +25,6 @@
 
 import hashlib
 import json
-import logging
 import requests
 import sys
 import time
@@ -39,9 +38,11 @@ from . import transaction
 from . import util
 from . import x509
 from .exceptions import FileImportFailed, FileImportFailedEncrypted
+from .logs import logs
 from .util import bh2u, bfh
 
-logger = logging.getLogger("paymentrequest")
+
+logger = logs.get_logger("paymentrequest")
 
 REQUEST_HEADERS = {
     'Accept': 'application/bitcoin-paymentrequest',
@@ -176,7 +177,7 @@ class PaymentRequest:
         try:
             x, ca = verify_cert_chain(cert.certificate)
         except BaseException as e:
-            logging.exception("")
+            logger.exception("")
             self.error = str(e)
             return False
         # get requestor name
@@ -486,10 +487,10 @@ class InvoiceStore(object):
                 d = json.loads(f.read())
                 self.load(d)
         except json.decoder.JSONDecodeError:
-            logging.exception("")
+            logger.exception("")
             raise FileImportFailedEncrypted()
         except BaseException:
-            logging.exception("")
+            logger.exception("")
             raise FileImportFailed()
         self.save()
 

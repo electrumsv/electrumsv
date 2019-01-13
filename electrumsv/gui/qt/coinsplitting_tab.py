@@ -1,5 +1,4 @@
 import http
-import logging
 import requests
 import threading
 
@@ -10,9 +9,11 @@ from PyQt5.QtWidgets import (
 
 from electrumsv import bitcoin
 from electrumsv.i18n import _
+from electrumsv.logs import logs
+
 from . import util
 
-logger = logging.getLogger("coinsplitting")
+logger = logs.get_logger("coinsplitting")
 
 TX_DESC_PREFIX = _("ElectrumSV coin splitting")
 

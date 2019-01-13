@@ -21,13 +21,13 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import logging
-
-from .util import ThreadJob, bh2u
 from .bitcoin import Hash, hash_decode, hash_encode, NetworkConstants
+from .logs import logs
 from .transaction import Transaction
+from .util import ThreadJob, bh2u
 
-logger = logging.getLogger("verifier")
+
+logger = logs.get_logger("verifier")
 
 
 class InnerNodeOfSpvProofIsValidTx(Exception): pass

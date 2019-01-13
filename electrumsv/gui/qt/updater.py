@@ -1,5 +1,4 @@
 from distutils.version import StrictVersion
-import logging
 import requests
 import time
 
@@ -8,9 +7,11 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QProgressBar, QLabel, QFrame, QHBoxLayout, QPushButton
 )
 
-from electrumsv.i18n import _
-from electrumsv.version import PACKAGE_VERSION
 from electrumsv.gui.qt.util import TaskThread
+from electrumsv.i18n import _
+from electrumsv.logs import logs
+from electrumsv.version import PACKAGE_VERSION
+
 
 MSG_TITLE_CHECK = "Checking ElectrumSV.io for Updates"
 MSG_BODY_CHECK = "Please wait.."
@@ -26,7 +27,7 @@ MSG_BODY_UPDATE_AVAILABLE = (
 MSG_BODY_NO_UPDATE_AVAILABLE = ("The update check was successful.<br/><br/>"+
     "You are already using <b>{this_version}</b>, which is the latest version.")
 
-logger = logging.getLogger("updater")
+logger = logs.get_logger("updater")
 
 
 class UpdaterWidget(QWidget):

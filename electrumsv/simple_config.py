@@ -1,16 +1,17 @@
 from copy import deepcopy
 import json
-import logging
 import os
 import stat
 import threading
 import time
 
 from . import util
-from .util import user_dir, make_dir
 from .bitcoin import MAX_FEE_RATE, FEE_TARGETS
+from .logs import logs
+from .util import user_dir, make_dir
 
-logger = logging.getLogger("config")
+
+logger = logs.get_logger("config")
 
 config = None
 

@@ -2,19 +2,16 @@
 # https://github.com/richardkiss/pycoin/blob/01b1787ed902df23f99a55deb00d8cd076a906fe/
 # pycoin/ecdsa/native/secp256k1.py
 
-import ctypes
-from ctypes import (
-    byref, c_int, c_uint, c_char_p, c_size_t, c_void_p, create_string_buffer
-)
-import logging
+from ctypes import byref, cdll, c_int, c_uint, c_char_p, c_size_t, c_void_p, create_string_buffer
 import os
 
 import ecdsa
 
-from electrumsv.platform import platform
+from .platform import platform
+from .logs import logs
 
 
-logger = logging.getLogger("ecc")
+logger = logs.get_logger("ecc")
 
 
 SECP256K1_FLAGS_TYPE_MASK = ((1 << 8) - 1)
@@ -35,7 +32,7 @@ SECP256K1_EC_UNCOMPRESSED = (SECP256K1_FLAGS_TYPE_COMPRESSION)
 
 
 def load_library():
-    secp256k1 = ctypes.cdll.LoadLibrary(platform.libsecp256k1_name)
+    secp256k1 = cdll.LoadLibrary(platform.libsecp256k1_name)
     if not secp256k1:
         logger.warning('libsecp256k1 library failed to load')
         return None
@@ -223,6 +220,5 @@ try:
     _libsecp256k1 = load_library()
 except:
     _libsecp256k1 = None
-    # logging.exception("")
 
 _prepare_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1()

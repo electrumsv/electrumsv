@@ -24,13 +24,14 @@
 # SOFTWARE.
 
 import hashlib
-import logging
 from threading import Lock
 
+from .logs import logs
 from .transaction import Transaction
 from .util import ThreadJob, bh2u
 
-logger = logging.getLogger("synchronizer")
+
+logger = logs.get_logger("synchronizer")
 
 
 class Synchronizer(ThreadJob):
@@ -147,7 +148,7 @@ class Synchronizer(ThreadJob):
         try:
             tx.deserialize()
         except Exception:
-            logging.exception("cannot deserialize transaction, skipping %s", tx_hash)
+            logger.exception("cannot deserialize transaction, skipping %s", tx_hash)
             return
         tx_height = self.requested_tx.pop(tx_hash)
         self.wallet.receive_tx_callback(tx_hash, tx, tx_height)

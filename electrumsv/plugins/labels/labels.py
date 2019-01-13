@@ -1,14 +1,16 @@
 import base64
 import json
 import hashlib
-import logging
 import requests
 import threading
 
 from electrumsv.bitcoin import aes_decrypt_with_iv, aes_encrypt_with_iv
+from electrumsv.logs import logs
 from electrumsv.plugin import BasePlugin, hook
 
-logger = logging.getLogger("plugin.labels")
+
+logger = logs.get_logger("plugin.labels")
+
 
 class LabelsPlugin(BasePlugin):
 
@@ -125,7 +127,7 @@ class LabelsPlugin(BasePlugin):
             self.set_nonce(wallet, response["nonce"] + 1)
             self.on_pulled(wallet)
         except Exception as e:
-            logging.exception("could not retrieve labels")
+            logger.exception("could not retrieve labels")
 
     def on_pulled(self, _wallet):
         raise NotImplementedError()

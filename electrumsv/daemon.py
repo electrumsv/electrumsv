@@ -24,7 +24,6 @@
 # SOFTWARE.
 
 import ast
-import logging
 import os
 import time
 import threading
@@ -35,6 +34,7 @@ from .commands import known_commands, Commands
 from .exchange_rate import FxThread
 from .extensions import Extension
 from .jsonrpc import VerifyingJSONRPCServer
+from .logs import logs
 from .network import Network
 from .platform import platform
 from .simple_config import SimpleConfig
@@ -45,7 +45,7 @@ from .version import PACKAGE_VERSION
 from .wallet import Wallet
 
 
-logger = logging.getLogger("daemon")
+logger = logs.get_logger("daemon")
 
 
 def get_lockfile(config):
@@ -315,10 +315,6 @@ class Daemon(DaemonThread):
         except ImportError as e:
             platform.missing_import(e)
 
-        self.gui = ElectrumGui(config, self, plugins)
         threading.current_thread().setName('GUI')
-        try:
-            self.gui.main()
-        except BaseException as e:
-            logging.exception("")
-            # app will exit now
+        self.gui = ElectrumGui(config, self, plugins)
+        self.gui.main()

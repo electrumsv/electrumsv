@@ -1,5 +1,4 @@
 import hashlib
-import logging
 from struct import pack, unpack
 
 from electrumsv import bitcoin
@@ -25,7 +24,8 @@ try:
 except ImportError:
     BTCHIP = False
 
-logger = logging.getLogger("plugin.ledger")
+
+logger = logs.get_logger("plugin.ledger")
 
 BITCOIN_CASH_SUPPORT = (1, 1, 8)
 
@@ -419,10 +419,10 @@ class Ledger_KeyStore(Hardware_KeyStore):
             if e.sw == 0x6985:  # cancelled by user
                 return
             else:
-                logging.exception("")
+                logger.exception("")
                 self.give_error(e, True)
         except BaseException as e:
-            logging.exception("")
+            logger.exception("")
             self.give_error(e, True)
         finally:
             self.handler.finished()

@@ -27,42 +27,40 @@
 #   - Standard_Wallet: one keystore, P2PKH
 #   - Multisig_Wallet: several keystores, P2SH
 
-import copy
 from collections import defaultdict, namedtuple
+import copy
 import errno
 import json
-import logging
 import os
 import random
 import threading
 import time
 
-from .i18n import _
-from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
-from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
-
+from . import bitcoin
+from . import coinchooser
+from . import paymentrequest
 from .address import Address, Script, PublicKey
 from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, is_minikey, Hash
-from .version import PACKAGE_VERSION
+from .contacts import Contacts
+from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
+from .i18n import _
 from .keystore import (
     load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore, xpubkey_to_address
 )
-from .storage import multisig_type
-
-from .transaction import Transaction
+from .logs import logs
+from .paymentrequest import InvoiceStore
+from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .plugin import run_hook
-from . import bitcoin
-from . import coinchooser
+from .storage import multisig_type
 from .synchronizer import Synchronizer
+from .transaction import Transaction
+from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
 from .verifier import SPV
+from .version import PACKAGE_VERSION
 from .web import create_URI
 
-from . import paymentrequest
-from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
-from .paymentrequest import InvoiceStore
-from .contacts import Contacts
 
-logger = logging.getLogger("wallet")
+logger = logs.get_logger("wallet")
 
 TX_STATUS = [
     _('Unconfirmed parent'),
@@ -169,7 +167,7 @@ class Abstract_Wallet:
 
     def __init__(self, storage):
         self.storage = storage
-        self.logger = logging.getLogger("wallet[{}]".format(self.basename()))
+        self.logger = logs.get_logger("wallet[{}]".format(self.basename()))
         self.electrum_version = PACKAGE_VERSION
         self.network = None
         # verifier (SPV) and synchronizer are started in start_threads

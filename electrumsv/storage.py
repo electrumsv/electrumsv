@@ -28,20 +28,21 @@ import base64
 import copy
 import hashlib
 import json
-import logging
 import os
 import re
 import stat
 import threading
 import zlib
 
-from .address import Address
-from .util import profiler
-from .plugin import run_hook, plugin_loaders
-from .keystore import bip44_derivation
 from . import bitcoin
+from .address import Address
+from .keystore import bip44_derivation
+from .logs import logs
+from .plugin import run_hook, plugin_loaders
+from .util import profiler
 
-logger = logging.getLogger("storage")
+
+logger = logs.get_logger("storage")
 
 
 # seed_version is now used for the version of the wallet file

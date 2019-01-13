@@ -24,15 +24,15 @@
 import dns
 from dns.exception import DNSException
 import json
-import logging
 import re
 
-from .address import Address
 from . import dnssec
+from .address import Address
 from .exceptions import FileImportFailed, FileImportFailedEncrypted
+from .logs import logs
 from .util import to_string
 
-logger = logging.getLogger("contacts")
+logger = logs.get_logger("contacts")
 
 
 class Contacts(dict):
@@ -61,10 +61,10 @@ class Contacts(dict):
             with open(path, 'r') as f:
                 d = self._validate(json.loads(f.read()))
         except json.decoder.JSONDecodeError:
-            logging.exception("")
+            logger.exception("importing file")
             raise FileImportFailedEncrypted()
         except BaseException:
-            logging.exception("")
+            logger.exception("importing file")
             raise FileImportFailed()
         self.update(d)
         self.save()

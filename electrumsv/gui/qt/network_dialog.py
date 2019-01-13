@@ -23,7 +23,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import logging
 import socket
 
 from PyQt5.QtCore import pyqtSignal, Qt, QThread
@@ -33,12 +32,13 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.i18n import _
+from electrumsv.logs import logs
 from electrumsv.networks import NetworkConstants
 from electrumsv.network import serialize_server, deserialize_server
 
 from .util import Buttons, CloseButton, HelpButton, read_QIcon
 
-logger = logging.getLogger("networkui")
+logger = logs.get_logger("networkui")
 
 protocol_names = ['TCP', 'SSL']
 protocol_letters = 'ts'
@@ -490,7 +490,7 @@ class NetworkChoiceLayout(object):
         else:
             socks5_mode_index = self.proxy_mode.findText('SOCKS5')
             if socks5_mode_index == -1:
-                logger.error("[network_dialog] can't find proxy_mode 'SOCKS5'")
+                logger.error("can't find proxy_mode 'SOCKS5'")
                 return
             self.proxy_mode.setCurrentIndex(socks5_mode_index)
             self.proxy_host.setText("127.0.0.1")

@@ -24,10 +24,12 @@
 # SOFTWARE.
 
 import hashlib
-import logging
 
-from .util import profiler, bh2u
 import ecdsa
+
+from .logs import logs
+from .util import profiler, bh2u
+
 
 # algo OIDs
 ALGO_RSA_SHA1 = '1.2.840.113549.1.1.5'
@@ -329,7 +331,7 @@ def load_certificates(ca_path):
         except BaseException as e:
             # with open('/tmp/tmp.txt', 'w') as f:
             #     f.write(pem.pem(b, 'CERTIFICATE').decode('ascii'))
-            logging.error("cert error %s", e)
+            logs.root.error("cert error %s", e)
             continue
 
         fp = x.getFingerprint()
@@ -342,6 +344,6 @@ def load_certificates(ca_path):
 if __name__ == "__main__":
     import requests
 
-    logging.getLogger().setLevel(logging.DEBUG)
+    logs.root.setLevel('DEBUG')
     ca_path = requests.certs.where()
     ca_list, ca_keyID = load_certificates(ca_path)

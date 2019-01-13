@@ -27,7 +27,6 @@ import csv
 from decimal import Decimal
 from functools import partial
 import json
-import logging
 import os
 import shutil
 import threading
@@ -45,22 +44,21 @@ from PyQt5.QtWidgets import (
 )
 
 import electrumsv
-from electrumsv import keystore
+from electrumsv import bitcoin, commands, keystore, paymentrequest, util
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
-from electrumsv.networks import NetworkConstants
-from electrumsv.plugin import run_hook
-from electrumsv.i18n import _
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
-from electrumsv.util import (format_time, format_satoshis,
-                           format_satoshis_plain,
-                           bh2u, bfh, format_fee_satoshis)
-import electrumsv.web as web
-from electrumsv.transaction import Transaction
-from electrumsv import util, bitcoin, commands
-from electrumsv import paymentrequest
-from electrumsv.wallet import Multisig_Wallet, sweep_preparations
+from electrumsv.i18n import _
+from electrumsv.logs import logs
+from electrumsv.networks import NetworkConstants
 from electrumsv.paymentrequest import PR_PAID
+from electrumsv.plugin import run_hook
+from electrumsv.transaction import Transaction
+from electrumsv.util import (
+    format_time, format_satoshis, format_satoshis_plain, bh2u, bfh, format_fee_satoshis,
+)
+from electrumsv.wallet import Multisig_Wallet, sweep_preparations
+import electrumsv.web as web
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from .coinsplitting_tab import CoinSplittingTab
@@ -69,7 +67,6 @@ from .preferences import PreferencesDialog
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
 from .transaction_dialog import TxDialog
-
 from .util import (
     MessageBoxMixin, TaskThread, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
     WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton, OPReturnError,
@@ -78,7 +75,7 @@ from .util import (
 )
 
 
-logger = logging.getLogger("mainwindow")
+logger = logs.get_logger("mainwindow")
 
 
 class StatusBarButton(QPushButton):
@@ -371,7 +368,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def load_wallet(self, wallet):
         wallet.thread = TaskThread(self, self.on_error)
         self.wallet = wallet
-        self.logger = logging.getLogger("mainwindow[{}]".format(self.wallet.basename()))
+        self.logger = logs.get_logger("mainwindow[{}]".format(self.wallet.basename()))
         self.update_recently_visited(wallet.storage.path)
         # address used to create a dummy transaction and estimate transaction fee
         self.history_list.update()

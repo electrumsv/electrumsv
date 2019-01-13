@@ -1,12 +1,12 @@
 from binascii import hexlify, unhexlify
-import logging
 import threading
 
-from electrumsv.util import bfh, bh2u
 from electrumsv.bitcoin import (xpub_from_pubkey, TYPE_ADDRESS, TYPE_SCRIPT)
 from electrumsv.i18n import _
-from electrumsv.transaction import deserialize
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
+from electrumsv.logs import logs
+from electrumsv.transaction import deserialize
+from electrumsv.util import bfh, bh2u
 
 from ..hw_wallet import HW_PluginBase
 
@@ -64,7 +64,7 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
 
     def __init__(self, parent, config, name):
         HW_PluginBase.__init__(self, parent, config, name)
-        self.logger = logging.getLogger("plugin.keepkey")
+        self.logger = logs.get_logger("plugin.keepkey")
 
         self.main_thread = threading.current_thread()
         # FIXME: move to base class when Ledger is fixed

@@ -30,20 +30,20 @@ import datetime
 from decimal import Decimal
 from functools import wraps
 import json
-import logging
 import sys
 
-from .util import bfh, bh2u, format_satoshis, json_decode, to_bytes
-from .import bitcoin
+from . import bitcoin
 from .address import Address
 from .bitcoin import hash_160, COIN, TYPE_ADDRESS
 from .i18n import _
-from .transaction import Transaction, multisig_script
+from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .plugin import run_hook
+from .transaction import Transaction, multisig_script
+from .util import bfh, bh2u, format_satoshis, json_decode, to_bytes
 
 
-logger = logging.getLogger("commands")
+logger = logs.get_logger("commands")
 
 known_commands = {}
 
