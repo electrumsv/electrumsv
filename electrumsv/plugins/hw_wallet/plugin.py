@@ -68,6 +68,19 @@ class HW_PluginBase(BasePlugin):
         """
         raise NotImplementedError()
 
+    def show_address(self, wallet, address, keystore=None):
+        pass  # implemented in child classes
+
+    def show_address_helper(self, wallet, address, keystore=None):
+        if keystore is None:
+            keystore = wallet.get_keystore()
+        if not wallet.is_mine(address):
+            keystore.handler.show_error(_('Address not in wallet.'))
+            return False
+        if type(keystore) != self.keystore_class:
+            return False
+        return True
+
     def check_libraries_available(self) -> bool:
         def version_str(t):
             return ".".join(str(i) for i in t)
@@ -109,3 +122,27 @@ class LibraryFoundButUnusable(Exception):
     def __init__(self, library_version='unknown'):
         super().__init__()
         self.library_version = library_version
+
+
+
+def is_any_tx_output_on_change_branch(tx):
+    if not tx.output_info:
+        return False
+    for o in tx.outputs():
+        info = tx.output_info.get(o.address)
+        if info is not None:
+            if info.address_index[0] == 1:
+                return True
+    return False
+
+
+def trezor_validate_op_return_output_and_get_data(output):
+    if output.type != TYPE_SCRIPT:
+        raise Exception("Unexpected output type: {}".format(output.type))
+    script = bfh(output.address)
+    if not (script[0] == opcodes.OP_RETURN and
+            script[1] == len(script) - 2 and script[1] <= 75):
+        raise Exception(_("Only OP_RETURN scripts, with one constant push, are supported."))
+    if output.value != 0:
+        raise Exception(_("Amount for OP_RETURN output must be zero."))
+    return script[2:]

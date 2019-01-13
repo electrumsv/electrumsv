@@ -29,8 +29,6 @@ import struct
 import ecdsa
 from ecdsa.curves import SECP256k1
 
-# Note: The deserialization code originally comes from ABE.
-
 from . import ecc
 from .address import (
     PublicKey, Address, Script, ScriptOutput, UnknownAddress, OpCodes as opcodes
