@@ -44,7 +44,7 @@ from electrumsv.platform import platform
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.storage import WalletStorage
 from electrumsv.exceptions import InvalidPassword
-from electrumsv.util import json_encode, json_decode, use_packages_if_from_source, is_bundle
+from electrumsv.util import json_encode, json_decode, is_bundle
 from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
 
 
@@ -249,7 +249,6 @@ def init_plugins(config, gui_name):
 
 
 def main():
-    use_packages_if_from_source()
     # The hook will only be used in the Qt GUI right now
     util.setup_thread_excepthook()
     # on osx, delete Process Serial Number arg generated for apps launched in Finder
