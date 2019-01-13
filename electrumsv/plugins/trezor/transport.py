@@ -1,6 +1,8 @@
-import logging
+from electrumsv.logs import logs
 
-logger = logging.getLogger("plugin.trezor.transport")
+
+logger = logs.get_logger("plugin.trezor.transport")
+
 
 class TrezorTransport:
 
@@ -71,8 +73,7 @@ class TrezorTransport:
             try:
                 new_devices = transport.enumerate()
             except BaseException as e:
-                logger.error('enumerate failed for %s. error %s',
-                                 transport.__name__, e)
+                logger.error('enumerate failed for %s. error %s', transport.__name__, e)
             else:
                 devices.extend(new_devices)
         return devices

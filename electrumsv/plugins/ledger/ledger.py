@@ -1,14 +1,15 @@
 import hashlib
-import logging
 from struct import pack, unpack
 
 from electrumsv import bitcoin
 from electrumsv.bitcoin import TYPE_ADDRESS, int_to_hex, var_int
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
+from electrumsv.logs import logs
 from electrumsv.transaction import Transaction
+from electrumsv.util import bfh, bh2u, versiontuple
+
 from ..hw_wallet import HW_PluginBase
-from electrumsv.util import is_logging_verbose, bfh, bh2u, versiontuple
 
 try:
     import hid
@@ -19,11 +20,12 @@ try:
     from btchip.btchipFirmwareWizard import checkFirmware
     from btchip.btchipException import BTChipException
     BTCHIP = True
-    BTCHIP_DEBUG = is_logging_verbose()
+    BTCHIP_DEBUG = logs.is_debug_level()
 except ImportError:
     BTCHIP = False
 
-logger = logging.getLogger("plugin.ledger")
+
+logger = logs.get_logger("plugin.ledger")
 
 BITCOIN_CASH_SUPPORT = (1, 1, 8)
 
@@ -417,10 +419,10 @@ class Ledger_KeyStore(Hardware_KeyStore):
             if e.sw == 0x6985:  # cancelled by user
                 return
             else:
-                logging.exception("")
+                logger.exception("")
                 self.give_error(e, True)
         except BaseException as e:
-            logging.exception("")
+            logger.exception("")
             self.give_error(e, True)
         finally:
             self.handler.finished()

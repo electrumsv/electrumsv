@@ -24,7 +24,6 @@
 
 # source: http://stackoverflow.com/questions/2758159
 
-import logging
 import os
 import re
 import sys
@@ -35,10 +34,11 @@ from PyQt5.QtGui import QFont, QTextCursor, QTextOption
 
 from electrumsv import util
 from electrumsv.i18n import _
+from electrumsv.logs import logs
 from electrumsv.platform import platform
 
 
-logger = logging.getLogger("console")
+logger = logs.get_logger("console")
 
 
 class OverlayLabel(QtWidgets.QLabel):

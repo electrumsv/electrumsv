@@ -23,15 +23,18 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import logging
 import os
 
-from . import bitcoin
-from . import keystore
-from .keystore import bip44_derivation, bip44_derivation_145
-from .wallet import (ImportedAddressWallet, ImportedPrivkeyWallet,
-                     Standard_Wallet, Multisig_Wallet, wallet_types)
+from . import bitcoin, keystore
 from .i18n import _
+from .keystore import bip44_derivation, bip44_derivation_145
+from .logs import logs
+from .wallet import (
+    ImportedAddressWallet, ImportedPrivkeyWallet, Standard_Wallet, Multisig_Wallet, wallet_types,
+)
+
+
+logger = logs.get_logger('wizard')
 
 
 class BaseWizard(object):
@@ -181,7 +184,7 @@ class BaseWizard(object):
         try:
             scanned_devices = devmgr.scan_devices()
         except:
-            logging.exception(f'error scanning devices')
+            logger.exception(f'error scanning devices')
         else:
             for splugin in supported_plugins:
                 name, plugin = splugin.name, splugin.plugin
@@ -198,8 +201,7 @@ class BaseWizard(object):
                     # FIXME: side-effect: unpaired_device_info sets client.handler
                     u = devmgr.unpaired_device_infos(None, plugin, devices=scanned_devices)
                 except Exception as e:
-                    logging.exception('error getting device infos for %s',
-                                       name)
+                    logger(f'error getting device infos for {name}')
                     indented_error_msg = '    '.join([''] + str(e).splitlines(keepends=True))
                     debug_msg += f'  {name}: (error getting device infos)\n{indented_error_msg}\n'
                     continue

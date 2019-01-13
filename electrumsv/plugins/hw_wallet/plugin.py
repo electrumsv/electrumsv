@@ -24,11 +24,11 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import logging
 import sys
 
-from electrumsv.plugin import BasePlugin, hook
 from electrumsv.i18n import _
+from electrumsv.logs import logs
+from electrumsv.plugin import BasePlugin, hook
 from electrumsv.util import versiontuple
 
 
@@ -44,7 +44,7 @@ class HW_PluginBase(BasePlugin):
         self.device = self.keystore_class.device
         self.keystore_class.plugin = self
 
-        self.logger = logging.getLogger("plugin.hwbase")
+        self.logger = logs.get_logger("plugin.hwbase")
 
     def is_enabled(self):
         return True

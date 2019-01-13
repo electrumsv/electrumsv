@@ -30,7 +30,6 @@
 #  http://backreference.org/2010/11/17/dnssec-verification-with-dig/
 #  https://github.com/rthalley/dnspython/blob/master/tests/test_dnssec.py
 
-import logging
 import struct
 import time
 
@@ -53,12 +52,13 @@ import dns.rdtypes.ANY.SOA
 import dns.rdtypes.ANY.TXT
 import dns.rdtypes.IN.A
 import dns.rdtypes.IN.AAAA
-
 # Pure-Python version of dns.dnssec._validate_rsig
 import ecdsa
-from . import rsakey
 
-logger = logging.getLogger("dnssec")
+from . import rsakey
+from .logs import logs
+
+logger = logs.get_logger("dnssec")
 
 
 def python_validate_rrsig(rrset, rrsig, keys, origin=None, now=None):

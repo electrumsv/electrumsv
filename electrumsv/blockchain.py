@@ -21,15 +21,15 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import logging
 import os
 import threading
 
 from . import util
+from .logs import logs
 from .networks import NetworkConstants
 from .bitcoin import int_to_hex, rev_hex, hash_encode, Hash, bfh
 
-logger = logging.getLogger("blockchain")
+logger = logs.get_logger("blockchain")
 
 
 class VerifyError(Exception):

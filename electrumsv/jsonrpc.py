@@ -25,10 +25,10 @@
 
 from base64 import b64decode
 from jsonrpclib.SimpleJSONRPCServer import SimpleJSONRPCServer, SimpleJSONRPCRequestHandler
-import logging
 import time
 
 from . import util
+from .logs import logs
 
 
 class RPCAuthCredentialsInvalid(Exception):
@@ -59,7 +59,7 @@ class VerifyingRequestHandler(SimpleJSONRPCRequestHandler):
                     RPCAuthUnsupportedType) as e:
                 self.send_error(401, str(e))
             except BaseException as e:
-                logging.exception("")
+                logs.root.exception("")
                 self.send_error(500, str(e))
         return False
 

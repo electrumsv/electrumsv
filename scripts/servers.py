@@ -3,10 +3,10 @@
 import json
 import util
 
-from electrumsv.util import disable_verbose_logging
+from electrumsv.logs import logs
 from electrumsv.network import filter_version
 
-disable_verbose_logging()
+logs.set_level('ERROR')
 
 servers = filter_version(util.get_peers())
 print(json.dumps(servers, sort_keys = True, indent = 4))

@@ -25,19 +25,20 @@
 
 from collections import namedtuple
 import importlib.util
-import logging
 import os
 import pkgutil
 import threading
 import time
 
-from .i18n import _
-from .exceptions import UserCancelled
-from .util import profiler, DaemonThread, ThreadJob
 from . import bitcoin
 from . import plugins
+from .i18n import _
+from .exceptions import UserCancelled
+from .logs import logs
+from .util import profiler, DaemonThread, ThreadJob
 
-logger = logging.getLogger("plugin")
+
+logger = logs.get_logger("plugin")
 
 plugin_loaders = {}
 hook_names = set()
@@ -87,7 +88,7 @@ class Plugins(DaemonThread):
                 try:
                     self.load_plugin(name)
                 except BaseException as e:
-                    logging.exception("cannot initialize plugin %s", name)
+                    logger.exception("cannot initialize plugin %s", name)
 
     def get(self, name):
         return self.plugins.get(name)
@@ -163,7 +164,7 @@ class Plugins(DaemonThread):
                                                         plugin=p,
                                                         exception=None))
                 except Exception as e:
-                    logging.exception("cannot load plugin for %s", name)
+                    logger.exception("cannot load plugin for %s", name)
                     out.append(HardwarePluginToScan(name=name,
                                                     description=details[2],
                                                     plugin=None,
@@ -212,7 +213,7 @@ def run_hook(name, *args):
             try:
                 r = f(*args)
             except Exception:
-                logging.exception("Plugin error")
+                logger.exception("Plugin error")
                 r = False
             if r:
                 results.append(r)
@@ -568,8 +569,7 @@ class DeviceMgr(ThreadJob):
             try:
                 new_devices = f()
             except BaseException as e:
-                logger.error('custom device enum failed. func %s, error %s',
-                    f, e)
+                logger.error('custom device enum failed. func %s, error %s', f, e)
             else:
                 devices.extend(new_devices)
 

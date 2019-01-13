@@ -25,7 +25,6 @@
 
 from collections import defaultdict
 import json
-import logging
 import os
 import queue
 import threading
@@ -34,8 +33,10 @@ from SimpleWebSocketServer import WebSocket, SimpleSSLWebSocketServer
 
 from . import util
 from .address import Address
+from .logs import logs
 
-logger = logging.getLogger("websockets")
+
+logger = logs.get_logger("websockets")
 
 request_queue = queue.Queue()
 

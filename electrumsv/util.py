@@ -27,7 +27,6 @@ from collections import defaultdict
 from datetime import datetime
 import json
 import hmac
-import logging
 import os
 import re
 import socket
@@ -37,21 +36,8 @@ import sys
 import threading
 import time
 
-from electrumsv.startup import base_dir
-
-# Get the root logger.
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.CRITICAL)
-
-profiler_logger = logging.getLogger("profiler")
-
-
-def add_logging_handler(handler):
-    formatter = logging.Formatter('%(asctime)s:'+ logging.BASIC_FORMAT)
-    handler.setFormatter(formatter)
-    root_logger.addHandler(handler)
-
-add_logging_handler(logging.StreamHandler())
+from .logs import logs
+from .startup import base_dir
 
 
 def inv_dict(d):
@@ -84,10 +70,11 @@ class DebugMem(ThreadJob):
         self.next_time = 0
         self.classes = classes
         self.interval = interval
+        self.logger = logs.get_logger('memory')
 
     def mem_stats(self):
         import gc
-        root_logger.debug("Start memscan")
+        self.logger.debug("start memscan")
         gc.collect()
         objmap = defaultdict(list)
         for obj in gc.get_objects():
@@ -95,8 +82,8 @@ class DebugMem(ThreadJob):
                 if isinstance(obj, class_):
                     objmap[class_].append(obj)
         for class_, objs in objmap.items():
-            root_logger.debug("%s: %d", class_.__name__, len(objs))
-        root_logger.debug("Finish memscan")
+            self.logger.debug("%s: %d", class_.__name__, len(objs))
+        self.logger.debug("finish memscan")
 
     def run(self):
         if time.time() > self.next_time:
@@ -113,6 +100,7 @@ class DaemonThread(threading.Thread):
         self.running_lock = threading.Lock()
         self.job_lock = threading.Lock()
         self.jobs = []
+        self.logger = logs.get_logger('DaemonThread')
 
     def add_jobs(self, jobs):
         with self.job_lock:
@@ -127,7 +115,7 @@ class DaemonThread(threading.Thread):
                 try:
                     job.run()
                 except Exception as e:
-                    logging.exception("")
+                    self.logger.exception("running job")
 
     def remove_jobs(self, jobs):
         with self.job_lock:
@@ -148,30 +136,8 @@ class DaemonThread(threading.Thread):
             self.running = False
 
     def on_stop(self):
-        if 'ANDROID_DATA' in os.environ:
-            try:
-                import jnius
-                jnius.detach()
-                root_logger.debug("jnius detach")
-            except ImportError:
-                pass  # Chaquopy detaches automatically.
-        root_logger.debug("stopped")
+        self.logger.debug("stopped")
 
-def disable_verbose_logging():
-    root_logger.setLevel(logging.ERROR)
-
-def enable_verbose_logging():
-    root_logger.setLevel(logging.DEBUG)
-
-def is_logging_verbose():
-    return logging.getLogger().level == logging.DEBUG
-
-# TODO: disable
-is_verbose = True
-def set_verbosity(b):
-    global is_verbose
-    root_logger.setLevel(logging.DEBUG if b else logging.CRITICAL)
-    is_verbose = b
 
 # Method decorator.  To be used for calculations that will always
 # deliver the same result.  The method cannot take any arguments
@@ -211,10 +177,11 @@ def constant_time_compare(val1, val2):
 def profiler(func):
     def do_profile(func, args, kw_args):
         n = func.__name__
+        logger = logs.get_logger("profiler")
         t0 = time.time()
         o = func(*args, **kw_args)
         t = time.time() - t0
-        profiler_logger.debug("%s %.4f", n, t)
+        logger.debug("%s %.4f", n, t)
         return o
     return lambda *args, **kw_args: do_profile(func, args, kw_args)
 
@@ -262,8 +229,8 @@ def assert_bytes(*args):
     try:
         for x in args:
             assert isinstance(x, (bytes, bytearray))
-    except Exception:
-        root_logger.error('assert bytes failed %s', [type(arg) for arg in args])
+    except AssertionError:
+        logs.root.error('assert bytes failed %s', [type(arg) for arg in args])
         raise
 
 
@@ -484,6 +451,7 @@ class SocketPipe:
         self.message = b''
         self.set_timeout(0.1)
         self.recv_time = time.time()
+        self.logger = logs.get_logger('SocketPipe')
 
     def set_timeout(self, t):
         self.socket.settimeout(t)
@@ -506,15 +474,15 @@ class SocketPipe:
                 if err.errno == 60:
                     raise timeout
                 elif err.errno in [11, 35, 10035]:
-                    root_logger.debug("socket errno %d (resource temporarily unavailable)",
-                                      err.errno)
+                    self.logger.info("socket errno %d (resource temporarily unavailable)",
+                                     err.errno)
                     time.sleep(0.2)
                     raise timeout
                 else:
-                    root_logger.exception("pipe: socket error")
+                    self.logger.exception(f"socket.recv unknown socket.error {err.errno}")
                     data = b''
-            except:
-                root_logger.exception("")
+            except Exception as e:
+                self.logger.exception("socket.recv unknown exception {e}")
                 data = b''
 
             if not data:  # Connection closed remotely

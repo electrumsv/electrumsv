@@ -1,5 +1,4 @@
 
-import logging
 import os
 import shutil
 import threading
@@ -12,17 +11,21 @@ from PyQt5.QtWidgets import (
     QGridLayout
 )
 
-from electrumsv.wallet import Wallet
-from electrumsv.storage import WalletStorage
-from electrumsv.exceptions import UserCancelled, InvalidPassword, UserQuit
-from electrumsv.util import user_dir, get_electron_cash_user_dir
 from electrumsv.base_wizard import BaseWizard
+from electrumsv.exceptions import UserCancelled, InvalidPassword, UserQuit
 from electrumsv.i18n import _
+from electrumsv.logs import logs
+from electrumsv.storage import WalletStorage
+from electrumsv.util import user_dir, get_electron_cash_user_dir
+from electrumsv.wallet import Wallet
 
-from .seed_dialog import SeedLayout, KeysLayout
 from .network_dialog import NetworkChoiceLayout
-from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout
 from .password_dialog import PasswordLayout, PW_NEW
+from .seed_dialog import SeedLayout, KeysLayout
+from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout
+
+
+logger = logs.get_logger('wizard')
 
 
 class GoBack(Exception):
@@ -359,7 +362,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                     QMessageBox.information(None, _('Error'), str(e))
                     continue
                 except BaseException as e:
-                    logging.exception("")
+                    logger.exception("decrypting storage")
                     QMessageBox.information(None, _('Error'), str(e))
                     return
 
@@ -415,7 +418,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     def on_error(self, exc_info):
         if not isinstance(exc_info[1], UserCancelled):
-            logging.exception("", exc_info=exc_info)
+            logger.exception("")
             self.show_error(str(exc_info[1]))
 
     def _remove_layout_from_widget(self, widget):

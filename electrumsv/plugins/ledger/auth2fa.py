@@ -2,21 +2,21 @@ from binascii import hexlify, unhexlify
 import copy
 import hashlib
 import json
-import logging
 import os
 import websocket
 
 from PyQt5.QtWidgets import QDialog, QLineEdit, QTextEdit, QVBoxLayout, QLabel
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QComboBox, QPushButton
+from btchip.btchip import BTChipException
 
 from electrumsv.gui.qt.qrcodewidget import QRCodeWidget
 from electrumsv.i18n import _
-from btchip.btchip import BTChipException
+from electrumsv.logs import logs
 
-logger = logging.getLogger("plugin.ledger.auth2fa")
 
-DEBUG = False
+logger = logs.get_logger("plugin.ledger.auth2fa")
+
 
 helpTxt = [
     _("Your Ledger Wallet wants to tell you a one-time PIN code.<br><br>"
@@ -238,11 +238,11 @@ class LedgerAuthDialog(QDialog):
             mode = self.dongle.exchange( bytearray(apdu) )
             return mode
         except BTChipException as e:
-            debug_msg('Device getMode Failed')
+            logger.debug('Device getMode Failed')
         return 0x11
 
     def closeEvent(self, evnt):
-        debug_msg("CLOSE - Stop WS")
+        logger.debug("CLOSE - Stop WS")
         if self.ws:
             self.ws.stop()
         if self.pairbox.isVisible():
@@ -263,9 +263,6 @@ class LedgerWebSocket(QThread):
         self.dlg = dlg
         self.dongle = self.dlg.dongle
         self.data = None
-
-        #websocket.enableTrace(True)
-        logging.basicConfig(level=logging.INFO)
         self.ws = websocket.WebSocketApp('wss://ws.ledgerwallet.com/2fa/channels',
                                 on_message = self.on_message, on_error = self.on_error,
                                 on_close = self.on_close, on_open = self.on_open)
@@ -274,14 +271,14 @@ class LedgerWebSocket(QThread):
         while not self.stopping:
             self.ws.run_forever()
     def stop(self):
-        debug_msg("WS: Stopping")
+        logger.debug("WS: Stopping")
         self.stopping = True
         self.ws.close()
 
     def on_message(self, ws, msg):
         data = json.loads(msg)
         if data['type'] == 'identify':
-            debug_msg('Identify')
+            logger.debug('Identify')
             apdu = [0xe0, 0x12, 0x01, 0x00, 0x41] # init pairing
             apdu.extend(unhexlify(data['public_key']))
             try:
@@ -289,20 +286,20 @@ class LedgerWebSocket(QThread):
                 ws.send( '{"type":"challenge","data":"%s" }' % hexlify(challenge).decode('utf-8') )
                 self.data = data
             except BTChipException as e:
-                debug_msg('Identify Failed')
+                logger.debug('Identify Failed')
 
         if data['type'] == 'challenge':
-            debug_msg('Challenge')
+            logger.debug('Challenge')
             apdu = [0xe0, 0x12, 0x02, 0x00, 0x10] # confirm pairing
             apdu.extend(unhexlify(data['data']))
             try:
                 self.dongle.exchange( bytearray(apdu) )
-                debug_msg('Pairing Successful')
+                logger.debug('Pairing Successful')
                 ws.send( '{"type":"pairing","is_successful":"true"}' )
                 self.data['pairid'] = self.pairID
                 self.pairing_done.emit(self.data)
             except BTChipException as e:
-                debug_msg('Pairing Failed')
+                logger.debug('Pairing Failed')
                 ws.send( '{"type":"pairing","is_successful":"false"}' )
                 self.pairing_done.emit(None)
             ws.send( '{"type":"disconnect"}' )
@@ -310,47 +307,43 @@ class LedgerWebSocket(QThread):
             ws.close()
 
         if data['type'] == 'accept':
-            debug_msg('Accepted')
+            logger.debug('Accepted')
             self.req_updated.emit('accepted')
         if data['type'] == 'response':
-            debug_msg('Responded', data)
+            logger.debug('Responded', data)
             self.req_updated.emit(str(data['pin']) if data['is_accepted'] else '')
             self.txreq = None
             self.stopping = True
             ws.close()
 
         if data['type'] == 'repeat':
-            debug_msg('Repeat')
+            logger.debug('Repeat')
             if self.txreq:
                 ws.send( self.txreq )
-                debug_msg("Req Sent", self.txreq)
+                logger.debug("Req Sent", self.txreq)
         if data['type'] == 'connect':
-            debug_msg('Connected')
+            logger.debug('Connected')
             if self.txreq:
                 ws.send( self.txreq )
-                debug_msg("Req Sent", self.txreq)
+                logger.debug("Req Sent", self.txreq)
         if data['type'] == 'disconnect':
-            debug_msg('Disconnected')
+            logger.debug('Disconnected')
             ws.close()
 
     def on_error(self, ws, error):
         message = getattr(error, 'strerror', '')
         if not message:
             message = getattr(error, 'message', '')
-        debug_msg("WS: %s" % message)
+        logger.debug("WS: %s" % message)
 
     def on_close(self, ws):
-        debug_msg("WS: ### socket closed ###")
+        logger.debug("WS: ### socket closed ###")
 
     def on_open(self, ws):
-        debug_msg("WS: ### socket open ###")
-        debug_msg("Joining with pairing ID", self.pairID)
+        logger.debug("WS: ### socket open ###")
+        logger.debug("Joining with pairing ID", self.pairID)
         ws.send( '{"type":"join","room":"%s"}' % self.pairID )
         ws.send( '{"type":"repeat"}' )
         if self.txreq:
             ws.send( self.txreq )
-            debug_msg("Req Sent", self.txreq)
-
-def debug_msg(*args):
-    if DEBUG:
-        logger.debug(*args)
+            logger.debug("Req Sent", self.txreq)

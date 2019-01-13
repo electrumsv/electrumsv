@@ -7,28 +7,29 @@ import base64
 import binascii
 import hashlib
 import json
-import logging
 import math
 import os
 import requests
 import struct
 import time
 
+from ecdsa.curves import SECP256k1
 from ecdsa.ecdsa import generator_secp256k1
 from ecdsa.util import sigencode_der
-from ecdsa.curves import SECP256k1
 
-from ..hw_wallet import HW_PluginBase
 from electrumsv.bitcoin import (
     TYPE_ADDRESS, push_script, msg_magic, Hash, verify_message, pubkey_from_signature,
     point_to_ser, public_key_to_p2pkh, EncodeAES, DecodeAES, MyVerifyingKey, int_to_hex,
 )
+from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
+from electrumsv.logs import logs
 from electrumsv.platform import platform
 from electrumsv.transaction import Transaction
-from electrumsv.exceptions import UserCancelled
 from electrumsv.util import to_string
+
+from ..hw_wallet import HW_PluginBase
 
 try:
     import hid
@@ -36,7 +37,7 @@ try:
 except ImportError as e:
     DIGIBOX = False
 
-logger = logging.getLogger("plugin.bitbox")
+logger = logs.get_logger("plugin.bitbox")
 
 # ----------------------------------------------------------------------------------
 # USB HID interface

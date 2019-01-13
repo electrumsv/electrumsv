@@ -22,7 +22,6 @@
 # SOFTWARE.
 
 from decimal import Decimal
-import logging
 import os
 import re
 import shutil
@@ -30,14 +29,15 @@ import threading
 import urllib
 import urllib.parse
 
-from .address import Address
 from . import bitcoin
+from .address import Address
 from .i18n import _
+from .logs import logs
 from .networks import NetworkConstants
 from .util import format_satoshis_plain, bh2u
 
 
-logger = logging.getLogger("web")
+logger = logs.get_logger("web")
 
 mainnet_block_explorers = {
     'bchsvexplorer.com': (

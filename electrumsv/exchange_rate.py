@@ -1,21 +1,21 @@
+from decimal import Decimal
+from threading import Thread
 import csv
 import datetime
 import decimal
-from decimal import Decimal
 import inspect
 import json
-import logging
 import os
 import requests
 import sys
-from threading import Thread
 import time
 
 from .bitcoin import COIN
 from .i18n import _
+from .logs import logs
 from .util import ThreadJob
 
-logger = logging.getLogger("exchangerate")
+logger = logs.get_logger("exchangerate")
 
 
 # See https://en.wikipedia.org/wiki/ISO_4217

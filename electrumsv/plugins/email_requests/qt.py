@@ -30,22 +30,23 @@ from email.mime.base import MIMEBase
 from email.encoders import encode_base64
 from functools import partial
 import imaplib
-import logging
 import smtplib
 import time
 import threading
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QGridLayout, QLineEdit,
-    QInputDialog)
+from PyQt5.QtWidgets import QVBoxLayout, QLabel, QGridLayout, QLineEdit, QInputDialog
 
-from electrumsv.plugin import BasePlugin, hook
-from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.i18n import _
+from electrumsv.logs import logs
+from electrumsv.paymentrequest import PaymentRequest
+from electrumsv.plugin import BasePlugin, hook
+
 from electrumsv.gui.qt.util import EnterButton, Buttons, CloseButton
 from electrumsv.gui.qt.util import OkButton, WindowModalDialog
 
-logger = logging.getLogger("emailrequests")
+
+logger = logs.get_logger("emailrequests")
 
 
 class Processor(threading.Thread):

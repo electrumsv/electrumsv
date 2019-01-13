@@ -1,6 +1,6 @@
-import logging
-
+from electrumsv.logs import logs
 from electrumsv.util import raw_input
+
 
 class CmdLineHandler:
 
@@ -35,7 +35,7 @@ class CmdLineHandler:
         print(msg)
 
     def update_status(self, b):
-        logging.debug('trezor status %s', b)
+        logs.root.debug('trezor status %s', b)
 
     def finished(self):
         pass

@@ -23,7 +23,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import logging
 import signal
 import sys
 
@@ -32,17 +31,21 @@ from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMessageBox, QMenu, QWidget
 import PyQt5.QtCore as QtCore
 
+from electrumsv.exceptions import UserCancelled, UserQuit
 from electrumsv.i18n import _, set_language
+from electrumsv.logs import logs
+from electrumsv.networks import NetworkConstants
 from electrumsv.plugin import run_hook
 from electrumsv.storage import WalletStorage
-from electrumsv.exceptions import UserCancelled, UserQuit
-from electrumsv.networks import NetworkConstants
 
 from .exception_window import Exception_Hook
 from .installwizard import InstallWizard, GoBack
-from .util import ColorScheme, read_QIcon
 from .main_window import ElectrumWindow
 from .network_dialog import NetworkDialog
+from .util import ColorScheme, read_QIcon
+
+
+logger = logs.get_logger('gui-init')
 
 
 class OpenFileEventFilter(QObject):
@@ -186,7 +189,7 @@ class ElectrumGui:
                     except UserCancelled:
                         pass
                     except GoBack as e:
-                        logging.error('[start_new_window] Exception caught (GoBack) %s', e)
+                        logger.error('[start_new_window] Exception caught (GoBack) %s', e)
                     finally:
                         wizard.terminate()
                     if not wallet:
@@ -194,7 +197,7 @@ class ElectrumGui:
                     wallet.start_threads(self.daemon.network)
                     self.daemon.add_wallet(wallet)
             except BaseException as e:
-                logging.exception("")
+                logger.exception("")
                 if '2fa' in str(e):
                     d = QMessageBox(QMessageBox.Warning, _('Error'),
                                     '2FA wallets are not unsupported.')
@@ -232,7 +235,7 @@ class ElectrumGui:
                 wizard.terminate()
             except Exception as e:
                 if not isinstance(e, (UserCancelled, GoBack)):
-                    logging.exception("")
+                    logger.exception("")
                 self.app.quit()
 
     def event_loop_started(self):

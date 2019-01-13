@@ -24,7 +24,6 @@
 # SOFTWARE.
 
 import hashlib
-import logging
 import struct
 
 import ecdsa
@@ -32,24 +31,22 @@ from ecdsa.curves import SECP256k1
 
 # Note: The deserialization code originally comes from ABE.
 
+from .address import (
+    PublicKey, Address, Script, ScriptOutput, hash160, UnknownAddress, OpCodes as opcodes
+)
 from .bitcoin import (
     to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, hash_encode, op_push, Hash,
     MyVerifyingKey, point_to_ser, push_script, public_key_to_p2pk_script, int_to_hex,
     var_int, public_key_from_private_key, regenerate_key, MySigningKey
 )
-from .address import (
-    PublicKey, Address, Script, ScriptOutput, hash160, UnknownAddress, OpCodes as opcodes
-)
+from .keystore import xpubkey_to_address, xpubkey_to_pubkey
+from .logs import logs
 from .util import profiler, bfh, bh2u
 
-#
-# Workalike python implementation of Bitcoin's CDataStream class.
-#
-from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 
 NO_SIGNATURE = 'ff'
 
-logger = logging.getLogger("transaction")
+logger = logs.get_logger("transaction")
 
 
 class SerializationError(Exception):

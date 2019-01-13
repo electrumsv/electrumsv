@@ -1,14 +1,13 @@
 from binascii import unhexlify
-import logging
 
+from electrumsv.bitcoin import xpub_from_pubkey, deserialize_xpub, TYPE_ADDRESS, TYPE_SCRIPT
 from electrumsv.exceptions import UserCancelled
-from electrumsv.util import bfh, bh2u
-from electrumsv.bitcoin import (xpub_from_pubkey, deserialize_xpub,
-                                  TYPE_ADDRESS, TYPE_SCRIPT)
 from electrumsv.i18n import _
+from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
+from electrumsv.logs import logs
 from electrumsv.networks import NetworkConstants
 from electrumsv.plugin import Device
-from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
+from electrumsv.util import bfh, bh2u
 
 from ..hw_wallet import HW_PluginBase
 from ..hw_wallet.plugin import LibraryFoundButUnusable
@@ -36,7 +35,7 @@ except Exception as e:
 
     RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX = range(2)
 
-logger = logging.getLogger("plugin.trezor")
+logger = logs.get_logger("plugin.trezor")
 
 # Trezor initialization methods
 TIM_NEW, TIM_RECOVER = range(2)

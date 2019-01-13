@@ -30,20 +30,20 @@ import datetime
 from decimal import Decimal
 from functools import wraps
 import json
-import logging
 import sys
 
-from .util import bfh, bh2u, format_satoshis, json_decode, to_bytes
-from .import bitcoin
+from . import bitcoin
 from .address import Address
 from .bitcoin import hash_160, COIN, TYPE_ADDRESS
 from .i18n import _
-from .transaction import Transaction, multisig_script
+from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .plugin import run_hook
+from .transaction import Transaction, multisig_script
+from .util import bfh, bh2u, format_satoshis, json_decode, to_bytes
 
 
-logger = logging.getLogger("commands")
+logger = logs.get_logger("commands")
 
 known_commands = {}
 
@@ -870,8 +870,10 @@ def add_network_options(parser):
 
 def add_global_options(parser):
     group = parser.add_argument_group('global options')
-    group.add_argument("-v", "--verbose", action="store_true", dest="verbose", default=False,
-                       help="Show debugging information")
+    group.add_argument("-v", "--verbose", action="store", dest="verbose",
+                       const='info', default='warning', nargs='?',
+                       choices = ('debug', 'info', 'warning', 'error'),
+                       help="Set logging verbosity")
     group.add_argument("-D", "--dir", dest="electrum_sv_path", help="ElectrumSV directory")
     group.add_argument("-P", "--portable", action="store_true", dest="portable", default=False,
                        help="Use local 'electrum_data' directory")

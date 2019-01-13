@@ -23,15 +23,14 @@
 
 '''Platform-specific customization for ElectrumSV'''
 
-import logging
 import os
 import platform
 import sys
 
 from electrumsv.i18n import _
+from electrumsv.logs import logs
 
-
-logger = logging.getLogger("platform")
+logger = logs.get_logger("platform")
 
 
 class Platform(object):
@@ -109,7 +108,7 @@ def _detect():
         logger.warning(_('unknown system "{}"; falling back to Unix.  Please report this.')
                        .format(system))
         cls = Unix
-    logging.debug(f'using platform class {cls.__name__} for system "{system}"')
+    logs.root.debug(f'using platform class {cls.__name__} for system "{system}"')
     return cls()
 
 

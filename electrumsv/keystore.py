@@ -25,28 +25,30 @@
 # SOFTWARE.
 
 import hashlib
-import logging
 from unicodedata import normalize
 
 import ecdsa
 from ecdsa.ecdsa import generator_secp256k1
 from ecdsa.curves import SECP256k1
 from ecdsa.util import string_to_number, number_to_string
-from . import bitcoin
-from .bitcoin import bip32_public_derivation, deserialize_xpub, \
-    CKD_pub, bh2u, bfh, DecodeBase58Check, deserialize_xprv, \
-    pw_encode, bip32_root, bip32_private_derivation, \
-    bip32_private_key, pw_decode, Hash, is_xpub, is_xprv, is_seed, \
-    seed_type
 
+from . import bitcoin
 from .address import Address, PublicKey
-from .networks import NetworkConstants
-from .mnemonic import Mnemonic, load_wordlist
-from .plugin import run_hook
+from .bitcoin import (
+    bip32_public_derivation, deserialize_xpub, CKD_pub, bh2u, bfh, DecodeBase58Check,
+    deserialize_xprv, pw_encode, bip32_root, bip32_private_derivation, bip32_private_key,
+    pw_decode, Hash, is_xpub, is_xprv, is_seed, seed_type
+)
 from .exceptions import InvalidPassword
+from .logs import logs
+from .mnemonic import Mnemonic, load_wordlist
+from .networks import NetworkConstants
+from .plugin import run_hook
 from .util import hfu
 
-logger = logging.getLogger("keystore")
+
+logger = logs.get_logger("keystore")
+
 
 class KeyStore:
     def __init__(self):

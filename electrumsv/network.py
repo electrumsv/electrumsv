@@ -24,7 +24,6 @@
 from collections import defaultdict
 import errno
 import json
-import logging
 import os
 import queue
 import random
@@ -36,17 +35,20 @@ import threading
 import time
 
 import socks
-from . import util
+
 from . import bitcoin
+from . import blockchain
+from . import util
 from .bitcoin import COIN, bfh, Hash
 from .i18n import _
 from .interface import Connection, Interface
-from . import blockchain
+from .logs import logs
 from .version import PACKAGE_VERSION, PROTOCOL_VERSION
 from .simple_config import SimpleConfig
 
 
-logger = logging.getLogger("network")
+logger = logs.get_logger("network")
+
 
 class RPCError(Exception):
     pass
@@ -1536,8 +1538,7 @@ class Network(util.DaemonThread):
             except ValueError:
                 return False, _('bad server response; it is unknown whether '
                                 'the transaction broadcast succeeded')
-            logging.warning(f'server TxID {their_txid} differs from '
-                            f'ours {our_txid}')
+            logger.warning(f'server TxID {their_txid} differs from ours {our_txid}')
 
         return True, our_txid
 
@@ -1588,5 +1589,5 @@ def sanitized_broadcast_message(error):
     if 'scriptsig-not-pushonly' in msg:
         return _('a scriptsig is not simply data')
 
-    logging.debug(f'server error (untrusted): {error}')
+    logger.info(f'server error (untrusted): {error}')
     return unknown_reason
