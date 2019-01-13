@@ -94,7 +94,7 @@ class RequestList(MyTreeWidget):
             amount = req.get('amount')
             expiration = req.get('exp', None)
             message = req.get('memo', '')
-            date = format_time(timestamp)
+            date = format_time(timestamp, _("Unknown"))
             status = req.get('status')
             signature = req.get('sig')
             requestor = req.get('name', '')

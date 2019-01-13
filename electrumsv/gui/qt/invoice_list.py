@@ -29,7 +29,8 @@ from .util import MyTreeWidget, pr_icons, pr_tooltips, PR_UNPAID, read_QIcon
 
 from electrumsv.i18n import _
 from electrumsv.platform import platform
-from electrumsv.util import format_time, FileImportFailed
+from electrumsv.exceptions import FileImportFailed
+from electrumsv.util import format_time
 
 
 class InvoiceList(MyTreeWidget):
@@ -51,7 +52,7 @@ class InvoiceList(MyTreeWidget):
             status = self.parent.invoices.get_status(key)
             requestor = pr.get_requestor()
             exp = pr.get_expiration_date()
-            date_str = format_time(exp) if exp else _('Never')
+            date_str = format_time(exp, _("Unknown")) if exp else _('Never')
             item = QTreeWidgetItem([date_str, requestor, pr.memo,
                                     self.parent.format_amount(pr.get_amount(), whitespaces=True),
                                     pr_tooltips.get(status,'')])

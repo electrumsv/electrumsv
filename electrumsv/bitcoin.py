@@ -32,8 +32,8 @@ import ecdsa
 import pyaes
 
 from .networks import NetworkConstants
-from .util import (bfh, bh2u, to_string, InvalidPassword,
-                   assert_bytes, to_bytes, inv_dict)
+from .exceptions import InvalidPassword
+from .util import bfh, bh2u, to_string, assert_bytes, to_bytes, inv_dict
 from . import version
 from .ecc_fast import do_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1
 

@@ -29,7 +29,8 @@ import re
 
 from .address import Address
 from . import dnssec
-from .util import FileImportFailed, FileImportFailedEncrypted, to_string
+from .exceptions import FileImportFailed, FileImportFailedEncrypted
+from .util import to_string
 
 logger = logging.getLogger("contacts")
 

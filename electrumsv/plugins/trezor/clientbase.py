@@ -3,7 +3,7 @@ from struct import pack
 import time
 
 from electrumsv.i18n import _
-from electrumsv.util import UserCancelled
+from electrumsv.exceptions import UserCancelled
 from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.bitcoin import serialize_xpub, convert_bip32_path_to_list_of_uint32 as parse_path
 

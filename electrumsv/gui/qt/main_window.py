@@ -51,9 +51,10 @@ from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
 from electrumsv.networks import NetworkConstants
 from electrumsv.plugin import run_hook
 from electrumsv.i18n import _
+from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.util import (format_time, format_satoshis,
-                           format_satoshis_plain, NotEnoughFunds, ExcessiveFee,
-                           UserCancelled, bh2u, bfh, format_fee_satoshis)
+                           format_satoshis_plain,
+                           bh2u, bfh, format_fee_satoshis)
 import electrumsv.web as web
 from electrumsv.transaction import Transaction
 from electrumsv import util, bitcoin, commands
@@ -1976,7 +1977,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(QLabel(pr.get_verify_status()), 3, 1)
         if expires:
             grid.addWidget(QLabel(_("Expires") + ':'), 4, 0)
-            grid.addWidget(QLabel(format_time(expires)), 4, 1)
+            grid.addWidget(QLabel(format_time(expires, _("Unknown"))), 4, 1)
         vbox.addLayout(grid)
         def do_export():
             fn = self.getSaveFileName(_("Save invoice to file"), "*.bip70")

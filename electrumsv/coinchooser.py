@@ -29,7 +29,7 @@ from math import floor, log10
 
 from .bitcoin import sha256, COIN, TYPE_ADDRESS
 from .transaction import Transaction
-from .util import NotEnoughFunds
+from .exceptions import NotEnoughFunds
 
 
 logger = logging.getLogger("coinchooser")

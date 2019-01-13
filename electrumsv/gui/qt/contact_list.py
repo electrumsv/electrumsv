@@ -28,7 +28,7 @@ from electrumsv.i18n import _
 import electrumsv.web as web
 from electrumsv.address import Address
 from electrumsv.plugin import run_hook
-from electrumsv.util import FileImportFailed
+from electrumsv.exceptions import FileImportFailed
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QAbstractItemView, QFileDialog, QMenu, QTreeWidgetItem)

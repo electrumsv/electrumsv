@@ -27,7 +27,8 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.platform import platform
 from electrumsv.transaction import Transaction
-from electrumsv.util import to_string, UserCancelled
+from electrumsv.exceptions import UserCancelled
+from electrumsv.util import to_string
 
 try:
     import hid

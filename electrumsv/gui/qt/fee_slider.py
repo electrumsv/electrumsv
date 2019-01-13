@@ -27,7 +27,8 @@ class FeeSlider(QSlider):
             self.callback(self.dyn, pos, fee_rate)
 
     def get_tooltip(self, pos, fee_rate):
-        from electrumsv.util import fee_levels
+        fee_levels = [_('Within 25 blocks'), _('Within 10 blocks'), _('Within 5 blocks'),
+                    _('Within 2 blocks'), _('In the next block')]
         rate_str = self.window.format_fee_rate(fee_rate) if fee_rate else _('unknown')
         if self.config.has_custom_fee_rate():
             tooltip = _('Custom rate: ') + rate_str

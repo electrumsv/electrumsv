@@ -43,9 +43,8 @@ from electrumsv.networks import NetworkConstants
 from electrumsv.platform import platform
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.storage import WalletStorage
-from electrumsv.util import (
-    json_encode, json_decode, use_packages_if_from_source, InvalidPassword, is_bundle,
-)
+from electrumsv.exceptions import InvalidPassword
+from electrumsv.util import json_encode, json_decode, use_packages_if_from_source, is_bundle
 from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
 
 

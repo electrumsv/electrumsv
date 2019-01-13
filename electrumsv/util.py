@@ -37,8 +37,6 @@ import sys
 import threading
 import time
 
-from .i18n import _
-
 # Get the root logger.
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.CRITICAL)
@@ -57,41 +55,8 @@ add_logging_handler(logging.StreamHandler())
 def inv_dict(d):
     return {v: k for k, v in d.items()}
 
-fee_levels = [_('Within 25 blocks'), _('Within 10 blocks'), _('Within 5 blocks'),
-              _('Within 2 blocks'), _('In the next block')]
-
 def normalize_version(v):
     return [int(x) for x in re.sub(r'(\.0+)*$','', v).split(".")]
-
-class NotEnoughFunds(Exception): pass
-
-class ExcessiveFee(Exception): pass
-
-class InvalidPassword(Exception):
-    def __str__(self):
-        return _("Incorrect password")
-
-
-class FileImportFailed(Exception):
-    def __str__(self):
-        return _("Failed to import file.")
-
-
-class FileImportFailedEncrypted(FileImportFailed):
-    def __str__(self):
-        return (_('Failed to import file.') + ' ' +
-                _('Perhaps it is encrypted...') + '\n' +
-                _('Importing encrypted files is not supported.'))
-
-
-# Throw this exception to unwind the stack like when an error occurs.
-# However unlike other exceptions the user won't be informed.
-class UserCancelled(Exception):
-    '''An exception that is suppressed from the user'''
-    pass
-
-class UserQuit(Exception):
-    pass
 
 class MyEncoder(json.JSONEncoder):
     # https://github.com/PyCQA/pylint/issues/414
@@ -422,9 +387,9 @@ def timestamp_to_datetime(timestamp):
     except:
         return None
 
-def format_time(timestamp):
+def format_time(timestamp, default_text):
     date = timestamp_to_datetime(timestamp)
-    return date.isoformat(' ')[:-3] if date else _("Unknown")
+    return date.isoformat(' ')[:-3] if date else default_text
 
 
 # Takes a timestamp and returns a string with the approximation of the age
@@ -601,7 +566,7 @@ def versiontuple(v):
 
 
 def resource_path(*parts):
-    return os.path.join(base_dir, *parts)
+    return os.path.join(base_dir, "data", *parts)
 
 
 def is_bundle():

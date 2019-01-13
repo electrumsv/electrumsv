@@ -1,7 +1,8 @@
 from binascii import unhexlify
 import logging
 
-from electrumsv.util import bfh, bh2u, UserCancelled
+from electrumsv.exceptions import UserCancelled
+from electrumsv.util import bfh, bh2u
 from electrumsv.bitcoin import (xpub_from_pubkey, deserialize_xpub,
                                   TYPE_ADDRESS, TYPE_SCRIPT)
 from electrumsv.i18n import _

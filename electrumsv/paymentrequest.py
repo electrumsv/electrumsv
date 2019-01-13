@@ -38,7 +38,7 @@ from . import rsakey
 from . import transaction
 from . import util
 from . import x509
-from .util import FileImportFailed, FileImportFailedEncrypted
+from .exceptions import FileImportFailed, FileImportFailedEncrypted
 from .util import bh2u, bfh
 
 logger = logging.getLogger("paymentrequest")

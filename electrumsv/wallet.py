@@ -29,9 +29,7 @@
 
 import copy
 from collections import defaultdict, namedtuple
-from decimal import Decimal
 import errno
-from functools import partial
 import json
 import logging
 import os
@@ -40,21 +38,17 @@ import threading
 import time
 
 from .i18n import _
-from .util import (
-    NotEnoughFunds, ExcessiveFee, UserCancelled, profiler, format_satoshis, bh2u,
-    format_time, timestamp_to_datetime
-)
+from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
+from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
 
-from .address import Address, Script, ScriptOutput, PublicKey
+from .address import Address, Script, PublicKey
 from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, is_minikey, Hash
 from .version import PACKAGE_VERSION
 from .keystore import (
     load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore, xpubkey_to_address
 )
-from .networks import NetworkConstants
 from .storage import multisig_type
 
-from . import transaction
 from .transaction import Transaction
 from .plugin import run_hook
 from . import bitcoin
@@ -910,7 +904,10 @@ class Abstract_Wallet:
                 'balance': format_satoshis(balance)
             }
             if item['height']>0:
-                date_str = format_time(timestamp) if timestamp is not None else _("unverified")
+                if timestamp is not None:
+                    date_str = format_time(timestamp, _("unknown"))
+                else:
+                    date_str = _("unverified")
             else:
                 date_str = _("unconfirmed")
             item['date'] = date_str
@@ -975,7 +972,7 @@ class Abstract_Wallet:
                 status = 3
         else:
             status = 3 + min(conf, 6)
-        time_str = format_time(timestamp) if timestamp else _("unknown")
+        time_str = format_time(timestamp, _("unknown")) if timestamp else _("unknown")
         status_str = TX_STATUS[status] if status < 4 else time_str
         return status, status_str
 

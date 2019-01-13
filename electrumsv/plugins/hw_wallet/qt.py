@@ -36,7 +36,7 @@ from electrumsv.gui.qt.util import (
 )
 from electrumsv.gui.qt.main_window import StatusBarButton
 from electrumsv.plugin import hook
-from electrumsv.util import UserCancelled
+from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 
 # The trickiest thing about this handler was getting windows properly

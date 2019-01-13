@@ -32,7 +32,8 @@ import threading
 import time
 
 from .i18n import _
-from .util import profiler, DaemonThread, UserCancelled, ThreadJob
+from .exceptions import UserCancelled
+from .util import profiler, DaemonThread, ThreadJob
 from . import bitcoin
 from . import plugins
 

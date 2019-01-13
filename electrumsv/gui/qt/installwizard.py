@@ -14,15 +14,14 @@ from PyQt5.QtWidgets import (
 
 from electrumsv.wallet import Wallet
 from electrumsv.storage import WalletStorage
-from electrumsv.util import (
-    UserCancelled, InvalidPassword, user_dir, get_electron_cash_user_dir, UserQuit
-)
+from electrumsv.exceptions import UserCancelled, InvalidPassword, UserQuit
+from electrumsv.util import user_dir, get_electron_cash_user_dir
 from electrumsv.base_wizard import BaseWizard
 from electrumsv.i18n import _
 
 from .seed_dialog import SeedLayout, KeysLayout
 from .network_dialog import NetworkChoiceLayout
-from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, icon_path
+from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout
 from .password_dialog import PasswordLayout, PW_NEW
 
 

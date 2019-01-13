@@ -21,6 +21,12 @@ with open('contrib/requirements/requirements-hw.txt') as f:
 
 version = imp.load_source('version', 'electrumsv/version.py')
 
+def copy_dir(dir_name):
+    file_path = os.path.dirname(os.path.realpath(__file__))
+    for (dirpath, dirnames, files) in os.walk(os.path.join(file_path, dir_name)):
+        for f in files:
+            yield os.path.join(dirpath[len(file_path)+1:], f)
+
 data_files = []
 
 if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
@@ -53,10 +59,11 @@ if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
         share_dir = user_share
     data_files += [
         # Menu icon
-        (os.path.join(share_dir, 'icons/hicolor/128x128/apps/'), ['icons/electrum-sv.png']),
-        (os.path.join(share_dir, 'pixmaps/'),                    ['icons/electrum-sv.png']),
+        (os.path.join(share_dir, 'icons/hicolor/128x128/apps/'), ['data/icons/electrum-sv.png']),
+        (os.path.join(share_dir, 'pixmaps/'),                    ['data/icons/electrum-sv.png']),
         # Menu entry
         (os.path.join(share_dir, 'applications/'), ['electrum-sv.desktop']),
+        ('', [ file_name for file_name in copy_dir('data') ]),
     ]
 
 setup(
@@ -73,7 +80,7 @@ setup(
         'electrumsv.plugins',
     ] + [('electrumsv.plugins.' + pkg)
          for pkg in find_packages('electrumsv/plugins')],
-    package_dir={
+    package_dir={ # rt12: Pretty sure this does nothing.
         'electrumsv': 'electrumsv'
     },
     package_data={
@@ -83,7 +90,6 @@ setup(
             'currencies.json',
             'www/index.html',
             'wordlist/*.txt',
-            'locale/*/LC_MESSAGES/electrum-sv.mo',
         ]
     },
     scripts=['electrum-sv'],

@@ -43,7 +43,8 @@ from .address import Address, PublicKey
 from .networks import NetworkConstants
 from .mnemonic import Mnemonic, load_wordlist
 from .plugin import run_hook
-from .util import InvalidPassword, hfu
+from .exceptions import InvalidPassword
+from .util import hfu
 
 logger = logging.getLogger("keystore")
 
