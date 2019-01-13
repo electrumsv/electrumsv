@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-#
 # Electrum SV - lightweight Bitcoin SV client
 # Copyright (C) 2019 The Electrum SV Developers
 #
