@@ -6,9 +6,11 @@ from electrumsv import bitcoin
 from electrumsv.bitcoin import TYPE_ADDRESS, int_to_hex, var_int
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
+from electrumsv.logs import logs
 from electrumsv.transaction import Transaction
+from electrumsv.util import bfh, bh2u, versiontuple
+
 from ..hw_wallet import HW_PluginBase
-from electrumsv.util import is_logging_verbose, bfh, bh2u, versiontuple
 
 try:
     import hid
@@ -19,7 +21,7 @@ try:
     from btchip.btchipFirmwareWizard import checkFirmware
     from btchip.btchipException import BTChipException
     BTCHIP = True
-    BTCHIP_DEBUG = is_logging_verbose()
+    BTCHIP_DEBUG = logs.is_debug_level()
 except ImportError:
     BTCHIP = False
 

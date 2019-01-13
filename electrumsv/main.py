@@ -30,7 +30,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import logging
 import os
 import sys
 import time
@@ -38,6 +37,7 @@ import time
 from electrumsv import bitcoin, daemon, keystore, util, web
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
 from electrumsv.exceptions import InvalidPassword
+from electrumsv.logs import logs
 from electrumsv.mnemonic import Mnemonic
 from electrumsv.network import Network
 from electrumsv.networks import NetworkConstants
@@ -284,6 +284,8 @@ def main():
         if value is not None and key not in config_variables.get(args.cmd, {})
     }
 
+    logs.set_level(config_options['verbose'])
+
     if config_options.get('server'):
         config_options['auto_connect'] = False
     config_options['cwd'] = os.getcwd()
@@ -303,12 +305,7 @@ def main():
         log_path = os.path.join(util.user_dir(prefer_local=True), "logs")
         os.makedirs(log_path, exist_ok=True)
         log_path = os.path.join(log_path, time.strftime("%Y%m%d-%H%M%S") + ".log")
-        util.add_logging_handler(logging.FileHandler(log_path))
-
-    if config_options.get('verbose'):
-        util.enable_verbose_logging()
-    else:
-        util.disable_verbose_logging()
+        logs.add_file_output(log_path)
 
     if config_options.get('testnet'):
         NetworkConstants.set_testnet()
