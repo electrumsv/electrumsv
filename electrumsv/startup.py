@@ -21,9 +21,23 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+
+# NOTE: no imports in this file can be 3rd-party.  All MUST be in the base Python system
+# libraries.  Also, this file MUST NOT use f-strings.
+import os.path as path
 import sys
 
-vtuple = sys.version_info
+
+vtuple = sys.version_info[:3]
 if vtuple < (3, 6, 0):
-    sys.exit("error: ElectrumSV requires Python version 3.6 or higher; you are running Python {}"
-             .format('.'.join(str(part) for part in (vtuple.major, vtuple.minor, vtuple.micro))))
+    sys.exit('error: ElectrumSV requires Python version 3.6 or higher; you are running Python {}'
+             .format('.'.join(str(part) for part in vtuple)))
+
+
+# True if a pyinstaller binary
+is_bundle = getattr(sys, 'frozen', False)
+base_dir, _base_name = path.split(path.dirname(path.realpath(__file__)))
+
+# Add 'packages' directory to search path if running from source
+if not is_bundle and path.exists(path.join(base_dir, 'electrum-sv.desktop')):
+    sys.path.insert(0, path.join(base_dir, 'packages'))

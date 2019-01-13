@@ -37,14 +37,15 @@ import time
 
 from electrumsv import bitcoin, daemon, keystore, util, web
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
+from electrumsv.exceptions import InvalidPassword
 from electrumsv.mnemonic import Mnemonic
 from electrumsv.network import Network
 from electrumsv.networks import NetworkConstants
 from electrumsv.platform import platform
 from electrumsv.simple_config import SimpleConfig
+from electrumsv.startup import is_bundle
 from electrumsv.storage import WalletStorage
-from electrumsv.exceptions import InvalidPassword
-from electrumsv.util import json_encode, json_decode, is_bundle
+from electrumsv.util import json_encode, json_decode
 from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
 
 
@@ -289,7 +290,7 @@ def main():
 
     # fixme: this can probably be achieved with a runtime hook (pyinstaller)
     try:
-        if is_bundle() and os.path.exists(os.path.join(sys._MEIPASS, 'is_portable')):
+        if is_bundle and os.path.exists(os.path.join(sys._MEIPASS, 'is_portable')):
             config_options['portable'] = True
     except AttributeError:
         config_options['portable'] = False

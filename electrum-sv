@@ -23,16 +23,10 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import sys
-
-import electrumsv.check_version    # Must be first electrumsv import
-
-# These two modules should not import third-party pacakges, only system ones
+import electrumsv.startup
 from electrumsv.platform import platform
-from electrumsv.util import use_packages_if_from_source
 
 try:
-    use_packages_if_from_source()
     from electrumsv.main import main
 except ImportError as e:
     platform.missing_import(e)
