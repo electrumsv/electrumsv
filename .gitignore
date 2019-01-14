@@ -6,7 +6,7 @@ dist/
 *.egg/
 /electrum.py
 /contrib/pyinstaller/
-Electrum_SV.egg-info/
+ElectrumSV.egg-info/
 /electrumsv/locale/
 .devlocaltmp/
 *_trial_temp
