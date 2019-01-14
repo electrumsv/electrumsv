@@ -26,18 +26,15 @@
 import ast
 import os
 import time
-import threading
 
 import jsonrpclib
 
 from .app_state import app_state
 from .commands import known_commands, Commands
 from .exchange_rate import FxThread
-from .extensions import Extension
 from .jsonrpc import VerifyingJSONRPCServer
 from .logs import logs
 from .network import Network
-from .platform import platform
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .util import json_decode, DaemonThread

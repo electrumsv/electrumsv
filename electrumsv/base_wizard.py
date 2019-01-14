@@ -27,7 +27,7 @@ import os
 
 from . import bitcoin, keystore
 from .i18n import _
-from .keystore import bip44_derivation, bip44_derivation_145
+from .keystore import bip44_derivation_145
 from .logs import logs
 from .wallet import (
     ImportedAddressWallet, ImportedPrivkeyWallet, Standard_Wallet, Multisig_Wallet, wallet_types,

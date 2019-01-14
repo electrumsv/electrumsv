@@ -35,7 +35,8 @@ def _(x):
 
 def set_language(x):
     global language
-    if x: language = gettext.translation('electron-cash', LOCALE_DIR, fallback = True, languages=[x])
+    if x:
+        language = gettext.translation('electron-cash', LOCALE_DIR, fallback=True, languages=[x])
 
 
 languages = {

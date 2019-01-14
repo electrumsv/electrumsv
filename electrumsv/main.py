@@ -34,7 +34,7 @@ import os
 import sys
 import time
 
-from electrumsv import bitcoin, daemon, keystore, util, web
+from electrumsv import daemon, keystore, util, web
 from electrumsv.app_state import app_state, AppStateProxy
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
 from electrumsv.exceptions import InvalidPassword

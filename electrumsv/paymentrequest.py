@@ -26,7 +26,6 @@
 import hashlib
 import json
 import requests
-import sys
 import time
 import urllib.parse
 

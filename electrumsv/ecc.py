@@ -26,17 +26,21 @@ import hashlib
 from typing import Union, Tuple
 
 import ecdsa
+from ecdsa import util, numbertheory
 from ecdsa.curves import SECP256k1
 from ecdsa.ecdsa import curve_secp256k1, generator_secp256k1
 from ecdsa.ellipticcurve import Point
 from ecdsa.util import string_to_number, number_to_string
 
+
 from . import msqr
-from .bitcoin import Hash, aes_encrypt_with_iv, aes_decrypt_with_iv, hmac_oneshot
+from .bitcoin import (
+    Hash, aes_encrypt_with_iv, aes_decrypt_with_iv, hmac_oneshot, var_int, pubkey_to_address
+)
 from .ecc_fast import do_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1
 from .exceptions import InvalidPassword
 from .logs import logs
-from .util import bfh, bh2u, assert_bytes, to_bytes, profiler
+from .util import bfh, bh2u, assert_bytes, to_bytes
 
 
 do_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1()
@@ -133,8 +137,6 @@ class _MyVerifyingKey(ecdsa.VerifyingKey):
     @classmethod
     def from_signature(klass, sig, recid, h, curve):  # TODO use libsecp??
         """ See http://www.secg.org/download/aid-780/sec1-v2.pdf, chapter 4.1.6 """
-        from ecdsa import util, numbertheory
-        from . import msqr
         curveFp = curve.curve
         G = curve.generator
         order = G.order()
@@ -249,7 +251,7 @@ class ECPubkey(object):
                 and self._pubkey.point.y() == other._pubkey.point.y()
 
     def __ne__(self, other):
-        return not (self == other)
+        return self != other
 
     def verify_message_for_address(self, sig65: bytes, message: bytes) -> None:
         assert_bytes(message)
@@ -305,13 +307,11 @@ class ECPubkey(object):
 
 
 def msg_magic(message: bytes) -> bytes:
-    from .bitcoin import var_int
     length = bfh(var_int(len(message)))
     return b"\x18Bitcoin Signed Message:\n" + length + message
 
 
 def verify_message_with_address(address: str, sig65: bytes, message: bytes):
-    from .bitcoin import pubkey_to_address
     assert_bytes(sig65, message)
     try:
         h = Hash(msg_magic(message))
@@ -402,8 +402,8 @@ class ECPrivkey(ECPubkey):
                     return sig65, recid
                 except Exception as e:
                     continue
-            else:
-                raise Exception("error: cannot sign message. no recid fits..")
+
+            raise Exception("error: cannot sign message. no recid fits..")
 
         message = to_bytes(message, 'utf8')
         msg_hash = Hash(msg_magic(message))
