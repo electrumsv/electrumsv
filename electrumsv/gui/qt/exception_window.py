@@ -67,6 +67,7 @@ class Exception_Window(QDialog):
         self.exc_triple = exc_triple
         self.app = app
         self.setWindowTitle('ElectrumSV - ' + _('An Error Occurred'))
+        self.setWindowIcon(util.read_QIcon("electrum-sv.png"))
         self.setMinimumSize(600, 300)
 
         main_box = QVBoxLayout()

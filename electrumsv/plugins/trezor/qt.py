@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import QGridLayout, QPushButton, \
     QWidget, QSlider, QTabWidget
 
 from electrumsv.gui.qt.util import WindowModalDialog, WWLabel, Buttons, \
-    CancelButton, OkButton, CloseButton
+    CancelButton, OkButton, CloseButton, read_QIcon
 from electrumsv.i18n import _
 from electrumsv.plugin import hook
 from electrumsv.util import bh2u
@@ -43,6 +43,7 @@ class MatrixDialog(WindowModalDialog):
     def __init__(self, parent):
         super(MatrixDialog, self).__init__(parent)
         self.setWindowTitle(_("Trezor Matrix Recovery"))
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.num = 9
         self.loop = QEventLoop()
 

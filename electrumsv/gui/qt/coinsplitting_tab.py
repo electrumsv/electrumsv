@@ -356,6 +356,7 @@ class SplitWaitingDialog(QProgressDialog):
 
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle(_("Please wait"))
+        self.setWindowIcon(util.read_QIcon("electrum-sv.png"))
         # self.setCancelButton(None)
 
         self.stage_progress = 0

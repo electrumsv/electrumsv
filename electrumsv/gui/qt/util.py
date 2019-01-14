@@ -116,6 +116,7 @@ class HelpButton(QPushButton):
         b.setTextFormat(self.textFormat)
         b.setText(self.help_text)
         b.setWindowTitle(self.title)
+        b.setWindowIcon(read_QIcon("electrum-sv.png"))
         b.exec()
 
 class Buttons(QHBoxLayout):
@@ -205,6 +206,7 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
         self.setWindowModality(Qt.WindowModal)
         if title:
             self.setWindowTitle(title)
+            self.setWindowIcon(read_QIcon("electrum-sv.png"))
 
 
 class WaitingDialog(WindowModalDialog):

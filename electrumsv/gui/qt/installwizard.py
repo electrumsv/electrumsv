@@ -22,7 +22,7 @@ from electrumsv.wallet import Wallet
 from .network_dialog import NetworkChoiceLayout
 from .password_dialog import PasswordLayout, PW_NEW
 from .seed_dialog import SeedLayout, KeysLayout
-from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout
+from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, read_QIcon
 
 
 logger = logs.get_logger('wizard')
@@ -116,6 +116,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         BaseWizard.__init__(self, config, storage)
         QDialog.__init__(self, None)
         self.setWindowTitle('ElectrumSV')
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.app = app
         self.config = config
         # Set for base base class

@@ -2143,6 +2143,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def show_master_public_keys(self):
         dialog = QDialog(self)
         dialog.setWindowTitle(_("Wallet Information"))
+        dialog.setWindowIcon(read_QIcon("electrum-sv.png"))
         dialog.setMinimumSize(500, 100)
         mpk_list = self.wallet.get_master_public_keys()
         vbox = QVBoxLayout()

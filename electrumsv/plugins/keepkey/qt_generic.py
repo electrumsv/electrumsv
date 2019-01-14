@@ -11,7 +11,7 @@ from .plugin import TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 
 from electrumsv.gui.qt.util import WindowModalDialog, WWLabel, Buttons, \
-    CancelButton, OkButton, CloseButton
+    CancelButton, OkButton, CloseButton, read_QIcon
 from electrumsv.i18n import _
 from electrumsv.plugin import hook
 from electrumsv.util import bh2u
@@ -55,6 +55,7 @@ class CharacterDialog(WindowModalDialog):
     def __init__(self, parent):
         super(CharacterDialog, self).__init__(parent)
         self.setWindowTitle(_("KeepKey Seed Recovery"))
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.character_pos = 0
         self.word_pos = 0
         self.loop = QEventLoop()

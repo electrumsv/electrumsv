@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import QWidget, QHBoxLayout, QComboBox, QPushButton
 from btchip.btchip import BTChipException
 
 from electrumsv.gui.qt.qrcodewidget import QRCodeWidget
+from electrumsv.gui.qt.util import read_QIcon
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 
@@ -45,6 +46,7 @@ class LedgerAuthDialog(QDialog):
         self.idxs = self.txdata['keycardData'] if self.txdata['confirmationType'] > 1 else ''
         self.setMinimumWidth(600)
         self.setWindowTitle(_("Ledger Wallet Authentication"))
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.cfg = copy.deepcopy(self.handler.win.wallet.get_keystore().cfg)
         self.dongle = self.handler.win.wallet.get_keystore().get_client().dongle
         self.ws = None

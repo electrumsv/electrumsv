@@ -36,7 +36,7 @@ from electrumsv.i18n import _, languages
 import electrumsv.web as web
 
 from .amountedit import BTCSatsByteEdit
-from .util import ColorScheme, HelpButton, HelpLabel, Buttons, CloseButton
+from .util import ColorScheme, HelpButton, HelpLabel, Buttons, CloseButton, read_QIcon
 
 
 class PreferencesDialog(QDialog):
@@ -48,6 +48,7 @@ class PreferencesDialog(QDialog):
         self.parent = parent
         self.config = parent.config
         self.setWindowTitle(_('Preferences'))
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.lay_out(parent)
 
     def closeEvent(self, event):

@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import (
 
 from electrumsv.i18n import _
 from electrumsv.extensions import virtual_keyboard
-from .util import WindowModalDialog, OkButton, Buttons, CancelButton, icon_path
+from .util import WindowModalDialog, OkButton, Buttons, CancelButton, icon_path, read_QIcon
 
 
 def check_password_strength(password):
@@ -187,6 +187,7 @@ class ChangePasswordDialog(WindowModalDialog):
         OK_button = OkButton(self)
         self.playout = PasswordLayout(wallet, msg, PW_CHANGE, OK_button)
         self.setWindowTitle(self.playout.title())
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         vbox = QVBoxLayout(self)
         vbox.addLayout(self.playout.layout())
         vbox.addStretch(1)

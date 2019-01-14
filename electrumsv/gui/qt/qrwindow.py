@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 
 from electrumsv.gui.qt.qrcodewidget import QRCodeWidget
-from .util import WWLabel
+from .util import WWLabel, read_QIcon
 from electrumsv.i18n import _
 
 
@@ -38,6 +38,7 @@ class QR_Window(QWidget):
         QWidget.__init__(self)
         self.win = win
         self.setWindowTitle('ElectrumSV - ' + _('Payment Request'))
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.setMinimumSize(800, 250)
         self.label = ''
         self.amount = 0

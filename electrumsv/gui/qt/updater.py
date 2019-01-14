@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QProgressBar, QLabel, QFrame, QHBoxLayout, QPushButton
 )
 
-from electrumsv.gui.qt.util import TaskThread
+from electrumsv.gui.qt.util import TaskThread, read_QIcon
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.version import PACKAGE_VERSION
@@ -80,6 +80,7 @@ class UpdaterDialog(UpdaterWidget):
         self._main_window = main_window
 
         self.setWindowTitle('ElectrumSV - ' + _('Update Check'))
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.resize(600, 400)
 
         layout = self.layout()
