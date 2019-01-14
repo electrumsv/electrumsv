@@ -906,3 +906,11 @@ def bip32_private_key(sequence, k, chain):
     for i in sequence:
         k, chain = CKD_priv(k, chain, i)
     return k
+
+
+def hmac_oneshot(key: bytes, msg: bytes, digest) -> bytes:
+    if hasattr(hmac, 'digest'):
+        # requires python 3.7+; faster
+        return hmac.digest(key, msg, digest)
+    else:
+        return hmac.new(key, msg, digest).digest()
