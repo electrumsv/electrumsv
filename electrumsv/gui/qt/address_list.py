@@ -23,19 +23,21 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from functools import partial
 import webbrowser
 
-from functools import partial
-
-from .util import MyTreeWidget, SortableTreeWidgetItem
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor, QKeySequence
 from PyQt5.QtWidgets import QTreeWidgetItem, QAbstractItemView, QMenu
+
 from electrumsv.i18n import _
 from electrumsv.address import Address
+from electrumsv.app_state import app_state
 from electrumsv.platform import platform
 from electrumsv.plugin import run_hook
 import electrumsv.web as web
+
+from .util import MyTreeWidget, SortableTreeWidgetItem
 
 
 class AddressList(MyTreeWidget):
@@ -45,15 +47,18 @@ class AddressList(MyTreeWidget):
         self.wallet = None
         super().__init__(parent, self.create_menu, [], 2)
         self.monospace_font = QFont(platform.monospace_font)
-        self.refresh_headers()
+        if app_state.fx and app_state.fx.get_fiat_address_config():
+            self.fx = app_state.fx
+        else:
+            self.fx = None
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSortingEnabled(True)
+        self.refresh_headers()
 
     def refresh_headers(self):
         headers = [ ('Address'), _('Index'),_('Label'), _('Balance'), _('Tx')]
-        fx = self.parent.fx
-        if fx and fx.get_fiat_address_config():
-            headers.insert(4, '{} {}'.format(fx.get_currency(), _(' Balance')))
+        if self.fx:
+            headers.insert(4, '{} {}'.format(self.fx.get_currency(), _(' Balance')))
         self.update_headers(headers)
 
     def on_update(self):
@@ -89,10 +94,6 @@ class AddressList(MyTreeWidget):
         receiving_addresses = self.wallet.get_receiving_addresses()
         change_addresses = self.wallet.get_change_addresses()
 
-        if self.parent.fx and self.parent.fx.get_fiat_address_config():
-            fx = self.parent.fx
-        else:
-            fx = None
         account_item = self
         sequences = [0,1] if change_addresses else [0]
         for is_change in sequences:
@@ -116,14 +117,14 @@ class AddressList(MyTreeWidget):
                 label = self.wallet.labels.get(address.to_string(), '')
                 balance_text = self.parent.format_amount(balance, whitespaces=True)
                 columns = [address_text, str(n), label, balance_text, str(num)]
-                if fx:
-                    rate = fx.exchange_rate()
-                    fiat_balance = fx.value_str(balance, rate)
+                if self.fx:
+                    rate = self.fx.exchange_rate()
+                    fiat_balance = self.fx.value_str(balance, rate)
                     columns.insert(4, fiat_balance)
                 address_item = SortableTreeWidgetItem(columns)
                 address_item.setTextAlignment(3, Qt.AlignRight)
                 address_item.setFont(3, self.monospace_font)
-                if fx:
+                if self.fx:
                     address_item.setTextAlignment(4, Qt.AlignRight)
                     address_item.setFont(4, self.monospace_font)
 

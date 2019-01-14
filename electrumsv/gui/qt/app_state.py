@@ -24,7 +24,7 @@
 
 '''QT application state.'''
 
-
+from functools import partial
 import signal
 import sys
 import threading
@@ -68,33 +68,25 @@ class QElectrumSVApplication(QApplication):
 
     # Signals need to be on a QObject
     new_window_signal = pyqtSignal(str, object)
+    # Preferences updates
+    fiat_ccy_changed = pyqtSignal()
 
 
 class QtAppStateProxy(AppStateProxy):
 
     def __init__(self, config):
         super().__init__(config)
+        self.windows = []
+        self.app = self._create_app()
+        self.timer = QTimer()
 
-        threading.current_thread().setName('GUI')
         # FIXME: move language to app_state
         set_language(config.get('language'))
+
         # Uncomment this call to verify objects are being properly
         # GC-ed when windows are closed
         #network.add_jobs([DebugMem([Abstract_Wallet, SPV, Synchronizer,
         #                            ElectrumWindow], interval=5)])
-        QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_X11InitThreads)
-        if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
-            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
-        if hasattr(QGuiApplication, 'setDesktopFileName'):
-            QGuiApplication.setDesktopFileName('electrum-sv.desktop')
-        self.windows = []
-        self.efilter = OpenFileEventFilter(self.windows)
-        self.app = QElectrumSVApplication(sys.argv)
-        self.app.installEventFilter(self.efilter)
-        # timer
-        self.timer = QTimer(self.app)
-        self.timer.setSingleShot(False)
-        self.timer.setInterval(500)  # msec
 
         self.nd = None
         self.exception_hook = None
@@ -105,9 +97,24 @@ class QtAppStateProxy(AppStateProxy):
         self.tray.activated.connect(self.tray_activated)
         self.build_tray_menu()
         self.tray.show()
-        self.app.new_window_signal.connect(self.start_new_window)
         run_hook('init_qt', self)
         ColorScheme.update_from_widget(QWidget())
+
+    def _create_app(self):
+        QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_X11InitThreads)
+        if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
+            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
+        if hasattr(QGuiApplication, 'setDesktopFileName'):
+            QGuiApplication.setDesktopFileName('electrum-sv.desktop')
+        app = QElectrumSVApplication(sys.argv)
+        app.installEventFilter(OpenFileEventFilter(self.windows))
+        app.new_window_signal.connect(self.start_new_window)
+        app.fiat_ccy_changed.connect(partial(self._signal_all_windows, 'on_fiat_ccy_changed'))
+        return app
+
+    def _signal_all_windows(self, method, *args):
+        for window in self.windows:
+            getattr(window, method)(*args)
 
     def build_tray_menu(self):
         # Avoid immediate GC of old menu when window closed via its action
@@ -256,8 +263,13 @@ class QtAppStateProxy(AppStateProxy):
             self.app.quit()
 
     def run_gui(self):
+        threading.current_thread().setName('GUI')
+        self.timer.setSingleShot(False)
+        self.timer.setInterval(500)  # msec
+
         QTimer.singleShot(0, self.event_loop_started)
         self.app.exec_()
+
         # Shut down the timer cleanly
         self.timer.stop()
         # clipboard persistence

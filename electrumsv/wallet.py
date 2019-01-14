@@ -41,6 +41,7 @@ from . import bitcoin
 from . import coinchooser
 from . import paymentrequest
 from .address import Address, Script, PublicKey
+from .app_state import app_state
 from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, is_minikey
 from .contacts import Contacts
 from .crypto import sha256d
@@ -887,8 +888,9 @@ class Abstract_Wallet:
         return h2
 
     def export_history(self, domain=None, from_timestamp=None, to_timestamp=None,
-                       fx=None, show_addresses=False):
+                       show_addresses=False):
         h = self.get_history(domain)
+        fx = app_state.fx
         out = []
         for tx_hash, height, conf, timestamp, value, balance in h:
             if from_timestamp and timestamp < from_timestamp:
@@ -926,7 +928,7 @@ class Abstract_Wallet:
                     output_addresses.append(addr.to_string())
                 item['input_addresses'] = input_addresses
                 item['output_addresses'] = output_addresses
-            if fx is not None:
+            if fx:
                 date = timestamp_to_datetime(time.time() if conf <= 0 else timestamp)
                 item['fiat_value'] = fx.historical_value_str(value, date)
                 item['fiat_balance'] = fx.historical_value_str(balance, date)

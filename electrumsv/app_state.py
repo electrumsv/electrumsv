@@ -39,6 +39,7 @@ class AppStateProxy(object):
 
     def __init__(self, config):
         self.config = config
+        self.fx = None
 
 
 class _AppStateMeta(type):

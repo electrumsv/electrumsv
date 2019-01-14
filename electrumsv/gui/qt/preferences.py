@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv import paymentrequest, qrscanner
+from electrumsv.app_state import app_state
 from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
 import electrumsv.web as web
@@ -313,71 +314,79 @@ class PreferencesDialog(QDialog):
         tx_widgets.append((opret_cb, None))
 
         def update_currencies():
-            if not parent.fx: return
-            currencies = sorted(parent.fx.get_currencies(parent.fx.get_history_config()))
-            ccy_combo.clear()
-            ccy_combo.addItems([_('None')] + currencies)
-            if parent.fx.is_enabled():
-                ccy_combo.setCurrentIndex(ccy_combo.findText(parent.fx.get_currency()))
+            fx = app_state.fx
+            if fx:
+                currencies = sorted(fx.get_currencies())
+                ccy_combo.clear()
+                ccy_combo.addItems([_('None')] + currencies)
+                if fx.is_enabled():
+                    ccy_combo.setCurrentIndex(ccy_combo.findText(fx.get_currency()))
 
         def update_history_cb():
-            if not parent.fx: return
-            hist_checkbox.setChecked(parent.fx.get_history_config())
-            hist_checkbox.setEnabled(parent.fx.is_enabled())
+            fx = app_state.fx
+            if fx:
+                hist_checkbox.setChecked(fx.get_history_config())
+                hist_checkbox.setEnabled(fx.is_enabled())
 
         def update_fiat_address_cb():
-            if not parent.fx: return
-            fiat_address_checkbox.setChecked(parent.fx.get_fiat_address_config())
+            fx = app_state.fx
+            if fx:
+                fiat_address_checkbox.setChecked(fx.get_fiat_address_config())
 
         def update_exchanges():
-            if not parent.fx: return
-            b = parent.fx.is_enabled()
-            ex_combo.setEnabled(b)
-            if b:
-                h = parent.fx.get_history_config()
-                c = parent.fx.get_currency()
-                exchanges = parent.fx.get_exchanges_by_ccy(c, h)
-            else:
-                exchanges = parent.fx.get_exchanges_by_ccy('USD', False)
-            ex_combo.clear()
-            ex_combo.addItems(sorted(exchanges))
-            ex_combo.setCurrentIndex(ex_combo.findText(parent.fx.config_exchange()))
+            fx = app_state.fx
+            if fx:
+                b = fx.is_enabled()
+                ex_combo.setEnabled(b)
+                if b:
+                    h = fx.get_history_config()
+                    c = fx.get_currency()
+                    exchanges = fx.get_exchanges_by_ccy(c, h)
+                else:
+                    exchanges = fx.get_exchanges_by_ccy('USD', False)
+                ex_combo.clear()
+                ex_combo.addItems(sorted(exchanges))
+                ex_combo.setCurrentIndex(ex_combo.findText(fx.config_exchange()))
 
         def on_currency(index):
-            if not parent.fx: return
-            enabled = index != 0
-            parent.fx.set_enabled(enabled)
-            if enabled:
-                parent.fx.set_currency(ccy_combo.currentText())
-            update_history_cb()
-            update_exchanges()
-            parent.update_fiat()
+            fx = app_state.fx
+            if fx:
+                enabled = index != 0
+                fx.set_enabled(enabled)
+                if enabled:
+                    fx.set_currency(ccy_combo.currentText())
+                update_history_cb()
+                update_exchanges()
+                app_state.app.fiat_ccy_changed.emit()
 
         def on_exchange(_index):
             exchange = str(ex_combo.currentText())
-            if (parent.fx and parent.fx.is_enabled() and
-                    exchange and exchange != parent.fx.exchange.name()):
-                parent.fx.set_exchange(exchange)
+            fx = app_state.fx
+            if fx and fx.is_enabled() and exchange and exchange != fx.exchange.name():
+                fx.set_exchange(exchange)
 
         def on_history(checked):
-            if not parent.fx: return
-            parent.fx.set_history_config(checked)
-            update_exchanges()
-            parent.history_list.refresh_headers()
-            if parent.fx.is_enabled() and checked:
-                # reset timeout to get historical rates
-                parent.fx.timeout = 0
+            fx = app_state.fx
+            if fx:
+                fx.set_history_config(checked)
+                update_exchanges()
+                parent.history_list.refresh_headers()
+                if fx.is_enabled() and checked:
+                    # reset timeout to get historical rates
+                    fx.timeout = 0
 
         def on_fiat_address(checked):
-            if not parent.fx: return
-            parent.fx.set_fiat_address_config(checked)
-            parent.address_list.refresh_headers()
-            parent.address_list.update()
+            fx = app_state.fx
+            if fx:
+                fx.set_fiat_address_config(checked)
+                parent.address_list.refresh_headers()
+                parent.address_list.update()
 
         update_currencies()
         update_history_cb()
         update_fiat_address_cb()
         update_exchanges()
+
         ccy_combo.currentIndexChanged.connect(on_currency)
         hist_checkbox.stateChanged.connect(on_history)
         fiat_address_checkbox.stateChanged.connect(on_fiat_address)

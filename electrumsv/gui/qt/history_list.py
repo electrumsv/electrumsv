@@ -30,11 +30,13 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QBrush, QColor
 from PyQt5.QtWidgets import QMenu
 
-from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon
-import electrumsv.web as web
+from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.platform import platform
 from electrumsv.util import timestamp_to_datetime, profiler
+import electrumsv.web as web
+
+from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon
 
 
 TX_ICONS = [
@@ -67,7 +69,7 @@ class HistoryList(MyTreeWidget):
 
     def refresh_headers(self):
         headers = ['', '', _('Date'), _('Description') , _('Amount'), _('Balance')]
-        fx = self.parent.fx
+        fx = app_state.fx
         if fx and fx.show_history():
             headers.extend(['%s '%fx.ccy + _('Amount'), '%s '%fx.ccy + _('Balance')])
         self.update_headers(headers)
@@ -83,8 +85,9 @@ class HistoryList(MyTreeWidget):
         item = self.currentItem()
         current_tx = item.data(0, Qt.UserRole) if item else None
         self.clear()
-        fx = self.parent.fx
-        if fx: fx.history_used_spot = False
+        fx = app_state.fx
+        if fx:
+            fx.history_used_spot = False
         for h_item in h:
             tx_hash, height, conf, timestamp, value, balance = h_item
             status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)

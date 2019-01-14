@@ -10,6 +10,7 @@ import requests
 import sys
 import time
 
+from .app_state import app_state
 from .bitcoin import COIN
 from .i18n import _
 from .logs import logs
@@ -333,6 +334,7 @@ def get_exchanges_by_ccy(history=True):
 
 
 class FxThread(ThreadJob):
+
     def __init__(self, config, network):
         self.config = config
         self.network = network
@@ -344,8 +346,10 @@ class FxThread(ThreadJob):
         self.set_exchange(self.config_exchange())
         if not os.path.exists(self.cache_dir):
             os.mkdir(self.cache_dir)
+        app_state.fx = self
 
-    def get_currencies(self, h):
+    def get_currencies(self):
+        h = self.get_history_config()
         d = get_exchanges_by_ccy(h)
         return sorted(d.keys())
 

@@ -46,6 +46,7 @@ from PyQt5.QtWidgets import (
 import electrumsv
 from electrumsv import bitcoin, commands, keystore, paymentrequest, util
 from electrumsv.address import Address, ScriptOutput
+from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
@@ -120,7 +121,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.config = config = gui_object.config
 
         self.network = gui_object.daemon.network
-        self.fx = gui_object.daemon.fx
         self.invoices = wallet.invoices
         self.contacts = wallet.contacts
         self.tray = gui_object.tray
@@ -259,7 +259,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         edit = self.fiat_receive_e if self.fiat_receive_e.is_last_edited else self.receive_amount_e
         edit.textEdited.emit(edit.text())
         # History tab needs updating if it used spot
-        if self.fx.history_used_spot:
+        if app_state.fx.history_used_spot:
             self.history_list.update()
             self.history_updated_signal.emit()
 
@@ -746,7 +746,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def format_amount_and_units(self, amount):
         text = self.format_amount(amount) + ' '+ self.base_unit()
-        x = self.fx.format_amount_and_units(amount)
+        x = app_state.fx.format_amount_and_units(amount)
         if text and x:
             text += ' (%s)'%x
         return text
@@ -775,7 +775,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             edit.setStyleSheet(ColorScheme.DEFAULT.as_stylesheet())
             fiat_e.is_last_edited = (edit == fiat_e)
             amount = edit.get_amount()
-            rate = self.fx.exchange_rate() if self.fx else None
+            rate = app_state.fx.exchange_rate() if app_state.fx else None
             if rate is None or amount is None:
                 if edit is fiat_e:
                     btc_e.setText("")
@@ -793,7 +793,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                         window.update_fee()
                 else:
                     fiat_e.follows = True
-                    fiat_e.setText(self.fx.ccy_amount_str(
+                    fiat_e.setText(app_state.fx.ccy_amount_str(
                         amount * Decimal(rate) / COIN, False))
                     fiat_e.setStyleSheet(ColorScheme.BLUE.as_stylesheet())
                     fiat_e.follows = False
@@ -833,8 +833,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     text +=  " [%s unmatured]"%(self.format_amount(x, True).strip())
 
                 # append fiat balance and price
-                if self.fx.is_enabled():
-                    text += self.fx.get_fiat_status_text(c + u + x,
+                if app_state.fx.is_enabled():
+                    text += app_state.fx.get_fiat_status_text(c + u + x,
                         self.base_unit(), self.get_decimal_point()) or ''
                 if not self.network.proxy:
                     icon = ("status_connected.png" if num_chains <= 1
@@ -917,8 +917,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(self.receive_amount_e, 2, 1)
         self.receive_amount_e.textChanged.connect(self.update_receive_qr)
 
-        self.fiat_receive_e = AmountEdit(self.fx.get_currency if self.fx else '')
-        if not self.fx or not self.fx.is_enabled():
+        self.fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
+        if not app_state.fx or not app_state.fx.is_enabled():
             self.fiat_receive_e.setVisible(False)
         grid.addWidget(self.fiat_receive_e, 2, 2, Qt.AlignLeft)
         self.connect_fields(self, self.receive_amount_e, self.fiat_receive_e, None)
@@ -1221,8 +1221,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(amount_label, 5, 0)
         grid.addWidget(self.amount_e, 5, 1)
 
-        self.fiat_send_e = AmountEdit(self.fx.get_currency if self.fx else '')
-        if not self.fx or not self.fx.is_enabled():
+        self.fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
+        if not app_state.fx or not app_state.fx.is_enabled():
             self.fiat_send_e.setVisible(False)
         grid.addWidget(self.fiat_send_e, 5, 2)
         self.amount_e.frozen.connect(
@@ -2665,7 +2665,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.show_message(_("Your wallet history has been successfully exported."))
 
     def do_export_history(self, wallet, fileName, is_csv):
-        history = wallet.export_history(fx=self.fx)
+        history = wallet.export_history()
         lines = []
         for item in history:
             if is_csv:
@@ -2781,8 +2781,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         title, msg = _('Import private keys'), _("Enter private keys")
         self._do_import(title, msg, lambda x: self.wallet.import_private_key(x, password))
 
-    def update_fiat(self):
-        b = self.fx and self.fx.is_enabled()
+    def on_fiat_ccy_changed(self):
+        '''Called when the user changes fiat currency in preferences.'''
+        b = app_state.fx and app_state.fx.is_enabled()
         self.fiat_send_e.setVisible(b)
         self.fiat_receive_e.setVisible(b)
         self.history_list.refresh_headers()
@@ -2798,8 +2799,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         dialog = PreferencesDialog(self)
         dialog.exec_()
 
-        if self.fx:
-            self.fx.timeout = 0
+        if app_state.fx:
+            app_state.fx.timeout = 0
 
         current_language = self.config.get("language", None)
         if prior_language != current_language:

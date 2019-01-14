@@ -513,8 +513,7 @@ class Commands:
             kwargs['to_timestamp'] = time.mktime(end_date.timetuple())
         if show_fiat:
             from .exchange_rate import FxThread
-            fx = FxThread(self.config, None)
-            kwargs['fx'] = fx
+            FxThread(self.config, None)
         return self.wallet.export_history(**kwargs)
 
     @command('w')
