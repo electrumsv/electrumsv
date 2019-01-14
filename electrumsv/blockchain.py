@@ -26,7 +26,7 @@ import threading
 
 from . import util
 from .logs import logs
-from .networks import NetworkConstants
+from .networks import Net
 from .bitcoin import int_to_hex, rev_hex, hash_encode, Hash, bfh
 
 logger = logs.get_logger("blockchain")
@@ -284,8 +284,8 @@ class Blockchain:
         # hashes was proven correct against our checkpoint.
         if bits is not None:
             # checkpoint BitcoinCash fork block
-            if (header.get('block_height') == NetworkConstants.BITCOIN_CASH_FORK_BLOCK_HEIGHT and
-                    hash_header(header) != NetworkConstants.BITCOIN_CASH_FORK_BLOCK_HASH):
+            if (header.get('block_height') == Net.BITCOIN_CASH_FORK_BLOCK_HEIGHT and
+                    hash_header(header) != Net.BITCOIN_CASH_FORK_BLOCK_HASH):
                 raise VerifyError("block at height %i is not cash chain fork block. hash %s" %
                                   (header.get('block_height'), hash_header(header)))
             if bits != header.get('bits'):
@@ -327,7 +327,7 @@ class Blockchain:
         # Headers at and before the verification checkpoint are sparsely filled.
         # Those should be overwritten and should not truncate the chain.
         top_height = base_height + (len(chunk_data) // HEADER_SIZE) - 1
-        truncate = top_height > NetworkConstants.VERIFICATION_BLOCK_HEIGHT
+        truncate = top_height > Net.VERIFICATION_BLOCK_HEIGHT
         self._write(chunk_data, chunk_offset, truncate)
         self._swap_with_parent()
 
@@ -423,7 +423,7 @@ class Blockchain:
         if height == -1:
             return '0000000000000000000000000000000000000000000000000000000000000000'
         elif height == 0:
-            return NetworkConstants.GENESIS
+            return Net.GENESIS
         return hash_header(self.read_header(height))
 
     # Not used.
@@ -477,7 +477,7 @@ class Blockchain:
 
         #if daa_mtp >= 1509559291:  #leave this here for testing
         if daa_mtp >= 1510600000:
-            if NetworkConstants.TESTNET:
+            if Net.TWENTY_MINUTE_RULE:
                 # testnet 20 minute rule
                 if header['timestamp'] - prior['timestamp'] > 20*60:
                     return MAX_BITS
@@ -516,7 +516,7 @@ class Blockchain:
         if height % 2016 == 0:
             return self._get_new_bits(height, chunk)
 
-        if NetworkConstants.TESTNET:
+        if Net.TWENTY_MINUTE_RULE:
             # testnet 20 minute rule
             if header['timestamp'] - prior['timestamp'] > 20*60:
                 return MAX_BITS
@@ -559,7 +559,7 @@ class Blockchain:
         if check_height and self.height() != height - 1:
             return False
         if height == 0:
-            return hash_header(header) == NetworkConstants.GENESIS
+            return hash_header(header) == Net.GENESIS
         previous_header = self.read_header(height -1)
         if not previous_header:
             return False
@@ -584,13 +584,13 @@ class Blockchain:
         # We know that chunks before the checkpoint height, end at the checkpoint height, and
         # will be guaranteed to be covered by the checkpointing. If no proof is provided then
         # this is wrong.
-        if top_height <= NetworkConstants.VERIFICATION_BLOCK_HEIGHT:
+        if top_height <= Net.VERIFICATION_BLOCK_HEIGHT:
             if not proof_was_provided:
                 return CHUNK_LACKED_PROOF
             # We do not truncate when writing chunks before the checkpoint, and there's no
             # way at this time to know if we have this chunk, or even a consecutive subset.
             # So just overwrite it.
-        elif base_height < NetworkConstants.VERIFICATION_BLOCK_HEIGHT and proof_was_provided:
+        elif base_height < Net.VERIFICATION_BLOCK_HEIGHT and proof_was_provided:
             # This was the initial verification request which gets us enough leading headers
             # that we can calculate difficulty and verify the headers that we add to this
             # chain above the verification block height.

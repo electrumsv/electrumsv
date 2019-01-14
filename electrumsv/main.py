@@ -40,7 +40,7 @@ from electrumsv.exceptions import InvalidPassword
 from electrumsv.logs import logs
 from electrumsv.mnemonic import Mnemonic
 from electrumsv.network import Network
-from electrumsv.networks import NetworkConstants
+from electrumsv.networks import Net, SVTestnet
 from electrumsv.platform import platform
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.startup import is_bundle
@@ -308,7 +308,7 @@ def main():
         logs.add_file_output(log_path)
 
     if config_options.get('testnet'):
-        NetworkConstants.set_testnet()
+        Net.set_to(SVTestnet)
 
     # check uri
     uri = config_options.get('url')

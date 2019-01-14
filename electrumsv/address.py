@@ -32,7 +32,7 @@ from . import cashaddr
 from .enum import Enumeration
 from .bitcoin import EC_KEY, is_minikey, minikey_to_private_key
 from .util import cachedproperty
-from .networks import NetworkConstants
+from .networks import Net
 
 _sha256 = hashlib.sha256
 _new_hash = hashlib.new
@@ -155,7 +155,7 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
             # The Casascius coins were uncompressed
             return minikey_to_private_key(WIF_privkey), False
         raw = Base58.decode_check(WIF_privkey)
-        if not raw or raw[0] != NetworkConstants.WIF_PREFIX:
+        if not raw or raw[0] != Net.WIF_PREFIX:
             raise ValueError('private key has invalid WIF prefix')
         if len(raw) == 34 and raw[-1] == 1:
             return raw[1:33], True
@@ -308,7 +308,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     @classmethod
     def from_cashaddr_string(cls, string):
         '''Construct from a cashaddress string.'''
-        prefix = NetworkConstants.CASHADDR_PREFIX
+        prefix = Net.CASHADDR_PREFIX
         if string.upper() == string:
             prefix = prefix.upper()
         if not string.startswith(prefix + ':'):
@@ -343,9 +343,9 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
             raise AddressError('invalid address: {}'.format(string))
 
         verbyte, hash160_ = raw[0], raw[1:]
-        if verbyte == NetworkConstants.ADDRTYPE_P2PKH:
+        if verbyte == Net.ADDRTYPE_P2PKH:
             kind = cls.ADDR_P2PKH
-        elif verbyte == NetworkConstants.ADDRTYPE_P2SH:
+        elif verbyte == Net.ADDRTYPE_P2SH:
             kind = cls.ADDR_P2SH
         else:
             raise AddressError('unknown version byte: {}'.format(verbyte))
@@ -391,9 +391,9 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     def to_string(self):
         '''Converts to a string of the given format.'''
         if self.kind == self.ADDR_P2PKH:
-            verbyte = NetworkConstants.ADDRTYPE_P2PKH
+            verbyte = Net.ADDRTYPE_P2PKH
         else:
-            verbyte = NetworkConstants.ADDRTYPE_P2SH
+            verbyte = Net.ADDRTYPE_P2SH
 
         return Base58.encode_check(bytes([verbyte]) + self.hash160)
 

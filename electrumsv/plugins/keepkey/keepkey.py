@@ -1,5 +1,4 @@
 from .plugin import KeepKeyCompatiblePlugin, KeepKeyCompatibleKeyStore
-from electrumsv.networks import NetworkConstants
 
 
 class KeepKey_KeyStore(KeepKeyCompatibleKeyStore):
@@ -38,7 +37,3 @@ class KeepKeyPlugin(KeepKeyCompatiblePlugin):
     def get_coin_name(self):
         # No testnet support yet
         return "BitcoinCash"
-
-    def get_display_coin_name(self):
-        # For showing addresses
-        return "Testnet" if NetworkConstants.TESTNET else "Bitcoin"

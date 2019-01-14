@@ -5,7 +5,7 @@ from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 from electrumsv.logs import logs
-from electrumsv.networks import NetworkConstants
+from electrumsv.networks import Net
 from electrumsv.plugin import Device
 from electrumsv.util import bfh, bh2u
 
@@ -154,12 +154,7 @@ class TrezorPlugin(HW_PluginBase):
         return client
 
     def get_coin_name(self):
-        # Note: testnet supported only by unofficial firmware
-        return "Bcash Testnet" if NetworkConstants.TESTNET else "Bcash"
-
-    def get_display_coin_name(self):
-        # For showing addresses
-        return "Testnet" if NetworkConstants.TESTNET else "Bitcoin"
+        return Net.TREZOR_COIN_NAME
 
     def initialize_device(self, device_id, wizard, handler):
         # Initialization method

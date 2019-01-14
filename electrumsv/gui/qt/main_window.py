@@ -50,7 +50,7 @@ from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.networks import NetworkConstants
+from electrumsv.networks import Net
 from electrumsv.paymentrequest import PR_PAID
 from electrumsv.plugin import run_hook
 from electrumsv.transaction import Transaction
@@ -406,9 +406,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.setGeometry(100, 100, 840, 400)
 
     def watching_only_changed(self):
-        title = '%s %s  -  %s' % (NetworkConstants.TITLE,
-                                  self.wallet.electrum_version,
-                                  self.wallet.basename())
+        title = 'ElectrumSV %s %s  -  %s' % (Net.NAME,
+                                             self.wallet.electrum_version,
+                                             self.wallet.basename())
         extra = [self.wallet.storage.get('wallet_type', '?')]
         if self.wallet.is_watching_only():
             self.warn_if_watching_only()

@@ -33,66 +33,15 @@ from . import bitcoin
 from .address import Address
 from .i18n import _
 from .logs import logs
-from .networks import NetworkConstants
+from .networks import Net
 from .util import format_satoshis_plain, bh2u
 
 
 logger = logs.get_logger("web")
 
-mainnet_block_explorers = {
-    'bchsvexplorer.com': (
-        'https://bchsvexplorer.com',
-        {'tx': 'tx', 'addr': 'address'},
-    ),
-    'svblox.com': (
-        'https://svblox.com',
-        {'tx': 'tx', 'addr': 'address'},
-    ),
-    'whatsonchain.com': (
-        'https://whatsonchain.com',
-        {'tx': 'tx', 'addr': 'address'},
-    ),
-    'bsvexplorer.io': (
-        'https://bsvexplorer.io',
-        {'tx': 'tx', 'addr': 'address'},
-    ),
-    'bitcoinsvexplorer.com': (
-        'https://www.bitcoinsvexplorer.com',
-        {'tx': 'tx', 'addr': 'address'},
-    ),
-    'blockchair.com' : (
-        'https://blockchair.com/bitcoin-sv',
-        {'tx': 'transaction', 'addr': 'address'},
-    ),
-    'btc.com': (
-        'https://bsv.btc.com',
-        {'tx': '', 'addr': ''},
-    ),
-}
-
-testnet_block_explorers = {
-    'satoshisvision.network': (
-        'http://explore.satoshisvision.network',
-        {'tx': 'tx', 'addr': 'address'},
-    ),
-    'bitcoincloud.net': (
-        'https://testnet.bitcoincloud.net',
-        {'tx': 'tx', 'addr': 'address'},
-    ),
-    'system default': (
-        'blockchain:',
-        {'tx': 'tx', 'addr': 'address'},
-    ),
-}
-
-
-def BE_info():
-    if NetworkConstants.TESTNET:
-        return testnet_block_explorers
-    return mainnet_block_explorers
 
 def BE_tuple(config):
-    return BE_info().get(BE_from_config(config))
+    return Net.BLOCK_EXPLORERS.get(BE_from_config(config))
 
 def BE_from_config(config):
     return config.get('block_explorer', 'bchsvexplorer.com')
@@ -111,7 +60,7 @@ def BE_URL(config, kind, item):
     return "/".join(part for part in (url_base, kind_str, item) if part)
 
 def BE_sorted_list():
-    return sorted(BE_info())
+    return sorted(Net.BLOCK_EXPLORERS)
 
 
 def create_URI(addr, amount, message):
@@ -123,7 +72,7 @@ def create_URI(addr, amount, message):
         query.append('amount=%s'%format_satoshis_plain(amount))
     if message:
         query.append('message=%s'%urllib.parse.quote(message))
-    p = urllib.parse.ParseResult(scheme=NetworkConstants.URI_PREFIX,
+    p = urllib.parse.ParseResult(scheme=Net.URI_PREFIX,
                                  netloc='', path=addr.to_string(),
                                  params='', query='&'.join(query), fragment='')
     return urllib.parse.urlunparse(p)
@@ -133,7 +82,7 @@ def is_URI(text):
     '''Returns true if the text looks like a URI.  It is not validated, and is not checked to
     be a Bitcoin SV URI.
     '''
-    return text.lower().startswith(NetworkConstants.URI_PREFIX + ':')
+    return text.lower().startswith(Net.URI_PREFIX + ':')
 
 
 class URIError(Exception):
@@ -148,7 +97,7 @@ def parse_URI(uri, on_pr=None):
 
     # The scheme always comes back in lower case
     pq = urllib.parse.parse_qs(u.query, keep_blank_values=True)
-    if u.scheme != NetworkConstants.URI_PREFIX or 'sv' not in pq:
+    if u.scheme != Net.URI_PREFIX or 'sv' not in pq:
         raise URIError(_('invalid BitcoinSV URI: {}').format(uri))
 
     for k, v in pq.items():

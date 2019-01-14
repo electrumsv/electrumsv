@@ -42,7 +42,7 @@ from .bitcoin import (
 from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
-from .networks import NetworkConstants
+from .networks import Net
 from .plugin import run_hook
 from .util import hfu
 
@@ -748,12 +748,10 @@ is_bip32_key = lambda x: is_xprv(x) or is_xpub(x)
 
 
 def bip44_derivation(account_id):
-    bip  = 44
-    coin = 1 if NetworkConstants.TESTNET else 0
-    return "m/%d'/%d'/%d'" % (bip, coin, int(account_id))
+    return "m/44'/%d'/%d'" % (Net.BIP44_COIN_TYPE, int(account_id))
 
 def bip44_derivation_145(account_id):
-    return "m/44'/145'/%d'"% int(account_id)
+    return "m/44'/145'/%d'" % int(account_id)
 
 def from_seed(seed, passphrase, is_p2sh):
     t = seed_type(seed)

@@ -31,7 +31,7 @@ import os
 import ecdsa
 import pyaes
 
-from .networks import NetworkConstants
+from .networks import Net
 from .exceptions import InvalidPassword
 from .util import bfh, bh2u, to_string, assert_bytes, to_bytes, inv_dict
 from . import version
@@ -272,10 +272,10 @@ def b58_address_to_hash160(addr):
 
 
 def hash160_to_p2pkh(h160):
-    return hash160_to_b58_address(h160, NetworkConstants.ADDRTYPE_P2PKH)
+    return hash160_to_b58_address(h160, Net.ADDRTYPE_P2PKH)
 
 def hash160_to_p2sh(h160):
-    return hash160_to_b58_address(h160, NetworkConstants.ADDRTYPE_P2SH)
+    return hash160_to_b58_address(h160, Net.ADDRTYPE_P2SH)
 
 def public_key_to_p2pkh(public_key):
     return hash160_to_p2pkh(hash_160(public_key))
@@ -388,7 +388,7 @@ SCRIPT_TYPES = {
 
 
 def serialize_privkey(secret, compressed, txin_type):
-    prefix = bytes([(SCRIPT_TYPES[txin_type]+NetworkConstants.WIF_PREFIX)&255])
+    prefix = bytes([(SCRIPT_TYPES[txin_type] + Net.WIF_PREFIX) & 255])
     suffix = b'\01' if compressed else b''
     vchIn = prefix + secret + suffix
     return EncodeBase58Check(vchIn)
@@ -400,7 +400,7 @@ def deserialize_privkey(key):
     if is_minikey(key):
         return 'p2pkh', minikey_to_private_key(key), False
     elif vch:
-        txin_type = inv_dict(SCRIPT_TYPES)[vch[0] - NetworkConstants.WIF_PREFIX]
+        txin_type = inv_dict(SCRIPT_TYPES)[vch[0] - Net.WIF_PREFIX]
         assert len(vch) in [33, 34]
         compressed = len(vch) == 34
         return txin_type, vch[1:33], compressed
@@ -749,11 +749,11 @@ def _CKD_pub(cK, c, s):
 
 
 def xprv_header(xtype):
-    return bfh("%08x" % NetworkConstants.XPRV_HEADERS[xtype])
+    return bfh("%08x" % Net.XPRV_HEADERS[xtype])
 
 
 def xpub_header(xtype):
-    return bfh("%08x" % NetworkConstants.XPUB_HEADERS[xtype])
+    return bfh("%08x" % Net.XPUB_HEADERS[xtype])
 
 
 def serialize_xprv(xtype, c, k, depth=0, fingerprint=b'\x00'*4, child_number=b'\x00'*4):
@@ -775,7 +775,7 @@ def deserialize_xkey(xkey, prv):
     child_number = xkey[9:13]
     c = xkey[13:13+32]
     header = int('0x' + bh2u(xkey[0:4]), 16)
-    headers = NetworkConstants.XPRV_HEADERS if prv else NetworkConstants.XPUB_HEADERS
+    headers = Net.XPRV_HEADERS if prv else Net.XPUB_HEADERS
     if header not in headers.values():
         raise BaseException('Invalid xpub format', hex(header))
     xtype = list(headers.keys())[list(headers.values()).index(header)]

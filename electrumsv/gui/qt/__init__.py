@@ -34,7 +34,6 @@ import PyQt5.QtCore as QtCore
 from electrumsv.exceptions import UserCancelled, UserQuit
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
-from electrumsv.networks import NetworkConstants
 from electrumsv.plugin import run_hook
 from electrumsv.storage import WalletStorage
 
