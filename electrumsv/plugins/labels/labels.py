@@ -4,7 +4,7 @@ import hashlib
 import requests
 import threading
 
-from electrumsv.bitcoin import aes_decrypt_with_iv, aes_encrypt_with_iv
+from electrumsv.crypto import aes_decrypt_with_iv, aes_encrypt_with_iv
 from electrumsv.logs import logs
 from electrumsv.plugin import BasePlugin, hook
 

@@ -41,8 +41,9 @@ from . import bitcoin
 from . import coinchooser
 from . import paymentrequest
 from .address import Address, Script, PublicKey
-from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, is_minikey, Hash
+from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, is_minikey
 from .contacts import Contacts
+from .crypto import sha256d
 from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
 from .i18n import _
 from .keystore import (
@@ -1425,7 +1426,7 @@ class Abstract_Wallet:
     def make_payment_request(self, addr, amount, message, expiration=None):
         assert isinstance(addr, Address)
         timestamp = int(time.time())
-        _id = bh2u(Hash(addr.to_string() + "%d" % timestamp))[0:10]
+        _id = bh2u(sha256d(addr.to_string() + "%d" % timestamp))[0:10]
         return {
             'time': timestamp,
             'amount': amount,

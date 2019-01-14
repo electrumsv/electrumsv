@@ -25,9 +25,10 @@ import os
 import threading
 
 from . import util
+from .crypto import sha256d
 from .logs import logs
 from .networks import Net
-from .bitcoin import int_to_hex, rev_hex, hash_encode, Hash, bfh
+from .bitcoin import int_to_hex, rev_hex, hash_encode, bfh
 
 logger = logs.get_logger("blockchain")
 
@@ -111,7 +112,7 @@ def hash_header(header):
         return '0' * 64
     if header.get('prev_block_hash') is None:
         header['prev_block_hash'] = '00'*32
-    return hash_encode(Hash(bfh(_serialize_header(header))))
+    return hash_encode(sha256d(bfh(_serialize_header(header))))
 
 
 blockchains = {}
@@ -167,12 +168,11 @@ def verify_proven_chunk(chunk_base_height, chunk_data):
 # Called by network.py:Network._validate_checkpoint_result()
 def root_from_proof(hash_, branch, index):
     """ Copied from electrumx """
-    hash_func = Hash
     for elt in branch:
         if index & 1:
-            hash_ = hash_func(elt + hash_)
+            hash_ = sha256d(elt + hash_)
         else:
-            hash_ = hash_func(hash_ + elt)
+            hash_ = sha256d(hash_ + elt)
         index >>= 1
     if index:
         raise ValueError('index out of range for branch')

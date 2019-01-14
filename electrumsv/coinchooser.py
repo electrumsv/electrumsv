@@ -26,7 +26,8 @@
 from collections import defaultdict, namedtuple
 from math import floor, log10
 
-from .bitcoin import sha256, COIN, TYPE_ADDRESS
+from .bitcoin import COIN, TYPE_ADDRESS
+from .crypto import sha256
 from .logs import logs
 from .transaction import Transaction
 from .exceptions import NotEnoughFunds

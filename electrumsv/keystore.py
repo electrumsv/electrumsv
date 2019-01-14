@@ -29,13 +29,16 @@ from ecdsa.ecdsa import generator_secp256k1
 from ecdsa.curves import SECP256k1
 from ecdsa.util import string_to_number, number_to_string
 
-from . import bitcoin
 from .address import Address, PublicKey
 from .bip32 import (
     bip32_private_key, bip32_public_derivation, bip32_private_derivation, bip32_root,
     xpub_from_xprv, deserialize_xpub, deserialize_xprv, is_xpub, is_xprv, CKD_pub
 )
-from .bitcoin import bh2u, bfh, DecodeBase58Check, pw_encode, pw_decode, Hash, is_seed, seed_type
+from .bitcoin import (
+    bh2u, bfh, DecodeBase58Check, EncodeBase58Check, is_seed, seed_type, regenerate_key,
+    rev_hex, script_to_address, int_to_hex, is_private_key
+)
+from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
@@ -101,12 +104,12 @@ class Software_KeyStore(KeyStore):
 
     def sign_message(self, sequence, message, password):
         privkey, compressed = self.get_private_key(sequence, password)
-        key = bitcoin.regenerate_key(privkey)
+        key = regenerate_key(privkey)
         return key.sign_message(message, compressed)
 
     def decrypt_message(self, sequence, message, password):
         privkey, compressed = self.get_private_key(sequence, password)
-        ec = bitcoin.regenerate_key(privkey)
+        ec = regenerate_key(privkey)
         decrypted = ec.decrypt_message(message)
         return decrypted
 
@@ -180,7 +183,7 @@ class Imported_KeyStore(Software_KeyStore):
 
     def import_privkey(self, WIF_privkey, password):
         pubkey = PublicKey.from_WIF_privkey(WIF_privkey)
-        self.keypairs[pubkey] = bitcoin.pw_encode(WIF_privkey, password)
+        self.keypairs[pubkey] = pw_encode(WIF_privkey, password)
         self._sorted = None
         return pubkey
 
@@ -189,7 +192,7 @@ class Imported_KeyStore(Software_KeyStore):
 
     def export_private_key(self, pubkey, password):
         '''Returns a WIF string'''
-        WIF_privkey = bitcoin.pw_decode(self.keypairs[pubkey], password)
+        WIF_privkey = pw_decode(self.keypairs[pubkey], password)
         # this checks the password
         if pubkey != PublicKey.from_WIF_privkey(WIF_privkey):
             raise InvalidPassword()
@@ -206,7 +209,7 @@ class Imported_KeyStore(Software_KeyStore):
             if pubkey in self.keypairs:
                 return pubkey
         elif x_pubkey[0:2] == 'fd':
-            addr = bitcoin.script_to_address(x_pubkey[2:])
+            addr = script_to_address(x_pubkey[2:])
             return self.address_to_pubkey(addr)
 
     def update_password(self, old_password, new_password):
@@ -214,8 +217,8 @@ class Imported_KeyStore(Software_KeyStore):
         if new_password == '':
             new_password = None
         for k, v in self.keypairs.items():
-            b = bitcoin.pw_decode(v, old_password)
-            c = bitcoin.pw_encode(b, new_password)
+            b = pw_decode(v, old_password)
+            c = pw_encode(b, new_password)
             self.keypairs[k] = c
 
 
@@ -253,11 +256,11 @@ class Deterministic_KeyStore(Software_KeyStore):
         self.seed = self.format_seed(seed)
 
     def get_seed(self, password):
-        return bitcoin.pw_decode(self.seed, password)
+        return pw_decode(self.seed, password)
 
     def get_passphrase(self, password):
         if self.passphrase:
-            return bitcoin.pw_decode(self.passphrase, password)
+            return pw_decode(self.passphrase, password)
         return ''
 
 
@@ -289,19 +292,19 @@ class Xpub:
         return bh2u(cK)
 
     def get_xpubkey(self, c, i):
-        s = ''.join(bitcoin.int_to_hex(x,2) for x in (c, i))
-        return 'ff' + bh2u(bitcoin.DecodeBase58Check(self.xpub)) + s
+        s = ''.join(int_to_hex(x,2) for x in (c, i))
+        return 'ff' + bh2u(DecodeBase58Check(self.xpub)) + s
 
     @classmethod
     def parse_xpubkey(self, pubkey):
         assert pubkey[0:2] == 'ff'
         pk = bfh(pubkey)
         pk = pk[1:]
-        xkey = bitcoin.EncodeBase58Check(pk[0:78])
+        xkey = EncodeBase58Check(pk[0:78])
         dd = pk[78:]
         s = []
         while dd:
-            n = int(bitcoin.rev_hex(bh2u(dd[0:2])), 16)
+            n = int(rev_hex(bh2u(dd[0:2])), 16)
             dd = dd[2:]
             s.append(n)
         assert len(s) == 2
@@ -348,10 +351,10 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         return d
 
     def get_master_private_key(self, password):
-        return bitcoin.pw_decode(self.xprv, password)
+        return pw_decode(self.xprv, password)
 
     def check_password(self, password):
-        xprv = bitcoin.pw_decode(self.xprv, password)
+        xprv = pw_decode(self.xprv, password)
         try:
             assert DecodeBase58Check(xprv) is not None
         except Exception:
@@ -456,7 +459,7 @@ class Old_KeyStore(Deterministic_KeyStore):
 
     @classmethod
     def get_sequence(self, mpk, for_change, n):
-        return string_to_number(Hash(("%d:%d:"%(n, for_change)).encode('ascii') + bfh(mpk)))
+        return string_to_number(sha256d(("%d:%d:"%(n, for_change)).encode('ascii') + bfh(mpk)))
 
     @classmethod
     def get_pubkey_from_mpk(self, mpk, for_change, n):
@@ -499,7 +502,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         return self.mpk
 
     def get_xpubkey(self, for_change, n):
-        s = ''.join(bitcoin.int_to_hex(x,2) for x in (for_change, n))
+        s = ''.join(int_to_hex(x,2) for x in (for_change, n))
         return 'fe' + self.mpk + s
 
     @classmethod
@@ -510,7 +513,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         dd = pk[128:]
         s = []
         while dd:
-            n = int(bitcoin.rev_hex(dd[0:4]), 16)
+            n = int(rev_hex(dd[0:4]), 16)
             dd = dd[4:]
             s.append(n)
         assert len(s) == 2
@@ -661,7 +664,7 @@ def parse_xpubkey(x_pubkey):
 
 def xpubkey_to_address(x_pubkey):
     if x_pubkey[0:2] == 'fd':
-        address = bitcoin.script_to_address(x_pubkey[2:])
+        address = script_to_address(x_pubkey[2:])
         return x_pubkey, address
     if x_pubkey[0:2] in ['02', '03', '04']:
         pubkey = x_pubkey
@@ -729,7 +732,7 @@ def get_private_keys(text):
     parts = text.split('\n')
     parts = [''.join(part.split()) for part in parts]
     parts = [part for part in parts if part]
-    if parts and all(bitcoin.is_private_key(x) for x in parts):
+    if parts and all(is_private_key(x) for x in parts):
         return parts
 
 

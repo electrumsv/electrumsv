@@ -21,7 +21,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .bitcoin import Hash, hash_decode, hash_encode
+from .bitcoin import hash_decode, hash_encode
+from .crypto import sha256d
 from .logs import logs
 from .networks import Net
 from .transaction import Transaction
@@ -139,7 +140,10 @@ class SPV(ThreadJob):
     def hash_merkle_root(cls, merkle_s, target_hash, pos):
         h = hash_decode(target_hash)
         for i, item in enumerate(merkle_s):
-            h = Hash(hash_decode(item) + h) if ((pos >> i) & 1) else Hash(h + hash_decode(item))
+            if (pos >> i) & 1:
+                h = sha256d(hash_decode(item) + h)
+            else:
+                h = sha256d(h + hash_decode(item))
             cls._raise_if_valid_tx(bh2u(h))
         return hash_encode(h)
 

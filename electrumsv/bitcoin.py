@@ -26,14 +26,15 @@
 import hashlib
 import base64
 import hmac
-import os
 
 import ecdsa
-import pyaes
 
+from .crypto import (
+    hash_160, sha256d, hmac_oneshot, sha256, aes_encrypt_with_iv, aes_decrypt_with_iv,
+)
 from .networks import Net
 from .exceptions import InvalidPassword
-from .util import bfh, bh2u, to_string, assert_bytes, to_bytes, inv_dict
+from .util import bfh, bh2u, assert_bytes, to_bytes, inv_dict
 from . import version
 
 
@@ -49,94 +50,6 @@ COIN = 100000000
 TYPE_ADDRESS = 0
 TYPE_PUBKEY  = 1
 TYPE_SCRIPT  = 2
-
-# AES encryption
-try:
-    from Cryptodome.Cipher import AES
-except:
-    AES = None
-
-
-class InvalidPadding(Exception):
-    pass
-
-
-def append_PKCS7_padding(data):
-    assert_bytes(data)
-    padlen = 16 - (len(data) % 16)
-    return data + bytes([padlen]) * padlen
-
-
-def strip_PKCS7_padding(data):
-    assert_bytes(data)
-    if len(data) % 16 != 0 or len(data) == 0:
-        raise InvalidPadding("invalid length")
-    padlen = data[-1]
-    if padlen > 16:
-        raise InvalidPadding("invalid padding byte (large)")
-    for i in data[-padlen:]:
-        if i != padlen:
-            raise InvalidPadding("invalid padding byte (inconsistent)")
-    return data[0:-padlen]
-
-
-def aes_encrypt_with_iv(key, iv, data):
-    assert_bytes(key, iv, data)
-    data = append_PKCS7_padding(data)
-    if AES:
-        e = AES.new(key, AES.MODE_CBC, iv).encrypt(data)
-    else:
-        aes_cbc = pyaes.AESModeOfOperationCBC(key, iv=iv)
-        aes = pyaes.Encrypter(aes_cbc, padding=pyaes.PADDING_NONE)
-        e = aes.feed(data) + aes.feed()  # empty aes.feed() flushes buffer
-    return e
-
-
-def aes_decrypt_with_iv(key, iv, data):
-    assert_bytes(key, iv, data)
-    if AES:
-        cipher = AES.new(key, AES.MODE_CBC, iv)
-        data = cipher.decrypt(data)
-    else:
-        aes_cbc = pyaes.AESModeOfOperationCBC(key, iv=iv)
-        aes = pyaes.Decrypter(aes_cbc, padding=pyaes.PADDING_NONE)
-        data = aes.feed(data) + aes.feed()  # empty aes.feed() flushes buffer
-    try:
-        return strip_PKCS7_padding(data)
-    except InvalidPadding:
-        raise InvalidPassword()
-
-
-def EncodeAES(secret, s):
-    assert_bytes(s)
-    iv = bytes(os.urandom(16))
-    ct = aes_encrypt_with_iv(secret, iv, s)
-    e = iv + ct
-    return base64.b64encode(e)
-
-def DecodeAES(secret, e):
-    e = bytes(base64.b64decode(e))
-    iv, e = e[:16], e[16:]
-    s = aes_decrypt_with_iv(secret, iv, e)
-    return s
-
-def pw_encode(s, password):
-    if password:
-        secret = Hash(password)
-        return EncodeAES(secret, to_bytes(s, "utf8")).decode('utf8')
-    else:
-        return s
-
-def pw_decode(s, password):
-    if password is not None:
-        secret = Hash(password)
-        try:
-            d = to_string(DecodeAES(secret, s), "utf8")
-        except Exception:
-            raise InvalidPassword()
-        return d
-    else:
-        return s
 
 
 def rev_hex(s):
@@ -174,16 +87,6 @@ def op_push(i):
 
 def push_script(x):
     return op_push(len(x)//2) + x
-
-def sha256(x):
-    x = to_bytes(x, 'utf8')
-    return bytes(hashlib.sha256(x).digest())
-
-
-def Hash(x):
-    x = to_bytes(x, 'utf8')
-    out = bytes(sha256(sha256(x)))
-    return out
 
 
 hash_encode = lambda x: bh2u(x[::-1])
@@ -246,21 +149,11 @@ def i2o_ECPublicKey(pubkey, compressed=False):
 
 
 ############ functions from pywallet #####################
-def hash_160(public_key):
-    try:
-        md = hashlib.new('ripemd160')
-        md.update(sha256(public_key))
-        return md.digest()
-    except BaseException:
-        from . import ripemd
-        md = ripemd.new(sha256(public_key))
-        return md.digest()
-
 
 def hash160_to_b58_address(h160, addrtype):
     s = bytes([addrtype])
     s += h160
-    return base_encode(s+Hash(s)[0:4], base=58)
+    return base_encode(s + sha256d(s)[0:4], base=58)
 
 
 def b58_address_to_hash160(addr):
@@ -362,7 +255,7 @@ def base_decode(v, length, base):
 
 
 def EncodeBase58Check(vchIn):
-    hash_ = Hash(vchIn)
+    hash_ = sha256d(vchIn)
     return base_encode(vchIn + hash_[0:4], base=58)
 
 
@@ -370,7 +263,7 @@ def DecodeBase58Check(psz):
     vchRet = base_decode(psz, None, base=58)
     key = vchRet[0:-4]
     csum = vchRet[-4:]
-    hash_ = Hash(key)
+    hash_ = sha256d(key)
     cs32 = hash_[0:4]
     if cs32 != csum:
         return None
@@ -473,7 +366,7 @@ def verify_message(address, sig, message):
     if not isinstance(address, Address):
         address = Address.from_string(address)
 
-    h = Hash(msg_magic(message))
+    h = sha256d(msg_magic(message))
     public_key, compressed = pubkey_from_signature(sig, h)
     # check public key using the right address
     pubkey = point_to_ser(public_key.pubkey.point, compressed)
@@ -614,7 +507,7 @@ class EC_KEY(object):
 
     def sign_message(self, message, is_compressed):
         message = to_bytes(message, 'utf8')
-        signature = self.sign(Hash(msg_magic(message)))
+        signature = self.sign(sha256d(msg_magic(message)))
         for i in range(4):
             sig = bytes([27 + i + (4 if is_compressed else 0)]) + signature
             try:
@@ -626,7 +519,7 @@ class EC_KEY(object):
 
     def verify_message(self, sig, message):
         assert_bytes(message)
-        h = Hash(msg_magic(message))
+        h = sha256d(msg_magic(message))
         public_key, compressed = pubkey_from_signature(sig, h)
         # check public key
         if (point_to_ser(public_key.pubkey.point, compressed) !=
@@ -683,11 +576,3 @@ class EC_KEY(object):
         if mac != hmac.new(key_m, encrypted[:-32], hashlib.sha256).digest():
             raise InvalidPassword()
         return aes_decrypt_with_iv(key_e, iv, ciphertext)
-
-
-def hmac_oneshot(key: bytes, msg: bytes, digest) -> bytes:
-    if hasattr(hmac, 'digest'):
-        # requires python 3.7+; faster
-        return hmac.digest(key, msg, digest)
-    else:
-        return hmac.new(key, msg, digest).digest()

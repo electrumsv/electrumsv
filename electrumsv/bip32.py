@@ -27,10 +27,10 @@ from typing import List
 
 from . import ecc
 from .bitcoin import rev_hex, int_to_hex, EncodeBase58Check, DecodeBase58Check
-from .bitcoin import hash_160, hmac_oneshot
+from .crypto import hash_160, hmac_oneshot
 from .logs import logs
 from .networks import Net
-from .util import bfh, bh2u
+from .util import bfh
 
 
 BIP32_PRIME = 0x80000000

@@ -34,7 +34,8 @@ import sys
 
 from . import bitcoin
 from .address import Address
-from .bitcoin import hash_160, COIN, TYPE_ADDRESS
+from .bitcoin import COIN, TYPE_ADDRESS
+from .crypto import hash_160
 from .i18n import _
 from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
@@ -276,7 +277,7 @@ class Commands:
         if privkey:
             txin_type, privkey2, compressed = bitcoin.deserialize_privkey(privkey)
             pubkey = bitcoin.public_key_from_private_key(privkey2, compressed)
-            h160 = bitcoin.hash_160(bfh(pubkey))
+            h160 = hash_160(bfh(pubkey))
             x_pubkey = 'fd' + bh2u(b'\x00' + h160)
             tx.sign({x_pubkey:(privkey2, compressed)})
         else:

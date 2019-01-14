@@ -18,9 +18,10 @@ from ecdsa.ecdsa import generator_secp256k1
 from ecdsa.util import sigencode_der
 
 from electrumsv.bitcoin import (
-    TYPE_ADDRESS, push_script, msg_magic, Hash, verify_message, pubkey_from_signature,
-    point_to_ser, public_key_to_p2pkh, EncodeAES, DecodeAES, MyVerifyingKey, int_to_hex,
+    TYPE_ADDRESS, push_script, msg_magic, verify_message, pubkey_from_signature,
+    point_to_ser, public_key_to_p2pkh, MyVerifyingKey, int_to_hex,
 )
+from electrumsv.crypto import sha256d, EncodeAES, DecodeAES
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -384,7 +385,7 @@ class DigitalBitbox_Client():
     def hid_send_encrypt(self, msg):
         reply = ""
         try:
-            secret = Hash(self.password)
+            secret = sha256d(self.password)
             msg = EncodeAES(secret, msg)
             reply = self.hid_send_plain(msg)
             if 'ciphertext' in reply:
@@ -438,7 +439,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
         try:
             message = message.encode('utf8')
             inputPath = self.get_derivation() + "/%d/%d" % sequence
-            msg_hash = Hash(msg_magic(message))
+            msg_hash = sha256d(msg_magic(message))
             inputHash = to_hexstr(msg_hash)
             hasharray = []
             hasharray.append({'hash': inputHash, 'keypath': inputPath})
@@ -518,7 +519,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     if x_pubkey in derivations:
                         index = derivations.get(x_pubkey)
                         inputPath = "%s/%d/%d" % (self.get_derivation(), index[0], index[1])
-                        inputHash = Hash(binascii.unhexlify(tx.serialize_preimage(i)))
+                        inputHash = sha256d(binascii.unhexlify(tx.serialize_preimage(i)))
                         hasharray_i = {'hash': to_hexstr(inputHash), 'keypath': inputPath}
                         hasharray.append(hasharray_i)
                         inputhasharray.append(inputHash)
@@ -570,7 +571,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     },
                 }
                 if tx_dbb_serialized is not None:
-                    msg["sign"]["meta"] = to_hexstr(Hash(tx_dbb_serialized))
+                    msg["sign"]["meta"] = to_hexstr(sha256d(tx_dbb_serialized))
                 msg = json.dumps(msg).encode('ascii')
                 dbb_client = self.plugin.get_client(self)
 

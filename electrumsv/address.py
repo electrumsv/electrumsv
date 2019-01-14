@@ -25,17 +25,16 @@
 # Many of the functions in this file are copied from ElectrumX
 
 from collections import namedtuple
-import hashlib
 import struct
 
 from . import cashaddr
-from .enum import Enumeration
 from .bitcoin import EC_KEY, is_minikey, minikey_to_private_key
-from .util import cachedproperty
+from .crypto import hash_160, sha256, sha256d
+from .enum import Enumeration
 from .networks import Net
+from .util import cachedproperty
 
-_sha256 = hashlib.sha256
-_new_hash = hashlib.new
+
 hex_to_bytes = bytes.fromhex
 
 
@@ -87,10 +86,6 @@ def hash_to_hex_str(x):
     '''
     return bytes(reversed(x)).hex()
 
-def hex_str_to_hash(x):
-    '''Convert a displayed hex string to a binary hash.'''
-    return bytes(reversed(hex_to_bytes(x)))
-
 def bytes_to_int(be_bytes):
     '''Interprets a big-endian sequence of bytes as an integer'''
     return int.from_bytes(be_bytes, 'big')
@@ -98,26 +93,6 @@ def bytes_to_int(be_bytes):
 def int_to_bytes(value):
     '''Converts an integer to a big-endian sequence of bytes'''
     return value.to_bytes((value.bit_length() + 7) // 8, 'big')
-
-def sha256(x):
-    '''Simple wrapper of hashlib sha256.'''
-    return _sha256(x).digest()
-
-def double_sha256(x):
-    '''SHA-256 of SHA-256, as used extensively in bitcoin.'''
-    return sha256(sha256(x))
-
-def ripemd160(x):
-    '''Simple wrapper of hashlib ripemd160.'''
-    h = _new_hash('ripemd160')
-    h.update(x)
-    return h.digest()
-
-def hash160(x):
-    '''RIPEMD-160 of SHA-256.
-
-    Used to make bitcoin addresses from pubkeys.'''
-    return ripemd160(sha256(x))
 
 
 class UnknownAddress(object):
@@ -190,7 +165,7 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
     @cachedproperty
     def address(self):
         '''Convert to an Address object.'''
-        return Address(hash160(self.pubkey), Address.ADDR_P2PKH)
+        return Address(hash_160(self.pubkey), Address.ADDR_P2PKH)
 
     def is_compressed(self):
         '''Returns True if the pubkey is compressed.'''
@@ -372,7 +347,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         if isinstance(pubkey, str):
             pubkey = hex_to_bytes(pubkey)
         PublicKey.validate(pubkey)
-        return cls(hash160(pubkey), cls.ADDR_P2PKH)
+        return cls(hash_160(pubkey), cls.ADDR_P2PKH)
 
     @classmethod
     def from_P2PKH_hash(cls, hash160value):
@@ -386,7 +361,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
 
     @classmethod
     def from_multisig_script(cls, script):
-        return cls(hash160(script), cls.ADDR_P2SH)
+        return cls(hash_160(script), cls.ADDR_P2SH)
 
     def to_string(self):
         '''Converts to a string of the given format.'''
@@ -588,7 +563,7 @@ class Base58(object):
         prefixes it.'''
         be_bytes = Base58.decode(txt)
         result, check = be_bytes[:-4], be_bytes[-4:]
-        if check != double_sha256(result)[:4]:
+        if check != sha256d(result)[:4]:
             raise Base58Error('invalid base 58 checksum for {}'.format(txt))
         return result
 
@@ -596,5 +571,5 @@ class Base58(object):
     def encode_check(payload):
         """Encodes a payload bytearray (which includes the version byte(s))
         into a Base58Check string."""
-        be_bytes = payload + double_sha256(payload)[:4]
+        be_bytes = payload + sha256d(payload)[:4]
         return Base58.encode(be_bytes)

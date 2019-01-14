@@ -39,7 +39,8 @@ import socks
 from . import bitcoin
 from . import blockchain
 from . import util
-from .bitcoin import COIN, bfh, Hash
+from .bitcoin import COIN, bfh
+from .crypto import sha256d
 from .i18n import _
 from .interface import Connection, Interface
 from .logs import logs
@@ -1423,7 +1424,7 @@ class Network(util.DaemonThread):
                                    merkle_root)
             return False
 
-        header_hash = Hash(bfh(header))
+        header_hash = sha256d(bfh(header))
         byte_branches = [ bytes(reversed(bfh(v))) for v in merkle_branch ]
         proven_merkle_root = blockchain.root_from_proof(header_hash, byte_branches, header_height)
         if proven_merkle_root != expected_merkle_root:

@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import QPushButton
 from electrumsv import bitcoin, util, keystore
 from electrumsv import transaction
 from electrumsv.bip32 import deserialize_xpub, deserialize_xprv
+from electrumsv.crypto import sha256d
 from electrumsv.i18n import _
 from electrumsv.keystore import is_xpubkey, parse_xpubkey
 from electrumsv.logs import logs
@@ -133,7 +134,7 @@ class Plugin(BasePlugin):
         for key, keystore_ in wallet.keystores.items():
             xpub = keystore_.get_master_public_key()
             K = deserialize_xpub(xpub)[-1]
-            _hash = bh2u(bitcoin.Hash(K))
+            _hash = bh2u(sha256d(K))
             if not keystore_.is_watching_only():
                 self.keys.append((key, _hash, window))
             else:

@@ -32,13 +32,14 @@ from ecdsa.curves import SECP256k1
 # Note: The deserialization code originally comes from ABE.
 
 from .address import (
-    PublicKey, Address, Script, ScriptOutput, hash160, UnknownAddress, OpCodes as opcodes
+    PublicKey, Address, Script, ScriptOutput, UnknownAddress, OpCodes as opcodes
 )
 from .bitcoin import (
-    to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, hash_encode, op_push, Hash,
+    to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, hash_encode, op_push,
     MyVerifyingKey, point_to_ser, push_script, public_key_to_p2pk_script, int_to_hex,
     var_int, public_key_from_private_key, regenerate_key, MySigningKey
 )
+from .crypto import sha256d, hash_160
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 from .logs import logs
 from .util import profiler, bfh, bh2u
@@ -290,7 +291,7 @@ def parse_scriptSig(d, _bytes):
     d['x_pubkeys'] = x_pubkeys
     d['pubkeys'] = pubkeys
     d['redeemScript'] = redeemScript
-    d['address'] = Address.from_P2SH_hash(hash160(redeemScript))
+    d['address'] = Address.from_P2SH_hash(hash_160(redeemScript))
 
 
 def parse_redeemScript(s):
@@ -469,7 +470,7 @@ class Transaction:
             for sig in sigs2:
                 if sig in sigs1:
                     continue
-                pre_hash = Hash(bfh(self.serialize_preimage(i)))
+                pre_hash = sha256d(bfh(self.serialize_preimage(i)))
                 # der to string
                 order = ecdsa.ecdsa.generator_secp256k1.order()
                 r, s = ecdsa.util.sigdecode_der(bfh(sig[:-2]), order)
@@ -655,10 +656,10 @@ class Transaction:
         outputs = self.outputs()
         txin = inputs[i]
 
-        hashPrevouts = bh2u(Hash(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
-        hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
+        hashPrevouts = bh2u(sha256d(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
+        hashSequence = bh2u(sha256d(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
                                              for txin in inputs))))
-        hashOutputs = bh2u(Hash(bfh(''.join(self.serialize_output(o) for o in outputs))))
+        hashOutputs = bh2u(sha256d(bfh(''.join(self.serialize_output(o) for o in outputs))))
         outpoint = self.serialize_outpoint(txin)
         preimage_script = self.get_preimage_script(txin)
         scriptCode = var_int(len(preimage_script) // 2) + preimage_script
@@ -691,7 +692,7 @@ class Transaction:
         if not self.is_complete():
             return None
         ser = self.serialize()
-        return bh2u(Hash(bfh(ser))[::-1])
+        return bh2u(sha256d(bfh(ser))[::-1])
 
     def add_inputs(self, inputs):
         self._inputs.extend(inputs)
@@ -753,7 +754,7 @@ class Transaction:
                     sec, compressed = keypairs.get(x_pubkey)
                     pubkey = public_key_from_private_key(sec, compressed)
                     # add signature
-                    pre_hash = Hash(bfh(self.serialize_preimage(i)))
+                    pre_hash = sha256d(bfh(self.serialize_preimage(i)))
                     pkey = regenerate_key(sec)
                     secexp = pkey.secret
                     private_key = MySigningKey.from_secret_exponent(secexp, curve = SECP256k1)
