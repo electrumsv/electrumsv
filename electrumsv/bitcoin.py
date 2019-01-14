@@ -41,7 +41,6 @@ do_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1()
 
 ################################## transactions
 
-FEE_STEP = 10000
 MAX_FEE_RATE = 20000
 FEE_TARGETS = [25, 10, 5, 2]
 
@@ -191,13 +190,12 @@ def Hash(x):
 
 hash_encode = lambda x: bh2u(x[::-1])
 hash_decode = lambda x: bfh(x)[::-1]
-hmac_sha_512 = lambda x, y: hmac.new(x, y, hashlib.sha512).digest()
 
 
 def is_new_seed(x, prefix=version.SEED_PREFIX):
     from . import mnemonic
     x = mnemonic.normalize_text(x)
-    s = bh2u(hmac_sha_512(b"Seed version", x.encode('utf8')))
+    s = bh2u(hmac_oneshot(b"Seed version", x.encode('utf8'), hashlib.sha512))
     return s.startswith(prefix)
 
 
