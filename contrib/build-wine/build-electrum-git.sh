@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NAME_ROOT=electrumsv
+NAME_ROOT=ElectrumSV
 
 # These settings probably don't need any change
 export WINEPREFIX=/opt/wine64
@@ -23,18 +23,6 @@ pushd $WINEPREFIX/drive_c/electrum
 
 VERSION=`git describe --tags --dirty --always --match sv-*`
 echo "Last commit: $VERSION"
-
-pushd locale
-if ! which msgfmt > /dev/null 2>&1; then
-    echo "Please install gettext"
-    exit 1
-fi
-for i in ./*; do
-    dir=$WINEPREFIX/drive_c/electrum/electrumsv/locale/$i/LC_MESSAGES
-    mkdir -p $dir
-    msgfmt --output-file=$dir/electrum-sv.mo $i/electron-cash.po || true
-done
-popd
 
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
@@ -66,8 +54,8 @@ popd
 wine "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
 
 cd dist
-mv electrumsv-setup.exe $NAME_ROOT-$VERSION-setup.exe
+mv ElectrumSV-setup.exe $NAME_ROOT-$VERSION-setup.exe
 cd ..
 
 echo "Done."
-sha256sum dist/electrum*exe
+sha256sum dist/Electrum*exe

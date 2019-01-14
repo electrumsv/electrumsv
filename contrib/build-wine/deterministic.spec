@@ -33,7 +33,7 @@ binaries += [('C:/tmp/libsecp256k1.dll', '.')]
 datas = [
     (home+'electrumsv/*.json', 'electrumsv'),
     (home+'electrumsv/wordlist/english.txt', 'electrumsv/wordlist'),
-    (home+'electrumsv/locale', 'electrumsv/locale'),
+    (home+'data', 'data'),
     (home+'electrumsv/plugins', 'electrumsv/plugins'),
     ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),
 ]
@@ -93,7 +93,7 @@ exe_standalone = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons\\electrum-sv.ico',
+    icon=home+'data\\icons\\electrum-sv.ico',
     console=False)
     # console=True makes an annoying black box pop up, but it does make Electrum output command line commands, with this turned off no output will be given but commands can still be used
 
@@ -106,7 +106,7 @@ exe_portable = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons\\electrum-sv.ico',
+    icon=home+'data\\icons\\electrum-sv.ico',
     console=False)
 
 #####
@@ -120,7 +120,7 @@ exe_dependent = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons\\electrum-sv.ico',
+    icon=home+'data\\icons\\electrum-sv.ico',
     console=False)
 
 coll = COLLECT(
@@ -131,6 +131,6 @@ coll = COLLECT(
     strip=None,
     upx=True,
     debug=False,
-    icon=home+'icons\\electrum-sv.ico',
+    icon=home+'data\\icons\\electrum-sv.ico',
     console=False,
     name=os.path.join('dist', 'electrum'))
