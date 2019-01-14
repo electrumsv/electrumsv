@@ -1,5 +1,6 @@
-# ElectrumSV - lightweight Bitcoin client
-# Copyright (C) 2019 ElectrumSV developers
+# Electrum SV - lightweight Bitcoin SV client
+# Copyright (C) 2019 The Electrum SV Developers
+# Copyright (C) 2012 thomasv@gitorious
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -21,32 +22,43 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from electrumsv.app_state import app_state
-from electrumsv.i18n import _
+'''Global application state.   Use as follows:
+
+from electrumsv.app_sate import app_state
+
+app_state.config
+app_state.daemon
+app_state.plugins
+app_state.func()
+
+etc.
+'''
 
 
-class Extension(object):
+class AppStateProxy(object):
 
-    def __init__(self, setting, name, description):
-        self.setting = setting
-        self.name = name
-        self.description = description
-
-    def is_enabled(self):
-        return app_state.config.get('use_' + self.setting, False)
-
-    def set_enabled(self, enabled):
-        return app_state.config.set_key('use_' + self.setting, bool(enabled))
+    def __init__(self, config):
+        self.config = config
 
 
-virtual_keyboard = Extension(
-    'virtualkeyboard', _('Virtual Keyboard'),
-    '\n'.join((
-        _("Add an optional virtual keyboard to the password dialog."),
-        _("Warning: do not use this if it makes you pick a weaker password."),
-    )))
+class _AppStateMeta(type):
+
+    def __getattr__(cls, attr):
+        return getattr(cls._proxy, attr)
+
+    def __setattr__(cls, attr, value):
+        if attr == '_proxy':
+            super().__setattr__(attr, value)
+        return setattr(cls._proxy, attr, value)
 
 
-extensions = [
-    virtual_keyboard,
-]
+class AppState(metaclass=_AppStateMeta):
+
+    _proxy = None
+
+    @classmethod
+    def set_proxy(cls, proxy):
+        cls._proxy = proxy
+
+
+app_state = AppState

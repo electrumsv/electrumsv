@@ -30,6 +30,7 @@ import threading
 
 import jsonrpclib
 
+from .app_state import app_state
 from .commands import known_commands, Commands
 from .exchange_rate import FxThread
 from .extensions import Extension
@@ -126,8 +127,10 @@ def get_rpc_credentials(config):
 
 class Daemon(DaemonThread):
 
-    def __init__(self, config, fd, is_gui):
+    def __init__(self, fd, is_gui):
         DaemonThread.__init__(self)
+        app_state.daemon = self
+        config = app_state.config
         self.config = config
         if config.get('offline'):
             self.network = None
@@ -137,7 +140,6 @@ class Daemon(DaemonThread):
         self.fx = FxThread(config, self.network)
         if self.network:
             self.network.add_jobs([self.fx])
-        self.gui = None
         self.wallets = {}
         # Setup JSONRPC server
         self.init_server(config, fd, is_gui)
@@ -215,17 +217,13 @@ class Daemon(DaemonThread):
 
     def run_gui(self, config_options):
         config = SimpleConfig(config_options)
-        if self.gui:
-            if hasattr(self.gui, 'new_window'):
-                config.open_last_wallet()
-                path = config.get_wallet_path()
-                self.gui.new_window(path, config.get('url'))
-                response = "ok"
-            else:
-                response = "error: current GUI does not support multiple windows"
-        else:
-            response = "error: ElectrumSV is running in daemon mode; stop the daemon first."
-        return response
+        if hasattr(app_state, 'windows'):
+            config.open_last_wallet()
+            path = config.get_wallet_path()
+            app_state.new_window(path, config.get('url'))
+            return "ok"
+
+        return "error: ElectrumSV is running in daemon mode; stop the daemon first."
 
     def load_wallet(self, path, password):
         # wizard will be launched if we return
@@ -307,14 +305,3 @@ class Daemon(DaemonThread):
         logger.debug("stopping, removing lockfile")
         remove_lockfile(get_lockfile(self.config))
         DaemonThread.stop(self)
-
-    def init_gui(self, config, plugins):
-        Extension.config = config
-        try:
-            from electrumsv.gui.qt import ElectrumGui
-        except ImportError as e:
-            platform.missing_import(e)
-
-        threading.current_thread().setName('GUI')
-        self.gui = ElectrumGui(config, self, plugins)
-        self.gui.main()

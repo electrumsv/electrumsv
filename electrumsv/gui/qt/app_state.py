@@ -1,6 +1,5 @@
-#!/usr/bin/env python
-#
-# Electrum - lightweight Bitcoin client
+# Electrum SV - lightweight Bitcoin SV client
+# Copyright (C) 2019 The Electrum SV Developers
 # Copyright (C) 2012 thomasv@gitorious
 #
 # Permission is hereby granted, free of charge, to any person
@@ -23,14 +22,19 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+'''QT application state.'''
+
+
 import signal
 import sys
+import threading
 
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMessageBox, QMenu, QWidget
 import PyQt5.QtCore as QtCore
 
+from electrumsv.app_state import AppStateProxy
 from electrumsv.exceptions import UserCancelled, UserQuit
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
@@ -44,13 +48,13 @@ from .network_dialog import NetworkDialog
 from .util import ColorScheme, read_QIcon
 
 
-logger = logs.get_logger('gui-init')
+logger = logs.get_logger('app_state')
 
 
 class OpenFileEventFilter(QObject):
     def __init__(self, windows):
+        super().__init__()
         self.windows = windows
-        super(OpenFileEventFilter, self).__init__()
 
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.FileOpen:
@@ -60,13 +64,19 @@ class OpenFileEventFilter(QObject):
         return False
 
 
-class QElectrumApplication(QApplication):
+class QElectrumSVApplication(QApplication):
+
+    # Signals need to be on a QObject
     new_window_signal = pyqtSignal(str, object)
 
 
-class ElectrumGui:
+class QtAppStateProxy(AppStateProxy):
 
-    def __init__(self, config, daemon, plugins):
+    def __init__(self, config):
+        super().__init__(config)
+
+        threading.current_thread().setName('GUI')
+        # FIXME: move language to app_state
         set_language(config.get('language'))
         # Uncomment this call to verify objects are being properly
         # GC-ed when windows are closed
@@ -77,12 +87,9 @@ class ElectrumGui:
             QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
         if hasattr(QGuiApplication, 'setDesktopFileName'):
             QGuiApplication.setDesktopFileName('electrum-sv.desktop')
-        self.config = config
-        self.daemon = daemon
-        self.plugins = plugins
         self.windows = []
         self.efilter = OpenFileEventFilter(self.windows)
-        self.app = QElectrumApplication(sys.argv)
+        self.app = QElectrumSVApplication(sys.argv)
         self.app.installEventFilter(self.efilter)
         # timer
         self.timer = QTimer(self.app)
@@ -248,7 +255,7 @@ class ElectrumGui:
         if not self.start_new_window(path, self.config.get('url'), is_startup=True):
             self.app.quit()
 
-    def main(self):
+    def run_gui(self):
         QTimer.singleShot(0, self.event_loop_started)
         self.app.exec_()
         # Shut down the timer cleanly

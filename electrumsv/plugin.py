@@ -32,6 +32,7 @@ import time
 
 from . import bitcoin
 from . import plugins
+from .app_state import app_state
 from .i18n import _
 from .exceptions import UserCancelled
 from .logs import logs
@@ -48,16 +49,17 @@ hooks = {}
 class Plugins(DaemonThread):
 
     @profiler
-    def __init__(self, config, gui_name):
+    def __init__(self, gui_name):
         DaemonThread.__init__(self)
+        app_state.plugins = self
         self.setName('Plugins')
         self.pkgpath = os.path.dirname(plugins.__file__)
-        self.config = config
+        self.config = app_state.config
         self.hw_wallets = {}
         self.plugins = {}
         self.gui_name = gui_name
         self.descriptions = {}
-        self.device_manager = DeviceMgr(config)
+        self.device_manager = DeviceMgr(self.config)
         self.load_plugins()
         self.add_jobs(self.device_manager.thread_jobs())
         self.start()

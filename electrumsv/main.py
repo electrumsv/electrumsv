@@ -35,6 +35,7 @@ import sys
 import time
 
 from electrumsv import bitcoin, daemon, keystore, util, web
+from electrumsv.app_state import app_state, AppStateProxy
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.logs import logs
@@ -244,9 +245,9 @@ def run_offline_command(config, config_options):
     return result
 
 
-def init_plugins(config, gui_name):
+def init_plugins(gui_name):
     from electrumsv.plugin import Plugins
-    return Plugins(config, gui_name)
+    return Plugins(gui_name)
 
 
 def main():
@@ -322,6 +323,16 @@ def main():
     config = SimpleConfig(config_options)
     cmdname = config.get('cmd')
 
+    # Set the app state proxy
+    if cmdname == 'gui':
+        try:
+            from electrumsv.gui.qt.app_state import QtAppStateProxy
+        except ImportError as e:
+            platform.missing_import(e)
+        app_state.set_proxy(QtAppStateProxy(config))
+    else:
+        app_state.set_proxy(AppStateProxy(config))
+
     # run non-RPC commands separately
     if cmdname in ['create', 'restore']:
         run_non_RPC(config)
@@ -330,10 +341,10 @@ def main():
     if cmdname == 'gui':
         fd, server = daemon.get_fd_or_server(config)
         if fd is not None:
-            plugins = init_plugins(config, 'qt')
-            d = daemon.Daemon(config, fd, True)
+            d = daemon.Daemon(fd, True)
             d.start()
-            d.init_gui(config, plugins)
+            init_plugins('qt')
+            app_state.run_gui()
             sys.exit(0)
         else:
             result = server.gui(config_options)
@@ -351,8 +362,8 @@ def main():
                     if pid:
                         print("starting daemon (PID %d)" % pid, file=sys.stderr)
                         sys.exit(0)
-                init_plugins(config, 'cmdline')
-                d = daemon.Daemon(config, fd, False)
+                init_plugins('cmdline')
+                d = daemon.Daemon(fd, False)
                 d.start()
                 if config.get('websocket_server'):
                     try:
@@ -390,7 +401,7 @@ def main():
                 print("Daemon not running; try 'electrum-sv daemon start'")
                 sys.exit(1)
             else:
-                init_plugins(config, 'cmdline')
+                init_plugins('cmdline')
                 result = run_offline_command(config, config_options)
                 # print result
     if isinstance(result, str):
