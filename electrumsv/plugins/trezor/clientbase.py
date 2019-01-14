@@ -1,7 +1,7 @@
 from struct import pack
 import time
 
-from electrumsv.bitcoin import serialize_xpub, convert_bip32_path_to_list_of_uint32 as parse_path
+from electrumsv.bip32 import bip32_path_to_uints, serialize_xpub
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import bip39_normalize_passphrase
@@ -121,7 +121,7 @@ class TrezorClientBase:
         return pack('>I', x)
 
     def get_xpub(self, bip32_path, xtype, creating=False):
-        address_n = parse_path(bip32_path)
+        address_n = bip32_path_to_uints(bip32_path)
         with self.run_flow(creating_wallet=creating):
             node = trezorlib.btc.get_public_node(self.client, address_n).node
         return serialize_xpub(xtype, node.chain_code, node.public_key, node.depth,
@@ -181,7 +181,7 @@ class TrezorClientBase:
 
     def show_address(self, address_str, script_type, multisig=None):
         coin_name = self.plugin.get_coin_name()
-        address_n = parse_path(address_str)
+        address_n = bip32_path_to_uints(address_str)
         with self.run_flow():
             return trezorlib.btc.get_address(
                 self.client,
@@ -193,7 +193,7 @@ class TrezorClientBase:
 
     def sign_message(self, address_str, message):
         coin_name = self.plugin.get_coin_name()
-        address_n = parse_path(address_str)
+        address_n = bip32_path_to_uints(address_str)
         with self.run_flow():
             return trezorlib.btc.sign_message(
                 self.client,

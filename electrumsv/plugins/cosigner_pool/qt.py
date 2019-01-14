@@ -31,7 +31,9 @@ from PyQt5.QtWidgets import QPushButton
 
 from electrumsv import bitcoin, util, keystore
 from electrumsv import transaction
+from electrumsv.bip32 import deserialize_xpub, deserialize_xprv
 from electrumsv.i18n import _
+from electrumsv.keystore import is_xpubkey, parse_xpubkey
 from electrumsv.logs import logs
 from electrumsv.plugin import BasePlugin, hook
 from electrumsv.util import bh2u, bfh
@@ -130,7 +132,7 @@ class Plugin(BasePlugin):
         self.cosigner_list = []
         for key, keystore_ in wallet.keystores.items():
             xpub = keystore_.get_master_public_key()
-            K = bitcoin.deserialize_xpub(xpub)[-1]
+            K = deserialize_xpub(xpub)[-1]
             _hash = bh2u(bitcoin.Hash(K))
             if not keystore_.is_watching_only():
                 self.keys.append((key, _hash, window))
@@ -159,7 +161,6 @@ class Plugin(BasePlugin):
             d.cosigner_send_button.hide()
 
     def cosigner_can_sign(self, tx, cosigner_xpub):
-        from electrumsv.keystore import is_xpubkey, parse_xpubkey
         xpub_set = set([])
         for txin in tx.inputs():
             for x_pubkey in txin['x_pubkeys']:
@@ -216,7 +217,7 @@ class Plugin(BasePlugin):
         if not xprv:
             return
         try:
-            k = bh2u(bitcoin.deserialize_xprv(xprv)[-1])
+            k = bh2u(deserialize_xprv(xprv)[-1])
             EC = bitcoin.EC_KEY(bfh(k))
             message = bh2u(EC.decrypt_message(message))
         except Exception as e:

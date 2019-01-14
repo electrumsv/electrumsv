@@ -25,7 +25,9 @@
 
 import os
 
-from . import bitcoin, keystore
+from . import bip32
+from . import bitcoin
+from . import keystore
 from .i18n import _
 from .keystore import bip44_derivation_145
 from .logs import logs
@@ -273,7 +275,7 @@ class BaseWizard(object):
         self.line_dialog(run_next=f,
                          title=_('Derivation for {} wallet').format(self.wallet_type),
                          message=message, default=default_derivation,
-                         test=bitcoin.is_bip32_derivation)
+                         test=bip32.is_bip32_derivation)
 
     def on_hw_derivation(self, name, device_info, derivation):
         from .keystore import hardware_keystore
@@ -340,8 +342,7 @@ class BaseWizard(object):
     def on_keystore(self, k):
         has_xpub = isinstance(k, keystore.Xpub)
         if has_xpub:
-            from .bitcoin import xpub_type
-            t1 = xpub_type(k.xpub)
+            t1 = bip32.xpub_type(k.xpub)
         if self.wallet_type == 'standard':
             if has_xpub and t1 not in ['standard']:
                 self.show_error(_('Wrong key type') + ' %s'%t1)
@@ -360,7 +361,7 @@ class BaseWizard(object):
                 self.run('choose_keystore')
                 return
             if len(self.keystores)>0:
-                t2 = xpub_type(self.keystores[0].xpub)
+                t2 = bip32.xpub_type(self.keystores[0].xpub)
                 if t1 != t2:
                     self.show_error(_('Cannot add this cosigner:') + '\n' +
                                     "Their key type is '%s', we are '%s'"%(t1, t2))

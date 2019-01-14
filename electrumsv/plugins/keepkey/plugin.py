@@ -1,7 +1,8 @@
 from binascii import hexlify, unhexlify
 import threading
 
-from electrumsv.bitcoin import (xpub_from_pubkey, TYPE_ADDRESS, TYPE_SCRIPT)
+from electrumsv.bip32 import xpub_from_pubkey
+from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 from electrumsv.logs import logs
