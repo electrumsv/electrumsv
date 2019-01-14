@@ -74,7 +74,7 @@ class UpdaterWidget(QWidget):
         self._messageLabel.setText(text)
 
 class UpdaterDialog(UpdaterWidget):
-    def __init__(self, main_window):
+    def __init__(self, main_window, result_cb=None):
         super().__init__()
 
         self._main_window = main_window
@@ -104,7 +104,7 @@ class UpdaterDialog(UpdaterWidget):
 
         self.show()
 
-        self.updater = Updater(self)
+        self.updater = Updater(self, result_cb)
         self.updater.start_gui()
 
     def closeEvent(self, event):
@@ -119,9 +119,10 @@ class Updater:
     _thread = None
     _timer = None
 
-    def __init__(self, _parent=None):
+    def __init__(self, _parent=None, result_cb=None):
         self._parent = _parent
         self._running = False
+        self._result_cb = result_cb
 
     def start_gui(self):
         if not isinstance(self._parent, UpdaterWidget):
@@ -144,6 +145,9 @@ class Updater:
                     next_version = result['version'],
                     next_version_date = result['date'],
                     download_uri='https://electrumsv.io/download/'))
+
+                if self._result_cb is not None:
+                    self._result_cb(result)
             # Handle the case where the data indicates the same or older version.
             # Older version may be in the case of running from github.
             else:

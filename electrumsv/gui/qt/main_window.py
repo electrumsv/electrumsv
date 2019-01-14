@@ -34,8 +34,8 @@ import time
 import weakref
 import webbrowser
 
-from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, qVersion
-from PyQt5.QtGui import QKeySequence, QCursor, QIcon
+from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, qVersion, QUrl
+from PyQt5.QtGui import QKeySequence, QCursor, QIcon, QDesktopServices
 from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QSystemTrayIcon, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
@@ -625,9 +625,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def show_update_check(self):
         from . import updater
-        import importlib
-        importlib.reload(updater)
-        self.update_check = updater.UpdaterDialog(self)
+        def on_update_available(result):
+            def on_update_button_click(*args):
+                QDesktopServices.openUrl(QUrl("https://electrumsv.io"))
+            self.update_check_button.setText(_("Update {} is available").format(result['version']))
+            self.update_check_button.clicked.connect(on_update_button_click)
+            self.update_check_button.show()
+        self.update_check = updater.UpdaterDialog(self, on_update_available)
 
     def show_report_bug(self):
         msg = ' '.join([
@@ -2053,6 +2057,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.search_box.textChanged.connect(self.do_search)
         self.search_box.hide()
         sb.addPermanentWidget(self.search_box)
+
+        self.update_check_button = QPushButton("")
+        self.update_check_button.setFlat(True)
+        self.update_check_button.setCursor(QCursor(Qt.PointingHandCursor))
+        self.update_check_button.setIcon(read_QIcon("update.png"))
+        self.update_check_button.hide()
+        sb.addPermanentWidget(self.update_check_button)
 
         self.lock_icon = QIcon()
         self.password_button = StatusBarButton(self.lock_icon, _("Password"),
