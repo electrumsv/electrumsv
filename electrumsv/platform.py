@@ -58,11 +58,13 @@ class Platform(object):
 
     def missing_import(self, exception):
         module = exception.name
-        for m, package in self.module_map.items():
-            # because submodule could be imported instead
-            if module.startswith(m):
-                sys.exit(_('cannot import module "{0}" - try running "pip3 install {1}"'
-                           .format(module, package)))
+        if module is not None:
+            # Only hint about a missing import if the failure was a missing module.
+            for m, package in self.module_map.items():
+                # because submodule could be imported instead
+                if module.startswith(m):
+                    sys.exit(_('cannot import module "{0}" - try running "pip3 install {1}"'
+                            .format(module, package)))
         raise exception from None
 
 
