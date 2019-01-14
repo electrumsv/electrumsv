@@ -1,6 +1,3 @@
-#!/usr/bin/env python2
-# -*- mode: python -*-
-#
 # Electrum - lightweight Bitcoin client
 # Copyright (C) 2016  The Electrum developers
 #
@@ -34,11 +31,11 @@ from ecdsa.util import string_to_number, number_to_string
 
 from . import bitcoin
 from .address import Address, PublicKey
-from .bitcoin import (
-    bip32_public_derivation, deserialize_xpub, CKD_pub, bh2u, bfh, DecodeBase58Check,
-    deserialize_xprv, pw_encode, bip32_root, bip32_private_derivation, bip32_private_key,
-    pw_decode, Hash, is_xpub, is_xprv, is_seed, seed_type
+from .bip32 import (
+    bip32_private_key, bip32_public_derivation, bip32_private_derivation, bip32_root,
+    xpub_from_xprv, deserialize_xpub, deserialize_xprv, is_xpub, is_xprv, CKD_pub
 )
+from .bitcoin import bh2u, bfh, DecodeBase58Check, pw_encode, pw_decode, Hash, is_seed, seed_type
 from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
@@ -382,7 +379,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
 
     def add_xprv(self, xprv):
         self.xprv = xprv
-        self.xpub = bitcoin.xpub_from_xprv(xprv)
+        self.xpub = xpub_from_xprv(xprv)
 
     def add_xprv_from_seed(self, bip32_seed, xtype, derivation):
         xprv, xpub = bip32_root(bip32_seed, xtype)
@@ -790,7 +787,7 @@ def from_xpub(xpub):
     return k
 
 def from_xprv(xprv):
-    xpub = bitcoin.xpub_from_xprv(xprv)
+    xpub = xpub_from_xprv(xprv)
     k = BIP32_KeyStore({})
     k.xprv = xprv
     k.xpub = xpub

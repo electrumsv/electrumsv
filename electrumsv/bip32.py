@@ -40,6 +40,10 @@ class BIP32Error(Exception):
     pass
 
 
+class InvalidMasterKeyVersionBytes(BIP32Error):
+    pass
+
+
 def protect_against_invalid_ecpoint(func):
     def func_wrapper(*args):
         n = args[-1]
@@ -67,7 +71,7 @@ def protect_against_invalid_ecpoint(func):
 @protect_against_invalid_ecpoint
 def CKD_priv(k, c, n):
     if n < 0:
-        raise ValueError('the bip32 index needs to be non-negative')
+        raise BIP32Error('the bip32 index needs to be non-negative')
     is_prime = n & BIP32_PRIME
     return _CKD_priv(k, c, bfh(rev_hex(int_to_hex(n, 4))), is_prime)
 
@@ -85,7 +89,7 @@ def _CKD_priv(k, c, s, is_prime):
     if I_left >= ecc.CURVE_ORDER or k_n == 0:
         raise ecc.InvalidECPointException()
     k_n = ecc.number_to_string(k_n, ecc.CURVE_ORDER)
-    c_n = I[32:]
+    c_n = I_full[32:]
     return k_n, c_n
 
 
@@ -98,9 +102,9 @@ def _CKD_priv(k, c, s, is_prime):
 @protect_against_invalid_ecpoint
 def CKD_pub(cK, c, n):
     if n < 0:
-        raise ValueError('the bip32 index needs to be non-negative')
+        raise BIP32Error('the bip32 index needs to be non-negative')
     if n & BIP32_PRIME:
-        raise RuntimeError()
+        raise BIP32Error()
     return _CKD_pub(cK, c, bfh(rev_hex(int_to_hex(n, 4))))
 
 
@@ -108,7 +112,7 @@ def CKD_pub(cK, c, n):
 # note: 's' does not need to fit into 32 bits here! (c.f. trustedcoin billing)
 def _CKD_pub(cK, c, s):
     I_full = hmac_oneshot(c, cK + s, hashlib.sha512)
-    pubkey = ecc.ECPrivkey(I[0:32]) + ecc.ECPubkey(cK)
+    pubkey = ecc.ECPrivkey(I_full[0:32]) + ecc.ECPubkey(cK)
     if pubkey.is_at_infinity():
         raise ecc.InvalidECPointException()
     cK_n = pubkey.get_public_key_bytes(compressed=True)
@@ -140,10 +144,6 @@ def serialize_xpub(xtype, c, cK, depth=0, fingerprint=b'\x00'*4,
     xpub = xpub_header(xtype, net=net) \
            + bytes([depth]) + fingerprint + child_number + c + cK
     return EncodeBase58Check(xpub)
-
-
-class InvalidMasterKeyVersionBytes(BIP32Error):
-    pass
 
 
 def deserialize_xkey(xkey, prv, *, net=None):
@@ -216,13 +216,13 @@ def bip32_root(seed, xtype):
 
 def xpub_from_pubkey(xtype, cK):
     if cK[0] not in (0x02, 0x03):
-        raise ValueError('Unexpected first byte: {}'.format(cK[0]))
+        raise BIP32Error('Unexpected first byte: {}'.format(cK[0]))
     return serialize_xpub(xtype, b'\x00'*32, cK)
 
 
 def bip32_derivation(s: str) -> int:
     if not s.startswith('m/'):
-        raise ValueError('invalid bip32 derivation path: {}'.format(s))
+        raise BIP32Error('invalid bip32 derivation path: {}'.format(s))
     s = s[2:]
     for n in s.split('/'):
         if n == '':
@@ -231,7 +231,7 @@ def bip32_derivation(s: str) -> int:
         yield i
 
 
-def convert_bip32_path_to_list_of_uint32(n: str) -> List[int]:
+def bip32_path_to_uints(n: str) -> List[int]:
     """Convert bip32 path to list of uint32 integers with prime flags
     m/0/-1/1' -> [0, 0x80000001, 0x80000001]
 
@@ -261,7 +261,7 @@ def is_bip32_derivation(x: str) -> bool:
 
 def bip32_private_derivation(xprv, branch, sequence):
     if not sequence.startswith(branch):
-        raise ValueError('incompatible branch ({}) and sequence ({})'
+        raise BIP32Error('incompatible branch ({}) and sequence ({})'
                          .format(branch, sequence))
     if branch == sequence:
         return xprv, xpub_from_xprv(xprv)
@@ -286,7 +286,7 @@ def bip32_private_derivation(xprv, branch, sequence):
 def bip32_public_derivation(xpub, branch, sequence):
     xtype, depth, fingerprint, child_number, c, cK = deserialize_xpub(xpub)
     if not sequence.startswith(branch):
-        raise ValueError('incompatible branch ({}) and sequence ({})'
+        raise BIP32Error('incompatible branch ({}) and sequence ({})'
                          .format(branch, sequence))
     sequence = sequence[len(branch):]
     for n in sequence.split('/'):

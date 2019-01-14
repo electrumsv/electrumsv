@@ -10,12 +10,14 @@ from PyQt5.QtWidgets import QGridLayout, QTabWidget, QPushButton, \
 from .plugin import TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 
-from electrumsv.gui.qt.util import WindowModalDialog, WWLabel, Buttons, \
-    CancelButton, OkButton, CloseButton, read_QIcon
+from electrumsv.bip32 import is_xprv
 from electrumsv.i18n import _
 from electrumsv.plugin import hook
 from electrumsv.util import bh2u
 from electrumsv.wallet import Standard_Wallet
+
+from electrumsv.gui.qt.util import WindowModalDialog, WWLabel, Buttons, \
+    CancelButton, OkButton, CloseButton, read_QIcon
 
 PASSPHRASE_HELP_SHORT =_(
     "Passphrases allow you to access new wallets, each "
@@ -247,7 +249,6 @@ class QtPlugin(QtPluginBase):
             else:
                 msg = _("Enter the master private key beginning with xprv:")
                 def set_enabled():
-                    from electrumsv.keystore import is_xprv
                     wizard.next_button.setEnabled(is_xprv(clean_text(text)))
                 text.textChanged.connect(set_enabled)
                 next_enabled = False

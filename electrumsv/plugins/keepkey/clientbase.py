@@ -1,7 +1,7 @@
 from struct import pack
 import time
 
-from electrumsv.bitcoin import serialize_xpub
+from electrumsv.bip32 import serialize_xpub
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import bip39_normalize_passphrase

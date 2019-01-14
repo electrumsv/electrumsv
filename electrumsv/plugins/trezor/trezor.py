@@ -1,6 +1,7 @@
 from binascii import unhexlify
 
-from electrumsv.bitcoin import xpub_from_pubkey, deserialize_xpub, TYPE_ADDRESS, TYPE_SCRIPT
+from electrumsv.bip32 import xpub_from_pubkey, deserialize_xpub
+from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
