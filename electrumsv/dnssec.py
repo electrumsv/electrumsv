@@ -34,7 +34,6 @@ import re
 import struct
 import time
 
-from dns.exception import DNSException
 import dns.name
 import dns.query
 import dns.dnssec

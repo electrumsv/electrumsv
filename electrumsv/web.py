@@ -102,7 +102,7 @@ def parse_URI(uri, on_pr=None):
 
     for k, v in pq.items():
         if len(v) != 1:
-            raise URIError(_('duplicate query key {0} in BitcoinSV URI {1}').format(key, uri))
+            raise URIError(_('duplicate query key {0} in BitcoinSV URI {1}').format(k, uri))
 
     out = {k: v[0] for k, v in pq.items()}
 

@@ -312,7 +312,7 @@ class LedgerWebSocket(QThread):
             logger.debug('Accepted')
             self.req_updated.emit('accepted')
         if data['type'] == 'response':
-            logger.debug('Responded', data)
+            logger.debug(f'Responded {data}')
             self.req_updated.emit(str(data['pin']) if data['is_accepted'] else '')
             self.txreq = None
             self.stopping = True
@@ -322,12 +322,12 @@ class LedgerWebSocket(QThread):
             logger.debug('Repeat')
             if self.txreq:
                 ws.send( self.txreq )
-                logger.debug("Req Sent", self.txreq)
+                logger.debug(f'Req Sent {self.txreq}')
         if data['type'] == 'connect':
             logger.debug('Connected')
             if self.txreq:
                 ws.send( self.txreq )
-                logger.debug("Req Sent", self.txreq)
+                logger.debug(f'Req Sent {self.txreq}')
         if data['type'] == 'disconnect':
             logger.debug('Disconnected')
             ws.close()
@@ -343,9 +343,9 @@ class LedgerWebSocket(QThread):
 
     def on_open(self, ws):
         logger.debug("WS: ### socket open ###")
-        logger.debug("Joining with pairing ID", self.pairID)
+        logger.debug(f'Joining with pairing ID {self.pairID}')
         ws.send( '{"type":"join","room":"%s"}' % self.pairID )
         ws.send( '{"type":"repeat"}' )
         if self.txreq:
             ws.send( self.txreq )
-            logger.debug("Req Sent", self.txreq)
+            logger.debug(f'Req Sent {self.txreq}')

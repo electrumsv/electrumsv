@@ -25,7 +25,6 @@
 
 import hashlib
 import math
-import os
 import string
 import unicodedata
 

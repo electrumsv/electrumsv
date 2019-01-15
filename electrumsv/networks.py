@@ -23,7 +23,6 @@
 # SOFTWARE.
 
 import json
-import os
 
 from .util import resource_path
 

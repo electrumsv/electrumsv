@@ -54,7 +54,7 @@ class Logs(object):
     def level(self):
         return self.root.level
 
-    def is_debug_level(slef):
+    def is_debug_level(self):
         return self.level() == logging.DEBUG
 
 
