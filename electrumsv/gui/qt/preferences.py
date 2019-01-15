@@ -52,11 +52,19 @@ class PreferencesDialog(QDialog):
         self.lay_out(wallet)
         self.initial_language = app_state.config.get('language', None)
 
+    def accept(self):
+        self.on_finished()
+        super().accept()
+
+    def reject(self):
+        self.on_finished()
+        super().reject()
+
     def on_finished(self):
+        # Qt on Mac has a bug with "modalSession has been exited prematurely"
+        # That means on_finished cannot be connected to the finished signal
         if app_state.fx:
             app_state.fx.timeout = 0
-        # Qt has a bug with "modalSession has been exited prematurely"
-        # That means this function cannot be called from the finished signal
         if self.initial_language != app_state.config.get('language', None):
             MessageBox.show_warning(
                 _('Restart ElectrumSV to activate your updated language setting'),

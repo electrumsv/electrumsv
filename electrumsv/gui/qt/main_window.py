@@ -2794,7 +2794,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def preferences_dialog(self):
         dialog = PreferencesDialog(self.wallet)
         dialog.exec_()
-        dialog.on_finished()
 
     def ok_to_close(self):
         # Close our tx dialogs; return False if any cannot be closed
