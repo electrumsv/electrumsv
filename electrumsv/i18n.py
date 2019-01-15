@@ -27,7 +27,7 @@ import gettext
 from .util import resource_path
 
 LOCALE_DIR = resource_path('locale')
-language = gettext.translation('electron-cash', LOCALE_DIR, fallback = True)
+language = gettext.translation('electrumsv', LOCALE_DIR, fallback = True)
 
 def _(x):
     global language
@@ -36,7 +36,7 @@ def _(x):
 def set_language(x):
     global language
     if x:
-        language = gettext.translation('electron-cash', LOCALE_DIR, fallback=True, languages=[x])
+        language = gettext.translation('electrumsv', LOCALE_DIR, fallback=True, languages=[x])
 
 
 languages = {

@@ -22,7 +22,7 @@ with open('contrib/requirements/requirements-hw.txt') as f:
 version = imp.load_source('version', 'electrumsv/version.py')
 
 def copy_dir(dir_name):
-    file_path = os.path.dirname(os.path.realpath(__file__))
+    file_path = os.getcwd()
     for (dirpath, dirnames, files) in os.walk(os.path.join(file_path, dir_name)):
         for f in files:
             yield os.path.join(dirpath[len(file_path)+1:], f)
