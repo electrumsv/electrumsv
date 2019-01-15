@@ -21,16 +21,12 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import dns
-from dns.exception import DNSException
 import json
-import re
 
-from . import dnssec
 from .address import Address
+from .dnssec import resolve_openalias
 from .exceptions import FileImportFailed, FileImportFailedEncrypted
 from .logs import logs
-from .util import to_string
 
 logger = logs.get_logger("contacts")
 
@@ -93,7 +89,7 @@ class Contacts(dict):
                     'address': addr,
                     'type': 'contact'
                 }
-        out = self.resolve_openalias(k)
+        out = resolve_openalias(k)
         if out:
             address, name, validated = out
             return {
@@ -103,33 +99,6 @@ class Contacts(dict):
                 'validated': validated
             }
         raise Exception("Invalid Bitcoin address or alias", k)
-
-    def resolve_openalias(self, url):
-        # support email-style addresses, per the OA standard
-        url = url.replace('@', '.')
-        try:
-            records, validated = dnssec.query(url, dns.rdatatype.TXT)
-        except DNSException as e:
-            logger.exception('Error resolving openalias: %s', e)
-            return None
-        prefix = 'btc'
-        for record in records:
-            string = to_string(record.strings[0], 'utf8')
-            if string.startswith('oa1:' + prefix):
-                address = self.find_regex(string, r'recipient_address=([A-Za-z0-9]+)')
-                name = self.find_regex(string, r'recipient_name=([^;]+)')
-                if not name:
-                    name = address
-                if not address:
-                    continue
-                return Address.from_string(address), name, validated
-
-    def find_regex(self, haystack, needle):
-        regex = re.compile(needle)
-        try:
-            return regex.search(haystack).groups()[0]
-        except AttributeError:
-            return None
 
     def _validate(self, data):
         for k,v in list(data.items()):

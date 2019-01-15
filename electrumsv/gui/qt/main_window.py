@@ -48,6 +48,7 @@ from electrumsv import bitcoin, commands, keystore, paymentrequest, util
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
+from electrumsv.dnssec import resolve_openalias
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -352,7 +353,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if alias:
             alias = str(alias)
             def f():
-                self.alias_info = self.contacts.resolve_openalias(alias)
+                self.alias_info = resolve_openalias(alias)
                 self.alias_received_signal.emit()
             t = threading.Thread(target=f)
             t.setDaemon(True)
