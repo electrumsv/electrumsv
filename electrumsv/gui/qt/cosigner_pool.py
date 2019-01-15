@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-#
 # Electrum - lightweight Bitcoin client
 # Copyright (C) 2014 Thomas Voegtlin
 #
@@ -23,20 +21,19 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from collections import namedtuple
 import time
 from xmlrpc.client import ServerProxy
 
-from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QPushButton
-
 from electrumsv import util, keystore, ecc
 from electrumsv import transaction
+from electrumsv.app_state import app_state
 from electrumsv.bip32 import deserialize_xpub, deserialize_xprv
 from electrumsv.crypto import sha256d
+from electrumsv.extensions import cosigner_pool
 from electrumsv.i18n import _
 from electrumsv.keystore import is_xpubkey, parse_xpubkey
 from electrumsv.logs import logs
-from electrumsv.plugin import BasePlugin, hook
 from electrumsv.util import bh2u, bfh
 from electrumsv.wallet import Multisig_Wallet
 
@@ -46,6 +43,8 @@ logger = logs.get_logger("cosignerpool")
 
 server = ServerProxy('https://cosigner.electrum.org/', allow_none=True)
 
+CosignerItem = namedtuple("CosignerItem", "window xpub K hash watching_only")
+
 
 class Listener(util.DaemonThread):
 
@@ -54,10 +53,6 @@ class Listener(util.DaemonThread):
         self.daemon = True
         self.parent = parent
         self.received = set()
-        self.keyhashes = []
-
-    def set_keyhashes(self, keyhashes):
-        self.keyhashes = keyhashes
 
     def clear(self, keyhash):
         server.delete(keyhash)
@@ -65,10 +60,11 @@ class Listener(util.DaemonThread):
 
     def run(self):
         while self.running:
-            if not self.keyhashes:
+            keyhashes = [item.hash for item in self.parent.items]
+            if not keyhashes:
                 time.sleep(2)
                 continue
-            for keyhash in self.keyhashes:
+            for keyhash in keyhashes:
                 if keyhash in self.received:
                     continue
                 try:
@@ -80,85 +76,49 @@ class Listener(util.DaemonThread):
                 if message:
                     self.received.add(keyhash)
                     logger.debug("received message for %s", keyhash)
-                    self.parent.obj.cosigner_receive_signal.emit(
-                        keyhash, message)
+                    app_state.app.cosigner_received_signal.emit(keyhash, message)
             # poll every 30 seconds
             time.sleep(30)
 
 
-class QReceiveSignalObject(QObject):
-    cosigner_receive_signal = pyqtSignal(object, object)
+class CosignerPool(object):
 
-
-class Plugin(BasePlugin):
-
-    def __init__(self, parent, config, name):
-        BasePlugin.__init__(self, parent, config, name)
+    def __init__(self):
         self.listener = None
-        self.obj = QReceiveSignalObject()
-        self.obj.cosigner_receive_signal.connect(self.on_receive)
-        self.keys = []
-        self.cosigner_list = []
+        self.items = []
+        app_state.app.cosigner_received_signal.connect(self.on_receive)
+        app_state.app.window_opened_signal.connect(self.window_opened)
+        app_state.app.window_closed_signal.connect(self.window_closed)
+        self.on_enabled_changed()
 
-    @hook
-    def init_qt(self, gui):
-        for window in gui.windows:
-            self.on_new_window(window)
-
-    @hook
-    def on_new_window(self, window):
-        self.update(window)
-
-    @hook
-    def on_close_window(self, window):
-        self.update(window)
-
-    def is_available(self):
-        return True
-
-    def update(self, window):
-        wallet = window.wallet
-        if type(wallet) != Multisig_Wallet:
-            return
-        if self.listener is None:
-            logger.debug("starting listener")
-            self.listener = Listener(self)
-            self.listener.start()
+    def on_enabled_changed(self):
+        if cosigner_pool.is_enabled():
+            if self.listener is None:
+                logger.debug("starting listener")
+                self.listener = Listener(self)
+                self.listener.start()
+            for window in app_state.windows:
+                self.window_opened(window)
         elif self.listener:
             logger.debug("shutting down listener")
             self.listener.stop()
             self.listener = None
-        self.keys = []
-        self.cosigner_list = []
-        for key, keystore_ in wallet.keystores.items():
-            xpub = keystore_.get_master_public_key()
-            K = deserialize_xpub(xpub)[-1]
-            _hash = bh2u(sha256d(K))
-            if not keystore_.is_watching_only():
-                self.keys.append((key, _hash, window))
-            else:
-                self.cosigner_list.append((window, xpub, K, _hash))
-        if self.listener:
-            self.listener.set_keyhashes([t[1] for t in self.keys])
 
-    @hook
-    def transaction_dialog(self, d):
-        d.cosigner_send_button = b = QPushButton(_("Send to cosigner"))
-        b.clicked.connect(lambda: self.do_send(d.tx))
-        d.buttons.insert(0, b)
-        self.transaction_dialog_update(d)
+    def window_closed(self, window):
+        if cosigner_pool.is_enabled():
+            self.items = [item for item in self.items if item.window != window]
 
-    @hook
-    def transaction_dialog_update(self, d):
-        if d.tx.is_complete() or d.wallet.can_sign(d.tx):
-            d.cosigner_send_button.hide()
-            return
-        for window, xpub, K, _hash in self.cosigner_list:
-            if window.wallet == d.wallet and self.cosigner_can_sign(d.tx, xpub):
-                d.cosigner_send_button.show()
-                break
-        else:
-            d.cosigner_send_button.hide()
+    def window_opened(self, window):
+        wallet = window.wallet
+        if cosigner_pool.is_enabled() and type(wallet) == Multisig_Wallet:
+            items = []
+            for key, keystore in wallet.keystores.items():
+                xpub = keystore.get_master_public_key()
+                K = deserialize_xpub(xpub)[-1]
+                K_hash = bh2u(sha256d(K))
+                items.append(CosignerItem(window, xpub, K, K_hash, keystore.is_watching_only()))
+            # Presumably atomic
+            self.items.extend(items)
 
     def cosigner_can_sign(self, tx, cosigner_xpub):
         xpub_set = set([])
@@ -169,34 +129,44 @@ class Plugin(BasePlugin):
                     xpub_set.add(xpub)
         return cosigner_xpub in xpub_set
 
-    def do_send(self, tx):
+    def show_button(self, wallet, tx):
+        if tx.is_complete() or wallet.can_sign(tx):
+            return False
+        return any(item.window.wallet is wallet and item.watching_only
+                   and self.cosigner_can_sign(tx, item.xpub)
+                   for item in self.items)
+
+    def do_send(self, wallet, tx):
         def on_success(result):
-            window.show_message(_("Your transaction was sent to the cosigning pool.") + '\n' +
-                                _("Open your cosigner wallet to retrieve it."))
+            item.window.show_message('\n'.join((
+                _("Your transaction was sent to the cosigning pool."),
+                _("Open your cosigner wallet to retrieve it."),
+            )))
 
         def on_failure(exc_info):
             logger.exception("", exc_info=exc_info)
-            window.show_error(_("Failed to send transaction to cosigning pool")
-                              + ':\n' + str(exc_info[1]))
+            item.window.show_error('\n'.join((
+                _("Failed to send transaction to cosigning pool"),
+                str(exc_info[1]),
+            )))
 
-        for window, xpub, K, _hash in self.cosigner_list:
-            if not self.cosigner_can_sign(tx, xpub):
-                continue
-            # construct message
-            raw_tx_bytes = bfh(str(tx))
-            public_key = ecc.ECPubkey(K)
-            message = public_key.encrypt_message(raw_tx_bytes).decode('ascii')
-            # send message
-            def task():
-                server.put(_hash, message)
-            msg = _('Sending transaction to cosigning pool...')
-            WaitingDialog(window, msg, task, on_success, on_failure)
+        def send_message():
+            server.put(item.hash, message)
+
+        for item in self.items:
+            if (item.window.wallet is wallet and item.watching_only and
+                    self.cosigner_can_sign(tx, item.xpub)):
+                raw_tx_bytes = bfh(str(tx))
+                public_key = ecc.ECPubkey(item.K)
+                message = public_key.encrypt_message(raw_tx_bytes).decode('ascii')
+                WaitingDialog(item.window, _('Sending transaction to cosigning pool...'),
+                              send_message, on_success, on_failure)
 
     def on_receive(self, keyhash, message):
         logger.debug("signal arrived for '%s'", keyhash)
-        window = None
-        for key, _hash, window in self.keys:
-            if _hash == keyhash:
+        for item in self.items:
+            if item.hash == keyhash:
+                window = item.window
                 break
         else:
             logger.error("keyhash not found")
@@ -208,7 +178,9 @@ class Plugin(BasePlugin):
                 _('An encrypted transaction was retrieved from cosigning pool.') + '\n' +
                 _('However, hardware wallets do not support message decryption, '
                   'which makes them not compatible with the current design of cosigner pool.'))
+            self.listener.clear(keyhash)
             return
+
         if wallet.has_password():
             password = window.password_dialog(
                 _('An encrypted transaction was retrieved from cosigning pool.') + '\n' +
@@ -222,6 +194,8 @@ class Plugin(BasePlugin):
                     _("Do you want to open it now?")):
                 return
 
+        self.listener.clear(keyhash)
+
         xprv = wallet.keystore.get_master_private_key(password)
         if not xprv:
             return
@@ -234,6 +208,5 @@ class Plugin(BasePlugin):
             window.show_error(_('Error decrypting message') + ':\n' + str(e))
             return
 
-        self.listener.clear(keyhash)
         tx = transaction.Transaction(message)
         window.show_transaction(tx, prompt_if_unsaved=True)

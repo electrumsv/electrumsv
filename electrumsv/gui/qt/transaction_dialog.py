@@ -38,7 +38,6 @@ from electrumsv.bitcoin import base_encode
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.platform import platform
-from electrumsv.plugin import run_hook
 from electrumsv.util import bfh
 from .util import MessageBoxMixin, ButtonsLineEdit, Buttons, ColorScheme, read_QIcon
 
@@ -114,13 +113,14 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.copy_button = QPushButton(_("Copy"))
         self.copy_button.clicked.connect(self.copy_tx_to_clipboard)
 
+        self.cosigner_button = b = QPushButton(_("Send to cosigner"))
+        b.clicked.connect(self.cosigner_send)
+
         # Action buttons
-        self.buttons = [self.sign_button, self.broadcast_button, self.cancel_button]
+        self.buttons = [self.cosigner_button, self.sign_button, self.broadcast_button,
+                        self.cancel_button]
         # Transaction sharing buttons
         self.sharing_buttons = [self.copy_button, self.qr_button, self.save_button]
-
-        # FIXME: if enabled, cosigner plugin takes reference to us, preventing GC
-        run_hook('transaction_dialog', self)
 
         hbox = QHBoxLayout()
         hbox.addLayout(Buttons(*self.sharing_buttons))
@@ -132,6 +132,9 @@ class TxDialog(QDialog, MessageBoxMixin):
         # connect slots so we update in realtime as blocks come in, etc
         parent.history_updated_signal.connect(self.update_tx_if_in_wallet)
         parent.network_signal.connect(self.got_verified_tx)
+
+    def cosigner_send(self):
+        app_state.cosigner_pool.do_send(self.wallet, self.tx)
 
     def copy_tx_to_clipboard(self):
         self.main_window.app.clipboard().setText(str(self.tx))
@@ -272,7 +275,10 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.amount_label.setText(amount_str)
         self.fee_label.setText(fee_str)
         self.size_label.setText(size_str)
-        run_hook('transaction_dialog_update', self)
+
+        # Cosigner button
+        visible = app_state.cosigner_pool.show_button(self.wallet, self.tx)
+        self.cosigner_button.setVisible(visible)
 
     def add_io(self, vbox):
         if self.tx.locktime > 0:

@@ -41,6 +41,7 @@ from electrumsv.logs import logs
 from electrumsv.plugin import run_hook
 from electrumsv.storage import WalletStorage
 
+from .cosigner_pool import CosignerPool
 from .exception_window import Exception_Hook
 from .installwizard import InstallWizard, GoBack
 from .main_window import ElectrumWindow
@@ -67,8 +68,11 @@ class OpenFileEventFilter(QObject):
 class QElectrumSVApplication(QApplication):
 
     # Signals need to be on a QObject
-    new_window_signal = pyqtSignal(str, object)
+    create_new_window_signal = pyqtSignal(str, object)
     alias_resolved = pyqtSignal()
+    cosigner_received_signal = pyqtSignal(object, object)
+    window_opened_signal = pyqtSignal(object)
+    window_closed_signal = pyqtSignal(object)
     # Preferences updates
     fiat_ccy_changed = pyqtSignal()
     custom_fee_changed = pyqtSignal()
@@ -83,12 +87,11 @@ class QElectrumSVApplication(QApplication):
 class QtAppStateProxy(AppStateProxy):
 
     def __init__(self, config):
+        super().__init__(config)
+
         self.windows = []
         self.app = self._create_app()
         self.timer = QTimer()
-
-        # This can trigger callbacks; so do it after the above attributes are set
-        super().__init__(config)
 
         # FIXME: move language to app_state
         set_language(config.get('language'))
@@ -107,7 +110,6 @@ class QtAppStateProxy(AppStateProxy):
         self.tray.activated.connect(self.tray_activated)
         self.build_tray_menu()
         self.tray.show()
-        run_hook('init_qt', self)
         ColorScheme.update_from_widget(QWidget())
 
     def _create_app(self):
@@ -118,7 +120,7 @@ class QtAppStateProxy(AppStateProxy):
             QGuiApplication.setDesktopFileName('electrum-sv.desktop')
         app = QElectrumSVApplication(sys.argv)
         app.installEventFilter(OpenFileEventFilter(self.windows))
-        app.new_window_signal.connect(self.start_new_window)
+        app.create_new_window_signal.connect(self.start_new_window)
         app.custom_fee_changed.connect(partial(self._signal_all, 'on_custom_fee_changed'))
         app.fees_editable_changed.connect(partial(self._signal_all, 'on_fees_editable_changed'))
         app.op_return_enabled_changed.connect(
@@ -184,7 +186,7 @@ class QtAppStateProxy(AppStateProxy):
 
     def new_window(self, path, uri=None):
         # Use a signal as can be called from daemon thread
-        self.app.new_window_signal.emit(path, uri)
+        self.app.create_new_window_signal.emit(path, uri)
 
     def show_network_dialog(self, parent):
         if not self.daemon.network:
@@ -203,6 +205,7 @@ class QtAppStateProxy(AppStateProxy):
         w = ElectrumWindow(self, wallet)
         self.windows.append(w)
         self.build_tray_menu()
+        self.app.window_opened_signal.emit(w)
         # FIXME: Remove in favour of the load_wallet hook
         run_hook('on_new_window', w)
         return w
@@ -257,6 +260,7 @@ class QtAppStateProxy(AppStateProxy):
 
     def close_window(self, window):
         self.windows.remove(window)
+        self.app.window_closed_signal.emit(window)
         self.build_tray_menu()
         # save wallet path of last open window
         if not self.windows:
@@ -277,6 +281,7 @@ class QtAppStateProxy(AppStateProxy):
                 self.app.quit()
 
     def event_loop_started(self):
+        self.cosigner_pool = CosignerPool()
         if self.config.get("show_crash_reporter", default=True):
             self.exception_hook = Exception_Hook(self.app)
         self.timer.start()

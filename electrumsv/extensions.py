@@ -39,6 +39,14 @@ class Extension(object):
         return app_state.config.set_key('use_' + self.setting, bool(enabled))
 
 
+cosigner_pool = Extension(
+    'cosigner_pool', _('Cosigner Pool'),
+    '\n'.join([
+        _("This plugin facilitates the use of multi-signatures wallets."),
+        _("It sends and receives partially signed transactions from/to your cosigner wallet."),
+        _("Transactions are encrypted and stored on a remote server.")
+    ]))
+
 virtual_keyboard = Extension(
     'virtualkeyboard', _('Virtual Keyboard'),
     '\n'.join((
@@ -48,5 +56,6 @@ virtual_keyboard = Extension(
 
 
 extensions = [
+    cosigner_pool,
     virtual_keyboard,
 ]
