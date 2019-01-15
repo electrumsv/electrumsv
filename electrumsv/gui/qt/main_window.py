@@ -2781,6 +2781,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         title, msg = _('Import private keys'), _("Enter private keys")
         self._do_import(title, msg, lambda x: self.wallet.import_private_key(x, password))
 
+    ### Preferences dialog signals
+    def on_fees_editable_changed(self):
+        self.fee_e.setVisible(self.config.get('show_fee'))
+
+    def on_custom_fee_changed(self):
+        self.fee_slider.update()
+        self.fee_slider_mogrifier()
+
     def on_fiat_ccy_changed(self):
         '''Called when the user changes fiat currency in preferences.'''
         b = app_state.fx and app_state.fx.is_enabled()

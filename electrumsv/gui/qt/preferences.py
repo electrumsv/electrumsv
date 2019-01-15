@@ -123,30 +123,6 @@ class PreferencesDialog(QDialog):
         nz.valueChanged.connect(on_nz)
         gui_widgets.append((nz_label, nz))
 
-        def on_customfee(_text):
-            amt = customfee_e.get_amount()
-            m = int(amt * 1000.0) if amt is not None else None
-            self.config.set_key('customfee', m)
-            parent.fee_slider.update()
-            parent.fee_slider_mogrifier()
-
-        customfee_e = BTCSatsByteEdit()
-        customfee_e.setAmount(self.config.custom_fee_rate() / 1000.0
-                              if self.config.has_custom_fee_rate() else None)
-        customfee_e.textChanged.connect(on_customfee)
-        customfee_label = HelpLabel(_('Custom Fee Rate'),
-                                    _('Custom Fee Rate in Satoshis per byte'))
-        fee_widgets.append((customfee_label, customfee_e))
-
-        feebox_cb = QCheckBox(_('Edit fees manually'))
-        feebox_cb.setChecked(self.config.get('show_fee', False))
-        feebox_cb.setToolTip(_("Show fee edit box in send tab."))
-        def on_feebox(state):
-            self.config.set_key('show_fee', state == Qt.Checked)
-            parent.fee_e.setVisible(state == Qt.Checked)
-        feebox_cb.stateChanged.connect(on_feebox)
-        fee_widgets.append((feebox_cb, None))
-
         msg = _('OpenAlias record, used to receive coins and to sign payment requests.') + '\n\n'\
               + _('The following alias providers are available:') + '\n'\
               + '\n'.join(['https://cryptoname.co/', 'http://xmr.link']) + '\n\n'\
@@ -399,7 +375,7 @@ class PreferencesDialog(QDialog):
         fiat_widgets.append((QLabel(_('Source')), ex_combo))
 
         tabs_info = [
-            (fee_widgets, _('Fees')),
+            (self.fee_widgets(), _('Fees')),
             (tx_widgets, _('Transactions')),
             (gui_widgets, _('General')),
             (fiat_widgets, _('Fiat')),
@@ -424,6 +400,30 @@ class PreferencesDialog(QDialog):
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CloseButton(self)))
         self.setLayout(vbox)
+
+    def fee_widgets(self):
+        def on_customfee(_text):
+            amt = customfee_e.get_amount()
+            m = int(amt * 1000.0) if amt is not None else None
+            self.config.set_key('customfee', m)
+            app_state.app.custom_fee_changed.emit()
+
+        customfee_e = BTCSatsByteEdit()
+        customfee_e.setAmount(self.config.custom_fee_rate() / 1000.0
+                              if self.config.has_custom_fee_rate() else None)
+        customfee_e.textChanged.connect(on_customfee)
+        customfee_label = HelpLabel(_('Custom Fee Rate'),
+                                    _('Custom Fee Rate in Satoshis per byte'))
+
+        feebox_cb = QCheckBox(_('Edit fees manually'))
+        feebox_cb.setChecked(self.config.get('show_fee', False))
+        feebox_cb.setToolTip(_("Show fee edit box in send tab."))
+        def on_feebox(state):
+            self.config.set_key('show_fee', state == Qt.Checked)
+            app_state.app.fees_editable_changed.emit()
+        feebox_cb.stateChanged.connect(on_feebox)
+
+        return [(customfee_label, customfee_e), (feebox_cb, None)]
 
     def extensions_widgets(self):
         widgets = []
