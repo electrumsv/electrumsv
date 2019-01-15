@@ -72,6 +72,7 @@ class QElectrumSVApplication(QApplication):
     fiat_ccy_changed = pyqtSignal()
     custom_fee_changed = pyqtSignal()
     fees_editable_changed = pyqtSignal()
+    op_return_enabled_changed = pyqtSignal()
 
 
 class QtAppStateProxy(AppStateProxy):
@@ -113,6 +114,8 @@ class QtAppStateProxy(AppStateProxy):
         app.new_window_signal.connect(self.start_new_window)
         app.custom_fee_changed.connect(partial(self._signal_all, 'on_custom_fee_changed'))
         app.fees_editable_changed.connect(partial(self._signal_all, 'on_fees_editable_changed'))
+        app.op_return_enabled_changed.connect(
+            partial(self._signal_all, 'on_op_return_enabled_changed'))
         app.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
         return app
 

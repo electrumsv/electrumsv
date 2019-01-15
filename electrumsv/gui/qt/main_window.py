@@ -1807,14 +1807,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.message_opreturn_e.setHidden(True)
             self.opreturn_label.setHidden(True)
 
-    def on_op_return(self, enabled):
-        self.config.set_key('enable_opreturn', enabled)
-        if not enabled:
-            self.message_opreturn_e.setText("")
-            self.op_return_toolong = False
-        self.message_opreturn_e.setHidden(not enabled)
-        self.opreturn_label.setHidden(not enabled)
-
     def do_clear(self):
         self.is_max = False
         self.not_enough_funds = False
@@ -2781,13 +2773,23 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         title, msg = _('Import private keys'), _("Enter private keys")
         self._do_import(title, msg, lambda x: self.wallet.import_private_key(x, password))
 
-    ### Preferences dialog signals
+    #
+    # Preferences dialog and its signals.
+    #
     def on_fees_editable_changed(self):
         self.fee_e.setVisible(self.config.get('show_fee'))
 
     def on_custom_fee_changed(self):
         self.fee_slider.update()
         self.fee_slider_mogrifier()
+
+    def on_op_return_enabled_changed(self):
+        enabled = self.config.get('enable_opreturn')
+        if not enabled:
+            self.message_opreturn_e.setText("")
+            self.op_return_toolong = False
+        self.message_opreturn_e.setHidden(not enabled)
+        self.opreturn_label.setHidden(not enabled)
 
     def on_fiat_ccy_changed(self):
         '''Called when the user changes fiat currency in preferences.'''

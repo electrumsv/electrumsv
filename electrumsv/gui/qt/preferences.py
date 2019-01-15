@@ -71,8 +71,6 @@ class PreferencesDialog(QDialog):
         vbox = QVBoxLayout()
         tabs = QTabWidget()
         gui_widgets = []
-        fee_widgets = []
-        tx_widgets = []
         id_widgets = []
 
         # language
@@ -234,60 +232,11 @@ class PreferencesDialog(QDialog):
         updatecheck_cb.stateChanged.connect(on_set_updatecheck)
         gui_widgets.append((updatecheck_cb, None))
 
-        usechange_cb = QCheckBox(_('Use change addresses'))
-        usechange_cb.setChecked(parent.wallet.use_change)
-        if not self.config.is_modifiable('use_change'): usechange_cb.setEnabled(False)
-        def on_usechange(state):
-            usechange_result = state == Qt.Checked
-            if parent.wallet.use_change != usechange_result:
-                parent.wallet.use_change = usechange_result
-                parent.wallet.storage.put('use_change', parent.wallet.use_change)
-                multiple_cb.setEnabled(parent.wallet.use_change)
-        usechange_cb.stateChanged.connect(on_usechange)
-        usechange_cb.setToolTip(_('Using change addresses makes it more difficult for '
-                                  'other people to track your transactions.'))
-        tx_widgets.append((usechange_cb, None))
-
-        def on_multiple(state):
-            multiple = state == Qt.Checked
-            if parent.wallet.multiple_change != multiple:
-                parent.wallet.multiple_change = multiple
-                parent.wallet.storage.put('multiple_change', multiple)
-        multiple_change = parent.wallet.multiple_change
-        multiple_cb = QCheckBox(_('Use multiple change addresses'))
-        multiple_cb.setEnabled(parent.wallet.use_change)
-        multiple_cb.setToolTip('\n'.join([
-            _('In some cases, use up to 3 change addresses in order to break '
-              'up large coin amounts and obfuscate the recipient address.'),
-            _('This may result in higher transactions fees.')
-        ]))
-        multiple_cb.setChecked(multiple_change)
-        multiple_cb.stateChanged.connect(on_multiple)
-        tx_widgets.append((multiple_cb, None))
-
-        def on_unconf(state):
-            self.config.set_key('confirmed_only', state != Qt.Unchecked)
-        conf_only = self.config.get('confirmed_only', False)
-        unconf_cb = QCheckBox(_('Spend only confirmed coins'))
-        unconf_cb.setToolTip(_('Spend only confirmed inputs.'))
-        unconf_cb.setChecked(conf_only)
-        unconf_cb.stateChanged.connect(on_unconf)
-        tx_widgets.append((unconf_cb, None))
-
         # Fiat Currency
         hist_checkbox = QCheckBox()
         fiat_address_checkbox = QCheckBox()
         ccy_combo = QComboBox()
         ex_combo = QComboBox()
-
-        enable_opreturn = bool(self.config.get('enable_opreturn'))
-        opret_cb = QCheckBox(_('Enable OP_RETURN output'))
-        opret_cb.setToolTip(_('Enable posting messages with OP_RETURN.'))
-        opret_cb.setChecked(enable_opreturn)
-        def on_op_return(checked_state):
-            parent.on_op_return(checked_state != Qt.Unchecked)
-        opret_cb.stateChanged.connect(on_op_return)
-        tx_widgets.append((opret_cb, None))
 
         def update_currencies():
             fx = app_state.fx
@@ -376,7 +325,7 @@ class PreferencesDialog(QDialog):
 
         tabs_info = [
             (self.fee_widgets(), _('Fees')),
-            (tx_widgets, _('Transactions')),
+            (self.tx_widgets(parent.wallet), _('Transactions')),
             (gui_widgets, _('General')),
             (fiat_widgets, _('Fiat')),
             (id_widgets, _('Identity')),
@@ -424,6 +373,59 @@ class PreferencesDialog(QDialog):
         feebox_cb.stateChanged.connect(on_feebox)
 
         return [(customfee_label, customfee_e), (feebox_cb, None)]
+
+    def tx_widgets(self, wallet):
+        usechange_cb = QCheckBox(_('Use change addresses'))
+        usechange_cb.setChecked(wallet.use_change)
+        usechange_cb.setEnabled(self.config.is_modifiable('use_change'))
+        usechange_cb.setToolTip(
+            _('Using a different change address each time improves your privacy by '
+              'making it more difficult for others to analyze your transactions.')
+        )
+        def on_usechange(state):
+            usechange_result = state == Qt.Checked
+            if wallet.use_change != usechange_result:
+                wallet.use_change = usechange_result
+                wallet.storage.put('use_change', wallet.use_change)
+                multiple_cb.setEnabled(wallet.use_change)
+        usechange_cb.stateChanged.connect(on_usechange)
+
+        multiple_cb = QCheckBox(_('Use multiple change addresses'))
+        multiple_cb.setChecked(wallet.multiple_change)
+        multiple_cb.setEnabled(wallet.use_change)
+        multiple_cb.setToolTip('\n'.join([
+            _('In some cases, use up to 3 change addresses in order to break '
+              'up large coin amounts and obfuscate the recipient address.'),
+            _('This may result in higher transactions fees.')
+        ]))
+        def on_multiple(state):
+            multiple = state == Qt.Checked
+            if wallet.multiple_change != multiple:
+                wallet.multiple_change = multiple
+                wallet.storage.put('multiple_change', multiple)
+        multiple_cb.stateChanged.connect(on_multiple)
+
+        unconf_cb = QCheckBox(_('Spend only confirmed coins'))
+        unconf_cb.setToolTip(_('Spend only confirmed inputs.'))
+        unconf_cb.setChecked(self.config.get('confirmed_only', False))
+        def on_unconf(state):
+            self.config.set_key('confirmed_only', state != Qt.Unchecked)
+        unconf_cb.stateChanged.connect(on_unconf)
+
+        opret_cb = QCheckBox(_('Enable adding metadata to the blockchain with OP_RETURN'))
+        opret_cb.setToolTip(_('Enable adding an OP_RETURN output to transactions.'))
+        opret_cb.setChecked(self.config.get('enable_opreturn'))
+        def on_op_return(checked_state):
+            self.config.set_key('enable_opreturn', checked_state != Qt.Unchecked)
+            app_state.app.op_return_enabled_changed.emit()
+        opret_cb.stateChanged.connect(on_op_return)
+
+        return [
+            (usechange_cb, None),
+            (multiple_cb, None),
+            (unconf_cb, None),
+            (opret_cb, None),
+        ]
 
     def extensions_widgets(self):
         widgets = []
