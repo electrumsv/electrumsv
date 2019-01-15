@@ -48,7 +48,6 @@ from electrumsv import bitcoin, commands, keystore, paymentrequest, util
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
-from electrumsv.dnssec import resolve_openalias
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -108,7 +107,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     new_fx_quotes_signal = pyqtSignal()
     new_fx_history_signal = pyqtSignal()
     network_signal = pyqtSignal(str, object)
-    alias_received_signal = pyqtSignal()
     computing_privkeys_signal = pyqtSignal()
     show_privkeys_signal = pyqtSignal()
     history_updated_signal = pyqtSignal()
@@ -235,7 +233,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.fee_slider.update()
         self.load_wallet(wallet)
         gui_object.timer.timeout.connect(self.timer_actions)
-        self.fetch_alias()
 
     def on_history(self, b):
         self.new_fx_history_signal.emit()
@@ -346,18 +343,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             pass
         else:
             self.logger.debug("unexpected network_qt signal event='%s' args='%s'", event, args)
-
-    def fetch_alias(self):
-        self.alias_info = None
-        alias = self.config.get('alias')
-        if alias:
-            alias = str(alias)
-            def f():
-                self.alias_info = resolve_openalias(alias)
-                self.alias_received_signal.emit()
-            t = threading.Thread(target=f)
-            t.setDaemon(True)
-            t.start()
 
     def close_wallet(self):
         if self.wallet:
@@ -994,29 +979,22 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             URI += "&name=" + req['name'] + "&sig="+sig
         return str(URI)
 
-
     def sign_payment_request(self, addr):
-        alias = self.config.get('alias')
         alias_privkey = None
-        if alias and self.alias_info:
-            alias_addr, alias_name, validated = self.alias_info
-            if alias_addr:
-                if self.wallet.is_mine(alias_addr):
-                    msg = '\n'.join([
-                        _('This payment request will be signed.'),
-                        _('Please enter your password')
-                    ])
-                    password = self.password_dialog(msg)
-                    if password:
-                        try:
-                            self.wallet.sign_payment_request(addr, alias, alias_addr, password)
-                        except Exception as e:
-                            self.show_error(str(e))
-                            return
-                    else:
-                        return
-                else:
-                    return
+        if app_state.alias_info:
+            alias_addr, alias_name, validated = app_state.alias_info
+            if alias_addr and self.wallet.is_mine(alias_addr):
+                msg = '\n'.join([
+                    _('This payment request will be signed.'),
+                    _('Please enter your password')
+                ])
+                password = self.password_dialog(msg)
+                if password:
+                    alias = self.config.get('alias')
+                    try:
+                        self.wallet.sign_payment_request(addr, alias, alias_addr, password)
+                    except Exception as e:
+                        self.show_error(str(e))
 
     def save_payment_request(self):
         if not self.receive_address:

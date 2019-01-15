@@ -68,6 +68,7 @@ class QElectrumSVApplication(QApplication):
 
     # Signals need to be on a QObject
     new_window_signal = pyqtSignal(str, object)
+    alias_resolved = pyqtSignal()
     # Preferences updates
     fiat_ccy_changed = pyqtSignal()
     custom_fee_changed = pyqtSignal()
@@ -126,6 +127,9 @@ class QtAppStateProxy(AppStateProxy):
     def _signal_all(self, method, *args):
         for window in self.windows:
             getattr(window, method)(*args)
+
+    def alias_resolved(self):
+        self.app.alias_resolved.emit()
 
     def set_base_unit(self, base_unit):
         if super().set_base_unit(base_unit):

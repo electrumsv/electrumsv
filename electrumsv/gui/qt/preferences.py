@@ -53,17 +53,16 @@ class PreferencesDialog(QDialog):
         self.lay_out(parent)
 
     def closeEvent(self, event):
-        self.parent.alias_received_signal.disconnect(self.set_alias_color)
+        app_state.app.alias_resolved.disconnect(self.set_alias_color)
         event.accept()
 
     def set_alias_color(self):
         if not self.config.get('alias'):
             self.alias_e.setStyleSheet("")
-            return
-        if self.parent.alias_info:
+        elif self.parent.alias_info:
             _alias_addr, _alias_name, validated = self.parent.alias_info
             self.alias_e.setStyleSheet((ColorScheme.GREEN if validated
-                                   else ColorScheme.RED).as_stylesheet(True))
+                                        else ColorScheme.RED).as_stylesheet(True))
         else:
             self.alias_e.setStyleSheet(ColorScheme.RED.as_stylesheet(True))
 
@@ -81,12 +80,9 @@ class PreferencesDialog(QDialog):
         self.alias_e = QLineEdit(alias)
         def on_alias_edit():
             self.alias_e.setStyleSheet("")
-            alias = str(self.alias_e.text())
-            self.config.set_key('alias', alias, True)
-            if alias:
-                self.parent.fetch_alias()
+            app_state.set_alias(alias_e.text())
         self.set_alias_color()
-        self.parent.alias_received_signal.connect(self.set_alias_color)
+        app_state.app.alias_resolved.connect(self.set_alias_color)
         self.alias_e.editingFinished.connect(on_alias_edit)
         id_widgets.append((alias_label, self.alias_e))
 
