@@ -173,6 +173,7 @@ class Plugin(BasePlugin):
         def on_success(result):
             window.show_message(_("Your transaction was sent to the cosigning pool.") + '\n' +
                                 _("Open your cosigner wallet to retrieve it."))
+
         def on_failure(exc_info):
             logger.exception("", exc_info=exc_info)
             window.show_error(_("Failed to send transaction to cosigning pool")
@@ -186,7 +187,8 @@ class Plugin(BasePlugin):
             public_key = ecc.ECPubkey(K)
             message = public_key.encrypt_message(raw_tx_bytes).decode('ascii')
             # send message
-            task = lambda: server.put(_hash, message)
+            def task():
+                server.put(_hash, message)
             msg = _('Sending transaction to cosigning pool...')
             WaitingDialog(window, msg, task, on_success, on_failure)
 
