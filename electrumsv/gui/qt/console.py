@@ -267,13 +267,6 @@ class Console(QtWidgets.QPlainTextEdit):
                         QtCore.QCoreApplication.processEvents()
                     self.skip = not self.skip
 
-            if callable(self.namespace.get(command)):
-                self.appendPlainText(
-                    "'{}' is a function. Type '{}()' to use it in the Python console."
-                    .format(command, command))
-                self.newPrompt()
-                return
-
             sys.stdout = stdoutProxy(self.appendPlainText)
             try:
                 try:

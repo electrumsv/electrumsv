@@ -1975,12 +1975,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         console.history_index = len(console.history)
 
         console.updateNamespace({
-            'bitcoin': bitcoin,
-            'config': self.config,
-            'daemon': self.gui_object.daemon,
+            'app_state': app_state,
+            'config': app_state.config,
+            'daemon': app_state.daemon,
             'electrumsv': electrumsv,
             'network': self.network,
-            'plugins': self.gui_object.plugins,
+            'plugins': app_state.plugins,
             'util': util,
             'wallet': self.wallet,
             'window': self,
