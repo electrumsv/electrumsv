@@ -31,8 +31,11 @@ binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]
 binaries += [('C:/tmp/libsecp256k1.dll', '.')]
 
 datas = [
+<<<<<<< HEAD
     (home+'electrumsv/*.json', 'electrumsv'),
     (home+'electrumsv/wordlist/english.txt', 'electrumsv/wordlist'),
+=======
+>>>>>>> Move wordlist into 'data' directory
     (home+'data', 'data'),
     (home+'electrumsv/plugins', 'electrumsv/plugins'),
     ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),

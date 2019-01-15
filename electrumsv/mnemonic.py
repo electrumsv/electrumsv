@@ -34,6 +34,7 @@ import ecdsa
 from . import version
 from .bitcoin import is_old_seed, is_new_seed
 from .logs import logs
+from .util import resource_path
 
 logger = logs.get_logger("mnemonic")
 
@@ -94,7 +95,7 @@ def normalize_text(seed):
     return seed
 
 def load_wordlist(filename):
-    path = os.path.join(os.path.dirname(__file__), 'wordlist', filename)
+    path = resource_path('wordlist', filename)
     with open(path, 'r', encoding='utf-8') as f:
         s = f.read().strip()
     s = unicodedata.normalize('NFKD', s)

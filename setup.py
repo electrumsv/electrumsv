@@ -89,7 +89,6 @@ setup(
             'servers_testnet.json',
             'currencies.json',
             'www/index.html',
-            'wordlist/*.txt',
         ]
     },
     scripts=['electrum-sv'],
