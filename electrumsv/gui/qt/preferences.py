@@ -296,7 +296,7 @@ class PreferencesDialog(QDialog):
 
         opret_cb = QCheckBox(_('Enable adding metadata to the blockchain with OP_RETURN'))
         opret_cb.setToolTip(_('Enable adding an OP_RETURN output to transactions.'))
-        opret_cb.setChecked(self.config.get('enable_opreturn'))
+        opret_cb.setChecked(self.config.get('enable_opreturn', False))
         def on_op_return(checked_state):
             self.config.set_key('enable_opreturn', checked_state != Qt.Unchecked)
             app_state.app.op_return_enabled_changed.emit()
