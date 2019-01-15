@@ -38,42 +38,38 @@ from electrumsv.i18n import _, languages
 import electrumsv.web as web
 
 from .amountedit import BTCSatsByteEdit
-from .util import ColorScheme, HelpButton, HelpLabel, Buttons, CloseButton, read_QIcon
+from .util import (
+    ColorScheme, HelpButton, HelpLabel, Buttons, CloseButton, read_QIcon, MessageBox,
+)
 
 
 class PreferencesDialog(QDialog):
 
     def __init__(self, wallet):
         super().__init__()
-        self.config = app_state.config
         self.setWindowTitle(_('Preferences'))
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.lay_out(wallet)
+        self.initial_language = app_state.config.get('language', None)
 
-    def closeEvent(self, event):
-        app_state.app.alias_resolved.disconnect(self.set_alias_color)
-        event.accept()
+    def on_finished(self):
         if app_state.fx:
             app_state.fx.timeout = 0
-
-    def set_alias_color(self):
-        if not self.config.get('alias'):
-            self.alias_e.setStyleSheet("")
-        elif app_state.alias_info:
-            _alias_addr, _alias_name, validated = app_state.alias_info
-            self.alias_e.setStyleSheet((ColorScheme.GREEN if validated
-                                        else ColorScheme.RED).as_stylesheet(True))
-        else:
-            self.alias_e.setStyleSheet(ColorScheme.RED.as_stylesheet(True))
+        # Qt has a bug with "modalSession has been exited prematurely"
+        # That means this function cannot be called from the finished signal
+        if self.initial_language != app_state.config.get('language', None):
+            MessageBox.show_warning(
+                _('Restart ElectrumSV to activate your updated language setting'),
+                title=_('Success'), parent=self)
 
     def lay_out(self, wallet):
         vbox = QVBoxLayout()
         tabs = QTabWidget()
 
         tabs_info = [
+            (self.general_widgets(), _('General')),
             (self.fee_widgets(), _('Fees')),
             (self.tx_widgets(wallet), _('Transactions')),
-            (self.general_widgets(), _('General')),
             (self.fiat_widgets(), _('Fiat')),
             (self.id_widgets(), _('Identity')),
             (self.extensions_widgets(), _('Extensions')),
@@ -101,30 +97,33 @@ class PreferencesDialog(QDialog):
         def on_customfee(_text):
             amt = customfee_e.get_amount()
             m = int(amt * 1000.0) if amt is not None else None
-            self.config.set_key('customfee', m)
+            app_state.config.set_key('customfee', m)
             app_state.app.custom_fee_changed.emit()
 
         customfee_e = BTCSatsByteEdit()
-        customfee_e.setAmount(self.config.custom_fee_rate() / 1000.0
-                              if self.config.has_custom_fee_rate() else None)
+        customfee_e.setAmount(app_state.config.custom_fee_rate() / 1000.0
+                              if app_state.config.has_custom_fee_rate() else None)
         customfee_e.textChanged.connect(on_customfee)
         customfee_label = HelpLabel(_('Custom Fee Rate'),
                                     _('Custom Fee Rate in Satoshis per byte'))
 
         feebox_cb = QCheckBox(_('Edit fees manually'))
-        feebox_cb.setChecked(self.config.get('show_fee', False))
+        feebox_cb.setChecked(app_state.config.get('show_fee', False))
         feebox_cb.setToolTip(_("Show fee edit box in send tab."))
         def on_feebox(state):
-            self.config.set_key('show_fee', state == Qt.Checked)
+            app_state.config.set_key('show_fee', state == Qt.Checked)
             app_state.app.fees_editable_changed.emit()
         feebox_cb.stateChanged.connect(on_feebox)
 
-        return [(customfee_label, customfee_e), (feebox_cb, None)]
+        return [
+            (customfee_label, customfee_e),
+            (feebox_cb, None)
+        ]
 
     def tx_widgets(self, wallet):
         usechange_cb = QCheckBox(_('Use change addresses'))
         usechange_cb.setChecked(wallet.use_change)
-        usechange_cb.setEnabled(self.config.is_modifiable('use_change'))
+        usechange_cb.setEnabled(app_state.config.is_modifiable('use_change'))
         usechange_cb.setToolTip(
             _('Using a different change address each time improves your privacy by '
               'making it more difficult for others to analyze your transactions.')
@@ -154,16 +153,16 @@ class PreferencesDialog(QDialog):
 
         unconf_cb = QCheckBox(_('Spend only confirmed coins'))
         unconf_cb.setToolTip(_('Spend only confirmed inputs.'))
-        unconf_cb.setChecked(self.config.get('confirmed_only', False))
+        unconf_cb.setChecked(app_state.config.get('confirmed_only', False))
         def on_unconf(state):
-            self.config.set_key('confirmed_only', state != Qt.Unchecked)
+            app_state.config.set_key('confirmed_only', state != Qt.Unchecked)
         unconf_cb.stateChanged.connect(on_unconf)
 
         opret_cb = QCheckBox(_('Enable adding metadata to the blockchain with OP_RETURN'))
         opret_cb.setToolTip(_('Enable adding an OP_RETURN output to transactions.'))
-        opret_cb.setChecked(self.config.get('enable_opreturn', False))
+        opret_cb.setChecked(app_state.config.get('enable_opreturn', False))
         def on_op_return(checked_state):
-            self.config.set_key('enable_opreturn', checked_state != Qt.Unchecked)
+            app_state.config.set_key('enable_opreturn', checked_state != Qt.Unchecked)
             app_state.app.op_return_enabled_changed.emit()
         opret_cb.stateChanged.connect(on_op_return)
 
@@ -176,12 +175,9 @@ class PreferencesDialog(QDialog):
 
     def general_widgets(self):
         # language
-        lang_modifiable = self.config.is_modifiable('language')
-        language_names = []
-        language_keys = []
-        for item in languages.items():
-            language_keys.append(item[0])
-            language_names.append(item[1])
+        lang_modifiable = app_state.config.is_modifiable('language')
+        lang_pairs = sorted((code, language) for language, code in languages.items())
+        language_names, language_keys = zip(*lang_pairs)
 
         lang_label = HelpLabel(_('Language') + ':',
                                _('Select which language is used in the GUI (after restart).'))
@@ -191,17 +187,17 @@ class PreferencesDialog(QDialog):
         lang_combo.setEnabled(lang_modifiable)
         lang_combo.addItems(language_names)
         try:
-            index = language_keys.index(self.config.get("language", ''))
+            index = language_keys.index(app_state.config.get("language", ''))
         except ValueError:
             index = 0
         lang_combo.setCurrentIndex(index)
         def on_lang(index):
             lang_request = language_keys[index]
-            if lang_request != self.config.get('language'):
-                self.config.set_key("language", lang_request, True)
+            if lang_request != app_state.config.get('language'):
+                app_state.config.set_key("language", lang_request, True)
         lang_combo.currentIndexChanged.connect(on_lang)
 
-        nz_modifiable = self.config.is_modifiable('num_zeros')
+        nz_modifiable = app_state.config.is_modifiable('num_zeros')
         nz_label = HelpLabel(_('Zeros after decimal point') + ':',
                              _('Number of zeros displayed after the decimal point.  '
                                'For example, if set to 2, "1." will be displayed as "1.00"'))
@@ -215,7 +211,7 @@ class PreferencesDialog(QDialog):
             value = nz.value()
             if app_state.num_zeros != value:
                 app_state.num_zeros = value
-                self.config.set_key('num_zeros', value, True)
+                app_state.config.set_key('num_zeros', value, True)
                 app_state.app.num_zeros_changed.emit()
         nz.valueChanged.connect(on_nz)
 
@@ -236,9 +232,10 @@ class PreferencesDialog(QDialog):
         block_explorers = web.BE_sorted_list()
         block_ex_combo = QComboBox()
         block_ex_combo.addItems(block_explorers)
-        block_ex_combo.setCurrentIndex(block_ex_combo.findText(web.BE_from_config(self.config)))
+        block_ex_combo.setCurrentIndex(block_ex_combo.findText(
+            web.BE_from_config(app_state.config)))
         def on_be(index):
-            self.config.set_key('block_explorer', block_explorers[index], True)
+            app_state.config.set_key('block_explorer', block_explorers[index], True)
         block_ex_combo.currentIndexChanged.connect(on_be)
 
         qr_label = HelpLabel(_('Video Device') + ':',
@@ -248,16 +245,16 @@ class PreferencesDialog(QDialog):
         system_cameras = qrscanner.find_system_cameras()
         for camera, device in system_cameras.items():
             qr_combo.addItem(camera, device)
-        qr_combo.setCurrentIndex(qr_combo.findData(self.config.get("video_device")))
+        qr_combo.setCurrentIndex(qr_combo.findData(app_state.config.get("video_device")))
         qr_combo.setEnabled(qrscanner.libzbar is not None)
         def on_video_device(index):
-            self.config.set_key("video_device", qr_combo.itemData(index), True)
+            app_state.config.set_key("video_device", qr_combo.itemData(index), True)
         qr_combo.currentIndexChanged.connect(on_video_device)
 
         updatecheck_cb = QCheckBox(_("Automatically check for software updates"))
-        updatecheck_cb.setChecked(self.config.get('check_updates', True))
+        updatecheck_cb.setChecked(app_state.config.get('check_updates', True))
         def on_set_updatecheck(v):
-            self.config.set_key('check_updates', v == Qt.Checked, save=True)
+            app_state.config.set_key('check_updates', v == Qt.Checked, save=True)
         updatecheck_cb.stateChanged.connect(on_set_updatecheck)
 
         return [
@@ -367,23 +364,32 @@ class PreferencesDialog(QDialog):
               + '\n'.join(['https://cryptoname.co/', 'http://xmr.link']) + '\n\n'\
               + 'For more information, see http://openalias.org'
         alias_label = HelpLabel(_('OpenAlias') + ':', msg)
-        alias = self.config.get('alias','')
-        self.alias_e = QLineEdit(alias)
+        alias = app_state.config.get('alias','')
+        alias_e = QLineEdit(alias)
         def on_alias_edit():
-            self.alias_e.setStyleSheet("")
-            app_state.set_alias(self.alias_e.text())
-        self.set_alias_color()
-        app_state.app.alias_resolved.connect(self.set_alias_color)
-        self.alias_e.editingFinished.connect(on_alias_edit)
+            alias_e.setStyleSheet("")
+            app_state.set_alias(alias_e.text())
+        def set_alias_color():
+            if not app_state.config.get('alias'):
+                alias_e.setStyleSheet("")
+            elif app_state.alias_info:
+                _alias_addr, _alias_name, validated = app_state.alias_info
+                alias_e.setStyleSheet((ColorScheme.GREEN if validated
+                                       else ColorScheme.RED).as_stylesheet(True))
+            else:
+                alias_e.setStyleSheet(ColorScheme.RED.as_stylesheet(True))
+        app_state.app.alias_resolved.connect(set_alias_color)
+        alias_e.editingFinished.connect(on_alias_edit)
+        set_alias_color()
 
         # SSL certificate
         msg = ' '.join([
             _('SSL certificate used to sign payment requests.'),
             _('Use setconfig to set ssl_chain and ssl_privkey.'),
         ])
-        if self.config.get('ssl_privkey') or self.config.get('ssl_chain'):
+        if app_state.config.get('ssl_privkey') or app_state.config.get('ssl_chain'):
             try:
-                SSL_identity = paymentrequest.check_ssl_config(self.config)
+                SSL_identity = paymentrequest.check_ssl_config(app_state.config)
                 SSL_error = None
             except BaseException as e:
                 SSL_identity = "error"
@@ -400,10 +406,9 @@ class PreferencesDialog(QDialog):
         SSL_id_e.setReadOnly(True)
 
         return [
-            (alias_label, self.alias_e),
+            (alias_label, alias_e),
             (SSL_id_label, SSL_id_e),
         ]
-
 
     def extensions_widgets(self):
         widgets = []

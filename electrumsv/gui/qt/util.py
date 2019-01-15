@@ -198,6 +198,22 @@ class MessageBoxMixin(object):
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
+
+class MessageBox(object):
+
+    @classmethod
+    def show_warning(cls, msg, parent=None, title=None):
+        return cls.msg_box(QMessageBox.Warning, parent,
+                           title or _('Warning'), msg)
+
+    @classmethod
+    def msg_box(cls, icon, parent, title, text, buttons=QMessageBox.Ok,
+                defaultButton=QMessageBox.NoButton):
+        d = QMessageBox(icon, title, str(text), buttons, parent)
+        d.setDefaultButton(defaultButton)
+        return d.exec_()
+
+
 class WindowModalDialog(QDialog, MessageBoxMixin):
     '''Handy wrapper; window modal dialogs are better for our multi-window
     daemon model as other wallet windows can still be accessed.'''

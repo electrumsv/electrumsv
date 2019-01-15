@@ -427,7 +427,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
         self.gui_object.new_window(filename)
 
-
     def backup_wallet(self):
         path = self.wallet.storage.path
         wallet_folder = os.path.dirname(path)
@@ -2793,15 +2792,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.address_list.update()
 
     def preferences_dialog(self):
-        prior_language = self.config.get("language", None)
-
         dialog = PreferencesDialog(self.wallet)
         dialog.exec_()
-
-        current_language = self.config.get("language", None)
-        if prior_language != current_language:
-            self.show_warning(_('Restart ElectrumSV to activate your updated language setting'),
-                              title=_('Success'))
+        dialog.on_finished()
 
     def ok_to_close(self):
         # Close our tx dialogs; return False if any cannot be closed
