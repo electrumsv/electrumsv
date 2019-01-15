@@ -43,19 +43,18 @@ from .util import ColorScheme, HelpButton, HelpLabel, Buttons, CloseButton, read
 
 class PreferencesDialog(QDialog):
 
-    # FIXME: most uses of parent in this file are wrong - changes should apply to ALL open
-    # windows
-    def __init__(self, parent):
+    def __init__(self, wallet):
         super().__init__()
-        self.parent = parent
-        self.config = parent.config
+        self.config = app_state.config
         self.setWindowTitle(_('Preferences'))
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
-        self.lay_out(parent)
+        self.lay_out(wallet)
 
     def closeEvent(self, event):
         app_state.app.alias_resolved.disconnect(self.set_alias_color)
         event.accept()
+        if app_state.fx:
+            app_state.fx.timeout = 0
 
     def set_alias_color(self):
         if not self.config.get('alias'):
@@ -67,106 +66,15 @@ class PreferencesDialog(QDialog):
         else:
             self.alias_e.setStyleSheet(ColorScheme.RED.as_stylesheet(True))
 
-    def lay_out(self, parent):
+    def lay_out(self, wallet):
         vbox = QVBoxLayout()
         tabs = QTabWidget()
 
-        # Fiat Currency
-        hist_checkbox = QCheckBox()
-        fiat_address_checkbox = QCheckBox()
-        ccy_combo = QComboBox()
-        ex_combo = QComboBox()
-
-        def update_currencies():
-            fx = app_state.fx
-            if fx:
-                currencies = sorted(fx.get_currencies())
-                ccy_combo.clear()
-                ccy_combo.addItems([_('None')] + currencies)
-                if fx.is_enabled():
-                    ccy_combo.setCurrentIndex(ccy_combo.findText(fx.get_currency()))
-
-        def update_history_cb():
-            fx = app_state.fx
-            if fx:
-                hist_checkbox.setChecked(fx.get_history_config())
-                hist_checkbox.setEnabled(fx.is_enabled())
-
-        def update_fiat_address_cb():
-            fx = app_state.fx
-            if fx:
-                fiat_address_checkbox.setChecked(fx.get_fiat_address_config())
-
-        def update_exchanges():
-            fx = app_state.fx
-            if fx:
-                b = fx.is_enabled()
-                ex_combo.setEnabled(b)
-                if b:
-                    h = fx.get_history_config()
-                    c = fx.get_currency()
-                    exchanges = fx.get_exchanges_by_ccy(c, h)
-                else:
-                    exchanges = fx.get_exchanges_by_ccy('USD', False)
-                ex_combo.clear()
-                ex_combo.addItems(sorted(exchanges))
-                ex_combo.setCurrentIndex(ex_combo.findText(fx.config_exchange()))
-
-        def on_currency(index):
-            fx = app_state.fx
-            if fx:
-                enabled = index != 0
-                fx.set_enabled(enabled)
-                if enabled:
-                    fx.set_currency(ccy_combo.currentText())
-                update_history_cb()
-                update_exchanges()
-                app_state.app.fiat_ccy_changed.emit()
-
-        def on_exchange(_index):
-            exchange = str(ex_combo.currentText())
-            fx = app_state.fx
-            if fx and fx.is_enabled() and exchange and exchange != fx.exchange.name():
-                fx.set_exchange(exchange)
-
-        def on_history(checked):
-            fx = app_state.fx
-            if fx:
-                fx.set_history_config(checked)
-                update_exchanges()
-                parent.history_list.refresh_headers()
-                if fx.is_enabled() and checked:
-                    # reset timeout to get historical rates
-                    fx.timeout = 0
-
-        def on_fiat_address(checked):
-            fx = app_state.fx
-            if fx:
-                fx.set_fiat_address_config(checked)
-                parent.address_list.refresh_headers()
-                parent.address_list.update()
-
-        update_currencies()
-        update_history_cb()
-        update_fiat_address_cb()
-        update_exchanges()
-
-        ccy_combo.currentIndexChanged.connect(on_currency)
-        hist_checkbox.stateChanged.connect(on_history)
-        fiat_address_checkbox.stateChanged.connect(on_fiat_address)
-        ex_combo.currentIndexChanged.connect(on_exchange)
-
-        fiat_widgets = []
-        fiat_widgets.append((QLabel(_('Fiat currency')), ccy_combo))
-        fiat_widgets.append((QLabel(_('Show history rates')), hist_checkbox))
-        fiat_widgets.append((QLabel(_('Show Fiat balance for addresses')), fiat_address_checkbox))
-        fiat_widgets.append((QLabel(_('Source')), ex_combo))
-
         tabs_info = [
             (self.fee_widgets(), _('Fees')),
-            (self.tx_widgets(parent.wallet), _('Transactions')),
+            (self.tx_widgets(wallet), _('Transactions')),
             (self.general_widgets(), _('General')),
-            (fiat_widgets, _('Fiat')),
+            (self.fiat_widgets(), _('Fiat')),
             (self.id_widgets(), _('Identity')),
             (self.extensions_widgets(), _('Extensions')),
         ]
@@ -359,6 +267,98 @@ class PreferencesDialog(QDialog):
             (block_ex_label, block_ex_combo),
             (qr_label, qr_combo),
             (updatecheck_cb, None),
+        ]
+
+    def fiat_widgets(self):
+        # Fiat Currency
+        hist_checkbox = QCheckBox()
+        fiat_balance_checkbox = QCheckBox()
+        ccy_combo = QComboBox()
+        ex_combo = QComboBox()
+
+        # FIXME: note main window tabs are not correctly hooked up to FX rate changes
+        # to refresh when an update comes in from twiddling here
+
+        def update_currencies():
+            fx = app_state.fx
+            if fx:
+                currencies = sorted(fx.get_currencies())
+                ccy_combo.clear()
+                ccy_combo.addItems([_('None')] + currencies)
+                if fx.is_enabled():
+                    ccy_combo.setCurrentIndex(ccy_combo.findText(fx.get_currency()))
+
+        def update_history_cb():
+            fx = app_state.fx
+            if fx:
+                hist_checkbox.setChecked(fx.get_history_config())
+                hist_checkbox.setEnabled(fx.is_enabled())
+
+        def update_fiat_balance_cb():
+            fx = app_state.fx
+            if fx:
+                fiat_balance_checkbox.setChecked(fx.get_fiat_address_config())
+
+        def update_exchanges():
+            fx = app_state.fx
+            if fx:
+                b = fx.is_enabled()
+                ex_combo.setEnabled(b)
+                if b:
+                    h = fx.get_history_config()
+                    c = fx.get_currency()
+                    exchanges = fx.get_exchanges_by_ccy(c, h)
+                else:
+                    exchanges = fx.get_exchanges_by_ccy('USD', False)
+                ex_combo.clear()
+                ex_combo.addItems(sorted(exchanges))
+                ex_combo.setCurrentIndex(ex_combo.findText(fx.config_exchange()))
+
+        def on_currency(index):
+            fx = app_state.fx
+            if fx:
+                enabled = index != 0
+                fx.set_enabled(enabled)
+                if enabled:
+                    fx.set_currency(ccy_combo.currentText())
+                update_history_cb()
+                update_exchanges()
+                app_state.app.fiat_ccy_changed.emit()
+
+        def on_exchange(_index):
+            exchange = str(ex_combo.currentText())
+            fx = app_state.fx
+            if fx and fx.is_enabled() and exchange and exchange != fx.exchange.name():
+                fx.set_exchange(exchange)
+
+        def on_history(state):
+            fx = app_state.fx
+            if fx:
+                fx.set_history_config(state == Qt.Checked)
+                update_exchanges()
+                app_state.app.fiat_history_changed.emit()
+
+        def on_fiat_balance(state):
+            fx = app_state.fx
+            if fx:
+                fx.set_fiat_address_config(state == Qt.Checked)
+                app_state.app.fiat_balance_changed.emit()
+
+        update_currencies()
+        update_history_cb()
+        update_fiat_balance_cb()
+        update_exchanges()
+
+        ccy_combo.currentIndexChanged.connect(on_currency)
+        hist_checkbox.stateChanged.connect(on_history)
+        fiat_balance_checkbox.stateChanged.connect(on_fiat_balance)
+        ex_combo.currentIndexChanged.connect(on_exchange)
+
+        return [
+            (QLabel(_('Fiat currency')), ccy_combo),
+            (QLabel(_('Show history rates')), hist_checkbox),
+            (QLabel(_('Show Fiat balance for addresses')), fiat_balance_checkbox),
+            (QLabel(_('Source')), ex_combo),
         ]
 
     def id_widgets(self):

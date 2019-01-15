@@ -2785,14 +2785,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         for tx_dialog in self.tx_dialogs:
             tx_dialog.update()
 
+    def on_fiat_history_changed(self):
+        self.history_list.refresh_headers()
+
+    def on_fiat_balance_changed(self):
+        self.address_list.refresh_headers()
+        self.address_list.update()
+
     def preferences_dialog(self):
         prior_language = self.config.get("language", None)
 
-        dialog = PreferencesDialog(self)
+        dialog = PreferencesDialog(self.wallet)
         dialog.exec_()
-
-        if app_state.fx:
-            app_state.fx.timeout = 0
 
         current_language = self.config.get("language", None)
         if prior_language != current_language:

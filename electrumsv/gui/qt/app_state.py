@@ -76,6 +76,8 @@ class QElectrumSVApplication(QApplication):
     op_return_enabled_changed = pyqtSignal()
     num_zeros_changed = pyqtSignal()
     base_unit_changed = pyqtSignal()
+    fiat_history_changed = pyqtSignal()
+    fiat_balance_changed = pyqtSignal()
 
 
 class QtAppStateProxy(AppStateProxy):
@@ -124,6 +126,8 @@ class QtAppStateProxy(AppStateProxy):
         app.num_zeros_changed.connect(partial(self._signal_all, 'on_num_zeros_changed'))
         app.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
         app.base_unit_changed.connect(partial(self._signal_all, 'on_base_unit_changed'))
+        app.fiat_history_changed.connect(partial(self._signal_all, 'on_fiat_history_changed'))
+        app.fiat_balance_changed.connect(partial(self._signal_all, 'on_fiat_balance_changed'))
         return app
 
     def _signal_all(self, method, *args):

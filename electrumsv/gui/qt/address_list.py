@@ -47,18 +47,15 @@ class AddressList(MyTreeWidget):
         self.wallet = None
         super().__init__(parent, self.create_menu, [], 2)
         self.monospace_font = QFont(platform.monospace_font)
-        if app_state.fx and app_state.fx.get_fiat_address_config():
-            self.fx = app_state.fx
-        else:
-            self.fx = None
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSortingEnabled(True)
         self.refresh_headers()
 
     def refresh_headers(self):
         headers = [ ('Address'), _('Index'),_('Label'), _('Balance'), _('Tx')]
-        if self.fx:
-            headers.insert(4, '{} {}'.format(self.fx.get_currency(), _(' Balance')))
+        # Note this is dynamic with preferences changes
+        if app_state.fx and app_state.fx.get_fiat_address_config():
+            headers.insert(4, '{} {}'.format(app_state.fx.get_currency(), _(' Balance')))
         self.update_headers(headers)
 
     def on_update(self):
@@ -96,6 +93,10 @@ class AddressList(MyTreeWidget):
 
         account_item = self
         sequences = [0,1] if change_addresses else [0]
+        if app_state.fx and app_state.fx.get_fiat_address_config():
+            fx = app_state.fx
+        else:
+            fx = None
         for is_change in sequences:
             if len(sequences) > 1:
                 name = _("Receiving") if not is_change else _("Change")
@@ -117,14 +118,14 @@ class AddressList(MyTreeWidget):
                 label = self.wallet.labels.get(address.to_string(), '')
                 balance_text = self.parent.format_amount(balance, whitespaces=True)
                 columns = [address_text, str(n), label, balance_text, str(num)]
-                if self.fx:
-                    rate = self.fx.exchange_rate()
-                    fiat_balance = self.fx.value_str(balance, rate)
+                if fx:
+                    rate = fx.exchange_rate()
+                    fiat_balance = fx.value_str(balance, rate)
                     columns.insert(4, fiat_balance)
                 address_item = SortableTreeWidgetItem(columns)
                 address_item.setTextAlignment(3, Qt.AlignRight)
                 address_item.setFont(3, self.monospace_font)
-                if self.fx:
+                if fx:
                     address_item.setTextAlignment(4, Qt.AlignRight)
                     address_item.setFont(4, self.monospace_font)
 

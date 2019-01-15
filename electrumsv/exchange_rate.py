@@ -378,20 +378,23 @@ class FxThread(ThreadJob):
     def is_enabled(self):
         return bool(self.config.get('use_exchange_rate'))
 
-    def set_enabled(self, b):
-        return self.config.set_key('use_exchange_rate', bool(b))
+    def set_enabled(self, enabled):
+        return self.config.set_key('use_exchange_rate', enabled)
 
     def get_history_config(self):
         return bool(self.config.get('history_rates'))
 
-    def set_history_config(self, b):
-        self.config.set_key('history_rates', bool(b))
+    def set_history_config(self, enabled):
+        self.config.set_key('history_rates', enabled)
+        if self.is_enabled() and enabled:
+            # reset timeout to get historical rates
+            self.timeout = 0
 
     def get_fiat_address_config(self):
         return bool(self.config.get('fiat_address'))
 
     def set_fiat_address_config(self, b):
-        self.config.set_key('fiat_address', bool(b))
+        self.config.set_key('fiat_address', b)
 
     def get_currency(self):
         '''Use when dynamic fetching is needed'''
