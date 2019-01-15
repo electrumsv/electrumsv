@@ -29,7 +29,7 @@ from xmlrpc.client import ServerProxy
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QPushButton
 
-from electrumsv import bitcoin, util, keystore
+from electrumsv import util, keystore, ecc
 from electrumsv import transaction
 from electrumsv.bip32 import deserialize_xpub, deserialize_xprv
 from electrumsv.crypto import sha256d
@@ -173,7 +173,8 @@ class Plugin(BasePlugin):
             if not self.cosigner_can_sign(tx, xpub):
                 continue
             raw_tx_bytes = bfh(str(tx))
-            message = bitcoin.encrypt_message(raw_tx_bytes, bh2u(K)).decode('ascii')
+            public_key = ecc.ECPubkey(K)
+            message = public_key.encrypt_message(raw_tx_bytes).decode('ascii')
             try:
                 server.put(_hash, message)
             except Exception as e:
@@ -218,8 +219,8 @@ class Plugin(BasePlugin):
         if not xprv:
             return
         try:
-            k = bh2u(deserialize_xprv(xprv)[-1])
-            EC = bitcoin.EC_KEY(bfh(k))
+            k = deserialize_xprv(xprv)[-1]
+            EC = ecc.ECPrivkey(k)
             message = bh2u(EC.decrypt_message(message))
         except Exception as e:
             logger.exception("")
