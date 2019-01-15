@@ -129,7 +129,7 @@ class Buttons(QHBoxLayout):
 class CloseButton(QPushButton):
     def __init__(self, dialog):
         QPushButton.__init__(self, _("Close"))
-        self.clicked.connect(dialog.close)
+        self.clicked.connect(dialog.accept)
         self.setDefault(True)
 
 class CopyButton(QPushButton):
