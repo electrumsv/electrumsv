@@ -85,9 +85,6 @@ setup(
     },
     package_data={
         'electrumsv': [
-            'servers.json',
-            'servers_testnet.json',
-            'currencies.json',
             'www/index.html',
         ]
     },

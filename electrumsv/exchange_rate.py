@@ -14,7 +14,7 @@ from .app_state import app_state
 from .bitcoin import COIN
 from .i18n import _
 from .logs import logs
-from .util import ThreadJob
+from .util import ThreadJob, resource_path
 
 logger = logs.get_logger("exchangerate")
 
@@ -294,7 +294,7 @@ def dictinvert(d):
     return inv
 
 def get_exchanges_and_currencies():
-    path = os.path.join(os.path.dirname(__file__), 'currencies.json')
+    path = resource_path('currencies.json')
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return json.loads(f.read())

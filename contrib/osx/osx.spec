@@ -30,7 +30,6 @@ hiddenimports += collect_submodules('websocket')
 hiddenimports.remove('keepkeylib.qt.pinmatrix')
 
 datas = [
-    (home_dir + PYPKG + '/*.json', PYPKG),
     (home_dir + PYPKG + '/wordlist/english.txt', PYPKG + '/wordlist'),
     (home_dir + PYPKG + '/locale', PYPKG + '/locale'),
     (home_dir + PYPKG + '/plugins', PYPKG + '/plugins'),

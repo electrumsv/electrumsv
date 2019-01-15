@@ -25,9 +25,10 @@
 import json
 import os
 
+from .util import resource_path
 
 def read_json_dict(filename):
-    path = os.path.join(os.path.dirname(__file__), filename)
+    path = resource_path(filename)
     with open(path, 'r') as f:
         return json.loads(f.read())
 
