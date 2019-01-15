@@ -280,7 +280,7 @@ def bh2u(x):
     :param x: bytes
     :rtype: str
     """
-    return hfu(x).decode('ascii')
+    return x.hex()
 
 def get_electron_cash_user_dir(esv_user_dir):
     """Convert the ESV user directory to what it would be in Electron Cash.

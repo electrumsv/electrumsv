@@ -217,9 +217,9 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
         client = self.get_client(keystore)
         inputs = self.tx_inputs(tx, True)
         outputs = self.tx_outputs(keystore.get_derivation(), tx)
-        signed_tx = client.sign_tx(self.get_coin_name(), inputs, outputs, lock_time=tx.locktime)[1]
-        raw = bh2u(signed_tx)
-        tx.update_signatures(raw)
+        signatures = client.sign_tx(self.get_coin_name(), inputs, outputs,
+                                    lock_time=tx.locktime)[0]
+        tx.update_signatures(signatures)
 
     def show_address(self, wallet, address):
         client = self.get_client(wallet.keystore)
