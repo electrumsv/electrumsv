@@ -81,10 +81,12 @@ class QElectrumSVApplication(QApplication):
 class QtAppStateProxy(AppStateProxy):
 
     def __init__(self, config):
-        super().__init__(config)
         self.windows = []
         self.app = self._create_app()
         self.timer = QTimer()
+
+        # This can trigger callbacks; so do it after the above attributes are set
+        super().__init__(config)
 
         # FIXME: move language to app_state
         set_language(config.get('language'))

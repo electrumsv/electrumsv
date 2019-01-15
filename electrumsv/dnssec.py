@@ -219,7 +219,7 @@ def _check_query(ns, sub, _type, keys):
     return rrset
 
 
-def get_and_validate(ns, url, _type):
+def _get_and_validate(ns, url, _type):
     # get trusted root key
     root_rrset = None
     for dnskey_rr in trust_anchors:
@@ -274,14 +274,11 @@ def _query(url, rtype):
     nameservers = ['8.8.8.8']
     ns = nameservers[0]
     try:
-        out = get_and_validate(ns, url, rtype)
-        validated = True
+        return _get_and_validate(ns, url, rtype), True
     except Exception as e:
         logger.error("DNSSEC error: %s", e)
-        resolver = dns.resolver.get_default_resolver()
-        out = resolver.query(url, rtype)
-        validated = False
-    return out, validated
+    resolver = dns.resolver.get_default_resolver()
+    return resolver.query(url, rtype), False
 
 
 def _find_regex( haystack, needle):
@@ -297,8 +294,8 @@ def resolve_openalias(url):
     url = url.replace('@', '.')
     try:
         records, validated = _query(url, dns.rdatatype.TXT)
-    except DNSException as e:
-        logger.exception('Error resolving openalias: %s', e)
+    except Exception as e:
+        logger.error('Error resolving openalias: %s', e)
     else:
         prefix = 'oa1:btc'
         for record in records:
