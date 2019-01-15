@@ -59,7 +59,7 @@ class ElectrumWebSocket(WebSocket):
 class WsClientThread(util.DaemonThread):
 
     def __init__(self, config, network):
-        util.DaemonThread.__init__(self)
+        super.__init__('websocket client')
         self.network = network
         self.config = config
         self.response_queue = queue.Queue()

@@ -125,7 +125,7 @@ def get_rpc_credentials(config):
 class Daemon(DaemonThread):
 
     def __init__(self, fd, is_gui):
-        DaemonThread.__init__(self)
+        super().__init__('daemon')
         app_state.daemon = self
         config = app_state.config
         self.config = config

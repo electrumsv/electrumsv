@@ -177,9 +177,9 @@ class Network(util.DaemonThread):
     """
 
     def __init__(self, config=None):
+        super().__init__('network')
         if config is None:
             config = {}  # Do not use mutables as default values!
-        util.DaemonThread.__init__(self)
         self.config = SimpleConfig(config) if isinstance(config, dict) else config
         self.num_server = 10 if not self.config.get('oneserver') else 0
         self.blockchains = blockchain.read_blockchains(self.config)

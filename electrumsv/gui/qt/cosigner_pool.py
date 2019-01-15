@@ -49,7 +49,7 @@ CosignerItem = namedtuple("CosignerItem", "window xpub K hash watching_only")
 class Listener(util.DaemonThread):
 
     def __init__(self, parent):
-        util.DaemonThread.__init__(self)
+        super().__init__('cosigner')
         self.daemon = True
         self.parent = parent
         self.received = set()

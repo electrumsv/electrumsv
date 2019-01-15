@@ -93,14 +93,15 @@ class DebugMem(ThreadJob):
 class DaemonThread(threading.Thread):
     """ daemon thread that terminates cleanly """
 
-    def __init__(self):
+    def __init__(self, name):
         threading.Thread.__init__(self)
+        self.name = name
         self.parent_thread = threading.currentThread()
         self.running = False
         self.running_lock = threading.Lock()
         self.job_lock = threading.Lock()
         self.jobs = []
-        self.logger = logs.get_logger('DaemonThread')
+        self.logger = logs.get_logger(f'{name} thread')
 
     def add_jobs(self, jobs):
         with self.job_lock:

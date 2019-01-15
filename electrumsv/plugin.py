@@ -50,7 +50,7 @@ class Plugins(DaemonThread):
 
     @profiler
     def __init__(self, gui_name):
-        DaemonThread.__init__(self)
+        super().__init__('plugins')
         app_state.plugins = self
         self.setName('Plugins')
         self.pkgpath = os.path.dirname(plugins.__file__)
