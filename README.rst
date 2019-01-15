@@ -3,7 +3,7 @@ ElectrumSV - Lightweight Bitcoin SV client
 
 ::
 
-  Licence: ElectrumSV Licence
+  Licence: MIT Licence
   Author: Roger Taylor
   Language: Python (>=3.6)
   Homepage: https://electrumsv.io/
