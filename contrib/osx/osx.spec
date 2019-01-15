@@ -6,7 +6,6 @@ import sys
 import os
 
 PACKAGE='ElectrumSV'
-PYPKG='electrumsv'
 MAIN_SCRIPT='electrum-sv'
 ICONS_FILE='contrib/osx/electrum-sv.icns'
 
@@ -30,11 +29,8 @@ hiddenimports += collect_submodules('websocket')
 hiddenimports.remove('keepkeylib.qt.pinmatrix')
 
 datas = [
-    (home_dir + PYPKG + '/wordlist/english.txt', PYPKG + '/wordlist'),
-    (home_dir + PYPKG + '/locale', PYPKG + '/locale'),
-    (home_dir + PYPKG + '/plugins', PYPKG + '/plugins'),
-    (home_dir + '/icons/*.png', 'icons'),
-    (home_dir + '/icons/*.svg', 'icons'),
+    (home_dir + 'data', 'data'),
+    (home_dir + 'electrumsv/plugins', 'electrumsv/plugins'),
 ]
 datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
