@@ -103,6 +103,7 @@ class CosignerPool(object):
             logger.debug("shutting down listener")
             self.listener.stop()
             self.listener = None
+            self.items.clear()
 
     def window_closed(self, window):
         if cosigner_pool.is_enabled():

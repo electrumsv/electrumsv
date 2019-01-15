@@ -39,7 +39,15 @@ class Extension(object):
         return app_state.config.set_key('use_' + self.setting, bool(enabled))
 
 
-cosigner_pool = Extension(
+class CosignerPoolExtension(Extension):
+
+    def set_enabled(self, enabled):
+        result = super().set_enabled(enabled)
+        app_state.cosigner_pool.on_enabled_changed()
+        return result
+
+
+cosigner_pool = CosignerPoolExtension(
     'cosigner_pool', _('Cosigner Pool'),
     '\n'.join([
         _("This plugin facilitates the use of multi-signatures wallets."),
