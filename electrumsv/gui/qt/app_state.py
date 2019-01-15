@@ -73,6 +73,8 @@ class QElectrumSVApplication(QApplication):
     custom_fee_changed = pyqtSignal()
     fees_editable_changed = pyqtSignal()
     op_return_enabled_changed = pyqtSignal()
+    num_zeros_changed = pyqtSignal()
+    base_unit_changed = pyqtSignal()
 
 
 class QtAppStateProxy(AppStateProxy):
@@ -116,12 +118,18 @@ class QtAppStateProxy(AppStateProxy):
         app.fees_editable_changed.connect(partial(self._signal_all, 'on_fees_editable_changed'))
         app.op_return_enabled_changed.connect(
             partial(self._signal_all, 'on_op_return_enabled_changed'))
+        app.num_zeros_changed.connect(partial(self._signal_all, 'on_num_zeros_changed'))
         app.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
+        app.base_unit_changed.connect(partial(self._signal_all, 'on_base_unit_changed'))
         return app
 
     def _signal_all(self, method, *args):
         for window in self.windows:
             getattr(window, method)(*args)
+
+    def set_base_unit(self, base_unit):
+        if super().set_base_unit(base_unit):
+            self.app.base_unit_changed.emit()
 
     def build_tray_menu(self):
         # Avoid immediate GC of old menu when window closed via its action

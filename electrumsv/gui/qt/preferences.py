@@ -70,56 +70,7 @@ class PreferencesDialog(QDialog):
     def lay_out(self, parent):
         vbox = QVBoxLayout()
         tabs = QTabWidget()
-        gui_widgets = []
         id_widgets = []
-
-        # language
-        lang_help = _('Select which language is used in the GUI (after restart).')
-        lang_label = HelpLabel(_('Language') + ':', lang_help)
-        lang_combo = QComboBox()
-
-        language_names = []
-        language_keys = []
-        for item in languages.items():
-            language_keys.append(item[0])
-            language_names.append(item[1])
-        lang_combo.addItems(language_names)
-        try:
-            index = language_keys.index(self.config.get("language",''))
-        except ValueError:
-            index = 0
-        lang_combo.setCurrentIndex(index)
-
-        if not self.config.is_modifiable('language'):
-            for w in [lang_combo, lang_label]:
-                w.setEnabled(False)
-
-        def on_lang(_index):
-            lang_request = language_keys[lang_combo.currentIndex()]
-            if lang_request != self.config.get('language'):
-                self.config.set_key("language", lang_request, True)
-        lang_combo.currentIndexChanged.connect(on_lang)
-        gui_widgets.append((lang_label, lang_combo))
-
-        nz_help = _('Number of zeros displayed after the decimal point. '
-                    'For example, if this is set to 2, "1." will be displayed as "1.00"')
-        nz_label = HelpLabel(_('Zeros after decimal point') + ':', nz_help)
-        nz = QSpinBox()
-        nz.setMinimum(0)
-        nz.setMaximum(parent.decimal_point)
-        nz.setValue(parent.num_zeros)
-        if not self.config.is_modifiable('num_zeros'):
-            for w in [nz, nz_label]: w.setEnabled(False)
-        def on_nz():
-            value = nz.value()
-            if parent.num_zeros != value:
-                parent.num_zeros = value
-                self.config.set_key('num_zeros', value, True)
-                parent.history_list.update()
-                parent.history_updated_signal.emit()
-                parent.address_list.update()
-        nz.valueChanged.connect(on_nz)
-        gui_widgets.append((nz_label, nz))
 
         msg = _('OpenAlias record, used to receive coins and to sign payment requests.') + '\n\n'\
               + _('The following alias providers are available:') + '\n'\
@@ -162,75 +113,6 @@ class PreferencesDialog(QDialog):
             SSL_id_e.setToolTip(SSL_error)
         SSL_id_e.setReadOnly(True)
         id_widgets.append((SSL_id_label, SSL_id_e))
-
-        units = ['BSV', 'mBSV', 'bits']
-        msg = _('Base unit of your wallet.')\
-              + '\n1 BSV = 1,000 mBSV = 1,000,000 bits.\n' \
-              + _(' These settings affect the fields in the Send tab')+' '
-        unit_label = HelpLabel(_('Base unit') + ':', msg)
-        unit_combo = QComboBox()
-        unit_combo.addItems(units)
-        unit_combo.setCurrentIndex(units.index(parent.base_unit()))
-        def on_unit(_index):
-            unit_result = units[unit_combo.currentIndex()]
-            if parent.base_unit() == unit_result:
-                return
-            edits = parent.amount_e, parent.fee_e, parent.receive_amount_e
-            amounts = [edit.get_amount() for edit in edits]
-            if unit_result == 'BSV':
-                parent.decimal_point = 8
-            elif unit_result == 'mBSV':
-                parent.decimal_point = 5
-            elif unit_result == 'bits':
-                parent.decimal_point = 2
-            else:
-                raise RuntimeError('Unknown base unit')
-            self.config.set_key('decimal_point', parent.decimal_point, True)
-            nz.setMaximum(parent.decimal_point)
-            parent.history_list.update()
-            parent.history_updated_signal.emit()
-            parent.request_list.update()
-            parent.address_list.update()
-            for edit, amount in zip(edits, amounts):
-                edit.setAmount(amount)
-            parent.update_status()
-        unit_combo.currentIndexChanged.connect(on_unit)
-        gui_widgets.append((unit_label, unit_combo))
-
-        block_explorers = web.BE_sorted_list()
-        msg = _('Choose which online block explorer to use for functions that open a web browser')
-        block_ex_label = HelpLabel(_('Online Block Explorer') + ':', msg)
-        block_ex_combo = QComboBox()
-        block_ex_combo.addItems(block_explorers)
-        block_ex_combo.setCurrentIndex(block_ex_combo.findText(web.BE_from_config(self.config)))
-        def on_be(_index):
-            be_result = block_explorers[block_ex_combo.currentIndex()]
-            self.config.set_key('block_explorer', be_result, True)
-        block_ex_combo.currentIndexChanged.connect(on_be)
-        gui_widgets.append((block_ex_label, block_ex_combo))
-
-        system_cameras = qrscanner.find_system_cameras()
-        qr_combo = QComboBox()
-        qr_combo.addItem("Default","default")
-        for camera, device in system_cameras.items():
-            qr_combo.addItem(camera, device)
-        #combo.addItem("Manually specify a device", config.get("video_device"))
-        index = qr_combo.findData(self.config.get("video_device"))
-        qr_combo.setCurrentIndex(index)
-        msg = _("Install the zbar package to enable this.")
-        qr_label = HelpLabel(_('Video Device') + ':', msg)
-        qr_combo.setEnabled(qrscanner.libzbar is not None)
-        def on_video_device(index):
-            self.config.set_key("video_device", qr_combo.itemData(index), True)
-        qr_combo.currentIndexChanged.connect(on_video_device)
-        gui_widgets.append((qr_label, qr_combo))
-
-        updatecheck_cb = QCheckBox(_("Automatically check for software updates"))
-        updatecheck_cb.setChecked(self.config.get('check_updates', True))
-        def on_set_updatecheck(v):
-            self.config.set_key('check_updates', v == Qt.Checked, save=True)
-        updatecheck_cb.stateChanged.connect(on_set_updatecheck)
-        gui_widgets.append((updatecheck_cb, None))
 
         # Fiat Currency
         hist_checkbox = QCheckBox()
@@ -326,7 +208,7 @@ class PreferencesDialog(QDialog):
         tabs_info = [
             (self.fee_widgets(), _('Fees')),
             (self.tx_widgets(parent.wallet), _('Transactions')),
-            (gui_widgets, _('General')),
+            (self.general_widgets(), _('General')),
             (fiat_widgets, _('Fiat')),
             (id_widgets, _('Identity')),
             (self.extensions_widgets(), _('Extensions')),
@@ -425,6 +307,101 @@ class PreferencesDialog(QDialog):
             (multiple_cb, None),
             (unconf_cb, None),
             (opret_cb, None),
+        ]
+
+    def general_widgets(self):
+        # language
+        lang_modifiable = self.config.is_modifiable('language')
+        language_names = []
+        language_keys = []
+        for item in languages.items():
+            language_keys.append(item[0])
+            language_names.append(item[1])
+
+        lang_label = HelpLabel(_('Language') + ':',
+                               _('Select which language is used in the GUI (after restart).'))
+        lang_label.setEnabled(lang_modifiable)
+
+        lang_combo = QComboBox()
+        lang_combo.setEnabled(lang_modifiable)
+        lang_combo.addItems(language_names)
+        try:
+            index = language_keys.index(self.config.get("language", ''))
+        except ValueError:
+            index = 0
+        lang_combo.setCurrentIndex(index)
+        def on_lang(index):
+            lang_request = language_keys[index]
+            if lang_request != self.config.get('language'):
+                self.config.set_key("language", lang_request, True)
+        lang_combo.currentIndexChanged.connect(on_lang)
+
+        nz_modifiable = self.config.is_modifiable('num_zeros')
+        nz_label = HelpLabel(_('Zeros after decimal point') + ':',
+                             _('Number of zeros displayed after the decimal point.  '
+                               'For example, if set to 2, "1." will be displayed as "1.00"'))
+        nz_label.setEnabled(nz_modifiable)
+        nz = QSpinBox()
+        nz.setMinimum(0)
+        nz.setMaximum(app_state.decimal_point)
+        nz.setValue(app_state.num_zeros)
+        nz.setEnabled(nz_modifiable)
+        def on_nz():
+            value = nz.value()
+            if app_state.num_zeros != value:
+                app_state.num_zeros = value
+                self.config.set_key('num_zeros', value, True)
+                app_state.app.num_zeros_changed.emit()
+        nz.valueChanged.connect(on_nz)
+
+        unit_label = HelpLabel(_('Base unit') + ':', '\n'.join((
+            _('Base unit of display in the application.'),
+            '1 BSV = 1,000 mBSV = 1,000,000 bits.',
+        )))
+        unit_combo = QComboBox()
+        unit_combo.addItems(app_state.base_units)
+        unit_combo.setCurrentIndex(app_state.base_units.index(app_state.base_unit()))
+        def on_unit(index):
+            app_state.set_base_unit(app_state.base_units[index])
+            nz.setMaximum(app_state.decimal_point)
+        unit_combo.currentIndexChanged.connect(on_unit)
+
+        msg = _('Choose which online block explorer to use for functions that open a web browser')
+        block_ex_label = HelpLabel(_('Online Block Explorer') + ':', msg)
+        block_explorers = web.BE_sorted_list()
+        block_ex_combo = QComboBox()
+        block_ex_combo.addItems(block_explorers)
+        block_ex_combo.setCurrentIndex(block_ex_combo.findText(web.BE_from_config(self.config)))
+        def on_be(index):
+            self.config.set_key('block_explorer', block_explorers[index], True)
+        block_ex_combo.currentIndexChanged.connect(on_be)
+
+        qr_label = HelpLabel(_('Video Device') + ':',
+                             _("Install the zbar package to enable this."))
+        qr_combo = QComboBox()
+        qr_combo.addItem("Default", "default")
+        system_cameras = qrscanner.find_system_cameras()
+        for camera, device in system_cameras.items():
+            qr_combo.addItem(camera, device)
+        qr_combo.setCurrentIndex(qr_combo.findData(self.config.get("video_device")))
+        qr_combo.setEnabled(qrscanner.libzbar is not None)
+        def on_video_device(index):
+            self.config.set_key("video_device", qr_combo.itemData(index), True)
+        qr_combo.currentIndexChanged.connect(on_video_device)
+
+        updatecheck_cb = QCheckBox(_("Automatically check for software updates"))
+        updatecheck_cb.setChecked(self.config.get('check_updates', True))
+        def on_set_updatecheck(v):
+            self.config.set_key('check_updates', v == Qt.Checked, save=True)
+        updatecheck_cb.stateChanged.connect(on_set_updatecheck)
+
+        return [
+            (lang_label, lang_combo),
+            (nz_label, nz),
+            (unit_label, unit_combo),
+            (block_ex_label, block_ex_combo),
+            (qr_label, qr_combo),
+            (updatecheck_cb, None),
         ]
 
     def extensions_widgets(self):

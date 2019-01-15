@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv import bitcoin
+from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.networks import Net
@@ -231,7 +232,7 @@ class CoinSplittingTab(QWidget):
         # + frozen_unmature
 
         splittable_amount_text = window.format_amount(splittable_amount)
-        unit_text = window.base_unit()
+        unit_text = app_state.base_unit()
 
         text = [
             "<p>",

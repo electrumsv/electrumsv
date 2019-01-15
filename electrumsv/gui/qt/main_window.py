@@ -143,9 +143,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.create_status_bar()
         self.need_update = threading.Event()
 
-        self.decimal_point = config.get('decimal_point', 8)
         self.fee_unit = config.get('fee_unit', 0)
-        self.num_zeros     = int(config.get('num_zeros',0))
 
         self.completions = QStringListModel()
 
@@ -741,31 +739,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.require_fee_update = False
 
     def format_amount(self, x, is_diff=False, whitespaces=False):
-        return format_satoshis(x, self.num_zeros, self.decimal_point,
+        return format_satoshis(x, app_state.num_zeros, app_state.decimal_point,
                                is_diff=is_diff, whitespaces=whitespaces)
 
     def format_amount_and_units(self, amount):
-        text = self.format_amount(amount) + ' '+ self.base_unit()
+        text = self.format_amount(amount) + ' ' + app_state.base_unit()
         x = app_state.fx.format_amount_and_units(amount)
         if text and x:
             text += ' (%s)'%x
         return text
 
     def format_fee_rate(self, fee_rate):
-        return format_fee_satoshis(fee_rate/1000, self.num_zeros) + ' sat/byte'
-
-    def get_decimal_point(self):
-        return self.decimal_point
-
-    def base_unit(self):
-        assert self.decimal_point in [2, 5, 8]
-        if self.decimal_point == 2:
-            return 'bits'
-        if self.decimal_point == 5:
-            return 'mBSV'
-        if self.decimal_point == 8:
-            return 'BSV'
-        raise Exception('Unknown base unit')
+        return format_fee_satoshis(fee_rate/1000, app_state.num_zeros) + ' sat/B'
 
     def connect_fields(self, window, btc_e, fiat_e, fee_e):
 
@@ -835,7 +820,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 # append fiat balance and price
                 if app_state.fx.is_enabled():
                     text += app_state.fx.get_fiat_status_text(c + u + x,
-                        self.base_unit(), self.get_decimal_point()) or ''
+                        app_state.base_unit(), app_state.decimal_point) or ''
                 if not self.network.proxy:
                     icon = ("status_connected.png" if num_chains <= 1
                             else "status_connected_fork.png")
@@ -912,7 +897,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(self.receive_message_e, 1, 1, 1, -1)
         self.receive_message_e.textChanged.connect(self.update_receive_qr)
 
-        self.receive_amount_e = BTCAmountEdit(self.get_decimal_point)
+        self.receive_amount_e = BTCAmountEdit()
         grid.addWidget(QLabel(_('Requested amount')), 2, 0)
         grid.addWidget(self.receive_amount_e, 2, 1)
         self.receive_amount_e.textChanged.connect(self.update_receive_qr)
@@ -1163,7 +1148,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.setColumnStretch(3, 1)
 
         from .paytoedit import PayToEdit
-        self.amount_e = BTCAmountEdit(self.get_decimal_point)
+        self.amount_e = BTCAmountEdit()
         self.payto_e = PayToEdit(self)
         msg = (_('Recipient of the funds.') + '\n\n' +
                _('You may enter a Bitcoin SV address, a label from your list of '
@@ -1266,7 +1251,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.fee_slider_mogrifier()
 
-        self.fee_e = BTCAmountEdit(self.get_decimal_point)
+        self.fee_e = BTCAmountEdit()
         if not self.config.get('show_fee', False):
             self.fee_e.setVisible(False)
         self.fee_e.textEdited.connect(self.update_fee)
@@ -1313,7 +1298,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 c, u, x = self.wallet.get_frozen_balance()
                 if c+u+x:
                     text += (' (' + self.format_amount(c+u+x).strip() + ' ' +
-                             self.base_unit() + ' ' +_("are frozen") + ')')
+                             app_state.base_unit() + ' ' + _("are frozen") + ')')
 
             elif self.fee_e.isModified():
                 amt_color, fee_color = ColorScheme.DEFAULT, ColorScheme.DEFAULT
@@ -1751,7 +1736,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         else:
             self.payto_e.setExpired()
         self.payto_e.setText(pr.get_requestor())
-        self.amount_e.setText(format_satoshis_plain(pr.get_amount(), self.decimal_point))
+        self.amount_e.setText(format_satoshis_plain(pr.get_amount(), app_state.decimal_point))
         self.message_e.setText(pr.get_memo())
         # signal to set fee
         self.amount_e.textEdited.emit("")
@@ -1959,7 +1944,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(QLabel(_("Requestor") + ':'), 0, 0)
         grid.addWidget(QLabel(pr.get_requestor()), 0, 1)
         grid.addWidget(QLabel(_("Amount") + ':'), 1, 0)
-        outputs_str = '\n'.join(self.format_amount(x[2]) + self.base_unit() +
+        outputs_str = '\n'.join(self.format_amount(x[2]) + app_state.base_unit() +
                                 ' @ ' + x[1].to_string()
                                 for x in pr.get_outputs())
         grid.addWidget(QLabel(outputs_str), 1, 1)
@@ -2791,6 +2776,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.message_opreturn_e.setHidden(not enabled)
         self.opreturn_label.setHidden(not enabled)
 
+    def on_num_zeros_changed(self):
+        self.history_list.update()
+        self.history_updated_signal.emit()
+        self.address_list.update()
+
     def on_fiat_ccy_changed(self):
         '''Called when the user changes fiat currency in preferences.'''
         b = app_state.fx and app_state.fx.is_enabled()
@@ -2802,6 +2792,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.address_list.refresh_headers()
         self.address_list.update()
         self.update_status()
+
+    def on_base_unit_changed(self):
+        edits = self.amount_e, self.fee_e, self.receive_amount_e
+        amounts = [edit.get_amount() for edit in edits]
+        self.history_list.update()
+        self.history_updated_signal.emit()
+        self.request_list.update()
+        self.address_list.update()
+        for edit, amount in zip(edits, amounts):
+            edit.setAmount(amount)
+        self.update_status()
+        for tx_dialog in self.tx_dialogs:
+            tx_dialog.update()
 
     def preferences_dialog(self):
         prior_language = self.config.get("language", None)
@@ -2952,14 +2955,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(QLabel('%d bytes'% total_size), 0, 1)
         max_fee = new_tx.output_value()
         grid.addWidget(QLabel(_('Input amount') + ':'), 1, 0)
-        grid.addWidget(QLabel(self.format_amount(max_fee) + ' ' + self.base_unit()), 1, 1)
+        grid.addWidget(QLabel(self.format_amount(max_fee) + ' ' + app_state.base_unit()), 1, 1)
         output_amount = QLabel('')
         grid.addWidget(QLabel(_('Output amount') + ':'), 2, 0)
         grid.addWidget(output_amount, 2, 1)
-        fee_e = BTCAmountEdit(self.get_decimal_point)
+        fee_e = BTCAmountEdit()
         def f(x):
             a = max_fee - fee_e.get_amount()
-            output_amount.setText((self.format_amount(a) + ' ' + self.base_unit()) if a else '')
+            output_amount.setText((self.format_amount(a) + ' ' + app_state.base_unit())
+                                  if a else '')
         fee_e.textChanged.connect(f)
         fee = self.config.fee_per_kb() * total_size / 1000
         fee_e.setAmount(fee)

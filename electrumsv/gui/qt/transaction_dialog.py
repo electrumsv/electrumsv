@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.address import Address, PublicKey
+from electrumsv.app_state import app_state
 from electrumsv.bitcoin import base_encode
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -213,7 +214,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     def update(self):
         desc = self.desc
-        base_unit = self.main_window.base_unit()
+        base_unit = app_state.base_unit()
         format_amount = self.main_window.format_amount
         tx_info = self.wallet.get_tx_info(self.tx)
 

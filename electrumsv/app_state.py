@@ -37,9 +37,26 @@ etc.
 
 class AppStateProxy(object):
 
+    base_units = ['BSV', 'mBSV', 'bits']    # large to small
+
     def __init__(self, config):
         self.config = config
         self.fx = None
+        # Not entirely sure these are worth caching, but preserving existing method for now
+        self.decimal_point = config.get('decimal_point', 8)
+        self.num_zeros = config.get('num_zeros', 0)
+
+    def base_unit(self):
+        index = (8 - self.decimal_point) // 3
+        return self.base_units[index]
+
+    def set_base_unit(self, base_unit):
+        prior = self.decimal_point
+        index = self.base_units.index(base_unit)
+        self.decimal_point = 8 - index * 3
+        if self.decimal_point != prior:
+            self.config.set_key('decimal_point', self.decimal_point, True)
+        return self.decimal_point != prior
 
 
 class _AppStateMeta(type):

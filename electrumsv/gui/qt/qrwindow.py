@@ -26,10 +26,11 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
-
-from electrumsv.gui.qt.qrcodewidget import QRCodeWidget
-from .util import WWLabel, read_QIcon
+from electrumsv.app_state import app_state
 from electrumsv.i18n import _
+
+from .qrcodewidget import QRCodeWidget
+from .util import WWLabel, read_QIcon
 
 
 class QR_Window(QWidget):
@@ -72,7 +73,7 @@ class QR_Window(QWidget):
     def set_content(self, address_text, amount, message, url):
         self.address_label.setText(address_text)
         if amount:
-            amount_text = '{} {}'.format(self.win.format_amount(amount), self.win.base_unit())
+            amount_text = '{} {}'.format(self.win.format_amount(amount), app_state.base_unit())
         else:
             amount_text = ''
         self.amount_label.setText(amount_text)
