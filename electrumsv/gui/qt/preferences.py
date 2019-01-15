@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
 
 from electrumsv import paymentrequest, qrscanner
 from electrumsv.app_state import app_state
+from electrumsv.logs import logs
 from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
 import electrumsv.web as web
@@ -45,7 +46,7 @@ class PreferencesDialog(QDialog):
     # FIXME: most uses of parent in this file are wrong - changes should apply to ALL open
     # windows
     def __init__(self, parent):
-        QDialog.__init__(self)
+        super().__init__()
         self.parent = parent
         self.config = parent.config
         self.setWindowTitle(_('Preferences'))
@@ -59,8 +60,8 @@ class PreferencesDialog(QDialog):
     def set_alias_color(self):
         if not self.config.get('alias'):
             self.alias_e.setStyleSheet("")
-        elif self.parent.alias_info:
-            _alias_addr, _alias_name, validated = self.parent.alias_info
+        elif app_state.alias_info:
+            _alias_addr, _alias_name, validated = app_state.alias_info
             self.alias_e.setStyleSheet((ColorScheme.GREEN if validated
                                         else ColorScheme.RED).as_stylesheet(True))
         else:
@@ -69,46 +70,6 @@ class PreferencesDialog(QDialog):
     def lay_out(self, parent):
         vbox = QVBoxLayout()
         tabs = QTabWidget()
-        id_widgets = []
-
-        msg = _('OpenAlias record, used to receive coins and to sign payment requests.') + '\n\n'\
-              + _('The following alias providers are available:') + '\n'\
-              + '\n'.join(['https://cryptoname.co/', 'http://xmr.link']) + '\n\n'\
-              + 'For more information, see http://openalias.org'
-        alias_label = HelpLabel(_('OpenAlias') + ':', msg)
-        alias = self.config.get('alias','')
-        self.alias_e = QLineEdit(alias)
-        def on_alias_edit():
-            self.alias_e.setStyleSheet("")
-            app_state.set_alias(alias_e.text())
-        self.set_alias_color()
-        app_state.app.alias_resolved.connect(self.set_alias_color)
-        self.alias_e.editingFinished.connect(on_alias_edit)
-        id_widgets.append((alias_label, self.alias_e))
-
-        # SSL certificate
-        msg = ' '.join([
-            _('SSL certificate used to sign payment requests.'),
-            _('Use setconfig to set ssl_chain and ssl_privkey.'),
-        ])
-        if self.config.get('ssl_privkey') or self.config.get('ssl_chain'):
-            try:
-                SSL_identity = paymentrequest.check_ssl_config(self.config)
-                SSL_error = None
-            except BaseException as e:
-                SSL_identity = "error"
-                SSL_error = str(e)
-        else:
-            SSL_identity = ""
-            SSL_error = None
-        SSL_id_label = HelpLabel(_('SSL certificate') + ':', msg)
-        SSL_id_e = QLineEdit(SSL_identity)
-        SSL_id_e.setStyleSheet((ColorScheme.RED if SSL_error else ColorScheme.GREEN)
-                               .as_stylesheet(True) if SSL_identity else '')
-        if SSL_error:
-            SSL_id_e.setToolTip(SSL_error)
-        SSL_id_e.setReadOnly(True)
-        id_widgets.append((SSL_id_label, SSL_id_e))
 
         # Fiat Currency
         hist_checkbox = QCheckBox()
@@ -206,7 +167,7 @@ class PreferencesDialog(QDialog):
             (self.tx_widgets(parent.wallet), _('Transactions')),
             (self.general_widgets(), _('General')),
             (fiat_widgets, _('Fiat')),
-            (id_widgets, _('Identity')),
+            (self.id_widgets(), _('Identity')),
             (self.extensions_widgets(), _('Extensions')),
         ]
         for widgets, name in tabs_info:
@@ -400,6 +361,50 @@ class PreferencesDialog(QDialog):
             (updatecheck_cb, None),
         ]
 
+    def id_widgets(self):
+        msg = _('OpenAlias record, used to receive coins and to sign payment requests.') + '\n\n'\
+              + _('The following alias providers are available:') + '\n'\
+              + '\n'.join(['https://cryptoname.co/', 'http://xmr.link']) + '\n\n'\
+              + 'For more information, see http://openalias.org'
+        alias_label = HelpLabel(_('OpenAlias') + ':', msg)
+        alias = self.config.get('alias','')
+        self.alias_e = QLineEdit(alias)
+        def on_alias_edit():
+            self.alias_e.setStyleSheet("")
+            app_state.set_alias(self.alias_e.text())
+        self.set_alias_color()
+        app_state.app.alias_resolved.connect(self.set_alias_color)
+        self.alias_e.editingFinished.connect(on_alias_edit)
+
+        # SSL certificate
+        msg = ' '.join([
+            _('SSL certificate used to sign payment requests.'),
+            _('Use setconfig to set ssl_chain and ssl_privkey.'),
+        ])
+        if self.config.get('ssl_privkey') or self.config.get('ssl_chain'):
+            try:
+                SSL_identity = paymentrequest.check_ssl_config(self.config)
+                SSL_error = None
+            except BaseException as e:
+                SSL_identity = "error"
+                SSL_error = str(e)
+        else:
+            SSL_identity = ""
+            SSL_error = None
+        SSL_id_label = HelpLabel(_('SSL certificate') + ':', msg)
+        SSL_id_e = QLineEdit(SSL_identity)
+        SSL_id_e.setStyleSheet((ColorScheme.RED if SSL_error else ColorScheme.GREEN)
+                               .as_stylesheet(True) if SSL_identity else '')
+        if SSL_error:
+            SSL_id_e.setToolTip(SSL_error)
+        SSL_id_e.setReadOnly(True)
+
+        return [
+            (alias_label, self.alias_e),
+            (SSL_id_label, SSL_id_e),
+        ]
+
+
     def extensions_widgets(self):
         widgets = []
         for extension in extensions:
@@ -410,3 +415,6 @@ class PreferencesDialog(QDialog):
             widgets.append((cb, help_widget))
 
         return widgets
+
+    def __del__(self):
+        logs.root.debug('preferences dialog GC-ed')
