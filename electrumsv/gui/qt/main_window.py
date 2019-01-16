@@ -1407,7 +1407,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             except OPReturnError as e:
                 self.statusBar().showMessage(str(e))
                 return
-            except BaseException:
+            except Exception:
                 return
 
             if not freeze_fee:
@@ -1560,7 +1560,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         except ExcessiveFee:
             self.show_message(_("Your fee is too high.  Max is 50 sat/byte."))
             return
-        except BaseException as e:
+        except Exception as e:
             self.logger.exception("")
             self.show_message(str(e))
             return
@@ -2030,7 +2030,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
         try:
             self.wallet.update_password(password, new_password, encrypt_file)
-        except BaseException as e:
+        except Exception as e:
             self.show_error(str(e))
             return
         except:
@@ -2139,7 +2139,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         try:
             seed = keystore.get_seed(password)
             passphrase = keystore.get_passphrase(password)
-        except BaseException as e:
+        except Exception as e:
             self.show_error(str(e))
             return
         from .seed_dialog import SeedDialog
@@ -2285,7 +2285,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         try:
             encrypted = bitcoin.encrypt_message(message, pubkey_e.text())
             encrypted_e.setText(encrypted.decode('ascii'))
-        except BaseException as e:
+        except Exception as e:
             self.logger.exception("")
             self.show_warning(str(e))
 
@@ -2364,7 +2364,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from electrumsv import qrscanner
         try:
             data = qrscanner.scan_barcode(self.config.get_video_device())
-        except BaseException as e:
+        except Exception as e:
             self.show_error(str(e))
             return
         if not data:
@@ -2427,7 +2427,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             txid = str(txid).strip()
             try:
                 r = self.network.synchronous_get(('blockchain.transaction.get',[txid]))
-            except BaseException as e:
+            except Exception as e:
                 self.show_message(str(e))
                 return
             tx = transaction.Transaction(r)
@@ -2666,7 +2666,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.payto_e.setText(get_address_text())
             self.spend_coins(coins)
             self.spend_max()
-        except BaseException as e:
+        except Exception as e:
             self.show_message(str(e))
             return
         self.payto_e.setFrozen(True)
@@ -2684,7 +2684,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             try:
                 addr = func(key)
                 good.append(addr)
-            except BaseException as e:
+            except Exception as e:
                 bad.append(key)
                 continue
         if good:

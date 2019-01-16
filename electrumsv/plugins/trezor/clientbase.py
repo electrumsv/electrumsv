@@ -101,7 +101,7 @@ class TrezorClientBase:
         try:
             res = self.client.ping("electrum pinging device")
             assert res == "electrum pinging device"
-        except BaseException:
+        except Exception:
             return False
         return True
 
@@ -161,7 +161,7 @@ class TrezorClientBase:
         self.prevent_timeouts()
         try:
             self.client.clear_session()
-        except BaseException as e:
+        except Exception as e:
             # If the device was removed it has the same effect...
             logger.error("clear_session: ignoring error %s", e)
 

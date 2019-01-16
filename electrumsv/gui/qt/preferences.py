@@ -395,7 +395,7 @@ class PreferencesDialog(QDialog):
             try:
                 SSL_identity = paymentrequest.check_ssl_config(app_state.config)
                 SSL_error = None
-            except BaseException as e:
+            except Exception as e:
                 SSL_identity = "error"
                 SSL_error = str(e)
         else:

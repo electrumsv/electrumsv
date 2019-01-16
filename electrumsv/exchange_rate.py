@@ -56,7 +56,7 @@ class ExchangeBase(object):
             logger.debug("getting fx quotes for %s", ccy)
             self.quotes = self.get_rates(ccy)
             logger.debug("received fx quotes")
-        except BaseException:
+        except Exception:
             logger.exception("failed fx quotes")
         self.on_quotes()
 
@@ -93,7 +93,7 @@ class ExchangeBase(object):
                 h = self.request_history(ccy)
                 logger.debug("received fx history for %s", ccy)
                 self.on_history()
-            except BaseException as e:
+            except Exception:
                 logger.exception("failed fx history")
                 return
             filename = os.path.join(cache_dir, self.name() + '_' + ccy)

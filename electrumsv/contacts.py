@@ -59,7 +59,7 @@ class Contacts(dict):
         except json.decoder.JSONDecodeError:
             logger.exception("importing file")
             raise FileImportFailedEncrypted()
-        except BaseException:
+        except Exception:
             logger.exception("importing file")
             raise FileImportFailed()
         self.update(d)

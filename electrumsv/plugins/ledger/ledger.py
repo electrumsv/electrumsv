@@ -421,7 +421,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             else:
                 logger.exception("")
                 self.give_error(e, True)
-        except BaseException as e:
+        except Exception as e:
             logger.exception("")
             self.give_error(e, True)
         finally:

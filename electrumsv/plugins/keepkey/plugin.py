@@ -82,7 +82,7 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
 
         try:
             return self.hid_transport(pair)
-        except BaseException as e:
+        except Exception as e:
             # see fdb810ba622dc7dbe1259cbafb5b28e19d2ab114
             # raise
             self.logger.error("cannot connect at %s %s", device.path, e)
@@ -92,7 +92,7 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
         self.logger.debug("Trying to connect over Trezor Bridge...")
         try:
             return self.bridge_transport({'path': hexlify(device.path)})
-        except BaseException as e:
+        except Exception as e:
             self.logger.error("cannot connect to bridge %s", e)
             return None
 
@@ -111,7 +111,7 @@ class KeepKeyCompatiblePlugin(HW_PluginBase):
         # Try a ping for device sanity
         try:
             client.ping('t')
-        except BaseException as e:
+        except Exception as e:
             self.logger.error("ping failed %s", e)
             return None
 

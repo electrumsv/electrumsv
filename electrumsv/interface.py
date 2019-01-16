@@ -113,7 +113,7 @@ class TcpConnection(threading.Thread):
                 s.settimeout(2)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                 return s
-            except BaseException as _e:
+            except Exception as _e:
                 e = _e
                 continue
         self.logger.debug("failed to connect %s", e)
@@ -218,7 +218,7 @@ class TcpConnection(threading.Thread):
                 if e.errno == 104:
                     return
                 return
-            except BaseException:
+            except Exception:
                 self.logger.exception("")
                 return
 

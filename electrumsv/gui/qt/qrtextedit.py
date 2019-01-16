@@ -57,7 +57,7 @@ class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
         from electrumsv.simple_config import get_config
         try:
             data = qrscanner.scan_barcode(get_config().get_video_device())
-        except BaseException as e:
+        except Exception as e:
             self.show_error(str(e))
             data = ''
         if not data:

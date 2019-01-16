@@ -86,7 +86,7 @@ class Plugins(DaemonThread):
             if not d.get('requires_wallet_type') and self.config.get('use_' + name):
                 try:
                     self.load_plugin(name)
-                except BaseException as e:
+                except Exception as e:
                     logger.exception("cannot initialize plugin %s", name)
 
     def get(self, name):
@@ -464,7 +464,7 @@ class DeviceMgr(ThreadJob):
                 continue
             try:
                 client = self.create_client(device, handler, plugin)
-            except BaseException as e:
+            except Exception as e:
                 logger.debug('failed to create client for %s at %s: %r',
                              plugin.name, device.path, e)
                 continue
@@ -545,7 +545,7 @@ class DeviceMgr(ThreadJob):
         for f in self.enumerate_func:
             try:
                 new_devices = f()
-            except BaseException as e:
+            except Exception as e:
                 logger.error('custom device enum failed. func %s, error %s', f, e)
             else:
                 devices.extend(new_devices)

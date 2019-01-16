@@ -61,7 +61,7 @@ class AddressDialog(WindowModalDialog):
         try:
             # the below line only works for deterministic wallets, other wallets lack this method
             pubkeys = self.wallet.get_public_keys(address)
-        except BaseException:
+        except Exception:
             try:
                 # ok, now try the usual method for imported wallets, etc
                 pubkey = self.wallet.get_public_key(address)
@@ -78,7 +78,7 @@ class AddressDialog(WindowModalDialog):
 
         try:
             redeem_script = self.wallet.pubkeys_to_redeem_script(pubkeys)
-        except BaseException:
+        except Exception:
             redeem_script = None
         if redeem_script:
             vbox.addWidget(QLabel(_("Redeem Script") + ':'))

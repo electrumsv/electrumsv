@@ -1,4 +1,4 @@
-
+`
 import os
 import shutil
 import threading
@@ -362,7 +362,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 except InvalidPassword as e:
                     QMessageBox.information(None, _('Error'), str(e))
                     continue
-                except BaseException as e:
+                except Exception as e:
                     logger.exception("decrypting storage")
                     QMessageBox.information(None, _('Error'), str(e))
                     return

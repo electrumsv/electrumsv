@@ -151,7 +151,7 @@ class TrezorPlugin(HW_PluginBase):
         try:
             logger.debug("connecting to device at %s", device.path)
             transport = trezorlib.transport.get_transport(device.path)
-        except BaseException as e:
+        except Exception as e:
             logger.error("cannot connect at %s %s", device.path, e)
             return None
 
@@ -212,7 +212,7 @@ class TrezorPlugin(HW_PluginBase):
             self._initialize_device(settings, method, device_id, wizard, handler)
         except UserCancelled:
             exit_code = 1
-        except BaseException as e:
+        except Exception as e:
             self.logger.exception("")
             handler.show_error(str(e))
             exit_code = 1

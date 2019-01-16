@@ -14,7 +14,7 @@ class TrezorTransport:
         for transport in self.all_transports():
             try:
                 new_devices = transport.enumerate()
-            except BaseException as e:
+            except Exception as e:
                 logger.error('enumerate failed for %s. error %s', transport.__name__, e)
             else:
                 devices.extend(new_devices)

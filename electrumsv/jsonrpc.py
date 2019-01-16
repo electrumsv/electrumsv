@@ -58,7 +58,7 @@ class VerifyingRequestHandler(SimpleJSONRPCRequestHandler):
             except (RPCAuthCredentialsInvalid, RPCAuthCredentialsMissing,
                     RPCAuthUnsupportedType) as e:
                 self.send_error(401, str(e))
-            except BaseException as e:
+            except Exception as e:
                 logs.root.exception("")
                 self.send_error(500, str(e))
         return False

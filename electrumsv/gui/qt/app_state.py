@@ -238,7 +238,7 @@ class QtAppStateProxy(AppStateProxy):
                         return
                     wallet.start_threads(self.daemon.network)
                     self.daemon.add_wallet(wallet)
-            except BaseException as e:
+            except Exception as e:
                 logger.exception("")
                 if '2fa' in str(e):
                     d = QMessageBox(QMessageBox.Warning, _('Error'),
