@@ -1,23 +1,58 @@
+# ElectrumSV - lightweight Bitcoin client
+# Copyright (C) 2014 Thomas Voegtlin
+# Copyright (C) 2019 ElectrumSV developers
+#
+# Permission is hereby granted, free of charge, to any person
+# obtaining a copy of this software and associated documentation files
+# (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software,
+# and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+# BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+# ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import base64
+from functools import partial
 import json
 import hashlib
 import requests
 import threading
 
+from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QVBoxLayout)
+
+from electrumsv.app_state import app_state
 from electrumsv.crypto import aes_decrypt_with_iv, aes_encrypt_with_iv
+from electrumsv.extensions import label_sync
+from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.plugin import BasePlugin, hook
+
+from electrumsv.gui.qt.util import (
+    ThreadedButton, Buttons, EnterButton, WindowModalDialog, OkButton,
+)
 
 
-logger = logs.get_logger("plugin.labels")
+logger = logs.get_logger("labels")
 
 
-class LabelsPlugin(BasePlugin):
+class LabelSync(object):
 
-    def __init__(self, parent, config, name):
-        BasePlugin.__init__(self, parent, config, name)
+    def __init__(self):
         self.target_host = 'labels.electrum.org'
         self.wallets = {}
+        app_state.app.window_opened_signal.connect(self.window_opened)
+        app_state.app.window_closed_signal.connect(self.window_closed)
 
     def encode(self, wallet, msg):
         password, iv, wallet_id = self.wallets[wallet]
@@ -39,10 +74,9 @@ class LabelsPlugin(BasePlugin):
         return nonce
 
     def set_nonce(self, wallet, nonce):
-        logger.debug("set %s nonce to %s", wallet.basename(), nonce)
+        logger.debug("set {} nonce to {}".format(wallet.basename(), nonce))
         wallet.storage.put("wallet_nonce", nonce)
 
-    @hook
     def set_label(self, wallet, item, label):
         if wallet not in self.wallets:
             return
@@ -162,3 +196,48 @@ class LabelsPlugin(BasePlugin):
 
     def stop_wallet(self, wallet):
         self.wallets.pop(wallet, None)
+
+    def on_enabled_changed(self):
+        if label_sync.is_enabled():
+            for window in app_state.windows:
+                self.window_opened(window)
+        else:
+            for window in app_state.windows:
+                self.window_closed(window)
+
+    def window_opened(self, window):
+        if label_sync.is_enabled():
+            app_state.app.labels_changed_signal.connect(window.update_tabs)
+            self.start_wallet(window.wallet)
+
+    def window_closed(self, window):
+        self.stop_wallet(window.wallet)
+
+    def settings_widget(self, *args):
+        return EnterButton(_('Settings'), partial(self.settings_dialog, *args))
+
+    def settings_dialog(self, prefs_window, wallet):
+        d = WindowModalDialog(prefs_window, _("Label Settings"))
+        hbox = QHBoxLayout()
+        hbox.addWidget(QLabel("Label sync options:"))
+        upload = ThreadedButton("Force upload",
+                                partial(self.push_thread, wallet),
+                                partial(self.done_processing, d))
+        download = ThreadedButton("Force download",
+                                  partial(self.pull_thread, wallet, True),
+                                  partial(self.done_processing, d))
+        vbox = QVBoxLayout()
+        vbox.addWidget(upload)
+        vbox.addWidget(download)
+        hbox.addLayout(vbox)
+        vbox = QVBoxLayout(d)
+        vbox.addLayout(hbox)
+        vbox.addSpacing(20)
+        vbox.addLayout(Buttons(OkButton(d)))
+        return bool(d.exec_())
+
+    def on_pulled(self, wallet):
+        app_state.app.labels_changed_signal.emit(wallet)
+
+    def done_processing(self, dialog, result):
+        dialog.show_message(_("Your labels have been synchronised."))

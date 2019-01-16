@@ -47,6 +47,14 @@ class CosignerPoolExtension(Extension):
         return result
 
 
+class LabelSyncExtension(Extension):
+
+    def set_enabled(self, enabled):
+        result = super().set_enabled(enabled)
+        app_state.label_sync.on_enabled_changed()
+        return result
+
+
 cosigner_pool = CosignerPoolExtension(
     'cosigner_pool', _('Cosigner Pool'),
     '\n'.join([
@@ -55,14 +63,14 @@ cosigner_pool = CosignerPoolExtension(
         _("Transactions are encrypted and stored on a remote server.")
     ]))
 
-labels = Extension(
+label_sync = LabelSyncExtension(
     'labels', _('LabelSync'),
     '\n'.join([
         _("Save your wallet labels on a remote server, and synchronize "
           "them across multiple devices where you use ElectrumSV."),
         _("Labels, transactions IDs and addresses are encrypted before "
           "they are xsent to the remote server.")
-    ])))
+    ]))
 
 virtual_keyboard = Extension(
     'virtualkeyboard', _('Virtual Keyboard'),
@@ -74,6 +82,6 @@ virtual_keyboard = Extension(
 
 extensions = [
     cosigner_pool,
-    labels,
+    label_sync,
     virtual_keyboard,
 ]

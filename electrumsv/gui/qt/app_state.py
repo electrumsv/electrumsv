@@ -42,6 +42,7 @@ from electrumsv.plugin import run_hook
 from electrumsv.storage import WalletStorage
 
 from .cosigner_pool import CosignerPool
+from .label_sync import LabelSync
 from .exception_window import Exception_Hook
 from .installwizard import InstallWizard, GoBack
 from .main_window import ElectrumWindow
@@ -71,6 +72,7 @@ class QElectrumSVApplication(QApplication):
     create_new_window_signal = pyqtSignal(str, object)
     alias_resolved = pyqtSignal()
     cosigner_received_signal = pyqtSignal(object, object)
+    labels_changed_signal = pyqtSignal(object)
     window_opened_signal = pyqtSignal(object)
     window_closed_signal = pyqtSignal(object)
     # Preferences updates
@@ -282,6 +284,7 @@ class QtAppStateProxy(AppStateProxy):
 
     def event_loop_started(self):
         self.cosigner_pool = CosignerPool()
+        self.label_sync = LabelSync()
         if self.config.get("show_crash_reporter", default=True):
             self.exception_hook = Exception_Hook(self.app)
         self.timer.start()

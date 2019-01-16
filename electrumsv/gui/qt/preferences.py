@@ -24,6 +24,8 @@
 
 '''ElectrumSV Preferences dialog.'''
 
+from functools import partial
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QTabWidget, QGridLayout, QLineEdit, QLabel, QComboBox, QVBoxLayout,
@@ -32,6 +34,7 @@ from PyQt5.QtWidgets import (
 
 from electrumsv import paymentrequest, qrscanner
 from electrumsv.app_state import app_state
+from electrumsv.extensions import label_sync
 from electrumsv.logs import logs
 from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
@@ -77,20 +80,16 @@ class PreferencesDialog(QDialog):
             (self.tx_widgets(wallet), _('Transactions')),
             (self.fiat_widgets(), _('Fiat')),
             (self.id_widgets(), _('Identity')),
-            (self.extensions_widgets(), _('Extensions')),
+            (self.extensions_widgets(wallet), _('Extensions')),
         ]
-        for widgets, name in tabs_info:
+        for widget_rows, name in tabs_info:
             tab = QWidget()
             grid = QGridLayout(tab)
             grid.setColumnStretch(0,1)
-            for a,b in widgets:
-                i = grid.rowCount()
-                if b:
-                    if a:
-                        grid.addWidget(a, i, 0)
-                    grid.addWidget(b, i, 1)
-                else:
-                    grid.addWidget(a, i, 0, 1, 2)
+            for row, widget_row in enumerate(widget_rows):
+                for col, widget in enumerate(widget_row):
+                    if widget:
+                        grid.addWidget(widget, row, col)
             tabs.addTab(tab, name)
 
         vbox.addWidget(tabs)
@@ -415,14 +414,25 @@ class PreferencesDialog(QDialog):
             (SSL_id_label, SSL_id_e),
         ]
 
-    def extensions_widgets(self):
+    def extensions_widgets(self, wallet):
+        def cb_clicked(extension, settings_widget, checked):
+            extension.set_enabled(checked)
+            if settings_widget:
+                settings_widget.setEnabled(checked)
+
         widgets = []
         for extension in extensions:
             cb = QCheckBox(extension.name)
             cb.setChecked(extension.is_enabled())
-            cb.clicked.connect(extension.set_enabled)
+            # Yes this is ugly
+            if extension is label_sync:
+                settings_widget = app_state.label_sync.settings_widget(self, wallet)
+                settings_widget.setEnabled(extension.is_enabled())
+            else:
+                settings_widget = None
+            cb.clicked.connect(partial(cb_clicked, extension, settings_widget))
             help_widget = HelpButton(extension.description)
-            widgets.append((cb, help_widget))
+            widgets.append((cb, settings_widget, help_widget))
 
         return widgets
 
