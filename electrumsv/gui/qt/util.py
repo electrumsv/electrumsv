@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
     QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem,
     QApplication
 )
+from PyQt5.uic import loadUi
 
 from electrumsv.i18n import _
 from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
@@ -672,6 +673,8 @@ class OPReturnTooLarge(OPReturnError):
 def icon_path(icon_basename):
     return resource_path('icons', icon_basename)
 
+def read_qt_ui(ui_name):
+    return loadUi(resource_path("ui", ui_name))
 
 @lru_cache()
 def read_QIcon(icon_basename):

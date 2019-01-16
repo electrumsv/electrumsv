@@ -169,12 +169,9 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             self._copy_electron_cash_wallets()
         return self.run_and_get_wallet()
 
-    if False:
+    """
         # This is disabled until we are ready to move it to the background.
         def _check_for_updates(self):
-            """
-            Poll electrumsv.io for release metadata.
-            """
             if not self.config.get('check_updates', True) or self.config.get("offline", False):
                 return
 
@@ -196,6 +193,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 raise UserQuit()
 
             u.stop_gui()
+    """
 
     def _copy_electron_cash_wallets(self):
         """

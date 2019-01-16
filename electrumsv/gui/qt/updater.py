@@ -2,12 +2,10 @@ from distutils.version import StrictVersion
 import requests
 import time
 
-from PyQt5.QtCore import Qt, QCoreApplication, QTimer
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QProgressBar, QLabel, QFrame, QHBoxLayout, QPushButton
-)
+from PyQt5.QtCore import QCoreApplication, QTimer
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QProgressBar, QLabel, QDialogButtonBox
 
-from electrumsv.gui.qt.util import TaskThread, read_QIcon
+from electrumsv.gui.qt.util import TaskThread, read_QIcon, read_qt_ui
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.version import PACKAGE_VERSION
@@ -30,50 +28,7 @@ MSG_BODY_NO_UPDATE_AVAILABLE = ("The update check was successful.<br/><br/>"+
 logger = logs.get_logger("updater")
 
 
-class UpdaterWidget(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        vbox = QVBoxLayout()
-
-        self._titleLabel = QLabel("")
-        self._titleLabel.setTextFormat(Qt.RichText)
-        self.set_title(_(MSG_TITLE_CHECK))
-        vbox.addWidget(self._titleLabel, alignment=Qt.AlignHCenter)
-
-        vbox.addSpacing(15)
-
-        self._progressBar = QProgressBar()
-        self._progressBar.setOrientation(Qt.Horizontal)
-        self._progressBar.setTextVisible(False)
-        self._progressBar.setRange(1, 500)
-        self._progressBar.setValue(1)
-        self._progressBar.setFixedHeight(30)
-        self._progressBar.setFixedWidth(300)
-        vbox.addWidget(self._progressBar, alignment=Qt.AlignHCenter)
-
-        vbox.addSpacing(30)
-
-        self._messageLabel = QLabel(_(MSG_BODY_CHECK))
-        self._messageLabel.setAlignment(Qt.AlignHCenter)
-        self._messageLabel.setTextFormat(Qt.RichText)
-        self._messageLabel.setOpenExternalLinks(True)
-        self._messageLabel.setWordWrap(True)
-        self._messageLabel.setMinimumWidth(400)
-        vbox.addWidget(self._messageLabel, alignment=Qt.AlignHCenter)
-
-        self.setLayout(vbox)
-
-    def set_title(self, text):
-        self._titleLabel.setText("<h3>"+ text +"</h3>")
-
-    def set_progress(self, ratio):
-        self._progressBar.setValue(int(ratio * 500))
-
-    def set_message(self, text):
-        self._messageLabel.setText(text)
-
-class UpdaterDialog(UpdaterWidget):
+class UpdaterDialog(QWidget):
     def __init__(self, main_window, result_cb=None):
         super().__init__()
 
@@ -83,25 +38,19 @@ class UpdaterDialog(UpdaterWidget):
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.resize(600, 400)
 
-        layout = self.layout()
+        widget = read_qt_ui("updater_widget.ui")
 
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
+        layout = widget.findChild(QVBoxLayout, "vertical_layout")
+        self._title_label = widget.findChild(QLabel, "title_label")
+        self._title_label.setText(_(MSG_TITLE_CHECK))
+        self._progressbar = widget.findChild(QProgressBar)
+        self._progressbar.setValue(1)
+        self._message_label = widget.findChild(QLabel, "message_label")
+        self._message_label.setText(_(MSG_BODY_CHECK))
+        self._buttonbar: QDialogButtonBox = widget.findChild(QDialogButtonBox)
+        self._buttonbar.rejected.connect(self.close)
 
-        layout.addWidget(line)
-
-        def _on_close_button_click():
-            self.close()
-
-        close_button = QPushButton(_("Close"))
-        close_button.clicked.connect(_on_close_button_click)
-
-        hbox = QHBoxLayout()
-        hbox.addStretch(1)
-        hbox.addWidget(close_button)
-
-        layout.addLayout(hbox)
+        self.setLayout(layout)
 
         self.show()
 
@@ -113,6 +62,15 @@ class UpdaterDialog(UpdaterWidget):
         self.updater = None
 
         event.accept()
+
+    def set_progress(self, ratio):
+        self._progressbar.setValue(int(ratio * 500))
+
+    def set_title(self, text):
+        self._title_label.setText("<h3>"+ text +"</h3>")
+
+    def set_message(self, text):
+        self._message_label.setText(text)
 
 
 class Updater:
@@ -126,9 +84,6 @@ class Updater:
         self._result_cb = result_cb
 
     def start_gui(self):
-        if not isinstance(self._parent, UpdaterWidget):
-            raise Exception("No updater widget")
-
         def _on_request_success(result):
             if not self._running:
                 return
