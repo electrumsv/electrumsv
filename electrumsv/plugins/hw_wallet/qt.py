@@ -28,13 +28,12 @@ from functools import partial
 import threading
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout
+from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QAction
 
 from electrumsv.gui.qt.password_dialog import PasswordDialog, PW_PASSPHRASE
 from electrumsv.gui.qt.util import (
     WindowModalDialog, Buttons, OkButton, CancelButton, TaskThread, WWLabel, read_QIcon,
 )
-from electrumsv.gui.qt.main_window import StatusBarButton
 from electrumsv.plugin import hook
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
@@ -78,9 +77,8 @@ class QtHandlerBase(QObject):
         self.status_signal.emit(paired)
 
     def _update_status(self, paired):
-        button = self.button
-        icon = button.icon_paired if paired else button.icon_unpaired
-        button.setIcon(read_QIcon(icon))
+        icon = self.icon_paired if paired else self.icon_unpaired
+        self.action.setIcon(read_QIcon(icon))
 
     def query_choice(self, msg, labels):
         self.done.clear()
@@ -203,13 +201,15 @@ class QtPluginBase(object):
                 window.show_error(message)
                 return
             tooltip = self.device + '\n' + (keystore.label or 'unnamed')
-            cb = partial(self.show_settings_dialog, window, keystore)
-            button = StatusBarButton(read_QIcon(self.icon_unpaired), tooltip, cb)
-            button.icon_paired = self.icon_paired
-            button.icon_unpaired = self.icon_unpaired
-            window.statusBar().addPermanentWidget(button)
+
+            action = QAction(read_QIcon(self.icon_unpaired), tooltip, window)
+            action.triggered.connect(partial(self.show_settings_dialog, window, keystore))
+            window.toolbar.addAction(action)
+
             handler = self.create_handler(window)
-            handler.button = button
+            handler.action = action
+            handler.icon_unpaired = self.icon_unpaired
+            handler.icon_paired = self.icon_paired
             keystore.handler = handler
             keystore.thread = TaskThread(window, window.on_error)
             # Trigger a pairing

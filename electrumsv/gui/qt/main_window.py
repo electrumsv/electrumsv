@@ -583,21 +583,22 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.setMenuBar(menubar)
 
     def init_toolbar(self):
-        test_toolbar: QToolBar = self.addToolBar(_("Test"))
-        test_toolbar.setFixedHeight(app_state.dpi / 5.0)
-        test_toolbar.setMovable(False)
+        self.toolbar = toolbar = QToolBar(self)
+        toolbar.setFixedHeight(app_state.dpi / 5.0)
+        toolbar.setMovable(False)
 
         preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
         preferences_action.triggered.connect(self.preferences_dialog)
-        test_toolbar.addAction(preferences_action)
+        toolbar.addAction(preferences_action)
 
         self.network_action = QAction(read_QIcon("status_disconnected.png"), _("Network"), self)
         self.network_action.triggered.connect(lambda: self.gui_object.show_network_dialog(self))
-        test_toolbar.addAction(self.network_action)
+        toolbar.addAction(self.network_action)
 
         update_action = QAction(read_QIcon("update.png"), _("Check for Updates"), self)
         update_action.triggered.connect(self.show_update_check)
-        test_toolbar.addAction(update_action)
+        toolbar.addAction(update_action)
+        self.addToolBar(toolbar)
 
     def donate_to_server(self):
         server = self.network.get_parameters()[0]
