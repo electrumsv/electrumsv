@@ -585,6 +585,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def init_toolbar(self):
         test_toolbar: QToolBar = self.addToolBar(_("Test"))
         test_toolbar.setFixedHeight(app_state.dpi / 5.0)
+        test_toolbar.setMovable(False)
 
         preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
         preferences_action.triggered.connect(self.preferences_dialog)
