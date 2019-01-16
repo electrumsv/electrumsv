@@ -6,64 +6,6 @@ logger = logs.get_logger("plugin.trezor.transport")
 
 class TrezorTransport:
 
-    @staticmethod
-    def all_transports():
-        """Reimplemented trezorlib.transport.all_transports so that we can
-        enable/disable specific transports.
-        """
-        try:
-            # only to detect trezorlib version
-            from trezorlib.transport import all_transports
-        except ImportError:
-            # pylint: disable=import-error
-            # old trezorlib. compat for trezorlib < 0.9.2
-            transports = []
-            #try:
-            #    from trezorlib.transport_bridge import BridgeTransport
-            #    transports.append(BridgeTransport)
-            #except BaseException:
-            #    pass
-            try:
-                from trezorlib.transport_hid import HidTransport
-                transports.append(HidTransport)
-            except BaseException:
-                pass
-            try:
-                from trezorlib.transport_udp import UdpTransport
-                transports.append(UdpTransport)
-            except BaseException:
-                pass
-            try:
-                from trezorlib.transport_webusb import WebUsbTransport
-                transports.append(WebUsbTransport)
-            except BaseException:
-                pass
-        else:
-            # new trezorlib.
-            transports = []
-            #try:
-            #    from trezorlib.transport.bridge import BridgeTransport
-            #    transports.append(BridgeTransport)
-            #except BaseException:
-            #    pass
-            try:
-                from trezorlib.transport.hid import HidTransport
-                transports.append(HidTransport)
-            except BaseException:
-                pass
-            try:
-                from trezorlib.transport.udp import UdpTransport
-                transports.append(UdpTransport)
-            except BaseException:
-                pass
-            try:
-                from trezorlib.transport.webusb import WebUsbTransport
-                transports.append(WebUsbTransport)
-            except BaseException:
-                pass
-            return transports
-        return transports
-
     def enumerate_devices(self):
         """Just like trezorlib.transport.enumerate_devices,
         but with exception catching, so that transports can fail separately.
