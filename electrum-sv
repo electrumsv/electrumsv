@@ -23,6 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+# pylint: disable=unused-import
 import electrumsv.startup
 from electrumsv.platform import platform
 
