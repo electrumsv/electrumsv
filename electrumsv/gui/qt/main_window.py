@@ -40,7 +40,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QSystemTrayIcon, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
     QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit,
-    QInputDialog, QCheckBox, QScrollArea, QDialog
+    QInputDialog, QDialog
 )
 
 import electrumsv
@@ -72,7 +72,7 @@ from .util import (
     MessageBoxMixin, TaskThread, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
     WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton, OPReturnError,
     OPReturnTooLarge, WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
-    CloseButton, CancelButton, text_dialog, filename_field, address_combo, HelpButton
+    CloseButton, CancelButton, text_dialog, filename_field, address_combo
 )
 
 
@@ -129,7 +129,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.payment_request = None
         self.checking_accounts = False
         self.qr_window = None
-        self.pluginsdialog = None
         self.not_enough_funds = False
         self.op_return_toolong = False
         self.require_fee_update = False
@@ -555,7 +554,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         tools_menu.addAction(_("Preferences"), self.preferences_dialog)
         tools_menu.addAction(_("&Network"), lambda: self.gui_object.show_network_dialog(self))
-        tools_menu.addAction(_("&Plugins"), self.plugins_dialog)
         tools_menu.addSeparator()
         tools_menu.addAction(_("&Sign/verify message"), self.sign_verify_message)
         tools_menu.addAction(_("&Encrypt/decrypt message"), self.encrypt_message)
@@ -2278,6 +2276,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         b = QPushButton(_("Sign"))
         def do_sign(checked=False):
+            # pylint: disable=no-value-for-parameter
             self.do_sign(address_e, message_e, signature_e)
         b.clicked.connect(do_sign)
         hbox.addWidget(b)
@@ -2344,6 +2343,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         b = QPushButton(_("Decrypt"))
         def do_decrypt(checked=False):
+            # pylint: disable=no-value-for-parameter
             self.do_decrypt(message_e, pubkey_e, encrypted_e)
         b.clicked.connect(do_decrypt)
         hbox.addWidget(b)
@@ -2844,70 +2844,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.gui_object.timer.timeout.disconnect(self.timer_actions)
         self.gui_object.close_window(self)
-
-    def plugins_dialog(self):
-        self.pluginsdialog = d = WindowModalDialog(self, _('ElectrumSV Plugins'))
-
-        plugins = self.gui_object.plugins
-
-        vbox = QVBoxLayout(d)
-
-        # plugins
-        scroll = QScrollArea()
-        scroll.setEnabled(True)
-        scroll.setWidgetResizable(True)
-        scroll.setMinimumSize(400,250)
-        vbox.addWidget(scroll)
-
-        w = QWidget()
-        scroll.setWidget(w)
-        w.setMinimumHeight(plugins.count() * 35)
-
-        grid = QGridLayout()
-        grid.setColumnStretch(0,1)
-        w.setLayout(grid)
-
-        settings_widgets = {}
-
-        def enable_settings_widget(p, name, i):
-            widget = settings_widgets.get(name)
-            if not widget and p and p.requires_settings():
-                widget = settings_widgets[name] = p.settings_widget(d)
-                grid.addWidget(widget, i, 1)
-            if widget:
-                widget.setEnabled(bool(p and p.is_enabled()))
-
-        def do_toggle(cb, name, i):
-            p = plugins.toggle(name)
-            cb.setChecked(bool(p))
-            enable_settings_widget(p, name, i)
-
-        for i, descr in enumerate(plugins.descriptions.values()):
-            full_name = descr['__name__']
-            prefix, _separator, name = full_name.rpartition('.')
-            p = plugins.get(name)
-            if descr.get('registers_keystore'):
-                continue
-            try:
-                cb = QCheckBox(descr['fullname'])
-                plugin_is_loaded = p is not None
-                cb_enabled = (not plugin_is_loaded and plugins.is_available(name, self.wallet)
-                              or plugin_is_loaded and p.can_user_disable())
-                cb.setEnabled(cb_enabled)
-                cb.setChecked(plugin_is_loaded and p.is_enabled())
-                grid.addWidget(cb, i, 0)
-                enable_settings_widget(p, name, i)
-                cb.clicked.connect(partial(do_toggle, cb, name, i))
-                msg = descr['description']
-                if descr.get('requires'):
-                    msg += ('\n\n' + _('Requires') + ':\n' +
-                            '\n'.join(x[1] for x in descr.get('requires')))
-                grid.addWidget(HelpButton(msg), i, 2)
-            except Exception:
-                self.logger.exception("error: cannot display plugin '%s'", name)
-        grid.setRowStretch(len(plugins.descriptions.values()), 1)
-        vbox.addLayout(Buttons(CloseButton(d)))
-        d.exec_()
 
     def cpfp(self, parent_tx, new_tx):
         total_size = parent_tx.estimated_size() + new_tx.estimated_size()
