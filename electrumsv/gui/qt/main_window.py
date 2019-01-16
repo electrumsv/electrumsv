@@ -40,7 +40,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QSystemTrayIcon, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
     QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit,
-    QInputDialog, QDialog
+    QInputDialog, QDialog, QToolBar, QAction
 )
 
 import electrumsv
@@ -192,6 +192,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.init_menubar()
+        self.init_toolbar()
 
         wrtabs = weakref.proxy(tabs)
         QShortcut(QKeySequence("Ctrl+W"), self, self.close)
@@ -582,6 +583,25 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.setMenuBar(menubar)
 
+    def init_toolbar(self):
+        test_toolbar: QToolBar = self.addToolBar(_("Test"))
+
+        self.preferences_action = QAction(read_QIcon("lock.png"), _("Password"), self)
+        self.preferences_action.triggered.connect(lambda: self.change_password_dialog)
+        test_toolbar.addAction(self.preferences_action)
+
+        self.preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
+        self.preferences_action.triggered.connect(lambda: self.preferences_dialog)
+        test_toolbar.addAction(self.preferences_action)
+
+        self.seed_action = QAction(read_QIcon("seed.png"), _("Seed"), self)
+        self.seed_action.triggered.connect(lambda: self.show_seed_dialog)
+        test_toolbar.addAction(self.seed_action)
+
+        self.network_action = QAction(read_QIcon("status_disconnected.png"), _("Network"), self)
+        self.network_action.triggered.connect(lambda: self.gui_object.show_network_dialog(self))
+        test_toolbar.addAction(self.network_action)
+
     def donate_to_server(self):
         server = self.network.get_parameters()[0]
         addr = self.network.get_donation_address()
@@ -613,7 +633,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.update_check_button.show()
         # import importlib
         # importlib.reload(updater)
-        self.update_check = updater.UpdaterDialog(self, on_update_available)
+        updater.UpdaterDialog(self, on_update_available)
 
     def show_report_bug(self):
         msg = ' '.join([
@@ -818,7 +838,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.tray.setToolTip("%s (%s)" % (text, self.wallet.basename()))
         self.balance_label.setText(text)
         self.status_button.setIcon(read_QIcon(icon))
-
+        self.network_action.setIcon(read_QIcon(icon))
 
     def update_wallet(self):
         self.update_status()
