@@ -137,17 +137,11 @@ class SVTestnet(object):
     VERIFICATION_BLOCK_HEIGHT = 1273000
 
     XPRV_HEADERS = {
-        'standard':    0x0488ade4,  # xprv
+        'standard':    0x04358394,  # tprv
     }
     XPUB_HEADERS = {
-        'standard':    0x0488b21e,  # xpub
+        'standard':    0x043587cf,  # tpub
     }
-    # XPRV_HEADERS = {
-    #     'standard':    0x04358394,  # tprv
-    # }
-    # XPUB_HEADERS = {
-    #     'standard':    0x043587cf,  # tpub
-    # }
     BIP44_COIN_TYPE = 1
 
     BLOCK_EXPLORERS = {
