@@ -23,13 +23,14 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
+
 from electrumsv.address import Address
 from electrumsv.i18n import _
 from electrumsv.util import format_time, age
-from electrumsv.plugin import run_hook
 from electrumsv.paymentrequest import PR_UNKNOWN
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
+
 from .util import MyTreeWidget, pr_tooltips, pr_icons, read_QIcon
 
 
@@ -127,5 +128,4 @@ class RequestList(MyTreeWidget):
                            'URI', '', self.parent.get_request_URI(addr)))
         menu.addAction(_("Save as BIP70 file"), lambda: self.parent.export_payment_request(addr))
         menu.addAction(_("Delete"), lambda: self.parent.delete_payment_request(addr))
-        run_hook('receive_list_menu', menu, addr)
         menu.exec_(self.viewport().mapToGlobal(position))

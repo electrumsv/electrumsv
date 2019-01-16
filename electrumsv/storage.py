@@ -38,7 +38,7 @@ from . import bitcoin
 from .address import Address
 from .keystore import bip44_derivation
 from .logs import logs
-from .plugin import run_hook, plugin_loaders
+from .plugin import plugin_loaders
 from .util import profiler
 
 
@@ -520,7 +520,6 @@ class WalletStorage:
             return True
 
     def get_action(self):
-        action = run_hook('get_action', self)
         if action:
             return action
         if not self.file_exists():

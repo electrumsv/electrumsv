@@ -53,7 +53,6 @@ from .keystore import (
 from .logs import logs
 from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
-from .plugin import run_hook
 from .storage import multisig_type
 from .synchronizer import Synchronizer
 from .transaction import Transaction
@@ -1059,7 +1058,6 @@ class Abstract_Wallet:
         if locktime == -1: # We have no local height data (no headers synced).
             locktime = 0
         tx.locktime = locktime
-        run_hook('make_unsigned_transaction', self, tx)
         return tx
 
     def mktx(self, outputs, password, config, fee=None, change_addr=None, domain=None):

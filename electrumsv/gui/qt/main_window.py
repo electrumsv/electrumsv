@@ -567,7 +567,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         raw_transaction_menu.addAction(_("&From the blockchain"), self.do_process_from_txid)
         raw_transaction_menu.addAction(_("&From QR code"), self.read_tx_from_qrcode)
         self.raw_transaction_menu = raw_transaction_menu
-        run_hook('init_menubar_tools', self, tools_menu)
 
         help_menu = menubar.addMenu(_("&Help"))
         help_menu.addAction(_("&About"), self.show_about)
@@ -1315,7 +1314,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         vbox.addWidget(self.invoice_list)
         vbox.setStretchFactor(self.invoice_list, 1000)
         w.searchable_list = self.invoice_list
-        run_hook('create_send_tab', grid)
         return w
 
     def spend_max(self):
@@ -1531,8 +1529,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.do_send(preview = True)
 
     def do_send(self, preview = False):
-        if run_hook('abort_send', self):
-            return
         r = self.read_send_tab()
         if not r:
             return
@@ -1562,11 +1558,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             _("Amount to be sent") + ": " + self.format_amount_and_units(amount),
             _("Mining fee") + ": " + self.format_amount_and_units(fee),
         ]
-
-        x_fee = run_hook('get_tx_extra_fee', self.wallet, tx)
-        if x_fee:
-            x_fee_address, x_fee_amount = x_fee
-            msg.append( _("Additional fees") + ": " + self.format_amount_and_units(x_fee_amount) )
 
         confirm_rate = 2 * self.config.max_fee_rate()
 
@@ -1608,9 +1599,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         '''Sign the transaction in a separate thread.  When done, calls
         the callback with a success code of True or False.
         '''
-        # call hook to see if plugin needs gui interaction
-        run_hook('sign_tx', self, tx)
-
         def on_signed(result):
             callback(True)
         def on_failed(exc_info):
@@ -1784,7 +1772,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.message_opreturn_e.setVisible(self.config.get('enable_opreturn', False))
         self.opreturn_label.setVisible(self.config.get('enable_opreturn', False))
         self.update_status()
-        run_hook('do_clear', self)
 
     def set_frozen_state(self, addrs, freeze):
         self.wallet.set_frozen_state(addrs, freeze)
@@ -1884,10 +1871,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.history_list.update()
         self.history_updated_signal.emit()
         self.update_completions()
-
-        # The contact has changed, update any addresses that are displayed with the old
-        # information.
-        run_hook('update_contact', address, self.contacts[address], old_entry)
         return True
 
     def delete_contacts(self, addresses):
@@ -1904,8 +1887,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.history_updated_signal.emit()
         self.contact_list.update()
         self.update_completions()
-
-        run_hook('delete_contacts', removed_entries)
 
     def show_invoice(self, key):
         pr = self.invoices.get(key)
@@ -1998,7 +1979,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         console.updateNamespace(methods)
 
     def create_status_bar(self):
-
         sb = QStatusBar()
         sb.setFixedHeight(35)
         qtVersion = qVersion()
@@ -2031,7 +2011,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.status_button = StatusBarButton(read_QIcon("status_disconnected.png"), _("Network"),
                                              lambda: self.gui_object.show_network_dialog(self))
         sb.addPermanentWidget(self.status_button)
-        run_hook('create_status_bar', sb)
         self.setStatusBar(sb)
 
     def update_lock_icon(self):
@@ -2603,7 +2582,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         vbox.addStretch(1)
         hbox = Buttons(CancelButton(d), OkButton(d, _('Export')))
         vbox.addLayout(hbox)
-        run_hook('export_history_dialog', self, hbox)
         self.update()
         if not d.exec_():
             return

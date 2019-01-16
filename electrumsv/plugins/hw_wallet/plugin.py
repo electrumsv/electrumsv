@@ -46,9 +46,6 @@ class HW_PluginBase(BasePlugin):
 
         self.logger = logs.get_logger("plugin.hwbase")
 
-    def is_enabled(self):
-        return True
-
     def device_manager(self):
         return self.parent.device_manager
 

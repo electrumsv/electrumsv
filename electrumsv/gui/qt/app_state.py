@@ -38,7 +38,6 @@ from electrumsv.app_state import AppStateProxy
 from electrumsv.exceptions import UserCancelled, UserQuit
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
-from electrumsv.plugin import run_hook
 from electrumsv.storage import WalletStorage
 
 from .cosigner_pool import CosignerPool
@@ -208,8 +207,6 @@ class QtAppStateProxy(AppStateProxy):
         self.windows.append(w)
         self.build_tray_menu()
         self.app.window_opened_signal.emit(w)
-        # FIXME: Remove in favour of the load_wallet hook
-        run_hook('on_new_window', w)
         return w
 
     def start_new_window(self, path, uri, is_startup=False):
@@ -267,7 +264,6 @@ class QtAppStateProxy(AppStateProxy):
         # save wallet path of last open window
         if not self.windows:
             self.config.save_last_wallet(window.wallet)
-        run_hook('on_close_window', window)
 
     def maybe_choose_server(self):
         # Show network dialog if config does not exist

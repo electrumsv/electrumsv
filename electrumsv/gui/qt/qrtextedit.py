@@ -1,6 +1,5 @@
 
 from electrumsv.i18n import _
-from electrumsv.plugin import run_hook
 from PyQt5.QtWidgets import QFileDialog
 
 from .util import ButtonsTextEdit, MessageBoxMixin, ColorScheme
@@ -12,8 +11,6 @@ class ShowQRTextEdit(ButtonsTextEdit):
         ButtonsTextEdit.__init__(self, text)
         self.setReadOnly(1)
         self.addButton("qrcode.png", self.qr_show, _("Show as QR code"))
-
-        run_hook('show_text_edit', self)
 
     def qr_show(self):
         from .qrcodewidget import QRDialog
@@ -38,7 +35,6 @@ class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
         self.addButton("file.png", self.file_input, _("Read file"))
         icon = "qrcode_white.png" if ColorScheme.dark_scheme else "qrcode.png"
         self.addButton(icon, self.qr_input, _("Read QR code"))
-        run_hook('scan_text_edit', self)
 
     def file_input(self):
         fileName, __ = QFileDialog.getOpenFileName(self, 'select file')
