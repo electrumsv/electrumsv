@@ -79,9 +79,6 @@ class Plugins(DaemonThread):
             gui_good = self.gui_name in d.get('available_for', [])
             if not gui_good:
                 continue
-            details = d.get('registers_wallet_type')
-            if details:
-                self.register_wallet_type(name, gui_good, details)
             details = d.get('registers_keystore')
             if details:
                 self.register_keystore(name, gui_good, details)
@@ -136,10 +133,6 @@ class Plugins(DaemonThread):
         p.close()
         logger.debug("closed %s", name)
 
-    def toggle(self, name):
-        p = self.get(name)
-        return self.disable(name) if p else self.enable(name)
-
     def is_available(self, name, w):
         d = self.descriptions.get(name)
         if not d:
@@ -172,15 +165,6 @@ class Plugins(DaemonThread):
                                                     plugin=None,
                                                     exception=e))
         return out
-
-    def register_wallet_type(self, name, gui_good, wallet_type):
-        from .wallet import register_wallet_type, register_constructor
-        logger.debug("registering wallet type %s %s", wallet_type, name)
-        def loader():
-            plugin = self.get_plugin(name)
-            register_constructor(wallet_type, plugin.wallet_class)
-        register_wallet_type(wallet_type)
-        plugin_loaders[wallet_type] = loader
 
     def register_keystore(self, name, gui_good, details):
         from .keystore import register_keystore
@@ -262,15 +246,6 @@ class BasePlugin:
 
     def is_available(self):
         return True
-
-    def can_user_disable(self):
-        return True
-
-    def settings_dialog(self, window):
-        raise NotImplementedError()
-
-    def requires_settings(self):
-        return False
 
 
 class DeviceNotFoundError(Exception):

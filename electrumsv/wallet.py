@@ -2054,9 +2054,6 @@ class Multisig_Wallet(Deterministic_Wallet):
 
 wallet_types = ['standard', 'multisig', 'imported']
 
-def register_wallet_type(category):
-    wallet_types.append(category)
-
 wallet_constructors = {
     'standard': Standard_Wallet,
     'old': Standard_Wallet,
