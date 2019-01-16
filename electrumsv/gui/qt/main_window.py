@@ -587,7 +587,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         test_toolbar.setFixedHeight(app_state.dpi / 5.0)
 
         preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
-        preferences_action.triggered.connect(lambda: self.preferences_dialog)
+        preferences_action.triggered.connect(self.preferences_dialog)
         test_toolbar.addAction(preferences_action)
 
         self.network_action = QAction(read_QIcon("status_disconnected.png"), _("Network"), self)
@@ -595,7 +595,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         test_toolbar.addAction(self.network_action)
 
         update_action = QAction(read_QIcon("update.png"), _("Check for Updates"), self)
-        update_action.triggered.connect(lambda: self.show_update_check)
+        update_action.triggered.connect(self.show_update_check)
         test_toolbar.addAction(update_action)
 
     def donate_to_server(self):
