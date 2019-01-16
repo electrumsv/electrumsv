@@ -60,7 +60,8 @@ class Listener(util.DaemonThread):
 
     def run(self):
         while self.running:
-            keyhashes = [item.hash for item in self.parent.items]
+            keyhashes = [item.hash for item in self.parent.items
+                         if not item.watching_only]
             if not keyhashes:
                 time.sleep(2)
                 continue
@@ -130,12 +131,14 @@ class CosignerPool(object):
                     xpub_set.add(xpub)
         return cosigner_xpub in xpub_set
 
+    def is_theirs(self, wallet, item, tx):
+        return (item.window.wallet is wallet and item.watching_only
+                and self.cosigner_can_sign(tx, item.xpub))
+
     def show_button(self, wallet, tx):
         if tx.is_complete() or wallet.can_sign(tx):
             return False
-        return any(item.window.wallet is wallet and item.watching_only
-                   and self.cosigner_can_sign(tx, item.xpub)
-                   for item in self.items)
+        return any(self.is_theirs(wallet, item, tx) for item in self.items)
 
     def do_send(self, wallet, tx):
         def on_success(result):
@@ -155,8 +158,7 @@ class CosignerPool(object):
             server.put(item.hash, message)
 
         for item in self.items:
-            if (item.window.wallet is wallet and item.watching_only and
-                    self.cosigner_can_sign(tx, item.xpub)):
+            if self.is_theirs(wallet, item, tx):
                 raw_tx_bytes = bfh(str(tx))
                 public_key = ecc.ECPubkey(item.K)
                 message = public_key.encrypt_message(raw_tx_bytes).decode('ascii')
