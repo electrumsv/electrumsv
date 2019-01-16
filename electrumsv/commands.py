@@ -94,9 +94,9 @@ def command(s):
             network = args[0].network
             password = kwargs.get('password')
             if c.requires_network and network is None:
-                raise BaseException("Daemon offline")  # Same wording as in daemon.py.
+                raise Exception("Daemon offline")  # Same wording as in daemon.py.
             if c.requires_wallet and wallet is None:
-                raise BaseException("Wallet not loaded. Use 'electrum-sv daemon load_wallet'")
+                raise Exception("Wallet not loaded. Use 'electrum-sv daemon load_wallet'")
             if c.requires_password and password is None and wallet.storage.get('use_encryption') \
                and not kwargs.get("unsigned"):
                 return {'error': 'Password required' }
@@ -163,7 +163,7 @@ class Commands:
     @command('')
     def create(self):
         """Create a new wallet"""
-        raise BaseException('Not a JSON-RPC command')
+        raise Exception('Not a JSON-RPC command')
 
     @command('wn')
     def restore(self, text):
@@ -171,7 +171,7 @@ class Commands:
         public key, a master private key, a list of bitcoin cash addresses
         or bitcoin cash private keys. If you want to be prompted for your
         seed, type '?' or ':' (concealed) """
-        raise BaseException('Not a JSON-RPC command')
+        raise Exception('Not a JSON-RPC command')
 
     @command('wp')
     def password(self, password=None, new_password=None):
@@ -416,7 +416,7 @@ class Commands:
         try:
             addr = self.wallet.import_private_key(privkey, password)
             out = "Keypair imported: " + addr
-        except BaseException as e:
+        except Exception as e:
             out = "Error: " + str(e)
         return out
 
@@ -427,7 +427,7 @@ class Commands:
         if (out.get('type') == 'openalias' and
                 self.nocheck is False and
                 out.get('validated') is False):
-            raise BaseException('cannot verify alias', x)
+            raise Exception('cannot verify alias', x)
         return out['address']
 
     @command('n')
@@ -577,7 +577,7 @@ class Commands:
             if raw:
                 tx = Transaction(raw)
             else:
-                raise BaseException("Unknown transaction")
+                raise Exception("Unknown transaction")
         return tx.as_dict()
 
     @command('')
@@ -607,7 +607,7 @@ class Commands:
         """Return a payment request"""
         r = self.wallet.get_payment_request(Address.from_string(key), self.config)
         if not r:
-            raise BaseException("Request not found")
+            raise Exception("Request not found")
         return self._format_request(r)
 
     @command('w')
@@ -664,7 +664,7 @@ class Commands:
         "Sign payment request with an OpenAlias"
         alias = self.config.get('alias')
         if not alias:
-            raise BaseException('No alias in your configuration')
+            raise Exception('No alias in your configuration')
         alias_addr = self.wallet.contacts.resolve(alias)['address']
         self.wallet.sign_payment_request(address, alias, alias_addr, password)
 
@@ -691,7 +691,7 @@ class Commands:
                 req = urllib.request.Request(URL, serialized_data, headers)
                 response_stream = urllib.request.urlopen(req, timeout=5)
                 logger.debug('Got Response for %s', address)
-            except BaseException as e:
+            except Exception as e:
                 logger.error("exception processing response %s", e)
         h = Address.from_string(address).to_scripthash_hex()
         self.network.send([('blockchain.scripthash.subscribe', [h])], callback)

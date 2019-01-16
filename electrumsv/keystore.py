@@ -675,7 +675,7 @@ def xpubkey_to_address(x_pubkey):
         mpk, s = Old_KeyStore.parse_xpubkey(x_pubkey)
         pubkey = Old_KeyStore.get_pubkey_from_mpk(mpk, s[0], s[1])
     else:
-        raise BaseException("Cannot parse pubkey")
+        raise Exception("Cannot parse pubkey")
     if pubkey:
         address = Address.from_pubkey(pubkey)
     return pubkey, address
@@ -694,14 +694,14 @@ def hardware_keystore(d):
     if hw_type in hw_keystores:
         constructor = hw_keystores[hw_type]
         return constructor(d)
-    raise BaseException('unknown hardware type', hw_type)
+    raise Exception('unknown hardware type', hw_type)
 
 def load_keystore(storage, name):
     w = storage.get('wallet_type', 'standard')
     d = storage.get(name, {})
     t = d.get('type')
     if not t:
-        raise BaseException('wallet format requires update')
+        raise Exception('wallet format requires update')
     if t == 'old':
         k = Old_KeyStore(d)
     elif t == 'imported':
@@ -711,7 +711,7 @@ def load_keystore(storage, name):
     elif t == 'hardware':
         k = hardware_keystore(d)
     else:
-        raise BaseException('unknown wallet type', t)
+        raise Exception('unknown wallet type', t)
     return k
 
 
@@ -804,5 +804,5 @@ def from_master_key(text):
     elif is_xpub(text):
         k = from_xpub(text)
     else:
-        raise BaseException('Invalid key')
+        raise Exception('Invalid key')
     return k

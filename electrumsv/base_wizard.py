@@ -66,7 +66,7 @@ class BaseWizard(object):
             f = getattr(self, action)
             f(*args)
         else:
-            raise BaseException("unknown action", action)
+            raise Exception("unknown action", action)
 
     def can_go_back(self):
         return len(self.stack) > 1
@@ -250,7 +250,7 @@ class BaseWizard(object):
             devmgr.unpair_id(device_info.device.id_)
             self.choose_hw_device()
             return
-        except BaseException as e:
+        except Exception as e:
             self.show_error(str(e))
             self.choose_hw_device()
             return
@@ -282,7 +282,7 @@ class BaseWizard(object):
         xtype = 'standard'
         try:
             xpub = self.plugin.get_xpub(device_info.device.id_, derivation, xtype, self)
-        except BaseException as e:
+        except Exception as e:
             self.show_error(e)
             return
         d = {
@@ -325,7 +325,7 @@ class BaseWizard(object):
         elif self.seed_type == 'old':
             self.run('create_keystore', seed, '')
         else:
-            raise BaseException('Unknown seed type', self.seed_type)
+            raise Exception('Unknown seed type', self.seed_type)
 
     def on_restore_bip39(self, seed, passphrase):
         f = lambda x: self.run('on_bip44', seed, passphrase, str(x))

@@ -420,7 +420,7 @@ class Transaction:
         elif isinstance(raw, dict):
             self.raw = raw['hex']
         else:
-            raise BaseException("cannot initialize transaction", raw)
+            raise Exception("cannot initialize transaction", raw)
         self._inputs = None
         self._outputs = None
         self.locktime = 0

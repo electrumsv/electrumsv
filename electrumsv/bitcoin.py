@@ -296,7 +296,7 @@ def deserialize_privkey(key):
         compressed = len(vch) == 34
         return txin_type, vch[1:33], compressed
     else:
-        raise BaseException("cannot deserialize", key)
+        raise Exception("cannot deserialize", key)
 
 def regenerate_key(pk):
     assert len(pk) == 32

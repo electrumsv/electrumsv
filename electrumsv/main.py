@@ -268,7 +268,7 @@ def main():
                 sys.argv[i] = sys.stdin.read()
                 break
             else:
-                raise BaseException('Cannot get argument from stdin')
+                raise Exception('Cannot get argument from stdin')
         elif arg == '?':
             sys.argv[i] = input("Enter argument:")
         elif arg == ':':

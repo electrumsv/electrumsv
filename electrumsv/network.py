@@ -1461,7 +1461,7 @@ class Network(util.DaemonThread):
                     self.switch_to_interface(i.server, self.SWITCH_FOLLOW_CHAIN)
                     break
         else:
-            raise BaseException('blockchain not found', index)
+            raise Exception('blockchain not found', index)
 
         with self.interface_lock:
             if self.interface:
@@ -1487,9 +1487,9 @@ class Network(util.DaemonThread):
         try:
             r = q.get(True, timeout)
         except queue.Empty:
-            raise BaseException('Server did not answer')
+            raise Exception('Server did not answer')
         if r.get('error'):
-            raise BaseException(r.get('error'))
+            raise Exception(r.get('error'))
         return r.get('result')
 
     @staticmethod
