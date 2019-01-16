@@ -93,6 +93,8 @@ class QtAppStateProxy(AppStateProxy):
         self.windows = []
         self.app = self._create_app()
         self.timer = QTimer()
+        # A floating point number, e.g. 129.1
+        self.dpi = self.app.primaryScreen().physicalDotsPerInch()
 
         # FIXME: move language to app_state
         set_language(config.get('language'))
