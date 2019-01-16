@@ -611,8 +611,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.update_check_button.setText(_("Update {} is available").format(result['version']))
             self.update_check_button.clicked.connect(on_update_button_click)
             self.update_check_button.show()
-        import importlib
-        importlib.reload(updater)
+        # import importlib
+        # importlib.reload(updater)
         self.update_check = updater.UpdaterDialog(self, on_update_available)
 
     def show_report_bug(self):
