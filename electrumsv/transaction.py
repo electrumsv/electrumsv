@@ -35,7 +35,7 @@ from .address import (
 )
 from .bitcoin import (
     to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, hash_encode, op_push,
-    MyVerifyingKey, point_to_ser, push_script, public_key_to_p2pk_script, int_to_hex,
+    push_script, public_key_to_p2pk_script, int_to_hex,
     var_int, public_key_from_private_key, regenerate_key, MySigningKey
 )
 from .crypto import sha256d, hash_160
@@ -490,7 +490,7 @@ class Transaction:
                     try:
                         public_key.verify_message_hash(sig_string, pre_hash)
                     except Exception:
-                        traceback.print_exc(file=sys.stderr)
+                        logger.exception('')
                         continue
                     j = pubkeys.index(pubkey_hex)
                     logger.debug(f'adding sig {i} {j} {pubkey_hex} {sig}')

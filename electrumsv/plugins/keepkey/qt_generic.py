@@ -381,6 +381,7 @@ class SettingsDialog(WindowModalDialog):
             invoke_client('toggle_passphrase', unpair_after=currently_enabled)
 
         def change_homescreen():
+            # pylint: disable=import-error
             from PIL import Image  # FIXME
             dialog = QFileDialog(self, _("Choose Homescreen"))
             filename, __ = dialog.getOpenFileName()

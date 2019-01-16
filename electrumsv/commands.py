@@ -39,7 +39,6 @@ from .crypto import hash_160
 from .i18n import _
 from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
-from .plugin import run_hook
 from .transaction import Transaction, multisig_script
 from .util import bfh, bh2u, format_satoshis, json_decode, to_bytes
 
@@ -477,7 +476,6 @@ class Commands:
         if locktime is not None:
             tx.locktime = locktime
         if not unsigned:
-            run_hook('sign_tx', self.wallet, tx)
             self.wallet.sign_transaction(tx, password)
         return tx
 

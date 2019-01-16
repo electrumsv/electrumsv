@@ -1,8 +1,7 @@
-from binascii import unhexlify
-
-from electrumsv.bip32 import xpub_from_pubkey, deserialize_xpub, bip32_path_to_uints as parse_path
+from electrumsv.bip32 import deserialize_xpub, bip32_path_to_uints as parse_path
 from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
 
+from electrumsv.address import OpCodes as opcodes
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
@@ -10,13 +9,10 @@ from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.plugin import Device
 from electrumsv.transaction import deserialize
-from electrumsv.util import bfh, bh2u
+from electrumsv.util import bfh
 
 from ..hw_wallet import HW_PluginBase
-from ..hw_wallet.plugin import (
-    is_any_tx_output_on_change_branch, trezor_validate_op_return_output_and_get_data,
-    LibraryFoundButUnusable
-)
+from ..hw_wallet.plugin import is_any_tx_output_on_change_branch, LibraryFoundButUnusable
 
 
 try:
@@ -47,6 +43,18 @@ logger = logs.get_logger("plugin.trezor")
 TIM_NEW, TIM_RECOVER = range(2)
 
 TREZOR_PRODUCT_KEY = 'Trezor'
+
+
+def validate_op_return_output_and_get_data(output):
+    if output.type != TYPE_SCRIPT:
+        raise Exception("Unexpected output type: {}".format(output.type))
+    script = bfh(output.address)
+    if not (script[0] == opcodes.OP_RETURN and
+            script[1] == len(script) - 2 and script[1] <= 75):
+        raise Exception(_("Only OP_RETURN scripts, with one constant push, are supported."))
+    if output.value != 0:
+        raise Exception(_("Amount for OP_RETURN output must be zero."))
+    return script[2:]
 
 
 class TrezorKeyStore(Hardware_KeyStore):
@@ -400,7 +408,7 @@ class TrezorPlugin(HW_PluginBase):
             txoutputtype.amount = amount
             if _type == TYPE_SCRIPT:
                 txoutputtype.script_type = OutputScriptType.PAYTOOPRETURN
-                txoutputtype.op_return_data = trezor_validate_op_return_output_and_get_data(o)
+                txoutputtype.op_return_data = validate_op_return_output_and_get_data(o)
             elif _type == TYPE_ADDRESS:
                 txoutputtype.script_type = OutputScriptType.PAYTOADDRESS
                 txoutputtype.address = address.to_string()
@@ -410,7 +418,9 @@ class TrezorPlugin(HW_PluginBase):
         has_change = False
         any_output_on_change_branch = is_any_tx_output_on_change_branch(tx)
 
-        for _type, address, amount in tx.outputs():
+
+        for o in tx.outputs():
+            _type, address, amount = o
             use_create_by_derivation = False
 
             info = tx.output_info.get(address)

@@ -131,15 +131,3 @@ def is_any_tx_output_on_change_branch(tx):
             if info.address_index[0] == 1:
                 return True
     return False
-
-
-def trezor_validate_op_return_output_and_get_data(output):
-    if output.type != TYPE_SCRIPT:
-        raise Exception("Unexpected output type: {}".format(output.type))
-    script = bfh(output.address)
-    if not (script[0] == opcodes.OP_RETURN and
-            script[1] == len(script) - 2 and script[1] <= 75):
-        raise Exception(_("Only OP_RETURN scripts, with one constant push, are supported."))
-    if output.value != 0:
-        raise Exception(_("Amount for OP_RETURN output must be zero."))
-    return script[2:]

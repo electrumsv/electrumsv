@@ -370,7 +370,7 @@ class SettingsDialog(WindowModalDialog):
                     handler.show_error('File is not a TOIF file with size of 144x144')
                     return
             else:
-                from PIL import Image # FIXME
+                from PIL import Image   # pylint: disable=import-error
                 im = Image.open(filename)
                 if im.size != (128, 64):
                     handler.show_error('Image must be 128 x 64 pixels')

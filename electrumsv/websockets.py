@@ -29,6 +29,7 @@ import os
 import queue
 import threading
 
+# pylint: disable=import-error
 from SimpleWebSocketServer import WebSocket, SimpleSSLWebSocketServer
 
 from . import util

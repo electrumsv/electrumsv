@@ -520,8 +520,6 @@ class WalletStorage:
             return True
 
     def get_action(self):
-        if action:
-            return action
         if not self.file_exists():
             return 'new'
 
