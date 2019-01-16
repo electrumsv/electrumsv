@@ -55,6 +55,15 @@ cosigner_pool = CosignerPoolExtension(
         _("Transactions are encrypted and stored on a remote server.")
     ]))
 
+labels = Extension(
+    'labels', _('LabelSync'),
+    '\n'.join([
+        _("Save your wallet labels on a remote server, and synchronize "
+          "them across multiple devices where you use ElectrumSV."),
+        _("Labels, transactions IDs and addresses are encrypted before "
+          "they are xsent to the remote server.")
+    ])))
+
 virtual_keyboard = Extension(
     'virtualkeyboard', _('Virtual Keyboard'),
     '\n'.join((
@@ -65,5 +74,6 @@ virtual_keyboard = Extension(
 
 extensions = [
     cosigner_pool,
+    labels,
     virtual_keyboard,
 ]
