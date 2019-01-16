@@ -67,7 +67,7 @@ class UpdaterDialog(QWidget):
         self._progressbar.setValue(int(ratio * 500))
 
     def set_title(self, text):
-        self._title_label.setText("<h3>"+ text +"</h3>")
+        self._title_label.setText(text)
 
     def set_message(self, text):
         self._message_label.setText(text)
