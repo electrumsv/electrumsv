@@ -364,7 +364,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.notify_transactions()
         # update menus
         self.seed_menu.setEnabled(self.wallet.has_seed())
-        self.update_lock_icon()
         self.update_buttons_on_seed()
         self.update_console()
         self.clear_receive_tab()
@@ -586,21 +585,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def init_toolbar(self):
         test_toolbar: QToolBar = self.addToolBar(_("Test"))
 
-        self.preferences_action = QAction(read_QIcon("lock.png"), _("Password"), self)
-        self.preferences_action.triggered.connect(lambda: self.change_password_dialog)
-        test_toolbar.addAction(self.preferences_action)
-
-        self.preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
-        self.preferences_action.triggered.connect(lambda: self.preferences_dialog)
-        test_toolbar.addAction(self.preferences_action)
-
-        self.seed_action = QAction(read_QIcon("seed.png"), _("Seed"), self)
-        self.seed_action.triggered.connect(lambda: self.show_seed_dialog)
-        test_toolbar.addAction(self.seed_action)
+        preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
+        preferences_action.triggered.connect(lambda: self.preferences_dialog)
+        test_toolbar.addAction(preferences_action)
 
         self.network_action = QAction(read_QIcon("status_disconnected.png"), _("Network"), self)
         self.network_action.triggered.connect(lambda: self.gui_object.show_network_dialog(self))
         test_toolbar.addAction(self.network_action)
+
+        update_action = QAction(read_QIcon("update.png"), _("Check for Updates"), self)
+        update_action.triggered.connect(lambda: self.show_update_check)
+        test_toolbar.addAction(update_action)
 
     def donate_to_server(self):
         server = self.network.get_parameters()[0]
@@ -837,7 +832,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.tray.setToolTip("%s (%s)" % (text, self.wallet.basename()))
         self.balance_label.setText(text)
-        self.status_button.setIcon(read_QIcon(icon))
         self.network_action.setIcon(read_QIcon(icon))
 
     def update_wallet(self):
@@ -2020,28 +2014,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.update_check_button.hide()
         sb.addPermanentWidget(self.update_check_button)
 
-        self.lock_icon = QIcon()
-        self.password_button = StatusBarButton(self.lock_icon, _("Password"),
-                                               self.change_password_dialog)
-        sb.addPermanentWidget(self.password_button)
-
-        sb.addPermanentWidget(StatusBarButton(read_QIcon("preferences.png"),
-                                              _("Preferences"), self.preferences_dialog))
-        self.seed_button = StatusBarButton(read_QIcon("seed.png"),
-                                           _("Seed"), self.show_seed_dialog )
-        sb.addPermanentWidget(self.seed_button)
-        self.status_button = StatusBarButton(read_QIcon("status_disconnected.png"), _("Network"),
-                                             lambda: self.gui_object.show_network_dialog(self))
-        sb.addPermanentWidget(self.status_button)
         self.setStatusBar(sb)
 
-    def update_lock_icon(self):
-        icon = read_QIcon("lock.png" if self.wallet.has_password() else "unlock.png")
-        self.password_button.setIcon(icon)
-
     def update_buttons_on_seed(self):
-        self.seed_button.setVisible(self.wallet.has_seed())
-        self.password_button.setVisible(self.wallet.can_change_password())
         self.send_button.setVisible(not self.wallet.is_watching_only())
 
     def change_password_dialog(self):
@@ -2062,7 +2037,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         msg = (_('Password was updated successfully') if new_password
                else _('Password is disabled, this wallet is not protected'))
         self.show_message(msg, title=_("Success"))
-        self.update_lock_icon()
 
     def toggle_search(self):
         self.search_box.setHidden(not self.search_box.isHidden())
