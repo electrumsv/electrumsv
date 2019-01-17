@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import QGridLayout, QTabWidget, QPushButton, \
     QButtonGroup, QRadioButton, QCheckBox, QTextEdit, QFileDialog, \
     QMessageBox, QWidget, QSlider
 
-from .plugin import TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
+from .keepkey import TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 
 from electrumsv.bip32 import is_xprv
