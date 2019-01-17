@@ -2025,7 +2025,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.fiat_widget = QWidget()
         self.fiat_widget.setVisible(False)
         estimate_icon_label = QLabel("")
-        estimate_icon_label.setPixmap(QPixmap(icon_path("sb_estimate.png")))
+        estimate_icon_label.setPixmap(QPixmap(icon_path("sb_fiat.png")))
         hbox = QHBoxLayout()
         hbox.addWidget(estimate_icon_label)
         self.fiat_label = QLabel("")
