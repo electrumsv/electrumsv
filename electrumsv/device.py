@@ -37,6 +37,26 @@ from .util import ThreadJob
 logger = logs.get_logger("devices")
 
 
+def trezor_package():
+    import electrumsv.devices.trezor as package
+    return package
+
+
+def keepkey_package():
+    import electrumsv.devices.keepkey as package
+    return package
+
+
+def ledger_package():
+    import electrumsv.devices.ledger as package
+    return package
+
+
+def bitbox_package():
+    import electrumsv.devices.digitalbitbox as package
+    return package
+
+
 class DeviceUnpairableError(Exception):
     pass
 
