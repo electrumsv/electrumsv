@@ -2002,7 +2002,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def create_status_bar(self):
         sb = QStatusBar()
-        sb.setFixedHeight(35)
+        sb.setFixedHeight(app_state.dpi / 4.0)
         qtVersion = qVersion()
 
         balance_widget = QWidget()
