@@ -1,7 +1,6 @@
-#!/usr/bin/env python
-#
-# Electrum - lightweight Bitcoin client
+# ElectrumSV - lightweight Bitcoin client
 # Copyright (C) 2015 Thomas Voegtlin
+# Copyright (C) 2019 ElectrumSV developers
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -52,16 +51,16 @@ class DeviceUnpairableError(Exception):
 
 def module(device_kind):
     if device_kind == 'trezor':
-        import electrumsv.devices.trezor as package
+        import electrumsv.devices.trezor as mod
     elif device_kind == 'keepkey':
-        import electrumsv.devices.keepkey as package
+        import electrumsv.devices.keepkey as mod
     elif device_kind == 'ledger':
-        import electrumsv.devices.ledger as package
+        import electrumsv.devices.ledger as mod
     elif device_kind == 'digitalbitbox':
-        import electrumsv.devices.digitalbitbox as package
+        import electrumsv.devices.digitalbitbox as mod
     else:
         raise DeviceError(f'unsupported device kind: {device_kind}')
-    return package
+    return mod
 
 
 def plugin_class(device_kind, gui_kind):
