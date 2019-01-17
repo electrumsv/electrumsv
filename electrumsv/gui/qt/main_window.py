@@ -58,6 +58,7 @@ from electrumsv.transaction import Transaction
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, bfh, format_fee_satoshis,
 )
+from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import Multisig_Wallet, sweep_preparations
 import electrumsv.web as web
 
@@ -389,9 +390,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.setGeometry(100, 100, 840, 400)
 
     def watching_only_changed(self):
-        title = 'ElectrumSV %s %s  -  %s' % (Net.NAME,
-                                             self.wallet.electrum_version,
-                                             self.wallet.basename())
+        title = f'ElectrumSV {PACKAGE_VERSION} ({Net.NAME})  -  {self.wallet.basename()}'
         extra = [self.wallet.storage.get('wallet_type', '?')]
         if self.wallet.is_watching_only():
             self.warn_if_watching_only()
