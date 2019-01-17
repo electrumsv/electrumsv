@@ -21,6 +21,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import time
+
 from .bitcoin import hash_decode, hash_encode
 from .crypto import sha256d
 from .logs import logs
@@ -43,16 +45,25 @@ class SPV(ThreadJob):
         self.blockchain = network.blockchain()
         self.merkle_roots = {}  # txid -> merkle root (once it has been verified)
         self.requested_merkle = set()  # txid set of pending requests
+        self.last_msg = None
+        self.last_log = 0
+
+    def log_error_occasionally(self, msg):
+        t = time.time()
+        if self.last_msg != msg or self.last_log + 5 < t:
+            self.last_msg = msg
+            self.last_log = t
+            logger.error(msg)
 
     def run(self):
         interface = self.network.interface
         if not interface:
-            logger.error("no interface")
+            self.log_error_occasionally('no interface')
             return
 
         blockchain = interface.blockchain
         if not blockchain:
-            logger.error("no blockchain for interface '%s'", interface.server)
+            self.log_error_occasionally(f'chain undetermined for interface {interface.server}')
             return
 
         local_height = self.network.get_local_height()
