@@ -583,7 +583,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def init_toolbar(self):
         self.toolbar = toolbar = QToolBar(self)
-        # toolbar.setFixedHeight(app_state.dpi / 5.0)
+        toolbar.setFixedHeight(app_state.dpi / 5.0)
         toolbar.setMovable(False)
 
         preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
@@ -2009,7 +2009,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def create_status_bar(self):
         sb = QStatusBar()
-        sb.setFixedHeight(app_state.dpi / 4.0)
+        # sb.setFixedHeight(app_state.dpi / 4.0)
         qtVersion = qVersion()
 
         balance_widget = QWidget()
