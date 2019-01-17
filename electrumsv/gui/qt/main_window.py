@@ -796,6 +796,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         network_text = _("Connected")
         balance_text = _("Unknown")
+        fiat_text = None
 
         if self.network is None or not self.network.is_running():
             network_text = _("Offline")
@@ -823,8 +824,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
                 # append fiat balance and price
                 if app_state.fx.is_enabled():
-                    balance_text += app_state.fx.get_fiat_status_text(c + u + x,
+                    fiat_text = app_state.fx.get_fiat_status_text(c + u + x,
                         app_state.base_unit(), app_state.decimal_point) or ''
+
                 if not self.network.proxy:
                     icon = ("status_connected.png" if num_chains <= 1
                             else "status_connected_fork.png")
@@ -837,6 +839,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         # self.tray.setToolTip("%s (%s)" % (text, self.wallet.basename()))
         self.balance_label.setText(balance_text)
+        if fiat_text is None:
+            self.fiat_widget.setVisible(False)
+        else:
+            self.fiat_widget.setVisible(True)
+            self.fiat_label.setText(fiat_text)
         self.network_label.setText(network_text)
         self.network_action.setIcon(read_QIcon(icon))
 
@@ -2015,6 +2022,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         balance_widget.setLayout(hbox)
         sb.addWidget(balance_widget)
 
+        self.fiat_widget = QWidget()
+        self.fiat_widget.setVisible(False)
+        estimate_icon_label = QLabel("")
+        estimate_icon_label.setPixmap(QPixmap(icon_path("sb_estimate.png")))
+        hbox = QHBoxLayout()
+        hbox.addWidget(estimate_icon_label)
+        self.fiat_label = QLabel("")
+        hbox.addWidget(self.fiat_label)
+        self.fiat_widget.setLayout(hbox)
+        sb.addWidget(self.fiat_widget)
+
         network_widget = QWidget()
         network_icon_label = QLabel("")
         network_icon_label.setPixmap(QPixmap(icon_path("sb_network.png")))
@@ -2024,8 +2042,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox.addWidget(self.network_label)
         network_widget.setLayout(hbox)
         sb.addWidget(network_widget)
-
-        # sb.addWidget(self.balance_label)
 
         self.search_box = QLineEdit()
         self.search_box.textChanged.connect(self.do_search)
