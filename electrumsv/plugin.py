@@ -29,9 +29,9 @@ import os
 import pkgutil
 import time
 
-from . import plugins
+from . import devices
 from .app_state import app_state
-from .devices import DeviceMgr
+from .device import DeviceMgr
 from .logs import logs
 from .util import profiler, DaemonThread
 
@@ -52,7 +52,7 @@ class Plugins(DaemonThread):
         super().__init__('plugins')
         app_state.plugins = self
         self.setName('Plugins')
-        self.pkgpath = os.path.dirname(plugins.__file__)
+        self.pkgpath = os.path.dirname(devices.__file__)
         self.config = app_state.config
         self.hw_wallets = {}
         self.plugins = {}
@@ -65,7 +65,7 @@ class Plugins(DaemonThread):
 
     def load_plugins(self):
         for loader, name, ispkg in pkgutil.iter_modules([self.pkgpath]):
-            full_name = f'electrumsv.plugins.{name}'
+            full_name = f'electrumsv.devices.{name}'
             spec = importlib.util.find_spec(full_name)
             if spec is None:  # pkgutil found it but importlib can't ?!
                 raise Exception(f"Error pre-loading {full_name}: no spec")
@@ -97,7 +97,7 @@ class Plugins(DaemonThread):
     def load_plugin(self, name):
         if name in self.plugins:
             return self.plugins[name]
-        full_name = f'electrumsv.plugins.{name}.{self.gui_name}'
+        full_name = f'electrumsv.devices.{name}.{self.gui_name}'
         spec = importlib.util.find_spec(full_name)
         if spec is None:
             raise RuntimeError("%s implementation for %s plugin not found"
