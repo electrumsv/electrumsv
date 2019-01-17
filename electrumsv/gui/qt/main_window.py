@@ -35,7 +35,7 @@ import weakref
 import webbrowser
 
 from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, qVersion, QUrl
-from PyQt5.QtGui import QKeySequence, QCursor, QIcon, QDesktopServices
+from PyQt5.QtGui import QKeySequence, QCursor, QIcon, QDesktopServices, QPixmap
 from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QSystemTrayIcon, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
@@ -73,7 +73,7 @@ from .util import (
     MessageBoxMixin, TaskThread, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
     WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton, OPReturnError,
     OPReturnTooLarge, WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
-    CloseButton, CancelButton, text_dialog, filename_field, address_combo
+    CloseButton, CancelButton, text_dialog, filename_field, address_combo, icon_path
 )
 
 
@@ -794,8 +794,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if not self.wallet:
             return
 
+        network_text = _("Connected")
+        balance_text = _("Unknown")
+
         if self.network is None or not self.network.is_running():
-            text = _("Offline")
+            network_text = _("Offline")
             icon = "status_disconnected.png"
         elif self.network.is_connected():
             server_height = self.network.get_server_height()
@@ -805,22 +808,22 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # until we get a headers subscription request response.
             # Display the synchronizing message in that case.
             if not self.wallet.up_to_date or server_height == 0:
-                text = _("Synchronizing...")
+                network_text = _("Synchronizing...")
                 icon = "status_waiting.png"
             elif server_lag > 1:
-                text = _("Server is lagging ({} blocks)").format(server_lag)
+                network_text = _("Server is lagging ({} blocks)").format(server_lag)
                 icon = "status_lagging.png" if num_chains <= 1 else "status_lagging_fork.png"
             else:
                 c, u, x = self.wallet.get_balance()
-                text =  _("Balance" ) + ": %s "%(self.format_amount_and_units(c))
+                balance_text = "%s "%(self.format_amount_and_units(c))
                 if u:
-                    text +=  " [%s unconfirmed]"%(self.format_amount(u, True).strip())
+                    balance_text +=  " [%s unconfirmed]"%(self.format_amount(u, True).strip())
                 if x:
-                    text +=  " [%s unmatured]"%(self.format_amount(x, True).strip())
+                    balance_text +=  " [%s unmatured]"%(self.format_amount(x, True).strip())
 
                 # append fiat balance and price
                 if app_state.fx.is_enabled():
-                    text += app_state.fx.get_fiat_status_text(c + u + x,
+                    balance_text += app_state.fx.get_fiat_status_text(c + u + x,
                         app_state.base_unit(), app_state.decimal_point) or ''
                 if not self.network.proxy:
                     icon = ("status_connected.png" if num_chains <= 1
@@ -829,11 +832,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     icon = ("status_connected_proxy.png" if num_chains <= 1
                             else "status_connected_proxy_fork.png")
         else:
-            text = _("Not connected")
+            network_text = _("Not connected")
             icon = "status_disconnected.png"
 
-        self.tray.setToolTip("%s (%s)" % (text, self.wallet.basename()))
-        self.balance_label.setText(text)
+        # self.tray.setToolTip("%s (%s)" % (text, self.wallet.basename()))
+        self.balance_label.setText(balance_text)
+        self.network_label.setText(network_text)
         self.network_action.setIcon(read_QIcon(icon))
 
     def update_wallet(self):
@@ -2001,8 +2005,27 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         sb.setFixedHeight(35)
         qtVersion = qVersion()
 
+        balance_widget = QWidget()
+        balance_icon_label = QLabel("")
+        balance_icon_label.setPixmap(QPixmap(icon_path("sb_balance.png")))
+        hbox = QHBoxLayout()
+        hbox.addWidget(balance_icon_label)
         self.balance_label = QLabel("")
-        sb.addWidget(self.balance_label)
+        hbox.addWidget(self.balance_label)
+        balance_widget.setLayout(hbox)
+        sb.addWidget(balance_widget)
+
+        network_widget = QWidget()
+        network_icon_label = QLabel("")
+        network_icon_label.setPixmap(QPixmap(icon_path("sb_network.png")))
+        hbox = QHBoxLayout()
+        hbox.addWidget(network_icon_label)
+        self.network_label = QLabel("")
+        hbox.addWidget(self.network_label)
+        network_widget.setLayout(hbox)
+        sb.addWidget(network_widget)
+
+        # sb.addWidget(self.balance_label)
 
         self.search_box = QLineEdit()
         self.search_box.textChanged.connect(self.do_search)
