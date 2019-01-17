@@ -33,7 +33,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.logs import logs
 
-logger = logs.get_logger("plugin.keepkey")
+logger = logs.get_logger("keepkey.client")
 
 
 class KeepKeyClient(ProtocolMixin, BaseClient):
