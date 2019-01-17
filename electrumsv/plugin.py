@@ -24,16 +24,13 @@
 # SOFTWARE.
 
 from collections import namedtuple
-import importlib.util
-import os
-import pkgutil
 import time
 
+from . import device
 from . import devices
 from .app_state import app_state
-from .device import DeviceMgr
 from .logs import logs
-from .util import profiler, DaemonThread
+from .util import DaemonThread
 
 
 logger = logs.get_logger("plugin")
@@ -47,104 +44,39 @@ HardwarePluginToScan = namedtuple("HardwarePluginToScan", 'name,description,plug
 
 class Plugins(DaemonThread):
 
-    @profiler
     def __init__(self, gui_name):
         super().__init__('plugins')
         app_state.plugins = self
         self.setName('Plugins')
-        self.pkgpath = os.path.dirname(devices.__file__)
         self.config = app_state.config
         self.hw_wallets = {}
         self.plugins = {}
         self.gui_name = gui_name
-        self.descriptions = {}
-        self.device_manager = DeviceMgr(self.config)
-        self.load_plugins()
+        self.device_manager = device.DeviceMgr(self.config)
         self.add_jobs(self.device_manager.thread_jobs())
         self.start()
-
-    def load_plugins(self):
-        for loader, name, ispkg in pkgutil.iter_modules([self.pkgpath]):
-            full_name = f'electrumsv.devices.{name}'
-            spec = importlib.util.find_spec(full_name)
-            if spec is None:  # pkgutil found it but importlib can't ?!
-                raise Exception(f"Error pre-loading {full_name}: no spec")
-            try:
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-            except Exception as e:
-                raise Exception(f"Error pre-loading {full_name}: {repr(e)}") from e
-            d = module.__dict__
-            gui_good = self.gui_name in d.get('available_for', [])
-            if not gui_good:
-                continue
-            details = d.get('registers_keystore')
-            if details:
-                self.register_keystore(name, gui_good, details)
-            self.descriptions[name] = d
-            if not d.get('requires_wallet_type') and self.config.get('use_' + name):
-                try:
-                    self.load_plugin(name)
-                except Exception as e:
-                    logger.exception("cannot initialize plugin %s", name)
 
     def get(self, name):
         return self.plugins.get(name)
 
-    def count(self):
-        return len(self.plugins)
-
     def load_plugin(self, name):
         if name in self.plugins:
             return self.plugins[name]
-        full_name = f'electrumsv.devices.{name}.{self.gui_name}'
-        spec = importlib.util.find_spec(full_name)
-        if spec is None:
-            raise RuntimeError("%s implementation for %s plugin not found"
-                               % (self.gui_name, name))
-        try:
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            plugin = module.Plugin(self, self.config, name)
-        except Exception as e:
-            raise Exception(f"Error loading {name} plugin: {repr(e)}") from e
+        plugin_class = device.plugin_class(name, self.gui_name)
+        plugin = plugin_class(self, app_state.config, name)
         self.add_jobs(plugin.thread_jobs())
         self.plugins[name] = plugin
         logger.debug("loaded %s", name)
         return plugin
 
+    def create_keystore(self, d):
+        device_kind = d['hw_type']
+        # We want to load the plugin as a side-effect
+        plugin = self.load_plugin(device_kind)
+        return plugin.keystore_class(d)
+
     def close_plugin(self, plugin):
         self.remove_jobs(plugin.thread_jobs())
-
-    def enable(self, name):
-        self.config.set_key('use_' + name, True, True)
-        p = self.get(name)
-        if p:
-            return p
-        return self.load_plugin(name)
-
-    def disable(self, name):
-        self.config.set_key('use_' + name, False, True)
-        p = self.get(name)
-        if not p:
-            return
-        self.plugins.pop(name)
-        p.close()
-        logger.debug("closed %s", name)
-
-    def is_available(self, name, w):
-        d = self.descriptions.get(name)
-        if not d:
-            return False
-        deps = d.get('requires', [])
-        for dep, s in deps:
-            try:
-                __import__(dep)
-            except ImportError as e:
-                logger.debug('Plugin %s unavailable %r', name, e)
-                return False
-        requires = d.get('requires_wallet_type', [])
-        return not requires or w.wallet_type in requires
 
     def get_hardware_support(self):
         out = []
@@ -164,15 +96,6 @@ class Plugins(DaemonThread):
                                                     plugin=None,
                                                     exception=e))
         return out
-
-    def register_keystore(self, name, gui_good, details):
-        from .keystore import register_keystore
-        def dynamic_constructor(d):
-            return self.get_plugin(name).keystore_class(d)
-        if details[0] == 'hardware':
-            self.hw_wallets[name] = (gui_good, details)
-            logger.debug("registering hardware %s: %s", name, details)
-            register_keystore(details[1], dynamic_constructor)
 
     def get_plugin(self, name):
         if not name in self.plugins:
@@ -241,7 +164,4 @@ class BasePlugin:
         return []
 
     def is_enabled(self):
-        return self.is_available() and self.config.get('use_' + self.name) is True
-
-    def is_available(self):
-        return True
+        return self.config.get('use_' + self.name) is True

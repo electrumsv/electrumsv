@@ -30,6 +30,7 @@ from ecdsa.curves import SECP256k1
 from ecdsa.util import string_to_number, number_to_string
 
 from .address import Address, PublicKey
+from .app_state import app_state
 from .bip32 import (
     bip32_private_key, bip32_public_derivation, bip32_private_derivation, bip32_root,
     xpub_from_xprv, deserialize_xpub, deserialize_xprv, is_xpub, is_xprv, CKD_pub
@@ -684,17 +685,6 @@ def xpubkey_to_pubkey(x_pubkey):
     pubkey, address = xpubkey_to_address(x_pubkey)
     return pubkey
 
-hw_keystores = {}
-
-def register_keystore(hw_type, constructor):
-    hw_keystores[hw_type] = constructor
-
-def hardware_keystore(d):
-    hw_type = d['hw_type']
-    if hw_type in hw_keystores:
-        constructor = hw_keystores[hw_type]
-        return constructor(d)
-    raise Exception('unknown hardware type', hw_type)
 
 def load_keystore(storage, name):
     w = storage.get('wallet_type', 'standard')
@@ -709,7 +699,7 @@ def load_keystore(storage, name):
     elif t == 'bip32':
         k = BIP32_KeyStore(d)
     elif t == 'hardware':
-        k = hardware_keystore(d)
+        k = app_state.plugins.create_keystore(d)
     else:
         raise Exception('unknown wallet type', t)
     return k

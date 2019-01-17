@@ -28,6 +28,7 @@ import threading
 import time
 
 from . import bip32
+from .app_state import app_state
 from .i18n import _
 from .exceptions import UserCancelled
 from .logs import logs
@@ -35,35 +36,37 @@ from .util import ThreadJob
 
 
 logger = logs.get_logger("devices")
+Device = namedtuple("Device", "path interface_number id_ product_key "
+                    "usage_page transport_ui_string")
+DeviceInfo = namedtuple("DeviceInfo", "device label initialized")
+supported_devices = ['digitalbitbox', 'keepkey', 'ledger', 'trezor']
 
 
-def trezor_package():
-    import electrumsv.devices.trezor as package
-    return package
-
-
-def keepkey_package():
-    import electrumsv.devices.keepkey as package
-    return package
-
-
-def ledger_package():
-    import electrumsv.devices.ledger as package
-    return package
-
-
-def bitbox_package():
-    import electrumsv.devices.digitalbitbox as package
-    return package
+class DeviceError(Exception):
+    pass
 
 
 class DeviceUnpairableError(Exception):
     pass
 
 
-Device = namedtuple("Device", "path interface_number id_ product_key "
-                    "usage_page transport_ui_string")
-DeviceInfo = namedtuple("DeviceInfo", "device label initialized")
+def module(device_kind):
+    if device_kind == 'trezor':
+        import electrumsv.devices.trezor as package
+    elif device_kind == 'keepkey':
+        import electrumsv.devices.keepkey as package
+    elif device_kind == 'ledger':
+        import electrumsv.devices.ledger as package
+    elif device_kind == 'digitalbitbox':
+        import electrumsv.devices.digitalbitbox as package
+    else:
+        raise DeviceError(f'unsupported device kind: {device_kind}')
+    return package
+
+
+def plugin_class(device_kind, gui_kind):
+    '''Returns a class.'''
+    return module(device_kind).plugin(gui_kind)
 
 
 class DeviceMgr(ThreadJob):
