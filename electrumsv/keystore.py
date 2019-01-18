@@ -699,7 +699,7 @@ def load_keystore(storage, name):
     elif t == 'bip32':
         k = BIP32_KeyStore(d)
     elif t == 'hardware':
-        k = app_state.plugins.create_keystore(d)
+        k = app_state.device_manager.create_keystore(d)
     else:
         raise Exception('unknown wallet type', t)
     return k

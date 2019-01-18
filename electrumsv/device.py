@@ -44,27 +44,8 @@ class DeviceError(Exception):
     pass
 
 
-class DeviceUnpairableError(Exception):
+class DeviceUnpairableError(DeviceError):
     pass
-
-
-def module(device_kind):
-    if device_kind == 'trezor':
-        import electrumsv.devices.trezor as mod
-    elif device_kind == 'keepkey':
-        import electrumsv.devices.keepkey as mod
-    elif device_kind == 'ledger':
-        import electrumsv.devices.ledger as mod
-    elif device_kind == 'digitalbitbox':
-        import electrumsv.devices.digitalbitbox as mod
-    else:
-        raise DeviceError(f'unsupported device kind: {device_kind}')
-    return mod
-
-
-def plugin_class(device_kind):
-    '''Returns a class.'''
-    return module(device_kind).plugin(app_state.gui_kind)
 
 
 class DeviceMgr(ThreadJob):
@@ -94,6 +75,7 @@ class DeviceMgr(ThreadJob):
 
     def __init__(self):
         super().__init__()
+        self.plugins = {}
         # Keyed by xpub.  The value is the device id
         # has been paired, and None otherwise.
         self.xpub_ids = {}
@@ -108,6 +90,24 @@ class DeviceMgr(ThreadJob):
         self.lock = threading.RLock()
         self.hid_lock = threading.RLock()
 
+    @classmethod
+    def _module(cls, device_kind):
+        if device_kind == 'trezor':
+            import electrumsv.devices.trezor as module
+        elif device_kind == 'keepkey':
+            import electrumsv.devices.keepkey as module
+        elif device_kind == 'ledger':
+            import electrumsv.devices.ledger as module
+        elif device_kind == 'digitalbitbox':
+            import electrumsv.devices.digitalbitbox as module
+        else:
+            raise DeviceError(f'unsupported device kind: {device_kind}')
+        return module
+
+    @classmethod
+    def _plugin_class(cls, device_kind):
+        return cls._module(device_kind).plugin(app_state.gui_kind)
+
     def timeout_clients(self):
         '''Handle device timeouts.'''
         with self.lock:
@@ -115,6 +115,17 @@ class DeviceMgr(ThreadJob):
         cutoff = time.time() - app_state.config.get_session_timeout()
         for client in clients:
             client.timeout(cutoff)
+
+    def get_plugin(self, device_kind):
+        if device_kind not in self.plugins:
+            self.plugins[device_kind] = self._plugin_class(device_kind)(device_kind)
+            logger.debug("loaded %s", device_kind)
+        return self.plugins[device_kind]
+
+    def create_keystore(self, d):
+        # FIXME: don't load the plugin as a side-effect
+        plugin = self.get_plugin(d['hw_type'])
+        return plugin.keystore_class(d)
 
     def supported_devices(self):
         '''Returns a dictionary.  Keys are all supported device kinds; the value is

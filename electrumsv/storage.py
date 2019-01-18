@@ -38,7 +38,6 @@ from . import bitcoin
 from .address import Address
 from .keystore import bip44_derivation
 from .logs import logs
-from .plugin import plugin_loaders
 from .util import profiler
 
 
@@ -107,11 +106,6 @@ class WalletStorage:
                     logger.error('Failed to convert label to json format %s', key)
                     continue
                 self.data[key] = value
-
-        # check here if I need to load a plugin
-        t = self.get('wallet_type')
-        l = plugin_loaders.get(t)
-        if l: l()
 
         if not self.manual_upgrades:
             if self.requires_split():

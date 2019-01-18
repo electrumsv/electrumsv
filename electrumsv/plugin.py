@@ -23,45 +23,13 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from collections import namedtuple
-
-from . import device
 from .logs import logs
 
 
 logger = logs.get_logger("plugin")
 
-plugin_loaders = {}
 hook_names = set()
 hooks = {}
-
-class Plugins(object):
-
-    def __init__(self):
-        self.plugins = {}
-
-    def get(self, name):
-        return self.plugins.get(name)
-
-    def load_plugin(self, name):
-        if name in self.plugins:
-            return self.plugins[name]
-        plugin_class = device.plugin_class(name)
-        plugin = plugin_class(name)
-        self.plugins[name] = plugin
-        logger.debug("loaded %s", name)
-        return plugin
-
-    def create_keystore(self, d):
-        device_kind = d['hw_type']
-        # We want to load the plugin as a side-effect
-        plugin = self.load_plugin(device_kind)
-        return plugin.keystore_class(d)
-
-    def get_plugin(self, name):
-        if not name in self.plugins:
-            self.load_plugin(name)
-        return self.plugins[name]
 
 
 def hook(func):

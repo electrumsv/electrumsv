@@ -1991,7 +1991,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             'daemon': app_state.daemon,
             'electrumsv': electrumsv,
             'network': self.network,
-            'plugins': app_state.plugins,
             'util': util,
             'wallet': self.wallet,
             'window': self,

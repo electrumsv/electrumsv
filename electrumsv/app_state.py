@@ -28,7 +28,6 @@ from electrumsv.app_sate import app_state
 
 app_state.config
 app_state.daemon
-app_state.plugins
 app_state.func()
 
 etc.
@@ -46,13 +45,11 @@ class AppStateProxy(object):
 
     def __init__(self, config, gui_kind):
         from electrumsv.device import DeviceMgr
-        from electrumsv.plugin import Plugins
 
         self.config = config
         self.device_manager = DeviceMgr()
         self.gui_kind = gui_kind
         self.fx = None
-        self.plugins = Plugins()
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get('decimal_point', 8)
         self.num_zeros = config.get('num_zeros', 0)
