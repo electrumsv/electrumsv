@@ -2,11 +2,11 @@
 
 # python setup.py sdist --format=zip,gztar
 
-import os
-import sys
-import platform
-import imp
 import argparse
+from importlib.machinery import SourceFileLoader
+import os
+import platform
+import sys
 
 from setuptools import setup, find_packages
 
@@ -19,7 +19,7 @@ with open('contrib/requirements/requirements.txt') as f:
 with open('contrib/requirements/requirements-hw.txt') as f:
     requirements_hw = f.read().splitlines()
 
-version = imp.load_source('version', 'electrumsv/version.py')
+version = SourceFileLoader('version', 'electrumsv/version.py').load_module()
 
 def copy_dir(dir_name):
     file_path = os.getcwd()
@@ -34,11 +34,12 @@ if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
     parser.add_argument('--user', dest='is_user', action='store_true', default=False)
     parser.add_argument('--system', dest='is_user', action='store_false', default=False)
     parser.add_argument('--root=', dest='root_path', metavar='dir', default='/')
-    parser.add_argument('--prefix=', dest='prefix_path', metavar='prefix', nargs='?', const='/', default=sys.prefix)
+    parser.add_argument('--prefix=', dest='prefix_path', metavar='prefix', nargs='?',
+                        const='/', default=sys.prefix)
     opts, _ = parser.parse_known_args(sys.argv[1:])
 
-    # Use per-user */share directory if the global one is not writable or if a per-user installation
-    # is attempted
+    # Use per-user */share directory if the global one is not writable or if a per-user
+    # installation is attempted
     user_share   = os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
     system_share = os.path.join(opts.prefix_path, "share")
     if not opts.is_user:
@@ -46,9 +47,10 @@ if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
         if os.access(opts.root_path + system_share, os.W_OK):
             # Global /usr/share is writable for us – so just use that
             share_dir = system_share
-        elif not os.path.exists(opts.root_path + system_share) and os.access(opts.root_path, os.W_OK):
-            # Global /usr/share does not exist, but / is writable – keep using the global directory
-            # (happens during packaging)
+        elif (not os.path.exists(opts.root_path + system_share) and
+                  os.access(opts.root_path, os.W_OK)):
+            # Global /usr/share does not exist, but / is writable – keep using the global
+            # directory (happens during packaging)
             share_dir = system_share
         else:
             # Neither /usr/share (nor / if /usr/share doesn't exist) is writable, use the
@@ -73,21 +75,7 @@ setup(
     extras_require={
         'hardware': requirements_hw,
     },
-    packages=[
-        'electrumsv',
-        'electrumsv.gui',
-        'electrumsv.gui.qt',
-        'electrumsv.plugins',
-    ] + [('electrumsv.plugins.' + pkg)
-         for pkg in find_packages('electrumsv/plugins')],
-    package_dir={ # rt12: Pretty sure this does nothing.
-        'electrumsv': 'electrumsv'
-    },
-    package_data={
-        'electrumsv': [
-            'www/index.html',
-        ]
-    },
+    packages=find_packages(exclude=('electrumsv.tests', )),
     scripts=['electrum-sv'],
     data_files=data_files,
     description="Lightweight Bitcoin SV Wallet",

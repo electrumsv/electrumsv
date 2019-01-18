@@ -27,6 +27,7 @@ import os
 import ctypes
 
 from electrumsv.platform import platform
+from electrumsv.startup import base_dir
 
 
 try:
@@ -68,10 +69,8 @@ def scan_barcode_osx(*args_ignored, **kwargs_ignored):
     import subprocess
     # NOTE: This code needs to be modified if the positions of this file changes with respect
     # to the helper app!  This assumes the built macOS .app bundle which puts the helper app in
-    # .app/contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app.
-    root_ec_dir = os.path.abspath(os.path.dirname(__file__) + "/../")
-    prog = (root_ec_dir + "/" + "contrib/osx/CalinsQRReader/build/Release/"
-            "CalinsQRReader.app/Contents/MacOS/CalinsQRReader")
+    # ./CalinsQRReader.app.
+    prog = os.path.join(base_dir, "CalinsQRReader.app/Contents/MacOS/CalinsQRReader")
     if not os.path.exists(prog):
         raise RuntimeError("Cannot start QR scanner; helper app not found.")
     data = ''

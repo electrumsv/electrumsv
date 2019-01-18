@@ -90,7 +90,7 @@ git clean -f -x -q
 make
 popd
 cp $BUILDDIR/secp256k1/.libs/libsecp256k1.0.dylib contrib/osx
-DoCodeSignMaybe "libsecp256k1" "contrib/osx/libsecp256k1.0.dylib" "$APP_SIGN" # If APP_SIGN is empty will be a noop
+DoCodeSignMaybe "libsecp256k1" "contrib/osx/libsecp256k1.0.dylib" "$APP_SIGN"
 
 info "Building CalinsQRReader..."
 d=contrib/osx/CalinsQRReader
@@ -98,14 +98,14 @@ pushd $d
 rm -fr build
 xcodebuild || fail "Could not build CalinsQRReader"
 popd
-DoCodeSignMaybe "CalinsQRReader.app" "${d}/build/Release/CalinsQRReader.app" "$APP_SIGN" # If APP_SIGN is empty will be a noop
+DoCodeSignMaybe "CalinsQRReader.app" "${d}/build/Release/CalinsQRReader.app" "$APP_SIGN"
 
 info "Installing $PACKAGE..."
 python3 setup.py install > /dev/null || fail "Could not build $PACKAGE"
 
 VERSION=1.0.0
 info "Using Pyinstaller to build $PACKAGE version $VERSION"
-pyinstaller --noconfirm --ascii --name $VERSION contrib/osx/osx.spec || fail "Could not build binary"
+pyinstaller --noconfirm --ascii contrib/osx/osx.spec || fail "Could not build binary"
 
 info "Adding bitcoin URI types to Info.plist"
 plutil -insert 'CFBundleURLTypes' \
@@ -113,14 +113,14 @@ plutil -insert 'CFBundleURLTypes' \
 	-- dist/$PACKAGE.app/Contents/Info.plist \
 	|| fail "Could not add keys to Info.plist. Make sure the program 'plutil' exists and is installed."
 
-DoCodeSignMaybe "app bundle" "dist/${PACKAGE}.app" "$APP_SIGN" # If APP_SIGN is empty will be a noop
+DoCodeSignMaybe "app bundle" "dist/${PACKAGE}.app" "$APP_SIGN"
 
 info "Creating .DMG"
 dmgbuild -D PACKAGE=$PACKAGE -s contrib/osx/dmg-settings.py "" dist/$PACKAGE-$VERSION.dmg || fail "Could not create .DMG"
 
-DoCodeSignMaybe ".DMG" "dist/${PACKAGE}-${VERSION}.dmg" "$APP_SIGN" # If APP_SIGN is empty will be a noop
+DoCodeSignMaybe ".DMG" "dist/${PACKAGE}-${VERSION}.dmg" "$APP_SIGN"
 
 if [ -z "$APP_SIGN" ]; then
-    warn "App was built successfully but was not code signed. Users may get security warnings from macOS."
-    warn "Specify a valid code signing identity as the first argument to this script to enable code signing."
+    warn "App was built successfully but was not code signed."
+    warn "To sign, specify a valid code signing identity as the first argument to this script."
 fi
