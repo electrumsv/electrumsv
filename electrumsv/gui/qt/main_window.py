@@ -40,7 +40,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QSystemTrayIcon, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
     QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit,
-    QInputDialog, QDialog, QToolBar, QAction
+    QInputDialog, QDialog, QToolBar, QAction, QSizePolicy
 )
 
 import electrumsv
@@ -2010,8 +2010,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def create_status_bar(self):
         sb = QStatusBar()
-        # sb.setFixedHeight(app_state.dpi / 4.0)
-        qtVersion = qVersion()
 
         balance_widget = QWidget()
         balance_icon_label = QLabel("")
@@ -2019,9 +2017,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox = QHBoxLayout()
         hbox.addWidget(balance_icon_label)
         self.balance_label = QLabel("")
+        sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        sp.setHorizontalStretch(1)
+        self.balance_label.setSizePolicy(sp)
         hbox.addWidget(self.balance_label)
         balance_widget.setLayout(hbox)
-        sb.addWidget(balance_widget)
+        balance_widget.setFixedWidth(220)
+        sb.addPermanentWidget(balance_widget)
 
         self.fiat_widget = QWidget()
         self.fiat_widget.setVisible(False)
@@ -2030,9 +2032,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox = QHBoxLayout()
         hbox.addWidget(estimate_icon_label)
         self.fiat_label = QLabel("")
-        hbox.addWidget(self.fiat_label)
+        sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        sp.setHorizontalStretch(1)
+        self.fiat_label.setSizePolicy(sp)
+        hbox.addWidget(self.fiat_label, Qt.AlignLeft)
         self.fiat_widget.setLayout(hbox)
-        sb.addWidget(self.fiat_widget)
+        self.fiat_widget.setFixedWidth(160)
+        sb.addPermanentWidget(self.fiat_widget)
 
         network_widget = QWidget()
         network_icon_label = QLabel("")
@@ -2040,9 +2046,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox = QHBoxLayout()
         hbox.addWidget(network_icon_label)
         self.network_label = QLabel("")
+        sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        sp.setHorizontalStretch(1)
+        self.network_label.setSizePolicy(sp)
         hbox.addWidget(self.network_label)
         network_widget.setLayout(hbox)
-        sb.addWidget(network_widget)
+        network_widget.setFixedWidth(140)
+        sb.addPermanentWidget(network_widget)
 
         self.search_box = QLineEdit()
         self.search_box.textChanged.connect(self.do_search)
