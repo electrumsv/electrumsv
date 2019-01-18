@@ -41,7 +41,8 @@ from electrumsv.dnssec import resolve_openalias
 
 class AppStateProxy(object):
 
-    base_units = ['BSV', 'mBSV', 'bits']    # large to small
+    base_units = ['BSV', 'mBSV', 'bits', 'sats']    # large to small
+    decimal_points = [8, 5, 2, 0]
 
     def __init__(self, config, gui_kind):
         from electrumsv.device import DeviceMgr
@@ -59,13 +60,13 @@ class AppStateProxy(object):
         self.fetch_alias()
 
     def base_unit(self):
-        index = (8 - self.decimal_point) // 3
+        index = self.decimal_points.index(self.decimal_point)
         return self.base_units[index]
 
     def set_base_unit(self, base_unit):
         prior = self.decimal_point
         index = self.base_units.index(base_unit)
-        self.decimal_point = 8 - index * 3
+        self.decimal_point = self.decimal_points[index]
         if self.decimal_point != prior:
             self.config.set_key('decimal_point', self.decimal_point, True)
         return self.decimal_point != prior
