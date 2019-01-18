@@ -33,8 +33,9 @@ from PyQt5.QtWidgets import QTreeWidgetItem, QAbstractItemView, QMenu
 from electrumsv.i18n import _
 from electrumsv.address import Address
 from electrumsv.app_state import app_state
+from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.platform import platform
-from electrumsv.plugin import run_hook
+from electrumsv.wallet import Multisig_Wallet
 import electrumsv.web as web
 
 from .util import MyTreeWidget, SortableTreeWidgetItem
@@ -148,7 +149,6 @@ class AddressList(MyTreeWidget):
             restore_expanded_items(seq_item, used_item, expanded_item_names)
 
     def create_menu(self, position):
-        from electrumsv.wallet import Multisig_Wallet
         is_multisig = isinstance(self.wallet, Multisig_Wallet)
         can_delete = self.wallet.can_delete_address()
         selected = self.selectedItems()
@@ -194,6 +194,12 @@ class AddressList(MyTreeWidget):
             if addr_URL:
                 menu.addAction(_("View on block explorer"), lambda: webbrowser.open(addr_URL))
 
+            keystore = self.wallet.get_keystore()
+            if self.wallet.wallet_type == 'standard' and isinstance(keystore, Hardware_KeyStore):
+                def show_address():
+                    keystore.thread.add(partial(keystore.plugin.show_address, self.wallet, addr))
+                menu.addAction(_("Show on {}").format(keystore.plugin.device), show_address)
+
         freeze = self.parent.set_frozen_state
         if any(self.wallet.is_frozen(addr) for addr in addrs):
             menu.addAction(_("Unfreeze"), partial(freeze, addrs, False))
@@ -205,7 +211,6 @@ class AddressList(MyTreeWidget):
             menu.addAction(_("Spend from"),
                            partial(self.parent.spend_coins, coins))
 
-        run_hook('receive_menu', menu, addrs, self.wallet)
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def keyPressEvent(self, event):

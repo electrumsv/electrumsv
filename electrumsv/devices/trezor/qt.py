@@ -8,7 +8,6 @@ from PyQt5.QtWidgets import QGridLayout, QPushButton, \
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
-from electrumsv.plugin import hook
 from electrumsv.util import bh2u
 
 from electrumsv.gui.qt.util import WindowModalDialog, WWLabel, Buttons, \
@@ -167,17 +166,6 @@ class QtPlugin(QtPluginBase):
 
     def create_handler(self, window):
         return QtHandler(window, self.pin_matrix_widget_class(), self.device)
-
-    @hook
-    def receive_menu(self, menu, addrs, wallet):
-        if len(addrs) != 1:
-            return
-        for keystore in wallet.get_keystores():
-            if type(keystore) == self.keystore_class:
-                def show_address():
-                    keystore.thread.add(partial(self.show_address, wallet, addrs[0], keystore))
-                menu.addAction(_("Show on {}").format(self.device), show_address)
-                break
 
     def show_settings_dialog(self, window, keystore):
         device_id = self.choose_device(window, keystore)

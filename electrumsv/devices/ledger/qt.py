@@ -1,14 +1,11 @@
-from functools import partial
-
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QInputDialog, QLineEdit, QVBoxLayout, QLabel
 
 from electrumsv.i18n import _
-from electrumsv.plugin import hook
-from electrumsv.wallet import Standard_Wallet
 from .ledger import LedgerPlugin
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 from electrumsv.gui.qt.util import WindowModalDialog
+
 
 class Plugin(LedgerPlugin, QtPluginBase):
     icon_unpaired = "ledger_unpaired.png"
@@ -17,15 +14,6 @@ class Plugin(LedgerPlugin, QtPluginBase):
     def create_handler(self, window):
         return Ledger_Handler(window)
 
-    @hook
-    def receive_menu(self, menu, addrs, wallet):
-        if type(wallet) is not Standard_Wallet:
-            return
-        keystore = wallet.get_keystore()
-        if type(keystore) == self.keystore_class and len(addrs) == 1:
-            def show_address():
-                keystore.thread.add(partial(self.show_address, wallet, addrs[0]))
-            menu.addAction(_("Show on Ledger"), show_address)
 
 class Ledger_Handler(QtHandlerBase):
     setup_signal = pyqtSignal()
