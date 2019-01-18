@@ -119,6 +119,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.gui_object = gui_object
         self.config = config = gui_object.config
+        self.wallet = wallet
 
         self.network = gui_object.daemon.network
         self.invoices = wallet.invoices
@@ -232,7 +233,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         # update fee slider in case we missed the callback
         self.fee_slider.update()
-        self.load_wallet(wallet)
+        self.load_wallet()
         gui_object.timer.timeout.connect(self.timer_actions)
 
     def on_history(self, b):
@@ -350,9 +351,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.logger.debug('close_wallet %s', self.wallet.storage.path)
         run_hook('close_wallet', self.wallet)
 
-    def load_wallet(self, wallet):
+    def load_wallet(self):
+        wallet = self.wallet
         wallet.thread = TaskThread(self, self.on_error)
-        self.wallet = wallet
         self.logger = logs.get_logger("mainwindow[{}]".format(self.wallet.basename()))
         self.update_recently_visited(wallet.storage.path)
         # address used to create a dummy transaction and estimate transaction fee
