@@ -327,7 +327,6 @@ def main():
         app_state.set_proxy(QtAppStateProxy(config, 'qt'))
     else:
         app_state.set_proxy(AppStateProxy(config, 'cmdline'))
-    app_state.start()
 
     # run non-RPC commands separately
     if cmdname in ['create', 'restore']:

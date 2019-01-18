@@ -55,11 +55,7 @@ class AppStateProxy(object):
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get('decimal_point', 8)
         self.num_zeros = config.get('num_zeros', 0)
-
-    # It would be nice to lose this
-    def start(self):
-        self.plugins.add_jobs(self.device_manager.thread_jobs())
-        self.plugins.start()
+        # Ugh
         self.fetch_alias()
 
     def base_unit(self):

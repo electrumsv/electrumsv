@@ -108,11 +108,7 @@ class DeviceMgr(ThreadJob):
         self.lock = threading.RLock()
         self.hid_lock = threading.RLock()
 
-    def thread_jobs(self):
-        # Thread job to handle device timeouts
-        return [self]
-
-    def run(self):
+    def timeout_clients(self):
         '''Handle device timeouts.'''
         with self.lock:
             clients = list(self.clients.keys())

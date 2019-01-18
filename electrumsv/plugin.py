@@ -28,7 +28,6 @@ import time
 
 from . import device
 from .logs import logs
-from .util import DaemonThread
 
 
 logger = logs.get_logger("plugin")
@@ -40,11 +39,9 @@ hooks = {}
 HardwarePluginToScan = namedtuple("HardwarePluginToScan", 'name,description,plugin,exception')
 
 
-class Plugins(DaemonThread):
+class Plugins(object):
 
     def __init__(self):
-        super().__init__('plugins')
-        self.setName('Plugins')
         self.hw_wallets = {}
         self.plugins = {}
 
@@ -56,7 +53,6 @@ class Plugins(DaemonThread):
             return self.plugins[name]
         plugin_class = device.plugin_class(name)
         plugin = plugin_class(name)
-        self.add_jobs(plugin.thread_jobs())
         self.plugins[name] = plugin
         logger.debug("loaded %s", name)
         return plugin
@@ -68,7 +64,7 @@ class Plugins(DaemonThread):
         return plugin.keystore_class(d)
 
     def close_plugin(self, plugin):
-        self.remove_jobs(plugin.thread_jobs())
+        pass
 
     def get_hardware_support(self):
         out = []
@@ -147,6 +143,3 @@ class BasePlugin:
 
     def on_close(self):
         pass
-
-    def thread_jobs(self):
-        return []

@@ -296,6 +296,7 @@ class QtAppStateProxy(AppStateProxy):
         threading.current_thread().setName('GUI')
         self.timer.setSingleShot(False)
         self.timer.setInterval(500)  # msec
+        self.timer.timeout.connect(self.device_manager.timeout_clients)
 
         QTimer.singleShot(0, self.event_loop_started)
         self.app.exec_()

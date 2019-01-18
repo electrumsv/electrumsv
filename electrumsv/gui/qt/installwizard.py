@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QGridLayout
 )
 
+from electrumsv.app_state import app_state
 from electrumsv.base_wizard import BaseWizard
 from electrumsv.exceptions import UserCancelled, InvalidPassword, UserQuit
 from electrumsv.i18n import _
