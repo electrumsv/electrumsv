@@ -34,13 +34,13 @@ import time
 import weakref
 import webbrowser
 
-from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, qVersion, QUrl
-from PyQt5.QtGui import QKeySequence, QCursor, QIcon, QDesktopServices, QPixmap
+from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl
+from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices, QPixmap
 from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QSystemTrayIcon, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
     QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit,
-    QInputDialog, QDialog, QToolBar, QAction, QSizePolicy
+    QInputDialog, QDialog, QToolBar, QAction
 )
 
 import electrumsv
@@ -50,6 +50,7 @@ from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
+from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.paymentrequest import PR_PAID
@@ -112,20 +113,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     show_privkeys_signal = pyqtSignal()
     history_updated_signal = pyqtSignal()
 
-    def __init__(self, gui_object, wallet):
+    def __init__(self, wallet):
         QMainWindow.__init__(self)
 
         self.logger = logger
-
-        self.gui_object = gui_object
-        self.config = config = gui_object.config
+        self.config = app_state.config
         self.wallet = wallet
 
-        self.network = gui_object.daemon.network
+        self.network = app_state.daemon.network
         self.invoices = wallet.invoices
         self.contacts = wallet.contacts
-        self.tray = gui_object.tray
-        self.app = gui_object.app
+        self.tray = app_state.tray
+        self.app = app_state.app
         self.cleaned_up = False
         self.is_max = False
         self.payment_request = None
@@ -143,7 +142,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.create_status_bar()
         self.need_update = threading.Event()
 
-        self.fee_unit = config.get('fee_unit', 0)
+        self.fee_unit = self.config.get('fee_unit', 0)
 
         self.completions = QStringListModel()
 
@@ -234,7 +233,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # update fee slider in case we missed the callback
         self.fee_slider.update()
         self.load_wallet()
-        gui_object.timer.timeout.connect(self.timer_actions)
+        app_state.timer.timeout.connect(self.timer_actions)
 
     def on_history(self, b):
         self.new_fx_history_signal.emit()
@@ -346,11 +345,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         else:
             self.logger.debug("unexpected network_qt signal event='%s' args='%s'", event, args)
 
-    def close_wallet(self):
-        if self.wallet:
-            self.logger.debug('close_wallet %s', self.wallet.storage.path)
-        run_hook('close_wallet', self.wallet)
-
     def load_wallet(self):
         wallet = self.wallet
         wallet.thread = TaskThread(self, self.on_error)
@@ -372,7 +366,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.request_list.update()
         self.tabs.show()
         self.init_geometry()
-        if self.config.get('hide_gui') and self.gui_object.tray.isVisible():
+        if self.config.get('hide_gui') and app_state.tray.isVisible():
             self.hide()
         else:
             self.show()
@@ -424,7 +418,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         filename, __ = QFileDialog.getOpenFileName(self, "Select your wallet file", wallet_folder)
         if not filename:
             return
-        self.gui_object.new_window(filename)
+        app_state.new_window(filename)
 
     def backup_wallet(self):
         path = self.wallet.storage.path
@@ -473,7 +467,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         for i, k in enumerate(sorted(recent)):
             b = os.path.basename(k)
             def loader(k):
-                return lambda: self.gui_object.new_window(k)
+                return lambda: app_state.new_window(k)
             self.recently_visited_menu.addAction(
                 b, loader(k)).setShortcut(QKeySequence("Ctrl+%d"%(i+1)))
         self.recently_visited_menu.setEnabled(len(recent))
@@ -495,7 +489,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 break
         full_path = os.path.join(wallet_folder, filename)
-        self.gui_object.start_new_window(full_path, None)
+        app_state.start_new_window(full_path, None)
 
     def init_menubar(self):
         menubar = QMenuBar()
@@ -553,7 +547,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tools_menu = menubar.addMenu(_("&Tools"))
 
         tools_menu.addAction(_("Preferences"), self.preferences_dialog)
-        tools_menu.addAction(_("&Network"), lambda: self.gui_object.show_network_dialog(self))
+        tools_menu.addAction(_("&Network"), lambda: app_state.show_network_dialog(self))
         tools_menu.addSeparator()
         tools_menu.addAction(_("&Sign/verify message"), self.sign_verify_message)
         tools_menu.addAction(_("&Encrypt/decrypt message"), self.encrypt_message)
@@ -592,7 +586,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         toolbar.addAction(preferences_action)
 
         self.network_action = QAction(read_QIcon("status_disconnected.png"), _("Network"), self)
-        self.network_action.triggered.connect(lambda: self.gui_object.show_network_dialog(self))
+        self.network_action.triggered.connect(lambda: app_state.show_network_dialog(self))
         toolbar.addAction(self.network_action)
 
         update_action = QAction(read_QIcon("update.png"), _("Check for Updates"), self)
@@ -2211,7 +2205,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _delete_wallet(self, password):
         wallet_path = self.wallet.storage.path
         basename = os.path.basename(wallet_path)
-        self.gui_object.daemon.stop_wallet(wallet_path)
+        app_state.daemon.stop_wallet(wallet_path)
         self.close()
         os.unlink(wallet_path)
         self.update_recently_visited(wallet_path) # this ensures it's deleted from the menu
@@ -2904,10 +2898,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Should be no side-effects in this function relating to file access past this point.
         if self.qr_window:
             self.qr_window.close()
-        self.close_wallet()
 
-        self.gui_object.timer.timeout.disconnect(self.timer_actions)
-        self.gui_object.close_window(self)
+        for keystore in self.wallet.get_keystores():
+            if isinstance(keystore, Hardware_KeyStore):
+                app_state.device_manager.unpair_xpub(keystore.xpub)
+        self.logger.debug(f'closing wallet {self.wallet.storage.path}')
+
+        app_state.timer.timeout.disconnect(self.timer_actions)
+        app_state.close_window(self)
 
     def cpfp(self, parent_tx, new_tx):
         total_size = parent_tx.estimated_size() + new_tx.estimated_size()

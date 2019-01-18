@@ -205,7 +205,7 @@ class QtAppStateProxy(AppStateProxy):
         self.nd.show()
 
     def create_window_for_wallet(self, wallet):
-        w = ElectrumWindow(self, wallet)
+        w = ElectrumWindow(wallet)
         self.windows.append(w)
         self.build_tray_menu()
         self.app.window_opened_signal.emit(w)

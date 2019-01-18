@@ -24,12 +24,9 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import sys
-
-from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.plugin import BasePlugin, hook
+from electrumsv.plugin import BasePlugin
 from electrumsv.util import versiontuple
 
 
@@ -43,9 +40,7 @@ class HW_PluginBase(BasePlugin):
     def __init__(self, name):
         super().__init__(name)
         self.device = self.keystore_class.device
-        self.keystore_class.plugin = self
-
-        self.logger = logs.get_logger("plugin.hwbase")
+        self.logger = logs.get_logger(name)
 
     def create_keystore(self, d):
         keystore = self.keystore_class(d)
@@ -54,12 +49,6 @@ class HW_PluginBase(BasePlugin):
 
     def is_enabled(self):
         return True
-
-    @hook
-    def close_wallet(self, wallet):
-        for keystore in wallet.get_keystores():
-            if isinstance(keystore, self.keystore_class):
-                app_state.device_manager.unpair_xpub(keystore.xpub)
 
     def get_library_version(self) -> str:
         """Returns the version of the 3rd party python library
@@ -107,7 +96,7 @@ class HW_PluginBase(BasePlugin):
                     _("Library version for '{}' is incompatible.").format(self.name)
                     + '\nInstalled: {}, Needed: {} <= x < {}'
                     .format(library_version, version_str(self.minimum_library), max_version_str))
-            print(self.libraries_available_message, file=sys.stderr)
+            self.logger.warning(self.libraries_available_message)
             return False
 
         return True
