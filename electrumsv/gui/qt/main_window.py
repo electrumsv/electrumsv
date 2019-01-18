@@ -818,7 +818,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 network_text = _("Synchronizing...")
                 icon = "status_waiting.png"
             elif server_lag > 1:
-                network_text = _("Server is lagging ({} blocks)").format(server_lag)
+                network_text = _("Server {} blocks behind)").format(server_lag)
                 icon = "status_lagging.png" if num_chains <= 1 else "status_lagging_fork.png"
             else:
                 c, u, x = self.wallet.get_balance()
@@ -2049,9 +2049,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         sp.setHorizontalStretch(1)
         self.fiat_value_label.setSizePolicy(sp)
-        hbox.addWidget(self.fiat_value_label, Qt.AlignLeft)
+        fm = self.fiat_bsv_label.fontMetrics()
+        width = fm.width("1,000.00 CUR")
+        self.fiat_value_label.setMinimumWidth(width)
+        hbox.addWidget(self.fiat_value_label)
         self.fiat_widget.setLayout(hbox)
-        self.fiat_widget.setFixedWidth(160)
         sb.addPermanentWidget(self.fiat_widget)
 
         network_widget = QWidget()
