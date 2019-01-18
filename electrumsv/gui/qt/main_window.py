@@ -54,7 +54,6 @@ from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.paymentrequest import PR_PAID
-from electrumsv.plugin import run_hook
 from electrumsv.transaction import Transaction
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, bfh, format_fee_satoshis,
@@ -372,7 +371,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show()
         self.watching_only_changed()
         self.history_updated_signal.emit()
-        run_hook('load_wallet', wallet, self)
+        wallet.create_gui_handlers(self)
 
     def init_geometry(self):
         winpos = self.wallet.storage.get("winpos-qt")

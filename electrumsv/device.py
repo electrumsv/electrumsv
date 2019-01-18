@@ -106,7 +106,7 @@ class DeviceMgr(ThreadJob):
 
     @classmethod
     def _plugin_class(cls, device_kind):
-        return cls._module(device_kind).plugin(app_state.gui_kind)
+        return cls._module(device_kind).plugin_class(app_state.gui_kind)
 
     def _create_client(self, device, handler, plugin):
         # Get from cache first

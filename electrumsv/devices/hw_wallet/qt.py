@@ -31,7 +31,6 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QAction
 
 from electrumsv.app_state import app_state
-from electrumsv.plugin import hook
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 
@@ -190,21 +189,12 @@ class QtHandlerBase(QObject):
 
 class QtPluginBase(object):
 
-    @hook
-    def load_wallet(self, wallet, window):
-        for keystore in wallet.get_keystores():
-            if not isinstance(keystore, self.keystore_class):
-                continue
-            if not self.libraries_available:
-                if hasattr(self, 'libraries_available_message'):
-                    message = self.libraries_available_message + '\n'
-                else:
-                    message = _("Cannot find python library for") + " '{}'.\n".format(self.name)
-                message += _("Make sure you install it with python3")
-                window.show_error(message)
-                return
-            tooltip = self.device + '\n' + (keystore.label or 'unnamed')
+    def create_handler(self, window):
+        raise NotImplementedError
 
+    def replace_gui_handler(self, window, keystore):
+        if self.libraries_available:
+            tooltip = self.device + '\n' + (keystore.label or 'unnamed')
             action = QAction(read_QIcon(self.icon_unpaired), tooltip, window)
             action.triggered.connect(partial(self.show_settings_dialog, window, keystore))
             window.toolbar.addAction(action)
@@ -215,6 +205,13 @@ class QtPluginBase(object):
             handler.icon_paired = self.icon_paired
             keystore.handler = handler
             keystore.thread = TaskThread(window, window.on_error)
+        else:
+            if hasattr(self, 'libraries_available_message'):
+                message = self.libraries_available_message + '\n'
+            else:
+                message = _("Cannot find python library for") + " '{}'.\n".format(self.name)
+            message += _("Make sure you install it with python3")
+            window.show_error(message)
 
     def choose_device(self, window, keystore):
         '''This dialog box should be usable even if the user has

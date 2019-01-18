@@ -29,6 +29,8 @@ from electrumsv.logs import logs
 from electrumsv.plugin import BasePlugin
 from electrumsv.util import versiontuple
 
+from .cmdline import CmdLineHandler
+
 
 class HW_PluginBase(BasePlugin):
     # Derived classes provide:
@@ -45,6 +47,8 @@ class HW_PluginBase(BasePlugin):
     def create_keystore(self, d):
         keystore = self.keystore_class(d)
         keystore.plugin = self
+        # This should be replaced when a window is opened in the gui
+        keystore.gui_handler = CmdLineHandler()
         return keystore
 
     def is_enabled(self):

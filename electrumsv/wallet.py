@@ -249,6 +249,11 @@ class Abstract_Wallet:
     def get_master_public_key(self):
         return None
 
+    def create_gui_handlers(self, window):
+        for keystore in self.get_keystores():
+            if isinstance(keystore, Hardware_KeyStore):
+                keystore.plugin.replace_gui_handler(window, keystore)
+
     @profiler
     def load_transactions(self):
         txi = self.storage.get('txi', {})

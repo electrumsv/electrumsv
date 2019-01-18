@@ -44,7 +44,6 @@ from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
 from .networks import Net
-from .plugin import run_hook
 from .util import hfu
 
 
@@ -557,7 +556,6 @@ class Hardware_KeyStore(KeyStore, Xpub):
         self.label = d.get('label')
         self.derivation = d.get('derivation')
         self.handler = None
-        run_hook('init_keystore', self)
 
     def set_label(self, label):
         self.label = label
