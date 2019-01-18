@@ -751,6 +751,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             text += ' (%s)'%x
         return text
 
+    def get_amount_and_units(self, amount):
+        bitcoin_text = self.format_amount(amount) + ' ' + app_state.base_unit()
+        fiat_text = app_state.fx.format_amount_and_units(amount)
+        return bitcoin_text, fiat_text
+
     def format_fee_rate(self, fee_rate):
         return format_fee_satoshis(fee_rate/1000, app_state.num_zeros) + ' sat/B'
 
@@ -796,8 +801,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
 
         network_text = _("Connected")
-        balance_text = _("Unknown")
-        fiat_text = None
+        balance_status = None
+        fiat_status = None
 
         if self.network is None or not self.network.is_running():
             network_text = _("Offline")
@@ -817,16 +822,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 icon = "status_lagging.png" if num_chains <= 1 else "status_lagging_fork.png"
             else:
                 c, u, x = self.wallet.get_balance()
-                balance_text = "%s "%(self.format_amount_and_units(c))
-                if u:
-                    balance_text +=  " [%s unconfirmed]"%(self.format_amount(u, True).strip())
-                if x:
-                    balance_text +=  " [%s unmatured]"%(self.format_amount(x, True).strip())
+                #balance_text = "%s "%(self.format_amount_and_units(c))
+                balance_status = self.get_amount_and_units(c)
+                #if u:
+                #    balance_text +=  " [%s unconfirmed]"%(self.format_amount(u, True).strip())
+                #if x:
+                #    balance_text +=  " [%s unmatured]"%(self.format_amount(x, True).strip())
 
                 # append fiat balance and price
                 if app_state.fx.is_enabled():
-                    fiat_text = app_state.fx.get_fiat_status_text(c + u + x,
-                        app_state.base_unit(), app_state.decimal_point) or ''
+                    fiat_status = app_state.fx.get_fiat_status(c + u + x,
+                        app_state.base_unit(), app_state.decimal_point)
 
                 if not self.network.proxy:
                     icon = ("status_connected.png" if num_chains <= 1
@@ -839,12 +845,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             icon = "status_disconnected.png"
 
         # self.tray.setToolTip("%s (%s)" % (text, self.wallet.basename()))
-        self.balance_label.setText(balance_text)
-        if fiat_text is None:
-            self.fiat_widget.setVisible(False)
-        else:
-            self.fiat_widget.setVisible(True)
-            self.fiat_label.setText(fiat_text)
+        self.set_status_bar_balance(balance_status)
+        self.set_status_bar_fiat(fiat_status)
         self.network_label.setText(network_text)
         self.network_action.setIcon(read_QIcon(icon))
 
@@ -2016,14 +2018,21 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         balance_icon_label.setPixmap(QPixmap(icon_path("sb_balance.png")))
         hbox = QHBoxLayout()
         hbox.addWidget(balance_icon_label)
-        self.balance_label = QLabel("")
+        self.balance_bsv_label = QLabel("")
+        hbox.addWidget(self.balance_bsv_label)
+        self.balance_equals_label = QLabel("")
+        self.balance_equals_label.setPixmap(QPixmap(icon_path("sb_approximate")))
+        hbox.addWidget(self.balance_equals_label)
+        self.balance_fiat_label = QLabel("")
         sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         sp.setHorizontalStretch(1)
-        self.balance_label.setSizePolicy(sp)
-        hbox.addWidget(self.balance_label)
+        self.balance_fiat_label.setSizePolicy(sp)
+        hbox.addWidget(self.balance_fiat_label)
         balance_widget.setLayout(hbox)
-        balance_widget.setFixedWidth(220)
+        # balance_widget.setMinimumWidth(self.fontMetrics().width("100000000 BSV = 10000000 USD XXXXXXXXXXXXXXX"))
         sb.addPermanentWidget(balance_widget)
+
+        self.set_status_bar_balance(None)
 
         self.fiat_widget = QWidget()
         self.fiat_widget.setVisible(False)
@@ -2031,11 +2040,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         estimate_icon_label.setPixmap(QPixmap(icon_path("sb_fiat.png")))
         hbox = QHBoxLayout()
         hbox.addWidget(estimate_icon_label)
-        self.fiat_label = QLabel("")
+        self.fiat_bsv_label = QLabel("")
+        hbox.addWidget(self.fiat_bsv_label)
+        approximate_icon_label = QLabel("")
+        approximate_icon_label.setPixmap(QPixmap(icon_path("sb_approximate")))
+        hbox.addWidget(approximate_icon_label)
+        self.fiat_value_label = QLabel("")
         sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         sp.setHorizontalStretch(1)
-        self.fiat_label.setSizePolicy(sp)
-        hbox.addWidget(self.fiat_label, Qt.AlignLeft)
+        self.fiat_value_label.setSizePolicy(sp)
+        hbox.addWidget(self.fiat_value_label, Qt.AlignLeft)
         self.fiat_widget.setLayout(hbox)
         self.fiat_widget.setFixedWidth(160)
         sb.addPermanentWidget(self.fiat_widget)
@@ -2051,7 +2065,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.network_label.setSizePolicy(sp)
         hbox.addWidget(self.network_label)
         network_widget.setLayout(hbox)
-        network_widget.setFixedWidth(140)
+        network_widget.setMinimumWidth(150)
         sb.addPermanentWidget(network_widget)
 
         self.search_box = QLineEdit()
@@ -2067,6 +2081,26 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         sb.addPermanentWidget(self.update_check_button)
 
         self.setStatusBar(sb)
+
+    def set_status_bar_balance(self, status):
+        if not status or not status[0]:
+            self.balance_bsv_label.setText(_("Unknown"))
+            self.balance_equals_label.setVisible(False)
+            self.balance_fiat_label.setVisible(False)
+        else:
+            self.balance_bsv_label.setText(status[0])
+            if status[1]:
+                self.balance_equals_label.setVisible(True)
+                self.balance_fiat_label.setVisible(True)
+                self.balance_fiat_label.setText(status[1])
+
+    def set_status_bar_fiat(self, status):
+        if status is None:
+            self.fiat_widget.setVisible(False)
+        else:
+            self.fiat_widget.setVisible(True)
+            self.fiat_bsv_label.setText(_("Unavailable") if status is None else status[0])
+            self.fiat_value_label.setText(_("Unavailable") if status is None else status[1])
 
     def update_buttons_on_seed(self):
         self.send_button.setVisible(not self.wallet.is_watching_only())
