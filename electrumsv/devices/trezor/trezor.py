@@ -300,11 +300,8 @@ class TrezorPlugin(HW_PluginBase):
                                        details=details, prev_txes=prev_tx)
         tx.update_signatures(signatures)
 
-    def show_address(self, wallet, address, keystore=None):
-        if keystore is None:
-            keystore = wallet.get_keystore()
-        if not self.show_address_helper(wallet, address, keystore):
-            return
+    def show_address(self, wallet, address):
+        keystore = wallet.get_keystore()
         deriv_suffix = wallet.get_address_index(address)
         derivation = keystore.derivation
         address_path = "%s/%d/%d"%(derivation, *deriv_suffix)

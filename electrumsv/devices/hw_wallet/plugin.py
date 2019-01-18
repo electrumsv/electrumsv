@@ -63,19 +63,6 @@ class HW_PluginBase(object):
         """
         raise NotImplementedError()
 
-    def show_address(self, wallet, address, keystore=None):
-        pass  # implemented in child classes
-
-    def show_address_helper(self, wallet, address, keystore=None):
-        if keystore is None:
-            keystore = wallet.get_keystore()
-        if not wallet.is_mine(address):
-            keystore.handler.show_error(_('Address not in wallet.'))
-            return False
-        if type(keystore) != self.keystore_class:
-            return False
-        return True
-
     def check_libraries_available(self) -> bool:
         def version_str(t):
             return ".".join(str(i) for i in t)
