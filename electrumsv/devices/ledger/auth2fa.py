@@ -3,6 +3,8 @@ import copy
 import hashlib
 import json
 import os
+
+# pylint: disable=import-error
 import websocket
 
 from PyQt5.QtWidgets import QDialog, QLineEdit, QTextEdit, QVBoxLayout, QLabel
