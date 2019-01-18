@@ -1,26 +1,13 @@
 # -*- mode: python -*-
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
-
+import os
 import sys
-for i, x in enumerate(sys.argv):
-    if x == '--name':
-        cmdline_name = sys.argv[i+1]
-        break
-else:
-    raise Exception('no name')
+
+from PyInstaller.utils.hooks import collect_dynamic_libs
 
 PYHOME = 'c:/python3'
 
 home = 'C:\\electrum\\'
-
-# see https://github.com/pyinstaller/pyinstaller/issues/2005
-hiddenimports = []
-hiddenimports += collect_submodules('trezorlib')
-hiddenimports += collect_submodules('btchip')
-hiddenimports += collect_submodules('keepkeylib')
-# Keepkey imports PyQt5.Qt.  Provide our own until they fix it
-hiddenimports.remove('keepkeylib.qt.pinmatrix')
 
 # Add libusb binary
 binaries = [(PYHOME+"/libusb-1.0.dll", ".")]
@@ -32,21 +19,14 @@ binaries += [('C:/tmp/libsecp256k1.dll', '.')]
 
 datas = [
     (home+'data', 'data'),
-    (home+'electrumsv/plugins', 'electrumsv/plugins'),
     ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),
 ]
-datas += collect_data_files('trezorlib')
-datas += collect_data_files('btchip')
-datas += collect_data_files('keepkeylib')
 
-# We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
+# We don't put these files in to actually include them in the script but to make the
+# Analysis method scan them for imports
 a = Analysis([home+'electrum-sv'],
              binaries=binaries,
-             datas=datas,
-             #pathex=[home+'lib', home+'gui', home+'plugins'],
-             hiddenimports=hiddenimports,
-             hookspath=[])
-
+             datas=datas)
 
 # http://stackoverflow.com/questions/19055089/pyinstaller-onefile-warning-pyconfig-h-when-importing-scipy-or-scipy-signal
 for d in a.datas:
@@ -54,16 +34,13 @@ for d in a.datas:
         a.datas.remove(d)
         break
 
-# Strip out parts of Qt that we never use. Reduces binary size by tens of MBs. see #4815
-qt_bins2remove=('qt5web', 'qt53d', 'qt5game', 'qt5designer', 'qt5quick',
-                'qt5location', 'qt5test', 'qt5xml', r'pyqt5\qt\qml\qtquick',
-                r'PyQt5\Qt\bin')
-print("Removing Qt binaries:", *qt_bins2remove)
+# Strip out parts of Qt that we never use to reduce binary size
+# Note we need qtdbus and qtprintsupport.
+qt_bins2remove = {'qtquick', 'qtwebsockets', 'qtnetwork', 'qtqml'}
 for x in a.binaries.copy():
-    for r in qt_bins2remove:
-        if x[0].lower().startswith(r.lower()):
-            a.binaries.remove(x)
-            print('----> Removed x =', x)
+    lower = x[0].lower()
+    if lower in qt_bins2remove:
+        a.binaries.remove(x)
 
 qt_data2remove=(r'pyqt5\qt\translations\qtwebengine_locales', )
 print("Removing Qt datas:", *qt_data2remove)
