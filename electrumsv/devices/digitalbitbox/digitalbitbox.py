@@ -21,6 +21,7 @@ from electrumsv.bitcoin import (
     TYPE_ADDRESS, push_script, msg_magic, verify_message, pubkey_from_signature,
     point_to_ser, public_key_to_p2pkh, MyVerifyingKey, int_to_hex,
 )
+from electrumsv.app_state import app_state
 from electrumsv.crypto import sha256d, EncodeAES, DecodeAES
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
@@ -671,7 +672,7 @@ class DigitalBitboxPlugin(HW_PluginBase):
         self.logger = logger
 
         if self.libraries_available:
-            self.device_manager().register_devices(self.DEVICE_IDS)
+            app_state.device_manager.register_devices(self.DEVICE_IDS)
 
         self.digitalbitbox_config = self.config.get('digitalbitbox', {})
 
@@ -694,9 +695,8 @@ class DigitalBitboxPlugin(HW_PluginBase):
 
 
     def setup_device(self, device_info, wizard):
-        devmgr = self.device_manager()
         device_id = device_info.device.id_
-        client = devmgr.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
         if client is None:
             raise Exception(_('Failed to create a client for this device.') + '\n' +
                             _('Make sure it is in the correct state.'))
@@ -724,8 +724,7 @@ class DigitalBitboxPlugin(HW_PluginBase):
 
 
     def get_xpub(self, device_id, derivation, xtype, wizard):
-        devmgr = self.device_manager()
-        client = devmgr.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
         client.handler = self.create_handler(wizard)
         client.check_device_dialog()
         xpub = client.get_xpub(derivation, xtype)
@@ -733,10 +732,7 @@ class DigitalBitboxPlugin(HW_PluginBase):
 
 
     def get_client(self, keystore, force_pair=True):
-        devmgr = self.device_manager()
-        handler = keystore.handler
-        with devmgr.hid_lock:
-            client = devmgr.client_for_keystore(self, handler, keystore, force_pair)
+        client = app_state.device_manager.client_for_keystore(self, keystore, force_pair)
         if client is not None:
             client.check_device_dialog()
         return client

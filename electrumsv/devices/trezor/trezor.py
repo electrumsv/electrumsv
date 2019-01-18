@@ -2,6 +2,7 @@ from electrumsv.bip32 import deserialize_xpub, bip32_path_to_uints as parse_path
 from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
 
 from electrumsv.address import OpCodes as opcodes
+from electrumsv.app_state import app_state
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
@@ -124,7 +125,7 @@ class TrezorPlugin(HW_PluginBase):
         self.libraries_available = self.check_libraries_available()
         if not self.libraries_available:
             return
-        self.device_manager().register_enumerate_func(self.enumerate)
+        app_state.device_manager.register_enumerate_func(self.enumerate)
 
     def get_library_version(self):
         import trezorlib
@@ -164,10 +165,7 @@ class TrezorPlugin(HW_PluginBase):
         return TrezorClientBase(transport, handler, self)
 
     def get_client(self, keystore, force_pair=True):
-        devmgr = self.device_manager()
-        handler = keystore.handler
-        with devmgr.hid_lock:
-            client = devmgr.client_for_keystore(self, handler, keystore, force_pair)
+        client = app_state.device_manager.client_for_keystore(self, keystore, force_pair)
         # returns the client for a given keystore. can use xpub
         if client:
             client.used()
@@ -187,8 +185,7 @@ class TrezorPlugin(HW_PluginBase):
             (TIM_NEW, _("Let the device generate a completely new seed randomly")),
             (TIM_RECOVER, _("Recover from a seed you have previously written down")),
         ]
-        devmgr = self.device_manager()
-        client = devmgr.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
         model = client.get_trezor_model()
         def f(method):
             import threading
@@ -231,8 +228,7 @@ class TrezorPlugin(HW_PluginBase):
                 "the words carefully!"),
                 blocking=True)
 
-        devmgr = self.device_manager()
-        client = devmgr.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
 
         if method == TIM_NEW:
             client.reset_device(
@@ -267,9 +263,8 @@ class TrezorPlugin(HW_PluginBase):
         '''Called when creating a new wallet.  Select the device to use.  If
         the device is uninitialized, go through the intialization
         process.'''
-        devmgr = self.device_manager()
         device_id = device_info.device.id_
-        client = devmgr.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
         if client is None:
             raise Exception(_('Failed to create a client for this device.') + '\n' +
                             _('Make sure it is in the correct state.'))
@@ -281,8 +276,7 @@ class TrezorPlugin(HW_PluginBase):
         client.used()
 
     def get_xpub(self, device_id, derivation, xtype, wizard):
-        devmgr = self.device_manager()
-        client = devmgr.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
         client.handler = wizard
         xpub = client.get_xpub(derivation, xtype)
         client.used()

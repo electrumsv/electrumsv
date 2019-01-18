@@ -27,7 +27,6 @@ from collections import namedtuple
 import time
 
 from . import device
-from . import devices
 from .app_state import app_state
 from .logs import logs
 from .util import DaemonThread
@@ -52,8 +51,7 @@ class Plugins(DaemonThread):
         self.hw_wallets = {}
         self.plugins = {}
         self.gui_name = gui_name
-        self.device_manager = device.DeviceMgr(self.config)
-        self.add_jobs(self.device_manager.thread_jobs())
+        self.add_jobs(app_state.device_manager.thread_jobs())
         self.start()
 
     def get(self, name):

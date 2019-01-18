@@ -36,6 +36,7 @@ from PyQt5.QtWidgets import (
 from .keepkey import KeepKeyPlugin, TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 
+from electrumsv.app_state import app_state
 from electrumsv.bip32 import is_xprv
 from electrumsv.i18n import _
 from electrumsv.plugin import hook
@@ -332,8 +333,7 @@ class SettingsDialog(WindowModalDialog):
         super(SettingsDialog, self).__init__(window, title)
         self.setMaximumWidth(540)
 
-        devmgr = plugin.device_manager()
-        config = devmgr.config
+        config = app_state.config
         handler = keystore.handler
         thread = keystore.thread
         hs_rows, hs_cols = (64, 128)
@@ -342,13 +342,13 @@ class SettingsDialog(WindowModalDialog):
             unpair_after = kw_args.pop('unpair_after', False)
 
             def task():
-                client = devmgr.client_by_id(device_id)
+                client = app_state.device_manager.client_by_id(device_id)
                 if not client:
                     raise RuntimeError("Device not connected")
                 if method:
                     getattr(client, method)(*args, **kw_args)
                 if unpair_after:
-                    devmgr.unpair_id(device_id)
+                    app_state.device_manager.unpair_id(device_id)
                 return client.features
 
             thread.add(task, on_success=update)

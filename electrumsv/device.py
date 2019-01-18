@@ -92,7 +92,7 @@ class DeviceMgr(ThreadJob):
     device ID reported by the device itself.  We use the HID IDs.
     '''
 
-    def __init__(self, config):
+    def __init__(self):
         super().__init__()
         # Keyed by xpub.  The value is the device id
         # has been paired, and None otherwise.
@@ -107,7 +107,6 @@ class DeviceMgr(ThreadJob):
         # For synchronization
         self.lock = threading.RLock()
         self.hid_lock = threading.RLock()
-        self.config = config
 
     def thread_jobs(self):
         # Thread job to handle device timeouts
@@ -117,7 +116,7 @@ class DeviceMgr(ThreadJob):
         '''Handle device timeouts.'''
         with self.lock:
             clients = list(self.clients.keys())
-        cutoff = time.time() - self.config.get_session_timeout()
+        cutoff = time.time() - app_state.config.get_session_timeout()
         for client in clients:
             client.timeout(cutoff)
 
@@ -190,8 +189,9 @@ class DeviceMgr(ThreadJob):
         self.scan_devices()
         return self.client_lookup(id_)
 
-    def client_for_keystore(self, hardware, handler, keystore, force_pair):
+    def client_for_keystore(self, hardware, keystore, force_pair):
         logger.debug("getting client for keystore")
+        handler = keystore.handler
         if handler is None:
             raise Exception(_("Handler not found for") + ' ' + hardware.name + '\n' +
                             _("A library is probably missing."))

@@ -2,6 +2,7 @@ import hashlib
 from struct import pack, unpack
 
 from electrumsv import bip32
+from electrumsv.app_state import app_state
 from electrumsv.bitcoin import TYPE_ADDRESS, int_to_hex, var_int
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -464,7 +465,7 @@ class LedgerPlugin(HW_PluginBase):
         self.logger = logger
 
         if self.libraries_available:
-            self.device_manager().register_devices(self.DEVICE_IDS)
+            app_state.device_manager.register_devices(self.DEVICE_IDS)
 
     def get_btchip_device(self, device):
         ledger = False
@@ -491,32 +492,22 @@ class LedgerPlugin(HW_PluginBase):
         return client
 
     def setup_device(self, device_info, wizard):
-        devmgr = self.device_manager()
         device_id = device_info.device.id_
-        client = devmgr.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
         client.handler = self.create_handler(wizard)
         # TODO replace by direct derivation once Nano S > 1.1
         client.get_xpub("m/44'/0'", 'standard')
 
     def get_xpub(self, device_id, derivation, xtype, wizard):
-        devmgr = self.device_manager()
-        client = devmgr.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
         client.handler = self.create_handler(wizard)
         client.checkDevice()
         xpub = client.get_xpub(derivation, xtype)
         return xpub
 
     def get_client(self, keystore, force_pair=True):
-        # All client interaction should not be in the main GUI thread
-        #assert self.main_thread != threading.current_thread()
-        devmgr = self.device_manager()
-        handler = keystore.handler
-        with devmgr.hid_lock:
-            client = devmgr.client_for_keystore(self, handler, keystore, force_pair)
-        # returns the client for a given keystore. can use xpub
-        #if client:
-        #    client.used()
-        if client is not None:
+        client = app_state.device_manager.client_for_keystore(self, keystore, force_pair)
+        if client:
             client.checkDevice()
         return client
 

@@ -44,7 +44,9 @@ class AppStateProxy(object):
     base_units = ['BSV', 'mBSV', 'bits']    # large to small
 
     def __init__(self, config):
+        from electrumsv.device import DeviceMgr
         self.config = config
+        self.device_manager = DeviceMgr()
         self.fx = None
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get('decimal_point', 8)

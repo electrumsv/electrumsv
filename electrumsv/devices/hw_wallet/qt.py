@@ -30,13 +30,16 @@ import threading
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QAction
 
+from electrumsv.app_state import app_state
+from electrumsv.plugin import hook
+from electrumsv.exceptions import UserCancelled
+from electrumsv.i18n import _
+
 from electrumsv.gui.qt.password_dialog import PasswordDialog, PW_PASSPHRASE
 from electrumsv.gui.qt.util import (
     WindowModalDialog, Buttons, OkButton, CancelButton, TaskThread, WWLabel, read_QIcon,
 )
-from electrumsv.plugin import hook
-from electrumsv.exceptions import UserCancelled
-from electrumsv.i18n import _
+
 
 # The trickiest thing about this handler was getting windows properly
 # parented on MacOSX.
@@ -218,10 +221,10 @@ class QtPluginBase(object):
     def choose_device(self, window, keystore):
         '''This dialog box should be usable even if the user has
         forgotten their PIN or it is in bootloader mode.'''
-        device_id = self.device_manager().xpub_id(keystore.xpub)
+        device_id = app_state.device_manager.xpub_id(keystore.xpub)
         if not device_id:
             try:
-                info = self.device_manager().select_device(self, keystore.handler, keystore)
+                info = app_state.device_manager.select_device(self, keystore.handler, keystore)
             except UserCancelled:
                 return
             device_id = info.device.id_

@@ -28,6 +28,7 @@ import os
 from . import bip32
 from . import bitcoin
 from . import keystore
+from .app_state import app_state
 from .i18n import _
 from .keystore import bip44_derivation_145
 from .logs import logs
@@ -181,7 +182,7 @@ class BaseWizard(object):
         supported_plugins = self.plugins.get_hardware_support()
         # scan devices
         devices = []
-        devmgr = self.plugins.device_manager
+        devmgr = app_state.device_manager
         debug_msg = ''
         try:
             scanned_devices = devmgr.scan_devices()
@@ -246,8 +247,7 @@ class BaseWizard(object):
                             + '\n' + str(e) + '\n'
                             + _('To try to fix this, we will now re-pair with your device.') + '\n'
                             + _('Please try again.'))
-            devmgr = self.plugins.device_manager
-            devmgr.unpair_id(device_info.device.id_)
+            app_state.device_manager.unpair_id(device_info.device.id_)
             self.choose_hw_device()
             return
         except Exception as e:
@@ -278,7 +278,6 @@ class BaseWizard(object):
                          test=bip32.is_bip32_derivation)
 
     def on_hw_derivation(self, name, device_info, derivation):
-        from .keystore import hardware_keystore
         xtype = 'standard'
         try:
             xpub = self.plugin.get_xpub(device_info.device.id_, derivation, xtype, self)
@@ -292,7 +291,7 @@ class BaseWizard(object):
             'xpub': xpub,
             'label': device_info.label,
         }
-        k = hardware_keystore(d)
+        k = app_state.plugins.create_keystore(d)
         self.on_keystore(k)
 
     def passphrase_dialog(self, run_next):

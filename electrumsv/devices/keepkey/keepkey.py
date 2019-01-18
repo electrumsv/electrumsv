@@ -25,6 +25,7 @@
 from binascii import hexlify, unhexlify
 import threading
 
+from electrumsv.app_state import app_state
 from electrumsv.bip32 import xpub_from_pubkey
 from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
 from electrumsv.i18n import _
@@ -111,7 +112,7 @@ class KeepKeyPlugin(HW_PluginBase):
         self.main_thread = threading.current_thread()
         # FIXME: move to base class when Ledger is fixed
         if self.libraries_available:
-            self.device_manager().register_devices(self.DEVICE_IDS)
+            app_state.device_manager.register_devices(self.DEVICE_IDS)
 
     def hid_transport(self, pair):
         from keepkeylib.transport_hid import HidTransport
@@ -177,10 +178,7 @@ class KeepKeyPlugin(HW_PluginBase):
         return client
 
     def get_client(self, keystore, force_pair=True):
-        devmgr = self.device_manager()
-        handler = keystore.handler
-        with devmgr.hid_lock:
-            client = devmgr.client_for_keystore(self, handler, keystore, force_pair)
+        client = app_state.device_manager.client_for_keystore(self, keystore, force_pair)
         # returns the client for a given keystore. can use xpub
         if client:
             client.used()
@@ -217,8 +215,7 @@ class KeepKeyPlugin(HW_PluginBase):
         item, label, pin_protection, passphrase_protection = settings
 
         language = 'english'
-        devmgr = self.device_manager()
-        client = devmgr.client_by_id(device_id)
+        client = app_state.devicemanager.client_by_id(device_id)
 
         if method == TIM_NEW:
             strength = 64 * (item + 2)  # 128, 192 or 256
@@ -244,9 +241,8 @@ class KeepKeyPlugin(HW_PluginBase):
         '''Called when creating a new wallet.  Select the device to use.  If
         the device is uninitialized, go through the intialization
         process.'''
-        devmgr = self.device_manager()
         device_id = device_info.device.id_
-        client = devmgr.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
         # fixme: we should use: client.handler = wizard
         client.handler = self.create_handler(wizard)
         if not device_info.initialized:
@@ -255,8 +251,7 @@ class KeepKeyPlugin(HW_PluginBase):
         client.used()
 
     def get_xpub(self, device_id, derivation, xtype, wizard):
-        devmgr = self.device_manager()
-        client = devmgr.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
         client.handler = wizard
         xpub = client.get_xpub(derivation, xtype)
         client.used()

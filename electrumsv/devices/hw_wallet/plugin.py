@@ -26,6 +26,7 @@
 
 import sys
 
+from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.plugin import BasePlugin, hook
@@ -49,14 +50,11 @@ class HW_PluginBase(BasePlugin):
     def is_enabled(self):
         return True
 
-    def device_manager(self):
-        return self.parent.device_manager
-
     @hook
     def close_wallet(self, wallet):
         for keystore in wallet.get_keystores():
             if isinstance(keystore, self.keystore_class):
-                self.device_manager().unpair_xpub(keystore.xpub)
+                app_state.device_manager.unpair_xpub(keystore.xpub)
 
     def get_library_version(self) -> str:
         """Returns the version of the 3rd party python library
