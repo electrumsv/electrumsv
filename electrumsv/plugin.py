@@ -24,7 +24,6 @@
 # SOFTWARE.
 
 from collections import namedtuple
-import time
 
 from . import device
 from .logs import logs
@@ -36,13 +35,9 @@ plugin_loaders = {}
 hook_names = set()
 hooks = {}
 
-HardwarePluginToScan = namedtuple("HardwarePluginToScan", 'name,description,plugin,exception')
-
-
 class Plugins(object):
 
     def __init__(self):
-        self.hw_wallets = {}
         self.plugins = {}
 
     def get(self, name):
@@ -63,37 +58,10 @@ class Plugins(object):
         plugin = self.load_plugin(device_kind)
         return plugin.keystore_class(d)
 
-    def close_plugin(self, plugin):
-        pass
-
-    def get_hardware_support(self):
-        out = []
-        for name, (gui_good, details) in self.hw_wallets.items():
-            if gui_good:
-                try:
-                    p = self.get_plugin(name)
-                    out.append(HardwarePluginToScan(name=name,
-                                                    description=details[2],
-                                                    plugin=p,
-                                                    exception=None))
-                except Exception as e:
-                    logger.exception("cannot load plugin for %s", name)
-                    out.append(HardwarePluginToScan(name=name,
-                                                    description=details[2],
-                                                    plugin=None,
-                                                    exception=e))
-        return out
-
     def get_plugin(self, name):
         if not name in self.plugins:
             self.load_plugin(name)
         return self.plugins[name]
-
-    def run(self):
-        while self.is_running():
-            time.sleep(0.1)
-            self.run_jobs()
-        self.on_stop()
 
 
 def hook(func):
@@ -138,7 +106,6 @@ class BasePlugin:
                 l = hooks.get(k, [])
                 l.remove((self, getattr(self, k)))
                 hooks[k] = l
-        self.parent.close_plugin(self)
         self.on_close()
 
     def on_close(self):

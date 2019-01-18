@@ -177,8 +177,6 @@ class BaseWizard(object):
 
     def choose_hw_device(self):
         title = _('Hardware Keystore')
-        # check available plugins
-        supported_plugins = app_state.plugins.get_hardware_support()
         # scan devices
         devices = []
         devmgr = app_state.device_manager
@@ -188,26 +186,23 @@ class BaseWizard(object):
         except:
             logger.exception(f'error scanning devices')
         else:
-            for splugin in supported_plugins:
-                name, plugin = splugin.name, splugin.plugin
+            for device_kind, plugin in devmgr.supported_devices().items():
                 # plugin init errored?
-                if not plugin:
-                    e = splugin.exception
-                    indented_error_msg = '    '.join([''] + str(e).splitlines(keepends=True))
-                    debug_msg += f'  {name}: (error during plugin init)\n'
-                    debug_msg += '    {}\n'.format(_('You might have an incompatible library.'))
-                    debug_msg += f'{indented_error_msg}\n'
+                if isinstance(plugin, Exception):
+                    tail = '\n    '.join([_('You might have an incompatible library.'), '']
+                                         + str(plugin).splitlines())
+                    debug_msg += f'  {device_kind}: (error loding plugin)\n{tail}\n'
                     continue
-                # see if plugin recognizes 'scanned_devices'
+
                 try:
                     # FIXME: side-effect: unpaired_device_info sets client.handler
                     u = devmgr.unpaired_device_infos(None, plugin, devices=scanned_devices)
+                    devices += [(device_kind, x) for x in u]
                 except Exception as e:
-                    logger(f'error getting device infos for {name}')
-                    indented_error_msg = '    '.join([''] + str(e).splitlines(keepends=True))
-                    debug_msg += f'  {name}: (error getting device infos)\n{indented_error_msg}\n'
-                    continue
-                devices += [(name, x) for x in u]
+                    logger.exception(f'error getting device infos for {device_kind}')
+                    tail = '\n    '.join([''] + str(e).splitlines())
+                    debug_msg += f'  {device_kind}: (error getting device infos)\n{tail}\n'
+
         if not debug_msg:
             debug_msg = '  {}'.format(_('No exceptions encountered.'))
         if not devices:
@@ -230,10 +225,7 @@ class BaseWizard(object):
         for name, info in devices:
             state = _("initialized") if info.initialized else _("wiped")
             label = info.label or _("An unnamed {}").format(name)
-            try: transport_str = info.device.transport_ui_string[:20]
-            except: transport_str = 'unknown transport'
-            descr = f"{label} [{name}, {state}, {transport_str}]"
-            choices.append(((name, info), descr))
+            choices.append(((name, info), f"{label} [{name}, {state}]"))
         msg = _('Select a device') + ':'
         self.choice_dialog(title=title, message=msg, choices=choices, run_next=self.on_device)
 

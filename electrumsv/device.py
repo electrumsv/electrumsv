@@ -38,7 +38,6 @@ logger = logs.get_logger("devices")
 Device = namedtuple("Device", "path interface_number id_ product_key "
                     "usage_page transport_ui_string")
 DeviceInfo = namedtuple("DeviceInfo", "device label initialized")
-supported_devices = ['digitalbitbox', 'keepkey', 'ledger', 'trezor']
 
 
 class DeviceError(Exception):
@@ -91,6 +90,7 @@ class DeviceMgr(ThreadJob):
     Confusingly, the HID ID (serial number) reported by the HID system doesn't match the
     device ID reported by the device itself.  We use the HID IDs.
     '''
+    all_devices = ['digitalbitbox', 'keepkey', 'ledger', 'trezor']
 
     def __init__(self):
         super().__init__()
@@ -115,6 +115,18 @@ class DeviceMgr(ThreadJob):
         cutoff = time.time() - app_state.config.get_session_timeout()
         for client in clients:
             client.timeout(cutoff)
+
+    def supported_devices(self):
+        '''Returns a dictionary.  Keys are all supported device kinds; the value is
+        the plugin object, or the exception if it could not be instantiated.'''
+        def plugin(device_kind):
+            try:
+                return app_state.plugins.get_plugin(device_kind)
+            except Exception as e:
+                logger.exception(f'cannot load plugin for {device_kind}')
+                return e
+
+        return {device_kind: plugin(device_kind) for device_kind in self.all_devices}
 
     def register_devices(self, device_pairs):
         for pair in device_pairs:
