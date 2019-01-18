@@ -460,8 +460,8 @@ class LedgerPlugin(HW_PluginBase):
                    (0x2c97, 0x0001)  # Nano-S
                  ]
 
-    def __init__(self, parent, config, name):
-        HW_PluginBase.__init__(self, parent, config, name)
+    def __init__(self, name):
+        HW_PluginBase.__init__(self, name)
         self.logger = logger
 
         if self.libraries_available:

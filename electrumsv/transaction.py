@@ -464,7 +464,7 @@ class Transaction:
 
         `signatures` is expected to be a list of sigs with signatures[i]
         intended for self._inputs[i].
-        This is used by the Trezor and KeepKey plugins.
+        This is used by hardware device code.
         """
         if self.is_complete():
             return

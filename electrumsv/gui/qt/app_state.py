@@ -87,8 +87,8 @@ class QElectrumSVApplication(QApplication):
 
 class QtAppStateProxy(AppStateProxy):
 
-    def __init__(self, config):
-        super().__init__(config)
+    def __init__(self, *args):
+        super().__init__(*args)
 
         self.windows = []
         self.app = self._create_app()
@@ -97,7 +97,7 @@ class QtAppStateProxy(AppStateProxy):
         self.dpi = self.app.primaryScreen().physicalDotsPerInch()
 
         # FIXME: move language to app_state
-        set_language(config.get('language'))
+        set_language(self.config.get('language'))
 
         # Uncomment this call to verify objects are being properly
         # GC-ed when windows are closed
@@ -223,7 +223,7 @@ class QtAppStateProxy(AppStateProxy):
                 wallet = self.daemon.load_wallet(path, None)
                 if not wallet:
                     storage = WalletStorage(path, manual_upgrades=True)
-                    wizard = InstallWizard(self.config, self.app, self.plugins, storage)
+                    wizard = InstallWizard(storage)
                     try:
                         wallet = wizard.start_gui(is_startup=is_startup)
                     except UserQuit:
@@ -271,8 +271,7 @@ class QtAppStateProxy(AppStateProxy):
         # Show network dialog if config does not exist
         if self.daemon.network and self.config.get('auto_connect') is None:
             try:
-                wizard = InstallWizard(self.config, self.app,
-                                       self.plugins, None)
+                wizard = InstallWizard(None)
                 wizard.init_network(self.daemon.network)
                 wizard.terminate()
             except Exception as e:

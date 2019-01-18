@@ -40,8 +40,8 @@ class HW_PluginBase(BasePlugin):
     #     libraries_available, libraries_URL, minimum_firmware,
     #     wallet_class, ckd_public, types, HidTransport
 
-    def __init__(self, parent, config, name):
-        BasePlugin.__init__(self, parent, config, name)
+    def __init__(self, name):
+        super().__init__(name)
         self.device = self.keystore_class.device
         self.keystore_class.plugin = self
 

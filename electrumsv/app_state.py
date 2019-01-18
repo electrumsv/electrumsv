@@ -43,14 +43,23 @@ class AppStateProxy(object):
 
     base_units = ['BSV', 'mBSV', 'bits']    # large to small
 
-    def __init__(self, config):
+    def __init__(self, config, gui_kind):
         from electrumsv.device import DeviceMgr
+        from electrumsv.plugin import Plugins
+
         self.config = config
         self.device_manager = DeviceMgr()
+        self.gui_kind = gui_kind
         self.fx = None
+        self.plugins = Plugins()
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get('decimal_point', 8)
         self.num_zeros = config.get('num_zeros', 0)
+
+    # It would be nice to lose this
+    def start(self):
+        self.plugins.add_jobs(self.device_manager.thread_jobs())
+        self.plugins.start()
         self.fetch_alias()
 
     def base_unit(self):

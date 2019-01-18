@@ -53,9 +53,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         '''
         # We want to be a top-level window
         QDialog.__init__(self, parent=None)
-        # Take a copy; it might get updated in the main window by
-        # e.g. the FX plugin.  If this happens during or after a long
-        # sign operation the signatures are lost.
+        # Take a copy; it might get updated in the main window by the FX thread.  If this
+        # happens during or after a long sign operation the signatures are lost.
         self.tx = copy.deepcopy(tx)
         self.tx.deserialize()
         self.main_window = parent

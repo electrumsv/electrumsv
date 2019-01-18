@@ -27,7 +27,6 @@ from collections import namedtuple
 import time
 
 from . import device
-from .app_state import app_state
 from .logs import logs
 from .util import DaemonThread
 
@@ -43,16 +42,11 @@ HardwarePluginToScan = namedtuple("HardwarePluginToScan", 'name,description,plug
 
 class Plugins(DaemonThread):
 
-    def __init__(self, gui_name):
+    def __init__(self):
         super().__init__('plugins')
-        app_state.plugins = self
         self.setName('Plugins')
-        self.config = app_state.config
         self.hw_wallets = {}
         self.plugins = {}
-        self.gui_name = gui_name
-        self.add_jobs(app_state.device_manager.thread_jobs())
-        self.start()
 
     def get(self, name):
         return self.plugins.get(name)
@@ -60,8 +54,8 @@ class Plugins(DaemonThread):
     def load_plugin(self, name):
         if name in self.plugins:
             return self.plugins[name]
-        plugin_class = device.plugin_class(name, self.gui_name)
-        plugin = plugin_class(self, app_state.config, name)
+        plugin_class = device.plugin_class(name)
+        plugin = plugin_class(name)
         self.add_jobs(plugin.thread_jobs())
         self.plugins[name] = plugin
         logger.debug("loaded %s", name)
@@ -82,11 +76,10 @@ class Plugins(DaemonThread):
             if gui_good:
                 try:
                     p = self.get_plugin(name)
-                    if p.is_enabled():
-                        out.append(HardwarePluginToScan(name=name,
-                                                        description=details[2],
-                                                        plugin=p,
-                                                        exception=None))
+                    out.append(HardwarePluginToScan(name=name,
+                                                    description=details[2],
+                                                    plugin=p,
+                                                    exception=None))
                 except Exception as e:
                     logger.exception("cannot load plugin for %s", name)
                     out.append(HardwarePluginToScan(name=name,
@@ -115,14 +108,13 @@ def run_hook(name, *args):
     results = []
     f_list = hooks.get(name, [])
     for p, f in f_list:
-        if p.is_enabled():
-            try:
-                r = f(*args)
-            except Exception:
-                logger.exception("Plugin error")
-                r = False
-            if r:
-                results.append(r)
+        try:
+            r = f(*args)
+        except Exception:
+            logger.exception("Plugin error")
+            r = False
+        if r:
+            results.append(r)
 
     if results:
         assert len(results) == 1, results
@@ -130,10 +122,8 @@ def run_hook(name, *args):
 
 
 class BasePlugin:
-    def __init__(self, parent, config, name):
-        self.parent = parent  # The plugins object
+    def __init__(self, name):
         self.name = name
-        self.config = config
         self.wallet = None
         # add self to hooks
         for k in dir(self):
@@ -160,6 +150,3 @@ class BasePlugin:
 
     def thread_jobs(self):
         return []
-
-    def is_enabled(self):
-        return self.config.get('use_' + self.name) is True

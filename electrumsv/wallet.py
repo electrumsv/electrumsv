@@ -2073,9 +2073,8 @@ class Wallet(object):
         wallet_type = storage.get('wallet_type')
         WalletClass = Wallet.wallet_class(wallet_type)
         wallet = WalletClass(storage)
-        # Convert hardware wallets restored with older versions of
-        # Electrum to BIP44 wallets.  A hardware wallet does not have
-        # a seed and plugins do not need to handle having one.
+        # Convert hardware wallets restored with older versions of Electrum to BIP44
+        # wallets.  A hardware wallet does not have a seed.
         rwc = getattr(wallet, 'restore_wallet_class', None)
         if rwc and storage.get('seed', ''):
             logger.debug("converting wallet type to %s", rwc.wallet_type)

@@ -118,8 +118,8 @@ class TrezorPlugin(HW_PluginBase):
 
     MAX_LABEL_LEN = 32
 
-    def __init__(self, parent, config, name):
-        super().__init__(parent, config, name)
+    def __init__(self, name):
+        super().__init__(name)
         self.logger = logger
 
         self.libraries_available = self.check_libraries_available()

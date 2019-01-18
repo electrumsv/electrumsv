@@ -63,9 +63,9 @@ def module(device_kind):
     return mod
 
 
-def plugin_class(device_kind, gui_kind):
+def plugin_class(device_kind):
     '''Returns a class.'''
-    return module(device_kind).plugin(gui_kind)
+    return module(device_kind).plugin(app_state.gui_kind)
 
 
 class DeviceMgr(ThreadJob):

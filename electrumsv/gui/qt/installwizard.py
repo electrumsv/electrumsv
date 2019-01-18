@@ -111,16 +111,12 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
     accept_signal = pyqtSignal()
     synchronized_signal = pyqtSignal(str)
 
-    def __init__(self, config, app, plugins, storage):
-        BaseWizard.__init__(self, config, storage)
+    def __init__(self, storage):
+        BaseWizard.__init__(self, storage)
         QDialog.__init__(self, None)
         self.setWindowTitle('ElectrumSV')
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
-        self.app = app
-        self.config = config
-        # Set for base base class
-        self.plugins = plugins
-        self.language_for_seed = config.get('language')
+        self.language_for_seed = app_state.config.get('language')
         self.setMinimumSize(600, 400)
         self.accept_signal.connect(self.accept)
         self.back_button = QPushButton(_(MSG_BUTTON_BACK), self)
@@ -485,11 +481,11 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     def refresh_gui(self):
         # For some reason, to refresh the GUI this needs to be called twice
-        self.app.processEvents()
-        self.app.processEvents()
+        app_state.app.processEvents()
+        app_state.app.processEvents()
 
     def remove_from_recently_open(self, filename):
-        self.config.remove_from_recently_open(filename)
+        app_state.config.remove_from_recently_open(filename)
 
     def text_input(self, title, message, is_valid, allow_multi=False):
         slayout = KeysLayout(parent=self, title=message, is_valid=is_valid,
@@ -528,7 +524,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     @wizard_dialog
     def confirm_seed_dialog(self, run_next, test):
-        self.app.clipboard().clear()
+        app_state.app.clipboard().clear()
         title = _('Confirm Seed')
         message = ' '.join([
             _('Your seed is important!'),
@@ -661,9 +657,9 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         self.exec_layout(clayout.layout(), title)
         r = clayout.selected_index()
         network.auto_connect = (r == 0)
-        self.config.set_key('auto_connect', network.auto_connect, True)
+        app_state.config.set_key('auto_connect', network.auto_connect, True)
         if r == 1:
-            nlayout = NetworkChoiceLayout(network, self.config, wizard=True)
+            nlayout = NetworkChoiceLayout(network, app_state.config, wizard=True)
             if self.exec_layout(nlayout.layout()):
                 nlayout.accept()
 

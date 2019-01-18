@@ -42,9 +42,8 @@ logger = logs.get_logger('wizard')
 
 class BaseWizard(object):
 
-    def __init__(self, config, storage):
+    def __init__(self, storage):
         super(BaseWizard, self).__init__()
-        self.config = config
         self.storage = storage
         self.wallet = None
         self.stack = []
@@ -179,7 +178,7 @@ class BaseWizard(object):
     def choose_hw_device(self):
         title = _('Hardware Keystore')
         # check available plugins
-        supported_plugins = self.plugins.get_hardware_support()
+        supported_plugins = app_state.plugins.get_hardware_support()
         # scan devices
         devices = []
         devmgr = app_state.device_manager
@@ -239,7 +238,7 @@ class BaseWizard(object):
         self.choice_dialog(title=title, message=msg, choices=choices, run_next=self.on_device)
 
     def on_device(self, name, device_info):
-        self.plugin = self.plugins.get_plugin(name)
+        self.plugin = app_state.plugins.get_plugin(name)
         try:
             self.plugin.setup_device(device_info, self)
         except OSError as e:

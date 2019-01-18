@@ -92,8 +92,8 @@ class KeepKeyPlugin(HW_PluginBase):
     minimum_firmware = (4, 0, 0)
     keystore_class = KeepKey_KeyStore
 
-    def __init__(self, parent, config, name):
-        super().__init__(parent, config, name)
+    def __init__(self, name):
+        super().__init__(name)
         try:
             from . import client
             import keepkeylib

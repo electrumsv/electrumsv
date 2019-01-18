@@ -245,11 +245,6 @@ def run_offline_command(config, config_options):
     return result
 
 
-def init_plugins(gui_name):
-    from electrumsv.plugin import Plugins
-    return Plugins(gui_name)
-
-
 def main():
     # The hook will only be used in the Qt GUI right now
     util.setup_thread_excepthook()
@@ -329,9 +324,10 @@ def main():
             from electrumsv.gui.qt.app_state import QtAppStateProxy
         except ImportError as e:
             platform.missing_import(e)
-        app_state.set_proxy(QtAppStateProxy(config))
+        app_state.set_proxy(QtAppStateProxy(config, 'qt'))
     else:
-        app_state.set_proxy(AppStateProxy(config))
+        app_state.set_proxy(AppStateProxy(config, 'cmdline'))
+    app_state.start()
 
     # run non-RPC commands separately
     if cmdname in ['create', 'restore']:
@@ -343,7 +339,6 @@ def main():
         if fd is not None:
             d = daemon.Daemon(fd, True)
             d.start()
-            init_plugins('qt')
             app_state.run_gui()
             sys.exit(0)
         else:
@@ -362,7 +357,6 @@ def main():
                     if pid:
                         print("starting daemon (PID %d)" % pid, file=sys.stderr)
                         sys.exit(0)
-                init_plugins('cmdline')
                 d = daemon.Daemon(fd, False)
                 d.start()
                 if config.get('websocket_server'):
@@ -401,7 +395,6 @@ def main():
                 print("Daemon not running; try 'electrum-sv daemon start'")
                 sys.exit(1)
             else:
-                init_plugins('cmdline')
                 result = run_offline_command(config, config_options)
                 # print result
     if isinstance(result, str):

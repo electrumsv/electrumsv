@@ -667,14 +667,14 @@ class DigitalBitboxPlugin(HW_PluginBase):
                    (0x03eb, 0x2402) # Digital Bitbox
                  ]
 
-    def __init__(self, parent, config, name):
-        HW_PluginBase.__init__(self, parent, config, name)
+    def __init__(self, name):
+        super().__init__(name)
         self.logger = logger
 
         if self.libraries_available:
             app_state.device_manager.register_devices(self.DEVICE_IDS)
 
-        self.digitalbitbox_config = self.config.get('digitalbitbox', {})
+        self.digitalbitbox_config = app_state.config.get('digitalbitbox', {})
 
 
     def get_dbb_device(self, device):
