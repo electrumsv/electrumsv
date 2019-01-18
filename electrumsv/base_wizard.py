@@ -230,7 +230,7 @@ class BaseWizard(object):
         self.choice_dialog(title=title, message=msg, choices=choices, run_next=self.on_device)
 
     def on_device(self, name, device_info):
-        self.plugin = app_state.plugins.get_plugin(name)
+        self.plugin = app_state.device_manager.get_plugin(name)
         try:
             self.plugin.setup_device(device_info, self)
         except OSError as e:
@@ -282,7 +282,7 @@ class BaseWizard(object):
             'xpub': xpub,
             'label': device_info.label,
         }
-        k = app_state.plugins.create_keystore(d)
+        k = app_state.device_manager.create_keystore(d)
         self.on_keystore(k)
 
     def passphrase_dialog(self, run_next):

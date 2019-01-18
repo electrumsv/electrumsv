@@ -26,23 +26,22 @@
 
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.plugin import BasePlugin
 from electrumsv.util import versiontuple
 
 from .cmdline import CmdLineHandler
 
 
-class HW_PluginBase(BasePlugin):
+class HW_PluginBase(object):
     # Derived classes provide:
     #
     #  class-static variables: client_class, firmware_URL, handler_class,
     #     libraries_available, libraries_URL, minimum_firmware,
     #     wallet_class, ckd_public, types, HidTransport
 
-    def __init__(self, name):
-        super().__init__(name)
+    def __init__(self, device_kind):
         self.device = self.keystore_class.device
-        self.logger = logs.get_logger(name)
+        self.name = device_kind
+        self.logger = logs.get_logger(device_kind)
 
     def create_keystore(self, d):
         keystore = self.keystore_class(d)
