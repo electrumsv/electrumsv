@@ -215,8 +215,6 @@ class QtPluginBase(object):
             handler.icon_paired = self.icon_paired
             keystore.handler = handler
             keystore.thread = TaskThread(window, window.on_error)
-            # Trigger a pairing
-            keystore.thread.add(partial(self.get_client, keystore))
 
     def choose_device(self, window, keystore):
         '''This dialog box should be usable even if the user has

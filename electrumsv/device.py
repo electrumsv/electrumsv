@@ -108,6 +108,57 @@ class DeviceMgr(ThreadJob):
     def _plugin_class(cls, device_kind):
         return cls._module(device_kind).plugin(app_state.gui_kind)
 
+    def _create_client(self, device, handler, plugin):
+        # Get from cache first
+        client = self.client_lookup(device.id_)
+        if client:
+            return client
+        client = plugin.create_client(device, handler)
+        if client:
+            logger.debug("Registering %s", client)
+            with self.lock:
+                self.clients[client] = (device.path, device.id_)
+        return client
+
+    def _client_by_xpub(self, plugin, xpub, handler, devices):
+        _id = self.xpub_id(xpub)
+        client = self.client_lookup(_id)
+        if client:
+            # An unpaired client might have another wallet's handler
+            # from a prior scan.  Replace to fix dialog parenting.
+            client.handler = handler
+            return client
+
+        for device in devices:
+            if device.id_ == _id:
+                return self._create_client(device, handler, plugin)
+
+    def _force_pair_xpub(self, plugin, handler, info, xpub, derivation, devices):
+        # The wallet has not been previously paired, so let the user
+        # choose an unpaired device and compare its first address.
+        xtype = bip32.xpub_type(xpub)
+        client = self.client_lookup(info.device.id_)
+        if client and client.is_pairable():
+            # See comment above for same code
+            client.handler = handler
+            # This will trigger a PIN/passphrase entry request
+            try:
+                client_xpub = client.get_xpub(derivation, xtype)
+            except (UserCancelled, RuntimeError):
+                # Bad / cancelled PIN / passphrase
+                client_xpub = None
+            if client_xpub == xpub:
+                self.pair_xpub(xpub, info.device.id_)
+                return client
+
+        # The user input has wrong PIN or passphrase, or cancelled input,
+        # or it is not pairable
+        raise DeviceUnpairableError(
+            _('ElectrumSV cannot pair with your {}.\n\nBefore you request bitcoins to be '
+              'sent to addresses in this wallet, ensure you can pair with your device, '
+              'or that you have its seed (and passphrase, if any). Otherwise all '
+              'bitcoins you receive will be unspendable.').format(plugin.device))
+
     def timeout_clients(self):
         '''Handle device timeouts.'''
         with self.lock:
@@ -117,15 +168,15 @@ class DeviceMgr(ThreadJob):
             client.timeout(cutoff)
 
     def get_plugin(self, device_kind):
+        # There need only be one instance per device kind.
         if device_kind not in self.plugins:
             self.plugins[device_kind] = self._plugin_class(device_kind)(device_kind)
             logger.debug("loaded %s", device_kind)
         return self.plugins[device_kind]
 
     def create_keystore(self, d):
-        # FIXME: don't load the plugin as a side-effect
         plugin = self.get_plugin(d['hw_type'])
-        return plugin.keystore_class(d)
+        return plugin.create_keystore(d)
 
     def supported_devices(self):
         '''Returns a dictionary.  Keys are all supported device kinds; the value is
@@ -145,18 +196,6 @@ class DeviceMgr(ThreadJob):
 
     def register_enumerate_func(self, func):
         self.enumerate_func.add(func)
-
-    def create_client(self, device, handler, hardware):
-        # Get from cache first
-        client = self.client_lookup(device.id_)
-        if client:
-            return client
-        client = hardware.create_client(device, handler)
-        if client:
-            logger.debug("Registering %s", client)
-            with self.lock:
-                self.clients[client] = (device.path, device.id_)
-        return client
 
     def xpub_id(self, xpub):
         with self.lock:
@@ -208,80 +247,41 @@ class DeviceMgr(ThreadJob):
         self.scan_devices()
         return self.client_lookup(id_)
 
-    def client_for_keystore(self, hardware, keystore, force_pair):
+    def client_for_keystore(self, plugin, keystore, force_pair):
         logger.debug("getting client for keystore")
         handler = keystore.handler
         if handler is None:
-            raise Exception(_("Handler not found for") + ' ' + hardware.name + '\n' +
+            raise Exception(_("Handler not found for") + ' ' + plugin.name + '\n' +
                             _("A library is probably missing."))
         handler.update_status(False)
         devices = self.scan_devices()
         xpub = keystore.xpub
         derivation = keystore.get_derivation()
-        client = self.client_by_xpub(hardware, xpub, handler, devices)
+        client = self._client_by_xpub(plugin, xpub, handler, devices)
         if client is None and force_pair:
-            info = self.select_device(hardware, handler, keystore, devices)
-            client = self.force_pair_xpub(hardware, handler, info, xpub, derivation, devices)
+            info = self.select_device(plugin, handler, keystore, devices)
+            client = self._force_pair_xpub(plugin, handler, info, xpub, derivation, devices)
         if client:
             handler.update_status(True)
         return client
 
-    def client_by_xpub(self, hardware, xpub, handler, devices):
-        _id = self.xpub_id(xpub)
-        client = self.client_lookup(_id)
-        if client:
-            # An unpaired client might have another wallet's handler
-            # from a prior scan.  Replace to fix dialog parenting.
-            client.handler = handler
-            return client
-
-        for device in devices:
-            if device.id_ == _id:
-                return self.create_client(device, handler, hardware)
-
-    def force_pair_xpub(self, hardware, handler, info, xpub, derivation, devices):
-        # The wallet has not been previously paired, so let the user
-        # choose an unpaired device and compare its first address.
-        xtype = bip32.xpub_type(xpub)
-        client = self.client_lookup(info.device.id_)
-        if client and client.is_pairable():
-            # See comment above for same code
-            client.handler = handler
-            # This will trigger a PIN/passphrase entry request
-            try:
-                client_xpub = client.get_xpub(derivation, xtype)
-            except (UserCancelled, RuntimeError):
-                # Bad / cancelled PIN / passphrase
-                client_xpub = None
-            if client_xpub == xpub:
-                self.pair_xpub(xpub, info.device.id_)
-                return client
-
-        # The user input has wrong PIN or passphrase, or cancelled input,
-        # or it is not pairable
-        raise DeviceUnpairableError(
-            _('ElectrumSV cannot pair with your {}.\n\nBefore you request bitcoins to be '
-              'sent to addresses in this wallet, ensure you can pair with your device, '
-              'or that you have its seed (and passphrase, if any). Otherwise all '
-              'bitcoins you receive will be unspendable.').format(hardware.device))
-
-    def unpaired_device_infos(self, handler, hardware, devices=None):
+    def unpaired_device_infos(self, handler, plugin, devices=None):
         '''Returns a list of DeviceInfo objects: one for each connected,
         unpaired device accepted by the hardware.'''
-        if not hardware.libraries_available:
-            raise RuntimeError(hardware.get_library_not_available_message())
+        if not plugin.libraries_available:
+            raise RuntimeError(plugin.get_library_not_available_message())
         if devices is None:
             devices = self.scan_devices()
         devices = [dev for dev in devices if not self.xpub_by_id(dev.id_)]
         infos = []
         for device in devices:
-            if device.product_key not in hardware.DEVICE_IDS:
+            if device.product_key not in plugin.DEVICE_IDS:
                 continue
             try:
-                client = self.create_client(device, handler, hardware)
+                client = self._create_client(device, handler, plugin)
             except Exception as e:
                 logger.debug('failed to create client for %s at %s: %r',
-                             hardware.name, device.path, e)
+                             plugin.name, device.path, e)
                 continue
             if not client:
                 continue
@@ -289,16 +289,16 @@ class DeviceMgr(ThreadJob):
 
         return infos
 
-    def select_device(self, hardware, handler, keystore, devices=None):
+    def select_device(self, plugin, handler, keystore, devices=None):
         '''Ask the user to select a device to use if there is more than one, and return the
         DeviceInfo for the device.
         '''
         while True:
-            infos = self.unpaired_device_infos(handler, hardware, devices)
+            infos = self.unpaired_device_infos(handler, plugin, devices)
             if infos:
                 break
             msg = _('Please insert your {}.  Verify the cable is connected and that no other '
-                    'application is using it.\n\nTry to connect again?').format(hardware.device)
+                    'application is using it.\n\nTry to connect again?').format(plugin.device)
             if not handler.yes_no_question(msg):
                 raise UserCancelled()
             devices = None
@@ -308,7 +308,7 @@ class DeviceMgr(ThreadJob):
         for info in infos:
             if info.label == keystore.label:
                 return info
-        msg = _("Please select which {} device to use:").format(hardware.device)
+        msg = _("Please select which {} device to use:").format(plugin.device)
         descriptions = ['{} ({})'
                         .format(info.label, _("initialized") if info.initialized else _("wiped"))
                         for info in infos]

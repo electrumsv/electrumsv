@@ -47,6 +47,11 @@ class HW_PluginBase(BasePlugin):
 
         self.logger = logs.get_logger("plugin.hwbase")
 
+    def create_keystore(self, d):
+        keystore = self.keystore_class(d)
+        keystore.plugin = self
+        return keystore
+
     def is_enabled(self):
         return True
 
