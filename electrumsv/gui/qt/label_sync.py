@@ -29,7 +29,6 @@ import hashlib
 import requests
 import threading
 
-from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QVBoxLayout)
 
 from electrumsv.app_state import app_state

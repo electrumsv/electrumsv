@@ -3,7 +3,7 @@ import shutil
 import threading
 
 from PyQt5.QtCore import Qt, pyqtSignal, QEventLoop, QRect
-from PyQt5.QtGui import QPalette, QPen, QPainter, QPixmap
+from PyQt5.QtGui import QPalette, QPen, QPainter
 from PyQt5.QtWidgets import (
     QWidget, QDialog, QLabel, QPushButton, QScrollArea, QHBoxLayout, QVBoxLayout, QListWidget,
     QAbstractItemView, QListWidgetItem, QLineEdit, QFileDialog, QMessageBox, QSlider,
@@ -85,7 +85,8 @@ def wizard_dialog(func):
     def func_wrapper(*args, **kwargs):
         run_next = kwargs.get('run_next')
         wizard = args[0]
-        wizard.back_button.setText(_(MSG_BUTTON_BACK) if wizard.can_go_back() else _(MSG_BUTTON_CANCEL))
+        wizard.back_button.setText(_(MSG_BUTTON_BACK) if wizard.can_go_back()
+                                   else _(MSG_BUTTON_CANCEL))
         try:
             out = func(*args, **kwargs)
         except GoBack:
@@ -211,7 +212,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 return len(filenames)
             return 0
 
-        # If the user has ElectrumSV wallets already, we do not offer to copy the one's Electron Cash has.
+        # If the user has ElectrumSV wallets already, we do not offer to copy the one's
+        # Electron Cash has.
         esv_wallets_dir = os.path.join(user_dir(), "wallets")
         if count_user_wallets(esv_wallets_dir) > 0:
             return

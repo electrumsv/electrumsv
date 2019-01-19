@@ -32,7 +32,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QVBoxLayout, QGridLayout, QLabel, QCheckBox, QPushButton, QLineEdit, QWidget, QHBoxLayout,
-    QSizePolicy, QFrame
+    QSizePolicy
 )
 
 from electrumsv.i18n import _
