@@ -99,7 +99,7 @@ class Windows(Platform):
     monospace_font = 'Lucida Console'
     name = 'Windows'
 
-    def user_dir(prefer_local=False):
+    def user_dir(self, prefer_local=False):
         app_dir = os.environ.get("APPDATA")
         localapp_dir = os.environ.get("LOCALAPPDATA")
         if not app_dir or (localapp_dir and prefer_local):

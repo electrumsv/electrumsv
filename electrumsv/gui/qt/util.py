@@ -549,6 +549,7 @@ class ButtonsLineEdit(QLineEdit, ButtonsWidget):
     def __init__(self, text=''):
         QLineEdit.__init__(self, text, None)
         self.buttons = []
+        self.setStyleSheet("* { background-color: red; border-color: blue; }")
 
     def resizeEvent(self, e):
         o = QLineEdit.resizeEvent(self, e)
