@@ -2,7 +2,6 @@
 
 from importlib.machinery import SourceFileLoader
 import os
-import sys
 
 from PyInstaller.utils.hooks import collect_dynamic_libs
 
@@ -24,19 +23,19 @@ binaries += [b for b in collect_dynamic_libs('PyQt5') if 'macstyle' in b[0]]
 
 a = Analysis([base_dir + 'electrum-sv'], binaries=binaries, datas=datas)
 
-# http://stackoverflow.com/questions/19055089
-for d in a.datas:
-    if 'pyconfig' in d[0]:
-        a.datas.remove(d)
-        break
-
 # Strip out parts of Qt that we never use to reduce binary size
 # Note we need qtdbus and qtprintsupport.
-qt_bins2remove = {'qtquick', 'qtwebsockets', 'qtnetwork', 'qtqml'}
+remove = {'qtquick', 'qtwebsockets', 'qtnetwork', 'qtqml'}
 for x in a.binaries.copy():
     lower = x[0].lower()
-    if lower in qt_bins2remove:
+    if lower in remove:
         a.binaries.remove(x)
+
+if False:
+    from pprint import pprint
+    for key in 'scripts', 'pure', 'binaries', 'datas':
+        print(f'a.{key}:')
+        pprint(getattr(a, key))
 
 PACKAGE='ElectrumSV'
 ICONS_FILE='contrib/osx/electrum-sv.icns'
