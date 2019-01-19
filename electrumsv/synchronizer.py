@@ -76,11 +76,12 @@ class Synchronizer(ThreadJob):
             self.new_addresses.add(address)
 
     def subscribe_to_addresses(self, addresses):
-        hashes = [addr.to_scripthash_hex() for addr in addresses]
-        # Keep a hash -> address mapping
-        self.h2addr.update({h:addr for h, addr in zip(hashes, addresses)})
-        self.network.subscribe_to_scripthashes(hashes, self.on_address_status)
-        self.requested_hashes |= set(hashes)
+        if addresses:
+            hashes = [addr.to_scripthash_hex() for addr in addresses]
+            # Keep a hash -> address mapping
+            self.h2addr.update({h:addr for h, addr in zip(hashes, addresses)})
+            self.network.subscribe_to_scripthashes(hashes, self.on_address_status)
+            self.requested_hashes |= set(hashes)
 
     def get_status(self, h):
         if not h:

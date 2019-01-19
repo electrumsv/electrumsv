@@ -720,9 +720,9 @@ class Network(util.DaemonThread):
     # Called locally.
     def send(self, messages, callback):
         '''Messages is a list of (method, params) tuples'''
-        messages = list(messages)
-        with self.pending_sends_lock:
-            self.pending_sends.append((messages, callback))
+        if messages:
+            with self.pending_sends_lock:
+                self.pending_sends.append((messages, callback))
 
     def _process_pending_sends(self):
         # Requests needs connectivity.  If we don't have an interface,
