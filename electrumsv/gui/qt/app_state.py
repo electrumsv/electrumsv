@@ -266,6 +266,8 @@ class QtAppStateProxy(AppStateProxy):
         # save wallet path of last open window
         if not self.windows:
             self.config.save_last_wallet(window.wallet)
+            if self.nd:
+                self.nd.accept()
 
     def maybe_choose_server(self):
         # Show network dialog if config does not exist
