@@ -45,6 +45,7 @@ from .i18n import _
 from .interface import Connection, Interface
 from .logs import logs
 from .networks import Net
+from .platform import platform
 from .version import PACKAGE_VERSION, PROTOCOL_VERSION
 from .simple_config import SimpleConfig
 
@@ -1247,7 +1248,7 @@ class Network(util.DaemonThread):
                 if length>0:
                     f.seek(length-1)
                     f.write(b'\x00')
-        util.ensure_sparse_file(filename)
+        platform.ensure_sparse_file(filename)
         with b.lock:
             b.update_size()
 

@@ -195,13 +195,6 @@ def android_ext_dir():
         from android.os import Environment as env  # Chaquopy import hook
     return env.getExternalStorageDirectory().getPath()
 
-def ensure_sparse_file(filename):
-    if os.name == "nt":
-        try:
-            os.system("fsutil sparse setFlag \""+ filename +"\" 1")
-        except:
-            pass
-
 def get_headers_dir(config):
     return config.path
 
