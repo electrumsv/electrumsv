@@ -298,7 +298,6 @@ class TrezorPlugin(HW_PluginBase):
         deriv_suffix = wallet.get_address_index(address)
         derivation = keystore.derivation
         address_path = "%s/%d/%d"%(derivation, *deriv_suffix)
-        script_type = self.get_trezor_input_script_type(wallet.txin_type)
 
         # prepare multisig, if available:
         xpubs = wallet.get_master_public_keys()
@@ -312,6 +311,7 @@ class TrezorPlugin(HW_PluginBase):
         else:
             multisig = None
 
+        script_type = self.get_trezor_input_script_type(multisig is not None)
         client = self.get_client(keystore)
         client.show_address(address_path, script_type, multisig)
 
