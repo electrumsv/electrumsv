@@ -1589,6 +1589,7 @@ def sanitized_broadcast_message(error):
         return _('it contains more than 1 OP_RETURN input')
     if 'scriptsig-not-pushonly' in msg:
         return _('a scriptsig is not simply data')
-
+    if 'bad-txns-nonfinal' in msg:
+        return _("transaction is not final")
     logger.info(f'server error (untrusted): {error}')
     return unknown_reason
