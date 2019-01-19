@@ -103,7 +103,7 @@ class Windows(Platform):
         app_dir = os.environ.get("APPDATA")
         localapp_dir = os.environ.get("LOCALAPPDATA")
         if not app_dir or (localapp_dir and prefer_local):
-            app_dir = localappdir
+            app_dir = localapp_dir
         return os.path.join(app_dir or ".", "ElectrumSV")
 
     def dbb_user_dir(self):
