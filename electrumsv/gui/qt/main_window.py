@@ -2022,7 +2022,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.balance_fiat_label.setSizePolicy(sp)
         hbox.addWidget(self.balance_fiat_label)
         balance_widget.setLayout(hbox)
-        # balance_widget.setMinimumWidth(self.fontMetrics().width("100000000 BSV = 10000000 USD XXXXXXXXXXXXXXX"))
         sb.addPermanentWidget(balance_widget)
 
         self.set_status_bar_balance(None)
