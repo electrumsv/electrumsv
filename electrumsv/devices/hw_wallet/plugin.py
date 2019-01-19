@@ -110,9 +110,8 @@ class LibraryFoundButUnusable(Exception):
 def is_any_tx_output_on_change_branch(tx):
     if not tx.output_info:
         return False
-    for o in tx.outputs():
-        info = tx.output_info.get(o.address)
-        if info is not None:
-            if info.address_index[0] == 1:
-                return True
+    for _type, address, _amount in tx.outputs():
+        info = tx.output_info.get(address)
+        if info is not None and inf[0][0] == 1:
+            return True
     return False

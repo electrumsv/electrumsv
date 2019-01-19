@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from electrumsv.bip32 import deserialize_xpub, bip32_path_to_uints as parse_path
 from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
 
@@ -20,7 +22,7 @@ try:
     import trezorlib
     import trezorlib.transport
 
-    from .clientbase import TrezorClientBase
+    from .client import TrezorClientSV
 
     from trezorlib.messages import (
         RecoveryDeviceType, HDNodeType, HDNodePathType,
@@ -82,17 +84,11 @@ class TrezorKeyStore(Hardware_KeyStore):
     def sign_transaction(self, tx, password):
         if tx.is_complete():
             return
-        # previous transactions used as inputs
-        prev_tx = {}
         # path of the xpubs that are involved
         xpub_path = {}
         for txin in tx.inputs():
             pubkeys, x_pubkeys = tx.get_sorted_pubkeys(txin)
             tx_hash = txin['prevout_hash']
-            if txin.get('prev_tx') is None:
-                raise Exception(_('Offline signing with {} is not supported.')
-                                .format(self.device))
-            prev_tx[tx_hash] = txin['prev_tx']
             for x_pubkey in x_pubkeys:
                 if not is_xpubkey(x_pubkey):
                     continue
@@ -100,10 +96,10 @@ class TrezorKeyStore(Hardware_KeyStore):
                 if xpub == self.get_master_public_key():
                     xpub_path[xpub] = self.get_derivation()
 
-        self.plugin.sign_transaction(self, tx, prev_tx, xpub_path)
+        self.plugin.sign_transaction(self, tx, xpub_path)
 
     def needs_prevtx(self):
-        # Trezor doesn't neeed previous transactions for Bitcoin Cash
+        # Trezor doesn't neeed previous transactions for Bitcoin SV
         return False
 
 
@@ -162,7 +158,7 @@ class TrezorPlugin(HW_PluginBase):
 
         logger.debug("connected to device at %s", device.path)
         # note that this call can still raise!
-        return TrezorClientBase(transport, handler, self)
+        return TrezorClientSV(transport, handler, self)
 
     def get_client(self, keystore, force_pair=True):
         client = app_state.device_manager.client_for_keystore(self, keystore, force_pair)
@@ -282,22 +278,19 @@ class TrezorPlugin(HW_PluginBase):
         client.used()
         return xpub
 
-    def get_trezor_input_script_type(self, electrum_txin_type):
-        if electrum_txin_type in ('p2pkh', ):
-            return InputScriptType.SPENDADDRESS
-        if electrum_txin_type in ('p2sh', ):
+    def get_trezor_input_script_type(self, is_multisig):
+        if is_multisig:
             return InputScriptType.SPENDMULTISIG
-        raise ValueError(f'unknown txin type: {electrum_txin_type}')
+        else:
+            return InputScriptType.SPENDADDRESS
 
-    def sign_transaction(self, keystore, tx, prev_tx, xpub_path):
-        prev_tx = {bfh(txhash): self.electrum_tx_to_txtype(tx, xpub_path)
-                   for txhash, tx in prev_tx.items()}
+    def sign_transaction(self, keystore, tx, xpub_path):
         client = self.get_client(keystore)
         inputs = self.tx_inputs(tx, xpub_path, True)
         outputs = self.tx_outputs(keystore.get_derivation(), tx)
         details = SignTx(lock_time=tx.locktime)
-        signatures, _ = client.sign_tx(self.get_coin_name(), inputs, outputs,
-                                       details=details, prev_txes=prev_tx)
+        signatures, _ = client.sign_tx(self.get_coin_name(), inputs, outputs, details=details,
+                                       prev_txes=defaultdict(TransactionType))
         tx.update_signatures(signatures)
 
     def show_address(self, wallet, address):
@@ -335,7 +328,7 @@ class TrezorPlugin(HW_PluginBase):
                     xpubs = [parse_xpubkey(x) for x in x_pubkeys]
                     multisig = self._make_multisig(txin.get('num_sig'), xpubs,
                                                    txin.get('signatures'))
-                    script_type = self.get_trezor_input_script_type(txin['type'])
+                    script_type = self.get_trezor_input_script_type(multisig is not None)
                     txinputtype = TxInputType(
                         script_type=script_type,
                         multisig=multisig)
@@ -354,7 +347,7 @@ class TrezorPlugin(HW_PluginBase):
             txinputtype.prev_hash = prev_hash
             txinputtype.prev_index = prev_index
 
-            if txin.get('scriptSig') is not None:
+            if 'scriptSig' in txin:
                 script_sig = bfh(txin['scriptSig'])
                 txinputtype.script_sig = script_sig
 
@@ -409,14 +402,13 @@ class TrezorPlugin(HW_PluginBase):
         has_change = False
         any_output_on_change_branch = is_any_tx_output_on_change_branch(tx)
 
-
         for o in tx.outputs():
             _type, address, amount = o
             use_create_by_derivation = False
 
             info = tx.output_info.get(address)
             if info is not None and not has_change:
-                index, xpubs, m = info.address_index, info.sorted_xpubs, info.num_sig
+                index, xpubs, m = info
                 on_change_branch = index[0] == 1
                 # prioritise hiding outputs on the 'change' branch from user
                 # because no more than one change address allowed
