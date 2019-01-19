@@ -36,9 +36,6 @@ class FeeSlider(QSlider):
             tooltip = fee_levels[pos] + '\n' + rate_str
         else:
             tooltip = _('Fixed rate: ') + rate_str
-            #if self.config.has_fee_estimates():
-                #i = self.config.reverse_dynfee(fee_rate)
-                #tooltip += '\n' + (_('Low fee') if i < 0 else 'Within %d blocks'%i)
         return tooltip
 
     def update(self):
