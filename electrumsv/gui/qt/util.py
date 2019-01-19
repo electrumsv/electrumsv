@@ -546,8 +546,8 @@ class ButtonsWidget(QWidget):
         QToolTip.showText(QCursor.pos(), _("Text copied to clipboard"), self)
 
 class ButtonsLineEdit(QLineEdit, ButtonsWidget):
-    def __init__(self, text=None):
-        QLineEdit.__init__(self, text)
+    def __init__(self, text=''):
+        QLineEdit.__init__(self, text, None)
         self.buttons = []
 
     def resizeEvent(self, e):

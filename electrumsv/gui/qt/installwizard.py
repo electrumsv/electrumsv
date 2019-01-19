@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 
 from electrumsv.app_state import app_state
 from electrumsv.base_wizard import BaseWizard
-from electrumsv.exceptions import UserCancelled, InvalidPassword, UserQuit
+from electrumsv.exceptions import UserCancelled, InvalidPassword
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
@@ -20,7 +20,7 @@ from electrumsv.util import user_dir, get_electron_cash_user_dir
 from electrumsv.wallet import Wallet
 
 from .network_dialog import NetworkChoiceLayout
-from .password_dialog import PasswordLayout, PW_NEW
+from .password_dialog import PasswordLayout, PW_NEW, PasswordLineEdit
 from .seed_dialog import SeedLayout, KeysLayout
 from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, read_QIcon
 
@@ -285,9 +285,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         self.msg_label = QLabel('')
         vbox.addWidget(self.msg_label)
         hbox2 = QHBoxLayout()
-        self.pw_e = QLineEdit('', self)
+        self.pw_e = PasswordLineEdit()
         self.pw_e.setFixedWidth(150)
-        self.pw_e.setEchoMode(2)
         self.pw_label = QLabel(_('Password') + ':')
         hbox2.addWidget(self.pw_label)
         hbox2.addWidget(self.pw_e)

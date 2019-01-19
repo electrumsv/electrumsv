@@ -72,16 +72,7 @@ label_sync = LabelSyncExtension(
           "they are xsent to the remote server.")
     ]))
 
-virtual_keyboard = Extension(
-    'virtualkeyboard', _('Virtual Keyboard'),
-    '\n'.join((
-        _("Add an optional virtual keyboard to the password dialog."),
-        _("Warning: do not use this if it makes you pick a weaker password."),
-    )))
-
-
 extensions = [
     cosigner_pool,
     label_sync,
-    virtual_keyboard,
 ]

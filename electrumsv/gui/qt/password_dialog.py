@@ -31,12 +31,14 @@ import re
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QLineEdit, QVBoxLayout, QGridLayout, QLabel, QCheckBox, QPushButton,
+    QVBoxLayout, QGridLayout, QLabel, QCheckBox, QPushButton, QLineEdit, QWidget, QHBoxLayout,
+    QSizePolicy, QFrame
 )
 
 from electrumsv.i18n import _
-from electrumsv.extensions import virtual_keyboard
-from .util import WindowModalDialog, OkButton, Buttons, CancelButton, icon_path, read_QIcon
+from .util import (
+    WindowModalDialog, OkButton, Buttons, CancelButton, icon_path, read_QIcon, ButtonsLineEdit
+)
 
 
 def check_password_strength(password):
@@ -59,6 +61,30 @@ def check_password_strength(password):
 PW_NEW, PW_CHANGE, PW_PASSPHRASE = range(0, 3)
 
 
+class PasswordLineEdit(ButtonsLineEdit):
+    """
+    This only offers the keyboard button if it is not displayed in a dialog that originated
+    from the keyboard button in an parental window.
+    """
+
+    def __init__(self, text='', keyboard_cb=None, keyboard=True):
+        super().__init__(text)
+
+        self.setEchoMode(QLineEdit.Password)
+
+        if keyboard:
+            if keyboard_cb is None:
+                keyboard_cb = self.on_keyboard
+
+            self.addButton("keyboard.png", keyboard_cb, "Virtual keyboard")
+
+    def on_keyboard(self):
+        d = PasswordDialog(self, keyboard=True, show_keyboard_toggle=False)
+        text = d.run()
+        if text is not None:
+            self.setText(text)
+
+
 class PasswordLayout(object):
 
     titles = [_("Enter Password"), _("Change Password"), _("Enter Passphrase")]
@@ -66,12 +92,9 @@ class PasswordLayout(object):
     def __init__(self, wallet, msg, kind, OK_button):
         self.wallet = wallet
 
-        self.pw = QLineEdit()
-        self.pw.setEchoMode(2)
-        self.new_pw = QLineEdit()
-        self.new_pw.setEchoMode(2)
-        self.conf_pw = QLineEdit()
-        self.conf_pw.setEchoMode(2)
+        self.pw = PasswordLineEdit()
+        self.new_pw = PasswordLineEdit()
+        self.conf_pw = PasswordLineEdit()
         self.kind = kind
         self.OK_button = OK_button
 
@@ -202,69 +225,97 @@ class ChangePasswordDialog(WindowModalDialog):
 
 
 class PasswordDialog(WindowModalDialog):
-
     vkb_index = 0
     vkb = None
 
-    def __init__(self, parent=None, msg=None):
+    pages = [
+        ('Lower-case letters', 'text_lowercase.png', 'abcdefghijklmnopqrstuvwxyz_ '),
+        ('Upper-case letters', 'text_uppercase.png', 'ABCDEFGHIJKLMNOPQRTSUVWXYZ_ '),
+        ('Numbers and symbols', 'text_symbols.png', '1234567890!?.,;:/%&()[]{}+-$#*'),
+    ]
+
+    def __init__(self, parent=None, msg=None, keyboard=False, show_keyboard_toggle=True):
         msg = msg or _('Please enter your password')
         WindowModalDialog.__init__(self, parent, _("Enter Password"))
-        self.pw = pw = QLineEdit()
-        pw.setEchoMode(2)
-        vbox = QVBoxLayout()
-        vbox.addWidget(QLabel(msg))
-        grid = QGridLayout()
-        self.grid = grid
-        grid.setSpacing(8)
-        grid.addWidget(QLabel(_('Password')), 1, 0)
-        grid.addWidget(pw, 1, 1)
-        vbox.addLayout(grid)
-        vbox.addLayout(Buttons(CancelButton(self), OkButton(self)))
-        self.setLayout(vbox)
-        if virtual_keyboard.is_enabled():
-            self.vkb_button = QPushButton(_("+"))
-            self.vkb_button.setFixedWidth(20)
-            self.vkb_button.clicked.connect(self.toggle_vkb)
-            grid.addWidget(self.vkb_button, 1, 2)
-            self.kb_pos = 2
-            self.vkb = None
+        self.pw = pw = PasswordLineEdit(
+            keyboard_cb=self.toggle_keyboard,
+            keyboard=show_keyboard_toggle)
 
-    def toggle_vkb(self, _checked_state):
-        if self.vkb:
-            self.grid.removeItem(self.vkb)
+        about_label = QLabel(msg)
+        sp = QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+        sp.setVerticalStretch(0)
+        about_label.setSizePolicy(sp)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(about_label, Qt.AlignTop)
+
+        edit_hbox = QHBoxLayout()
+        edit_hbox.addWidget(QLabel(_('Password')))
+        edit_hbox.addWidget(pw)
+        vbox.addLayout(edit_hbox)
+
+        vbox.addStretch(1)
+        vbox.addLayout(Buttons(CancelButton(self), OkButton(self)), Qt.AlignBottom)
+        self.setLayout(vbox)
+
+        if keyboard:
+            self.add_keyboard()
+
+    def toggle_keyboard(self):
+        if not self.remove_keyboard():
+            self.add_keyboard()
+
+    def add_keyboard(self):
+        self.remove_keyboard()
         self.vkb = self.virtual_keyboard(self.vkb_index, self.pw)
-        self.grid.addLayout(self.vkb, self.kb_pos, 0, 1, 3)
-        self.vkb_index += 1
+        self.layout().insertLayout(2, self.vkb)
+
+    def remove_keyboard(self):
+        if self.vkb:
+            self.layout().removeItem(self.vkb)
+            self.vkb.setParent(None)
+            QWidget().setLayout(self.vkb)
+            self.vkb = None
+            return True
+        return False
 
     def virtual_keyboard(self, i, pw):
-        i = i % 3
-        if i == 0:
-            chars = 'abcdefghijklmnopqrstuvwxyz_ '
-        elif i == 1:
-            chars = 'ABCDEFGHIJKLMNOPQRTSUVWXYZ_ '
-        elif i == 2:
-            chars = '1234567890!?.,;:/%&()[]{}+-$#*'
+        i = i % len(self.pages)
+        tooltip, icon_name, chars = self.pages[i]
+        other_icon_indexes = list(range(len(self.pages)))
+        other_icon_indexes.remove(i)
 
-        n = len(chars)
-        s = []
-        for i in range(n):
-            while True:
-                k = random.randint(0, n - 1)
-                if k not in s:
-                    s.append(k)
-                    break
+        candidates = list(chars)
+        candidates.extend(other_icon_indexes)
+        ordered_candidates = []
+
+        while len(candidates):
+            value = random.choice(candidates)
+            candidates.remove(value)
+            ordered_candidates.append(value)
 
         def add_target(t):
             return lambda: pw.setText(str(pw.text()) + t)
 
+        def change_page(page_index):
+            self.vkb_index = page_index
+            self.add_keyboard()
+
         vbox = QVBoxLayout()
         grid = QGridLayout()
         grid.setSpacing(2)
-        for i in range(n):
-            l_button = QPushButton(chars[s[i]])
+        for i, value in enumerate(ordered_candidates):
+            l_button = QPushButton()
+            if type(value) is str:
+                l_button.setText(value)
+                l_button.clicked.connect(add_target(value))
+            else:
+                tooltip_text, icon_name, text = self.pages[value]
+                l_button.setIcon(read_QIcon(icon_name))
+                l_button.setToolTip(tooltip_text)
+                l_button.clicked.connect(partial(change_page, value))
             l_button.setFixedWidth(35)
             l_button.setFixedHeight(25)
-            l_button.clicked.connect(add_target(chars[s[i]]))
             grid.addWidget(l_button, i // 6, i % 6)
 
         vbox.addLayout(grid)
@@ -273,5 +324,5 @@ class PasswordDialog(WindowModalDialog):
 
     def run(self):
         if not self.exec_():
-            return
+            return None
         return self.pw.text()
