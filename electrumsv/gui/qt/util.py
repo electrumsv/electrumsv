@@ -520,11 +520,11 @@ class ButtonsWidget(QWidget):
     def resizeButtons(self):
         frameWidth = self.style().pixelMetric(QStyle.PM_DefaultFrameWidth)
         x = self.rect().right() - frameWidth
-        y = self.rect().bottom() - frameWidth
+        y = self.rect().top() + frameWidth
         for button in self.buttons:
             sz = button.sizeHint()
             x -= sz.width()
-            button.move(x, y - sz.height())
+            button.move(x, y)
 
     def addButton(self, icon_name, on_click, tooltip):
         button = QToolButton(self)
@@ -549,7 +549,6 @@ class ButtonsLineEdit(QLineEdit, ButtonsWidget):
     def __init__(self, text=''):
         QLineEdit.__init__(self, text, None)
         self.buttons = []
-        self.setStyleSheet("* { background-color: red; border-color: blue; }")
 
     def resizeEvent(self, e):
         o = QLineEdit.resizeEvent(self, e)
