@@ -13,18 +13,6 @@ from .util import user_dir, make_dir
 
 logger = logs.get_logger("config")
 
-config = None
-
-
-def get_config():
-    global config
-    return config
-
-
-def set_config(c):
-    global config
-    config = c
-
 
 FINAL_CONFIG_VERSION = 2
 
@@ -84,9 +72,6 @@ class SimpleConfig:
         # config upgrade - user config
         if self.requires_upgrade():
             self.upgrade()
-
-        # Make a singleton instance of 'self'
-        set_config(self)
 
     def electrum_path(self):
         # Read electrum_cash_path from command line

@@ -1,6 +1,9 @@
 
-from electrumsv.i18n import _
 from PyQt5.QtWidgets import QFileDialog
+
+from electrumsv import qrscanner
+from electrumsv.app_state import app_state
+from electrumsv.i18n import _
 
 from .util import ButtonsTextEdit, MessageBoxMixin, ColorScheme
 
@@ -53,10 +56,8 @@ class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
         self.setText(data)
 
     def qr_input(self):
-        from electrumsv import qrscanner
-        from electrumsv.simple_config import get_config
         try:
-            data = qrscanner.scan_barcode(get_config().get_video_device())
+            data = qrscanner.scan_barcode(app_state.config.get_video_device())
         except Exception as e:
             self.show_error(str(e))
             data = ''
