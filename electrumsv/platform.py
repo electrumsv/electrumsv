@@ -52,6 +52,10 @@ class Platform(object):
     monospace_font = 'monospace'
     name = 'unset platform'
 
+    def user_dir(self, prefer_local=False):
+        home_dir = os.environ.get("HOME", ".")
+        return os.path.join(home_dir, ".electrum-sv")
+
     def dbb_user_dir(self):
         '''User directory for digital bitbox plugin.'''
         return os.path.join(os.environ["HOME"], ".dbb")
@@ -91,6 +95,13 @@ class Windows(Platform):
     libzbar_name = 'libzbar-0.dll'
     monospace_font = 'Lucida Console'
     name = 'Windows'
+
+    def user_dir(prefer_local=False):
+        app_dir = os.environ.get("APPDATA")
+        localapp_dir = os.environ.get("LOCALAPPDATA")
+        if not app_dir or (localapp_dir and prefer_local):
+            app_dir = localappdir
+        return os.path.join(app_dir or ".", "ElectrumSV")
 
     def dbb_user_dir(self):
         return os.path.join(os.environ["APPDATA"], "DBB")

@@ -15,8 +15,9 @@ from electrumsv.base_wizard import BaseWizard
 from electrumsv.exceptions import UserCancelled, InvalidPassword
 from electrumsv.i18n import _
 from electrumsv.logs import logs
+from electrumsv.platform import platform
 from electrumsv.storage import WalletStorage
-from electrumsv.util import user_dir, get_electron_cash_user_dir
+from electrumsv.util import get_electron_cash_user_dir
 from electrumsv.wallet import Wallet
 
 from .network_dialog import NetworkChoiceLayout
@@ -214,7 +215,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
         # If the user has ElectrumSV wallets already, we do not offer to copy the one's
         # Electron Cash has.
-        esv_wallets_dir = os.path.join(user_dir(), "wallets")
+        esv_wallets_dir = os.path.join(platform.user_dir(), "wallets")
         if count_user_wallets(esv_wallets_dir) > 0:
             return
         ec_wallets_dir = get_electron_cash_user_dir(esv_wallets_dir)

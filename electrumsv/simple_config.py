@@ -8,7 +8,8 @@ import time
 from . import util
 from .bitcoin import MAX_FEE_RATE, FEE_TARGETS
 from .logs import logs
-from .util import user_dir, make_dir
+from .platform import platform
+from .util import make_dir
 
 
 logger = logs.get_logger("config")
@@ -48,7 +49,7 @@ class SimpleConfig:
         if read_user_config_function is None:
             read_user_config_function = read_user_config
         if read_user_dir_function is None:
-            self.user_dir = user_dir
+            self.user_dir = platform.user_dir
         else:
             self.user_dir = read_user_dir_function
 

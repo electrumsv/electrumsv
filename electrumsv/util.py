@@ -295,20 +295,6 @@ def get_electron_cash_user_dir(esv_user_dir):
     esv_user_dir = esv_user_dir.replace("ElectrumSV", "ElectronCash")
     return esv_user_dir
 
-def user_dir(prefer_local=False):
-    if os.name == 'posix' and "HOME" in os.environ:
-        return os.path.join(os.environ["HOME"], ".electrum-sv" )
-    elif "APPDATA" in os.environ or "LOCALAPPDATA" in os.environ:
-        app_dir = os.environ.get("APPDATA")
-        localapp_dir = os.environ.get("LOCALAPPDATA")
-        # Prefer APPDATA, but may get LOCALAPPDATA if present and req'd.
-        if localapp_dir is not None and prefer_local or app_dir is None:
-            app_dir = localapp_dir
-        return os.path.join(app_dir, "ElectrumSV")
-    else:
-        #raise Exception("No home directory found in environment variables.")
-        return
-
 
 def make_dir(path):
     # Make directory if it does not yet exist.

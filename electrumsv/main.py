@@ -34,7 +34,7 @@ import os
 import sys
 import time
 
-from electrumsv import daemon, keystore, util, web
+from electrumsv import daemon, keystore, web
 from electrumsv.app_state import app_state, AppStateProxy
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
 from electrumsv.exceptions import InvalidPassword
@@ -46,7 +46,7 @@ from electrumsv.platform import platform
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.startup import is_bundle
 from electrumsv.storage import WalletStorage
-from electrumsv.util import json_encode, json_decode
+from electrumsv.util import json_encode, json_decode, setup_thread_excepthook
 from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
 
 
@@ -247,7 +247,7 @@ def run_offline_command(config, config_options):
 
 def main():
     # The hook will only be used in the Qt GUI right now
-    util.setup_thread_excepthook()
+    setup_thread_excepthook()
     # on osx, delete Process Serial Number arg generated for apps launched in Finder
     sys.argv = [x for x in sys.argv if not x.startswith('-psn')]
 
@@ -298,7 +298,7 @@ def main():
             os.path.dirname(os.path.realpath(__file__)), 'electrum_sv_data')
 
     if config_options.get('file_logging'):
-        log_path = os.path.join(util.user_dir(prefer_local=True), "logs")
+        log_path = os.path.join(platform.user_dir(prefer_local=True), "logs")
         os.makedirs(log_path, exist_ok=True)
         log_path = os.path.join(log_path, time.strftime("%Y%m%d-%H%M%S") + ".log")
         logs.add_file_output(log_path)
