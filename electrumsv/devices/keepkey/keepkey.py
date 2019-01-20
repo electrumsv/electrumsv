@@ -341,50 +341,48 @@ class KeepKeyPlugin(HW_PluginBase):
         return inputs
 
     def tx_outputs(self, derivation, tx):
-        outputs = []
-        has_change = False
-
-        for _type, address, amount in tx.outputs():
+        def tx_output(output):
+            kind, address, amount = output
             info = tx.output_info.get(address)
-            if info is not None and not has_change:
-                has_change = True # no more than one change address
+            if info:
+                # It's in our wallet
                 index, xpubs, m = info
+                address_n = self.client_class.expand_path("/%d/%d" % index)
                 if len(xpubs) == 1:
                     script_type = self.types.PAYTOADDRESS
-                    address_n = self.client_class.expand_path(derivation + "/%d/%d"%index)
-                    txoutputtype = self.types.TxOutputType(
-                        amount = amount,
-                        script_type = script_type,
-                        address_n = address_n,
-                    )
+                    multisig = None
                 else:
                     script_type = self.types.PAYTOMULTISIG
-                    address_n = self.client_class.expand_path("/%d/%d"%index)
                     nodes = [self.ckd_public.deserialize(xpub) for xpub in xpubs]
                     pubkeys = [self.types.HDNodePathType(node=node, address_n=address_n)
                                for node in nodes]
                     multisig = self.types.MultisigRedeemScriptType(
                         pubkeys = pubkeys,
                         signatures = [b''] * len(pubkeys),
-                        m = m)
-                    txoutputtype = self.types.TxOutputType(
-                        multisig = multisig,
-                        amount = amount,
-                        address_n = self.client_class.expand_path(derivation + "/%d/%d"%index),
-                        script_type = script_type)
-            else:
-                txoutputtype = self.types.TxOutputType()
-                txoutputtype.amount = amount
-                if _type == TYPE_SCRIPT:
-                    txoutputtype.script_type = self.types.PAYTOOPRETURN
-                    txoutputtype.op_return_data = address.to_script()[2:]
-                elif _type == TYPE_ADDRESS:
-                    txoutputtype.script_type = self.types.PAYTOADDRESS
-                    txoutputtype.address = address.to_string()
+                        m = m
+                    )
+                print(amount, address_n, script_type, multisig)
+                return self.types.TxOutputType(
+                    amount=amount,
+                    script_type=script_type,
+                    address_n=address_n,
+                    multisig=multisig
+                )
+            elif kind == TYPE_ADDRESS:
+                return self.types.TxOutputType(
+                    amount=amount,
+                    script_type=self.types.PAYTOADDRESS,
+                    address=address.to_string(),
+                )
 
-            outputs.append(txoutputtype)
+            assert kind == TYPE_SCRIPT
+            return self.types.TxOutputType(
+                amount=amount,
+                script_type=self.types.PAYTOOPRETURN,
+                op_return_data=address.to_script()[2:],
+            )
 
-        return outputs
+        return [tx_output(output) for output in tx.outputs()]
 
     def electrumsv_tx_to_txtype(self, tx):
         t = self.types.TransactionType()
@@ -399,7 +397,8 @@ class KeepKeyPlugin(HW_PluginBase):
             o.script_pubkey = bfh(vout['scriptPubKey'])
         return t
 
-    # This function is called from the trezor libraries (via tx_api)
+    # This function is called from the keepkey libraries (via tx_api)
     def get_tx(self, tx_hash):
+        self.logger.debug("get_tx() called")
         tx = self.prev_tx[tx_hash]
         return self.electrumsv_tx_to_txtype(tx)
