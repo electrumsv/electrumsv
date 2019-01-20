@@ -280,13 +280,12 @@ class PasswordDialog(WindowModalDialog):
         return False
 
     def virtual_keyboard(self, i, pw):
-        i = i % len(self.pages)
-        tooltip, icon_name, chars = self.pages[i]
+        this_page_index = i % len(self.pages)
+        tooltip, icon_name, chars = self.pages[this_page_index]
         other_icon_indexes = list(range(len(self.pages)))
-        other_icon_indexes.remove(i)
+        random.shuffle(other_icon_indexes)
 
         candidates = list(chars)
-        candidates.extend(other_icon_indexes)
         ordered_candidates = []
 
         while len(candidates):
@@ -297,30 +296,48 @@ class PasswordDialog(WindowModalDialog):
         def add_target(t):
             return lambda: pw.setText(str(pw.text()) + t)
 
-        def change_page(page_index):
-            self.vkb_index = page_index
-            self.add_keyboard()
-
-        vbox = QVBoxLayout()
         grid = QGridLayout()
         grid.setSpacing(2)
+
+        def create_grid_page_button(page_index, grid_index, page_data=None, disable=False):
+            if page_data is None:
+                page_data = self.pages[page_index]
+            tooltip_text, icon_name, text = page_data
+            l_button = self.add_grid_command_button(grid, grid_index, tooltip_text,
+                icon_name, text, partial(self.change_keyboard_page, page_index))
+            l_button.setDisabled(disable)
+            return l_button
+
+        page_data = "Regenerate page", "refresh_win10_16.png", None
+        create_grid_page_button(this_page_index, 0, page_data)
+
+        for i, page_index in enumerate(other_icon_indexes):
+            disable = page_index == this_page_index
+            l_button = create_grid_page_button(page_index, i+1, disable=disable)
+
         for i, value in enumerate(ordered_candidates):
             l_button = QPushButton()
-            if type(value) is str:
-                l_button.setText(value)
-                l_button.clicked.connect(add_target(value))
-            else:
-                tooltip_text, icon_name, text = self.pages[value]
-                l_button.setIcon(read_QIcon(icon_name))
-                l_button.setToolTip(tooltip_text)
-                l_button.clicked.connect(partial(change_page, value))
+            l_button.setText(value)
+            l_button.clicked.connect(add_target(value))
             l_button.setFixedWidth(35)
             l_button.setFixedHeight(25)
-            grid.addWidget(l_button, i // 6, i % 6)
+            grid.addWidget(l_button, i // 6, 1 + (i % 6))
 
-        vbox.addLayout(grid)
+        return grid
 
-        return vbox
+    def change_keyboard_page(self, page_index):
+        self.vkb_index = page_index
+        self.add_keyboard()
+
+    def add_grid_command_button(self, grid, row_index, tooltip_text, icon_name, text, click_cb):
+        l_button = QPushButton()
+        l_button.setIcon(read_QIcon(icon_name))
+        l_button.setToolTip(tooltip_text)
+        l_button.clicked.connect(click_cb)
+        l_button.setFixedWidth(35)
+        l_button.setFixedHeight(25)
+        grid.addWidget(l_button, row_index, 0)
+        return l_button
 
     def run(self):
         if not self.exec_():
