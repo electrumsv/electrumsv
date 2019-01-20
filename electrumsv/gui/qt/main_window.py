@@ -578,7 +578,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def init_toolbar(self):
         self.toolbar = toolbar = QToolBar(self)
         icon_size = app_state.dpi / 5.8
-        toolbar.setFixedHeight(icon_size * 1.9)
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(icon_size, icon_size))
         toolbar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
