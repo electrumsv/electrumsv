@@ -104,14 +104,3 @@ class LibraryFoundButUnusable(Exception):
     def __init__(self, library_version='unknown'):
         super().__init__()
         self.library_version = library_version
-
-
-
-def is_any_tx_output_on_change_branch(tx):
-    if not tx.output_info:
-        return False
-    for _type, address, _amount in tx.outputs():
-        info = tx.output_info.get(address)
-        if info is not None and inf[0][0] == 1:
-            return True
-    return False

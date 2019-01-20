@@ -11,11 +11,10 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import deserialize
 from electrumsv.util import bfh
 
 from ..hw_wallet import HW_PluginBase
-from ..hw_wallet.plugin import is_any_tx_output_on_change_branch, LibraryFoundButUnusable
+from ..hw_wallet.plugin import LibraryFoundButUnusable
 
 
 try:
@@ -27,7 +26,7 @@ try:
     from trezorlib.messages import (
         RecoveryDeviceType, HDNodeType, HDNodePathType,
         InputScriptType, OutputScriptType, MultisigRedeemScriptType,
-        TxInputType, TxOutputType, TxOutputBinType, TransactionType, SignTx)
+        TxInputType, TxOutputType, TransactionType, SignTx)
 
     RECOVERY_TYPE_SCRAMBLED_WORDS = RecoveryDeviceType.ScrambledWords
     RECOVERY_TYPE_MATRIX = RecoveryDeviceType.Matrix
@@ -377,15 +376,18 @@ class TrezorPlugin(HW_PluginBase):
     def tx_outputs(self, derivation, tx):
 
         def create_output_by_derivation():
-            script_type = self.get_trezor_output_script_type(info.script_type)
             deriv = parse_path("/%d/%d" % index)
             multisig = self._make_multisig(m, [(xpub, deriv) for xpub in xpubs])
-            txoutputtype = TxOutputType(
+            if multisig is None:
+                script_type = OutputScriptType.PAYTOADDRESS
+            else:
+                script_type = OutputScriptType.PAYTOMULTISIG
+            return TxOutputType(
                 multisig=multisig,
                 amount=amount,
                 address_n=parse_path(derivation + "/%d/%d" % index),
-                script_type=script_type)
-            return txoutputtype
+                script_type=script_type
+            )
 
         def create_output_by_address():
             txoutputtype = TxOutputType()
@@ -399,41 +401,16 @@ class TrezorPlugin(HW_PluginBase):
             return txoutputtype
 
         outputs = []
-        has_change = False
-        any_output_on_change_branch = is_any_tx_output_on_change_branch(tx)
 
         for o in tx.outputs():
             _type, address, amount = o
-            use_create_by_derivation = False
-
             info = tx.output_info.get(address)
-            if info is not None and not has_change:
+            if info:
+                # Send derivations of addresses in our wallet
                 index, xpubs, m = info
-                on_change_branch = index[0] == 1
-                # prioritise hiding outputs on the 'change' branch from user
-                # because no more than one change address allowed
-                # note: ^ restriction can be removed once we require fw
-                # that has https://github.com/trezor/trezor-mcu/pull/306
-                if on_change_branch == any_output_on_change_branch:
-                    use_create_by_derivation = True
-                    has_change = True
-
-            if use_create_by_derivation:
                 txoutputtype = create_output_by_derivation()
             else:
                 txoutputtype = create_output_by_address()
             outputs.append(txoutputtype)
 
         return outputs
-
-    def electrum_tx_to_txtype(self, tx, xpub_path):
-        t = TransactionType()
-        d = deserialize(tx.raw)
-        t.version = d['version']
-        t.lock_time = d['lockTime']
-        t.inputs = self.tx_inputs(tx, xpub_path)
-        t.bin_outputs = [
-            TxOutputBinType(amount=vout['value'], script_pubkey=bfh(vout['scriptPubKey']))
-            for vout in d['outputs']
-        ]
-        return t
