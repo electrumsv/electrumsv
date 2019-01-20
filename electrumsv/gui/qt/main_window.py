@@ -592,6 +592,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         update_action.triggered.connect(self.show_update_check)
         toolbar.addAction(update_action)
         self.addToolBar(toolbar)
+        self.setUnifiedTitleAndToolBarOnMac(True)
 
     def donate_to_server(self):
         server = self.network.get_parameters()[0]
