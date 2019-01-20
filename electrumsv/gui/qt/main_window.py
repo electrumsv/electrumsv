@@ -584,9 +584,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         preferences_action.triggered.connect(self.preferences_dialog)
         toolbar.addAction(preferences_action)
 
-        self.network_action = QAction(read_QIcon("status_disconnected.png"), _("Network"), self)
-        self.network_action.triggered.connect(lambda: app_state.show_network_dialog(self))
-        toolbar.addAction(self.network_action)
+        network_action = QAction(read_QIcon("network.png"), _("Network"), self)
+        network_action.triggered.connect(lambda: app_state.show_network_dialog(self))
+        toolbar.addAction(network_action)
 
         update_action = QAction(read_QIcon("update.png"), _("Check for Updates"), self)
         update_action.triggered.connect(self.show_update_check)
@@ -799,7 +799,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         if self.network is None or not self.network.is_running():
             network_text = _("Offline")
-            icon = "status_disconnected.png"
+            # icon = "status_disconnected.png"
         elif self.network.is_connected():
             server_height = self.network.get_server_height()
             server_lag = self.network.get_local_height() - server_height
@@ -809,10 +809,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # Display the synchronizing message in that case.
             if not self.wallet.up_to_date or server_height == 0:
                 network_text = _("Synchronizing...")
-                icon = "status_waiting.png"
+                # icon = "status_waiting.png"
             elif server_lag > 1:
                 network_text = _("Server {} blocks behind)").format(server_lag)
-                icon = "status_lagging.png" if num_chains <= 1 else "status_lagging_fork.png"
+                # icon = "status_lagging.png" if num_chains <= 1 else "status_lagging_fork.png"
             else:
                 c, u, x = self.wallet.get_balance()
                 #balance_text = "%s "%(self.format_amount_and_units(c))
@@ -827,21 +827,21 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     fiat_status = app_state.fx.get_fiat_status(c + u + x,
                         app_state.base_unit(), app_state.decimal_point)
 
-                if not self.network.proxy:
-                    icon = ("status_connected.png" if num_chains <= 1
-                            else "status_connected_fork.png")
-                else:
-                    icon = ("status_connected_proxy.png" if num_chains <= 1
-                            else "status_connected_proxy_fork.png")
+                #if not self.network.proxy:
+                #    icon = ("status_connected.png" if num_chains <= 1
+                #            else "status_connected_fork.png")
+                #else:
+                #    icon = ("status_connected_proxy.png" if num_chains <= 1
+                #            else "status_connected_proxy_fork.png")
         else:
             network_text = _("Not connected")
-            icon = "status_disconnected.png"
+            # icon = "status_disconnected.png"
 
         # self.tray.setToolTip("%s (%s)" % (text, self.wallet.basename()))
         self.set_status_bar_balance(balance_status)
         self.set_status_bar_fiat(fiat_status)
         self.network_label.setText(network_text)
-        self.network_action.setIcon(read_QIcon(icon))
+        #self.network_action.setIcon(read_QIcon(icon))
 
     def update_wallet(self):
         self.update_status()
