@@ -361,7 +361,6 @@ class KeepKeyPlugin(HW_PluginBase):
                         signatures = [b''] * len(pubkeys),
                         m = m
                     )
-                print(amount, address_n, script_type, multisig)
                 return self.types.TxOutputType(
                     amount=amount,
                     script_type=script_type,
