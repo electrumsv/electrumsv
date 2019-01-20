@@ -65,9 +65,14 @@ class PasswordLineEdit(QWidget):
     Display a password QLineEdit with a button to open a virtual keyboard.
     """
 
+    reveal_png = "icons8-eye-32.png"
+    hide_png = "icons8-hide-32.png"
+
     def __init__(self, text=''):
         super().__init__()
         self.pw = ButtonsLineEdit(text)
+        self.reveal_button = self.pw.addButton(self.reveal_png, self.toggle_visible,
+                                               _("Toggle visibility"))
         self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))
         self.pw.setEchoMode(QLineEdit.Password)
         self.keyboard = VirtualKeyboard(self.pw)
@@ -84,6 +89,14 @@ class PasswordLineEdit(QWidget):
 
     def toggle_keyboard(self):
         self.keyboard.setVisible(not self.keyboard.isVisible())
+
+    def toggle_visible(self):
+        if self.pw.echoMode() == QLineEdit.Password:
+            self.pw.setEchoMode(QLineEdit.Normal)
+            self.reveal_button.setIcon(read_QIcon(self.hide_png))
+        else:
+            self.pw.setEchoMode(QLineEdit.Password)
+            self.reveal_button.setIcon(read_QIcon(self.reveal_png))
 
 
 class PasswordLayout(object):
