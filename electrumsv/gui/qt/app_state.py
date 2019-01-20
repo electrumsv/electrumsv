@@ -46,6 +46,7 @@ from .exception_window import Exception_Hook
 from .installwizard import InstallWizard, GoBack
 from .main_window import ElectrumWindow
 from .network_dialog import NetworkDialog
+from .suppressible import show_suppressible
 from .util import ColorScheme, read_QIcon
 
 
@@ -214,6 +215,8 @@ class QtAppStateProxy(AppStateProxy):
     def start_new_window(self, path, uri, is_startup=False):
         '''Raises the window for the wallet if it is open.  Otherwise
         opens the wallet and creates a new window for it.'''
+        if is_startup:
+            show_suppressible('welcome-ESV-1.1')
         for w in self.windows:
             if w.wallet.storage.path == path:
                 w.bring_to_top()
