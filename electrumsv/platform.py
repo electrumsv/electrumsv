@@ -74,9 +74,6 @@ class Platform(object):
                             .format(module, package)))
         raise exception from None
 
-    def dialog_title_and_text(self, title, text):
-        return title, text
-
 
 class Darwin(Platform):
     libsecp256k1_name = 'libsecp256k1.0.dylib'
