@@ -86,6 +86,7 @@ class PasswordLineEdit(QWidget):
         self.setPlaceholderText = self.pw.setPlaceholderText
         self.text = self.pw.text
         self.textChanged = self.pw.textChanged
+        self.setFocus = self.pw.setFocus
 
     def toggle_keyboard(self):
         self.keyboard.setVisible(not self.keyboard.isVisible())
