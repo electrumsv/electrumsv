@@ -70,6 +70,7 @@ class VirtualKeyboard(QWidget):
         for button, page in zip(self.page_buttons, self.pages):
             button.setIcon(read_QIcon(page.icon))
             button.setToolTip(page.tooltip)
+            button.setDisabled(page is self.page)
         self._shuffle_page()
 
     def _shuffle_page(self):
@@ -87,7 +88,7 @@ class VirtualKeyboard(QWidget):
         grid.setSpacing(2)
         grid.setContentsMargins(0, 0, 0, 0)
 
-        rows = 5
+        rows = 6
         cols = (max_chars + rows - 1) // rows
         grid.addWidget(self.refresh_button, 0, 0)
         for n, button in enumerate(self.page_buttons):
@@ -98,9 +99,8 @@ class VirtualKeyboard(QWidget):
 
     def _on_page_button(self, button):
         page = self.pages[self.page_buttons.index(button)]
-        if page != self.page:
-            self.page = page
-            self._shuffle_page()
+        self.page = page
+        self._shuffle_page()
 
     def _char_pressed(self, button):
         self.pw_edit.setText(self.pw_edit.text() + button.text())
