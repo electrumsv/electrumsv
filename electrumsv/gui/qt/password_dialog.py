@@ -23,19 +23,18 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from functools import partial
 import math
-import random
 import re
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QVBoxLayout, QGridLayout, QLabel, QCheckBox, QPushButton, QLineEdit, QWidget, QHBoxLayout,
-    QSizePolicy
+    QVBoxLayout, QGridLayout, QLabel, QCheckBox, QLineEdit, QWidget, QHBoxLayout, QSizePolicy
 )
 
 from electrumsv.i18n import _
+
+from .virtual_keyboard import VirtualKeyboard
 from .util import (
     WindowModalDialog, OkButton, Buttons, CancelButton, icon_path, read_QIcon, ButtonsLineEdit
 )
@@ -61,28 +60,30 @@ def check_password_strength(password):
 PW_NEW, PW_CHANGE, PW_PASSPHRASE = range(0, 3)
 
 
-class PasswordLineEdit(ButtonsLineEdit):
+class PasswordLineEdit(QWidget):
     """
-    This only offers the keyboard button if it is not displayed in a dialog that originated
-    from the keyboard button in an parental window.
+    Display a password QLineEdit with a button to open a virtual keyboard.
     """
 
-    def __init__(self, text='', keyboard_cb=None, keyboard=True):
-        super().__init__(text)
+    def __init__(self, text=''):
+        super().__init__()
+        self.pw = ButtonsLineEdit(text)
+        self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))
+        self.pw.setEchoMode(QLineEdit.Password)
+        self.keyboard = VirtualKeyboard(self.pw)
+        self.keyboard.setVisible(False)
+        layout = QVBoxLayout()
+        layout.setSpacing(0)
+        layout.addWidget(self.pw)
+        layout.addWidget(self.keyboard)
+        self.setLayout(layout)
+        # Pass-throughs
+        self.setPlaceholderText = self.pw.setPlaceholderText
+        self.text = self.pw.text
+        self.textChanged = self.pw.textChanged
 
-        self.setEchoMode(QLineEdit.Password)
-
-        if keyboard:
-            if keyboard_cb is None:
-                keyboard_cb = self.on_keyboard
-
-            self.addButton("keyboard.png", keyboard_cb, "Virtual keyboard")
-
-    def on_keyboard(self):
-        d = PasswordDialog(self, keyboard=True, show_keyboard_toggle=False)
-        text = d.run()
-        if text is not None:
-            self.setText(text)
+    def toggle_keyboard(self):
+        self.keyboard.setVisible(not self.keyboard.isVisible())
 
 
 class PasswordLayout(object):
@@ -225,21 +226,11 @@ class ChangePasswordDialog(WindowModalDialog):
 
 
 class PasswordDialog(WindowModalDialog):
-    vkb_index = 0
-    vkb = None
 
-    pages = [
-        ('Lower-case letters', 'text_lowercase.png', 'abcdefghijklmnopqrstuvwxyz_ '),
-        ('Upper-case letters', 'text_uppercase.png', 'ABCDEFGHIJKLMNOPQRTSUVWXYZ_ '),
-        ('Numbers and symbols', 'text_symbols.png', '1234567890!?.,;:/%&()[]{}+-$#*'),
-    ]
-
-    def __init__(self, parent=None, msg=None, keyboard=False, show_keyboard_toggle=True):
+    def __init__(self, parent=None, msg=None):
         msg = msg or _('Please enter your password')
-        WindowModalDialog.__init__(self, parent, _("Enter Password"))
-        self.pw = pw = PasswordLineEdit(
-            keyboard_cb=self.toggle_keyboard,
-            keyboard=show_keyboard_toggle)
+        super().__init__(parent, _("Enter Password"))
+        self.pw = pw = PasswordLineEdit()
 
         about_label = QLabel(msg)
         sp = QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
@@ -257,87 +248,6 @@ class PasswordDialog(WindowModalDialog):
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CancelButton(self), OkButton(self)), Qt.AlignBottom)
         self.setLayout(vbox)
-
-        if keyboard:
-            self.add_keyboard()
-
-    def toggle_keyboard(self):
-        if not self.remove_keyboard():
-            self.add_keyboard()
-
-    def add_keyboard(self):
-        self.remove_keyboard()
-        self.vkb = self.virtual_keyboard(self.vkb_index, self.pw)
-        self.layout().insertLayout(2, self.vkb)
-
-    def remove_keyboard(self):
-        if self.vkb:
-            self.layout().removeItem(self.vkb)
-            self.vkb.setParent(None)
-            QWidget().setLayout(self.vkb)
-            self.vkb = None
-            return True
-        return False
-
-    def virtual_keyboard(self, i, pw):
-        this_page_index = i % len(self.pages)
-        tooltip, icon_name, chars = self.pages[this_page_index]
-        other_icon_indexes = list(range(len(self.pages)))
-        random.shuffle(other_icon_indexes)
-
-        candidates = list(chars)
-        ordered_candidates = []
-
-        while len(candidates):
-            value = random.choice(candidates)
-            candidates.remove(value)
-            ordered_candidates.append(value)
-
-        def add_target(t):
-            return lambda: pw.setText(str(pw.text()) + t)
-
-        grid = QGridLayout()
-        grid.setSpacing(2)
-
-        def create_grid_page_button(page_index, grid_index, page_data=None, disable=False):
-            if page_data is None:
-                page_data = self.pages[page_index]
-            tooltip_text, icon_name, text = page_data
-            l_button = self.add_grid_command_button(grid, grid_index, tooltip_text,
-                icon_name, text, partial(self.change_keyboard_page, page_index))
-            l_button.setDisabled(disable)
-            return l_button
-
-        page_data = "Regenerate page", "refresh_win10_16.png", None
-        create_grid_page_button(this_page_index, 0, page_data)
-
-        for i, page_index in enumerate(other_icon_indexes):
-            disable = page_index == this_page_index
-            l_button = create_grid_page_button(page_index, i+1, disable=disable)
-
-        for i, value in enumerate(ordered_candidates):
-            l_button = QPushButton()
-            l_button.setText(value)
-            l_button.clicked.connect(add_target(value))
-            l_button.setFixedWidth(35)
-            l_button.setFixedHeight(25)
-            grid.addWidget(l_button, i // 6, 1 + (i % 6))
-
-        return grid
-
-    def change_keyboard_page(self, page_index):
-        self.vkb_index = page_index
-        self.add_keyboard()
-
-    def add_grid_command_button(self, grid, row_index, tooltip_text, icon_name, text, click_cb):
-        l_button = QPushButton()
-        l_button.setIcon(read_QIcon(icon_name))
-        l_button.setToolTip(tooltip_text)
-        l_button.clicked.connect(click_cb)
-        l_button.setFixedWidth(35)
-        l_button.setFixedHeight(25)
-        grid.addWidget(l_button, row_index, 0)
-        return l_button
 
     def run(self):
         if not self.exec_():

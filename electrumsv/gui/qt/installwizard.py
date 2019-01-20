@@ -287,9 +287,10 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
         self.msg_label = QLabel('')
         vbox.addWidget(self.msg_label)
+
         hbox2 = QHBoxLayout()
         self.pw_e = PasswordLineEdit()
-        self.pw_e.setFixedWidth(150)
+        self.pw_e.setFixedWidth(200)
         self.pw_label = QLabel(_('Password') + ':')
         hbox2.addWidget(self.pw_label)
         hbox2.addWidget(self.pw_e)
