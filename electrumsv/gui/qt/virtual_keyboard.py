@@ -87,15 +87,16 @@ class VirtualKeyboard(QWidget):
         grid = QGridLayout()
         grid.setVerticalSpacing(2)
         grid.setHorizontalSpacing(1)
-        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setContentsMargins(0, 4, 0, 0)
 
         rows = 6
         cols = (max_chars + rows - 1) // rows
-        grid.addWidget(self.refresh_button, 0, cols)
+        grid.addWidget(self.refresh_button, 0, cols + 1)
         for n, button in enumerate(self.page_buttons):
-            grid.addWidget(button, n + 1, cols)
+            grid.addWidget(button, n + 1, cols + 1)
         for n, button in enumerate(self.char_buttons):
             grid.addWidget(button, n // cols, n % cols)
+        grid.setColumnMinimumWidth(cols, app_state.dpi / 12)
         return grid
 
     def _on_page_button(self, button):
