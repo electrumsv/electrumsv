@@ -90,11 +90,11 @@ class VirtualKeyboard(QWidget):
 
         rows = 6
         cols = (max_chars + rows - 1) // rows
-        grid.addWidget(self.refresh_button, 0, 0)
+        grid.addWidget(self.refresh_button, 0, cols)
         for n, button in enumerate(self.page_buttons):
-            grid.addWidget(button, n + 1, 0)
+            grid.addWidget(button, n + 1, cols)
         for n, button in enumerate(self.char_buttons):
-            grid.addWidget(button, n // cols, n % cols + 1)
+            grid.addWidget(button, n // cols, n % cols)
         return grid
 
     def _on_page_button(self, button):
