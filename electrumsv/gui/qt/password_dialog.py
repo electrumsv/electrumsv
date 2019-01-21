@@ -27,7 +27,7 @@ import math
 import re
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap, QPalette, QColor
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QVBoxLayout, QGridLayout, QLabel, QCheckBox, QLineEdit, QWidget
 )
@@ -83,11 +83,13 @@ class PasswordLineEdit(QWidget):
         if (self.mode & PLE_FLAG_HIDE_KEYBOARD_TOGGLE) == 0:
             self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))
         self.pw.setEchoMode(QLineEdit.Password)
+        # self.pw.setMinimumWidth(200)
         self.keyboard = VirtualKeyboard(self.pw)
         self.keyboard.setVisible(self.mode & PLE_FLAG_SHOW_KEYBOARD)
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        # layout.setSizeConstraint(QVBoxLayout.SetFixedSize)
         layout.addWidget(self.pw)
         layout.addWidget(self.keyboard)
         self.setLayout(layout)
@@ -264,6 +266,7 @@ class PasswordDialog(WindowModalDialog):
         super().__init__(parent, _("Enter Password"))
 
         self.pw = pw = DialogPasswordLineEdit(force_keyboard=force_keyboard)
+        # self.pw = pw = PasswordLineEdit()
 
         about_label = QLabel(msg or _('Enter your password:'))
 
