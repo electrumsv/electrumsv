@@ -29,6 +29,7 @@ from PyQt5.QtWidgets import QGridLayout, QPushButton, QWidget
 
 from electrumsv.i18n import _
 
+from electrumsv.app_state import app_state
 from .util import read_QIcon
 
 
@@ -44,8 +45,7 @@ max_chars = max(len(page.chars) for page in pages)
 def vkb_button(click_cb):
     button = QPushButton()
     button.clicked.connect(partial(click_cb, button))
-    button.setFixedWidth(35)
-    button.setFixedHeight(25)
+    button.setFixedWidth(app_state.dpi / 3.2)
     return button
 
 
@@ -85,7 +85,8 @@ class VirtualKeyboard(QWidget):
 
     def _create_grid_layout(self):
         grid = QGridLayout()
-        grid.setSpacing(2)
+        grid.setVerticalSpacing(2)
+        grid.setHorizontalSpacing(1)
         grid.setContentsMargins(0, 0, 0, 0)
 
         rows = 6

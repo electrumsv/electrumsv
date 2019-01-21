@@ -265,7 +265,7 @@ class PasswordDialog(WindowModalDialog):
 
         self.pw = pw = DialogPasswordLineEdit(force_keyboard=force_keyboard)
 
-        about_label = QLabel(msg or _('Please enter your password'))
+        about_label = QLabel(msg or _('Enter your password:'))
 
         vbox = QVBoxLayout()
         vbox.addWidget(about_label)
