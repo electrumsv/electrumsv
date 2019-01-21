@@ -24,6 +24,8 @@
 
 import json
 
+from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet
+
 from .util import resource_path
 
 def read_json_dict(filename):
@@ -49,17 +51,20 @@ class SVMainnet(object):
         "000000000000000000651ef99cb9fcbe0dadde1d424bd9f15ff20136191a5eec"
     )
 
-    # This is a pre-split (BABC/BSV) checkpoint
-    # cls.VERIFICATION_BLOCK_MERKLE_ROOT = (
-    #     "3848ff6c001ebf78ec1a798c2002f154ace4ba6c0f0a58ccb22f66934eda7143"
-    # )
-    # cls.VERIFICATION_BLOCK_HEIGHT = 540250
+    COIN = Bitcoin
 
     # A post-split SV checkpoint.
+    CHECKPOINT = CheckPoint(bytes.fromhex(
+        '000000203b0bc2a72e7313ac216e3c63314b8aec4be35374d66d2e0200000000000000009d14e99d'
+        '7799f2d8b62b3c745aa94514da4c831193bd057a916e1f45183600b5d001f95b11fd02180d32952e'
+    ), height=557957, prev_work=0xd54c44dbdc491c25d097bf)
+
+    VERIFICATION_BLOCK_HEIGHT = 557957
+
+    # Inegrate this into BitcoinX?
     VERIFICATION_BLOCK_MERKLE_ROOT = (
         "2eb4a1d21caa056385dbedd7743878e481d26052092aba97b319a6459ff6fa1b"
     )
-    VERIFICATION_BLOCK_HEIGHT = 557957
 
     XPRV_HEADERS = {
         'standard':    0x0488ade4,  # xprv
@@ -125,16 +130,19 @@ class SVTestnet(object):
         "00000000000e38fef93ed9582a7df43815d5c2ba9fd37ef70c9a0ea4a285b8f5e"
     )
 
-    # Bitcoin Cash fork block specification
-    # cls.VERIFICATION_BLOCK_MERKLE_ROOT = (
-    #    "029d920720e864945b8a5f97cd83e78e13fa001349cd1998815bdf2a6996dfa7"
-    # )
-    # cls.VERIFICATION_BLOCK_HEIGHT = 1248199
+    COIN = BitcoinTestnet
+
+    # A post-split SV checkpoint.
+    CHECKPOINT = CheckPoint(bytes.fromhex(
+        '000000201d64d2c7c34486e209c246a24f8c28328ba296441fa6d2b22ea67d0300000000ec7b863e'
+        'fc96f7a7183ef0e0c6b65dd0dc3626c3cded68ccc7dfd06e53dbb6180c74065c2442111cda61b4ef'
+    ), height=1273000, prev_work=0)
+
+    VERIFICATION_BLOCK_HEIGHT = 1273000
 
     VERIFICATION_BLOCK_MERKLE_ROOT = (
         "2fde3bf6de5266bd7a2c65b6e6971f8aa5e7b839ee18523994309ab42a18a70c"
     )
-    VERIFICATION_BLOCK_HEIGHT = 1273000
 
     XPRV_HEADERS = {
         'standard':    0x04358394,  # tprv

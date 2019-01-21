@@ -45,7 +45,6 @@ from .i18n import _
 from .interface import Connection, Interface
 from .logs import logs
 from .networks import Net
-from .platform import platform
 from .version import PACKAGE_VERSION, PROTOCOL_VERSION
 from .simple_config import SimpleConfig
 
@@ -1139,8 +1138,7 @@ class Network(util.DaemonThread):
                         interface.blockchain = branch.parent()
                         next_height = None
                     else:
-                        interface.logger.debug('checkpoint conflicts with existing fork %s',
-                                               branch.path())
+                        interface.logger.debug('checkpoint conflicts with existing fork')
                         branch.write(b'', 0)
                         branch.save_header(interface.bad_header)
                         interface.set_mode(Interface.MODE_CATCH_UP)
@@ -1240,17 +1238,8 @@ class Network(util.DaemonThread):
             self._process_responses(interface)
 
     def _init_headers_file(self):
-        b = self.blockchains[0]
-        filename = b.path()
-        length = 80 * (Net.VERIFICATION_BLOCK_HEIGHT + 1)
-        if not os.path.exists(filename) or os.path.getsize(filename) < length:
-            with open(filename, 'wb') as f:
-                if length>0:
-                    f.seek(length-1)
-                    f.write(b'\x00')
-        platform.ensure_sparse_file(filename)
-        with b.lock:
-            b.update_size()
+        # FIXME: remove
+        pass
 
     def run(self):
         b = self.blockchains[0]

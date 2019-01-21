@@ -21,10 +21,9 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os
-import threading
+from bitcoinx import MissingHeader
 
-from . import util
+from .app_state import app_state
 from .crypto import sha256d
 from .logs import logs
 from .networks import Net
@@ -119,16 +118,9 @@ blockchains = {}
 
 # Called by network.py:Network.__init__()
 def read_blockchains(config):
-    blockchains[0] = Blockchain(config, 0, None)
-    fdir = os.path.join(util.get_headers_dir(config), 'forks')
-    if not os.path.exists(fdir):
-        os.mkdir(fdir)
-    l = [x for x in os.listdir(fdir) if x.startswith('fork_')]
-    l = sorted(l, key = lambda x: int(x.split('_')[1]))
-    for filename in l:
-        parent_base_height = int(filename.split('_')[1])
-        base_height = int(filename.split('_')[2])
-        b = Blockchain(config, base_height, parent_base_height)
+    app_state.read_headers()
+    for chain in app_state.headers.chains():
+        b = Blockchain(chain)
         blockchains[b.base_height] = b
     return blockchains
 
@@ -203,20 +195,28 @@ class _HeaderChunk:
     def get_header_at_index(self, index):
         return self.headers[index]
 
+
+def base_height(chain):
+    if chain._parent is None:
+        return 0
+    else:
+        return chain._first_height
+
+
 class Blockchain:
     """
     Manages blockchain headers and their verification
     """
 
-    def __init__(self, config, base_height, parent_base_height):
-        self.config = config
+    def __init__(self, chain):
+        self.chain = chain
+        self.config = app_state.config
         self.catch_up = None # interface catching up
-        self.base_height = base_height
-        self.parent_base_height = parent_base_height
-
-        self.lock = threading.Lock()
-        with self.lock:
-            self.update_size()
+        self.base_height = base_height(chain)
+        if chain._parent is None:
+            self.parent_base_height = None
+        else:
+            self.parent_base_height = base_height(chain._parent)
 
     # Called by network.py:Network._on_header()
     def parent(self):
@@ -250,11 +250,10 @@ class Blockchain:
 
     # Called by network.py:Network._on_header()
     def fork(self, header):
-        base_height = header.get('block_height')
-        child = Blockchain(self.config, base_height, self.base_height)
-        open(child.path(), 'w+').close()
-        child.save_header(header)
-        return child
+        raw_header = bfh(_serialize_header(header))
+        new_chain = app_state.headers.add_raw_header(raw_header)
+        assert new_chain is not self
+        return Blockchain(new_chain)
 
     # Called by network.py:Network._on_block_headers()
     # Called by network.py:Network._on_header()
@@ -262,16 +261,7 @@ class Blockchain:
     # Called by network.py:Network.get_local_height()
     # Called by gui.qt.network_dialog.py:NodesListWidget.update()
     def height(self):
-        return self.base_height + self._size() - 1
-
-    def _size(self):
-        with self.lock:
-            return self._size_value
-
-    # Called by network.py:Network._init_headers_file()
-    def update_size(self):
-        p = self.path()
-        self._size_value = os.path.getsize(p)//HEADER_SIZE if os.path.exists(p) else 0
+        return self.chain.height
 
     def _verify_header(self, header, prev_header, bits=None):
         prev_header_hash = hash_header(prev_header)
@@ -310,16 +300,8 @@ class Blockchain:
             self._verify_header(header, prev_header, bits)
             prev_header = header
 
-    # Called by network.py:Network._on_header()
-    # Called by network.py:Network._init_headers_file()
-    def path(self):
-        d = util.get_headers_dir(self.config)
-        filename = ('blockchain_headers' if self.parent_base_height is None else
-                    os.path.join('forks', 'fork_%d_%d' %
-                                 (self.parent_base_height, self.base_height)))
-        return os.path.join(d, filename)
-
     def _save_chunk(self, base_height, chunk_data):
+        logger.debug(f'save_chunk: base_height {base_height}')
         chunk_offset = (base_height - self.base_height) * HEADER_SIZE
         if chunk_offset < 0:
             chunk_data = chunk_data[-chunk_offset:]
@@ -335,58 +317,32 @@ class Blockchain:
         if self.parent_base_height is None:
             return
         parent_branch_size = self.parent().height() - self.base_height + 1
-        if parent_branch_size >= self._size():
+        if parent_branch_size >= self.get_branch_size():
             return
         logger.debug("swap %s %s", self.base_height, self.parent_base_height)
-        parent_base_height = self.parent_base_height
-        base_height = self.base_height
-        parent = self.parent()
-        with open(self.path(), 'rb') as f:
-            my_data = f.read()
-        with open(parent.path(), 'rb') as f:
-            f.seek((base_height - parent.base_height)*HEADER_SIZE)
-            parent_data = f.read(parent_branch_size*HEADER_SIZE)
-        self._write(parent_data, 0)
-        parent.write(my_data, (base_height - parent.base_height)*HEADER_SIZE)
-        # store file path
-        for b in blockchains.values():
-            b.old_path = b.path()
-        # swap parameters
-        self.parent_base_height = parent.parent_base_height
-        parent.parent_base_height = parent_base_height
-        self.base_height = parent.base_height
-        parent.base_height = base_height
-        self._size_value = parent._size_value
-        parent._size_value = parent_branch_size
-        # move files
-        for b in blockchains.values():
-            if b in [self, parent]: continue
-            if b.old_path != b.path():
-                logger.debug("renaming %s %s", b.old_path, b.path())
-                os.rename(b.old_path, b.path())
-        # update pointers
-        blockchains[self.base_height] = self
-        blockchains[parent.base_height] = parent
+        # FIXME: surely a no-op?
 
     def _write(self, data, offset, truncate=True):
-        filename = self.path()
-        with self.lock:
-            with open(filename, 'rb+') as f:
-                if truncate and offset != self._size_value*HEADER_SIZE:
-                    f.seek(offset)
-                    f.truncate()
-                f.seek(offset)
-                f.write(data)
-                f.flush()
-                os.fsync(f.fileno())
-            self.update_size()
+        height = self.base_height + offset // 80
+        headers = app_state.headers
+        for start in range(0, len(data), 80):
+            raw_header = data[start: start + 80]
+            logger.debug(f'write: height {height}')
+            if height < Net.CHECKPOINT.height:
+                headers.set_one(height, raw_header)
+            elif height > self.chain.height:
+                new_chain = headers.add_raw_header(raw_header)
+                assert self.chain is new_chain
+            else:
+                assert raw_header == headers.raw_header_at_height(self.chain, height)
+            height += 1
 
     # Called by network.py:Network._on_header()
     # Called by network.py:Network._process_latest_tip()
     def save_header(self, header):
         delta = header.get('block_height') - self.base_height
         data = bfh(_serialize_header(header))
-        assert delta == self._size()
+        assert delta == self.get_branch_size()
         assert len(data) == HEADER_SIZE
         self._write(data, delta*HEADER_SIZE)
         self._swap_with_parent()
@@ -401,23 +357,11 @@ class Blockchain:
         if chunk is not None and chunk.contains_height(height):
             return chunk.get_header_at_height(height)
 
-        assert self.parent_base_height != self.base_height
-        if height < 0:
-            return
-        if height < self.base_height:
-            return self.parent().read_header(height)
-        if height > self.height():
-            return
-        delta = height - self.base_height
-        name = self.path()
-        if os.path.exists(name):
-            with open(name, 'rb') as f:
-                f.seek(delta * HEADER_SIZE)
-                h = f.read(HEADER_SIZE)
-            # Is it a pre-checkpoint header that has never been requested?
-            if h == bytes([0])*HEADER_SIZE:
-                return None
-            return deserialize_header(h, height)
+        try:
+            raw_header = app_state.headers.raw_header_at_height(self.chain, height)
+            return deserialize_header(raw_header, height)
+        except MissingHeader:
+            return None
 
     def _get_hash(self, height):
         if height == -1:

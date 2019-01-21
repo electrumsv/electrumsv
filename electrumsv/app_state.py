@@ -33,9 +33,17 @@ app_state.func()
 etc.
 '''
 
+import os
 import threading
 
-from electrumsv.dnssec import resolve_openalias
+from bitcoinx import HeaderStorage, Headers, hash_to_hex_str
+
+from .dnssec import resolve_openalias
+from .logs import logs
+from .networks import Net
+
+
+logger = logs.get_logger("app_state")
 
 
 class AppStateProxy(object):
@@ -50,11 +58,23 @@ class AppStateProxy(object):
         self.device_manager = DeviceMgr()
         self.gui_kind = gui_kind
         self.fx = None
+        self.headers = None
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get('decimal_point', 8)
         self.num_zeros = config.get('num_zeros', 0)
         # Ugh
         self.fetch_alias()
+
+    def headers_filename(self):
+        return os.path.join(self.config.path, 'headers')
+
+    def read_headers(self):
+        storage = HeaderStorage(self.headers_filename(), Net.CHECKPOINT)
+        storage.open_or_create()
+        self.headers = Headers(Net.COIN, storage)
+        for n, chain in enumerate(self.headers.chains(), start=1):
+            logger.info(f'chain #{n}: height {chain.height:,d} work {chain.log2_work()} '
+                        f'tip {hash_to_hex_str(chain.tip.hash)}')
 
     def base_unit(self):
         index = self.decimal_points.index(self.decimal_point)
