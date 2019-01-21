@@ -76,10 +76,6 @@ class PasswordLineEdit(QWidget):
 
     def __init__(self, text='', mode=PLE_FLAG_MODE_DIALOG):
         super().__init__()
-        self.setAutoFillBackground(True)
-        p = QPalette(self.palette())
-        p.setColor(QPalette.Background, QColor("#e5e5e5"))
-        self.setPalette(p)
         self.mode = mode
         self.pw = ButtonsLineEdit(text)
         self.reveal_button = self.pw.addButton(self.reveal_png, self.toggle_visible,
