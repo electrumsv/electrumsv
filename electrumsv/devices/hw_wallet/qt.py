@@ -194,7 +194,7 @@ class QtPluginBase(object):
 
     def replace_gui_handler(self, window, keystore):
         if self.libraries_available:
-            tooltip = self.device + '\n' + (keystore.label or 'unnamed')
+            tooltip = keystore.label or _('Unnamed')
             action = QAction(read_QIcon(self.icon_unpaired), tooltip, window)
             action.triggered.connect(partial(self.show_settings_dialog, window, keystore))
             window.toolbar.addAction(action)
