@@ -7,7 +7,7 @@ import os
 # pylint: disable=import-error
 import websocket
 
-from PyQt5.QtWidgets import QDialog, QLineEdit, QTextEdit, QVBoxLayout, QLabel
+from PyQt5.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QLabel
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QComboBox, QPushButton
 from btchip.btchip import BTChipException
