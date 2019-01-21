@@ -618,16 +618,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
               _("Uses icons from the Icons8 icon pack (icons8.com).")))
 
     def show_update_check(self):
-        from . import updater
-        def on_update_available(result):
+        from . import update_check
+        update_check.UpdateCheckDialog()
+
+    def on_update_check(self, success, result):
+        if success:
             def on_update_button_click(*args):
                 QDesktopServices.openUrl(QUrl("https://electrumsv.io"))
             self.update_check_button.setText(_("Update {} is available").format(result['version']))
             self.update_check_button.clicked.connect(on_update_button_click)
             self.update_check_button.show()
-        # import importlib
-        # importlib.reload(updater)
-        updater.UpdaterDialog(self, on_update_available)
 
     def show_report_bug(self):
         msg = ' '.join([

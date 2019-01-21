@@ -28,6 +28,7 @@ from functools import partial
 import signal
 import sys
 import threading
+import time
 
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 from PyQt5.QtGui import QGuiApplication
@@ -84,6 +85,7 @@ class QElectrumSVApplication(QApplication):
     base_unit_changed = pyqtSignal()
     fiat_history_changed = pyqtSignal()
     fiat_balance_changed = pyqtSignal()
+    update_check_signal = pyqtSignal(bool, object)
 
 
 class QtAppStateProxy(AppStateProxy):
@@ -134,6 +136,7 @@ class QtAppStateProxy(AppStateProxy):
         app.base_unit_changed.connect(partial(self._signal_all, 'on_base_unit_changed'))
         app.fiat_history_changed.connect(partial(self._signal_all, 'on_fiat_history_changed'))
         app.fiat_balance_changed.connect(partial(self._signal_all, 'on_fiat_balance_changed'))
+        app.update_check_signal.connect(partial(self._signal_all, 'on_update_check'))
         return app
 
     def _signal_all(self, method, *args):
@@ -142,6 +145,31 @@ class QtAppStateProxy(AppStateProxy):
 
     def alias_resolved(self):
         self.app.alias_resolved.emit()
+
+    def update_check(self):
+        if not self.config.get('check_updates', True) or self.config.get("offline", False):
+            return
+
+        def f():
+            import requests
+            try:
+                response = requests.request(
+                    'GET', "https://electrumsv.io/release.json",
+                    headers={'User-Agent' : 'ElectrumSV'}, timeout=10)
+                result = response.json()
+                self.on_update_check(True, result)
+            except Exception:
+                self.on_update_check(False, sys.exc_info())
+
+        t = threading.Thread(target=f)
+        t.setDaemon(True)
+        t.start()
+
+    def on_update_check(self, success, result):
+        if success:
+            self.config.set_key('last_update_check', result)
+            self.config.set_key('last_update_check_time', time.time(), True)
+        self.app.update_check_signal.emit(success, result)
 
     def set_base_unit(self, base_unit):
         if super().set_base_unit(base_unit):
@@ -298,6 +326,10 @@ class QtAppStateProxy(AppStateProxy):
             self.app.quit()
 
     def run_gui(self):
+        self.config.set_key('last_start_time', self.config.get("start_time"))
+        self.config.set_key('start_time', time.time(), True)
+        self.update_check()
+
         threading.current_thread().setName('GUI')
         self.timer.setSingleShot(False)
         self.timer.setInterval(500)  # msec

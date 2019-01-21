@@ -163,35 +163,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     def start_gui(self, is_startup=False):
         if is_startup:
-            # self._check_for_updates()
             self._copy_electron_cash_wallets()
         return self.run_and_get_wallet()
-
-    """
-        # This is disabled until we are ready to move it to the background.
-        def _check_for_updates(self):
-            if not self.config.get('check_updates', True) or self.config.get("offline", False):
-                return
-
-            from . import updater
-            widget = updater.UpdaterWidget()
-
-            vbox = QVBoxLayout()
-            vbox.addStretch(1)
-            vbox.addWidget(widget)
-            vbox.addStretch(1)
-
-            self._set_layout(vbox, back_text=_("Quit"))
-
-            u = updater.Updater(widget)
-            u.start_gui()
-
-            v = self.loop.exec_()
-            if v != 2: # Cancel/Quit/Back. Exit application.
-                raise UserQuit()
-
-            u.stop_gui()
-    """
 
     def _copy_electron_cash_wallets(self):
         """
