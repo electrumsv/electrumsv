@@ -37,7 +37,8 @@ VKBPage = namedtuple("VKBPage", "tooltip icon chars")
 pages = [
     VKBPage(_('Lower-case letters'), 'text_lowercase.png', 'abcdefghijklmnopqrstuvwxyz_ '),
     VKBPage(_('Upper-case letters'), 'text_uppercase.png', 'ABCDEFGHIJKLMNOPQRTSUVWXYZ_ '),
-    VKBPage(_('Numbers and symbols'), 'text_symbols.png', '1234567890!?.,;:/%&()[]{}+-$#*'),
+    VKBPage(_('Numbers and symbols'), 'text_symbols.png',
+            '1234567890!?.,;:/%&()[]{}+-=$#*@"\'\\<>~`'),
 ]
 max_chars = max(len(page.chars) for page in pages)
 
@@ -82,7 +83,7 @@ class VirtualKeyboard(QWidget):
         random.shuffle(chars)
         for n, char_button in enumerate(self.char_buttons):
             if n < len(chars):
-                char_button.setText(chars[n])
+                char_button.setText(chars[n] if chars[n] != '&' else '&&')
                 char_button.setVisible(True)
             else:
                 char_button.setVisible(False)
@@ -107,4 +108,4 @@ class VirtualKeyboard(QWidget):
         self._change_page(self.pages[self.page_buttons.index(button)])
 
     def _char_pressed(self, button):
-        self.pw_edit.setText(self.pw_edit.text() + button.text())
+        self.pw_edit.setText(self.pw_edit.text() + button.text()[0])
