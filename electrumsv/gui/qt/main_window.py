@@ -590,7 +590,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         network_action.triggered.connect(lambda: app_state.show_network_dialog(self))
         toolbar.addAction(network_action)
 
-        update_action = QAction(read_QIcon("update.png"), _("Check for Updates"), self)
+        update_action = QAction(read_QIcon("update.png"), _("Version Check"), self)
         update_action.triggered.connect(self.show_update_check)
         toolbar.addAction(update_action)
         self.addToolBar(toolbar)
