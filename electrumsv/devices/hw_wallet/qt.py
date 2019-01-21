@@ -34,7 +34,7 @@ from electrumsv.app_state import app_state
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 
-from electrumsv.gui.qt.password_dialog import PasswordDialog, PW_PASSPHRASE
+from electrumsv.gui.qt.password_dialog import PasswordDialog, PW_PASSPHRASE, PasswordLineEdit
 from electrumsv.gui.qt.util import (
     WindowModalDialog, Buttons, OkButton, CancelButton, TaskThread, WWLabel, read_QIcon,
 )
@@ -128,8 +128,7 @@ class QtHandlerBase(QObject):
             confirmed, p, passphrase = d.run()
         else:
             d = WindowModalDialog(parent, _("Enter Passphrase"))
-            pw = QLineEdit()
-            pw.setEchoMode(2)
+            pw = PasswordLineEdit()
             pw.setMinimumWidth(200)
             vbox = QVBoxLayout()
             vbox.addWidget(WWLabel(msg))

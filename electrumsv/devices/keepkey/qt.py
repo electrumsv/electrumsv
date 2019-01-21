@@ -41,6 +41,7 @@ from electrumsv.bip32 import is_xprv
 from electrumsv.i18n import _
 from electrumsv.util import bh2u
 
+from electrumsv.gui.qt.password_dialog import PasswordLineEdit
 from electrumsv.gui.qt.util import (
     WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton, read_QIcon,
 )
@@ -634,11 +635,10 @@ class PinMatrixWidget(QWidget):
     def __init__(self, show_strength=True, parent=None):
         super(PinMatrixWidget, self).__init__(parent)
 
-        self.password = QLineEdit()
+        self.password = PasswordLineEdit()
         self.password.setValidator(QRegExpValidator(QRegExp('[1-9]+'), None))
-        self.password.setEchoMode(QLineEdit.Password)
-
         self.password.textChanged.connect(self._password_changed)
+
         self.strength = QLabel()
         self.strength.setMinimumWidth(75)
         self.strength.setAlignment(Qt.AlignCenter)

@@ -95,12 +95,16 @@ class PasswordLineEdit(QWidget):
         layout.addWidget(self.pw)
         layout.addWidget(self.keyboard)
         self.setLayout(layout)
+
         # Pass-throughs
-        self.setPlaceholderText = self.pw.setPlaceholderText
-        self.text = self.pw.text
-        self.setText = self.pw.setText
-        self.textChanged = self.pw.textChanged
+        self.returnPressed = self.pw.returnPressed
         self.setFocus = self.pw.setFocus
+        self.setMaxLength = self.pw.setMaxLength
+        self.setPlaceholderText = self.pw.setPlaceholderText
+        self.setText = self.pw.setText
+        self.setValidator = self.pw.setValidator
+        self.text = self.pw.text
+        self.textChanged = self.pw.textChanged
 
     def toggle_keyboard(self):
         if self.mode & PLE_FLAG_MODE_INLINE:
