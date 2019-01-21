@@ -60,11 +60,6 @@ def check_password_strength(password):
 
 PW_NEW, PW_CHANGE, PW_PASSPHRASE = range(0, 3)
 
-PLE_FLAG_MODE_INLINE = 1
-PLE_FLAG_MODE_DIALOG = 2
-PLE_FLAG_SHOW_KEYBOARD = 4
-PLE_FLAG_HIDE_KEYBOARD_TOGGLE = 8
-
 
 class PasswordLineEdit(QWidget):
     """
@@ -74,22 +69,20 @@ class PasswordLineEdit(QWidget):
     reveal_png = "icons8-eye-32.png"
     hide_png = "icons8-hide-32.png"
 
-    def __init__(self, text='', mode=PLE_FLAG_MODE_DIALOG):
+    def __init__(self, text=''):
         super().__init__()
-        self.mode = mode
         self.pw = ButtonsLineEdit(text)
         self.reveal_button = self.pw.addButton(self.reveal_png, self.toggle_visible,
                                                _("Toggle visibility"))
-        if (self.mode & PLE_FLAG_HIDE_KEYBOARD_TOGGLE) == 0:
-            self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))
+        self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))
         self.pw.setEchoMode(QLineEdit.Password)
         # self.pw.setMinimumWidth(200)
         self.keyboard = VirtualKeyboard(self.pw)
-        self.keyboard.setVisible(self.mode & PLE_FLAG_SHOW_KEYBOARD)
+        self.keyboard.setVisible(False)
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        # layout.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        layout.setSizeConstraint(QVBoxLayout.SetFixedSize)
         layout.addWidget(self.pw)
         layout.addWidget(self.keyboard)
         self.setLayout(layout)
@@ -105,13 +98,7 @@ class PasswordLineEdit(QWidget):
         self.textChanged = self.pw.textChanged
 
     def toggle_keyboard(self):
-        if self.mode & PLE_FLAG_MODE_INLINE:
-            self.keyboard.setVisible(not self.keyboard.isVisible())
-        elif self.mode & PLE_FLAG_MODE_DIALOG:
-            d = PasswordDialog(self, force_keyboard=True)
-            text = d.run()
-            if text is not None:
-                self.setText(text)
+        self.keyboard.setVisible(not self.keyboard.isVisible())
 
     def toggle_visible(self):
         if self.pw.echoMode() == QLineEdit.Password:
@@ -265,8 +252,7 @@ class PasswordDialog(WindowModalDialog):
     def __init__(self, parent=None, msg=None, force_keyboard=False):
         super().__init__(parent, _("Enter Password"))
 
-        self.pw = pw = DialogPasswordLineEdit(force_keyboard=force_keyboard)
-        # self.pw = pw = PasswordLineEdit()
+        self.pw = pw = PasswordLineEdit()
 
         about_label = QLabel(msg or _('Enter your password:'))
 
@@ -275,6 +261,7 @@ class PasswordDialog(WindowModalDialog):
         vbox.addWidget(pw)
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CancelButton(self), OkButton(self)), Qt.AlignBottom)
+        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         self.setLayout(vbox)
 
     def run(self):
@@ -284,11 +271,3 @@ class PasswordDialog(WindowModalDialog):
             return self.pw.text()
         finally:
             self.pw.setText("")
-
-
-class DialogPasswordLineEdit(PasswordLineEdit):
-    def __init__(self, text='', force_keyboard=False):
-        mode = PLE_FLAG_MODE_INLINE
-        if force_keyboard:
-            mode |= PLE_FLAG_SHOW_KEYBOARD | PLE_FLAG_HIDE_KEYBOARD_TOGGLE
-        super().__init__(text='', mode=mode)
