@@ -27,16 +27,16 @@ import math
 import re
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QPalette, QColor
 from PyQt5.QtWidgets import (
-    QVBoxLayout, QGridLayout, QLabel, QCheckBox, QLineEdit, QWidget, QHBoxLayout, QSizePolicy
+    QVBoxLayout, QGridLayout, QLabel, QCheckBox, QLineEdit, QWidget
 )
 
 from electrumsv.i18n import _
 
 from .virtual_keyboard import VirtualKeyboard
 from .util import (
-    WindowModalDialog, OkButton, Buttons, CancelButton, icon_path, read_QIcon, ButtonsLineEdit
+    WindowModalDialog, OkButton, Buttons, CancelButton, icon_path, read_QIcon, ButtonsLineEdit,
 )
 
 
@@ -47,6 +47,7 @@ def check_password_strength(password):
     :param password: password entered by user in New Password
     :return: password strength Weak or Medium or Strong
     '''
+
     password = password
     n = math.log(len(set(password)))
     num = re.search("[0-9]", password) is not None and re.match("^[0-9]*$", password) is None
@@ -59,6 +60,11 @@ def check_password_strength(password):
 
 PW_NEW, PW_CHANGE, PW_PASSPHRASE = range(0, 3)
 
+PLE_FLAG_MODE_INLINE = 1
+PLE_FLAG_MODE_DIALOG = 2
+PLE_FLAG_SHOW_KEYBOARD = 4
+PLE_FLAG_HIDE_KEYBOARD_TOGGLE = 8
+
 
 class PasswordLineEdit(QWidget):
     """
@@ -68,16 +74,23 @@ class PasswordLineEdit(QWidget):
     reveal_png = "icons8-eye-32.png"
     hide_png = "icons8-hide-32.png"
 
-    def __init__(self, text=''):
+    def __init__(self, text='', mode=PLE_FLAG_MODE_DIALOG):
         super().__init__()
+        self.setAutoFillBackground(True)
+        p = QPalette(self.palette())
+        p.setColor(QPalette.Background, QColor("#e5e5e5"))
+        self.setPalette(p)
+        self.mode = mode
         self.pw = ButtonsLineEdit(text)
         self.reveal_button = self.pw.addButton(self.reveal_png, self.toggle_visible,
                                                _("Toggle visibility"))
-        self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))
+        if (self.mode & PLE_FLAG_HIDE_KEYBOARD_TOGGLE) == 0:
+            self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))
         self.pw.setEchoMode(QLineEdit.Password)
         self.keyboard = VirtualKeyboard(self.pw)
-        self.keyboard.setVisible(False)
+        self.keyboard.setVisible(self.mode & PLE_FLAG_SHOW_KEYBOARD)
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self.pw)
         layout.addWidget(self.keyboard)
@@ -85,11 +98,18 @@ class PasswordLineEdit(QWidget):
         # Pass-throughs
         self.setPlaceholderText = self.pw.setPlaceholderText
         self.text = self.pw.text
+        self.setText = self.pw.setText
         self.textChanged = self.pw.textChanged
         self.setFocus = self.pw.setFocus
 
     def toggle_keyboard(self):
-        self.keyboard.setVisible(not self.keyboard.isVisible())
+        if self.mode & PLE_FLAG_MODE_INLINE:
+            self.keyboard.setVisible(not self.keyboard.isVisible())
+        elif self.mode & PLE_FLAG_MODE_DIALOG:
+            d = PasswordDialog(self, force_keyboard=True)
+            text = d.run()
+            if text is not None:
+                self.setText(text)
 
     def toggle_visible(self):
         if self.pw.echoMode() == QLineEdit.Password:
@@ -240,30 +260,32 @@ class ChangePasswordDialog(WindowModalDialog):
 
 
 class PasswordDialog(WindowModalDialog):
-
-    def __init__(self, parent=None, msg=None):
-        msg = msg or _('Please enter your password')
+    def __init__(self, parent=None, msg=None, force_keyboard=False):
         super().__init__(parent, _("Enter Password"))
-        self.pw = pw = PasswordLineEdit()
 
-        about_label = QLabel(msg)
-        sp = QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
-        sp.setVerticalStretch(0)
-        about_label.setSizePolicy(sp)
+        self.pw = pw = DialogPasswordLineEdit(force_keyboard=force_keyboard)
+
+        about_label = QLabel(msg or _('Please enter your password'))
 
         vbox = QVBoxLayout()
-        vbox.addWidget(about_label, Qt.AlignTop)
-
-        edit_hbox = QHBoxLayout()
-        edit_hbox.addWidget(QLabel(_('Password')))
-        edit_hbox.addWidget(pw)
-        vbox.addLayout(edit_hbox)
-
+        vbox.addWidget(about_label)
+        vbox.addWidget(pw)
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CancelButton(self), OkButton(self)), Qt.AlignBottom)
         self.setLayout(vbox)
 
     def run(self):
-        if not self.exec_():
-            return None
-        return self.pw.text()
+        try:
+            if not self.exec_():
+                return None
+            return self.pw.text()
+        finally:
+            self.pw.setText("")
+
+
+class DialogPasswordLineEdit(PasswordLineEdit):
+    def __init__(self, text='', force_keyboard=False):
+        mode = PLE_FLAG_MODE_INLINE
+        if force_keyboard:
+            mode |= PLE_FLAG_SHOW_KEYBOARD | PLE_FLAG_HIDE_KEYBOARD_TOGGLE
+        super().__init__(text='', mode=mode)
