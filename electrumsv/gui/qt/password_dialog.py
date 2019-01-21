@@ -72,7 +72,7 @@ class PasswordLineEdit(QWidget):
     def __init__(self, text=''):
         super().__init__()
         self.pw = ButtonsLineEdit(text)
-        self.pw.setMinimumWidth(200)
+        self.pw.setMinimumWidth(220)
         self.reveal_button = self.pw.addButton(self.reveal_png, self.toggle_visible,
                                                _("Toggle visibility"))
         self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))

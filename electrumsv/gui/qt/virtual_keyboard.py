@@ -46,7 +46,7 @@ max_chars = max(len(page.chars) for page in pages)
 def vkb_button(click_cb):
     button = QPushButton()
     button.clicked.connect(partial(click_cb, button))
-    button.setFixedWidth(app_state.dpi / 3.2)
+    button.setFixedWidth(app_state.dpi / 3.6)
     return button
 
 
@@ -68,10 +68,6 @@ class VirtualKeyboard(QWidget):
 
     def _refresh(self, _button=None):
         random.shuffle(self.pages)
-        self._change_page(self.page)
-
-    def _change_page(self, page):
-        self.page = page
         for button, page in zip(self.page_buttons, self.pages):
             button.setIcon(read_QIcon(page.icon))
             button.setToolTip(page.tooltip)
@@ -105,7 +101,8 @@ class VirtualKeyboard(QWidget):
         return grid
 
     def _on_page_button(self, button):
-        self._change_page(self.pages[self.page_buttons.index(button)])
+        self.page = self.pages[self.page_buttons.index(button)]
+        self._refresh()
 
     def _char_pressed(self, button):
         self.pw_edit.setText(self.pw_edit.text() + button.text()[0])

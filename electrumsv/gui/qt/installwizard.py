@@ -120,7 +120,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         self.setWindowTitle('ElectrumSV')
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.language_for_seed = app_state.config.get('language')
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(600, 420)
         self.accept_signal.connect(self.accept)
         self.back_button = QPushButton(_(MSG_BUTTON_BACK), self)
         self.back_button.setText(_(MSG_BUTTON_BACK) if self.can_go_back() else _(MSG_BUTTON_CANCEL))
