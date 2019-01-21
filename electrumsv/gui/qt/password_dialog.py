@@ -152,17 +152,23 @@ class PasswordLayout(object):
             m1 = _('New Password:') if kind == PW_CHANGE else _('Password:')
             msgs = [m1, _('Confirm Password:')]
             if wallet and wallet.has_password():
-                grid.addWidget(QLabel(_('Current Password:')), 0, 0)
+                pwlabel = QLabel(_('Current Password:'))
+                pwlabel.setAlignment(Qt.AlignTop)
+                grid.addWidget(pwlabel, 0, 0)
                 grid.addWidget(self.pw, 0, 1)
                 lockfile = "lock.png"
             else:
                 lockfile = "unlock.png"
             logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(36))
 
-        grid.addWidget(QLabel(msgs[0]), 1, 0)
+        label0 = QLabel(msgs[0])
+        label0.setAlignment(Qt.AlignTop)
+        grid.addWidget(label0, 1, 0)
         grid.addWidget(self.new_pw, 1, 1)
 
-        grid.addWidget(QLabel(msgs[1]), 2, 0)
+        label1 = QLabel(msgs[1])
+        label1.setAlignment(Qt.AlignTop)
+        grid.addWidget(label1, 2, 0)
         grid.addWidget(self.conf_pw, 2, 1)
         vbox.addLayout(grid)
 
@@ -237,6 +243,7 @@ class ChangePasswordDialog(WindowModalDialog):
         self.setWindowTitle(self.playout.title())
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         vbox = QVBoxLayout(self)
+        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         vbox.addLayout(self.playout.layout())
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CancelButton(self), OK_button))
