@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QLineEdit, QCheckBox, QLabel, QComboBox,
 )
 
+from electrumsv.blockchain import Blockchain
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.networks import Net
@@ -111,7 +112,7 @@ class NodesListWidget(QTreeWidget):
         chains = network.get_blockchains()
         n_chains = len(chains)
         for k, items in chains.items():
-            b = network.blockchains[k]
+            b = Blockchain.blockchains[k]
             name = b.get_name()
             if n_chains >1:
                 x = QTreeWidgetItem([name + '@%d'%b.get_base_height(), '%d'%b.height()])
