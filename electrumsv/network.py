@@ -1235,15 +1235,10 @@ class Network(util.DaemonThread):
         for interface in rout:
             self._process_responses(interface)
 
-    def _init_headers_file(self):
-        # FIXME: remove
-        pass
-
     def run(self):
         b = Blockchain.longest()
         header = None
         if Net.VERIFICATION_BLOCK_HEIGHT is not None:
-            self._init_headers_file()
             header = b.read_header(Net.VERIFICATION_BLOCK_HEIGHT)
         if header is not None:
             self.verified_checkpoint = True
@@ -1383,7 +1378,6 @@ class Network(util.DaemonThread):
                     Net.NAME, checkpoint_height, checkpoint_root)
 
         if not self.verified_checkpoint:
-            self._init_headers_file()
             self.verified_checkpoint = True
 
         interface.logger.debug("server was verified correctly")
