@@ -25,6 +25,8 @@
 '''QT application state.'''
 
 from functools import partial
+import os
+import shutil
 import signal
 import sys
 import threading
@@ -42,12 +44,12 @@ from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
 
 from .cosigner_pool import CosignerPool
+from .dialogs import show_suppressible, error_dialog
 from .label_sync import LabelSync
 from .exception_window import Exception_Hook
 from .installwizard import InstallWizard, GoBack
 from .main_window import ElectrumWindow
 from .network_dialog import NetworkDialog
-from .suppressible import show_suppressible
 from .util import ColorScheme, read_QIcon
 
 
@@ -243,8 +245,6 @@ class QtAppStateProxy(AppStateProxy):
     def start_new_window(self, path, uri, is_startup=False):
         '''Raises the window for the wallet if it is open.  Otherwise
         opens the wallet and creates a new window for it.'''
-        if is_startup:
-            show_suppressible('welcome-ESV-1.1')
         for w in self.windows:
             if w.wallet.storage.path == path:
                 w.bring_to_top()
@@ -312,6 +312,30 @@ class QtAppStateProxy(AppStateProxy):
                     logger.exception("")
                 self.app.quit()
 
+    def initial_dialogs(self):
+        '''Suppressible dialogs that are shown when first opening the app.'''
+        show_suppressible('welcome-ESV-1.1')
+        old_items = []
+        headers_path = os.path.join(self.config.path, 'blockchain_headers')
+        if os.path.exists(headers_path):
+            old_items.append((_('the file "blockchain_headers"'), os.remove, headers_path))
+        forks_dir = os.path.join(self.config.path, 'forks')
+        if os.path.exists(forks_dir):
+            old_items.append((_('the directory "forks/"'), shutil.rmtree, forks_dir))
+        if old_items:
+            main_text = _('The following in your ElectrumSV directory {} are obsolete.  '
+                          'Would you like to delete them?'.format(self.config.path))
+            info_text = '<ul>{}</ul>'.format(''.join('<li>{}</li>'.format(text)
+                                                     for text, *rest in old_items))
+            if show_suppressible('delete-obsolete-headers', main_text=main_text,
+                                 info_text=info_text):
+                try:
+                    for _text, rm_func, *args in old_items:
+                        rm_func(*args)
+                except OSError as e:
+                    logger.exception('deleting obsolete files')
+                    error_dialog(_('Error deleting files:'), info_text=str(e))
+
     def event_loop_started(self):
         self.cosigner_pool = CosignerPool()
         self.label_sync = LabelSync()
@@ -319,6 +343,7 @@ class QtAppStateProxy(AppStateProxy):
             self.exception_hook = Exception_Hook(self.app)
         self.timer.start()
         signal.signal(signal.SIGINT, lambda *args: self.app.quit())
+        self.initial_dialogs()
         self.maybe_choose_server()
         self.config.open_last_wallet()
         path = self.config.get_wallet_path()

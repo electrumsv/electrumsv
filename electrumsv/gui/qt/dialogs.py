@@ -26,12 +26,16 @@ from PyQt5.QtWidgets import QMessageBox, QCheckBox
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
-from electrumsv.platform import platform
 
 
 class BoxBase(object):
 
-    def result(self, parent, wallet):
+    def __init__(self, name, main_text, info_text):
+        self.name = name
+        self.main_text = main_text
+        self.info_text = info_text
+
+    def result(self, parent, wallet, **kwargs):
         '''Return the result of the suppressible box.  If this is saved in the configuration
         then the saved value is returned, otherwise the user is asked.'''
         key = f'suppress_{self.name}'
@@ -41,7 +45,7 @@ class BoxBase(object):
             value = app_state.config.get(key, None)
 
         if value is None:
-            set_it, value = self.show_dialog(parent)
+            set_it, value = self.show_dialog(parent, **kwargs)
             if set_it and value is not None:
                 if wallet:
                     wallet.storage.put(key, value)
@@ -50,12 +54,13 @@ class BoxBase(object):
 
         return value
 
-    def message_box(self, buttons, parent, cb):
-        if platform.name == 'MacOSX':
-            dialog = QMessageBox(self.icon, '', self.title, buttons=buttons, parent=parent)
-            dialog.setInformativeText(self.text)
-        else:
-            dialog = QMessageBox(self.icon, self.title, self.text, buttons=buttons, parent=parent)
+    def message_box(self, buttons, parent, cb, **kwargs):
+        # Title bar text is blank for consistency across O/Ses (it is never shown on a Mac)
+        main_text = kwargs.get('main_text', self.main_text)
+        info_text = kwargs.get('info_text', self.info_text)
+        icon = kwargs.get('icon', self.icon)
+        dialog = QMessageBox(icon, '', main_text, buttons=buttons, parent=parent)
+        dialog.setInformativeText(info_text)
         if parent:
             dialog.setWindowModality(Qt.WindowModal)
         dialog.setCheckBox(cb)
@@ -65,14 +70,9 @@ class BoxBase(object):
 class InfoBox(BoxBase):
     icon = QMessageBox.Information
 
-    def __init__(self, name, title, text):
-        self.name = name
-        self.title = title
-        self.text = text
-
-    def show_dialog(self, parent):
+    def show_dialog(self, parent, **kwargs):
         cb = QCheckBox(_('Do not show me again'))
-        dialog = self.message_box(QMessageBox.Ok, parent, cb)
+        dialog = self.message_box(QMessageBox.Ok, parent, cb, **kwargs)
         dialog.exec_()
         return cb.isChecked(), True
 
@@ -84,25 +84,23 @@ class WarningBox(InfoBox):
 class YesNoBox(BoxBase):
     icon = QMessageBox.Question
 
-    def __init__(self, name, title, text, default):
-        self.name = name
-        self.title = title
-        self.text = text
+    def __init__(self, name, main_text, info_text, default):
+        super().__init__(name, main_text, info_text)
         self.default = default
 
-    def show_dialog(self, parent):
+    def show_dialog(self, parent, **kwargs):
         cb = QCheckBox(_('Do not ask me again'))
-        dialog = self.message_box(QMessageBox.Yes|QMessageBox.No, parent, cb)
+        dialog = self.message_box(QMessageBox.Yes|QMessageBox.No, parent, cb, **kwargs)
         dialog.setDefaultButton(QMessageBox.Yes if self.default else QMessageBox.No)
         result = dialog.exec_()
         return cb.isChecked(), result == QMessageBox.Yes
 
 
-def show_suppressible(name, *, parent=None, wallet=None):
+def show_suppressible(name, *, parent=None, wallet=None, **kwargs):
     box = all_boxes_by_name.get(name)
     if not box:
         raise ValueError(f'no box with name {name} found')
-    return box.result(parent, wallet)
+    return box.result(parent, wallet, **kwargs)
 
 
 all_boxes = [
@@ -116,6 +114,16 @@ all_boxes = [
                 _('item C'),
             )),
     ),
+    YesNoBox('delete-obsolete-headers', '', '', False),
 ]
 
 all_boxes_by_name = {box.name: box for box in all_boxes}
+
+
+def error_dialog(main_text, *, info_text='', parent=None):
+    dialog = QMessageBox(QMessageBox.Critical, '', main_text,
+                         buttons=QMessageBox.Ok, parent=parent)
+    dialog.setInformativeText(info_text)
+    if parent:
+        dialog.setWindowModality(Qt.WindowModal)
+    dialog.exec_()
