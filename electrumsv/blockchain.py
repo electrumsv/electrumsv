@@ -187,13 +187,6 @@ class _HeaderChunk:
         return self.headers[index]
 
 
-def base_height(chain):
-    if chain._parent is None:
-        return 0
-    else:
-        return chain._first_height
-
-
 class Blockchain:
     """
     Manages blockchain headers and their verification
@@ -202,14 +195,21 @@ class Blockchain:
     blockchains = []
 
     def __init__(self, chain):
+        # FIXME: base height logic is ... bizarre
+        def base_height(c):
+            if c.parent is None:
+                return 0
+            else:
+                return c._first_height
+
         self.chain = chain
         self.config = app_state.config
         self.catch_up = None # interface catching up
         self.base_height = base_height(chain)
-        if chain._parent is None:
+        if chain.parent is None:
             self.parent_base_height = None
         else:
-            self.parent_base_height = base_height(chain._parent)
+            self.parent_base_height = base_height(chain.parent)
         # Add ourselves to the global
         self.blockchains.append(self)
 
@@ -246,7 +246,10 @@ class Blockchain:
 
     # Called by network.py:Network._on_header()
     def parent(self):
-        return self.legacy_map()[self.parent_base_height]
+        # The base chain returns itself
+        if self.chain.parent is None:
+            return self
+        return self.from_chain(self.chain.parent)
 
     def _get_max_child(self):
         children = [y for y in self.blockchains
