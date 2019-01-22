@@ -83,14 +83,15 @@ class NodesListWidget(QTreeWidget):
         item = self.currentItem()
         if not item:
             return
-        is_server = not bool(item.data(0, Qt.UserRole))
-        menu = QMenu()
-        if is_server:
+        is_server = item.data(0, Qt.UserRole)
+        if not is_server:
+            return
+
+        def use_as_server():
             server = item.data(1, Qt.UserRole)
-            menu.addAction(_("Use as server"), lambda: self.parent.follow_server(server))
-        else:
-            index = item.data(1, Qt.UserRole)
-            menu.addAction(_("Follow this branch"), lambda: self.parent.follow_branch(index))
+            self.parent.follow_server(server)
+        menu = QMenu()
+        menu.addAction(_("Use as server"), use_as_server)
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def keyPressEvent(self, event):
@@ -115,14 +116,14 @@ class NodesListWidget(QTreeWidget):
             if multiple:
                 x = QTreeWidgetItem([name + '@%d' % blockchain.get_base_height(),
                                      '%d' % blockchain.height()])
-                x.setData(0, Qt.UserRole, 1)
+                x.setData(0, Qt.UserRole, False)  # is_server
                 x.setData(1, Qt.UserRole, blockchain.base_height)
             else:
                 x = self
             for i in interfaces:
                 star = ' *' if i == network.interface else ''
                 item = QTreeWidgetItem([i.host + star, '%d' % i.tip])
-                item.setData(0, Qt.UserRole, 0)
+                item.setData(0, Qt.UserRole, True)   # is_server
                 item.setData(1, Qt.UserRole, i.server)
                 x.addChild(item)
             if multiple:
@@ -419,10 +420,6 @@ class NetworkChoiceLayout(object):
         self.server_port.setText(port)
         self.set_protocol(p)
         self.set_server()
-
-    def follow_branch(self, index):
-        self.network.follow_chain(index)
-        self.update()
 
     def follow_server(self, server):
         self.network.switch_to_interface(server)

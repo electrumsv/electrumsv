@@ -183,12 +183,9 @@ class Network(util.DaemonThread):
             config = {}  # Do not use mutables as default values!
         self.config = SimpleConfig(config) if isinstance(config, dict) else config
         self.num_server = 10 if not self.config.get('oneserver') else 0
-        self.blockchain_index = config.get('blockchain_index', 0)
         # FIXME - this doesn't belong here; it's not a property of the Network
         # Leaving it here until startup is rationalized
         Blockchain.read_blockchains()
-        if self.blockchain_index not in Blockchain.legacy_map():
-            self.blockchain_index = 0
         # Server for addresses and transactions
         self.default_server = self.config.get('server', None)
         self.blacklisted_servers = set(self.config.get('server_blacklist', []))
@@ -1427,9 +1424,9 @@ class Network(util.DaemonThread):
         return True
 
     def blockchain(self):
-        if self.interface and self.interface.blockchain is not None:
-            self.blockchain_index = self.interface.blockchain.base_height
-        return Blockchain.legacy_map()[self.blockchain_index]
+        if self.interface and self.interface.blockchain:
+            return self.interface.blockchain   # Can be None
+        return Blockchain.legacy_map()[0]
 
     def interfaces_by_blockchain(self):
         '''Returns a map {blockchain: list of interfaces} for each blockchain being
@@ -1442,28 +1439,6 @@ class Network(util.DaemonThread):
 
     def blockchain_count(self):
         return len(self.interfaces_by_blockchain())
-
-    # Called by gui.qt.network_dialog.py:follow_branch()
-    def follow_chain(self, index):
-        blockchain = Blockchain.legacy_map().get(index)
-        if blockchain:
-            self.blockchain_index = index
-            self.config.set_key('blockchain_index', index)
-            with self.interface_lock:
-                interfaces = list(self.interfaces.values())
-            for i in interfaces:
-                if i.blockchain == blockchain:
-                    self.switch_to_interface(i.server, self.SWITCH_FOLLOW_CHAIN)
-                    break
-        else:
-            raise Exception('blockchain not found', index)
-
-        with self.interface_lock:
-            if self.interface:
-                server = self.interface.server
-                host, port, protocol, proxy, auto_connect = self.get_parameters()
-                host, port, protocol = server.split(':')
-                self.set_parameters(host, port, protocol, proxy, auto_connect)
 
     # Called by daemon.py:run_daemon()
     # Called by verifier.py:run()
