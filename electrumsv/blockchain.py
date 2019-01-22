@@ -21,7 +21,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from bitcoinx import MissingHeader
+from bitcoinx import Chain, MissingHeader
 
 from .app_state import app_state
 from .crypto import sha256d
@@ -214,10 +214,22 @@ class Blockchain:
         Blockchain.blockchains[self.base_height] = self
 
     @classmethod
+    def from_chain(cls, chain):
+        '''Return a Blockchain object for the chain.
+
+        Enforce a unique Blockchain object for each Chain object.
+        '''
+        assert isinstance(chain, Chain)
+        for b in cls.blockchains.values():
+            if b.chain is chain:
+                return b
+        return cls(chain)
+
+    @classmethod
     def read_blockchains(cls):
         app_state.read_headers()
         for chain in app_state.headers.chains():
-            Blockchain(chain)
+            cls.from_chain(chain)
 
     # Called by network.py:Network._on_header()
     def parent(self):
@@ -253,9 +265,8 @@ class Blockchain:
     # Called by network.py:Network._on_header()
     def fork(self, header):
         raw_header = bfh(_serialize_header(header))
-        new_chain = app_state.headers.add_raw_header(raw_header)
-        assert new_chain is not self
-        return Blockchain(new_chain)
+        chain = app_state.headers.add_raw_header(raw_header)
+        return self.from_chain(chain)
 
     # Called by network.py:Network._on_block_headers()
     # Called by network.py:Network._on_header()
