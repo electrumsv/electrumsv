@@ -97,6 +97,8 @@ class PasswordLineEdit(QWidget):
         self.setValidator = self.pw.setValidator
         self.text = self.pw.text
         self.textChanged = self.pw.textChanged
+        self.editingFinished = self.pw.editingFinished
+        self.textEdited = self.pw.textEdited
 
     def toggle_keyboard(self):
         self.keyboard.setVisible(not self.keyboard.isVisible())
