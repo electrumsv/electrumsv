@@ -195,8 +195,6 @@ def android_ext_dir():
         from android.os import Environment as env  # Chaquopy import hook
     return env.getExternalStorageDirectory().getPath()
 
-def get_headers_dir(config):
-    return config.path
 
 def assert_datadir_available(config_path):
     path = config_path

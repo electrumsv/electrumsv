@@ -60,9 +60,6 @@ class Platform(object):
         '''User directory for digital bitbox plugin.'''
         return os.path.join(os.environ["HOME"], ".dbb")
 
-    def ensure_sparse_file(self, filename):
-        pass
-
     def missing_import(self, exception):
         module = exception.name
         if module is not None:
@@ -108,12 +105,6 @@ class Windows(Platform):
 
     def dbb_user_dir(self):
         return os.path.join(os.environ["APPDATA"], "DBB")
-
-    def ensure_sparse_file(self, filename):
-        try:
-            os.system(f'fsutil sparse setflag "{filename}"')
-        except:
-            pass
 
 
 def _detect():
