@@ -112,7 +112,7 @@ class NodesListWidget(QTreeWidget):
         chains = network.get_blockchains()
         n_chains = len(chains)
         for k, items in chains.items():
-            b = Blockchain.blockchains[k]
+            b = Blockchain.legacy_map()[k]
             name = b.get_name()
             if n_chains >1:
                 x = QTreeWidgetItem([name + '@%d'%b.get_base_height(), '%d'%b.height()])

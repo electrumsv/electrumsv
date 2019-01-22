@@ -187,7 +187,7 @@ class Network(util.DaemonThread):
         # FIXME - this doesn't belong here; it's not a property of the Network
         # Leaving it here until startup is rationalized
         Blockchain.read_blockchains()
-        if self.blockchain_index not in Blockchain.blockchains.keys():
+        if self.blockchain_index not in Blockchain.legacy_map():
             self.blockchain_index = 0
         # Server for addresses and transactions
         self.default_server = self.config.get('server', None)
@@ -779,7 +779,7 @@ class Network(util.DaemonThread):
         if server in self.interfaces:
             self._close_interface(self.interfaces[server])
             self._notify('interfaces')
-        for b in Blockchain.blockchains.values():
+        for b in Blockchain.blockchains:
             if b.catch_up == server:
                 b.catch_up = None
 
@@ -985,7 +985,7 @@ class Network(util.DaemonThread):
                                                       result['root']):
                 return
             # We connect this verification chunk into the longest chain.
-            target_blockchain = Blockchain.blockchains[0]
+            target_blockchain = Blockchain.main_chain()
         else:
             target_blockchain = interface.blockchain
 
@@ -1130,7 +1130,7 @@ class Network(util.DaemonThread):
                 self._connection_down(interface.server)
                 next_height = None
             else:
-                branch = Blockchain.blockchains.get(interface.bad)
+                branch = Blockchain.legacy_map().get(interface.bad)
                 if branch is not None:
                     if branch.check_header(interface.bad_header):
                         interface.logger.debug('joining chain %s', interface.bad)
@@ -1243,7 +1243,7 @@ class Network(util.DaemonThread):
         pass
 
     def run(self):
-        b = Blockchain.blockchains[0]
+        b = Blockchain.main_chain()
         header = None
         if Net.VERIFICATION_BLOCK_HEIGHT is not None:
             self._init_headers_file()
@@ -1319,7 +1319,7 @@ class Network(util.DaemonThread):
             self._notify('interfaces')
             return
 
-        heights = [x.height() for x in Blockchain.blockchains.values()]
+        heights = [x.height() for x in Blockchain.blockchains]
         tip = max(heights)
         if tip > Net.VERIFICATION_BLOCK_HEIGHT:
             interface.logger.debug("attempt to reconcile longest chain tip=%s heights=%s",
@@ -1330,7 +1330,7 @@ class Network(util.DaemonThread):
             self._request_header(interface, min(tip, height - 1))
         else:
             interface.logger.debug("attempt to catch up tip=%s heights=%s", tip, heights)
-            chain = Blockchain.blockchains[0]
+            chain = Blockchain.main_chain()
             if chain.catch_up is None:
                 chain.catch_up = interface
                 interface.set_mode(Interface.MODE_CATCH_UP)
@@ -1429,11 +1429,11 @@ class Network(util.DaemonThread):
     def blockchain(self):
         if self.interface and self.interface.blockchain is not None:
             self.blockchain_index = self.interface.blockchain.base_height
-        return Blockchain.blockchains[self.blockchain_index]
+        return Blockchain.legacy_map()[self.blockchain_index]
 
     def get_blockchains(self):
         out = {}
-        for height, b in Blockchain.blockchains.items():
+        for height, b in Blockchain.legacy_map().items():
             interfaces = [i for i in self.interfaces.values() if i.blockchain==b]
             if interfaces:
                 out[height] = interfaces
@@ -1441,7 +1441,7 @@ class Network(util.DaemonThread):
 
     # Called by gui.qt.network_dialog.py:follow_branch()
     def follow_chain(self, index):
-        blockchain = Blockchain.blockchains.get(index)
+        blockchain = Blockchain.legacy_map().get(index)
         if blockchain:
             self.blockchain_index = index
             self.config.set_key('blockchain_index', index)

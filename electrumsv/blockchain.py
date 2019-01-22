@@ -120,14 +120,14 @@ def hash_header(header):
 def check_header(header):
     if type(header) is not dict:
         return False
-    for b in Blockchain.blockchains.values():
+    for b in Blockchain.blockchains:
         if b.check_header(header):
             return b
     return False
 
 # Called by network.py:Network._process_latest_tip()
 def can_connect(header):
-    for b in Blockchain.blockchains.values():
+    for b in Blockchain.blockchains:
         if b.can_connect(header):
             return b
     return False
@@ -199,7 +199,7 @@ class Blockchain:
     Manages blockchain headers and their verification
     """
 
-    blockchains = {}
+    blockchains = []
 
     def __init__(self, chain):
         self.chain = chain
@@ -211,7 +211,7 @@ class Blockchain:
         else:
             self.parent_base_height = base_height(chain._parent)
         # Add ourselves to the global
-        Blockchain.blockchains[self.base_height] = self
+        self.blockchains.append(self)
 
     @classmethod
     def from_chain(cls, chain):
@@ -220,7 +220,7 @@ class Blockchain:
         Enforce a unique Blockchain object for each Chain object.
         '''
         assert isinstance(chain, Chain)
-        for b in cls.blockchains.values():
+        for b in cls.blockchains:
             if b.chain is chain:
                 return b
         return cls(chain)
@@ -231,12 +231,21 @@ class Blockchain:
         for chain in app_state.headers.chains():
             cls.from_chain(chain)
 
+    @classmethod
+    def legacy_map(cls):
+        '''Remove this - just a temporary shim for legacy code expecting it.'''
+        return {b.base_height: b for b in cls.blockchains}
+
+    @classmethod
+    def main_chain(cls):
+        return cls.legacy_map()[0]
+
     # Called by network.py:Network._on_header()
     def parent(self):
-        return self.blockchains[self.parent_base_height]
+        return self.legacy_map()[self.parent_base_height]
 
     def _get_max_child(self):
-        children = [y for y in self.blockchains.values()
+        children = [y for y in self.blockchains
                     if y.parent_base_height == self.base_height]
         return max([x.base_height for x in children]) if children else None
 
