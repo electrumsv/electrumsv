@@ -28,7 +28,7 @@ import socket
 from PyQt5.QtCore import pyqtSignal, Qt, QThread
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTreeWidget, QMenu, QTreeWidgetItem, QHeaderView, QTabWidget,
-    QWidget, QGridLayout, QLineEdit, QCheckBox, QLabel, QComboBox,
+    QWidget, QGridLayout, QLineEdit, QCheckBox, QLabel, QComboBox, QSizePolicy
 )
 
 from electrumsv.i18n import _
@@ -55,6 +55,7 @@ class NetworkDialog(QDialog):
         self.resize(560, 400)
         self.nlayout = NetworkChoiceLayout(network, config)
         vbox = QVBoxLayout(self)
+        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         vbox.addLayout(self.nlayout.layout())
         vbox.addLayout(Buttons(CloseButton(self)))
         self.network_updated_signal.connect(self.on_update)
@@ -199,6 +200,7 @@ class NetworkChoiceLayout(object):
         self.tor_proxy = None
 
         self.tabs = tabs = QTabWidget()
+        tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         server_tab = QWidget()
         proxy_tab = QWidget()
         blockchain_tab = QWidget()
@@ -263,7 +265,6 @@ class NetworkChoiceLayout(object):
         self.proxy_user.setFixedWidth(self.proxy_host.width())
         self.proxy_password = PasswordLineEdit()
         self.proxy_password.setPlaceholderText(_("Password"))
-        self.proxy_password.setFixedWidth(self.proxy_port.width())
 
         self.proxy_mode.currentIndexChanged.connect(self.set_proxy)
         self.proxy_host.editingFinished.connect(self.set_proxy)
@@ -289,8 +290,8 @@ class NetworkChoiceLayout(object):
         grid.addWidget(self.proxy_mode, 4, 1)
         grid.addWidget(self.proxy_host, 4, 2)
         grid.addWidget(self.proxy_port, 4, 3)
-        grid.addWidget(self.proxy_user, 5, 2)
-        grid.addWidget(self.proxy_password, 5, 3)
+        grid.addWidget(self.proxy_user, 5, 2, Qt.AlignTop)
+        grid.addWidget(self.proxy_password, 5, 3, Qt.AlignTop)
         grid.setRowStretch(7, 1)
 
         # Blockchain Tab
@@ -327,6 +328,7 @@ class NetworkChoiceLayout(object):
 
         vbox = QVBoxLayout()
         vbox.addWidget(tabs)
+        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         self.layout_ = vbox
         # tor detector
         self.td = td = TorDetector()
