@@ -328,7 +328,7 @@ class QtAppStateProxy(AppStateProxy):
             info_text = '<ul>{}</ul>'.format(''.join('<li>{}</li>'.format(text)
                                                      for text, *rest in old_items))
             if show_suppressible('delete-obsolete-headers', main_text=main_text,
-                                 info_text=info_text):
+                                 info_text=info_text, yes_text=_('Delete')):
                 try:
                     for _text, rm_func, *args in old_items:
                         rm_func(*args)

@@ -94,11 +94,19 @@ class YesNoBox(BoxBase):
 
     def show_dialog(self, parent, **kwargs):
         cb = QCheckBox(_('Do not ask me again'))
-        dialog = self.message_box(QMessageBox.Yes|QMessageBox.No, parent, cb, **kwargs)
-        dialog.setDefaultButton(QMessageBox.Yes if self.default else QMessageBox.No)
+        dialog = self.message_box(QMessageBox.NoButton, parent, cb, **kwargs)
+        if 'yes_text' in kwargs:
+            yes_button = dialog.addButton(kwargs['yes_text'], QMessageBox.YesRole)
+        else:
+            yes_button = dialog.addButton(QMessageBox.Yes)
+        if 'no_text' in kwargs:
+            no_button = dialog.addButton(kwargs['no_text'], QMessageBox.NoRole)
+        else:
+            no_button = dialog.addButton(QMessageBox.No)
+        dialog.setDefaultButton(yes_button if self.default else no_button)
         _set_window_title_and_icon(dialog)
         result = dialog.exec_()
-        return cb.isChecked(), result == QMessageBox.Yes
+        return cb.isChecked(), dialog.clickedButton() is yes_button
 
 
 def show_suppressible(name, *, parent=None, wallet=None, **kwargs):
