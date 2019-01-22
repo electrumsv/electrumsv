@@ -1431,13 +1431,17 @@ class Network(util.DaemonThread):
             self.blockchain_index = self.interface.blockchain.base_height
         return Blockchain.legacy_map()[self.blockchain_index]
 
-    def get_blockchains(self):
-        out = {}
-        for height, b in Blockchain.legacy_map().items():
-            interfaces = [i for i in self.interfaces.values() if i.blockchain==b]
-            if interfaces:
-                out[height] = interfaces
-        return out
+    def interfaces_by_blockchain(self):
+        '''Returns a map {blockchain: list of interfaces} for each blockchain being
+        followed by any interface.'''
+        result = defaultdict(list)
+        for interface in self.interfaces.values():
+            if interface.blockchain:
+                result[interface.blockchain].append(interface)
+        return result
+
+    def blockchain_count(self):
+        return len(self.interfaces_by_blockchain())
 
     # Called by gui.qt.network_dialog.py:follow_branch()
     def follow_chain(self, index):

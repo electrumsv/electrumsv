@@ -31,7 +31,6 @@ from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QLineEdit, QCheckBox, QLabel, QComboBox,
 )
 
-from electrumsv.blockchain import Blockchain
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.networks import Net
@@ -109,24 +108,24 @@ class NodesListWidget(QTreeWidget):
     def update(self, network):
         self.clear()
         self.addChild = self.addTopLevelItem
-        chains = network.get_blockchains()
-        n_chains = len(chains)
-        for k, items in chains.items():
-            b = Blockchain.legacy_map()[k]
-            name = b.get_name()
-            if n_chains >1:
-                x = QTreeWidgetItem([name + '@%d'%b.get_base_height(), '%d'%b.height()])
+        blockchains = network.interfaces_by_blockchain()
+        multiple = len(blockchains) > 1
+        for blockchain, interfaces in blockchains.items():
+            name = blockchain.get_name()
+            if multiple:
+                x = QTreeWidgetItem([name + '@%d' % blockchain.get_base_height(),
+                                     '%d' % blockchain.height()])
                 x.setData(0, Qt.UserRole, 1)
-                x.setData(1, Qt.UserRole, b.base_height)
+                x.setData(1, Qt.UserRole, blockchain.base_height)
             else:
                 x = self
-            for i in items:
+            for i in interfaces:
                 star = ' *' if i == network.interface else ''
-                item = QTreeWidgetItem([i.host + star, '%d'%i.tip])
+                item = QTreeWidgetItem([i.host + star, '%d' % i.tip])
                 item.setData(0, Qt.UserRole, 0)
                 item.setData(1, Qt.UserRole, i.server)
                 x.addChild(item)
-            if n_chains>1:
+            if multiple:
                 self.addTopLevelItem(x)
                 x.setExpanded(True)
 
@@ -372,8 +371,7 @@ class NetworkChoiceLayout(object):
         n = len(self.network.get_interfaces())
         status = _("Connected to %d nodes.")%n if n else _("Not connected")
         self.status_label.setText(status)
-        chains = self.network.get_blockchains()
-        if len(chains)>1:
+        if self.network.blockchain_count() > 1:
             chain = self.network.blockchain()
             checkpoint = chain.get_base_height()
             name = chain.get_name()
