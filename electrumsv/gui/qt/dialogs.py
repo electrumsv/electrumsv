@@ -126,7 +126,7 @@ all_boxes = [
                 _('item C'),
             )),
     ),
-    YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Keep"), False),
+    YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Cancel"), False),
 ]
 
 all_boxes_by_name = {box.name: box for box in all_boxes}

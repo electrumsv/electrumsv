@@ -323,7 +323,7 @@ class QtAppStateProxy(AppStateProxy):
         if os.path.exists(forks_dir):
             old_items.append((_('the directory "forks/"'), shutil.rmtree, forks_dir))
         if old_items:
-            main_text = _('Keep the following obsolete items in <br>{}?'
+            main_text = _('Delete the following obsolete items in <br>{}?'
                           .format(self.config.path))
             info_text = '<ul>{}</ul>'.format(''.join('<li>{}</li>'.format(text)
                                                      for text, *rest in old_items))
