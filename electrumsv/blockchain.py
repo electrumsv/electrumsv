@@ -237,8 +237,12 @@ class Blockchain:
         return {b.base_height: b for b in cls.blockchains}
 
     @classmethod
-    def main_chain(cls):
-        return cls.legacy_map()[0]
+    def longest(cls):
+        result = cls.blockchains[0]
+        for blockchain in cls.blockchains:
+            if blockchain.chain.work > result.chain.work:
+                result = blockchain
+        return result
 
     # Called by network.py:Network._on_header()
     def parent(self):

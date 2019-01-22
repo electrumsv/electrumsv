@@ -982,7 +982,7 @@ class Network(util.DaemonThread):
                                                       result['root']):
                 return
             # We connect this verification chunk into the longest chain.
-            target_blockchain = Blockchain.main_chain()
+            target_blockchain = Blockchain.longest()
         else:
             target_blockchain = interface.blockchain
 
@@ -1240,7 +1240,7 @@ class Network(util.DaemonThread):
         pass
 
     def run(self):
-        b = Blockchain.main_chain()
+        b = Blockchain.longest()
         header = None
         if Net.VERIFICATION_BLOCK_HEIGHT is not None:
             self._init_headers_file()
@@ -1327,7 +1327,7 @@ class Network(util.DaemonThread):
             self._request_header(interface, min(tip, height - 1))
         else:
             interface.logger.debug("attempt to catch up tip=%s heights=%s", tip, heights)
-            chain = Blockchain.main_chain()
+            chain = Blockchain.longest()
             if chain.catch_up is None:
                 chain.catch_up = interface
                 interface.set_mode(Interface.MODE_CATCH_UP)
@@ -1426,7 +1426,7 @@ class Network(util.DaemonThread):
     def blockchain(self):
         if self.interface and self.interface.blockchain:
             return self.interface.blockchain   # Can be None
-        return Blockchain.legacy_map()[0]
+        return Blockchain.longest()
 
     def interfaces_by_blockchain(self):
         '''Returns a map {blockchain: list of interfaces} for each blockchain being
