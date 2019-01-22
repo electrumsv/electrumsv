@@ -40,6 +40,7 @@ from . import bitcoin
 from . import blockchain
 from . import util
 from .bitcoin import COIN, bfh
+from .blockchain import Blockchain
 from .crypto import sha256d
 from .i18n import _
 from .interface import Connection, Interface
@@ -182,10 +183,11 @@ class Network(util.DaemonThread):
             config = {}  # Do not use mutables as default values!
         self.config = SimpleConfig(config) if isinstance(config, dict) else config
         self.num_server = 10 if not self.config.get('oneserver') else 0
-        self.blockchains = blockchain.read_blockchains(self.config)
-        logger.debug("blockchains %s", self.blockchains.keys())
         self.blockchain_index = config.get('blockchain_index', 0)
-        if self.blockchain_index not in self.blockchains.keys():
+        # FIXME - this doesn't belong here; it's not a property of the Network
+        # Leaving it here until startup is rationalized
+        Blockchain.read_blockchains()
+        if self.blockchain_index not in Blockchain.blockchains.keys():
             self.blockchain_index = 0
         # Server for addresses and transactions
         self.default_server = self.config.get('server', None)
@@ -777,7 +779,7 @@ class Network(util.DaemonThread):
         if server in self.interfaces:
             self._close_interface(self.interfaces[server])
             self._notify('interfaces')
-        for b in self.blockchains.values():
+        for b in Blockchain.blockchains.values():
             if b.catch_up == server:
                 b.catch_up = None
 
@@ -983,7 +985,7 @@ class Network(util.DaemonThread):
                                                       result['root']):
                 return
             # We connect this verification chunk into the longest chain.
-            target_blockchain = self.blockchains[0]
+            target_blockchain = Blockchain.blockchains[0]
         else:
             target_blockchain = interface.blockchain
 
@@ -1128,7 +1130,7 @@ class Network(util.DaemonThread):
                 self._connection_down(interface.server)
                 next_height = None
             else:
-                branch = self.blockchains.get(interface.bad)
+                branch = Blockchain.blockchains.get(interface.bad)
                 if branch is not None:
                     if branch.check_header(interface.bad_header):
                         interface.logger.debug('joining chain %s', interface.bad)
@@ -1151,7 +1153,6 @@ class Network(util.DaemonThread):
                     if bh > interface.good:
                         if not interface.blockchain.check_header(interface.bad_header):
                             b = interface.blockchain.fork(interface.bad_header)
-                            self.blockchains[interface.bad] = b
                             interface.blockchain = b
                             interface.logger.debug("new chain %s", b.base_height)
                             interface.set_mode(Interface.MODE_CATCH_UP)
@@ -1242,7 +1243,7 @@ class Network(util.DaemonThread):
         pass
 
     def run(self):
-        b = self.blockchains[0]
+        b = Blockchain.blockchains[0]
         header = None
         if Net.VERIFICATION_BLOCK_HEIGHT is not None:
             self._init_headers_file()
@@ -1318,7 +1319,7 @@ class Network(util.DaemonThread):
             self._notify('interfaces')
             return
 
-        heights = [x.height() for x in self.blockchains.values()]
+        heights = [x.height() for x in Blockchain.blockchains.values()]
         tip = max(heights)
         if tip > Net.VERIFICATION_BLOCK_HEIGHT:
             interface.logger.debug("attempt to reconcile longest chain tip=%s heights=%s",
@@ -1329,7 +1330,7 @@ class Network(util.DaemonThread):
             self._request_header(interface, min(tip, height - 1))
         else:
             interface.logger.debug("attempt to catch up tip=%s heights=%s", tip, heights)
-            chain = self.blockchains[0]
+            chain = Blockchain.blockchains[0]
             if chain.catch_up is None:
                 chain.catch_up = interface
                 interface.set_mode(Interface.MODE_CATCH_UP)
@@ -1428,19 +1429,19 @@ class Network(util.DaemonThread):
     def blockchain(self):
         if self.interface and self.interface.blockchain is not None:
             self.blockchain_index = self.interface.blockchain.base_height
-        return self.blockchains[self.blockchain_index]
+        return Blockchain.blockchains[self.blockchain_index]
 
     def get_blockchains(self):
         out = {}
-        for k, b in self.blockchains.items():
-            r = [i for i in self.interfaces.values() if i.blockchain==b]
-            if r:
-                out[k] = r
+        for height, b in Blockchain.blockchains.items():
+            interfaces = [i for i in self.interfaces.values() if i.blockchain==b]
+            if interfaces:
+                out[height] = interfaces
         return out
 
     # Called by gui.qt.network_dialog.py:follow_branch()
     def follow_chain(self, index):
-        blockchain = self.blockchains.get(index)
+        blockchain = Blockchain.blockchains.get(index)
         if blockchain:
             self.blockchain_index = index
             self.config.set_key('blockchain_index', index)

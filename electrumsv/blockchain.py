@@ -114,29 +114,20 @@ def hash_header(header):
     return hash_encode(sha256d(bfh(_serialize_header(header))))
 
 
-blockchains = {}
-
-# Called by network.py:Network.__init__()
-def read_blockchains(config):
-    app_state.read_headers()
-    for chain in app_state.headers.chains():
-        b = Blockchain(chain)
-        blockchains[b.base_height] = b
-    return blockchains
 
 # Called by network.py:Network._on_header()
 # Called by network.py:Network._process_latest_tip()
 def check_header(header):
     if type(header) is not dict:
         return False
-    for b in blockchains.values():
+    for b in Blockchain.blockchains.values():
         if b.check_header(header):
             return b
     return False
 
 # Called by network.py:Network._process_latest_tip()
 def can_connect(header):
-    for b in blockchains.values():
+    for b in Blockchain.blockchains.values():
         if b.can_connect(header):
             return b
     return False
@@ -208,6 +199,8 @@ class Blockchain:
     Manages blockchain headers and their verification
     """
 
+    blockchains = {}
+
     def __init__(self, chain):
         self.chain = chain
         self.config = app_state.config
@@ -217,13 +210,22 @@ class Blockchain:
             self.parent_base_height = None
         else:
             self.parent_base_height = base_height(chain._parent)
+        # Add ourselves to the global
+        Blockchain.blockchains[self.base_height] = self
+
+    @classmethod
+    def read_blockchains(cls):
+        app_state.read_headers()
+        for chain in app_state.headers.chains():
+            Blockchain(chain)
 
     # Called by network.py:Network._on_header()
     def parent(self):
-        return blockchains[self.parent_base_height]
+        return self.blockchains[self.parent_base_height]
 
     def _get_max_child(self):
-        children = [y for y in blockchains.values() if y.parent_base_height == self.base_height]
+        children = [y for y in self.blockchains.values()
+                    if y.parent_base_height == self.base_height]
         return max([x.base_height for x in children]) if children else None
 
     # Called by verifier.py:SPV.undo_verifications()
