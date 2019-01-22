@@ -27,6 +27,8 @@ from PyQt5.QtWidgets import QMessageBox, QCheckBox
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 
+from .util import read_QIcon
+
 
 class BoxBase(object):
 
@@ -61,6 +63,7 @@ class BoxBase(object):
         icon = kwargs.get('icon', self.icon)
         dialog = QMessageBox(icon, '', main_text, buttons=buttons, parent=parent)
         dialog.setInformativeText(info_text)
+        _set_window_title_and_icon(dialog)
         if parent:
             dialog.setWindowModality(Qt.WindowModal)
         dialog.setCheckBox(cb)
@@ -73,6 +76,7 @@ class InfoBox(BoxBase):
     def show_dialog(self, parent, **kwargs):
         cb = QCheckBox(_('Do not show me again'))
         dialog = self.message_box(QMessageBox.Ok, parent, cb, **kwargs)
+        _set_window_title_and_icon(dialog)
         dialog.exec_()
         return cb.isChecked(), True
 
@@ -92,6 +96,7 @@ class YesNoBox(BoxBase):
         cb = QCheckBox(_('Do not ask me again'))
         dialog = self.message_box(QMessageBox.Yes|QMessageBox.No, parent, cb, **kwargs)
         dialog.setDefaultButton(QMessageBox.Yes if self.default else QMessageBox.No)
+        _set_window_title_and_icon(dialog)
         result = dialog.exec_()
         return cb.isChecked(), result == QMessageBox.Yes
 
@@ -120,10 +125,17 @@ all_boxes = [
 all_boxes_by_name = {box.name: box for box in all_boxes}
 
 
+def _set_window_title_and_icon(dialog):
+    # These have no effect on a Mac, but improve the look on Windows
+    dialog.setWindowTitle('ElectrumSV')
+    dialog.setWindowIcon(read_QIcon("electrum-sv.png"))
+
+
 def error_dialog(main_text, *, info_text='', parent=None):
     dialog = QMessageBox(QMessageBox.Critical, '', main_text,
                          buttons=QMessageBox.Ok, parent=parent)
     dialog.setInformativeText(info_text)
+    _set_window_title_and_icon(dialog)
     if parent:
         dialog.setWindowModality(Qt.WindowModal)
     dialog.exec_()
