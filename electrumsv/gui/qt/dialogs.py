@@ -88,28 +88,27 @@ class WarningBox(InfoBox):
 class YesNoBox(BoxBase):
     icon = QMessageBox.Question
 
-    def __init__(self, name, main_text, info_text, default):
+    def __init__(self, name, main_text, info_text, yes_text, no_text, default):
+        '''yes_text and no_text do not have defaults to encourage you to choose something more
+        informative and direct than Yes or No.
+        '''
         super().__init__(name, main_text, info_text)
+        self.yes_text = yes_text
+        self.no_text = no_text
         self.default = default
 
     def show_dialog(self, parent, **kwargs):
         cb = QCheckBox(_('Do not ask me again'))
         dialog = self.message_box(QMessageBox.NoButton, parent, cb, **kwargs)
-        if 'yes_text' in kwargs:
-            yes_button = dialog.addButton(kwargs['yes_text'], QMessageBox.YesRole)
-        else:
-            yes_button = dialog.addButton(QMessageBox.Yes)
-        if 'no_text' in kwargs:
-            no_button = dialog.addButton(kwargs['no_text'], QMessageBox.NoRole)
-        else:
-            no_button = dialog.addButton(QMessageBox.No)
+        yes_button = dialog.addButton(kwargs.get('yes_text', self.yes_text), QMessageBox.YesRole)
+        no_button = dialog.addButton(kwargs.get('no_text', self.no_text), QMessageBox.NoRole)
         dialog.setDefaultButton(yes_button if self.default else no_button)
         _set_window_title_and_icon(dialog)
         result = dialog.exec_()
         return cb.isChecked(), dialog.clickedButton() is yes_button
 
 
-def show_suppressible(name, *, parent=None, wallet=None, **kwargs):
+def show_named(name, *, parent=None, wallet=None, **kwargs):
     box = all_boxes_by_name.get(name)
     if not box:
         raise ValueError(f'no box with name {name} found')
@@ -127,7 +126,7 @@ all_boxes = [
                 _('item C'),
             )),
     ),
-    YesNoBox('delete-obsolete-headers', '', '', False),
+    YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Keep"), False),
 ]
 
 all_boxes_by_name = {box.name: box for box in all_boxes}

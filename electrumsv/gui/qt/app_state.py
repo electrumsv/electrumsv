@@ -43,8 +43,8 @@ from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
 
+from . import dialogs
 from .cosigner_pool import CosignerPool
-from .dialogs import show_suppressible, error_dialog
 from .label_sync import LabelSync
 from .exception_window import Exception_Hook
 from .installwizard import InstallWizard, GoBack
@@ -314,7 +314,7 @@ class QtAppStateProxy(AppStateProxy):
 
     def initial_dialogs(self):
         '''Suppressible dialogs that are shown when first opening the app.'''
-        show_suppressible('welcome-ESV-1.1')
+        dialogs.show_named('welcome-ESV-1.1')
         old_items = []
         headers_path = os.path.join(self.config.path, 'blockchain_headers')
         if os.path.exists(headers_path):
@@ -323,18 +323,18 @@ class QtAppStateProxy(AppStateProxy):
         if os.path.exists(forks_dir):
             old_items.append((_('the directory "forks/"'), shutil.rmtree, forks_dir))
         if old_items:
-            main_text = _('The following in your ElectrumSV directory {} are obsolete.  '
-                          'Would you like to delete them?'.format(self.config.path))
+            main_text = _('Keep the following obsolete items in <br>{}?'
+                          .format(self.config.path))
             info_text = '<ul>{}</ul>'.format(''.join('<li>{}</li>'.format(text)
                                                      for text, *rest in old_items))
-            if show_suppressible('delete-obsolete-headers', main_text=main_text,
-                                 info_text=info_text, yes_text=_('Delete')):
+            if dialogs.show_named('delete-obsolete-headers', main_text=main_text,
+                                  info_text=info_text):
                 try:
                     for _text, rm_func, *args in old_items:
                         rm_func(*args)
                 except OSError as e:
                     logger.exception('deleting obsolete files')
-                    error_dialog(_('Error deleting files:'), info_text=str(e))
+                    dialogs.error_dialog(_('Error deleting files:'), info_text=str(e))
 
     def event_loop_started(self):
         self.cosigner_pool = CosignerPool()
