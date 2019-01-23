@@ -53,10 +53,11 @@ class AppStateProxy(object):
 
     def __init__(self, config, gui_kind):
         from electrumsv.device import DeviceMgr
-
         self.config = config
-        self.device_manager = DeviceMgr()
         self.gui_kind = gui_kind
+        # Call this now so any code, such as DeviceMgr's constructor, can use us
+        AppState.set_proxy(self)
+        self.device_manager = DeviceMgr()
         self.fx = None
         self.headers = None
         # Not entirely sure these are worth caching, but preserving existing method for now

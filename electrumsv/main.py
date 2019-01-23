@@ -324,9 +324,9 @@ def main():
             from electrumsv.gui.qt.app_state import QtAppStateProxy
         except ImportError as e:
             platform.missing_import(e)
-        app_state.set_proxy(QtAppStateProxy(config, 'qt'))
+        QtAppStateProxy(config, 'qt')
     else:
-        app_state.set_proxy(AppStateProxy(config, 'cmdline'))
+        AppStateProxy(config, 'cmdline')
 
     # run non-RPC commands separately
     if cmdname in ['create', 'restore']:
