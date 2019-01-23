@@ -32,25 +32,24 @@ import sys
 import threading
 import time
 
-from PyQt5.QtCore import QObject, pyqtSignal, QTimer
+from PyQt5.QtCore import QObject, QTimer
 from PyQt5.QtGui import QGuiApplication
-from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMessageBox, QMenu, QWidget
+from PyQt5.QtWidgets import QSystemTrayIcon, QMessageBox, QMenu, QWidget
 import PyQt5.QtCore as QtCore
 
-from electrumsv.app_state import AppStateProxy, app_state
+from electrumsv.app_state import AppStateProxy
 from electrumsv.exceptions import UserCancelled, UserQuit
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
 
 from . import dialogs
+from .app import SVApplication
 from .cosigner_pool import CosignerPool
 from .label_sync import LabelSync
 from .exception_window import Exception_Hook
 from .installwizard import InstallWizard, GoBack
-from .log_window import SVLogWindow, SVLogHandler
 from .main_window import ElectrumWindow
-from .network_dialog import NetworkDialog
 from .util import ColorScheme, read_QIcon
 
 
@@ -68,60 +67,6 @@ class OpenFileEventFilter(QObject):
                 self.windows[0].pay_to_URI(event.url().toString())
                 return True
         return False
-
-
-class SVApplication(QApplication):
-
-    # Signals need to be on a QObject
-    create_new_window_signal = pyqtSignal(str, object)
-    alias_resolved = pyqtSignal()
-    cosigner_received_signal = pyqtSignal(object, object)
-    labels_changed_signal = pyqtSignal(object)
-    window_opened_signal = pyqtSignal(object)
-    window_closed_signal = pyqtSignal(object)
-    # Logging
-    new_category = pyqtSignal(str)
-    new_log = pyqtSignal(object)
-    # Preferences updates
-    fiat_ccy_changed = pyqtSignal()
-    custom_fee_changed = pyqtSignal()
-    fees_editable_changed = pyqtSignal()
-    op_return_enabled_changed = pyqtSignal()
-    num_zeros_changed = pyqtSignal()
-    base_unit_changed = pyqtSignal()
-    fiat_history_changed = pyqtSignal()
-    fiat_balance_changed = pyqtSignal()
-    update_check_signal = pyqtSignal(bool, object)
-
-    def __init__(self, argv):
-        super().__init__(argv)
-        self.log_window = None
-        self.net_dialog = None
-        self.log_handler = SVLogHandler()
-        logs.add_handler(self.log_handler)
-
-    def show_network_dialog(self, parent):
-        if not app_state.daemon.network:
-            parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
-                                  'ElectrumSV if you want to get connected'), title=_('Offline'))
-            return
-        if self.net_dialog:
-            self.net_dialog.on_update()
-            self.net_dialog.show()
-            self.net_dialog.raise_()
-            return
-        self.net_dialog = NetworkDialog(app_state.daemon.network, app_state.config)
-        self.net_dialog.show()
-
-    def show_log_viewer(self):
-        if self.log_window is None:
-            self.log_window = SVLogWindow(None, self.log_handler)
-        self.log_window.show()
-
-    def last_window_closed(self):
-        for dialog in (self.net_dialog, self.log_window):
-            if dialog:
-                dialog.accept()
 
 
 class QtAppStateProxy(AppStateProxy):
