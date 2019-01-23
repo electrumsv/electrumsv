@@ -1,0 +1,1 @@
+pip is currently locked to 18.1, as 19.0 breaks PyInstaller installation.  [Issue on pip repository](https://github.com/pypa/pip/issues/6163) where they try to blame it on PyInstaller.  [Issue on PyInstaller repository](https://github.com/pyinstaller/pyinstaller/issues/2730) where they in the past blame a similar problem on the user.

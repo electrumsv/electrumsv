@@ -7,6 +7,7 @@ from PyInstaller.utils.hooks import collect_dynamic_libs
 
 PYHOME = 'c:/python3'
 
+cmdline_name = "ElectrumSV"
 home = 'C:\\electrum\\'
 
 # Add libusb binary
