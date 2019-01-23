@@ -215,7 +215,7 @@ class Daemon(DaemonThread):
         if hasattr(app_state, 'windows'):
             config.open_last_wallet()
             path = config.get_wallet_path()
-            app_state.new_window(path, config.get('url'))
+            app_state.app.new_window(path, config.get('url'))
             return "ok"
 
         return "error: ElectrumSV is running in daemon mode; stop the daemon first."

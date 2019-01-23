@@ -338,7 +338,7 @@ def main():
         if fd is not None:
             d = daemon.Daemon(fd, True)
             d.start()
-            app_state.run_gui()
+            app_state.app.run_gui()
             sys.exit(0)
         else:
             result = server.gui(config_options)

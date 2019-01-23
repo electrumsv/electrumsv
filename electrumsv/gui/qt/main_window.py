@@ -122,7 +122,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.network = app_state.daemon.network
         self.invoices = wallet.invoices
         self.contacts = wallet.contacts
-        self.tray = app_state.tray
         self.app = app_state.app
         self.cleaned_up = False
         self.is_max = False
@@ -232,7 +231,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # update fee slider in case we missed the callback
         self.fee_slider.update()
         self.load_wallet()
-        app_state.timer.timeout.connect(self.timer_actions)
+        self.app.timer.timeout.connect(self.timer_actions)
 
     def on_history(self, b):
         self.new_fx_history_signal.emit()
@@ -365,7 +364,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.request_list.update()
         self.tabs.show()
         self.init_geometry()
-        if self.config.get('hide_gui') and app_state.tray.isVisible():
+        if self.config.get('hide_gui') and self.app.tray.isVisible():
             self.hide()
         else:
             self.show()
@@ -417,7 +416,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         filename, __ = QFileDialog.getOpenFileName(self, "Select your wallet file", wallet_folder)
         if not filename:
             return
-        app_state.new_window(filename)
+        self.app.new_window(filename)
 
     def backup_wallet(self):
         path = self.wallet.storage.path
@@ -466,7 +465,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         for i, k in enumerate(sorted(recent)):
             b = os.path.basename(k)
             def loader(k):
-                return lambda: app_state.new_window(k)
+                return lambda: self.app.new_window(k)
             self.recently_visited_menu.addAction(
                 b, loader(k)).setShortcut(QKeySequence("Ctrl+%d"%(i+1)))
         self.recently_visited_menu.setEnabled(len(recent))
@@ -488,7 +487,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 break
         full_path = os.path.join(wallet_folder, filename)
-        app_state.start_new_window(full_path, None)
+        self.app.start_new_window(full_path, None)
 
     def init_menubar(self):
         menubar = QMenuBar()
@@ -546,7 +545,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tools_menu = menubar.addMenu(_("&Tools"))
 
         tools_menu.addAction(_("Preferences"), self.preferences_dialog)
-        tools_menu.addAction(_("&Network"), lambda: app_state.app.show_network_dialog(self))
+        tools_menu.addAction(_("&Network"), lambda: self.app.show_network_dialog(self))
         tools_menu.addSeparator()
         tools_menu.addAction(_("&Sign/verify message"), self.sign_verify_message)
         tools_menu.addAction(_("&Encrypt/decrypt message"), self.encrypt_message)
@@ -587,7 +586,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         toolbar.addAction(preferences_action)
 
         network_action = QAction(read_QIcon("network.png"), _("Network"), self)
-        network_action.triggered.connect(lambda: app_state.app.show_network_dialog(self))
+        network_action.triggered.connect(lambda: self.app.show_network_dialog(self))
         toolbar.addAction(network_action)
 
         log_action = QAction(read_QIcon("icons8-moleskine-80.png"), _("Log Viewer"), self)
@@ -702,15 +701,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
 
     def notify(self, message):
-        if self.tray:
-            try:
-                # this requires Qt 5.9
-                self.tray.showMessage("ElectrumSV", message,
-                                      read_QIcon("electrum_dark_icon"), 20000)
-            except TypeError:
-                self.tray.showMessage("ElectrumSV", message, QSystemTrayIcon.Information, 20000)
-
-
+        self.app.tray.showMessage("ElectrumSV", message,
+                                  read_QIcon("electrum_dark_icon"), 20000)
 
     # custom wrappers for getOpenFileName and getSaveFileName, that remember the path
     # selected by the user
@@ -1970,7 +1962,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         console.history_index = len(console.history)
 
         console.updateNamespace({
-            'app_state': app_state,
+            'app': self.app,
             'config': app_state.config,
             'daemon': app_state.daemon,
             'electrumsv': electrumsv,
@@ -2893,8 +2885,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 app_state.device_manager.unpair_xpub(keystore.xpub)
         self.logger.debug(f'closing wallet {self.wallet.storage.path}')
 
-        app_state.timer.timeout.disconnect(self.timer_actions)
-        app_state.close_window(self)
+        self.app.timer.timeout.disconnect(self.timer_actions)
+        self.app.close_window(self)
 
     def cpfp(self, parent_tx, new_tx):
         total_size = parent_tx.estimated_size() + new_tx.estimated_size()
