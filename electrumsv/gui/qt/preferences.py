@@ -68,9 +68,6 @@ class PreferencesDialog(QDialog):
                 title=_('Success'), parent=self)
         super().accept()
 
-    def reject(self):
-        pass
-
     def lay_out(self, wallet):
         tabs_info = [
             (self.general_widgets(), _('General')),
