@@ -72,9 +72,6 @@ class PreferencesDialog(QDialog):
         pass
 
     def lay_out(self, wallet):
-        vbox = QVBoxLayout()
-        tabs = QTabWidget()
-
         tabs_info = [
             (self.general_widgets(), _('General')),
             (self.tx_widgets(), _('Transactions')),
@@ -82,15 +79,16 @@ class PreferencesDialog(QDialog):
             (self.id_widgets(), _('Identity')),
             (self.extensions_widgets(wallet), _('Extensions')),
         ]
-
         if wallet:
             tabs_info.append((self.wallet_widgets(wallet), _('Wallet')))
 
+        tabs = QTabWidget()
+        tabs.setUsesScrollButtons(False)
         for widget_rows, name in tabs_info:
             tab = QWidget()
             grid = QGridLayout(tab)
             grid_width = max(len(widget_row) for widget_row in widget_rows)
-            # Push widgets left
+            # Centre grid and push widgets left
             grid.setColumnStretch(grid_width, 1)
 
             def widgets(widget_row):
@@ -109,6 +107,7 @@ class PreferencesDialog(QDialog):
             grid.setRowStretch(row + 1, 1)
             tabs.addTab(tab, name)
 
+        vbox = QVBoxLayout()
         vbox.addWidget(tabs)
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CloseButton(self)))
