@@ -70,7 +70,7 @@ class OpenFileEventFilter(QObject):
         return False
 
 
-class QElectrumSVApplication(QApplication):
+class SVApplication(QApplication):
 
     # Signals need to be on a QObject
     create_new_window_signal = pyqtSignal(str, object)
@@ -159,7 +159,7 @@ class QtAppStateProxy(AppStateProxy):
             QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
         if hasattr(QGuiApplication, 'setDesktopFileName'):
             QGuiApplication.setDesktopFileName('electrum-sv.desktop')
-        app = QElectrumSVApplication(sys.argv)
+        app = SVApplication(sys.argv)
         app.installEventFilter(OpenFileEventFilter(self.windows))
         app.create_new_window_signal.connect(self.start_new_window)
         app.custom_fee_changed.connect(partial(self._signal_all, 'on_custom_fee_changed'))
