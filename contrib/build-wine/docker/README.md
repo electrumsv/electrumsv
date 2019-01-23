@@ -33,8 +33,8 @@ similar system.
         rm -rf $FRESH_CLONE && \
         mkdir -p $FRESH_CLONE && \
         cd $FRESH_CLONE  && \
-        git clone https://github.com/spesmilo/electrum.git && \
-        cd electrum
+        git clone https://github.com/electrumsv/electrumsv.git && \
+        cd electrumsv
     ```
 
     And then build from this directory:
