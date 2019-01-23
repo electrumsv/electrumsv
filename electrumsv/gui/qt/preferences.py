@@ -48,7 +48,8 @@ from .util import (
 
 class PreferencesDialog(QDialog):
 
-    def __init__(self, wallet):
+    def __init__(self, wallet=None):
+        '''The preferences dialog has a wallet tab only if wallet is given.'''
         super().__init__()
         self.setWindowTitle(_('Preferences'))
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
@@ -76,20 +77,36 @@ class PreferencesDialog(QDialog):
 
         tabs_info = [
             (self.general_widgets(), _('General')),
-            (self.fee_widgets(), _('Fees')),
-            (self.tx_widgets(wallet), _('Transactions')),
+            (self.tx_widgets(), _('Transactions')),
             (self.fiat_widgets(), _('Fiat')),
             (self.id_widgets(), _('Identity')),
             (self.extensions_widgets(wallet), _('Extensions')),
         ]
+
+        if wallet:
+            tabs_info.append((self.wallet_widgets(wallet), _('Wallet')))
+
         for widget_rows, name in tabs_info:
             tab = QWidget()
             grid = QGridLayout(tab)
-            grid.setColumnStretch(0,1)
-            for row, widget_row in enumerate(widget_rows):
+            grid_width = max(len(widget_row) for widget_row in widget_rows)
+            # Push widgets left
+            grid.setColumnStretch(grid_width, 1)
+
+            def widgets(widget_row):
+                prior_widget = None
                 for col, widget in enumerate(widget_row):
                     if widget:
-                        grid.addWidget(widget, row, col)
+                        if prior_widget:
+                            yield start_col, prior_widget, col - start_col
+                        start_col = col
+                        prior_widget = widget
+                yield start_col, prior_widget, grid_width - start_col
+
+            for row, widget_row in enumerate(widget_rows):
+                for col, widget, col_span in widgets(widget_row):
+                    grid.addWidget(widget, row, col, 1, col_span)
+            grid.setRowStretch(row + 1, 1)
             tabs.addTab(tab, name)
 
         vbox.addWidget(tabs)
@@ -97,7 +114,7 @@ class PreferencesDialog(QDialog):
         vbox.addLayout(Buttons(CloseButton(self)))
         self.setLayout(vbox)
 
-    def fee_widgets(self):
+    def tx_widgets(self):
         def on_customfee(_text):
             amt = customfee_e.get_amount()
             m = int(amt * 1000.0) if amt is not None else None
@@ -111,49 +128,13 @@ class PreferencesDialog(QDialog):
         customfee_label = HelpLabel(_('Custom Fee Rate'),
                                     _('Custom Fee Rate in Satoshis per byte'))
 
-        feebox_cb = QCheckBox(_('Edit fees manually'))
+        feebox_cb = QCheckBox(_('Manually set fees for each transaction'))
         feebox_cb.setChecked(app_state.config.get('show_fee', False))
         feebox_cb.setToolTip(_("Show fee edit box in send tab."))
         def on_feebox(state):
             app_state.config.set_key('show_fee', state == Qt.Checked)
             app_state.app.fees_editable_changed.emit()
         feebox_cb.stateChanged.connect(on_feebox)
-
-        return [
-            (customfee_label, customfee_e),
-            (feebox_cb, None)
-        ]
-
-    def tx_widgets(self, wallet):
-        usechange_cb = QCheckBox(_('Use change addresses'))
-        usechange_cb.setChecked(wallet.use_change)
-        usechange_cb.setEnabled(app_state.config.is_modifiable('use_change'))
-        usechange_cb.setToolTip(
-            _('Using a different change address each time improves your privacy by '
-              'making it more difficult for others to analyze your transactions.')
-        )
-        def on_usechange(state):
-            usechange_result = state == Qt.Checked
-            if wallet.use_change != usechange_result:
-                wallet.use_change = usechange_result
-                wallet.storage.put('use_change', wallet.use_change)
-                multiple_cb.setEnabled(wallet.use_change)
-        usechange_cb.stateChanged.connect(on_usechange)
-
-        multiple_cb = QCheckBox(_('Use multiple change addresses'))
-        multiple_cb.setChecked(wallet.multiple_change)
-        multiple_cb.setEnabled(wallet.use_change)
-        multiple_cb.setToolTip('\n'.join([
-            _('In some cases, use up to 3 change addresses in order to break '
-              'up large coin amounts and obfuscate the recipient address.'),
-            _('This may result in higher transactions fees.')
-        ]))
-        def on_multiple(state):
-            multiple = state == Qt.Checked
-            if wallet.multiple_change != multiple:
-                wallet.multiple_change = multiple
-                wallet.storage.put('multiple_change', multiple)
-        multiple_cb.stateChanged.connect(on_multiple)
 
         unconf_cb = QCheckBox(_('Spend only confirmed coins'))
         unconf_cb.setToolTip(_('Spend only confirmed inputs.'))
@@ -171,10 +152,11 @@ class PreferencesDialog(QDialog):
         opret_cb.stateChanged.connect(on_op_return)
 
         return [
-            (usechange_cb, None),
-            (multiple_cb, None),
-            (unconf_cb, None),
-            (opret_cb, None),
+            # Append None to flush edit left
+            (customfee_label, customfee_e, None),
+            (feebox_cb, ),
+            (unconf_cb, ),
+            (opret_cb, ),
         ]
 
     def general_widgets(self):
@@ -267,13 +249,13 @@ class PreferencesDialog(QDialog):
             (unit_label, unit_combo),
             (block_ex_label, block_ex_combo),
             (qr_label, qr_combo),
-            (updatecheck_cb, None),
+            (updatecheck_cb, ),
         ]
 
     def fiat_widgets(self):
         # Fiat Currency
-        hist_checkbox = QCheckBox()
-        fiat_balance_checkbox = QCheckBox()
+        hist_checkbox = QCheckBox(_('Show historical rates'))
+        fiat_balance_checkbox = QCheckBox(_('Show Fiat balance for addresses'))
         ccy_combo = QComboBox()
         ex_combo = QComboBox()
 
@@ -356,10 +338,9 @@ class PreferencesDialog(QDialog):
         ex_combo.currentIndexChanged.connect(on_exchange)
 
         return [
-            (QLabel(_('Fiat currency')), ccy_combo),
-            (QLabel(_('Show history rates')), hist_checkbox),
-            (QLabel(_('Show Fiat balance for addresses')), fiat_balance_checkbox),
-            (QLabel(_('Source')), ex_combo),
+            (QLabel(_('Fiat currency')), ccy_combo, QLabel(_('Source')), ex_combo),
+            (hist_checkbox, ),
+            (fiat_balance_checkbox, ),
         ]
 
     def id_widgets(self):
@@ -425,7 +406,7 @@ class PreferencesDialog(QDialog):
             cb = QCheckBox(extension.name)
             cb.setChecked(extension.is_enabled())
             # Yes this is ugly
-            if extension is label_sync:
+            if extension is label_sync and wallet:
                 settings_widget = app_state.label_sync.settings_widget(self, wallet)
                 settings_widget.setEnabled(extension.is_enabled())
             else:
@@ -435,6 +416,46 @@ class PreferencesDialog(QDialog):
             widgets.append((cb, settings_widget, help_widget))
 
         return widgets
+
+    def wallet_widgets(self, wallet):
+        label = QLabel(_("The settings below only affect the wallet {}")
+                       .format(wallet.basename()))
+
+        usechange_cb = QCheckBox(_('Use change addresses'))
+        usechange_cb.setChecked(wallet.use_change)
+        usechange_cb.setEnabled(app_state.config.is_modifiable('use_change'))
+        usechange_cb.setToolTip(
+            _('Using a different change address each time improves your privacy by '
+              'making it more difficult for others to analyze your transactions.')
+        )
+        def on_usechange(state):
+            usechange_result = state == Qt.Checked
+            if wallet.use_change != usechange_result:
+                wallet.use_change = usechange_result
+                wallet.storage.put('use_change', wallet.use_change)
+                multiple_cb.setEnabled(wallet.use_change)
+        usechange_cb.stateChanged.connect(on_usechange)
+
+        multiple_cb = QCheckBox(_('Use multiple change addresses'))
+        multiple_cb.setChecked(wallet.multiple_change)
+        multiple_cb.setEnabled(wallet.use_change)
+        multiple_cb.setToolTip('\n'.join([
+            _('In some cases, use up to 3 change addresses in order to break '
+              'up large coin amounts and obfuscate the recipient address.'),
+            _('This may result in higher transactions fees.')
+        ]))
+        def on_multiple(state):
+            multiple = state == Qt.Checked
+            if wallet.multiple_change != multiple:
+                wallet.multiple_change = multiple
+                wallet.storage.put('multiple_change', multiple)
+        multiple_cb.stateChanged.connect(on_multiple)
+
+        return [
+            (label, ),
+            (usechange_cb, ),
+            (multiple_cb, ),
+        ]
 
     def __del__(self):
         logs.root.debug('preferences dialog GC-ed')
