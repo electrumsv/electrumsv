@@ -37,7 +37,7 @@ from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMessageBox, QMenu, QWidget
 import PyQt5.QtCore as QtCore
 
-from electrumsv.app_state import AppStateProxy
+from electrumsv.app_state import AppStateProxy, app_state
 from electrumsv.exceptions import UserCancelled, UserQuit
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
@@ -101,7 +101,7 @@ class QElectrumSVApplication(QApplication):
         logs.add_handler(self.log_handler)
 
     def show_network_dialog(self, parent):
-        if not self.daemon.network:
+        if not app_state.daemon.network:
             parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
                                   'ElectrumSV if you want to get connected'), title=_('Offline'))
             return

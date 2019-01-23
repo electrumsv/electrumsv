@@ -587,7 +587,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         toolbar.addAction(preferences_action)
 
         network_action = QAction(read_QIcon("network.png"), _("Network"), self)
-        network_action.triggered.connect(lambda: app_state.show_network_dialog(self))
+        network_action.triggered.connect(lambda: app_state.app.show_network_dialog(self))
         toolbar.addAction(network_action)
 
         log_action = QAction(read_QIcon("icons8-moleskine-80.png"), _("Log Viewer"), self)
