@@ -546,7 +546,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tools_menu = menubar.addMenu(_("&Tools"))
 
         tools_menu.addAction(_("Preferences"), self.preferences_dialog)
-        tools_menu.addAction(_("&Network"), lambda: app_state.show_network_dialog(self))
+        tools_menu.addAction(_("&Network"), lambda: app_state.app.show_network_dialog(self))
         tools_menu.addSeparator()
         tools_menu.addAction(_("&Sign/verify message"), self.sign_verify_message)
         tools_menu.addAction(_("&Encrypt/decrypt message"), self.encrypt_message)
@@ -593,6 +593,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         update_action = QAction(read_QIcon("update.png"), _("Version Check"), self)
         update_action.triggered.connect(self.show_update_check)
         toolbar.addAction(update_action)
+
+        log_action = QAction(read_QIcon("update.png"), _("Log Viewer"), self)
+        log_action.triggered.connect(self.app.show_log_viewer)
+        toolbar.addAction(log_action)
+
         self.addToolBar(toolbar)
         self.setUnifiedTitleAndToolBarOnMac(True)
 

@@ -48,6 +48,7 @@ from .cosigner_pool import CosignerPool
 from .label_sync import LabelSync
 from .exception_window import Exception_Hook
 from .installwizard import InstallWizard, GoBack
+from .log_window import SVLogWindow, SVLogHandler
 from .main_window import ElectrumWindow
 from .network_dialog import NetworkDialog
 from .util import ColorScheme, read_QIcon
@@ -78,6 +79,9 @@ class QElectrumSVApplication(QApplication):
     labels_changed_signal = pyqtSignal(object)
     window_opened_signal = pyqtSignal(object)
     window_closed_signal = pyqtSignal(object)
+    # Logging
+    new_category = pyqtSignal(str)
+    new_log = pyqtSignal(object)
     # Preferences updates
     fiat_ccy_changed = pyqtSignal()
     custom_fee_changed = pyqtSignal()
@@ -88,6 +92,36 @@ class QElectrumSVApplication(QApplication):
     fiat_history_changed = pyqtSignal()
     fiat_balance_changed = pyqtSignal()
     update_check_signal = pyqtSignal(bool, object)
+
+    def __init__(self, argv):
+        super().__init__(argv)
+        self.log_window = None
+        self.net_dialog = None
+        self.log_handler = SVLogHandler()
+        logs.add_handler(self.log_handler)
+
+    def show_network_dialog(self, parent):
+        if not self.daemon.network:
+            parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
+                                  'ElectrumSV if you want to get connected'), title=_('Offline'))
+            return
+        if self.net_dialog:
+            self.net_dialog.on_update()
+            self.net_dialog.show()
+            self.net_dialog.raise_()
+            return
+        self.net_dialog = NetworkDialog(app_state.daemon.network, app_state.config)
+        self.net_dialog.show()
+
+    def show_log_viewer(self):
+        if self.log_window is None:
+            self.log_window = SVLogWindow(None, self.log_handler)
+        self.log_window.show()
+
+    def last_window_closed(self):
+        for dialog in (self.net_dialog, self.log_window):
+            if dialog:
+                dialog.accept()
 
 
 class QtAppStateProxy(AppStateProxy):
@@ -109,7 +143,6 @@ class QtAppStateProxy(AppStateProxy):
         #network.add_jobs([DebugMem([Abstract_Wallet, SPV, Synchronizer,
         #                            ElectrumWindow], interval=5)])
 
-        self.nd = None
         self.exception_hook = None
         # init tray
         self.dark_icon = self.config.get("dark_icon", False)
@@ -222,19 +255,6 @@ class QtAppStateProxy(AppStateProxy):
         # Use a signal as can be called from daemon thread
         self.app.create_new_window_signal.emit(path, uri)
 
-    def show_network_dialog(self, parent):
-        if not self.daemon.network:
-            parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
-                                  'ElectrumSV if you want to get connected'), title=_('Offline'))
-            return
-        if self.nd:
-            self.nd.on_update()
-            self.nd.show()
-            self.nd.raise_()
-            return
-        self.nd = NetworkDialog(self.daemon.network, self.config)
-        self.nd.show()
-
     def create_window_for_wallet(self, wallet):
         w = ElectrumWindow(wallet)
         self.windows.append(w)
@@ -297,8 +317,7 @@ class QtAppStateProxy(AppStateProxy):
         # save wallet path of last open window
         if not self.windows:
             self.config.save_last_wallet(window.wallet)
-            if self.nd:
-                self.nd.accept()
+            self.app.last_window_closed()
 
     def maybe_choose_server(self):
         # Show network dialog if config does not exist
