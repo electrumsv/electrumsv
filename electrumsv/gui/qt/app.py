@@ -100,6 +100,8 @@ class SVApplication(QApplication):
         self.net_dialog = None
         self.timer = QTimer()
         self.exception_hook = None
+        # A floating point number, e.g. 129.1
+        self.dpi = self.primaryScreen().physicalDotsPerInch()
 
         # init tray
         self.dark_icon = app_state.config.get("dark_icon", False)

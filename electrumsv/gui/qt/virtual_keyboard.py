@@ -46,7 +46,7 @@ max_chars = max(len(page.chars) for page in pages)
 def vkb_button(click_cb):
     button = QPushButton()
     button.clicked.connect(partial(click_cb, button))
-    button.setFixedWidth(app_state.dpi / 3.6)
+    button.setFixedWidth(app_state.app.dpi / 3.6)
     return button
 
 
@@ -97,7 +97,7 @@ class VirtualKeyboard(QWidget):
             grid.addWidget(button, n + 1, cols + 1)
         for n, button in enumerate(self.char_buttons):
             grid.addWidget(button, n // cols, n % cols)
-        grid.setColumnMinimumWidth(cols, app_state.dpi / 12)
+        grid.setColumnMinimumWidth(cols, app_state.app.dpi / 12)
         return grid
 
     def _on_page_button(self, button):

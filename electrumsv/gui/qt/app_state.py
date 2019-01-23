@@ -35,10 +35,7 @@ class QtAppStateProxy(AppStateProxy):
 
     def __init__(self, *args):
         super().__init__(*args)
-
         self.app = SVApplication(sys.argv)
-        # A floating point number, e.g. 129.1
-        self.dpi = self.app.primaryScreen().physicalDotsPerInch()
 
     def alias_resolved(self):
         self.app.alias_resolved.emit()
