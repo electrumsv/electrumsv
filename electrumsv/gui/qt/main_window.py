@@ -590,13 +590,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         network_action.triggered.connect(lambda: app_state.show_network_dialog(self))
         toolbar.addAction(network_action)
 
-        update_action = QAction(read_QIcon("update.png"), _("Version Check"), self)
+        log_action = QAction(read_QIcon("icons8-bulleted-list-80.png"), _("Log Viewer"), self)
+        log_action.triggered.connect(self.app.show_log_viewer)
+        toolbar.addAction(log_action)
+
+        update_action = QAction(read_QIcon("update.png"), _("Update Check"), self)
         update_action.triggered.connect(self.show_update_check)
         toolbar.addAction(update_action)
 
-        log_action = QAction(read_QIcon("update.png"), _("Log Viewer"), self)
-        log_action.triggered.connect(self.app.show_log_viewer)
-        toolbar.addAction(log_action)
+        toolbar.insertSeparator(update_action)
 
         self.addToolBar(toolbar)
         self.setUnifiedTitleAndToolBarOnMac(True)
