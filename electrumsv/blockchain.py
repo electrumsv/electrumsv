@@ -64,17 +64,6 @@ def hash_header(header):
     return hash_encode(sha256d(bfh(_serialize_header(header))))
 
 
-
-# Called by network.py:Network._on_header()
-# Called by network.py:Network._process_latest_tip()
-def check_header(header):
-    if type(header) is not dict:
-        return False
-    for b in Blockchain.blockchains:
-        if b.check_header(header):
-            return b
-    return False
-
 # Called by network.py:Network._validate_checkpoint_result()
 def root_from_proof(hash_, branch, index):
     """ Copied from electrumx """
@@ -168,13 +157,6 @@ class Blockchain:
     def get_name(self):
         return self._get_hash(self.get_base_height()).lstrip('00')[0:10]
 
-    # Called by network.py:Network._on_header()
-    # Called by network.py:Network._process_latest_tip()
-    def check_header(self, header):
-        header_hash = hash_header(header)
-        height = header.get('block_height')
-        return header_hash == self._get_hash(height)
-
     # Called by network.py:Network._on_block_headers()
     # Called by network.py:Network._on_header()
     # Called by network.py:Network._process_latest_tip()
@@ -207,10 +189,19 @@ class Blockchain:
         return hash_header(self.read_header(height))
 
     @classmethod
-    def connect(cls, header):
+    def connect(cls, height, header, proof_was_provided):
+        # FIXME: pass in a raw header
+        headers_obj = app_state.headers
+        checkpoint = headers_obj.storage.checkpoint
         raw_header = bfh(_serialize_header(header))
-        header, chain = app_state.headers.connect(raw_header)
-        return header, cls.from_chain(chain)
+
+        if height < checkpoint.height:
+            assert proof_was_provided
+            headers_obj.set_one(height, raw_header)
+            return headers_obj.coin.deserialized_header(raw_header), self.longest()
+        else:
+            header, chain = app_state.headers.connect(raw_header)
+            return header, cls.from_chain(chain)
 
     @classmethod
     def connect_chunk(cls, start_height, raw_chunk, proof_was_provided):

@@ -1048,6 +1048,7 @@ class Network(util.DaemonThread):
             self._connection_down(interface.server)
             return
 
+        # FIXME: we need to assert we get a proof if we need / requested one
         proof_was_provided = False
         hexheader = None
         if 'root' in result and 'branch' in result and 'header' in result:
@@ -1065,13 +1066,21 @@ class Network(util.DaemonThread):
 
         # Simple header request.
         header = blockchain.deserialize_header(bfh(hexheader), height)
-        # Is there a blockchain that already includes this header?
-        chain = blockchain.check_header(header)
+        try:
+            _header, interface.blockchain = Blockchain.connect(height, header, proof_was_provided)
+            interface.logger.info(f'Connected {_header}')
+        except MissingHeader as e:
+            interface.logger.info(str(e))
+            interface.blockchain = None
+        except (IncorrectBits, InsufficientPoW) as e:
+            interface.logger.warning(str(e))
+            self._connection_down(interface.server, blacklist=True)
+            return
+
         if interface.mode == Interface.MODE_BACKWARD:
-            if chain:
+            if interface.blockchain:
                 interface.logger.debug("binary search")
                 interface.set_mode(Interface.MODE_BINARY)
-                interface.blockchain = chain
                 interface.good = height
                 next_height = (interface.bad + interface.good) // 2
             else:
@@ -1082,62 +1091,32 @@ class Network(util.DaemonThread):
                 # there's not much ElectrumSV can do about it (that we're going to
                 # bother). We depend on the checkpoint being relevant for the blockchain
                 # the user is running against.
-                if height <= Net.VERIFICATION_BLOCK_HEIGHT:
-                    self._connection_down(interface.server)
-                    next_height = None
-                else:
-                    interface.bad = height
-                    interface.bad_header = header
-                    delta = interface.tip - height
-                    # If the longest chain does not connect at any point we check to the
-                    # chain this interface is serving, then we fall back on the checkpoint
-                    # height which is expected to work.
-                    next_height = max(Net.VERIFICATION_BLOCK_HEIGHT,
-                                      interface.tip - 2 * delta)
-
+                assert height > Net.VERIFICATION_BLOCK_HEIGHT
+                interface.bad = height
+                interface.bad_header = header
+                delta = interface.tip - height
+                # If the longest chain does not connect at any point we check to the
+                # chain this interface is serving, then we fall back on the checkpoint
+                # height which is expected to work.
+                next_height = max(Net.VERIFICATION_BLOCK_HEIGHT,
+                                  interface.tip - 2 * delta)
         elif interface.mode == Interface.MODE_BINARY:
-            if chain:
+            if interface.blockchain:
                 interface.good = height
-                interface.blockchain = chain
             else:
                 interface.bad = height
                 interface.bad_header = header
-
-            if interface.bad != interface.good + 1:
-                next_height = (interface.bad + interface.good) // 2
-            else:
-                try:
-                    _header, interface.blockchain = Blockchain.connect(interface.bad_header)
-                except MissingHeader as e:
-                    self._connection_down(interface.server)
-                    next_height = None
-                except (IncorrectBits, InsufficientPoW) as e:
-                    interface.logger.warning(str(e))
-                    self._connection_down(interface.server, blacklist=True)
-                    return
-                else:
-                    interface.logger.info(f'Connected {header}')
-                    interface.set_mode(Interface.MODE_CATCH_UP)
-                    next_height = interface.bad + 1
-                    interface.blockchain.catch_up = interface.server
-
-                self._notify('updated')
-
+            next_height = (interface.bad + interface.good + 1) // 2
+            if next_height == height:
+                next_height = None
         elif interface.mode == Interface.MODE_CATCH_UP:
-            try:
-                _header, interface.blockchain = Blockchain.connect(header)
-            except MissingHeader as e:
-                interface.logger.info(str(e))
+            if interface.blockchain is None:
                 # go back
                 interface.logger.info("cannot connect %d", height)
                 interface.set_mode(Interface.MODE_BACKWARD)
                 interface.bad = height
                 interface.bad_header = header
                 next_height = height - 1
-            except (IncorrectBits, InsufficientPoW) as e:
-                interface.logger.warning(str(e))
-                self._connection_down(interface.server, blacklist=True)
-                return
             else:
                 next_height = height + 1 if height < interface.tip else None
 
@@ -1147,7 +1126,6 @@ class Network(util.DaemonThread):
                 interface.blockchain.catch_up = None
                 self._switch_lagging_interface()
                 self._notify('updated')
-
         elif interface.mode == Interface.MODE_DEFAULT:
             interface.logger.error("ignored header %d received in default mode, %d",
                                    height, result)
@@ -1257,7 +1235,7 @@ class Network(util.DaemonThread):
             return
 
         try:
-            header, blockchain = Blockchain.connect(interface.tip_header)
+            header, blockchain = Blockchain.connect(interface.tip, interface.tip_header, False)
         except MissingHeader as e:
             interface.logger.info(str(e))
         except (IncorrectBits, InsufficientPoW) as e:
