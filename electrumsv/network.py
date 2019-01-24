@@ -1064,7 +1064,6 @@ class Network(util.DaemonThread):
 
         # Simple header request.
         raw_header = bfh(hexheader)
-        header = blockchain.deserialize_header(raw_header, height)
         try:
             _header, interface.blockchain = Blockchain.connect(height, raw_header,
                                                                proof_was_provided)
@@ -1208,7 +1207,6 @@ class Network(util.DaemonThread):
         header_hex = header_dict['hex']
         raw_header = bfh(header_hex)
         height = header_dict['height']
-        header = blockchain.deserialize_header(raw_header, height)
 
         # If the server is behind the verification height, then something is wrong with
         # it.  Drop it.
