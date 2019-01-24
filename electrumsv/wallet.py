@@ -397,7 +397,7 @@ class Abstract_Wallet:
                 changed = True
 
         if changed:
-            app_state.label_sync.set_label(self, name, text)
+            app_state.app.label_sync.set_label(self, name, text)
             self.storage.put('labels', self.labels)
 
         return changed

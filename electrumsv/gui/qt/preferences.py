@@ -403,7 +403,7 @@ class PreferencesDialog(QDialog):
             cb.setChecked(extension.is_enabled())
             # Yes this is ugly
             if extension is label_sync and wallet:
-                settings_widget = app_state.label_sync.settings_widget(self, wallet)
+                settings_widget = app_state.app.label_sync.settings_widget(self, wallet)
                 settings_widget.setEnabled(extension.is_enabled())
             else:
                 settings_widget = None

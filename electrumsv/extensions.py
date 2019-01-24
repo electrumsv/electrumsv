@@ -51,7 +51,7 @@ class LabelSyncExtension(Extension):
 
     def set_enabled(self, enabled):
         result = super().set_enabled(enabled)
-        app_state.label_sync.on_enabled_changed()
+        app_state.app.label_sync.on_enabled_changed()
         return result
 
 
