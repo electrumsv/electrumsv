@@ -88,31 +88,6 @@ def root_from_proof(hash_, branch, index):
         raise ValueError('index out of range for branch')
     return hash_
 
-class _HeaderChunk:
-    def __init__(self, base_height, data):
-        self.base_height = base_height
-        self.header_count = len(data) // HEADER_SIZE
-        self.headers = [deserialize_header(data[i * HEADER_SIZE : (i + 1) * HEADER_SIZE],
-                                           base_height + i)
-                        for i in range(self.header_count)]
-
-    def __repr__(self):
-        return "_HeaderChunk(base_height={}, header_count={})".format(
-            self.base_height, self.header_count)
-
-    def get_count(self):
-        return self.header_count
-
-    def contains_height(self, height):
-        return height >= self.base_height and height < self.base_height + self.header_count
-
-    def get_header_at_height(self, height):
-        assert self.contains_height(height)
-        return self.get_header_at_index(height - self.base_height)
-
-    def get_header_at_index(self, index):
-        return self.headers[index]
-
 
 class Blockchain:
     """
