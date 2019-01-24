@@ -43,7 +43,7 @@ class CosignerPoolExtension(Extension):
 
     def set_enabled(self, enabled):
         result = super().set_enabled(enabled)
-        app_state.cosigner_pool.on_enabled_changed()
+        app_state.app.cosigner_pool.on_enabled_changed()
         return result
 
 

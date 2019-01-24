@@ -133,7 +133,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         parent.network_signal.connect(self.got_verified_tx)
 
     def cosigner_send(self):
-        app_state.cosigner_pool.do_send(self.wallet, self.tx)
+        app_state.app.cosigner_pool.do_send(self.wallet, self.tx)
 
     def copy_tx_to_clipboard(self):
         self.main_window.app.clipboard().setText(str(self.tx))
@@ -276,7 +276,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.size_label.setText(size_str)
 
         # Cosigner button
-        visible = app_state.cosigner_pool.show_button(self.wallet, self.tx)
+        visible = app_state.app.cosigner_pool.show_button(self.wallet, self.tx)
         self.cosigner_button.setVisible(visible)
 
     def add_io(self, vbox):
