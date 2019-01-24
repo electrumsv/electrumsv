@@ -21,11 +21,10 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from bitcoinx import Chain, MissingHeader
+from bitcoinx import Chain, MissingHeader, hash_to_hex_str
 
 from .app_state import app_state
 from .crypto import sha256d
-from .networks import Net
 from .bitcoin import int_to_hex, rev_hex, hash_encode, bfh
 
 
@@ -141,21 +140,16 @@ class Blockchain:
             return self
         return self.from_chain(self.chain.parent)
 
-    def _get_max_child(self):
-        children = [y for y in self.blockchains
-                    if y.parent_base_height == self.base_height]
-        return max([x.base_height for x in children]) if children else None
-
     # Called by verifier.py:SPV.undo_verifications()
     # Called by gui.qt.network_dialog.py:NetworkChoiceLayout.update()
     # Called by gui.qt.network_dialog.py:NodesListWidget.update()
     def get_base_height(self):
-        mc = self._get_max_child()
-        return mc if mc is not None else self.base_height
+        return self.chain._first_height
 
     # Called by gui.qt.network_dialog.py:NodesListWidget.update()
     def get_name(self):
-        return self._get_hash(self.get_base_height()).lstrip('00')[0:10]
+        header = app_state.headers.header_at_height(self.chain, self.get_base_height())
+        return hash_to_hex_str(header.hash).lstrip('00')[0:10]
 
     # Called by network.py:Network._on_block_headers()
     # Called by network.py:Network._on_header()
@@ -181,13 +175,6 @@ class Blockchain:
         except MissingHeader:
             return None
 
-    def _get_hash(self, height):
-        if height == -1:
-            return '0000000000000000000000000000000000000000000000000000000000000000'
-        elif height == 0:
-            return Net.GENESIS
-        return hash_header(self.read_header(height))
-
     @classmethod
     def connect(cls, height, header, proof_was_provided):
         # FIXME: pass in a raw header
@@ -198,7 +185,7 @@ class Blockchain:
         if height < checkpoint.height:
             assert proof_was_provided
             headers_obj.set_one(height, raw_header)
-            return headers_obj.coin.deserialized_header(raw_header), self.longest()
+            return headers_obj.coin.deserialized_header(raw_header), cls.longest()
         else:
             header, chain = app_state.headers.connect(raw_header)
             return header, cls.from_chain(chain)
