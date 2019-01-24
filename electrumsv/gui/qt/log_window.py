@@ -104,7 +104,7 @@ class SVLogWindow(QDialog):
     def layout(self):
         self.category_cb = QComboBox()
         self.category_cb.addItem('all')
-        for category in self.log_handler.categories:
+        for category in sorted(self.log_handler.categories):
             self.category_cb.addItem(category)
         def on_category(_index):
             self.log_view.setPlainText('')
