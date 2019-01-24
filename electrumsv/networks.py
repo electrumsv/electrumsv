@@ -136,7 +136,7 @@ class SVTestnet(object):
     CHECKPOINT = CheckPoint(bytes.fromhex(
         '000000201d64d2c7c34486e209c246a24f8c28328ba296441fa6d2b22ea67d0300000000ec7b863e'
         'fc96f7a7183ef0e0c6b65dd0dc3626c3cded68ccc7dfd06e53dbb6180c74065c2442111cda61b4ef'
-    ), height=1273000, prev_work=0)
+    ), height=1273000, prev_work=0x3f53f8e19733a00946)
 
     VERIFICATION_BLOCK_HEIGHT = 1273000
 
