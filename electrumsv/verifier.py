@@ -96,9 +96,7 @@ class SPV(ThreadJob):
             logger.debug('requested merkle %s', tx_hash)
             self.requested_merkle.add(tx_hash)
 
-        if self.network.blockchain() != self.blockchain:
-            self.blockchain = self.network.blockchain()
-            self.undo_verifications()
+        self.maybe_switch_chain()
 
     def verify_merkle(self, response):
         if self.wallet.verifier is None:
@@ -136,12 +134,10 @@ class SPV(ThreadJob):
             return
         # we passed all the tests
         self.merkle_roots[tx_hash] = merkle_root
-        try:
-            # note: we could pop in the beginning, but then we would request
-            # this proof again in case of verification failure from the same server
-            self.requested_merkle.remove(tx_hash)
-        except KeyError:
-            pass
+
+        # note: we could pop in the beginning, but then we would request
+        # this proof again in case of verification failure from the same server
+        self.requested_merkle.discard(tx_hash)
         logger.debug("verified %s", tx_hash)
         self.wallet.add_verified_tx(tx_hash, (tx_height, header.get('timestamp'), pos))
         if self.is_up_to_date() and self.wallet.is_up_to_date():
@@ -172,19 +168,16 @@ class SPV(ThreadJob):
         else:
             raise InnerNodeOfSpvProofIsValidTx()
 
-    def undo_verifications(self):
-        height = self.blockchain.get_base_height()
-        tx_hashes = self.wallet.undo_verifications(self.blockchain, height)
-        for tx_hash in tx_hashes:
-            logger.debug("redoing %s", tx_hash)
-            self.remove_spv_proof_for_tx(tx_hash)
-
-    def remove_spv_proof_for_tx(self, tx_hash):
-        self.merkle_roots.pop(tx_hash, None)
-        try:
-            self.requested_merkle.remove(tx_hash)
-        except KeyError:
-            pass
+    def maybe_switch_chain(self):
+        net_blockchain = self.network.blockchain()
+        if self.blockchain != net_blockchain or force:
+            common_height = self.blockchain.common_height(net_blockchain)
+            self.blockchain = net_blockchain
+            # Undo verifications
+            for tx_hash in self.wallet.undo_verifications(common_height):
+                logger.debug(f'redoing {tx_hash}')
+                self.merkle_roots.pop(tx_hash, None)
+                self.requested_merkle.discard(tx_hash)
 
     def is_up_to_date(self):
-        return not self.requested_merkle
+        return not self.wallet.get_unverified_txs()

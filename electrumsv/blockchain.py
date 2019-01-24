@@ -140,6 +140,10 @@ class Blockchain:
         except MissingHeader:
             return None
 
+    def common_height(self, other_blockchain):
+        chain, height = self.chain.common_chain_and_height(other_blockchain.chain)
+        return height
+
     @classmethod
     def connect(cls, height, raw_header, proof_was_provided):
         headers_obj = app_state.headers
