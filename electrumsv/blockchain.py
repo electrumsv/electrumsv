@@ -25,7 +25,7 @@ from bitcoinx import Chain, MissingHeader, hash_to_hex_str
 
 from .app_state import app_state
 from .crypto import sha256d
-from .bitcoin import int_to_hex, rev_hex, hash_encode, bfh
+from .bitcoin import int_to_hex, rev_hex, hash_encode
 
 
 HEADER_SIZE = 80 # bytes
@@ -150,11 +150,9 @@ class Blockchain:
             return None
 
     @classmethod
-    def connect(cls, height, header, proof_was_provided):
-        # FIXME: pass in a raw header
+    def connect(cls, height, raw_header, proof_was_provided):
         headers_obj = app_state.headers
         checkpoint = headers_obj.storage.checkpoint
-        raw_header = bfh(_serialize_header(header))
 
         if height < checkpoint.height:
             assert proof_was_provided

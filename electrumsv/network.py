@@ -784,7 +784,7 @@ class Network(util.DaemonThread):
 
         interface = Interface(server_key, socket)
         interface.blockchain = None
-        interface.tip_header = None
+        interface.tip_raw = None
         interface.tip = 0
         interface.set_mode(Interface.MODE_VERIFICATION)
 
@@ -1063,9 +1063,11 @@ class Network(util.DaemonThread):
             hexheader = result
 
         # Simple header request.
-        header = blockchain.deserialize_header(bfh(hexheader), height)
+        raw_header = bfh(hexheader)
+        header = blockchain.deserialize_header(raw_header, height)
         try:
-            _header, interface.blockchain = Blockchain.connect(height, header, proof_was_provided)
+            _header, interface.blockchain = Blockchain.connect(height, raw_header,
+                                                               proof_was_provided)
             interface.logger.info(f'Connected {_header}')
         except MissingHeader as e:
             interface.logger.info(str(e))
@@ -1091,7 +1093,6 @@ class Network(util.DaemonThread):
                 # the user is running against.
                 assert height > Net.VERIFICATION_BLOCK_HEIGHT
                 interface.bad = height
-                interface.bad_header = header
                 delta = interface.tip - height
                 # If the longest chain does not connect at any point we check to the
                 # chain this interface is serving, then we fall back on the checkpoint
@@ -1103,7 +1104,6 @@ class Network(util.DaemonThread):
                 interface.good = height
             else:
                 interface.bad = height
-                interface.bad_header = header
             next_height = (interface.bad + interface.good + 1) // 2
             if next_height == height:
                 next_height = None
@@ -1113,7 +1113,6 @@ class Network(util.DaemonThread):
                 interface.logger.info("cannot connect %d", height)
                 interface.set_mode(Interface.MODE_BACKWARD)
                 interface.bad = height
-                interface.bad_header = header
                 next_height = height - 1
             else:
                 next_height = height + 1 if height < interface.tip else None
@@ -1207,8 +1206,9 @@ class Network(util.DaemonThread):
             return
 
         header_hex = header_dict['hex']
+        raw_header = bfh(header_hex)
         height = header_dict['height']
-        header = blockchain.deserialize_header(bfh(header_hex), height)
+        header = blockchain.deserialize_header(raw_header, height)
 
         # If the server is behind the verification height, then something is wrong with
         # it.  Drop it.
@@ -1218,7 +1218,7 @@ class Network(util.DaemonThread):
             return
 
         # We will always update the tip for the server.
-        interface.tip_header = header
+        interface.tip_raw = raw_header
         interface.tip = height
 
         if interface.mode == Interface.MODE_VERIFICATION:
@@ -1233,7 +1233,7 @@ class Network(util.DaemonThread):
             return
 
         try:
-            header, blockchain = Blockchain.connect(interface.tip, interface.tip_header, False)
+            header, blockchain = Blockchain.connect(interface.tip, interface.tip_raw, False)
         except MissingHeader as e:
             interface.logger.info(str(e))
         except (IncorrectBits, InsufficientPoW) as e:
@@ -1248,9 +1248,7 @@ class Network(util.DaemonThread):
             self._notify('interfaces')
             return
 
-        header = interface.tip_header
         height = interface.tip
-
         heights = [x.height() for x in Blockchain.blockchains]
         tip = max(heights)
         if tip > Net.VERIFICATION_BLOCK_HEIGHT:
@@ -1258,7 +1256,6 @@ class Network(util.DaemonThread):
                                    tip, heights)
             interface.set_mode(Interface.MODE_BACKWARD)
             interface.bad = height
-            interface.bad_header = header
             self._request_header(interface, min(tip, height - 1))
         else:
             interface.logger.debug("attempt to catch up tip=%s heights=%s", tip, heights)
