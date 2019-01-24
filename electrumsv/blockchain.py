@@ -25,20 +25,11 @@ from bitcoinx import Chain, MissingHeader, hash_to_hex_str
 
 from .app_state import app_state
 from .crypto import sha256d
-from .bitcoin import int_to_hex, rev_hex, hash_encode
+from .bitcoin import hash_encode
 
 
 HEADER_SIZE = 80 # bytes
 
-# Called by test_blockchain.py:test_retargetting()
-def _serialize_header(res):
-    s = int_to_hex(res.get('version'), 4) \
-        + rev_hex(res.get('prev_block_hash')) \
-        + rev_hex(res.get('merkle_root')) \
-        + int_to_hex(int(res.get('timestamp')), 4) \
-        + int_to_hex(int(res.get('bits')), 4) \
-        + int_to_hex(int(res.get('nonce')), 4)
-    return s
 
 # Called by network.py:Network._on_header()
 # Called by network.py:Network._on_notify_header()
