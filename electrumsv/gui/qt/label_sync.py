@@ -198,10 +198,10 @@ class LabelSync(object):
 
     def on_enabled_changed(self):
         if label_sync.is_enabled():
-            for window in app_state.windows:
+            for window in app_state.app.windows:
                 self.window_opened(window)
         else:
-            for window in app_state.windows:
+            for window in app_state.app.windows:
                 self.window_closed(window)
 
     def window_opened(self, window):

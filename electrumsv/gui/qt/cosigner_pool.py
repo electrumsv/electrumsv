@@ -99,7 +99,7 @@ class CosignerPool(object):
                 logger.debug("starting listener")
                 self.listener = Listener(self)
                 self.listener.start()
-            for window in app_state.windows:
+            for window in app_state.app.windows:
                 self.window_opened(window)
         elif self.listener:
             logger.debug("shutting down listener")
