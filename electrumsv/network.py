@@ -923,14 +923,15 @@ class Network(util.DaemonThread):
         if index in self.requested_chunks:
             self.requested_chunks.remove(index)
 
-        header_hexsize = 80 * 2
         hexdata = result['hex']
-        actual_header_count = len(hexdata) // header_hexsize
-        # We accept less headers than we asked for, to cover the case where the distance
+        header_hexsize = 80 * 2
+        raw_chunk = bfh(hexdata)
+        actual_header_count = len(raw_chunk) // 80
+        # We accept fewer headers than we asked for, to cover the case where the distance
         # to the tip was unknown.
         if actual_header_count > expected_header_count:
             interface.logger.error("chunk data size incorrect expected_size=%s actual_size=%s",
-                                   expected_header_count * header_hexsize, len(hexdata))
+                                   expected_header_count * 80, len(raw_chunk))
             return
 
         proof_was_provided = False
@@ -944,16 +945,6 @@ class Network(util.DaemonThread):
                 interface.logger.error("disconnecting server for incorrect checkpoint proof")
                 self._connection_down(interface.server, blacklist=True)
                 return
-
-            data = bfh(hexdata)
-            try:
-                blockchain.verify_proven_chunk(request_base_height, data)
-            except blockchain.VerifyError as e:
-                interface.logger.error('disconnecting server for failed verify_proven_chunk: %s',
-                                       e)
-                self._connection_down(interface.server, blacklist=True)
-                return
-
             proof_was_provided = True
         elif len(request_params) == 3 and request_params[2] != 0:
             # Expected checkpoint validation data, did not receive it.
@@ -982,28 +973,17 @@ class Network(util.DaemonThread):
             if not self._apply_successful_verification(interface, request_params[2],
                                                       result['root']):
                 return
-            # We connect this verification chunk into the longest chain.
-            target_blockchain = Blockchain.longest()
-        else:
-            target_blockchain = interface.blockchain
 
-        chunk_data = bfh(hexdata)
-        connect_state = target_blockchain.connect_chunk(request_base_height, chunk_data,
-                                                        proof_was_provided)
-        if connect_state == blockchain.CHUNK_ACCEPTED:
-            interface.logger.debug("connected chunk, height=%s count=%s proof_was_provided=%s",
-                                   request_base_height, actual_header_count, proof_was_provided)
-        elif connect_state == blockchain.CHUNK_FORKS:
-            interface.logger.error("identified forking chunk, height=%s count=%s",
-                                   request_base_height, actual_header_count)
-            # We actually have all the headers up to the bad point. In theory we
-            # can use them to detect a fork point in some cases. Maybe we should never
-            # get here because the blockchain code should actually work.
-        else:
-            interface.logger.error("discarded bad chunk, height=%s count=%s reason=%s",
-                                   request_base_height, actual_header_count, connect_state)
-            self._connection_down(interface.server)
+        try:
+            interface.blockchain = Blockchain.connect_chunk(request_base_height, raw_chunk,
+                                                            proof_was_provided)
+        except (IncorrectBits, InsufficientPoW, MissingHeader) as e:
+            interface.logger.warning(str(e))
+            self._connection_down(interface.server, blacklist=True)
             return
+
+        interface.logger.debug("connected chunk, height=%s count=%s proof_was_provided=%s",
+                               request_base_height, actual_header_count, proof_was_provided)
 
         # This interface was verified above. Get it syncing.
         if initial_interface_mode == Interface.MODE_VERIFICATION:
