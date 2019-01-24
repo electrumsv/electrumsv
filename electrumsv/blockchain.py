@@ -53,15 +53,6 @@ def deserialize_header(s, height):
     h['block_height'] = height
     return h
 
-# Called by scripts/peers.py
-# Called by test_blockchain.py:get_block()
-def hash_header(header):
-    if header is None:
-        return '0' * 64
-    if header.get('prev_block_hash') is None:
-        header['prev_block_hash'] = '00'*32
-    return hash_encode(sha256d(bfh(_serialize_header(header))))
-
 
 # Called by network.py:Network._validate_checkpoint_result()
 def root_from_proof(hash_, branch, index):
