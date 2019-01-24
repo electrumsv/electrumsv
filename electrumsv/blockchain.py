@@ -189,7 +189,10 @@ class Blockchain:
         # verifying the prev_hash links
         if end_height < checkpoint.height:
             assert proof_was_provided
-            verify_chunk_contiguous_and_set(extract_header(end_height), end_height)
+            # Set the last proven header
+            last_header = extract_header(end_height - 1)
+            headers_obj.set_one(end_height - 1, last_header)
+            verify_chunk_contiguous_and_set(last_header, end_height - 1)
             return cls.longest()
 
         # For chunks prior to but connecting to the checkpoint, no proof is required
