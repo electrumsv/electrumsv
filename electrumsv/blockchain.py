@@ -76,20 +76,8 @@ class Blockchain:
     blockchains = []
 
     def __init__(self, chain):
-        # FIXME: base height logic is ... bizarre
-        def base_height(c):
-            if c.parent is None:
-                return 0
-            else:
-                return c._first_height
-
         self.chain = chain
-        self.catch_up = None # interface catching up
-        self.base_height = base_height(chain)
-        if chain.parent is None:
-            self.parent_base_height = None
-        else:
-            self.parent_base_height = base_height(chain.parent)
+        self.catch_up = None   # interface catching up
         # Add ourselves to the global
         self.blockchains.append(self)
 
@@ -110,11 +98,6 @@ class Blockchain:
         app_state.read_headers()
         for chain in app_state.headers.chains():
             cls.from_chain(chain)
-
-    @classmethod
-    def legacy_map(cls):
-        '''Remove this - just a temporary shim for legacy code expecting it.'''
-        return {b.base_height: b for b in cls.blockchains}
 
     @classmethod
     def longest(cls):
