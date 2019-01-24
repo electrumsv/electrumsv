@@ -143,7 +143,7 @@ class Blockchain:
     @classmethod
     def connect(cls, height, raw_header, proof_was_provided):
         headers_obj = app_state.headers
-        checkpoint = headers_obj.storage.checkpoint
+        checkpoint = headers_obj.checkpoint
 
         if height < checkpoint.height:
             assert proof_was_provided
@@ -156,7 +156,7 @@ class Blockchain:
     @classmethod
     def connect_chunk(cls, start_height, raw_chunk, proof_was_provided):
         headers_obj = app_state.headers
-        checkpoint = headers_obj.storage.checkpoint
+        checkpoint = headers_obj.checkpoint
         coin = headers_obj.coin
         end_height = start_height + len(raw_chunk) // HEADER_SIZE
 

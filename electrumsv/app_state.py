@@ -36,7 +36,7 @@ etc.
 import os
 import threading
 
-from bitcoinx import HeaderStorage, Headers, hash_to_hex_str
+from bitcoinx import Headers
 
 from .dnssec import resolve_openalias
 from .logs import logs
@@ -70,12 +70,9 @@ class AppStateProxy(object):
         return os.path.join(self.config.path, 'headers')
 
     def read_headers(self):
-        storage = HeaderStorage(self.headers_filename(), Net.CHECKPOINT)
-        storage.open_or_create()
-        self.headers = Headers(Net.COIN, storage)
+        self.headers = Headers.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
         for n, chain in enumerate(self.headers.chains(), start=1):
-            logger.info(f'chain #{n}: height {chain.height:,d} work {chain.log2_work()} '
-                        f'tip {hash_to_hex_str(chain.tip.hash)}')
+            logger.info(f'chain #{n}: {chain.desc()}')
 
     def base_unit(self):
         index = self.decimal_points.index(self.decimal_point)
