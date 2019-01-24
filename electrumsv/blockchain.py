@@ -125,13 +125,6 @@ def check_header(header):
             return b
     return False
 
-# Called by network.py:Network._process_latest_tip()
-def can_connect(header):
-    for b in Blockchain.blockchains:
-        if b.can_connect(header):
-            return b
-    return False
-
 # Called by network.py:Network._on_block_headers()
 def verify_proven_chunk(chunk_base_height, chunk_data):
     chunk = _HeaderChunk(chunk_base_height, chunk_data)
@@ -356,7 +349,6 @@ class Blockchain:
         headers = app_state.headers
         for start in range(0, len(data), 80):
             raw_header = data[start: start + 80]
-            logger.debug(f'write: height {height}')
             if height < Net.CHECKPOINT.height:
                 headers.set_one(height, raw_header)
             elif height > self.chain.height:
@@ -398,11 +390,6 @@ class Blockchain:
         elif height == 0:
             return Net.GENESIS
         return hash_header(self.read_header(height))
-
-    # Not used.
-    def _BIP9(self, height, flag):
-        v = self.read_header(height)['version']
-        return ((v & 0xE0000000) == 0x20000000) and ((v & flag) == flag)
 
     def _get_median_time_past(self, height, chunk=None):
         if height < 0:
@@ -526,27 +513,11 @@ class Blockchain:
         new_target = (prior_target * span) // target_span
         return _target_to_bits(new_target)
 
-    # Called by network.py:Network._on_header()
-    def can_connect(self, header, check_height=True):
-        height = header['block_height']
-        if check_height and self.height() != height - 1:
-            return False
-        if height == 0:
-            return hash_header(header) == Net.GENESIS
-        previous_header = self.read_header(height -1)
-        if not previous_header:
-            return False
-        prev_hash = hash_header(previous_header)
-        if prev_hash != header.get('prev_block_hash'):
-            return False
-        bits = self._get_bits(header)
-        try:
-            self._verify_header(header, previous_header, bits)
-        except VerifyError as e:
-            logger.error('verify header %s failed at height %d %e',
-                             hash_header(header), height, e)
-            return False
-        return True
+    @classmethod
+    def connect(cls, header):
+        raw_header = bfh(_serialize_header(header))
+        header, chain = app_state.headers.connect(raw_header)
+        return header, cls.from_chain(chain)
 
     # Called by network.py:Network.on_block_headers()
     def connect_chunk(self, base_height, hexdata, proof_was_provided=False):

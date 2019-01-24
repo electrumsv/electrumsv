@@ -35,6 +35,7 @@ import threading
 import time
 
 import socks
+from bitcoinx import MissingHeader, IncorrectBits, InsufficientPoW
 
 from . import bitcoin
 from . import blockchain
@@ -1121,62 +1122,44 @@ class Network(util.DaemonThread):
             else:
                 interface.bad = height
                 interface.bad_header = header
+
             if interface.bad != interface.good + 1:
                 next_height = (interface.bad + interface.good) // 2
-            elif not interface.blockchain.can_connect(interface.bad_header, check_height=False):
-                self._connection_down(interface.server)
-                next_height = None
             else:
-                branch = Blockchain.legacy_map().get(interface.bad)
-                if branch is not None:
-                    if branch.check_header(interface.bad_header):
-                        interface.logger.debug('joining chain %s', interface.bad)
-                        next_height = None
-                    elif branch.parent().check_header(header):
-                        interface.logger.debug('reorg %s %s', interface.bad, interface.tip)
-                        interface.blockchain = branch.parent()
-                        next_height = None
-                    else:
-                        interface.logger.debug('checkpoint conflicts with existing fork')
-                        branch.write(b'', 0)
-                        branch.save_header(interface.bad_header)
-                        interface.set_mode(Interface.MODE_CATCH_UP)
-                        interface.blockchain = branch
-                        next_height = interface.bad + 1
-                        interface.blockchain.catch_up = interface.server
-                else:
-                    bh = interface.blockchain.height()
+                try:
+                    _header, interface.blockchain = Blockchain.connect(interface.bad_header)
+                except MissingHeader as e:
+                    self._connection_down(interface.server)
                     next_height = None
-                    if bh > interface.good:
-                        if not interface.blockchain.check_header(interface.bad_header):
-                            b = interface.blockchain.fork(interface.bad_header)
-                            interface.blockchain = b
-                            interface.logger.debug("new chain %s", b.base_height)
-                            interface.set_mode(Interface.MODE_CATCH_UP)
-                            next_height = interface.bad + 1
-                            interface.blockchain.catch_up = interface.server
-                    else:
-                        assert bh == interface.good
-                        if interface.blockchain.catch_up is None and bh < interface.tip:
-                            interface.logger.debug("catching up from %d", (bh + 1))
-                            interface.set_mode(Interface.MODE_CATCH_UP)
-                            next_height = bh + 1
-                            interface.blockchain.catch_up = interface.server
+                except (IncorrectBits, InsufficientPoW) as e:
+                    interface.logger.warning(str(e))
+                    self._connection_down(interface.server, blacklist=True)
+                    return
+                else:
+                    interface.logger.info(f'Connected {header}')
+                    interface.set_mode(Interface.MODE_CATCH_UP)
+                    next_height = interface.bad + 1
+                    interface.blockchain.catch_up = interface.server
 
                 self._notify('updated')
 
         elif interface.mode == Interface.MODE_CATCH_UP:
-            can_connect = interface.blockchain.can_connect(header)
-            if can_connect:
-                interface.blockchain.save_header(header)
-                next_height = height + 1 if height < interface.tip else None
-            else:
+            try:
+                _header, interface.blockchain = Blockchain.connect(header)
+            except MissingHeader as e:
+                interface.logger.info(str(e))
                 # go back
-                interface.logger.debug("cannot connect %d", height)
+                interface.logger.info("cannot connect %d", height)
                 interface.set_mode(Interface.MODE_BACKWARD)
                 interface.bad = height
                 interface.bad_header = header
                 next_height = height - 1
+            except (IncorrectBits, InsufficientPoW) as e:
+                interface.logger.warning(str(e))
+                self._connection_down(interface.server, blacklist=True)
+                return
+            else:
+                next_height = height + 1 if height < interface.tip else None
 
             if next_height is None:
                 # exit catch_up state
@@ -1184,6 +1167,7 @@ class Network(util.DaemonThread):
                 interface.blockchain.catch_up = None
                 self._switch_lagging_interface()
                 self._notify('updated')
+
         elif interface.mode == Interface.MODE_DEFAULT:
             interface.logger.error("ignored header %d received in default mode, %d",
                                    height, result)
@@ -1292,24 +1276,24 @@ class Network(util.DaemonThread):
         if interface.mode != Interface.MODE_DEFAULT:
             return
 
+        try:
+            header, blockchain = Blockchain.connect(interface.tip_header)
+        except MissingHeader as e:
+            interface.logger.info(str(e))
+        except (IncorrectBits, InsufficientPoW) as e:
+            interface.logger.warning(str(e))
+            self._connection_down(interface.server, blacklist=True)
+            return
+        else:
+            interface.logger.info(f'Connected {header}')
+            interface.blockchain = blockchain
+            self._switch_lagging_interface()
+            self._notify('updated')
+            self._notify('interfaces')
+            return
+
         header = interface.tip_header
         height = interface.tip
-
-        b = blockchain.check_header(header) # Does it match the hash of a known header.
-        if b:
-            interface.blockchain = b
-            self._switch_lagging_interface()
-            self._notify('updated')
-            self._notify('interfaces')
-            return
-        b = blockchain.can_connect(header) # Is it the next header on a given blockchain.
-        if b:
-            interface.blockchain = b
-            b.save_header(header)
-            self._switch_lagging_interface()
-            self._notify('updated')
-            self._notify('interfaces')
-            return
 
         heights = [x.height() for x in Blockchain.blockchains]
         tip = max(heights)
