@@ -558,7 +558,7 @@ class Network(util.DaemonThread):
             interfaces = self.interfaces_by_blockchain().get(Blockchain.longest())
             if interfaces:
                 choice = random.choice(interfaces)
-                self.switch_to_interface(choice, self.SWITCH_LAGGING)
+                self.switch_to_interface(choice.server, self.SWITCH_LAGGING)
 
     SWITCH_DEFAULT = 'SWITCH_DEFAULT'
     SWITCH_RANDOM = 'SWITCH_RANDOM'
