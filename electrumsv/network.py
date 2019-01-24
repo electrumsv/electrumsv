@@ -554,12 +554,10 @@ class Network(util.DaemonThread):
     def _switch_lagging_interface(self):
         '''If auto_connect and lagging, switch interface'''
         if self._server_is_lagging() and self.auto_connect:
-            # switch to one that has the correct header (not height)
-            header = self.blockchain().read_header(self.get_local_height())
-            filtered = [key for key, value in self.interfaces.items()
-                        if value.tip_header==header]
-            if filtered:
-                choice = random.choice(filtered)
+            # switch to one that has the longest chain
+            interfaces = self.interfaces_by_blockchain().get(Blockchain.longest())
+            if interfaces:
+                choice = random.choice(interfaces)
                 self.switch_to_interface(choice, self.SWITCH_LAGGING)
 
     SWITCH_DEFAULT = 'SWITCH_DEFAULT'
