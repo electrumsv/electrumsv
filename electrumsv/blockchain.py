@@ -50,6 +50,7 @@ class Blockchain:
     """
 
     blockchains = []
+    needs_checkpoint_headers = True
 
     def __init__(self, chain):
         self.chain = chain
@@ -82,6 +83,22 @@ class Blockchain:
             if blockchain.chain.work > result.chain.work:
                 result = blockchain
         return result
+
+    @classmethod
+    def required_checkpoint_headers(cls):
+        '''Returns (start_height, count).  The range of headers needed for the DAA so that all
+        post-checkpoint headers can have their difficulty verified.
+        '''
+        if cls.needs_checkpoint_headers:
+            longest = cls.longest()
+            cp_height = app_state.headers.checkpoint.height
+            try:
+                for height in range(cp_height - 146, cp_height):
+                    longest.header_at_height(height)
+                cls.needs_checkpoint_headers = False
+            except MissingHeader:
+                return height, cp_height - height
+        return 0, 0
 
     # Called by verifier.py:SPV.undo_verifications()
     # Called by gui.qt.network_dialog.py:NetworkChoiceLayout.update()
@@ -130,7 +147,7 @@ class Blockchain:
         end_height = start_height + len(raw_chunk) // HEADER_SIZE
 
         # This should be enforced by network.py
-        #assert (end_height < checkpoint.height) is proof_was_provided
+        assert (end_height < checkpoint.height) is proof_was_provided
 
         def extract_header(height):
             start = (height - start_height) * 80

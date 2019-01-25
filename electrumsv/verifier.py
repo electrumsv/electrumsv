@@ -21,8 +21,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import time
-
 from bitcoinx import hash_to_hex_str, MissingHeader
 
 from .bitcoin import hash_decode
@@ -50,22 +48,12 @@ class SPV(ThreadJob):
         self.last_msg = None
         self.last_log = 0
 
-    def log_error_occasionally(self, msg):
-        t = time.time()
-        if self.last_msg != msg or self.last_log + 5 < t:
-            self.last_msg = msg
-            self.last_log = t
-            logger.error(msg)
-
     def run(self):
         interface = self.network.interface
         if not interface:
-            self.log_error_occasionally('no interface')
             return
-
         blockchain = interface.blockchain
         if not blockchain:
-            self.log_error_occasionally(f'chain undetermined for interface {interface.server}')
             return
 
         local_height = self.network.get_local_height()
@@ -86,10 +74,7 @@ class SPV(ThreadJob):
                     # Per-header requests might be a lot heavier.
                     # Also, they're not supported as header requests are
                     # currently designed for catching up post-checkpoint headers.
-                    index = tx_height // 2016
-                    if self.network.request_chunk(interface, index):
-                        interface.logger.debug("verifier requesting chunk %s for height %s",
-                                               index, tx_height)
+                    self.network._request_headers(interface, tx_height, 20)
                 continue
 
             # request now
