@@ -1174,12 +1174,11 @@ class Network(util.DaemonThread):
             self._process_responses(interface)
 
     def run(self):
-        b = Blockchain.longest()
-        header = None
-        if Net.VERIFICATION_BLOCK_HEIGHT is not None:
-            header = b.read_header(Net.VERIFICATION_BLOCK_HEIGHT)
-        if header is not None:
+        try:
+            Blockchain.longest().header_at_height(Net.VERIFICATION_BLOCK_HEIGHT - 1)
             self.verified_checkpoint = True
+        except MissingHeader:
+            self.verified_checkpoint = False
 
         while self.is_running():
             self._maintain_sockets()

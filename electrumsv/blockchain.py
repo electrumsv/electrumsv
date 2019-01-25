@@ -25,24 +25,9 @@ from bitcoinx import Chain, MissingHeader, hash_to_hex_str
 
 from .app_state import app_state
 from .crypto import sha256d
-from .bitcoin import hash_encode
 
 
 HEADER_SIZE = 80 # bytes
-
-
-# Called by network.py:Network._on_header()
-# Called by network.py:Network._on_notify_header()
-def deserialize_header(s, height):
-    h = {}
-    h['version'] = int.from_bytes(s[0:4], 'little')
-    h['prev_block_hash'] = hash_encode(s[4:36])
-    h['merkle_root'] = hash_encode(s[36:68])
-    h['timestamp'] = int.from_bytes(s[68:72], 'little')
-    h['bits'] = int.from_bytes(s[72:76], 'little')
-    h['nonce'] = int.from_bytes(s[76:80], 'little')
-    h['block_height'] = height
-    return h
 
 
 # Called by network.py:Network._validate_checkpoint_result()
@@ -113,7 +98,7 @@ class Blockchain:
 
     # Called by gui.qt.network_dialog.py:NodesListWidget.update()
     def get_name(self):
-        header = app_state.headers.header_at_height(self.chain, self.get_base_height())
+        header = self.header_at_height(self.get_base_height())
         return hash_to_hex_str(header.hash).lstrip('00')[0:10]
 
     # Called by network.py:Network._on_block_headers()
@@ -124,21 +109,8 @@ class Blockchain:
     def height(self):
         return self.chain.height
 
-    # Called by network.py:Network._switch_lagging_interface()
-    # Called by network.py:Network.run()
-    # Called by verifier.py:SPV.verify_merkle()
-    # Called by wallet.py:Abstract_Wallet.undo_verifications()
-    def read_header(self, height, chunk=None):
-        # If the read is done within an outer call with local unstored header data, we
-        # first look in the chunk data currently being processed.
-        if chunk is not None and chunk.contains_height(height):
-            return chunk.get_header_at_height(height)
-
-        try:
-            raw_header = app_state.headers.raw_header_at_height(self.chain, height)
-            return deserialize_header(raw_header, height)
-        except MissingHeader:
-            return None
+    def header_at_height(self, height):
+        return app_state.headers.header_at_height(self.chain, height)
 
     def common_height(self, other_blockchain):
         chain, height = self.chain.common_chain_and_height(other_blockchain.chain)
