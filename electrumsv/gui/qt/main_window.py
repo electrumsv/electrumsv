@@ -38,7 +38,7 @@ from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl
 from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices, QPixmap
 from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
-    QMessageBox, QSystemTrayIcon, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
+    QMessageBox, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
     QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit,
     QInputDialog, QDialog, QToolBar, QAction
 )
