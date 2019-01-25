@@ -83,13 +83,6 @@ class Blockchain:
                 result = blockchain
         return result
 
-    # Called by network.py:Network._on_header()
-    def parent(self):
-        # The base chain returns itself
-        if self.chain.parent is None:
-            return self
-        return self.from_chain(self.chain.parent)
-
     # Called by verifier.py:SPV.undo_verifications()
     # Called by gui.qt.network_dialog.py:NetworkChoiceLayout.update()
     # Called by gui.qt.network_dialog.py:NodesListWidget.update()
