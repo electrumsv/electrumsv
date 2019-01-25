@@ -25,6 +25,7 @@
 # SOFTWARE.
 
 from functools import partial
+from queue import Queue
 import threading
 
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -71,6 +72,7 @@ class QtHandlerBase(QObject):
         self.device = device
         self.dialog = None
         self.done = threading.Event()
+        self.passphrase_queue = Queue()
 
     def top_level_window(self):
         return self.win.top_level_window()
@@ -115,10 +117,8 @@ class QtHandlerBase(QObject):
         return self.word
 
     def get_passphrase(self, msg, confirm):
-        self.done.clear()
         self.passphrase_signal.emit(msg, confirm)
-        self.done.wait()
-        return self.passphrase
+        return self.passphrase_queue.get()
 
     def passphrase_dialog(self, msg, confirm):
         # If confirm is true, require the user to enter the passphrase twice
@@ -136,8 +136,8 @@ class QtHandlerBase(QObject):
             vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
             d.setLayout(vbox)
             passphrase = pw.text() if d.exec_() else None
-        self.passphrase = passphrase
-        self.done.set()
+            pw.setText('')
+        self.passphrase_queue.put(passphrase)
 
     def word_dialog(self, msg):
         dialog = WindowModalDialog(self.top_level_window(), "")

@@ -331,6 +331,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 password = self.pw_e.text()
                 try:
                     self.storage.decrypt(password)
+                    self.pw_e.setText('')
                     break
                 except InvalidPassword as e:
                     QMessageBox.information(None, _('Error'), str(e))

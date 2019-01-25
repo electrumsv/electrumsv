@@ -252,10 +252,15 @@ class ChangePasswordDialog(WindowModalDialog):
         self.playout.encrypt_cb.setChecked(is_encrypted or not wallet.has_password())
 
     def run(self):
-        if not self.exec_():
-            return False, None, None, None
-        return (True, self.playout.old_password(), self.playout.new_password(),
-                self.playout.encrypt_cb.isChecked())
+        try:
+            if not self.exec_():
+                return False, None, None, None
+            return (True, self.playout.old_password(), self.playout.new_password(),
+                    self.playout.encrypt_cb.isChecked())
+        finally:
+            self.playout.pw.setText('')
+            self.playout.conf_pw.setText('')
+            self.playout.new_pw.setText('')
 
 
 class PasswordDialog(WindowModalDialog):
