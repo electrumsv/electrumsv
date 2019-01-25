@@ -87,7 +87,7 @@ class Blockchain:
     # Called by gui.qt.network_dialog.py:NetworkChoiceLayout.update()
     # Called by gui.qt.network_dialog.py:NodesListWidget.update()
     def get_base_height(self):
-        return self.chain._first_height
+        return self.chain.first_height
 
     # Called by gui.qt.network_dialog.py:NodesListWidget.update()
     def get_name(self):
