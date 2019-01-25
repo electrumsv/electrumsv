@@ -127,8 +127,6 @@ class SVApplication(QApplication):
         self.create_new_window_signal.connect(self._start_new_window)
         self.custom_fee_changed.connect(partial(self._signal_all, 'on_custom_fee_changed'))
         self.fees_editable_changed.connect(partial(self._signal_all, 'on_fees_editable_changed'))
-        self.op_return_enabled_changed.connect(
-            partial(self._signal_all, 'on_op_return_enabled_changed'))
         self.num_zeros_changed.connect(partial(self._signal_all, 'on_num_zeros_changed'))
         self.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
         self.base_unit_changed.connect(partial(self._signal_all, 'on_base_unit_changed'))

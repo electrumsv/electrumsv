@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
     QRadioButton, QFileDialog, QStyledItemDelegate, QTreeWidget, QButtonGroup, QComboBox,
     QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem,
-    QApplication
+    QApplication, QTableWidget
 )
 from PyQt5.uic import loadUi
 
@@ -664,11 +664,13 @@ class SortableTreeWidgetItem(QTreeWidgetItem):
             # If not, we will just do string comparison
             return self.text(column) < other.text(column)
 
-class OPReturnError(Exception):
-    """ thrown when the OP_RETURN for a tx not of the right format """
-
-class OPReturnTooLarge(OPReturnError):
-    """ thrown when the OP_RETURN for a tx is >220 bytes """
+def update_fixed_table_height(table: QTableWidget):
+    table_height = min(max(table.rowCount(), 1), 10) * table.rowHeight(0)
+    if table.horizontalScrollBar().isVisible():
+        table_height += table.horizontalScrollBar().height()
+    if table.horizontalHeader().isVisible():
+        table_height += table.horizontalHeader().height()
+    table.setFixedHeight(table_height)
 
 
 def icon_path(icon_basename):

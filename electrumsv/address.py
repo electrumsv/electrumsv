@@ -267,6 +267,14 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
     def __repr__(self):
         return '<ScriptOutput {}>'.format(self.__str__())
 
+    @classmethod
+    def as_op_return(self, data_chunks):
+        script = bytearray()
+        script.append(OpCodes.OP_RETURN)
+        for data_bytes in data_chunks:
+            script.extend(Script.push_data(data_bytes))
+        return ScriptOutput(bytes(script))
+
 
 # A namedtuple for easy comparison and unique hashing
 class Address(namedtuple("AddressTuple", "hash160 kind")):

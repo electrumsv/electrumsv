@@ -40,7 +40,8 @@ from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
     QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit,
-    QInputDialog, QDialog, QToolBar, QAction
+    QInputDialog, QDialog, QToolBar, QAction, QPlainTextEdit, QTableWidget, QHeaderView,
+    QTableWidgetItem
 )
 
 import electrumsv
@@ -72,9 +73,10 @@ from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
 from .transaction_dialog import TxDialog
 from .util import (
     MessageBoxMixin, TaskThread, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
-    WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton, OPReturnError,
-    OPReturnTooLarge, WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
-    CloseButton, CancelButton, text_dialog, filename_field, address_combo, icon_path
+    WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton,
+    WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
+    CloseButton, CancelButton, text_dialog, filename_field, address_combo, icon_path,
+    update_fixed_table_height
 )
 
 
@@ -130,7 +132,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.checking_accounts = False
         self.qr_window = None
         self.not_enough_funds = False
-        self.op_return_toolong = False
         self.require_fee_update = False
         self.tx_notifications = []
         self.tx_notify_timer = None
@@ -714,6 +715,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.config.set_key('io_dir', os.path.dirname(fileName), True)
         return fileName
 
+    def getOpenFileNames(self, title, filter = ""):
+        directory = self.config.get('io_dir', os.path.expanduser('~'))
+        fileNames, __ = QFileDialog.getOpenFileNames(self, title, directory, filter)
+        if fileNames and directory != os.path.dirname(fileNames[0]):
+            self.config.set_key('io_dir', os.path.dirname(fileNames[0]), True)
+        return fileNames
+
     def getSaveFileName(self, title, filename, filter = ""):
         directory = self.config.get('io_dir', os.path.expanduser('~'))
         path = os.path.join( directory, filename )
@@ -1129,7 +1137,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # The exchange rate plugin adds a fiat widget in column 2
         self.send_grid = grid = QGridLayout()
         grid.setSpacing(8)
-        grid.setColumnStretch(3, 1)
+        # This ensures all columns are stretched over the full width of the last tab.
+        grid.setColumnStretch(4, 1)
 
         from .paytoedit import PayToEdit
         self.amount_e = BTCAmountEdit()
@@ -1139,6 +1148,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                  'contacts (a list of completions will be proposed), or an alias '
                  '(email-like address that forwards to a Bitcoin SV address)'))
         payto_label = HelpLabel(_('Pay to'), msg)
+        payto_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
         grid.addWidget(payto_label, 1, 0)
         grid.addWidget(self.payto_e, 1, 1, 1, -1)
 
@@ -1155,22 +1165,44 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.message_e = MyLineEdit()
         grid.addWidget(self.message_e, 2, 1, 1, -1)
 
+        # OP_RETURN fields row
+
         msg_opreturn = (_('OP_RETURN data (optional).') + '\n\n' +
                         _('Posts a PERMANENT note to the Bitcoin SV blockchain as part of '
                           'this transaction.') + '\n\n' +
                         _('If you specify OP_RETURN text, you may leave '
                           'the \'Pay to\' field blank.'))
-        self.opreturn_label = HelpLabel(_('OP_RETURN'), msg_opreturn)
-        grid.addWidget(self.opreturn_label,  3, 0)
-        self.message_opreturn_e = MyLineEdit()
-        grid.addWidget(self.message_opreturn_e,  3 , 1, 1, -1)
+        attached_data_label = HelpLabel(_('Attached Data'), msg_opreturn)
+        attached_data_label.setAlignment(Qt.AlignTop)
+        grid.addWidget(attached_data_label,  3, 0)
 
-        if not self.config.get('enable_opreturn'):
-            self.message_opreturn_e.setText("")
-            self.message_opreturn_e.setHidden(True)
-            self.opreturn_label.setHidden(True)
+        hbox = QHBoxLayout()
+        self.send_data_list = QTableWidget(1, 3)
+        self.send_data_list.setHorizontalHeaderLabels([ "", _("File size"), _("File name") ])
+        self.send_data_list.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.send_data_list.setSelectionMode(QTableWidget.SingleSelection)
+        self.send_data_list.setSelectionBehavior(QTableWidget.SelectRows)
+        vh = self.send_data_list.verticalHeader()
+        hh = self.send_data_list.horizontalHeader()
+        vh.setSectionResizeMode(QHeaderView.Fixed)
+        vh.setDefaultSectionSize(hh.height())
+        vh.hide()
+        hh.setStretchLastSection(True)
+        hbox.addWidget(self.send_data_list)
+        vbox = QVBoxLayout()
+        vbox.setSpacing(0)
+        self.attach_button = EnterButton("", self.do_attach)
+        self.attach_button.setToolTip(_("Attach file"))
+        self.attach_button.setIcon(read_QIcon("icons8-attach-96.png"))
+        self.attach_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+        vbox.addWidget(self.attach_button)
+        vbox.addStretch()
+        hbox.addLayout(vbox)
+        self.on_send_data_list_updated()
+        grid.addLayout(hbox, 3, 1, 1, -1)
 
-
+        # From fields row.
+        # This is enabled by "spending" coins in the coins tab.
 
         self.from_label = QLabel(_('From'))
         grid.addWidget(self.from_label, 4, 0)
@@ -1198,11 +1230,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             lambda: self.fiat_send_e.setFrozen(self.amount_e.isReadOnly()))
 
         self.max_button = EnterButton(_("Max"), self.spend_max)
-        self.max_button.setFixedWidth(140)
+        self.max_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         grid.addWidget(self.max_button, 5, 3)
-        hbox = QHBoxLayout()
-        hbox.addStretch(1)
-        grid.addLayout(hbox, 5, 4)
 
         msg = (
             _('Bitcoin SV transactions are in general not free. A '
@@ -1252,21 +1281,22 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.preview_button = EnterButton(_("Preview"), self.do_preview)
         self.preview_button.setToolTip(
             _('Display the details of your transactions before signing it.'))
+
         self.send_button = EnterButton(_("Send"), self.do_send)
+
         self.clear_button = EnterButton(_("Clear"), self.do_clear)
+
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         buttons.addWidget(self.clear_button)
         buttons.addWidget(self.preview_button)
         buttons.addWidget(self.send_button)
-        grid.addLayout(buttons, 7, 1, 1, 3)
+        buttons.addStretch(1)
+        grid.addLayout(buttons, 7, 0, 1, -1)
 
         self.amount_e.shortcut.connect(self.spend_max)
         self.payto_e.textChanged.connect(self.update_fee)
         self.amount_e.textEdited.connect(self.update_fee)
-        self.message_opreturn_e.textEdited.connect(self.update_fee)
-        self.message_opreturn_e.textChanged.connect(self.update_fee)
-        self.message_opreturn_e.editingFinished.connect(self.update_fee)
 
         def reset_max(t):
             self.is_max = False
@@ -1290,22 +1320,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 amt_color, fee_color = ColorScheme.DEFAULT, ColorScheme.BLUE
             else:
                 amt_color, fee_color = ColorScheme.BLUE, ColorScheme.BLUE
-            opret_color = ColorScheme.DEFAULT
-            if self.op_return_toolong:
-                opret_color = ColorScheme.RED
-                text = (_("OP_RETURN message too large, needs to be under 220 bytes")
-                        + (", " if text else "") + text)
 
             self.statusBar().showMessage(text)
             self.amount_e.setStyleSheet(amt_color.as_stylesheet())
             self.fee_e.setStyleSheet(fee_color.as_stylesheet())
-            self.message_opreturn_e.setStyleSheet(opret_color.as_stylesheet())
 
         self.amount_e.textChanged.connect(entry_changed)
         self.fee_e.textChanged.connect(entry_changed)
-        self.message_opreturn_e.textChanged.connect(entry_changed)
-        self.message_opreturn_e.textEdited.connect(entry_changed)
-        self.message_opreturn_e.editingFinished.connect(entry_changed)
 
         self.invoices_label = QLabel(_('Invoices'))
         from .invoice_list import InvoiceList
@@ -1345,18 +1366,22 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if fee_rate is None: fee_rate = self.config.custom_fee_rate() / 1000.0
             return str(round(fee_rate*100)/100) + " sats/B"
 
-    @staticmethod
-    def output_for_opreturn_stringdata(op_return):
-        if not isinstance(op_return, str):
-            raise OPReturnError('OP_RETURN parameter needs to be of type str!')
-        op_return_code = "OP_RETURN "
-        op_return_encoded = op_return.encode('utf-8')
-        if len(op_return_encoded) > 99999:
-            raise OPReturnTooLarge(_("OP_RETURN message too large, needs to be under 100000 bytes"))
-        op_return_payload = op_return_encoded.hex()
-        script = op_return_code + op_return_payload
-        amount = 0
-        return (TYPE_SCRIPT, ScriptOutput.from_string(script), amount)
+    def get_opreturn_outputs(self, outputs):
+        table = self.send_data_list
+        file_paths = []
+        for row_index in range(table.rowCount()):
+            item = table.itemAt(0, row_index)
+            if item:
+                file_paths.append(item.data(Qt.UserRole))
+        if len(file_paths):
+            data_chunks = []
+            for file_path in file_paths:
+                with open(file_path, "rb") as f:
+                    data_chunks.append(f.read())
+            amount = 0
+            output_tuple = (TYPE_SCRIPT, ScriptOutput.as_op_return(data_chunks), amount)
+            return [ output_tuple ]
+        return []
 
     def do_update_fee(self):
         '''Recalculate the fee.  If the fee was manually input, retain it, but
@@ -1377,25 +1402,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if not outputs:
                 _type, addr = self.get_payto_or_dummy()
                 outputs = [(_type, addr, amount)]
+
+            outputs.extend(self.get_opreturn_outputs(outputs))
             try:
-                opreturn_message = (self.message_opreturn_e.text()
-                                    if self.config.get('enable_opreturn') else None)
-                if opreturn_message:
-                    outputs.append(self.output_for_opreturn_stringdata(opreturn_message))
                 tx = self.wallet.make_unsigned_transaction(self.get_coins(), outputs,
                                                            self.config, fee)
                 self.not_enough_funds = False
-                self.op_return_toolong = False
             except NotEnoughFunds:
                 self.not_enough_funds = True
                 if not freeze_fee:
                     self.fee_e.setAmount(None)
-                return
-            except OPReturnTooLarge:
-                self.op_return_toolong = True
-                return
-            except OPReturnError as e:
-                self.statusBar().showMessage(str(e))
                 return
             except Exception:
                 return
@@ -1507,17 +1523,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 if not self.question(msg):
                     return
 
-        try:
-            # handle op_return if specified and enabled
-            opreturn_message = self.message_opreturn_e.text()
-            if opreturn_message:
-                outputs.append(self.output_for_opreturn_stringdata(opreturn_message))
-        except OPReturnTooLarge as e:
-            self.show_error(str(e))
-            return
-        except OPReturnError as e:
-            self.show_error(str(e))
-            return
+        outputs.extend(self.get_opreturn_outputs(outputs))
 
         if not outputs:
             self.show_error(_('No outputs'))
@@ -1533,6 +1539,54 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         fee = self.fee_e.get_amount() if freeze_fee else None
         coins = self.get_coins(isInvoice)
         return outputs, fee, label, coins
+
+    def on_send_data_list_updated(self):
+        item_count = 0
+        for row_index in range(self.send_data_list.rowCount()):
+            row_item = self.send_data_list.itemAt(0, row_index)
+            if row_item is None:
+                break
+            item_count += 1
+
+        is_enabled = item_count > 0
+        self.send_data_list.setEnabled(is_enabled)
+        self.send_data_list.setToolTip(_("Attach a file to include it in the transaction."))
+
+        update_fixed_table_height(self.send_data_list)
+
+        header = self.send_data_list.horizontalHeader()
+        for column in range(header.count()):
+            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+            width = header.sectionSize(column)
+            header.setSectionResizeMode(column, QHeaderView.Interactive)
+            header.resizeSection(column, width)
+
+    def do_attach(self):
+        file_paths = self.getOpenFileNames(_("Select file(s)"))
+        for file_path in file_paths:
+            file_name = os.path.basename(file_path)
+            file_size = os.path.getsize(file_path)
+            item_0 = QTableWidgetItem()
+            item_0.setIcon(read_QIcon("icons8-file-512.png"))
+            item_1 = QTableWidgetItem(str(file_size))
+            item_1.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            item_2 = QTableWidgetItem(file_name)
+            item_2.setToolTip(file_path)
+
+            for row_index in range(self.send_data_list.rowCount()):
+                row_item = self.send_data_list.itemAt(0, row_index)
+                if row_item is None:
+                    break
+            else:
+                self.send_data_list.insertRow(self.send_data_list.rowCount())
+                row_index = self.send_data_list.rowCount() - 1
+            self.send_data_list.setItem(row_index, 0, item_0)
+            self.send_data_list.setItem(row_index, 1, item_1)
+            self.send_data_list.setItem(row_index, 2, item_2)
+
+            item_0.setData(Qt.UserRole, file_path)
+
+        self.on_send_data_list_updated()
 
     def do_preview(self):
         self.do_send(preview = True)
@@ -1574,10 +1628,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             msg.append(_('Warning') + ': ' +
                        _('The fee is less than 1000 sats/kb.  '
                          'It may take a very long time to confirm.'))
-
-        if self.config.get('enable_opreturn') and self.message_opreturn_e.text():
-            msg.append(_("You are using an OP_RETURN message. "
-                         "This gets permanently written to the blockchain."))
 
         if self.wallet.has_password():
             msg.append("")
@@ -1745,7 +1795,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         amount = out.get('amount')
         label = out.get('label')
         message = out.get('message')
-        op_return = out.get('op_return')
         # use label as description (not BIP21 compliant)
         if label and not message:
             message = label
@@ -1756,30 +1805,27 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if amount:
             self.amount_e.setAmount(amount)
             self.amount_e.textEdited.emit("")
-        if op_return:
-            self.message_opreturn_e.setText(op_return)
-            self.message_opreturn_e.setHidden(False)
-            self.opreturn_label.setHidden(False)
-        elif not self.config.get('enable_opreturn'):
-            self.message_opreturn_e.setText('')
-            self.message_opreturn_e.setHidden(True)
-            self.opreturn_label.setHidden(True)
 
     def do_clear(self):
         self.is_max = False
         self.not_enough_funds = False
-        self.op_return_toolong = False
         self.payment_request = None
         self.payto_e.is_pr = False
-        for e in [self.payto_e, self.message_e, self.amount_e, self.fiat_send_e,
-                  self.fee_e, self.message_opreturn_e]:
-            e.setText('')
-            e.setFrozen(False)
+
+        edit_fields = []
+        edit_fields.extend(self.send_tab.findChildren(QPlainTextEdit))
+        edit_fields.extend(self.send_tab.findChildren(QLineEdit))
+        for edit_field in edit_fields:
+            edit_field.setText('')
+            edit_field.setFrozen(False)
+
+        for table in self.send_tab.findChildren(QTableWidget):
+            table.setRowCount(0)
+        self.on_send_data_list_updated()
+
         self.max_button.setDisabled(False)
         self.set_pay_from([])
         self.tx_external_keypairs = {}
-        self.message_opreturn_e.setVisible(self.config.get('enable_opreturn', False))
-        self.opreturn_label.setVisible(self.config.get('enable_opreturn', False))
         self.update_status()
 
     def set_frozen_state(self, addrs, freeze):
@@ -2786,14 +2832,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def on_custom_fee_changed(self):
         self.fee_slider.update()
         self.fee_slider_mogrifier()
-
-    def on_op_return_enabled_changed(self):
-        enabled = self.config.get('enable_opreturn')
-        if not enabled:
-            self.message_opreturn_e.setText("")
-            self.op_return_toolong = False
-        self.message_opreturn_e.setHidden(not enabled)
-        self.opreturn_label.setHidden(not enabled)
 
     def on_num_zeros_changed(self):
         self.history_list.update()

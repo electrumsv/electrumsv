@@ -139,20 +139,11 @@ class PreferencesDialog(QDialog):
             app_state.config.set_key('confirmed_only', state != Qt.Unchecked)
         unconf_cb.stateChanged.connect(on_unconf)
 
-        opret_cb = QCheckBox(_('Enable adding metadata to the blockchain with OP_RETURN'))
-        opret_cb.setToolTip(_('Enable adding an OP_RETURN output to transactions.'))
-        opret_cb.setChecked(app_state.config.get('enable_opreturn', False))
-        def on_op_return(checked_state):
-            app_state.config.set_key('enable_opreturn', checked_state != Qt.Unchecked)
-            app_state.app.op_return_enabled_changed.emit()
-        opret_cb.stateChanged.connect(on_op_return)
-
         return [
             # Append None to flush edit left
             (customfee_label, customfee_e, None),
             (feebox_cb, ),
             (unconf_cb, ),
-            (opret_cb, ),
         ]
 
     def general_widgets(self):

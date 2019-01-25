@@ -344,8 +344,8 @@ def parse_output(vds, i):
 def deserialize(raw):
     vds = _BCDataStream()
     vds.write(bfh(raw))
+
     d = {}
-    start = vds.read_cursor
     d['version'] = vds.read_int32()
     n_vin = vds.read_compact_size()
     assert n_vin != 0
