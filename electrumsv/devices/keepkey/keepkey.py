@@ -268,9 +268,10 @@ class KeepKeyPlugin(HW_PluginBase):
         tx.update_signatures(signatures)
 
     def show_address(self, wallet, address):
-        client = self.get_client(wallet.keystore)
+        keystore = wallet.get_keystore()
+        client = self.get_client(keystore)
         change, index = wallet.get_address_index(address)
-        derivation = wallet.keystore.derivation
+        derivation = keystore.derivation
         address_path = "%s/%d/%d"%(derivation, change, index)
         address_n = client.expand_path(address_path)
         script_type = self.types.SPENDADDRESS

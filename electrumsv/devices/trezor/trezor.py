@@ -293,7 +293,7 @@ class TrezorPlugin(HW_PluginBase):
         tx.update_signatures(signatures)
 
     def show_address(self, wallet, address):
-        keystore = wallet.get_keystore()
+        client = self.get_client(wallet.keystore)
         deriv_suffix = wallet.get_address_index(address)
         derivation = keystore.derivation
         address_path = "%s/%d/%d"%(derivation, *deriv_suffix)
@@ -311,7 +311,6 @@ class TrezorPlugin(HW_PluginBase):
             multisig = None
 
         script_type = self.get_trezor_input_script_type(multisig is not None)
-        client = self.get_client(keystore)
         client.show_address(address_path, script_type, multisig)
 
     def tx_inputs(self, tx, xpub_path, for_sig=False):
