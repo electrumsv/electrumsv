@@ -198,23 +198,10 @@ def script_GetOp(_bytes):
         yield opcode, vch, i
 
 
-def script_GetOpName(opcode):
+def _script_GetOpName(opcode):
     return (opcodes.whatis(opcode)).replace("OP_", "")
 
-
-def decode_script(bytes):
-    result = ''
-    for (opcode, vch, i) in script_GetOp(bytes):
-        if len(result) > 0: result += " "
-        if opcode <= opcodes.OP_PUSHDATA4:
-            result += "%d:"%(opcode,)
-            result += short_hex(vch)
-        else:
-            result += script_GetOpName(opcode)
-    return result
-
-
-def match_decoded(decoded, to_match):
+def _match_decoded(decoded, to_match):
     if len(decoded) != len(to_match):
         return False
     for i in range(len(decoded)):
@@ -227,16 +214,16 @@ def match_decoded(decoded, to_match):
     return True
 
 
-def parse_sig(x_sig):
+def _parse_sig(x_sig):
     return [None if x == NO_SIGNATURE else x for x in x_sig]
 
-def safe_parse_pubkey(x):
+def _safe_parse_pubkey(x):
     try:
         return xpubkey_to_pubkey(x)
     except:
         return x
 
-def parse_scriptSig(d, _bytes):
+def _parse_scriptSig(d, _bytes):
     try:
         decoded = list(script_GetOp(_bytes))
     except Exception:
@@ -245,7 +232,7 @@ def parse_scriptSig(d, _bytes):
         return
 
     match = [ opcodes.OP_PUSHDATA4 ]
-    if match_decoded(decoded, match):
+    if _match_decoded(decoded, match):
         item = decoded[0][1]
         # payto_pubkey
         d['type'] = 'p2pk'
@@ -259,11 +246,11 @@ def parse_scriptSig(d, _bytes):
     # (seventy-something bytes) and then their public key
     # (65 bytes) onto the stack:
     match = [ opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4 ]
-    if match_decoded(decoded, match):
+    if _match_decoded(decoded, match):
         sig = bh2u(decoded[0][1])
         x_pubkey = bh2u(decoded[1][1])
         try:
-            signatures = parse_sig([sig])
+            signatures = _parse_sig([sig])
             pubkey, address = xpubkey_to_address(x_pubkey)
         except:
             logger.exception("cannot find address in input script %s", bh2u(_bytes))
@@ -278,33 +265,33 @@ def parse_scriptSig(d, _bytes):
 
     # p2sh transaction, m of n
     match = [ opcodes.OP_0 ] + [ opcodes.OP_PUSHDATA4 ] * (len(decoded) - 1)
-    if not match_decoded(decoded, match):
+    if not _match_decoded(decoded, match):
         logger.error("cannot find address in input script %s", bh2u(_bytes))
         return
     x_sig = [bh2u(x[1]) for x in decoded[1:-1]]
-    m, n, x_pubkeys, pubkeys, redeemScript = parse_redeemScript(decoded[-1][1])
+    m, n, x_pubkeys, pubkeys, redeemScript = _parse_redeemScript(decoded[-1][1])
     # write result in d
     d['type'] = 'p2sh'
     d['num_sig'] = m
-    d['signatures'] = parse_sig(x_sig)
+    d['signatures'] = _parse_sig(x_sig)
     d['x_pubkeys'] = x_pubkeys
     d['pubkeys'] = pubkeys
     d['redeemScript'] = redeemScript
     d['address'] = Address.from_P2SH_hash(hash_160(redeemScript))
 
 
-def parse_redeemScript(s):
+def _parse_redeemScript(s):
     dec2 = [ x for x in script_GetOp(s) ]
     m = dec2[0][0] - opcodes.OP_1 + 1
     n = dec2[-2][0] - opcodes.OP_1 + 1
     op_m = opcodes.OP_1 + m - 1
     op_n = opcodes.OP_1 + n - 1
     match_multisig = [ op_m ] + [opcodes.OP_PUSHDATA4]*n + [ op_n, opcodes.OP_CHECKMULTISIG ]
-    if not match_decoded(dec2, match_multisig):
+    if not _match_decoded(dec2, match_multisig):
         logger.error("cannot find address in input script %s", bh2u(s))
         return
     x_pubkeys = [bh2u(x[1]) for x in dec2[1:-2]]
-    pubkeys = [safe_parse_pubkey(x) for x in x_pubkeys]
+    pubkeys = [_safe_parse_pubkey(x) for x in x_pubkeys]
     redeemScript = Script.multisig_script(m, [bytes.fromhex(p)
                                               for p in pubkeys])
     return m, n, x_pubkeys, pubkeys, redeemScript
@@ -315,25 +302,25 @@ def get_address_from_output_script(_bytes):
     # The Genesis Block, self-payments, and pay-by-IP-address payments look like:
     # 65 BYTES:... CHECKSIG
     match = [ opcodes.OP_PUSHDATA4, opcodes.OP_CHECKSIG ]
-    if match_decoded(decoded, match):
+    if _match_decoded(decoded, match):
         return TYPE_PUBKEY, PublicKey.from_pubkey(decoded[0][1])
 
     # Pay-by-Bitcoin-address TxOuts look like:
     # DUP HASH160 20 BYTES:... EQUALVERIFY CHECKSIG
     match = [ opcodes.OP_DUP, opcodes.OP_HASH160, opcodes.OP_PUSHDATA4,
               opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG ]
-    if match_decoded(decoded, match):
+    if _match_decoded(decoded, match):
         return TYPE_ADDRESS, Address.from_P2PKH_hash(decoded[2][1])
 
     # p2sh
     match = [ opcodes.OP_HASH160, opcodes.OP_PUSHDATA4, opcodes.OP_EQUAL ]
-    if match_decoded(decoded, match):
+    if _match_decoded(decoded, match):
         return TYPE_ADDRESS, Address.from_P2SH_hash(decoded[1][1])
 
     return TYPE_SCRIPT, ScriptOutput(bytes(_bytes))
 
 
-def parse_input(vds):
+def _parse_input(vds):
     d = {}
     prevout_hash = hash_encode(vds.read_bytes(32))
     prevout_n = vds.read_uint32()
@@ -354,7 +341,7 @@ def parse_input(vds):
         d['type'] = 'unknown'
         d['num_sig'] = 0
         d['scriptSig'] = bh2u(scriptSig)
-        parse_scriptSig(d, scriptSig)
+        _parse_scriptSig(d, scriptSig)
 
         if not Transaction.is_txin_complete(d):
             d['value'] = vds.read_uint64()
@@ -379,7 +366,7 @@ def deserialize(raw):
     d['version'] = vds.read_int32()
     n_vin = vds.read_compact_size()
     assert n_vin != 0
-    d['inputs'] = [parse_input(vds) for i in range(n_vin)]
+    d['inputs'] = [_parse_input(vds) for i in range(n_vin)]
     n_vout = vds.read_compact_size()
     d['outputs'] = [parse_output(vds, i) for i in range(n_vout)]
     d['lockTime'] = vds.read_uint32()
@@ -387,8 +374,6 @@ def deserialize(raw):
 
 
 # pay & redeem scripts
-
-
 
 def multisig_script(public_keys, m):
     n = len(public_keys)
@@ -399,6 +384,22 @@ def multisig_script(public_keys, m):
     keylist = [op_push(len(k)//2) + k for k in public_keys]
     return op_m + ''.join(keylist) + op_n + 'ae'
 
+def tx_from_str(txt):
+    "json or raw hexadecimal"
+    import json
+    txt = txt.strip()
+    if not txt:
+        raise ValueError("empty string")
+    try:
+        bfh(txt)
+        is_hex = True
+    except:
+        is_hex = False
+    if is_hex:
+        return txt
+    tx_dict = json.loads(str(txt))
+    assert "hex" in tx_dict.keys()
+    return tx_dict["hex"]
 
 
 
@@ -815,21 +816,3 @@ class Transaction:
             'final': self.is_final(),
         }
         return out
-
-
-def tx_from_str(txt):
-    "json or raw hexadecimal"
-    import json
-    txt = txt.strip()
-    if not txt:
-        raise ValueError("empty string")
-    try:
-        bfh(txt)
-        is_hex = True
-    except:
-        is_hex = False
-    if is_hex:
-        return txt
-    tx_dict = json.loads(str(txt))
-    assert "hex" in tx_dict.keys()
-    return tx_dict["hex"]
