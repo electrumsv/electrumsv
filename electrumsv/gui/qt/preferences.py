@@ -452,6 +452,3 @@ class PreferencesDialog(QDialog):
             (usechange_cb, ),
             (multiple_cb, ),
         ]
-
-    def __del__(self):
-        logs.root.debug('preferences dialog GC-ed')
