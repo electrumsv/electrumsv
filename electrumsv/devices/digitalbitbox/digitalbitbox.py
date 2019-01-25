@@ -18,11 +18,12 @@ from ecdsa.ecdsa import generator_secp256k1
 from ecdsa.util import sigencode_der
 
 from electrumsv.bitcoin import (
-    TYPE_ADDRESS, push_script, msg_magic, verify_message, pubkey_from_signature,
+    TYPE_ADDRESS, push_script, msg_magic, pubkey_from_signature,
     point_to_ser, public_key_to_p2pkh, MyVerifyingKey, int_to_hex,
 )
 from electrumsv.app_state import app_state
 from electrumsv.crypto import sha256d, EncodeAES, DecodeAES
+import electrumsv.ecc as ecc
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -476,7 +477,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 pk, compressed = pubkey_from_signature(sig, msg_hash)
                 pk = point_to_ser(pk.pubkey.point, compressed)
                 addr = public_key_to_p2pkh(pk)
-                if verify_message(addr, sig, message) is False:
+                if not ecc.verify_message_with_address(addr, sig, message):
                     raise Exception(_("Could not sign message"))
             elif 'pubkey' in reply['sign'][0]:
                 # firmware <= v2.1.1
@@ -484,7 +485,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     sig = bytes([27 + i + 4]) + binascii.unhexlify(reply['sign'][0]['sig'])
                     try:
                         addr = public_key_to_p2pkh(binascii.unhexlify(reply['sign'][0]['pubkey']))
-                        if verify_message(addr, sig, message):
+                        if ecc.verify_message_with_address(addr, sig, message):
                             break
                     except Exception:
                         continue

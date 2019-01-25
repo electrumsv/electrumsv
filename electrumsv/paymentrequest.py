@@ -30,6 +30,7 @@ import time
 import urllib.parse
 
 from . import bitcoin
+from . import ecc
 # Create with 'protoc --proto_path=lib/ --python_out=lib/ lib/paymentrequest.proto'
 from . import paymentrequest_pb2 as pb2
 from . import rsakey
@@ -214,7 +215,7 @@ class PaymentRequest:
             address = info.get('address')
             pr.signature = ''
             message = pr.SerializeToString()
-            if bitcoin.verify_message(address, sig, message):
+            if ecc.verify_message_with_address(address, sig, message):
                 self.error = 'Verified with DNSSEC'
                 return True
             else:

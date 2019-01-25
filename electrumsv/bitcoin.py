@@ -360,27 +360,6 @@ def msg_magic(message):
     return b"\x18Bitcoin Signed Message:\n" + length + message
 
 
-def verify_message(address, sig, message):
-    assert_bytes(sig, message)
-    from .address import Address
-    if not isinstance(address, Address):
-        address = Address.from_string(address)
-
-    h = sha256d(msg_magic(message))
-    public_key, compressed = pubkey_from_signature(sig, h)
-    # check public key using the right address
-    pubkey = point_to_ser(public_key.pubkey.point, compressed)
-    addr = Address.from_pubkey(pubkey)
-    if address != addr:
-        return False
-    # check message
-    try:
-        public_key.verify_digest(sig[1:], h,
-                                 sigdecode=ecdsa.util.sigdecode_string)
-    except:
-        return False
-    return True
-
 def encrypt_message(message, pubkey):
     return EC_KEY.encrypt_message(message, bfh(pubkey))
 

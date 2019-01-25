@@ -33,6 +33,7 @@ import json
 import sys
 
 from . import bitcoin
+from . import ecc
 from .address import Address
 from .bitcoin import COIN, TYPE_ADDRESS
 from .crypto import hash_160
@@ -457,7 +458,7 @@ class Commands:
         address = Address.from_string(address)
         sig = base64.b64decode(signature)
         message = to_bytes(message)
-        return bitcoin.verify_message(address, sig, message)
+        return ecc.verify_message_with_address(address, sig, message)
 
     def _mktx(self, outputs, fee=None, change_addr=None, domain=None, nocheck=False,
               unsigned=False, password=None, locktime=None):
