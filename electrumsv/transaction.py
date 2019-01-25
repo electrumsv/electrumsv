@@ -23,11 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import hashlib
 import struct
-
-import ecdsa
-from ecdsa.curves import SECP256k1
 
 from . import ecc
 from .address import (
@@ -35,8 +31,7 @@ from .address import (
 )
 from .bitcoin import (
     to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, hash_encode, op_push,
-    push_script, public_key_to_p2pk_script, int_to_hex,
-    var_int, public_key_from_private_key, regenerate_key, MySigningKey
+    push_script, public_key_to_p2pk_script, int_to_hex, var_int
 )
 from .crypto import sha256d, hash_160
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
@@ -756,23 +751,20 @@ class Transaction:
                 if x_pubkey in keypairs.keys():
                     logger.debug("adding signature for %s", x_pubkey)
                     sec, compressed = keypairs.get(x_pubkey)
-                    pubkey = public_key_from_private_key(sec, compressed)
-                    # add signature
-                    pre_hash = sha256d(bfh(self.serialize_preimage(i)))
-                    pkey = regenerate_key(sec)
-                    secexp = pkey.secret
-                    private_key = MySigningKey.from_secret_exponent(secexp, curve = SECP256k1)
-                    public_key = private_key.get_verifying_key()
-                    sig = private_key.sign_digest_deterministic(
-                        pre_hash, hashfunc=hashlib.sha256,
-                        sigencode = ecdsa.util.sigencode_der)
-                    assert public_key.verify_digest(sig, pre_hash,
-                                                    sigdecode=ecdsa.util.sigdecode_der)
-                    txin['signatures'][j] = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
+                    sig = self.sign_txin(i, sec)
+                    txin['signatures'][j] = sig
+                    pubkey = ecc.ECPrivkey(sec).get_public_key_hex(compressed)
                     txin['pubkeys'][j] = pubkey # needed for fd keys
                     self._inputs[i] = txin
         logger.debug("is_complete %s", self.is_complete())
         self.raw = self.serialize()
+
+    def sign_txin(self, txin_index, privkey_bytes):
+        pre_hash = sha256d(bfh(self.serialize_preimage(txin_index)))
+        privkey = ecc.ECPrivkey(privkey_bytes)
+        sig = privkey.sign_transaction(pre_hash)
+        sig = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
+        return sig
 
     def get_outputs(self):
         """convert pubkeys to addresses"""

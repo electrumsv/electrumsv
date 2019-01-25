@@ -29,6 +29,7 @@ from ecdsa.ecdsa import generator_secp256k1
 from ecdsa.curves import SECP256k1
 from ecdsa.util import string_to_number, number_to_string
 
+from . import ecc
 from .address import Address, PublicKey
 from .app_state import app_state
 from .bip32 import (
@@ -36,7 +37,7 @@ from .bip32 import (
     xpub_from_xprv, deserialize_xpub, deserialize_xprv, is_xpub, is_xprv, CKD_pub
 )
 from .bitcoin import (
-    bh2u, bfh, DecodeBase58Check, EncodeBase58Check, is_seed, seed_type, regenerate_key,
+    bh2u, bfh, DecodeBase58Check, EncodeBase58Check, is_seed, seed_type,
     rev_hex, script_to_address, int_to_hex, is_private_key
 )
 from .crypto import sha256d, pw_encode, pw_decode
@@ -104,14 +105,13 @@ class Software_KeyStore(KeyStore):
 
     def sign_message(self, sequence, message, password):
         privkey, compressed = self.get_private_key(sequence, password)
-        key = regenerate_key(privkey)
+        key = ecc.ECPrivkey(privkey)
         return key.sign_message(message, compressed)
 
     def decrypt_message(self, sequence, message, password):
         privkey, compressed = self.get_private_key(sequence, password)
-        ec = regenerate_key(privkey)
-        decrypted = ec.decrypt_message(message)
-        return decrypted
+        key = ecc.ECPrivkey(privkey)
+        return key.decrypt_message(message)
 
     def sign_transaction(self, tx, password):
         if self.is_watching_only():

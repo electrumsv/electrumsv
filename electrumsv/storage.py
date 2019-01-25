@@ -35,10 +35,11 @@ import threading
 import zlib
 
 from . import bitcoin
+from . import ecc
 from .address import Address
 from .keystore import bip44_derivation
 from .logs import logs
-from .util import profiler
+from .util import profiler, bfh
 
 
 logger = logs.get_logger("storage")
@@ -122,22 +123,26 @@ class WalletStorage:
     def file_exists(self):
         return self.path and os.path.exists(self.path)
 
-    def get_key(self, password):
+    @staticmethod
+    def get_eckey_from_password(password):
         secret = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), b'', iterations=1024)
-        ec_key = bitcoin.EC_KEY(secret)
+        ec_key = ecc.ECPrivkey.from_arbitrary_size_secret(secret)
         return ec_key
 
     def decrypt(self, password):
-        ec_key = self.get_key(password)
-        s = zlib.decompress(ec_key.decrypt_message(self.raw)) if self.raw else None
-        self.pubkey = ec_key.get_public_key()
+        ec_key = self.get_eckey_from_password(password)
+        if self.raw:
+            s = zlib.decompress(ec_key.decrypt_message(self.raw))
+        else:
+            s = None
+        self.pubkey = ec_key.get_public_key_hex()
         s = s.decode('utf8')
         self.load_data(s)
 
     def set_password(self, password, encrypt):
         self.put('use_encryption', bool(password))
         if encrypt and password:
-            ec_key = self.get_key(password)
+            ec_key = self.get_eckey_from_password(password)
             self.pubkey = ec_key.get_public_key()
         else:
             self.pubkey = None
@@ -182,7 +187,9 @@ class WalletStorage:
         if self.pubkey:
             s = bytes(s, 'utf8')
             c = zlib.compress(s)
-            s = bitcoin.encrypt_message(c, self.pubkey)
+            enc_magic = b'BIE1'
+            public_key = ecc.ECPubkey(bfh(self.pubkey))
+            s = public_key.encrypt_message(c, enc_magic)
             s = s.decode('utf8')
 
         temp_path = "%s.tmp.%s" % (self.path, os.getpid())

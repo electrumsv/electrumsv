@@ -28,7 +28,7 @@ from collections import namedtuple
 import struct
 
 from . import cashaddr
-from .bitcoin import EC_KEY, is_minikey, minikey_to_private_key
+from .bitcoin import is_minikey, minikey_to_private_key
 from .crypto import hash_160, sha256, sha256d
 from .enum import Enumeration
 from .networks import Net
@@ -142,9 +142,10 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
     def from_WIF_privkey(cls, WIF_privkey):
         '''Create a compressed or uncompressed public key from a private
         key.'''
+        from . import ecc
         privkey, compressed = cls.privkey_from_WIF_privkey(WIF_privkey)
-        ec_key = EC_KEY(privkey)
-        return cls.from_pubkey(ec_key.GetPubKey(compressed))
+        ec_key = ecc.ECPrivkey(privkey)
+        return cls.from_pubkey(ec_key.get_public_key_bytes(compressed))
 
     @classmethod
     def from_string(cls, string):

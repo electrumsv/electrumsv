@@ -2346,11 +2346,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         message = message_e.toPlainText()
         message = message.encode('utf-8')
         try:
-            encrypted = bitcoin.encrypt_message(message, pubkey_e.text())
-            encrypted_e.setText(encrypted.decode('ascii'))
-        except Exception as e:
+            public_key = ecc.ECPubkey(bfh(pubkey_e.text()))
+        except BaseException as e:
             self.logger.exception("")
-            self.show_warning(str(e))
+            self.show_warning(_('Invalid Public key'))
+        encrypted = public_key.encrypt_message(message)
+        encrypted_e.setText(encrypted.decode('ascii'))
 
     def encrypt_message(self, address=None):
         d = WindowModalDialog(self, _('Encrypt/decrypt Message'))

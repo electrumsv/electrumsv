@@ -257,7 +257,7 @@ class Commands:
             sec = txin.get('privkey')
             if sec:
                 txin_type, privkey, compressed = bitcoin.deserialize_privkey(sec)
-                pubkey = bitcoin.public_key_from_private_key(privkey, compressed)
+                pubkey = ecc.ECPrivkey(privkey).get_public_key_hex(compressed=compressed)
                 keypairs[pubkey] = privkey, compressed
                 txin['type'] = txin_type
                 txin['x_pubkeys'] = [pubkey]
@@ -276,7 +276,7 @@ class Commands:
         tx = Transaction(tx)
         if privkey:
             txin_type, privkey2, compressed = bitcoin.deserialize_privkey(privkey)
-            pubkey = bitcoin.public_key_from_private_key(privkey2, compressed)
+            pubkey = ecc.ECPrivkey(privkey2).get_public_key_hex(compressed=compressed)
             h160 = hash_160(bfh(pubkey))
             x_pubkey = 'fd' + bh2u(b'\x00' + h160)
             tx.sign({x_pubkey:(privkey2, compressed)})
@@ -584,7 +584,9 @@ class Commands:
     @command('')
     def encrypt(self, pubkey, message):
         """Encrypt a message with a public key. Use quotes if the message contains whitespaces."""
-        return bitcoin.encrypt_message(message, pubkey)
+        public_key = ecc.ECPubkey(bfh(pubkey))
+        encrypted = public_key.encrypt_message(message)
+        return encrypted
 
     @command('wp')
     def decrypt(self, pubkey, encrypted, password=None):

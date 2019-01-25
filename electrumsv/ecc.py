@@ -35,7 +35,8 @@ from ecdsa.util import string_to_number, number_to_string
 
 
 from . import msqr
-from .bitcoin import var_int, pubkey_to_address
+from .address import Address
+from .bitcoin import var_int
 from .crypto import hmac_oneshot, sha256d, aes_encrypt_with_iv, aes_decrypt_with_iv
 from .ecc_fast import do_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1
 from .exceptions import InvalidPassword
@@ -133,6 +134,10 @@ class InvalidECPointException(Exception):
     """e.g. not on curve, or infinity"""
 
 
+class SignatureHasWrongAddress(Exception):
+    pass
+
+
 class _MyVerifyingKey(ecdsa.VerifyingKey):
     @classmethod
     def from_signature(klass, sig, recid, h, curve):  # TODO use libsecp??
@@ -222,7 +227,8 @@ class ECPubkey(object):
         return ECPubkey(_bytes)
 
     def get_public_key_bytes(self, compressed=True):
-        if self.is_at_infinity(): raise Exception('point is at infinity')
+        if self.is_at_infinity():
+            raise Exception('point is at infinity')
         return point_to_ser(self.point(), compressed)
 
     def get_public_key_hex(self, compressed=True):
@@ -251,7 +257,7 @@ class ECPubkey(object):
                 and self._pubkey.point.y() == other._pubkey.point.y()
 
     def __ne__(self, other):
-        return self != other
+        return not self == other
 
     def verify_message_for_address(self, sig65: bytes, message: bytes) -> None:
         assert_bytes(message)
@@ -311,19 +317,15 @@ def msg_magic(message: bytes) -> bytes:
     return b"\x18Bitcoin Signed Message:\n" + length + message
 
 
-def verify_message_with_address(address: str, sig65: bytes, message: bytes):
+def verify_message_with_address(address: Address, sig65: bytes, message: bytes):
     assert_bytes(sig65, message)
     try:
         h = sha256d(msg_magic(message))
         public_key, compressed = ECPubkey.from_signature65(sig65, h)
+        sig_address = Address.from_pubkey(public_key.get_public_key_bytes(compressed))
         # check public key using the address
-        pubkey_hex = public_key.get_public_key_hex(compressed)
-        for txin_type in ['p2pkh','p2wpkh','p2wpkh-p2sh']:
-            addr = pubkey_to_address(txin_type, pubkey_hex)
-            if address == addr:
-                break
-        else:
-            raise Exception("Bad signature")
+        if address != sig_address:
+            raise SignatureHasWrongAddress(f'Signature has wrong address {sig_address}')
         # check message
         public_key.verify_message_hash(sig65[1:], h)
         return True
@@ -401,8 +403,7 @@ class ECPrivkey(ECPubkey):
                     self.verify_message_for_address(sig65, message)
                     return sig65, recid
                 except Exception as e:
-                    continue
-
+                    logs.root.exception("")
             raise Exception("error: cannot sign message. no recid fits..")
 
         message = to_bytes(message, 'utf8')

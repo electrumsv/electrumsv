@@ -24,16 +24,15 @@
 # SOFTWARE.
 
 import hashlib
-import base64
-import hmac
 
 import ecdsa
+from ecdsa.ecdsa import curve_secp256k1, generator_secp256k1
+from ecdsa.curves import SECP256k1
+from ecdsa.ellipticcurve import Point
+from ecdsa.util import string_to_number
 
-from .crypto import (
-    hash_160, sha256d, hmac_oneshot, sha256, aes_encrypt_with_iv, aes_decrypt_with_iv,
-)
+from .crypto import hash_160, sha256d, hmac_oneshot, sha256
 from .networks import Net
-from .exceptions import InvalidPassword
 from .util import bfh, bh2u, assert_bytes, to_bytes, inv_dict
 from . import version
 
@@ -298,10 +297,6 @@ def deserialize_privkey(key):
     else:
         raise Exception("cannot deserialize", key)
 
-def regenerate_key(pk):
-    assert len(pk) == 32
-    return EC_KEY(pk)
-
 
 def GetPubKey(pubkey, compressed=False):
     return i2o_ECPublicKey(pubkey, compressed)
@@ -314,16 +309,6 @@ def GetSecret(pkey):
 def is_compressed(sec):
     return deserialize_privkey(sec)[2]
 
-
-def public_key_from_private_key(pk, compressed):
-    pkey = regenerate_key(pk)
-    public_key = GetPubKey(pkey.pubkey, compressed)
-    return bh2u(public_key)
-
-def address_from_private_key(sec):
-    txin_type, privkey, compressed = deserialize_privkey(sec)
-    public_key = public_key_from_private_key(privkey, compressed)
-    return pubkey_to_address(txin_type, public_key)
 
 def is_private_key(key):
     try:
@@ -349,19 +334,10 @@ def is_minikey(text):
 def minikey_to_private_key(text):
     return sha256(text)
 
-from ecdsa.ecdsa import curve_secp256k1, generator_secp256k1
-from ecdsa.curves import SECP256k1
-from ecdsa.ellipticcurve import Point
-from ecdsa.util import string_to_number, number_to_string
-
 
 def msg_magic(message):
     length = bfh(var_int(len(message)))
     return b"\x18Bitcoin Signed Message:\n" + length + message
-
-
-def encrypt_message(message, pubkey):
-    return EC_KEY.encrypt_message(message, bfh(pubkey))
 
 
 def chunks(l, n):
@@ -459,99 +435,3 @@ class MySigningKey(ecdsa.SigningKey):
         if s > order//2:
             s = order - s
         return r, s
-
-
-class EC_KEY(object):
-
-    def __init__( self, k ):
-        secret = string_to_number(k)
-        self.pubkey = ecdsa.ecdsa.Public_key( generator_secp256k1, generator_secp256k1 * secret )
-        self.privkey = ecdsa.ecdsa.Private_key( self.pubkey, secret )
-        self.secret = secret
-
-    def GetPubKey(self, compressed):
-        return GetPubKey(self.pubkey, compressed)
-
-    def get_public_key(self, compressed=True):
-        return bh2u(point_to_ser(self.pubkey.point, compressed))
-
-    def sign(self, msg_hash):
-        private_key = MySigningKey.from_secret_exponent(self.secret, curve = SECP256k1)
-        public_key = private_key.get_verifying_key()
-        signature = private_key.sign_digest_deterministic(
-            msg_hash, hashfunc=hashlib.sha256, sigencode = ecdsa.util.sigencode_string)
-        assert public_key.verify_digest(signature, msg_hash,
-                                        sigdecode=ecdsa.util.sigdecode_string)
-        return signature
-
-    def sign_message(self, message, is_compressed):
-        message = to_bytes(message, 'utf8')
-        signature = self.sign(sha256d(msg_magic(message)))
-        for i in range(4):
-            sig = bytes([27 + i + (4 if is_compressed else 0)]) + signature
-            try:
-                self.verify_message(sig, message)
-                return sig
-            except Exception as e:
-                continue
-        raise Exception("cannot sign message")
-
-    def verify_message(self, sig, message):
-        assert_bytes(message)
-        h = sha256d(msg_magic(message))
-        public_key, compressed = pubkey_from_signature(sig, h)
-        # check public key
-        if (point_to_ser(public_key.pubkey.point, compressed) !=
-                point_to_ser(self.pubkey.point, compressed)):
-            raise Exception("Bad signature")
-        # check message
-        public_key.verify_digest(sig[1:], h, sigdecode = ecdsa.util.sigdecode_string)
-
-
-    # ECIES encryption/decryption methods; AES-128-CBC with PKCS7 is
-    # used as the cipher; hmac-sha256 is used as the mac
-
-    @classmethod
-    def encrypt_message(self, message, pubkey):
-        assert_bytes(message)
-
-        pk = ser_to_point(pubkey)
-        if not ecdsa.ecdsa.point_is_valid(generator_secp256k1, pk.x(), pk.y()):
-            raise Exception('invalid pubkey')
-
-        ephemeral_exponent = number_to_string(ecdsa.util.randrange(pow(2,256)),
-                                              generator_secp256k1.order())
-        ephemeral = EC_KEY(ephemeral_exponent)
-        ecdh_key = point_to_ser(pk * ephemeral.privkey.secret_multiplier)
-        key = hashlib.sha512(ecdh_key).digest()
-        iv, key_e, key_m = key[0:16], key[16:32], key[32:]
-        ciphertext = aes_encrypt_with_iv(key_e, iv, message)
-        ephemeral_pubkey = bfh(ephemeral.get_public_key(compressed=True))
-        encrypted = b'BIE1' + ephemeral_pubkey + ciphertext
-        mac = hmac.new(key_m, encrypted, hashlib.sha256).digest()
-
-        return base64.b64encode(encrypted + mac)
-
-    def decrypt_message(self, encrypted):
-        encrypted = base64.b64decode(encrypted)
-        if len(encrypted) < 85:
-            raise Exception('invalid ciphertext: length')
-        magic = encrypted[:4]
-        ephemeral_pubkey = encrypted[4:37]
-        ciphertext = encrypted[37:-32]
-        mac = encrypted[-32:]
-        if magic != b'BIE1':
-            raise Exception('invalid ciphertext: invalid magic bytes')
-        try:
-            ephemeral_pubkey = ser_to_point(ephemeral_pubkey)
-        except AssertionError as e:
-            raise Exception('invalid ciphertext: invalid ephemeral pubkey')
-        if not ecdsa.ecdsa.point_is_valid(generator_secp256k1, ephemeral_pubkey.x(),
-                                          ephemeral_pubkey.y()):
-            raise Exception('invalid ciphertext: invalid ephemeral pubkey')
-        ecdh_key = point_to_ser(ephemeral_pubkey * self.privkey.secret_multiplier)
-        key = hashlib.sha512(ecdh_key).digest()
-        iv, key_e, key_m = key[0:16], key[16:32], key[32:]
-        if mac != hmac.new(key_m, encrypted[:-32], hashlib.sha256).digest():
-            raise InvalidPassword()
-        return aes_decrypt_with_iv(key_e, iv, ciphertext)
