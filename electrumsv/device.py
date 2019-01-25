@@ -249,6 +249,8 @@ class DeviceMgr(ThreadJob):
 
     def client_for_keystore(self, plugin, keystore, force_pair):
         logger.debug("getting client for keystore")
+        if not keystore.plugin.libraries_available:
+            raise RuntimeError(keystore.plugin.missing_message())
         handler = keystore.handler
         handler.update_status(False)
         devices = self.scan_devices()

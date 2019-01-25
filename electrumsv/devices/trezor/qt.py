@@ -107,12 +107,11 @@ class QtHandler(QtHandlerBase):
     matrix_signal = pyqtSignal(object)
     close_matrix_dialog_signal = pyqtSignal()
 
-    def __init__(self, win, pin_matrix_widget_class, device):
+    def __init__(self, win, device):
         super(QtHandler, self).__init__(win, device)
         self.pin_signal.connect(self.pin_dialog)
         self.matrix_signal.connect(self.matrix_recovery_dialog)
         self.close_matrix_dialog_signal.connect(self._close_matrix_dialog)
-        self.pin_matrix_widget_class = pin_matrix_widget_class
         self.matrix_dialog = None
 
     def get_pin(self, msg):
@@ -142,7 +141,8 @@ class QtHandler(QtHandlerBase):
         # Needed e.g. when resetting a device
         self.clear_dialog()
         dialog = WindowModalDialog(self.top_level_window(), _("Enter PIN"))
-        matrix = self.pin_matrix_widget_class()
+        from trezorlib.qt.pinmatrix import PinMatrixWidget
+        matrix = PinMatrixWidget()
         vbox = QVBoxLayout()
         vbox.addWidget(QLabel(msg))
         vbox.addWidget(matrix)
@@ -162,10 +162,9 @@ class QtHandler(QtHandlerBase):
 class QtPlugin(QtPluginBase):
     # Derived classes must provide the following class-static variables:
     #   icon_file
-    #   pin_matrix_widget_class
 
     def create_handler(self, window):
-        return QtHandler(window, self.pin_matrix_widget_class(), self.device)
+        return QtHandler(window, self.device)
 
     def show_settings_dialog(self, window, keystore):
         device_id = self.choose_device(window, keystore)
@@ -251,11 +250,6 @@ class QtPlugin(QtPluginBase):
 class Plugin(TrezorPlugin, QtPlugin):
     icon_unpaired = "trezor_unpaired.png"
     icon_paired = "trezor.png"
-
-    @classmethod
-    def pin_matrix_widget_class(self):
-        from trezorlib.qt.pinmatrix import PinMatrixWidget
-        return PinMatrixWidget
 
 
 class SettingsDialog(WindowModalDialog):

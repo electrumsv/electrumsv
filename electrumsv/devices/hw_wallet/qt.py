@@ -192,25 +192,26 @@ class QtPluginBase(object):
         raise NotImplementedError
 
     def replace_gui_handler(self, window, keystore):
-        if self.libraries_available:
-            tooltip = keystore.label or _('Unnamed')
-            action = QAction(read_QIcon(self.icon_unpaired), tooltip, window)
-            action.triggered.connect(partial(self.show_settings_dialog, window, keystore))
-            window.toolbar.addAction(action)
+        handler = self.create_handler(window)
+        keystore.handler = handler
+        keystore.plugin = self
 
-            handler = self.create_handler(window)
-            handler.action = action
-            handler.icon_unpaired = self.icon_unpaired
-            handler.icon_paired = self.icon_paired
-            keystore.handler = handler
-            keystore.thread = TaskThread(window, window.on_error)
+        tooltip = keystore.label or _('Unnamed')
+        action = QAction(read_QIcon(self.icon_unpaired), tooltip, window)
+        action.triggered.connect(partial(self.show_settings_wrapped, window, keystore))
+        window.toolbar.addAction(action)
+        handler.action = action
+        handler.icon_unpaired = self.icon_unpaired
+        handler.icon_paired = self.icon_paired
+        keystore.thread = TaskThread(window, window.on_error)
+
+    def missing_message(self):
+        if hasattr(self, 'libraries_available_message'):
+            message = self.libraries_available_message + '\n'
         else:
-            if hasattr(self, 'libraries_available_message'):
-                message = self.libraries_available_message + '\n'
-            else:
-                message = _("Cannot find python library for") + " '{}'.\n".format(self.name)
-            message += _("Make sure you install it with python3")
-            window.show_error(message)
+            message = _("Cannot find python library for") + " '{}'.\n".format(self.name)
+        message += _("Make sure you install it with python3")
+        return message
 
     def choose_device(self, window, keystore):
         '''This dialog box should be usable even if the user has
@@ -224,5 +225,8 @@ class QtPluginBase(object):
             device_id = info.device.id_
         return device_id
 
-    def show_settings_dialog(self, window, keystore):
-        device_id = self.choose_device(window, keystore)
+    def show_settings_wrapped(self, window, keystore):
+        try:
+            self.show_settings_dialog(window, keystore)
+        except Exception as e:
+            keystore.handler.show_error(str(e))

@@ -556,6 +556,7 @@ class Hardware_KeyStore(KeyStore, Xpub):
         self.label = d.get('label')
         self.derivation = d.get('derivation')
         self.handler = None
+        self.libraries_available = False
 
     def set_label(self, label):
         self.label = label

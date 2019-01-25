@@ -77,13 +77,8 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
     icon_paired = "keepkey.png"
     icon_unpaired = "keepkey_unpaired.png"
 
-    @classmethod
-    def pin_matrix_widget_class(self):
-        # From keepkeylib.qt.pinmatrix import PinMatrixWidget
-        return PinMatrixWidget
-
     def create_handler(self, window):
-        return QtHandler(window, self.pin_matrix_widget_class(), self.device)
+        return QtHandler(window, self.device)
 
     def show_settings_dialog(self, window, keystore):
         device_id = self.choose_device(window, keystore)
@@ -268,11 +263,10 @@ class QtHandler(QtHandlerBase):
     char_signal = pyqtSignal(object)
     pin_signal = pyqtSignal(object)
 
-    def __init__(self, win, pin_matrix_widget_class, device):
+    def __init__(self, win, device):
         super(QtHandler, self).__init__(win, device)
         self.char_signal.connect(self.update_character_dialog)
         self.pin_signal.connect(self.pin_dialog)
-        self.pin_matrix_widget_class = pin_matrix_widget_class
         self.character_dialog = None
 
     def get_char(self, msg):
@@ -295,7 +289,8 @@ class QtHandler(QtHandlerBase):
         # Needed e.g. when resetting a device
         self.clear_dialog()
         dialog = WindowModalDialog(self.top_level_window(), _("Enter PIN"))
-        matrix = self.pin_matrix_widget_class()
+        # From keepkeylib.qt.pinmatrix import PinMatrixWidget
+        matrix = PinMatrixWidget()
         vbox = QVBoxLayout()
         vbox.addWidget(QLabel(msg))
         vbox.addWidget(matrix)
