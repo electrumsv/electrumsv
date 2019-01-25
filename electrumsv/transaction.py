@@ -55,7 +55,7 @@ class SerializationError(Exception):
 class InputValueMissing(Exception):
     """ thrown when the value of an input is needed but not present """
 
-class BCDataStream(object):
+class _BCDataStream(object):
     def __init__(self):
         self.input = None
         self.read_cursor = 0
@@ -159,19 +159,7 @@ class BCDataStream(object):
         self.write(s)
 
 
-# This function comes from bitcointools, bct-LICENSE.txt.
-def long_hex(bytes):
-    return bytes.encode('hex_codec')
-
-# This function comes from bitcointools, bct-LICENSE.txt.
-def short_hex(bytes):
-    t = bytes.encode('hex_codec')
-    if len(t) < 11:
-        return t
-    return t[0:4]+"..."+t[-4:]
-
-
-def script_GetOp(_bytes):
+def _script_GetOp(_bytes):
     i = 0
     blen = len(_bytes)
     while i < blen:
@@ -225,7 +213,7 @@ def _safe_parse_pubkey(x):
 
 def _parse_scriptSig(d, _bytes):
     try:
-        decoded = list(script_GetOp(_bytes))
+        decoded = list(_script_GetOp(_bytes))
     except Exception:
         # coinbase transactions raise an exception
         logger.exception("cannot find address in input script %s", bh2u(_bytes))
@@ -281,7 +269,7 @@ def _parse_scriptSig(d, _bytes):
 
 
 def _parse_redeemScript(s):
-    dec2 = [ x for x in script_GetOp(s) ]
+    dec2 = [ x for x in _script_GetOp(s) ]
     m = dec2[0][0] - opcodes.OP_1 + 1
     n = dec2[-2][0] - opcodes.OP_1 + 1
     op_m = opcodes.OP_1 + m - 1
@@ -297,7 +285,7 @@ def _parse_redeemScript(s):
     return m, n, x_pubkeys, pubkeys, redeemScript
 
 def get_address_from_output_script(_bytes):
-    decoded = [x for x in script_GetOp(_bytes)]
+    decoded = [x for x in _script_GetOp(_bytes)]
 
     # The Genesis Block, self-payments, and pay-by-IP-address payments look like:
     # 65 BYTES:... CHECKSIG
@@ -359,7 +347,7 @@ def parse_output(vds, i):
 
 
 def deserialize(raw):
-    vds = BCDataStream()
+    vds = _BCDataStream()
     vds.write(bfh(raw))
     d = {}
     start = vds.read_cursor

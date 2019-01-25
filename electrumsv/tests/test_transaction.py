@@ -10,10 +10,10 @@ signed_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e
 v2_blob = "0200000001191601a44a81e061502b7bfbc6eaa1cef6d1e6af5308ef96c9342f71dbf4b9b5000000006b483045022100a6d44d0a651790a477e75334adfb8aae94d6612d01187b2c02526e340a7fd6c8022028bdf7a64a54906b13b145cd5dab21a26bd4b85d6044e9b97bceab5be44c2a9201210253e8e0254b0c95776786e40984c1aa32a7d03efa6bdacdea5f421b774917d346feffffff026b20fa04000000001976a914024db2e87dd7cfd0e5f266c5f212e21a31d805a588aca0860100000000001976a91421919b94ae5cefcdf0271191459157cdb41c4cbf88aca6240700"
 
 
-class TestBCDataStream(unittest.TestCase):
+class Test_BCDataStream(unittest.TestCase):
 
     def test_compact_size(self):
-        s = transaction.BCDataStream()
+        s = transaction._BCDataStream()
         values = [0, 1, 252, 253, 2**16-1, 2**16, 2**32-1, 2**32, 2**64-1]
         for v in values:
             s.write_compact_size(v)
@@ -30,7 +30,7 @@ class TestBCDataStream(unittest.TestCase):
             s.read_compact_size()
 
     def test_string(self):
-        s = transaction.BCDataStream()
+        s = transaction._BCDataStream()
         with self.assertRaises(transaction.SerializationError):
             s.read_string()
 
@@ -44,7 +44,7 @@ class TestBCDataStream(unittest.TestCase):
             s.read_string()
 
     def test_bytes(self):
-        s = transaction.BCDataStream()
+        s = transaction._BCDataStream()
         s.write(b'foobar')
         self.assertEqual(s.read_bytes(3), b'foo')
         self.assertEqual(s.read_bytes(2), b'ba')
