@@ -127,6 +127,12 @@ all_boxes = [
             )),
     ),
     YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Cancel"), False),
+    WarningBox('illegal-files-are-traceable',
+            _('Illegal Files Are Traceable'),
+            '\n'.join((
+                _('Bitcoin transactions are traceable. If you choose to upload illegal '
+                  'material, you can be identified, and will risk the consequences.'),
+            ))),
 ]
 
 all_boxes_by_name = {box.name: box for box in all_boxes}

@@ -65,6 +65,7 @@ import electrumsv.web as web
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from .coinsplitting_tab import CoinSplittingTab
+from . import dialogs
 from .preferences import PreferencesDialog
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
@@ -1219,14 +1220,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         vbox = QVBoxLayout()
         vbox.setSpacing(0)
         vbox.setContentsMargins(5, 0, 0, 0)
-        attach_button = EnterButton("", self.do_add_send_attachments)
+        attach_button = EnterButton("", self._do_add_send_attachments)
         attach_button.setToolTip(_("Add file(s)"))
         attach_button.setIcon(read_QIcon("icons8-attach-96.png"))
         attach_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
         vbox.addWidget(attach_button)
         vbox.addStretch()
         hbox.addLayout(vbox)
-        self.on_send_data_list_updated()
+        self._on_send_data_list_updated()
         grid.addLayout(hbox, 5, 1, 1, -1)
 
         self.connect_fields(self, self.amount_e, self.fiat_send_e, None)
@@ -1466,7 +1467,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         coins = self.get_coins(isInvoice)
         return outputs, fee, label, coins
 
-    def on_send_data_list_updated(self):
+    def _on_send_data_list_updated(self):
         item_count = self.send_data_list.model().rowCount()
 
         is_enabled = item_count > 0
@@ -1474,7 +1475,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.send_data_list.setToolTip(_("Attach a file to include it in the transaction."))
         update_fixed_tree_height(self.send_data_list)
 
-    def do_add_send_attachments(self):
+    def _do_add_send_attachments(self):
+        dialogs.show_named('illegal-files-are-traceable')
+
         table = self.send_data_list
         file_paths = self.getOpenFileNames(_("Select file(s)"))
         for file_path in file_paths:
@@ -1497,7 +1500,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             delete_button.setIcon(read_QIcon("icons8-trash.svg"))
             table.setItemWidget(item, 3, delete_button)
 
-        self.on_send_data_list_updated()
+        self._on_send_data_list_updated()
 
     def _on_delete_attachment(self, file_path, checked=False):
         table = self.send_data_list
@@ -1507,8 +1510,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if item_file_path == file_path:
                 table.takeTopLevelItem(row_index)
                 break
-        else:
-            print("FAIL", checked, file_path)
 
     def do_preview(self):
         self.do_send(preview = True)
@@ -1743,7 +1744,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         for tree in self.send_tab.findChildren(QTreeView):
             tree.clear()
-        self.on_send_data_list_updated()
+        self._on_send_data_list_updated()
 
         self.max_button.setDisabled(False)
         self.set_pay_from([])
