@@ -1318,7 +1318,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         table = self.send_data_list
         file_paths = []
         for row_index in range(table.rowCount()):
-            item = table.itemAt(0, row_index)
+            item = table.item(row_index, 0)
             if item:
                 file_paths.append(item.data(Qt.UserRole))
         if len(file_paths):
@@ -1468,7 +1468,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def on_send_data_list_updated(self):
         item_count = 0
         for row_index in range(self.send_data_list.rowCount()):
-            row_item = self.send_data_list.itemAt(0, row_index)
+            row_item = self.send_data_list.item(row_index, 0)
             if row_item is None:
                 break
             item_count += 1
@@ -1499,7 +1499,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             item_2.setToolTip(file_path)
 
             for row_index in range(self.send_data_list.rowCount()):
-                row_item = self.send_data_list.itemAt(0, row_index)
+                row_item = self.send_data_list.item(row_index, 0)
                 if row_item is None:
                     break
             else:
