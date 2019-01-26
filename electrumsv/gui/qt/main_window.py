@@ -40,8 +40,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
     QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit,
-    QInputDialog, QDialog, QToolBar, QAction, QPlainTextEdit, QTableWidget, QHeaderView,
-    QTableWidgetItem
+    QInputDialog, QDialog, QToolBar, QAction, QPlainTextEdit, QTreeView
 )
 
 import electrumsv
@@ -75,7 +74,7 @@ from .util import (
     WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton,
     WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
     CloseButton, CancelButton, text_dialog, filename_field, address_combo, icon_path,
-    update_fixed_table_height
+    update_fixed_tree_height
 )
 
 
@@ -1140,14 +1139,48 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from .paytoedit import PayToEdit
         self.amount_e = BTCAmountEdit()
         self.payto_e = PayToEdit(self)
+
+        # From fields row.
+        # This is enabled by "spending" coins in the coins tab.
+
+        self.from_label = QLabel(_('From'))
+        self.from_label.setContentsMargins(0, 5, 0, 0)
+        self.from_label.setAlignment(Qt.AlignTop)
+        grid.addWidget(self.from_label, 1, 0)
+        self.from_list = MyTreeWidget(self, self.from_list_menu, ['Address / Outpoint','Amount'])
+        self.from_list.setMaximumHeight(80)
+        grid.addWidget(self.from_list, 1, 1, 1, -1)
+        self.set_pay_from([])
+
+        msg = (_('Amount to be sent.') + '\n\n' +
+               _('The amount will be displayed in red if you do not have '
+                 'enough funds in your wallet.') + ' '
+               + _('Note that if you have frozen some of your addresses, the available '
+                   'funds will be lower than your total balance.') + '\n\n'
+               + _('Keyboard shortcut: type "!" to send all your coins.'))
+        amount_label = HelpLabel(_('Amount'), msg)
+        grid.addWidget(amount_label, 2, 0)
+        grid.addWidget(self.amount_e, 2, 1)
+
+        self.fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
+        if not app_state.fx or not app_state.fx.is_enabled():
+            self.fiat_send_e.setVisible(False)
+        grid.addWidget(self.fiat_send_e, 2, 2)
+        self.amount_e.frozen.connect(
+            lambda: self.fiat_send_e.setFrozen(self.amount_e.isReadOnly()))
+
+        self.max_button = EnterButton(_("Max"), self.spend_max)
+        self.max_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        grid.addWidget(self.max_button, 2, 3)
+
         msg = (_('Recipient of the funds.') + '\n\n' +
                _('You may enter a Bitcoin SV address, a label from your list of '
                  'contacts (a list of completions will be proposed), or an alias '
                  '(email-like address that forwards to a Bitcoin SV address)'))
         payto_label = HelpLabel(_('Pay to'), msg)
         payto_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-        grid.addWidget(payto_label, 1, 0)
-        grid.addWidget(self.payto_e, 1, 1, 1, -1)
+        grid.addWidget(payto_label, 3, 0)
+        grid.addWidget(self.payto_e, 3, 1, 1, -1)
 
         completer = QCompleter()
         completer.setCaseSensitivity(False)
@@ -1158,77 +1191,43 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                _('The description is not sent to the recipient of the funds. '
                  'It is stored in your wallet file, and displayed in the \'History\' tab.'))
         description_label = HelpLabel(_('Description'), msg)
-        grid.addWidget(description_label, 2, 0)
+        grid.addWidget(description_label, 4, 0)
         self.message_e = MyLineEdit()
-        grid.addWidget(self.message_e, 2, 1, 1, -1)
+        grid.addWidget(self.message_e, 4, 1, 1, -1)
 
         # OP_RETURN fields row
 
-        msg_opreturn = (_('OP_RETURN data (optional).') + '\n\n' +
-                        _('Posts a PERMANENT note to the Bitcoin SV blockchain as part of '
-                          'this transaction.') + '\n\n' +
-                        _('If you specify OP_RETURN text, you may leave '
-                          'the \'Pay to\' field blank.'))
-        attached_data_label = HelpLabel(_('Attached Data'), msg_opreturn)
+        msg_attached = (_('Attached files (optional).') + '\n\n' +
+                        _('Posts PERMANENT data to the Bitcoin SV blockchain as part of '
+                          'this transaction using OP_RETURN.') + '\n\n' +
+                        _('If you attach files, the \'Pay to\' field can be left blank.'))
+        attached_data_label = HelpLabel(_('Attached Files'), msg_attached)
+        attached_data_label.setContentsMargins(0, 5, 0, 0)
         attached_data_label.setAlignment(Qt.AlignTop)
-        grid.addWidget(attached_data_label,  3, 0)
+        grid.addWidget(attached_data_label,  5, 0)
 
         hbox = QHBoxLayout()
-        self.send_data_list = QTableWidget(1, 3)
-        self.send_data_list.setHorizontalHeaderLabels([ "", _("File size"), _("File name") ])
+        hbox.setSpacing(0)
+        def attach_menu(*args):
+            pass
+        self.send_data_list = MyTreeWidget(self, attach_menu,
+            [ "", _("File size"), _("File name"), "" ], 2)
         self.send_data_list.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        self.send_data_list.setSelectionMode(QTableWidget.SingleSelection)
-        self.send_data_list.setSelectionBehavior(QTableWidget.SelectRows)
-        vh = self.send_data_list.verticalHeader()
-        hh = self.send_data_list.horizontalHeader()
-        vh.setSectionResizeMode(QHeaderView.Fixed)
-        vh.setDefaultSectionSize(hh.height())
-        vh.hide()
-        hh.setStretchLastSection(True)
+        self.send_data_list.setSelectionMode(MyTreeWidget.SingleSelection)
+        self.send_data_list.setSelectionBehavior(MyTreeWidget.SelectRows)
         hbox.addWidget(self.send_data_list)
         vbox = QVBoxLayout()
         vbox.setSpacing(0)
-        self.attach_button = EnterButton("", self.do_attach)
-        self.attach_button.setToolTip(_("Attach file"))
-        self.attach_button.setIcon(read_QIcon("icons8-attach-96.png"))
-        self.attach_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
-        vbox.addWidget(self.attach_button)
+        vbox.setContentsMargins(5, 0, 0, 0)
+        attach_button = EnterButton("", self.do_add_send_attachments)
+        attach_button.setToolTip(_("Add file(s)"))
+        attach_button.setIcon(read_QIcon("icons8-attach-96.png"))
+        attach_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+        vbox.addWidget(attach_button)
         vbox.addStretch()
         hbox.addLayout(vbox)
         self.on_send_data_list_updated()
-        grid.addLayout(hbox, 3, 1, 1, -1)
-
-        # From fields row.
-        # This is enabled by "spending" coins in the coins tab.
-
-        self.from_label = QLabel(_('From'))
-        grid.addWidget(self.from_label, 4, 0)
-        self.from_list = MyTreeWidget(self, self.from_list_menu, ['',''])
-        self.from_list.setHeaderHidden(True)
-        self.from_list.setMaximumHeight(80)
-        grid.addWidget(self.from_list, 4, 1, 1, -1)
-        self.set_pay_from([])
-
-        msg = (_('Amount to be sent.') + '\n\n' +
-               _('The amount will be displayed in red if you do not have '
-                 'enough funds in your wallet.') + ' '
-               + _('Note that if you have frozen some of your addresses, the available '
-                   'funds will be lower than your total balance.') + '\n\n'
-               + _('Keyboard shortcut: type "!" to send all your coins.'))
-        amount_label = HelpLabel(_('Amount'), msg)
-        grid.addWidget(amount_label, 5, 0)
-        grid.addWidget(self.amount_e, 5, 1)
-
-        self.fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
-        if not app_state.fx or not app_state.fx.is_enabled():
-            self.fiat_send_e.setVisible(False)
-        grid.addWidget(self.fiat_send_e, 5, 2)
-        self.amount_e.frozen.connect(
-            lambda: self.fiat_send_e.setFrozen(self.amount_e.isReadOnly()))
-
-        self.max_button = EnterButton(_("Max"), self.spend_max)
-        self.max_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        grid.addWidget(self.max_button, 5, 3)
+        grid.addLayout(hbox, 5, 1, 1, -1)
 
         self.connect_fields(self, self.amount_e, self.fiat_send_e, None)
 
@@ -1316,11 +1315,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def get_opreturn_outputs(self, outputs):
         table = self.send_data_list
+
         file_paths = []
-        for row_index in range(table.rowCount()):
-            item = table.item(row_index, 0)
-            if item:
-                file_paths.append(item.data(Qt.UserRole))
+        for row_index in range(table.model().rowCount()):
+            item = table.topLevelItem(row_index)
+            file_paths.append(item.data(0, Qt.UserRole))
         if len(file_paths):
             data_chunks = []
             for file_path in file_paths:
@@ -1390,6 +1389,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         for item in self.pay_from:
             self.from_list.addTopLevelItem(QTreeWidgetItem(
                 [format(item), self.format_amount(item['value']) ]))
+
+        update_fixed_tree_height(self.from_list)
 
     def get_contact_payto(self, key):
         _type, label = self.contacts.get(key)
@@ -1466,52 +1467,48 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return outputs, fee, label, coins
 
     def on_send_data_list_updated(self):
-        item_count = 0
-        for row_index in range(self.send_data_list.rowCount()):
-            row_item = self.send_data_list.item(row_index, 0)
-            if row_item is None:
-                break
-            item_count += 1
+        item_count = self.send_data_list.model().rowCount()
 
         is_enabled = item_count > 0
         self.send_data_list.setEnabled(is_enabled)
         self.send_data_list.setToolTip(_("Attach a file to include it in the transaction."))
+        update_fixed_tree_height(self.send_data_list)
 
-        update_fixed_table_height(self.send_data_list)
-
-        header = self.send_data_list.horizontalHeader()
-        for column in range(header.count()):
-            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
-            width = header.sectionSize(column)
-            header.setSectionResizeMode(column, QHeaderView.Interactive)
-            header.resizeSection(column, width)
-
-    def do_attach(self):
+    def do_add_send_attachments(self):
+        table = self.send_data_list
         file_paths = self.getOpenFileNames(_("Select file(s)"))
         for file_path in file_paths:
             file_name = os.path.basename(file_path)
             file_size = os.path.getsize(file_path)
-            item_0 = QTableWidgetItem()
-            item_0.setIcon(read_QIcon("icons8-file-512.png"))
-            item_1 = QTableWidgetItem(str(file_size))
-            item_1.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            item_2 = QTableWidgetItem(file_name)
-            item_2.setToolTip(file_path)
+            item = QTreeWidgetItem()
+            item.setData(0, Qt.UserRole, file_path)
+            item.setIcon(0, read_QIcon("icons8-file-512.png"))
+            item.setText(1, str(file_size))
+            item.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
+            item.setText(2, file_name)
 
-            for row_index in range(self.send_data_list.rowCount()):
-                row_item = self.send_data_list.item(row_index, 0)
-                if row_item is None:
-                    break
-            else:
-                self.send_data_list.insertRow(self.send_data_list.rowCount())
-                row_index = self.send_data_list.rowCount() - 1
-            self.send_data_list.setItem(row_index, 0, item_0)
-            self.send_data_list.setItem(row_index, 1, item_1)
-            self.send_data_list.setItem(row_index, 2, item_2)
+            table.addChild(item)
 
-            item_0.setData(Qt.UserRole, file_path)
+            # Setting item column widgets only works when the item is added to the table.
+            delete_button = QPushButton()
+            delete_button.clicked.connect(partial(self._on_delete_attachment, file_path))
+            delete_button.setFlat(True)
+            delete_button.setCursor(QCursor(Qt.PointingHandCursor))
+            delete_button.setIcon(read_QIcon("icons8-trash.svg"))
+            table.setItemWidget(item, 3, delete_button)
 
         self.on_send_data_list_updated()
+
+    def _on_delete_attachment(self, file_path, checked=False):
+        table = self.send_data_list
+        for row_index in range(table.model().rowCount()):
+            item = table.topLevelItem(row_index)
+            item_file_path = item.data(0, Qt.UserRole)
+            if item_file_path == file_path:
+                table.takeTopLevelItem(row_index)
+                break
+        else:
+            print("FAIL", checked, file_path)
 
     def do_preview(self):
         self.do_send(preview = True)
@@ -1744,8 +1741,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             edit_field.setText('')
             edit_field.setFrozen(False)
 
-        for table in self.send_tab.findChildren(QTableWidget):
-            table.setRowCount(0)
+        for tree in self.send_tab.findChildren(QTreeView):
+            tree.clear()
         self.on_send_data_list_updated()
 
         self.max_button.setDisabled(False)

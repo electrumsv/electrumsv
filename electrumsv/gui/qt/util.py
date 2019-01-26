@@ -5,13 +5,13 @@ import queue
 from collections import namedtuple
 from functools import partial, lru_cache
 
-from PyQt5.QtCore import Qt, QCoreApplication, QTimer, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QCoreApplication, QTimer, QThread, pyqtSignal, QModelIndex
 from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
 from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
     QRadioButton, QFileDialog, QStyledItemDelegate, QTreeWidget, QButtonGroup, QComboBox,
     QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem,
-    QApplication, QTableWidget
+    QApplication, QTableWidget, QTreeWidget
 )
 from PyQt5.uic import loadUi
 
@@ -664,14 +664,20 @@ class SortableTreeWidgetItem(QTreeWidgetItem):
             # If not, we will just do string comparison
             return self.text(column) < other.text(column)
 
-def update_fixed_table_height(table: QTableWidget):
-    row_count = table.rowCount()
-    table_height = min(max(table.rowCount(), 1), 10) * table.rowHeight(0)
-    if table.horizontalScrollBar().isVisible():
-        table_height += table.horizontalScrollBar().height()
-    if table.horizontalHeader().isVisible():
-        table_height += table.horizontalHeader().height()
-    table.setFixedHeight(table_height)
+
+def update_fixed_tree_height(tree: QTreeWidget):
+    tree_model = tree.model()
+    cell_index = tree_model.index(0, 1)
+    row_height = tree.rowHeight(cell_index)
+    if row_height == 0:
+        row_height = tree.header().height()
+    row_count = tree_model.rowCount()
+    table_height = row_height * row_count
+    if tree.maximumHeight() > 5:
+        table_height = min(table_height, tree.maximumHeight())
+    if tree.header().isVisible:
+        table_height += tree.header().height() + 2
+    tree.setFixedHeight(table_height)
 
 
 def icon_path(icon_basename):
