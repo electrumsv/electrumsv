@@ -67,7 +67,6 @@ logger = logs.get_logger("wallet")
 
 TX_STATUS = [
     _('Unconfirmed parent'),
-    _('Low fee'),
     _('Unconfirmed'),
     _('Not Verified'),
 ]
@@ -594,7 +593,8 @@ class Abstract_Wallet:
                     status = _('Unconfirmed')
                     if fee is None:
                         fee = self.tx_fees.get(tx_hash)
-                    if fee and self.network.config.has_fee_estimates():
+                    # fee_estimate: where is this used?
+                    if False: # and fee and self.network.config.has_fee_estimates():
                         size = tx.estimated_size()
                         fee_per_kb = fee * 1000 / size
             else:
@@ -961,24 +961,16 @@ class Abstract_Wallet:
             if not tx:
                 return 3, 'unknown'
             fee = self.tx_fees.get(tx_hash)
-            if fee and self.network and self.network.config.has_fee_estimates():
-                size = len(tx.raw)/2
-                low_fee = int(self.network.config.dynfee(0)*size/1000)
-                is_lowfee = fee < low_fee * 0.5
-            else:
-                is_lowfee = False
             if height < 0:
                 status = 0
-            elif height == 0 and is_lowfee:
-                status = 1
             elif height == 0:
-                status = 2
+                status = 1
             else:
-                status = 3
+                status = 2
         else:
             status = 3 + min(conf, 6)
         time_str = format_time(timestamp, _("unknown")) if timestamp else _("unknown")
-        status_str = TX_STATUS[status] if status < 4 else time_str
+        status_str = TX_STATUS[status] if status < len(TX_STATUS) else time_str
         return status, status_str
 
     def relayfee(self):

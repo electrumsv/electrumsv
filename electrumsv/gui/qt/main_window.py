@@ -66,7 +66,6 @@ import electrumsv.web as web
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from .coinsplitting_tab import CoinSplittingTab
-from .fee_slider import FeeSlider
 from .preferences import PreferencesDialog
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
@@ -230,8 +229,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.new_fx_quotes_signal.connect(self.on_fx_quotes)
             self.new_fx_history_signal.connect(self.on_fx_history)
 
-        # update fee slider in case we missed the callback
-        self.fee_slider.update()
         self.load_wallet()
         self.app.timer.timeout.connect(self.timer_actions)
 
@@ -1233,57 +1230,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.max_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         grid.addWidget(self.max_button, 5, 3)
 
-        msg = (
-            _('Bitcoin SV transactions are in general not free. A '
-              'transaction fee is paid by the sender of the funds.') + '\n\n' +
-            _('The amount of fee can be decided freely by the sender. '
-              'However, transactions with low fees take more time to be processed.') + '\n\n' +
-            _('A suggested fee is automatically added to this field. You may '
-              'override it. The suggested fee increases with the size of the transaction.')
-        )
-        self.fee_e_label = HelpLabel(_('Fee'), msg)
-
-        def fee_cb(dyn, pos, fee_rate):
-            if dyn:
-                self.config.set_key('fee_level', pos, False)
-            else:
-                self.config.set_key('fee_per_kb', fee_rate, False)
-            self.spend_max() if self.is_max else self.update_fee()
-
-        self.fee_slider = FeeSlider(self, self.config, fee_cb)
-        self.fee_slider.setFixedWidth(140)
-
-        self.fee_custom_lbl = HelpLabel(
-            self.get_custom_fee_text(),
-            _('This is the fee rate that will be used for this transaction.') + "\n\n" +
-            _('It is calculated from the Custom Fee Rate in preferences, but can '
-              'be overridden from the manual fee edit on this form (if enabled).') + "\n\n" +
-            _('Generally, a fee of 1.0 sats/B is a good minimal rate to ensure your '
-              'transaction will make it into the next block.'))
-        self.fee_custom_lbl.setFixedWidth(140)
-
-        self.fee_slider_mogrifier()
-
-        self.fee_e = BTCAmountEdit()
-        if not self.config.get('show_fee', False):
-            self.fee_e.setVisible(False)
-        self.fee_e.textEdited.connect(self.update_fee)
-        # This is so that when the user blanks the fee and moves on,
-        # we go back to auto-calculate mode and put a fee back.
-        self.fee_e.editingFinished.connect(self.update_fee)
-        self.connect_fields(self, self.amount_e, self.fiat_send_e, self.fee_e)
-
-        grid.addWidget(self.fee_e_label, 6, 0)
-        grid.addWidget(self.fee_slider, 6, 1)
-        grid.addWidget(self.fee_custom_lbl, 6, 1)
-        grid.addWidget(self.fee_e, 6, 2)
+        self.connect_fields(self, self.amount_e, self.fiat_send_e, None)
 
         self.preview_button = EnterButton(_("Preview"), self.do_preview)
         self.preview_button.setToolTip(
             _('Display the details of your transactions before signing it.'))
-
         self.send_button = EnterButton(_("Send"), self.do_send)
-
         self.clear_button = EnterButton(_("Clear"), self.do_clear)
 
         buttons = QHBoxLayout()
@@ -1292,7 +1244,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         buttons.addWidget(self.preview_button)
         buttons.addWidget(self.send_button)
         buttons.addStretch(1)
-        grid.addLayout(buttons, 7, 0, 1, -1)
+        grid.addLayout(buttons, 6, 0, 1, -1)
 
         self.amount_e.shortcut.connect(self.spend_max)
         self.payto_e.textChanged.connect(self.update_fee)
@@ -1307,26 +1259,22 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         def entry_changed():
             text = ""
             if self.not_enough_funds:
-                amt_color, fee_color = ColorScheme.RED, ColorScheme.RED
+                amt_color = ColorScheme.RED
                 text = _( "Not enough funds" )
                 c, u, x = self.wallet.get_frozen_balance()
                 if c+u+x:
                     text += (' (' + self.format_amount(c+u+x).strip() + ' ' +
                              app_state.base_unit() + ' ' + _("are frozen") + ')')
 
-            elif self.fee_e.isModified():
-                amt_color, fee_color = ColorScheme.DEFAULT, ColorScheme.DEFAULT
-            elif self.amount_e.isModified():
-                amt_color, fee_color = ColorScheme.DEFAULT, ColorScheme.BLUE
+            if self.amount_e.isModified():
+                amt_color = ColorScheme.DEFAULT
             else:
-                amt_color, fee_color = ColorScheme.BLUE, ColorScheme.BLUE
+                amt_color = ColorScheme.BLUE
 
             self.statusBar().showMessage(text)
             self.amount_e.setStyleSheet(amt_color.as_stylesheet())
-            self.fee_e.setStyleSheet(fee_color.as_stylesheet())
 
         self.amount_e.textChanged.connect(entry_changed)
-        self.fee_e.textChanged.connect(entry_changed)
 
         self.invoices_label = QLabel(_('Invoices'))
         from .invoice_list import InvoiceList
@@ -1387,17 +1335,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         '''Recalculate the fee.  If the fee was manually input, retain it, but
         still build the TX to see if there are enough funds.
         '''
-        freeze_fee = (self.fee_e.isModified()
-                      and (self.fee_e.text() or self.fee_e.hasFocus()))
         amount = '!' if self.is_max else self.amount_e.get_amount()
-        fee_rate = None
         if amount is None:
-            if not freeze_fee:
-                self.fee_e.setAmount(None)
             self.not_enough_funds = False
             self.statusBar().showMessage('')
         else:
-            fee = self.fee_e.get_amount() if freeze_fee else None
+            fee = None
             outputs = self.payto_e.get_outputs(self.is_max)
             if not outputs:
                 _type, addr = self.get_payto_or_dummy()
@@ -1410,28 +1353,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self.not_enough_funds = False
             except NotEnoughFunds:
                 self.not_enough_funds = True
-                if not freeze_fee:
-                    self.fee_e.setAmount(None)
                 return
             except Exception:
                 return
 
-            if not freeze_fee:
-                fee = None if self.not_enough_funds else tx.get_fee()
-                self.fee_e.setAmount(fee)
-
             if self.is_max:
                 amount = tx.output_value()
                 self.amount_e.setAmount(amount)
-            if fee is not None:
-                fee_rate = fee / tx.estimated_size()
-        self.fee_slider_mogrifier(self.get_custom_fee_text(fee_rate))
-
-    def fee_slider_mogrifier(self, text = None):
-        fee_slider_hidden = self.config.has_custom_fee_rate()
-        self.fee_slider.setHidden(fee_slider_hidden)
-        self.fee_custom_lbl.setHidden(not fee_slider_hidden)
-        if text is not None: self.fee_custom_lbl.setText(text)
 
     def from_list_delete(self, item):
         i = self.from_list.indexOfTopLevelItem(item)
@@ -1533,10 +1461,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if amount is None:
                 self.show_error(_('Invalid Amount'))
                 return
-
-        freeze_fee = (self.fee_e.isVisible() and self.fee_e.isModified()
-                      and (self.fee_e.text() or self.fee_e.hasFocus()))
-        fee = self.fee_e.get_amount() if freeze_fee else None
+        fee = None
         coins = self.get_coins(isInvoice)
         return outputs, fee, label, coins
 
@@ -2826,13 +2751,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     #
     # Preferences dialog and its signals.
     #
-    def on_fees_editable_changed(self):
-        self.fee_e.setVisible(self.config.get('show_fee'))
-
-    def on_custom_fee_changed(self):
-        self.fee_slider.update()
-        self.fee_slider_mogrifier()
-
     def on_num_zeros_changed(self):
         self.history_list.update()
         self.history_updated_signal.emit()
@@ -2851,7 +2769,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.update_status()
 
     def on_base_unit_changed(self):
-        edits = self.amount_e, self.fee_e, self.receive_amount_e
+        edits = self.amount_e, self.receive_amount_e
         amounts = [edit.get_amount() for edit in edits]
         self.history_list.update()
         self.history_updated_signal.emit()
@@ -2962,13 +2880,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         fee_e.setAmount(fee)
         grid.addWidget(QLabel(_('Fee' + ':')), 3, 0)
         grid.addWidget(fee_e, 3, 1)
-        def on_rate(dyn, pos, fee_rate):
-            fee = fee_rate * total_size / 1000
-            fee = min(max_fee, fee)
-            fee_e.setAmount(fee)
-        fee_slider = FeeSlider(self, self.config, on_rate)
-        fee_slider.update()
-        grid.addWidget(fee_slider, 4, 1)
         vbox.addLayout(grid)
         vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
         if not d.exec_():

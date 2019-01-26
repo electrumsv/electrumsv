@@ -364,23 +364,15 @@ class Network(util.DaemonThread):
         self._queue_request('server.banner', [])
         self._queue_request('server.donation_address', [])
         self._queue_request('server.peers.subscribe', [])
-        self._request_fee_estimates()
         self._queue_request('blockchain.relayfee', [])
         for h in self.subscribed_addresses:
             self._queue_request('blockchain.scripthash.subscribe', [h])
-
-    def _request_fee_estimates(self):
-        self.config.requested_fee_estimates()
-        for i in bitcoin.FEE_TARGETS:
-            self._queue_request('blockchain.estimatefee', [i])
 
     def _get_status_value(self, key):
         if key == 'status':
             value = self.connection_status
         elif key == 'banner':
             value = self.banner
-        elif key == 'fee':
-            value = self.config.fee_estimates
         elif key == 'updated':
             value = (self.get_local_height(), self.get_server_height())
         elif key == 'servers':
@@ -628,13 +620,6 @@ class Network(util.DaemonThread):
         elif method == 'server.donation_address':
             if error is None:
                 self.donation_address = result
-        elif method == 'blockchain.estimatefee':
-            if error is None and result > 0:
-                i = params[0]
-                fee = int(result*COIN)
-                self.config.update_fee_estimates(i, fee)
-                logger.debug("fee_estimates[%d] %d", i, fee)
-                self._notify('fee')
         elif method == 'blockchain.relayfee':
             if error is None:
                 self.relay_fee = int(result * COIN)
@@ -850,9 +835,6 @@ class Network(util.DaemonThread):
                             self.server_retry_time = now
                     else:
                         self.switch_to_interface(self.default_server, self.SWITCH_SOCKET_LOOP)
-            else:
-                if self.config.is_fee_estimates_update_required():
-                    self._request_fee_estimates()
 
     def _request_headers(self, interface, base_height, count):
         assert count <=2016

@@ -84,7 +84,6 @@ class SVApplication(QApplication):
     # Preferences updates
     fiat_ccy_changed = pyqtSignal()
     custom_fee_changed = pyqtSignal()
-    fees_editable_changed = pyqtSignal()
     op_return_enabled_changed = pyqtSignal()
     num_zeros_changed = pyqtSignal()
     base_unit_changed = pyqtSignal()
@@ -125,8 +124,6 @@ class SVApplication(QApplication):
             QGuiApplication.setDesktopFileName('electrum-sv.desktop')
         self.installEventFilter(OpenFileEventFilter(self.windows))
         self.create_new_window_signal.connect(self._start_new_window)
-        self.custom_fee_changed.connect(partial(self._signal_all, 'on_custom_fee_changed'))
-        self.fees_editable_changed.connect(partial(self._signal_all, 'on_fees_editable_changed'))
         self.num_zeros_changed.connect(partial(self._signal_all, 'on_num_zeros_changed'))
         self.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
         self.base_unit_changed.connect(partial(self._signal_all, 'on_base_unit_changed'))

@@ -6,7 +6,7 @@ import threading
 import time
 
 from . import util
-from .bitcoin import MAX_FEE_RATE, FEE_TARGETS
+from .bitcoin import MAX_FEE_RATE
 from .logs import logs
 from .platform import platform
 from .util import make_dir
@@ -28,7 +28,6 @@ class SimpleConfig:
         2. User configuration (in the user's config directory)
     They are taken in order (1. overrides config options set in 2.)
     """
-    fee_rates = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
 
     def __init__(self, options=None, read_user_config_function=None,
                  read_user_dir_function=None):
@@ -39,10 +38,6 @@ class SimpleConfig:
         # This lock needs to be acquired for updating and reading the config in
         # a thread-safe way.
         self.lock = threading.RLock()
-
-        self.fee_estimates = {}
-        self.fee_estimates_last_updated = {}
-        self.last_time_fee_estimates_requested = 0  # zero ensures immediate fees
 
         # The following two functions are there for dependency injection when
         # testing.
@@ -244,25 +239,6 @@ class SimpleConfig:
             f = MAX_FEE_RATE
         return f
 
-    def dynfee(self, i):
-        if i < 4:
-            j = FEE_TARGETS[i]
-            fee = self.fee_estimates.get(j)
-        else:
-            assert i == 4
-            fee = self.fee_estimates.get(2)
-            if fee is not None:
-                fee += fee/2
-        if fee is not None:
-            fee = min(5*MAX_FEE_RATE, fee)
-        return fee
-
-    def static_fee(self, i):
-        return self.fee_rates[i]
-
-    def has_fee_estimates(self):
-        return len(self.fee_estimates)==4
-
     def custom_fee_rate(self):
         f = self.get('customfee')
         return f
@@ -289,24 +265,6 @@ class SimpleConfig:
 
     def estimate_fee(self, size):
         return int(self.fee_per_kb() * size / 1000.)
-
-    def update_fee_estimates(self, key, value):
-        self.fee_estimates[key] = value
-        self.fee_estimates_last_updated[key] = time.time()
-
-    def is_fee_estimates_update_required(self):
-        """Checks time since last requested and updated fee estimates.
-        Returns True if an update should be requested.
-        """
-        now = time.time()
-        prev_updates = self.fee_estimates_last_updated.values()
-        oldest_fee_time = min(prev_updates) if prev_updates else 0
-        stale_fees = now - oldest_fee_time > 7200
-        old_request = now - self.last_time_fee_estimates_requested > 60
-        return stale_fees and old_request
-
-    def requested_fee_estimates(self):
-        self.last_time_fee_estimates_requested = time.time()
 
     def get_video_device(self):
         device = self.get("video_device", "default")

@@ -40,7 +40,6 @@ from . import version
 ################################## transactions
 
 MAX_FEE_RATE = 20000
-FEE_TARGETS = [25, 10, 5, 2]
 
 COINBASE_MATURITY = 100
 COIN = 100000000

@@ -124,14 +124,6 @@ class PreferencesDialog(QDialog):
         customfee_label = HelpLabel(_('Custom Fee Rate'),
                                     _('Custom Fee Rate in Satoshis per byte'))
 
-        feebox_cb = QCheckBox(_('Manually set fees for each transaction'))
-        feebox_cb.setChecked(app_state.config.get('show_fee', False))
-        feebox_cb.setToolTip(_("Show fee edit box in send tab."))
-        def on_feebox(state):
-            app_state.config.set_key('show_fee', state == Qt.Checked)
-            app_state.app.fees_editable_changed.emit()
-        feebox_cb.stateChanged.connect(on_feebox)
-
         unconf_cb = QCheckBox(_('Spend only confirmed coins'))
         unconf_cb.setToolTip(_('Spend only confirmed inputs.'))
         unconf_cb.setChecked(app_state.config.get('confirmed_only', False))
@@ -142,7 +134,6 @@ class PreferencesDialog(QDialog):
         return [
             # Append None to flush edit left
             (customfee_label, customfee_e, None),
-            (feebox_cb, ),
             (unconf_cb, ),
         ]
 

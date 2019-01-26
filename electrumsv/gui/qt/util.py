@@ -665,6 +665,7 @@ class SortableTreeWidgetItem(QTreeWidgetItem):
             return self.text(column) < other.text(column)
 
 def update_fixed_table_height(table: QTableWidget):
+    row_count = table.rowCount()
     table_height = min(max(table.rowCount(), 1), 10) * table.rowHeight(0)
     if table.horizontalScrollBar().isVisible():
         table_height += table.horizontalScrollBar().height()
