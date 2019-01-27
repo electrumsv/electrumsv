@@ -1277,7 +1277,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             pass
         self.send_data_list = MyTreeWidget(self, attach_menu,
             [ "", _("File size"), _("File name"), "" ], 2)
-        self.send_data_list.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.send_data_list.setSelectionMode(MyTreeWidget.SingleSelection)
         self.send_data_list.setSelectionBehavior(MyTreeWidget.SelectRows)
         hbox.addWidget(self.send_data_list)
@@ -1537,13 +1536,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         is_enabled = item_count > 0
         self.send_data_list.setEnabled(is_enabled)
         self.send_data_list.setToolTip(_("Attach a file to include it in the transaction."))
-        update_fixed_tree_height(self.send_data_list)
+        update_fixed_tree_height(self.send_data_list, maximum_height=80)
 
     def _do_add_send_attachments(self):
         dialogs.show_named('illegal-files-are-traceable')
 
         table = self.send_data_list
         file_paths = self.getOpenFileNames(_("Select file(s)"))
+        last_item = None
         for file_path in file_paths:
             file_name = os.path.basename(file_path)
             file_size = os.path.getsize(file_path)
@@ -1564,7 +1564,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             delete_button.setIcon(read_QIcon("icons8-trash.svg"))
             table.setItemWidget(item, 3, delete_button)
 
-        self._on_send_data_list_updated()
+            last_item = item
+
+        if last_item is not None:
+            self._on_send_data_list_updated()
+            table.scrollToItem(last_item)
 
     def _on_delete_attachment(self, file_path, checked=False):
         table = self.send_data_list

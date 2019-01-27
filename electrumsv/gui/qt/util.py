@@ -665,7 +665,12 @@ class SortableTreeWidgetItem(QTreeWidgetItem):
             return self.text(column) < other.text(column)
 
 
-def update_fixed_tree_height(tree: QTreeWidget):
+def update_fixed_tree_height(tree: QTreeWidget, maximum_height=None):
+    # We can't always rely on the manually set maximum height sticking.
+    # It's possible the setting of the fixed height explicitly replaces it.
+    if maximum_height is None:
+        maximum_height = tree.maximumHeight()
+
     tree_model = tree.model()
     cell_index = tree_model.index(0, 1)
     row_height = tree.rowHeight(cell_index)
@@ -673,8 +678,8 @@ def update_fixed_tree_height(tree: QTreeWidget):
         row_height = tree.header().height()
     row_count = tree_model.rowCount()
     table_height = row_height * row_count
-    if tree.maximumHeight() > 5:
-        table_height = min(table_height, tree.maximumHeight())
+    if maximum_height > 5:
+        table_height = min(table_height, maximum_height)
     if tree.header().isVisible:
         table_height += tree.header().height() + 2
     tree.setFixedHeight(table_height)
