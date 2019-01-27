@@ -280,7 +280,7 @@ class SVApplication(QApplication):
         w.activateWindow()
         return w
 
-    def _update_check(self):
+    def update_check(self):
         if (not app_state.config.get('check_updates', True) or
                 app_state.config.get("offline", False)):
             return
@@ -302,8 +302,10 @@ class SVApplication(QApplication):
 
     def _on_update_check(self, success, result):
         if success:
+            from electrumsv import py37datetime
+            when_checked = py37datetime.datetime.now().astimezone().isoformat()
             app_state.config.set_key('last_update_check', result)
-            app_state.config.set_key('last_update_check_time', time.time(), True)
+            app_state.config.set_key('last_update_check_time', when_checked, True)
         self.update_check_signal.emit(success, result)
 
     def initial_dialogs(self):
@@ -345,9 +347,11 @@ class SVApplication(QApplication):
             self.quit()
 
     def run_gui(self):
-        app_state.config.set_key('last_start_time', app_state.config.get("start_time"))
-        app_state.config.set_key('start_time', time.time(), True)
-        self._update_check()
+        from electrumsv import py37datetime
+        when_started = py37datetime.datetime.now().astimezone().isoformat()
+        app_state.config.set_key('previous_start_time', app_state.config.get("start_time"))
+        app_state.config.set_key('start_time', when_started, True)
+        self.update_check()
 
         threading.current_thread().setName('GUI')
         self.timer.setSingleShot(False)

@@ -24,7 +24,9 @@
 
 import base64
 import csv
+import datetime
 from decimal import Decimal
+from distutils.version import StrictVersion
 from functools import partial
 import json
 import os
@@ -592,14 +594,84 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         log_action.triggered.connect(self.app.show_log_viewer)
         toolbar.addAction(log_action)
 
-        update_action = QAction(read_QIcon("update.png"), _("Update Check"), self)
-        update_action.triggered.connect(self.show_update_check)
+        self._update_check_state = "default"
+        update_action = QAction(read_QIcon("icons8-available-updates-80-blue"), _("Update Check"), self)
+        def _update_show_menu(checked: bool = False):
+            self._update_menu.exec(QCursor.pos())
+        update_action.triggered.connect(_update_show_menu)
+        self._update_action = update_action
         toolbar.addAction(update_action)
+        self._update_check_toolbar_update()
+        if self._update_check_state != "default":
+            check_result = self.config.get('last_update_check')
+            self._on_update_tray_notify(check_result)
 
         toolbar.insertSeparator(update_action)
 
         self.addToolBar(toolbar)
         self.setUnifiedTitleAndToolBarOnMac(True)
+
+    def _update_check_toolbar_update(self):
+        update_check_state = "default"
+        check_result = self.config.get('last_update_check')
+        if check_result is not None:
+            from electrumsv import py37datetime
+            release_date = py37datetime.datetime.fromisoformat(check_result['date']).astimezone()
+            if StrictVersion(check_result['version']) > StrictVersion(PACKAGE_VERSION):
+                if time.time() - release_date.timestamp() < 24 * 60 * 60:
+                    update_check_state = "update-present-immediate"
+                else:
+                    update_check_state = "update-present-prolonged"
+
+        if update_check_state != self._update_check_state:
+            def _on_check_for_updates(checked: bool=False):
+                self.show_update_check()
+
+            def _on_view_pending_update(checked: bool=False):
+                QDesktopServices.openUrl(QUrl("https://electrumsv.io/download/"))
+
+            menu = QMenu()
+            self._update_menu = menu
+            self._update_check_action = menu.addAction(
+                _("Check for Updates"), _on_check_for_updates)
+            self._update_view_pending_action = menu.addAction(
+                _("View Pending Update"), _on_view_pending_update)
+            if update_check_state == "default":
+                icon_path = "icons8-available-updates-80-blue"
+                icon_text = _("Updates")
+                tooltip = _("Check for Updates")
+                menu.setDefaultAction(self._update_check_action)
+            elif update_check_state == "update-present-immediate":
+                icon_path = "icons8-available-updates-80-yellow"
+                icon_text = f"{check_result['version']}"
+                tooltip = _("A newer version of ElectrumSV is available, and "+
+                    "was released on {0:%c}").format(release_date)
+                menu.setDefaultAction(self._update_view_pending_action)
+            elif update_check_state == "update-present-prolonged":
+                icon_path = "icons8-available-updates-80-red"
+                icon_text = f"{check_result['version']}"
+                tooltip = _("A newer version of ElectrumSV is available, and "+
+                    "was released on {0:%c}").format(release_date)
+                menu.setDefaultAction(self._update_view_pending_action)
+            # Apply the update state.
+            self._update_action.setMenu(menu)
+            self._update_action.setIcon(read_QIcon(icon_path))
+            self._update_action.setText(icon_text)
+            self._update_action.setToolTip(tooltip)
+            self._update_check_state = update_check_state
+
+    def _on_update_tray_notify(self, result):
+        self.app.tray.showMessage(
+            "ElectrumSV",
+            _("A new version of ElectrumSV, version {}, is available for download")
+                .format(result["version"]),
+            read_QIcon("electrum_dark_icon"), 20000)
+
+    def on_update_check(self, success, result):
+        if success:
+            self._on_update_tray_notify(result)
+
+        self._update_check_toolbar_update()
 
     def donate_to_server(self):
         server = self.network.get_parameters()[0]
@@ -625,14 +697,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def show_update_check(self):
         from . import update_check
         update_check.UpdateCheckDialog()
-
-    def on_update_check(self, success, result):
-        if success:
-            def on_update_button_click(*args):
-                QDesktopServices.openUrl(QUrl("https://electrumsv.io"))
-            self.update_check_button.setText(_("Update {} is available").format(result['version']))
-            self.update_check_button.clicked.connect(on_update_button_click)
-            self.update_check_button.show()
 
     def show_report_bug(self):
         msg = ' '.join([
@@ -2021,13 +2085,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.search_box.textChanged.connect(self.do_search)
         self.search_box.hide()
         sb.addPermanentWidget(self.search_box)
-
-        self.update_check_button = QPushButton("")
-        self.update_check_button.setFlat(True)
-        self.update_check_button.setCursor(QCursor(Qt.PointingHandCursor))
-        self.update_check_button.setIcon(read_QIcon("update.png"))
-        self.update_check_button.hide()
-        sb.addPermanentWidget(self.update_check_button)
 
         self.setStatusBar(sb)
 

@@ -68,7 +68,7 @@ class UpdateCheckDialog(QWidget):
         self._timer.start(1000/10)
 
         app_state.app.update_check_signal.connect(self._on_update_result)
-        app_state.update_check()
+        app_state.app.update_check()
 
     def closeEvent(self, event):
         self._stop_updates()
