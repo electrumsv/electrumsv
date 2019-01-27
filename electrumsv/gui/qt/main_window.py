@@ -1217,6 +1217,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(self.from_list, 1, 1, 1, -1)
         self.set_pay_from([])
 
+        msg = (_('Recipient of the funds.') + '\n\n' +
+               _('You may enter a Bitcoin SV address, a label from your list of '
+                 'contacts (a list of completions will be proposed), or an alias '
+                 '(email-like address that forwards to a Bitcoin SV address)'))
+        payto_label = HelpLabel(_('Pay to'), msg)
+        payto_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        grid.addWidget(payto_label, 2, 0)
+        grid.addWidget(self.payto_e, 2, 1, 1, -1)
+
         msg = (_('Amount to be sent.') + '\n\n' +
                _('The amount will be displayed in red if you do not have '
                  'enough funds in your wallet.') + ' '
@@ -1224,28 +1233,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                    'funds will be lower than your total balance.') + '\n\n'
                + _('Keyboard shortcut: type "!" to send all your coins.'))
         amount_label = HelpLabel(_('Amount'), msg)
-        grid.addWidget(amount_label, 2, 0)
-        grid.addWidget(self.amount_e, 2, 1)
+        grid.addWidget(amount_label, 3, 0)
+        grid.addWidget(self.amount_e, 3, 1)
 
         self.fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
         if not app_state.fx or not app_state.fx.is_enabled():
             self.fiat_send_e.setVisible(False)
-        grid.addWidget(self.fiat_send_e, 2, 2)
+        grid.addWidget(self.fiat_send_e, 3, 2)
         self.amount_e.frozen.connect(
             lambda: self.fiat_send_e.setFrozen(self.amount_e.isReadOnly()))
 
         self.max_button = EnterButton(_("Max"), self.spend_max)
         self.max_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        grid.addWidget(self.max_button, 2, 3)
-
-        msg = (_('Recipient of the funds.') + '\n\n' +
-               _('You may enter a Bitcoin SV address, a label from your list of '
-                 'contacts (a list of completions will be proposed), or an alias '
-                 '(email-like address that forwards to a Bitcoin SV address)'))
-        payto_label = HelpLabel(_('Pay to'), msg)
-        payto_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-        grid.addWidget(payto_label, 3, 0)
-        grid.addWidget(self.payto_e, 3, 1, 1, -1)
+        grid.addWidget(self.max_button, 3, 3)
 
         completer = QCompleter()
         completer.setCaseSensitivity(False)
