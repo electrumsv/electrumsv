@@ -183,7 +183,7 @@ class DeviceMgr(ThreadJob):
         the plugin object, or the exception if it could not be instantiated.'''
         def plugin(device_kind):
             try:
-                return app_state.plugins.get_plugin(device_kind)
+                return self.get_plugin(device_kind)
             except Exception as e:
                 logger.exception(f'cannot load plugin for {device_kind}')
                 return e

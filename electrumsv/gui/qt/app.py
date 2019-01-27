@@ -123,7 +123,7 @@ class SVApplication(QApplication):
         if hasattr(QGuiApplication, 'setDesktopFileName'):
             QGuiApplication.setDesktopFileName('electrum-sv.desktop')
         self.installEventFilter(OpenFileEventFilter(self.windows))
-        self.create_new_window_signal.connect(self._start_new_window)
+        self.create_new_window_signal.connect(self.start_new_window)
         self.num_zeros_changed.connect(partial(self._signal_all, 'on_num_zeros_changed'))
         self.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
         self.base_unit_changed.connect(partial(self._signal_all, 'on_base_unit_changed'))
@@ -232,7 +232,7 @@ class SVApplication(QApplication):
         self.window_opened_signal.emit(w)
         return w
 
-    def _start_new_window(self, path, uri, is_startup=False):
+    def start_new_window(self, path, uri, is_startup=False):
         '''Raises the window for the wallet if it is open.  Otherwise
         opens the wallet and creates a new window for it.'''
         for w in self.windows:
@@ -343,7 +343,7 @@ class SVApplication(QApplication):
         self._maybe_choose_server()
         app_state.config.open_last_wallet()
         path = app_state.config.get_wallet_path()
-        if not self._start_new_window(path, app_state.config.get('url'), is_startup=True):
+        if not self.start_new_window(path, app_state.config.get('url'), is_startup=True):
             self.quit()
 
     def run_gui(self):
