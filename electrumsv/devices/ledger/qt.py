@@ -14,6 +14,9 @@ class Plugin(LedgerPlugin, QtPluginBase):
     def create_handler(self, window):
         return Ledger_Handler(window)
 
+    def show_settings_dialog(self, window, keystore):
+        keystore.handler.setup_dialog()
+
 
 class Ledger_Handler(QtHandlerBase):
     setup_signal = pyqtSignal()
@@ -68,4 +71,5 @@ class Ledger_Handler(QtHandlerBase):
         #from btchip.btchipPersoWizard import StartBTChipPersoDialog
         #dialog = StartBTChipPersoDialog()
         #dialog.exec_()
-        raise Exception("?? Import was disabled, but code remained, now raises")
+        # rt12 -- Ledger settings use PyQt4, which we do not have.
+        self.show_error(_('Ledger do not currently support this.'))
