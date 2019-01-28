@@ -1299,6 +1299,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.preview_button.setToolTip(
             _('Display the details of your transactions before signing it.'))
         self.send_button = EnterButton(_("Send"), self.do_send)
+        if self.network is None:
+            self.send_button.setEnabled(False)
+            self.send_button.setToolTip(_('You are using ElectrumSV in offline mode; restart '
+                                          'ElectrumSV if you want to get connected'))
+
         self.clear_button = EnterButton(_("Clear"), self.do_clear)
 
         buttons = QHBoxLayout()

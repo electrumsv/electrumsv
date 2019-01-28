@@ -222,6 +222,10 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         size = self.tx.estimated_size()
         self.broadcast_button.setEnabled(tx_info.can_broadcast)
+        if self.main_window.network is None:
+            self.broadcast_button.setEnabled(False)
+            self.broadcast_button.setToolTip(_('You are using ElectrumSV in offline mode; restart '
+                                               'ElectrumSV if you want to get connected'))
         can_sign = not self.tx.is_complete() and \
             (self.wallet.can_sign(self.tx) or bool(self.main_window.tx_external_keypairs))
         self.sign_button.setEnabled(can_sign)
