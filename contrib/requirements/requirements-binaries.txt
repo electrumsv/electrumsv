@@ -2,4 +2,3 @@ PyQt5
 pycryptodomex
 websocket-client
 dmgbuild
-pip==18.1
