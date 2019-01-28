@@ -494,6 +494,9 @@ class LedgerPlugin(HW_PluginBase):
     def setup_device(self, device_info, wizard):
         device_id = device_info.device.id_
         client = app_state.device_manager.client_by_id(device_id)
+        if client is None:
+            raise Exception(_('Failed to create a client for this device.') + '\n' +
+                            _('Make sure it is in the correct state.'))
         client.handler = self.create_handler(wizard)
         # TODO replace by direct derivation once Nano S > 1.1
         client.get_xpub("m/44'/0'", 'standard')

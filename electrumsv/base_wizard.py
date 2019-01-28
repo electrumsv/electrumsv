@@ -181,12 +181,14 @@ class BaseWizard(object):
         devices = []
         devmgr = app_state.device_manager
         debug_msg = ''
+        # This needs to be done before the scan, otherwise the devices will not be loaded.
+        supported_devices = devmgr.supported_devices()
         try:
             scanned_devices = devmgr.scan_devices()
         except:
             logger.exception(f'error scanning devices')
         else:
-            for device_kind, plugin in devmgr.supported_devices().items():
+            for device_kind, plugin in supported_devices.items():
                 # plugin init errored?
                 if isinstance(plugin, Exception):
                     tail = '\n    '.join([_('You might have an incompatible library.'), '']
