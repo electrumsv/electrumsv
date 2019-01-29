@@ -1136,6 +1136,11 @@ class Network(util.DaemonThread):
         interface.tip_raw = raw_header
         interface.tip = height
         interface.set_mode(Interface.MODE_DEFAULT)
+        if not interface.blockchain:
+            interface.blockchain = Blockchain.longest()
+            if interface.blockchain.height() < interface.tip:
+                self._request_headers(interface, interface.blockchain.height(), 1000)
+                return
         self._process_latest_tip(interface)
 
     def _process_latest_tip(self, interface):
