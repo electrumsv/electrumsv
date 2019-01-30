@@ -70,7 +70,7 @@ class WalletStorage:
         logger.debug("wallet path '%s'", path)
         dirname = os.path.dirname(path)
         if not os.path.exists(dirname):
-            raise RuntimeError(f'directory {dirname} does not exist')
+            raise IOError(f'directory {dirname} does not exist')
         self.manual_upgrades = manual_upgrades
         self.lock = threading.RLock()
         self.data = {}
