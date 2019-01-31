@@ -143,7 +143,7 @@ class WalletStorage:
         self.put('use_encryption', bool(password))
         if encrypt and password:
             ec_key = self.get_eckey_from_password(password)
-            self.pubkey = ec_key.get_public_key()
+            self.pubkey = ec_key.get_public_key_hex()
         else:
             self.pubkey = None
 
