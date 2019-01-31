@@ -17,9 +17,10 @@ from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.platform import platform
 from electrumsv.storage import WalletStorage
-from electrumsv.util import get_electron_cash_user_dir
+from electrumsv.util import get_electron_cash_user_dir, remove_accents
 from electrumsv.wallet import Wallet
 
+from . import dialogs
 from .network_dialog import NetworkChoiceLayout
 from .password_dialog import PasswordLayout, PW_NEW, PasswordLineEdit
 from .seed_dialog import SeedLayout, KeysLayout
@@ -320,6 +321,9 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         n = os.path.basename(self.storage.path)
         self.name_e.setText(n)
 
+        # QT bug: https://github.com/electrumsv/electrumsv/issues/20
+        # This is where a user who has an accented password has actually been entering a password
+        # corrupted by the QT bug. Here we detect if a user was affected, and warn them.
         while True:
             if self.storage.file_exists() and not self.storage.is_encrypted():
                 break
@@ -334,7 +338,14 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                     self.pw_e.setText('')
                     break
                 except InvalidPassword as e:
-                    QMessageBox.information(None, _('Error'), str(e))
+                    # Get the ascii version of the first character o f the password.
+                    char0 = remove_accents(password[0])
+                    # If it is a known accented character, and does not match the original
+                    # character, then this is a user with a potential problem.
+                    if char0 in b'aeiou' and ord(password[0]) != ord(char0):
+                        dialogs.show_named('password-from-QT-bug', optional=False)
+                    else:
+                        QMessageBox.information(None, _('Error'), str(e))
                     continue
                 except Exception as e:
                     logger.exception("decrypting storage")

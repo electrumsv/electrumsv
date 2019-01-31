@@ -515,3 +515,11 @@ def versiontuple(v):
 
 def resource_path(*parts):
     return os.path.join(base_dir, "data", *parts)
+
+
+def remove_accents(input_str):
+    import unicodedata
+    nfkd_form = unicodedata.normalize('NFKD', input_str)
+    only_ascii = nfkd_form.encode('ASCII', 'ignore')
+    return only_ascii
+
