@@ -219,6 +219,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         base_unit = app_state.base_unit()
         format_amount = self.main_window.format_amount
         tx_info = self.wallet.get_tx_info(self.tx)
+        tx_info_fee = tx_info.fee
 
         size = self.tx.estimated_size()
         self.broadcast_button.setEnabled(tx_info.can_broadcast)
@@ -230,11 +231,11 @@ class TxDialog(QDialog, MessageBoxMixin):
             (self.wallet.can_sign(self.tx) or bool(self.main_window.tx_external_keypairs))
         self.sign_button.setEnabled(can_sign)
         self.tx_hash_e.setText(tx_info.hash or _('Unknown'))
-        if tx_info.fee is None:
+        if tx_info_fee is None:
             try:
                 # Try and compute fee. We don't always have 'value' in
                 # all the inputs though. :/
-                tx_info.fee = self.tx.get_fee()
+                tx_info_fee = self.tx.get_fee()
             except KeyError: # Value key missing from an input
                 pass
         if desc is None:
@@ -262,15 +263,15 @@ class TxDialog(QDialog, MessageBoxMixin):
                                            format_amount(-tx_info.amount),
                                            base_unit)
         size_str = _("Size:") + ' %d bytes'% size
-        if tx_info.fee is not None:
-            fee_amount = '{} {}'.format(format_amount(tx_info.fee), base_unit)
+        if tx_info_fee is not None:
+            fee_amount = '{} {}'.format(format_amount(tx_info_fee), base_unit)
         else:
             fee_amount = _('unknown')
         fee_str = '{}: {}'.format(_("Fee"), fee_amount)
         dusty_fee = self.tx.ephemeral.get('dust_to_fee', 0)
-        if tx_info.fee is not None:
+        if tx_info_fee is not None:
             fee_str += '  ( {} ) '.format(self.main_window.format_fee_rate(
-                tx_info.fee / size * 1000))
+                tx_info_fee / size * 1000))
             if dusty_fee:
                 fee_str += (' <font color=#999999>' +
                             (_("( %s in dust was added to fee )") % format_amount(dusty_fee)) +
