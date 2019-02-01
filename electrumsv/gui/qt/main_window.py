@@ -602,9 +602,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._update_action = update_action
         toolbar.addAction(update_action)
         self._update_check_toolbar_update()
-        if self._update_check_state != "default":
-            check_result = self.config.get('last_update_check')
-            self._on_update_tray_notify(check_result)
+        # This does not work, it results in double notifications and stale notifications.
+        # if self._update_check_state != "default":
+        #     check_result = self.config.get('last_update_check')
+        #     self._on_update_tray_notify(check_result)
 
         toolbar.insertSeparator(update_action)
 
@@ -623,42 +624,44 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 else:
                     update_check_state = "update-present-prolonged"
 
-        if update_check_state != self._update_check_state:
-            def _on_check_for_updates(checked: bool=False):
-                self.show_update_check()
+        def _on_check_for_updates(checked: bool=False):
+            self.show_update_check()
 
-            def _on_view_pending_update(checked: bool=False):
-                QDesktopServices.openUrl(QUrl("https://electrumsv.io/download/"))
+        def _on_view_pending_update(checked: bool=False):
+            QDesktopServices.openUrl(QUrl("https://electrumsv.io/download/"))
 
-            menu = QMenu()
-            self._update_menu = menu
-            self._update_check_action = menu.addAction(
-                _("Check for Updates"), _on_check_for_updates)
+        menu = QMenu()
+        self._update_menu = menu
+        self._update_check_action = menu.addAction(
+            _("Check for Updates"), _on_check_for_updates)
+
+        if update_check_state == "default":
+            icon_path = "icons8-available-updates-80-blue"
+            icon_text = _("Updates")
+            tooltip = _("Check for Updates")
+            menu.setDefaultAction(self._update_check_action)
+        elif update_check_state == "update-present-immediate":
+            icon_path = "icons8-available-updates-80-yellow"
+            icon_text = f"{check_result['version']}"
+            tooltip = _("A newer version of ElectrumSV is available, and "+
+                "was released on {0:%c}").format(release_date)
             self._update_view_pending_action = menu.addAction(
                 _("View Pending Update"), _on_view_pending_update)
-            if update_check_state == "default":
-                icon_path = "icons8-available-updates-80-blue"
-                icon_text = _("Updates")
-                tooltip = _("Check for Updates")
-                menu.setDefaultAction(self._update_check_action)
-            elif update_check_state == "update-present-immediate":
-                icon_path = "icons8-available-updates-80-yellow"
-                icon_text = f"{check_result['version']}"
-                tooltip = _("A newer version of ElectrumSV is available, and "+
-                    "was released on {0:%c}").format(release_date)
-                menu.setDefaultAction(self._update_view_pending_action)
-            elif update_check_state == "update-present-prolonged":
-                icon_path = "icons8-available-updates-80-red"
-                icon_text = f"{check_result['version']}"
-                tooltip = _("A newer version of ElectrumSV is available, and "+
-                    "was released on {0:%c}").format(release_date)
-                menu.setDefaultAction(self._update_view_pending_action)
-            # Apply the update state.
-            self._update_action.setMenu(menu)
-            self._update_action.setIcon(read_QIcon(icon_path))
-            self._update_action.setText(icon_text)
-            self._update_action.setToolTip(tooltip)
-            self._update_check_state = update_check_state
+            menu.setDefaultAction(self._update_view_pending_action)
+        elif update_check_state == "update-present-prolonged":
+            icon_path = "icons8-available-updates-80-red"
+            icon_text = f"{check_result['version']}"
+            tooltip = _("A newer version of ElectrumSV is available, and "+
+                "was released on {0:%c}").format(release_date)
+            self._update_view_pending_action = menu.addAction(
+                _("View Pending Update"), _on_view_pending_update)
+            menu.setDefaultAction(self._update_view_pending_action)
+        # Apply the update state.
+        self._update_action.setMenu(menu)
+        self._update_action.setIcon(read_QIcon(icon_path))
+        self._update_action.setText(icon_text)
+        self._update_action.setToolTip(tooltip)
+        self._update_check_state = update_check_state
 
     def _on_update_tray_notify(self, result):
         self.app.tray.showMessage(
@@ -669,7 +672,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def on_update_check(self, success, result):
         if success:
-            self._on_update_tray_notify(result)
+            if StrictVersion(result['version']) > StrictVersion(PACKAGE_VERSION):
+                self._on_update_tray_notify(result)
 
         self._update_check_toolbar_update()
 

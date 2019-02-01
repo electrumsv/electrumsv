@@ -19,12 +19,16 @@ MSG_BODY_ERROR = ("The update check encountered an error.<br/><br/>"+
     "{error_message}.")
 MSG_BODY_UPDATE_AVAILABLE = (
     "This version of ElectrumSV, <b>{this_version}</b>, is obsolete.<br/>"+
-    "The latest version, <b>{next_version}</b>, was released on <b>{next_version_date}</b>."+
+    "The latest version, <b>{next_version}</b>, was released on "+
+    "<b>{next_version_date:%Y/%m/%d %I:%M%p}</b>."+
     "<br/><br/>"+
     "Please download it from "+
     "<a href='{download_uri}{next_version}/'>electrumsv.io downloads</a>.")
 MSG_BODY_NO_UPDATE_AVAILABLE = ("The update check was successful.<br/><br/>"+
     "You are already using <b>{this_version}</b>, which is the latest version.")
+MSG_BODY_UNRELEASED_AVAILABLE = ("The update check was successful.<br/><br/>"+
+    "You are already using <b>{this_version}</b>, which is the later than the "+
+    "last official version <b>{latest_version}</b>.")
 
 logger = logs.get_logger("update_check.ui")
 
@@ -111,13 +115,18 @@ class UpdateCheckDialog(QWidget):
             self._set_message(_("The information about the latest version is broken."))
         # Handle the case where the data indicates a later version.
         elif StrictVersion(result['version']) > StrictVersion(PACKAGE_VERSION):
+            from electrumsv import py37datetime
+            release_date = py37datetime.datetime.fromisoformat(result['date']).astimezone()
             self._set_message(_(MSG_BODY_UPDATE_AVAILABLE).format(
                 this_version = PACKAGE_VERSION,
                 next_version = result['version'],
-                next_version_date = result['date'],
+                next_version_date = release_date,
                 download_uri='https://electrumsv.io/download/'))
         # Handle the case where the data indicates the same or older version.
         # Older version may be in the case of running from github.
+        elif StrictVersion(result['version']) < StrictVersion(PACKAGE_VERSION):
+            self._set_message(_(MSG_BODY_UNRELEASED_AVAILABLE).format(
+                this_version=PACKAGE_VERSION, latest_version=result['version']))
         else:
             self._set_message(_(MSG_BODY_NO_UPDATE_AVAILABLE).format(
                 this_version=result['version']))
