@@ -66,8 +66,7 @@ class BoxBase(object):
         _set_window_title_and_icon(dialog)
         if parent:
             dialog.setWindowModality(Qt.WindowModal)
-        if cb:
-            dialog.setCheckBox(cb)
+        dialog.setCheckBox(cb)
         return dialog
 
 
@@ -75,14 +74,11 @@ class InfoBox(BoxBase):
     icon = QMessageBox.Information
 
     def show_dialog(self, parent, **kwargs):
-        is_optional = kwargs.get('optional', True)
-        cb = None
-        if is_optional:
-            cb = QCheckBox(_('Do not show me again'))
+        cb = QCheckBox(_('Do not show me again'))
         dialog = self.message_box(QMessageBox.Ok, parent, cb, **kwargs)
         _set_window_title_and_icon(dialog)
         dialog.exec_()
-        return cb.isChecked() if cb else False, True
+        return cb.isChecked(), True
 
 
 class WarningBox(InfoBox):
@@ -121,7 +117,7 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
 
 all_boxes = [
     InfoBox('welcome-ESV-1.1',
-            _('Welcome to ElectrumSV 1.1'),
+            _('Welcome to Electrum SV 1.1'),
             '\n'.join((
                 _('This release includes bug fixes, performance improvements and some '
                   'new features, including:-'),
@@ -132,27 +128,11 @@ all_boxes = [
     ),
     YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Cancel"), False),
     WarningBox('illegal-files-are-traceable',
-            _('Illegal files are traceable'),
+            _('Illegal Files Are Traceable'),
             '\n'.join((
                 _('Bitcoin transactions are traceable. If you choose to upload illegal '
                   'material, you can be identified, and will risk the consequences.'),
             ))),
-    InfoBox('password-from-QT-bug',
-            _('Why your password does not work'),
-            '\n'.join((
-                _('The graphical framework ElectrumSV uses to show the windows and UI elements '
-                  'has a bug. As you appear to use an accented character as the first character '
-                  'of your password you are affected by this. It will have been corrupted so '
-                  'that the first letter is actually unaccented. You should be able to use '
-                  'the unaccented first letter of your password, and use that from now on.'),
-                '',
-                _('If this does not work or is unacceptable, then use the '
-                  'previous version of ElectrumSV to change your password, but paste the new '
-                  'password rather than typing it in. This will ensure that the password you '
-                  'end up using is actually the one you think you are using as it bypasses '
-                  'the bug.'),
-            )),
-    ),
 ]
 
 all_boxes_by_name = {box.name: box for box in all_boxes}

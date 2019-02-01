@@ -78,7 +78,7 @@ class PasswordLineEdit(QWidget):
         self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))
         # QT bug: https://github.com/electrumsv/electrumsv/issues/20
         self.pw.textChanged.connect(lambda: self.pw.setEchoMode(2))
-        #self.pw.setEchoMode(QLineEdit.Password)
+        # self.pw.setEchoMode(QLineEdit.Password)
         # self.pw.setMinimumWidth(200)
         self.keyboard = VirtualKeyboard(self.pw)
         self.keyboard.setVisible(False)
