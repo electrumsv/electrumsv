@@ -1,26 +1,31 @@
 ElectrumSV is a fork of the open source Electrum Bitcoin wallet (www.electrum.org) for Bitcoin SV.
-The current release is a continuation of the Electron Cash fork from the Electrum 2.9.0 codebase,
-continuing on with the goal of supporting the only real Bitcoin.
+It continues on from the Electron Cash fork from the Electrum 2.9.0 codebase, which continues to work with Bitcoin
+Cash, which like Bitcoin Core retains the Bitcoin name while no longer following the Bitcoin design from
+the whitepaper. Bitcoin SV is the only real Bitcoin, the only cryptocurrency that follows the Bitcoin whitepaper.
 
 The ElectrumSV software is NOT affiliated, associated, or endorsed by Electrum, electrum.org or the Electrum
-developers.
+developers. Neither with Electron Cash.
 
-If you are concerned about running ElectrumSV binaries we recommend installing and/or running it from the github
-source directly.
+If you are concerned about running ElectrumSV binaries you can always install and/or run it from the Github
+source directly. However, all binaries are GPG signed, and SHA256 hashes are provided, with both hashes and signatures
+being checked into the Github repository -- published through separate means and on separate web sites from the
+binaries. The Windows builds are also created deterministically and it should be possible for users to verify that
+the source they should have been created from, is exactly the source they were created from. So, there are several
+tools in a users hands that allow them to ascertain they can trust the builds and binaries provided.
 
 
 Usage
 -----
 
-When you first run ElectrumSV it will use a different configuration directory to Electrum.  On Unix it is
-".electrum-sv", and on Windows/MacOS it is "ElectrumSV".  Your wallet files will be copied from the Electrum
-cofiguration directory (".electrum" on unix, "Electrum" on Windows/MacOS), if found.  Initially transactions will show
+When you first run ElectrumSV it will use a different configuration directory to Electrum or Electron Cash.
+On Unix it is ".electrum-sv", and on Windows/MacOS it is "ElectrumSV".  The first time you run ElectrumSV, you
+will be given the option of copying your wallets from Electron Cash.  Initially transactions will show
 up as unverified because ElectrumSV is downloading the blockchain headers to verify the transactions.  This can take
-up to 10 minutes, but is only done once.
+a few minutes, but is only done once.
 
-Ensure you are running ElectrumSV and not Electrum by checking for "ElectrumSV" in the title bar wording.  Some
-users installing from setup.py have reported conflicts if both Electrum and ElectrumSV are installed in parallel
-that way.
+Ensure you are running ElectrumSV and not Electrum or Electron Cash by checking for "ElectrumSV" in the title bar
+wording.  Some users installing from setup.py have reported conflicts if both Electrum and ElectrumSV are installed
+in parallel that way.
 
 We STRONGLY recommend you get comfortable and only send a small amount of Bitcoin SV coins at first, to yourself,
 to confirm the network is processing your transactions as expected.
