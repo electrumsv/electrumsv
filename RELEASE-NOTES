@@ -1,34 +1,38 @@
-ElectrumSV is a fork of the open source Electrum Bitcoin wallet (www.electrum.org) for Bitcoin SV.
-It continues on from the Electron Cash fork from the Electrum 2.9.0 codebase, which continues to work with Bitcoin
-Cash, which like Bitcoin Core retains the Bitcoin name while no longer following the Bitcoin design from
-the whitepaper. Bitcoin SV is the only real Bitcoin, the only cryptocurrency that follows the Bitcoin whitepaper.
+ElectrumSV is a fork of the open source Electrum Bitcoin wallet (www.electrum.org) for
+Bitcoin SV.  It continues on from the Electron Cash fork from the Electrum 2.9.0 codebase,
+which continues to work with Bitcoin Cash, which like Bitcoin Core retains the Bitcoin
+name while no longer following the Bitcoin design from the whitepaper. Bitcoin SV is the
+only real Bitcoin, the only cryptocurrency that follows the Bitcoin whitepaper.
 
-The ElectrumSV software is NOT affiliated, associated, or endorsed by Electrum, electrum.org or the Electrum
-developers. Neither with Electron Cash.
+The ElectrumSV software is NOT affiliated, associated, or endorsed by Electrum,
+electrum.org or the Electrum developers. Neither with Electron Cash.
 
-If you are concerned about running ElectrumSV binaries you can always install and/or run it from the Github
-source directly. However, all binaries are GPG signed, and SHA256 hashes are provided, with both hashes and signatures
-being checked into the Github repository -- published through separate means and on separate web sites from the
-binaries. The Windows builds are also created deterministically and it should be possible for users to verify that
-the source they should have been created from, is exactly the source they were created from. So, there are several
-tools in a users hands that allow them to ascertain they can trust the builds and binaries provided.
+If you are concerned about running ElectrumSV binaries you can always install and/or run
+it from the Github source directly. However, all binaries are GPG signed, and SHA256
+hashes are provided, with both hashes and signatures being checked into the Github
+repository -- published through separate means and on separate web sites from the
+binaries. The Windows builds are also created deterministically and it should be possible
+for users to verify that the source they should have been created from, is exactly the
+source they were created from. So, there are several tools in a users hands that allow
+them to ascertain they can trust the builds and binaries provided.
 
 
 Usage
 -----
 
-When you first run ElectrumSV it will use a different configuration directory to Electrum or Electron Cash.
-On Unix it is ".electrum-sv", and on Windows/MacOS it is "ElectrumSV".  The first time you run ElectrumSV, you
-will be given the option of copying your wallets from Electron Cash.  Initially transactions will show
-up as unverified because ElectrumSV is downloading the blockchain headers to verify the transactions.  This can take
-a few minutes, but is only done once.
+When you first run ElectrumSV it will use a different configuration directory to Electrum
+or Electron Cash.  On Unix it is ".electrum-sv", and on Windows/MacOS it is "ElectrumSV".
+The first time you run ElectrumSV, you will be given the option of copying your wallets
+from Electron Cash.  Initially transactions will show up as unverified because ElectrumSV
+is downloading the blockchain headers to verify the transactions.  This can take a few
+minutes, but is only done once.
 
-Ensure you are running ElectrumSV and not Electrum or Electron Cash by checking for "ElectrumSV" in the title bar
-wording.  Some users installing from setup.py have reported conflicts if both Electrum and ElectrumSV are installed
-in parallel that way.
+Ensure you are running ElectrumSV and not Electrum or Electron Cash by checking for
+"ElectrumSV" in the title bar wording.  Some users installing from setup.py have reported
+conflicts if both Electrum and ElectrumSV are installed in parallel that way.
 
-We STRONGLY recommend you get comfortable and only send a small amount of Bitcoin SV coins at first, to yourself,
-to confirm the network is processing your transactions as expected.
+We STRONGLY recommend you get comfortable and only send a small amount of Bitcoin SV coins
+at first, to yourself, to confirm the network is processing your transactions as expected.
 
 
 ElectrumSV
@@ -36,10 +40,24 @@ ElectrumSV
 
 # Release 1.1.0 (upcoming)
   * Check for updated versions on startup, and indicates updates in the wallet UI.
-  * Various hardware wallet fixes.
+  * Various hardware wallet fixes.  Note hardware wallets may display Bitcoin Cash
+    addresses instead of Bitcoin addresses; this is out of our control and pending
+    firmware updates.  For similar reasons they may also warn about addresses being
+    incorrect for the coin type; these warnings may be ignored.
   * New blockchain parsing and fork handling code, replacing the historically unstable code.
   * Tentative support for file attachments in OP_RETURN pushdatas when sending a transaction.
   * Support for new ?sv style urls, which are also used in QR codes.
+  * Console tab improvements and warning.
+  * Addition of a preliminary log viewer.
+  * Address converter tab removed.  ElectrumSV still accepts Bitcoin Cash "cashaddr"
+    addresses but only displays Bitcoin addresses.  A future release will remove support for
+    cashaddr entirely.
+  * Removal of all plugins.  Two plugins become extensions: cosigner pool, and labelsync.
+    Audio modem support has been removed.  Virtual keyboard support is now in all password
+    fields.
+  * Testnet: testnet now uses the correct tpub, tprv derivations and not mainnet's xpub, xprv
+    derivations.
+  * Many fixes and internals improvements.
 
 # Release 1.0.0
   * Coin splitting support.
