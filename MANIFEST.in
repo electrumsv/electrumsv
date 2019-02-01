@@ -1,6 +1,5 @@
 include LICENCE RELEASE-NOTES AUTHORS
 include README.rst
-include electrum-sv.conf.sample
 include electrum-sv.desktop
 include *.py
 include electrum-sv
@@ -8,8 +7,7 @@ include contrib/requirements/requirements.txt
 include contrib/requirements/requirements-hw.txt
 recursive-include packages *.py
 recursive-include packages cacert.pem
-include icons.qrc
-graft icons
+graft data
 
 graft electrumsv
 prune electrumsv/tests

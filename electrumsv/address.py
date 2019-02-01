@@ -25,17 +25,16 @@
 # Many of the functions in this file are copied from ElectrumX
 
 from collections import namedtuple
-import hashlib
 import struct
 
 from . import cashaddr
+from .bitcoin import is_minikey, minikey_to_private_key
+from .crypto import hash_160, sha256, sha256d
 from .enum import Enumeration
-from .bitcoin import EC_KEY, is_minikey, minikey_to_private_key
+from .networks import Net
 from .util import cachedproperty
-from .networks import NetworkConstants
 
-_sha256 = hashlib.sha256
-_new_hash = hashlib.new
+
 hex_to_bytes = bytes.fromhex
 
 
@@ -87,10 +86,6 @@ def hash_to_hex_str(x):
     '''
     return bytes(reversed(x)).hex()
 
-def hex_str_to_hash(x):
-    '''Convert a displayed hex string to a binary hash.'''
-    return bytes(reversed(hex_to_bytes(x)))
-
 def bytes_to_int(be_bytes):
     '''Interprets a big-endian sequence of bytes as an integer'''
     return int.from_bytes(be_bytes, 'big')
@@ -99,34 +94,14 @@ def int_to_bytes(value):
     '''Converts an integer to a big-endian sequence of bytes'''
     return value.to_bytes((value.bit_length() + 7) // 8, 'big')
 
-def sha256(x):
-    '''Simple wrapper of hashlib sha256.'''
-    return _sha256(x).digest()
-
-def double_sha256(x):
-    '''SHA-256 of SHA-256, as used extensively in bitcoin.'''
-    return sha256(sha256(x))
-
-def ripemd160(x):
-    '''Simple wrapper of hashlib ripemd160.'''
-    h = _new_hash('ripemd160')
-    h.update(x)
-    return h.digest()
-
-def hash160(x):
-    '''RIPEMD-160 of SHA-256.
-
-    Used to make bitcoin addresses from pubkeys.'''
-    return ripemd160(sha256(x))
-
 
 class UnknownAddress(object):
 
-    def to_ui_string(self):
+    def to_string(self):
         return '<UnknownAddress>'
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<UnknownAddress>'
@@ -155,7 +130,7 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
             # The Casascius coins were uncompressed
             return minikey_to_private_key(WIF_privkey), False
         raw = Base58.decode_check(WIF_privkey)
-        if not raw or raw[0] != NetworkConstants.WIF_PREFIX:
+        if not raw or raw[0] != Net.WIF_PREFIX:
             raise ValueError('private key has invalid WIF prefix')
         if len(raw) == 34 and raw[-1] == 1:
             return raw[1:33], True
@@ -167,9 +142,10 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
     def from_WIF_privkey(cls, WIF_privkey):
         '''Create a compressed or uncompressed public key from a private
         key.'''
+        from . import ecc
         privkey, compressed = cls.privkey_from_WIF_privkey(WIF_privkey)
-        ec_key = EC_KEY(privkey)
-        return cls.from_pubkey(ec_key.GetPubKey(compressed))
+        ec_key = ecc.ECPrivkey(privkey)
+        return cls.from_pubkey(ec_key.get_public_key_bytes(compressed))
 
     @classmethod
     def from_string(cls, string):
@@ -190,18 +166,14 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
     @cachedproperty
     def address(self):
         '''Convert to an Address object.'''
-        return Address(hash160(self.pubkey), Address.ADDR_P2PKH)
+        return Address(hash_160(self.pubkey), Address.ADDR_P2PKH)
 
     def is_compressed(self):
         '''Returns True if the pubkey is compressed.'''
         return len(self.pubkey) == 33
 
-    def to_ui_string(self):
+    def to_string(self):
         '''Convert to a hexadecimal string.'''
-        return self.pubkey.hex()
-
-    def to_storage_string(self):
-        '''Convert to a hexadecimal string for storage.'''
         return self.pubkey.hex()
 
     def to_script(self):
@@ -225,7 +197,7 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
         return self.address.to_script()
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<PubKey {}>'.format(self.__str__())
@@ -248,7 +220,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
                 script.extend(Script.push_data(binascii.unhexlify(word)))
         return ScriptOutput(bytes(script))
 
-    def to_ui_string(self):
+    def to_string(self):
         '''Convert to user-readable OP-codes (plus pushdata as text if possible)
         eg OP_RETURN (12) "Hello there!"
         '''
@@ -290,10 +262,18 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
         return self.script
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<ScriptOutput {}>'.format(self.__str__())
+
+    @classmethod
+    def as_op_return(self, data_chunks):
+        script = bytearray()
+        script.append(OpCodes.OP_RETURN)
+        for data_bytes in data_chunks:
+            script.extend(Script.push_data(data_bytes))
+        return ScriptOutput(bytes(script))
 
 
 # A namedtuple for easy comparison and unique hashing
@@ -302,13 +282,6 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     # Address kinds
     ADDR_P2PKH = 0
     ADDR_P2SH = 1
-
-    # Address formats
-    FMT_BITCOIN = 0
-    FMT_CASHADDR = 1
-
-    # We are Bitcoin.  Default to it
-    FMT_UI = FMT_BITCOIN
 
     def __new__(cls, hash160value, kind):
         assert kind in (cls.ADDR_P2PKH, cls.ADDR_P2SH)
@@ -319,7 +292,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     @classmethod
     def from_cashaddr_string(cls, string):
         '''Construct from a cashaddress string.'''
-        prefix = NetworkConstants.CASHADDR_PREFIX
+        prefix = Net.CASHADDR_PREFIX
         if string.upper() == string:
             prefix = prefix.upper()
         if not string.startswith(prefix + ':'):
@@ -354,9 +327,9 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
             raise AddressError('invalid address: {}'.format(string))
 
         verbyte, hash160_ = raw[0], raw[1:]
-        if verbyte == NetworkConstants.ADDRTYPE_P2PKH:
+        if verbyte == Net.ADDRTYPE_P2PKH:
             kind = cls.ADDR_P2PKH
-        elif verbyte == NetworkConstants.ADDRTYPE_P2SH:
+        elif verbyte == Net.ADDRTYPE_P2SH:
             kind = cls.ADDR_P2SH
         else:
             raise AddressError('unknown version byte: {}'.format(verbyte))
@@ -383,7 +356,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         if isinstance(pubkey, str):
             pubkey = hex_to_bytes(pubkey)
         PublicKey.validate(pubkey)
-        return cls(hash160(pubkey), cls.ADDR_P2PKH)
+        return cls(hash_160(pubkey), cls.ADDR_P2PKH)
 
     @classmethod
     def from_P2PKH_hash(cls, hash160value):
@@ -397,64 +370,16 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
 
     @classmethod
     def from_multisig_script(cls, script):
-        return cls(hash160(script), cls.ADDR_P2SH)
+        return cls(hash_160(script), cls.ADDR_P2SH)
 
-    @classmethod
-    def to_strings(cls, fmt, addrs):
-        '''Construct a list of strings from an iterable of Address objects.'''
-        return [addr.to_string(fmt) for addr in addrs]
-
-    def to_cashaddr(self):
-        if self.kind == self.ADDR_P2PKH:
-            kind  = cashaddr.PUBKEY_TYPE
-        else:
-            kind  = cashaddr.SCRIPT_TYPE
-        return cashaddr.encode(NetworkConstants.CASHADDR_PREFIX, kind,
-                               self.hash160)
-
-    def to_string(self, fmt):
+    def to_string(self):
         '''Converts to a string of the given format.'''
-        if fmt == self.FMT_CASHADDR:
-            return self.to_cashaddr()
-
-        if fmt == self.FMT_BITCOIN:
-            if self.kind == self.ADDR_P2PKH:
-                verbyte = NetworkConstants.ADDRTYPE_P2PKH
-            else:
-                verbyte = NetworkConstants.ADDRTYPE_P2SH
+        if self.kind == self.ADDR_P2PKH:
+            verbyte = Net.ADDRTYPE_P2PKH
         else:
-            raise AddressError('unrecognised format')
+            verbyte = Net.ADDRTYPE_P2SH
 
         return Base58.encode_check(bytes([verbyte]) + self.hash160)
-
-    def to_full_string(self, fmt):
-        '''Convert to text, with a URI prefix for cashaddr format.'''
-        text = self.to_string(fmt)
-        if fmt == self.FMT_CASHADDR:
-            text = ':'.join([NetworkConstants.CASHADDR_PREFIX, text])
-        return text
-
-    def to_ui_string(self):
-        '''Convert to text in the current UI format choice.'''
-        return self.to_string(self.FMT_UI)
-
-    def to_full_ui_string(self):
-        '''Convert to text, with a URI prefix if cashaddr.'''
-        return self.to_full_string(self.FMT_UI)
-
-    def to_URI_components(self):
-        '''Returns a (scheme, path) pair for building a URI.'''
-        scheme = NetworkConstants.CASHADDR_PREFIX
-        path = self.to_ui_string()
-        # Convert to upper case if CashAddr
-        if self.FMT_UI == self.FMT_CASHADDR:
-            scheme = scheme.upper()
-            path = path.upper()
-        return scheme, path
-
-    def to_storage_string(self):
-        '''Convert to text in the storage format.'''
-        return self.to_string(self.FMT_BITCOIN)
 
     def to_script(self):
         '''Return a binary script to pay to the address.'''
@@ -476,7 +401,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         return hash_to_hex_str(self.to_scripthash())
 
     def __str__(self):
-        return self.to_ui_string()
+        return self.to_string()
 
     def __repr__(self):
         return '<Address {}>'.format(self.__str__())
@@ -647,7 +572,7 @@ class Base58(object):
         prefixes it.'''
         be_bytes = Base58.decode(txt)
         result, check = be_bytes[:-4], be_bytes[-4:]
-        if check != double_sha256(result)[:4]:
+        if check != sha256d(result)[:4]:
             raise Base58Error('invalid base 58 checksum for {}'.format(txt))
         return result
 
@@ -655,5 +580,5 @@ class Base58(object):
     def encode_check(payload):
         """Encodes a payload bytearray (which includes the version byte(s))
         into a Base58Check string."""
-        be_bytes = payload + double_sha256(payload)[:4]
+        be_bytes = payload + sha256d(payload)[:4]
         return Base58.encode(be_bytes)

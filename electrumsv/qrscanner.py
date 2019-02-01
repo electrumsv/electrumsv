@@ -24,20 +24,14 @@
 # SOFTWARE.
 
 import os
-import sys
 import ctypes
 
-libzbar = None
+from electrumsv.platform import platform
+from electrumsv.startup import base_dir
 
-if sys.platform == 'darwin':
-    name = 'libzbar.dylib'
-elif sys.platform in ('windows', 'win32'):
-    name = 'libzbar-0.dll'
-else:
-    name = 'libzbar.so.0'
 
 try:
-    libzbar = ctypes.cdll.LoadLibrary(name)
+    libzbar = ctypes.cdll.LoadLibrary(platform.libzbar_name)
 except OSError:
     libzbar = None
 
@@ -75,10 +69,8 @@ def scan_barcode_osx(*args_ignored, **kwargs_ignored):
     import subprocess
     # NOTE: This code needs to be modified if the positions of this file changes with respect
     # to the helper app!  This assumes the built macOS .app bundle which puts the helper app in
-    # .app/contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app.
-    root_ec_dir = os.path.abspath(os.path.dirname(__file__) + "/../")
-    prog = (root_ec_dir + "/" + "contrib/osx/CalinsQRReader/build/Release/"
-            "CalinsQRReader.app/Contents/MacOS/CalinsQRReader")
+    # ./CalinsQRReader.app.
+    prog = os.path.join(base_dir, "CalinsQRReader.app/Contents/MacOS/CalinsQRReader")
     if not os.path.exists(prog):
         raise RuntimeError("Cannot start QR scanner; helper app not found.")
     data = ''
@@ -93,9 +85,9 @@ def scan_barcode_osx(*args_ignored, **kwargs_ignored):
     except OSError as e:
         raise RuntimeError("Cannot start camera helper app; {}".format(e.strerror))
 
-scan_barcode = scan_barcode_osx if sys.platform == 'darwin' else scan_barcode_ctypes
+scan_barcode = scan_barcode_osx if platform.name == 'MacOSX' else scan_barcode_ctypes
 
-def _find_system_cameras():
+def find_system_cameras():
     device_root = "/sys/class/video4linux"
     devices = {} # Name -> device
     if os.path.exists(device_root):

@@ -30,7 +30,7 @@
 #  http://backreference.org/2010/11/17/dnssec-verification-with-dig/
 #  https://github.com/rthalley/dnspython/blob/master/tests/test_dnssec.py
 
-import logging
+import re
 import struct
 import time
 
@@ -53,15 +53,19 @@ import dns.rdtypes.ANY.SOA
 import dns.rdtypes.ANY.TXT
 import dns.rdtypes.IN.A
 import dns.rdtypes.IN.AAAA
-
 # Pure-Python version of dns.dnssec._validate_rsig
 import ecdsa
+
 from . import rsakey
+from .address import Address
+from .logs import logs
+from .util import to_string
 
-logger = logging.getLogger("dnssec")
+
+logger = logs.get_logger("dnssec")
 
 
-def python_validate_rrsig(rrset, rrsig, keys, origin=None, now=None):
+def _python_validate_rrsig(rrset, rrsig, keys, origin=None, now=None):
     from dns.dnssec import (
         ValidationFailure, ECDSAP256SHA256, ECDSAP384SHA384, _find_candidate_keys,
         _make_hash, _is_ecdsa, _is_rsa, _to_rdata, _make_algorithm_id
@@ -169,8 +173,8 @@ def python_validate_rrsig(rrset, rrsig, keys, origin=None, now=None):
 
 
 # replace validate_rrsig
-dns.dnssec._validate_rrsig = python_validate_rrsig
-dns.dnssec.validate_rrsig = python_validate_rrsig
+dns.dnssec._validate_rrsig = _python_validate_rrsig
+dns.dnssec.validate_rrsig = _python_validate_rrsig
 dns.dnssec.validate = dns.dnssec._validate
 
 
@@ -195,7 +199,7 @@ trust_anchors = [
 ]
 
 
-def check_query(ns, sub, _type, keys):
+def _check_query(ns, sub, _type, keys):
     q = dns.message.make_query(sub, _type, want_dnssec=True)
     response = dns.query.tcp(q, ns, timeout=5)
     assert response.rcode() == 0, 'No answer'
@@ -207,20 +211,20 @@ def check_query(ns, sub, _type, keys):
     elif answer[1].rdtype == dns.rdatatype.RRSIG:
         rrset, rrsig = answer
     else:
-        raise BaseException('No signature set in record')
+        raise Exception('No signature set in record')
     if keys is None:
         keys = {dns.name.from_text(sub):rrset}
     dns.dnssec.validate(rrset, rrsig, keys)
     return rrset
 
 
-def get_and_validate(ns, url, _type):
+def _get_and_validate(ns, url, _type):
     # get trusted root key
     root_rrset = None
     for dnskey_rr in trust_anchors:
         try:
             # Check if there is a valid signature for the root dnskey
-            root_rrset = check_query(ns, '', dns.rdatatype.DNSKEY, {dns.name.root: dnskey_rr})
+            root_rrset = _check_query(ns, '', dns.rdatatype.DNSKEY, {dns.name.root: dnskey_rr})
             break
         except dns.dnssec.ValidationFailure:
             # It's OK as long as one key validates
@@ -242,9 +246,9 @@ def get_and_validate(ns, url, _type):
         if rr.rdtype == dns.rdatatype.SOA:
             continue
         # get DNSKEY (self-signed)
-        rrset = check_query(ns, sub, dns.rdatatype.DNSKEY, None)
+        rrset = _check_query(ns, sub, dns.rdatatype.DNSKEY, None)
         # get DS (signed by parent)
-        ds_rrset = check_query(ns, sub, dns.rdatatype.DS, keys)
+        ds_rrset = _check_query(ns, sub, dns.rdatatype.DS, keys)
         # verify that a signed DS validates DNSKEY
         for ds in ds_rrset:
             for dnskey in rrset:
@@ -256,24 +260,51 @@ def get_and_validate(ns, url, _type):
                 continue
             break
         else:
-            raise BaseException("DS does not match DNSKEY")
+            raise Exception("DS does not match DNSKEY")
         # set key for next iteration
         keys = {name: rrset}
     # get TXT record (signed by zone)
-    rrset = check_query(ns, url, _type, keys)
+    rrset = _check_query(ns, url, _type, keys)
     return rrset
 
 
-def query(url, rtype):
+def _query(url, rtype):
     # 8.8.8.8 is Google's public DNS server
     nameservers = ['8.8.8.8']
     ns = nameservers[0]
     try:
-        out = get_and_validate(ns, url, rtype)
-        validated = True
-    except BaseException as e:
+        return _get_and_validate(ns, url, rtype), True
+    except Exception as e:
         logger.error("DNSSEC error: %s", e)
-        resolver = dns.resolver.get_default_resolver()
-        out = resolver.query(url, rtype)
-        validated = False
-    return out, validated
+    resolver = dns.resolver.get_default_resolver()
+    return resolver.query(url, rtype), False
+
+
+def _find_regex( haystack, needle):
+    regex = re.compile(needle)
+    try:
+        return regex.search(haystack).groups()[0]
+    except AttributeError:
+        return None
+
+
+def resolve_openalias(url):
+    # support email-style addresses, per the OA standard
+    url = url.replace('@', '.')
+    try:
+        records, validated = _query(url, dns.rdatatype.TXT)
+    except Exception as e:
+        logger.error('Error resolving openalias: %s', e)
+    else:
+        prefix = 'oa1:btc'
+        for record in records:
+            string = to_string(record.strings[0], 'utf8')
+            if string.startswith(prefix):
+                address = _find_regex(string, r'recipient_address=([A-Za-z0-9]+)')
+                name = _find_regex(string, r'recipient_name=([^;]+)')
+                if not address:
+                    continue
+                if not name:
+                    name = address
+                return Address.from_string(address), name, validated
+    return None

@@ -32,13 +32,14 @@ import traceback
 
 import requests
 from PyQt5.QtCore import QObject, pyqtSignal, Qt
-from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, \
-    QPushButton, QTextEdit, QMessageBox
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox,
+)
 
 from electrumsv.i18n import _
 from electrumsv.version import PACKAGE_VERSION
 from .main_window import ElectrumWindow
+from .util import read_QIcon
 
 
 issue_template = """<h2>Traceback</h2>
@@ -58,7 +59,7 @@ issue_template = """<h2>Traceback</h2>
 report_server = "https://crashhub.electrumsv.io/crash"
 
 
-class Exception_Window(QWidget):
+class Exception_Window(QDialog):
     _active_window = None
 
     def __init__(self, app, exc_triple):
@@ -66,6 +67,7 @@ class Exception_Window(QWidget):
         self.exc_triple = exc_triple
         self.app = app
         self.setWindowTitle('ElectrumSV - ' + _('An Error Occurred'))
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.setMinimumSize(600, 300)
 
         main_box = QVBoxLayout()
@@ -105,7 +107,7 @@ class Exception_Window(QWidget):
 
         report_button = QPushButton(_('Send Bug Report'))
         report_button.clicked.connect(self.send_report)
-        report_button.setIcon(QIcon(":icons/tab_send.png"))
+        report_button.setIcon(read_QIcon("tab_send.png"))
         buttons.addWidget(report_button)
 
         never_button = QPushButton(_('Never'))
@@ -119,7 +121,6 @@ class Exception_Window(QWidget):
         main_box.addLayout(buttons)
 
         self.setLayout(main_box)
-        self.show()
 
     def send_report(self):
         report = self.get_traceback_info()
@@ -198,3 +199,4 @@ class Exception_Hook(QObject):
         cls = Exception_Window
         if not cls._active_window:
             cls._active_window = cls(self.app, exc_triple)
+            cls._active_window.exec_()

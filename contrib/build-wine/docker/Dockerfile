@@ -6,13 +6,15 @@ RUN dpkg --add-architecture i386 && \
     apt-get update -q && \
     apt-get install -qy \
         wget=1.19.4-1ubuntu2.1 \
-        gnupg2=2.2.4-1ubuntu1.1 \
-        dirmngr=2.2.4-1ubuntu1.1 \
+        gnupg2=2.2.4-1ubuntu1.2 \
+        dirmngr=2.2.4-1ubuntu1.2 \
         python3-software-properties=0.96.24.32.1 \
         software-properties-common=0.96.24.32.1 \
         && \
     wget -nc https://dl.winehq.org/wine-builds/Release.key && \
+    wget -nc https://dl.winehq.org/wine-builds/winehq.key && \
     apt-key add Release.key && \
+    apt-key add winehq.key && \
     apt-add-repository https://dl.winehq.org/wine-builds/ubuntu/ && \
     apt-get update -q && \
     apt-get install -qy \

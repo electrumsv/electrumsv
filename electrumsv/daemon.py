@@ -24,25 +24,26 @@
 # SOFTWARE.
 
 import ast
-import logging
 import os
 import time
-import threading
 
 import jsonrpclib
-from .jsonrpc import VerifyingJSONRPCServer
 
-from .version import PACKAGE_VERSION
+from .app_state import app_state
+from .commands import known_commands, Commands
+from .exchange_rate import FxThread
+from .jsonrpc import VerifyingJSONRPCServer
+from .logs import logs
 from .network import Network
+from .simple_config import SimpleConfig
+from .storage import WalletStorage
 from .util import json_decode, DaemonThread
 from .util import to_string
+from .version import PACKAGE_VERSION
 from .wallet import Wallet
-from .storage import WalletStorage
-from .commands import known_commands, Commands
-from .simple_config import SimpleConfig
-from .exchange_rate import FxThread
 
-logger = logging.getLogger("daemon")
+
+logger = logs.get_logger("daemon")
 
 
 def get_lockfile(config):
@@ -123,18 +124,19 @@ def get_rpc_credentials(config):
 
 class Daemon(DaemonThread):
 
-    def __init__(self, config, fd, is_gui):
-        DaemonThread.__init__(self)
+    def __init__(self, fd, is_gui):
+        super().__init__('daemon')
+        app_state.daemon = self
+        config = app_state.config
         self.config = config
         if config.get('offline'):
             self.network = None
         else:
             self.network = Network(config)
             self.network.start()
-        self.fx = FxThread(config, self.network)
+        fx = FxThread(config, self.network)
         if self.network:
-            self.network.add_jobs([self.fx])
-        self.gui = None
+            self.network.add_jobs([fx])
         self.wallets = {}
         # Setup JSONRPC server
         self.init_server(config, fd, is_gui)
@@ -157,14 +159,12 @@ class Daemon(DaemonThread):
         self.server = server
         server.timeout = 0.1
         server.register_function(self.ping, 'ping')
-        if is_gui:
-            server.register_function(self.run_gui, 'gui')
-        else:
-            server.register_function(self.run_daemon, 'daemon')
-            self.cmd_runner = Commands(self.config, None, self.network)
-            for cmdname in known_commands:
-                server.register_function(getattr(self.cmd_runner, cmdname), cmdname)
-            server.register_function(self.run_cmdline, 'run_cmdline')
+        server.register_function(self.run_gui, 'gui')
+        server.register_function(self.run_daemon, 'daemon')
+        self.cmd_runner = Commands(self.config, None, self.network)
+        for cmdname in known_commands:
+            server.register_function(getattr(self.cmd_runner, cmdname), cmdname)
+        server.register_function(self.run_cmdline, 'run_cmdline')
 
     def ping(self):
         return True
@@ -212,17 +212,13 @@ class Daemon(DaemonThread):
 
     def run_gui(self, config_options):
         config = SimpleConfig(config_options)
-        if self.gui:
-            if hasattr(self.gui, 'new_window'):
-                config.open_last_wallet()
-                path = config.get_wallet_path()
-                self.gui.new_window(path, config.get('url'))
-                response = "ok"
-            else:
-                response = "error: current GUI does not support multiple windows"
-        else:
-            response = "error: ElectrumSV is running in daemon mode; stop the daemon first."
-        return response
+        if hasattr(app_state, 'windows'):
+            config.open_last_wallet()
+            path = config.get_wallet_path()
+            app_state.app.new_window(path, config.get('url'))
+            return "ok"
+
+        return "error: ElectrumSV is running in daemon mode; stop the daemon first."
 
     def load_wallet(self, path, password):
         # wizard will be launched if we return
@@ -264,7 +260,6 @@ class Daemon(DaemonThread):
         password = config_options.get('password')
         new_password = config_options.get('new_password')
         config = SimpleConfig(config_options)
-        config.fee_estimates = self.network.config.fee_estimates.copy()
         cmdname = config.get('cmd')
         cmd = known_commands[cmdname]
         if cmd.requires_wallet:
@@ -304,16 +299,3 @@ class Daemon(DaemonThread):
         logger.debug("stopping, removing lockfile")
         remove_lockfile(get_lockfile(self.config))
         DaemonThread.stop(self)
-
-    def init_gui(self, config, plugins):
-        gui_name = config.get('gui', 'qt')
-        if gui_name in ['lite', 'classic']:
-            gui_name = 'qt'
-        gui = __import__('electrumsv.gui.' + gui_name, fromlist=['electrumsv'])
-        self.gui = gui.ElectrumGui(config, self, plugins)
-        threading.current_thread().setName('GUI')
-        try:
-            self.gui.main()
-        except BaseException as e:
-            logging.exception("")
-            # app will exit now

@@ -27,8 +27,9 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtWidgets import QAbstractItemView, QMenu
 
-from .util import SortableTreeWidgetItem, MyTreeWidget, MONOSPACE_FONT, ColorScheme
+from .util import SortableTreeWidgetItem, MyTreeWidget, ColorScheme
 from electrumsv.i18n import _
+from electrumsv.platform import platform
 
 
 class UTXOList(MyTreeWidget):
@@ -41,6 +42,7 @@ class UTXOList(MyTreeWidget):
         self.setSortingEnabled(True)
         # force attributes to always be defined, even if None, at construction.
         self.wallet = self.parent.wallet if hasattr(self.parent, 'wallet') else None
+        self.monospace_font = QFont(platform.monospace_font)
         self.utxos = list()
 
     def get_name(self, x):
@@ -53,7 +55,7 @@ class UTXOList(MyTreeWidget):
         self.utxos = self.wallet.get_utxos()
         for x in self.utxos:
             address = x['address']
-            address_text = address.to_ui_string()
+            address_text = address.to_string()
             height = x['height']
             name = self.get_name(x)
             label = self.wallet.get_label(x['prevout_hash'])
@@ -63,8 +65,8 @@ class UTXOList(MyTreeWidget):
                                          name[0:10] + '...' + name[-2:]])
             # set this here to avoid sorting based on Qt.UserRole+1
             utxo_item.DataRole = Qt.UserRole+100
-            utxo_item.setFont(0, QFont(MONOSPACE_FONT))
-            utxo_item.setFont(4, QFont(MONOSPACE_FONT))
+            utxo_item.setFont(0, self.monospace_font)
+            utxo_item.setFont(4, self.monospace_font)
             utxo_item.setData(0, Qt.UserRole, name)
             a_frozen = self.wallet.is_frozen(address)
             c_frozen = x['is_frozen_coin']

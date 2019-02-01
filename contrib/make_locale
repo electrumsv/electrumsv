@@ -11,6 +11,7 @@ assert len(sys.argv) < 3
 original_dir = os.getcwd()
 os.chdir(os.path.dirname(os.path.realpath(__file__)))
 os.chdir('..')
+toplevel_dir = os.getcwd()
 
 cmd = "find electrumsv -type f -name '*.py' -o -name '*.kv'"
 
@@ -22,17 +23,19 @@ with open("app.fil", "wb") as f:
 print("Found {} files to translate".format(len(files.splitlines())))
 
 # Generate fresh translation template
-if not os.path.exists('electrumsv/locale'):
-    os.mkdir('electrumsv/locale')
-cmd = 'xgettext -s --from-code UTF-8 --language Python --no-wrap -f app.fil --output=electrumsv/locale/messages.pot'
+data_in_path = os.path.join('data_in', 'locale')
+if not os.path.exists(data_in_path):
+    os.makedirs(data_in_path)
+data_out_path = os.path.join('data', 'locale')
+if not os.path.exists(data_out_path):
+    os.makedirs(data_out_path)
+cmd = 'xgettext -s --from-code UTF-8 --language Python --no-wrap -f app.fil --output='+ os.path.join(data_in_path, 'messages.pot')
 print('Generate template')
 os.system(cmd)
 
-os.chdir('electrumsv')
-
-crowdin_identifier = 'electron-cash'
-crowdin_file_name = 'files[electron-cash-client/messages.pot]'
-locale_file_name = 'locale/messages.pot'
+crowdin_identifier = 'electrumsv'
+crowdin_file_name = 'files[electrumsv-client/messages.pot]'
+locale_file_name = os.path.join(data_in_path, 'messages.pot')
 crowdin_api_key = None
 
 filename = os.path.expanduser('~/.crowdin_api_key')
@@ -64,6 +67,8 @@ else:
     zfobj = zipfile.ZipFile(os.path.join(os.path.relpath(original_dir, os.getcwd()), sys.argv[1]))
 
 print('Unzip translations')
+os.chdir('data_in')
+
 for name in zfobj.namelist():
     if name.endswith('/'):
         if not os.path.exists(name):
@@ -72,15 +77,19 @@ for name in zfobj.namelist():
         with open(name, 'wb') as output:
             output.write(zfobj.read(name))
 
+os.chdir(toplevel_dir)
+
 # Convert .po to .mo
 print('Installing')
-for lang in os.listdir('locale'):
+for lang in os.listdir(data_in_path):
     if lang.startswith('messages'):
         continue
     # Check LC_MESSAGES folder
-    msg_dir = 'locale/{}/LC_MESSAGES'.format(lang)
-    if not os.path.exists(msg_dir):
-        os.mkdir(msg_dir)
-    cmd = 'msgfmt --output-file="{0}/electrum-sv.mo" "{0}/electron-cash.po"'.format(msg_dir)
+    msg_in_dir = os.path.join(data_in_path, lang, 'LC_MESSAGES')
+    msg_out_dir = os.path.join(data_out_path, lang, 'LC_MESSAGES')
+    if not os.path.exists(msg_out_dir):
+        os.makedirs(msg_out_dir)
+    cmd = 'msgfmt --output-file="{0}/electrumsv.mo" "{1}/electrumsv.po"'.format(msg_out_dir, msg_in_dir)
     print('Installing', lang)
     os.system(cmd)
+

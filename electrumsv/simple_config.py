@@ -1,28 +1,18 @@
 from copy import deepcopy
 import json
-import logging
 import os
 import stat
 import threading
 import time
 
 from . import util
-from .util import user_dir, make_dir
-from .bitcoin import MAX_FEE_RATE, FEE_TARGETS
-
-logger = logging.getLogger("config")
-
-config = None
+from .bitcoin import MAX_FEE_RATE
+from .logs import logs
+from .platform import platform
+from .util import make_dir
 
 
-def get_config():
-    global config
-    return config
-
-
-def set_config(c):
-    global config
-    config = c
+logger = logs.get_logger("config")
 
 
 FINAL_CONFIG_VERSION = 2
@@ -38,7 +28,6 @@ class SimpleConfig:
         2. User configuration (in the user's config directory)
     They are taken in order (1. overrides config options set in 2.)
     """
-    fee_rates = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
 
     def __init__(self, options=None, read_user_config_function=None,
                  read_user_dir_function=None):
@@ -50,16 +39,12 @@ class SimpleConfig:
         # a thread-safe way.
         self.lock = threading.RLock()
 
-        self.fee_estimates = {}
-        self.fee_estimates_last_updated = {}
-        self.last_time_fee_estimates_requested = 0  # zero ensures immediate fees
-
         # The following two functions are there for dependency injection when
         # testing.
         if read_user_config_function is None:
             read_user_config_function = read_user_config
         if read_user_dir_function is None:
-            self.user_dir = user_dir
+            self.user_dir = platform.user_dir
         else:
             self.user_dir = read_user_dir_function
 
@@ -83,9 +68,6 @@ class SimpleConfig:
         # config upgrade - user config
         if self.requires_upgrade():
             self.upgrade()
-
-        # Make a singleton instance of 'self'
-        set_config(self)
 
     def electrum_path(self):
         # Read electrum_cash_path from command line
@@ -166,7 +148,7 @@ class SimpleConfig:
             int(port)  # Throw if cannot be converted to int
             server_str = str('{}:{}'.format(host, port))
             self._set_key_in_user_config('server', server_str)
-        except BaseException:
+        except Exception:
             self._set_key_in_user_config('server', None)
 
         self.set_key('config_version', 2)
@@ -176,7 +158,7 @@ class SimpleConfig:
         if cur_version > max_version:
             return False
         elif cur_version < min_version:
-            raise BaseException(
+            raise Exception(
                 ('config upgrade: unexpected version %d (should be %d-%d)'
                  % (cur_version, min_version, max_version)))
         else:
@@ -257,38 +239,6 @@ class SimpleConfig:
             f = MAX_FEE_RATE
         return f
 
-    def dynfee(self, i):
-        if i < 4:
-            j = FEE_TARGETS[i]
-            fee = self.fee_estimates.get(j)
-        else:
-            assert i == 4
-            fee = self.fee_estimates.get(2)
-            if fee is not None:
-                fee += fee/2
-        if fee is not None:
-            fee = min(5*MAX_FEE_RATE, fee)
-        return fee
-
-    def reverse_dynfee(self, fee_per_kb):
-        import operator
-        l = list(self.fee_estimates.items()) + [(1, self.dynfee(4))]
-        dist = [(x[0], abs(x[1] - fee_per_kb)) for x in l]
-        min_target, min_value = min(dist, key=operator.itemgetter(1))
-        if fee_per_kb < self.fee_estimates.get(25)/2:
-            min_target = -1
-        return min_target
-
-    def static_fee(self, i):
-        return self.fee_rates[i]
-
-    def static_fee_index(self, value):
-        dist = [abs(x - value) for x in self.fee_rates]
-        return min(range(len(dist)), key=dist.__getitem__)
-
-    def has_fee_estimates(self):
-        return len(self.fee_estimates)==4
-
     def custom_fee_rate(self):
         f = self.get('customfee')
         return f
@@ -316,24 +266,6 @@ class SimpleConfig:
     def estimate_fee(self, size):
         return int(self.fee_per_kb() * size / 1000.)
 
-    def update_fee_estimates(self, key, value):
-        self.fee_estimates[key] = value
-        self.fee_estimates_last_updated[key] = time.time()
-
-    def is_fee_estimates_update_required(self):
-        """Checks time since last requested and updated fee estimates.
-        Returns True if an update should be requested.
-        """
-        now = time.time()
-        prev_updates = self.fee_estimates_last_updated.values()
-        oldest_fee_time = min(prev_updates) if prev_updates else 0
-        stale_fees = now - oldest_fee_time > 7200
-        old_request = now - self.last_time_fee_estimates_requested > 60
-        return stale_fees and old_request
-
-    def requested_fee_estimates(self):
-        self.last_time_fee_estimates_requested = time.time()
-
     def get_video_device(self):
         device = self.get("video_device", "default")
         if device == 'default':
@@ -342,7 +274,7 @@ class SimpleConfig:
 
 
 def read_user_config(path):
-    """Parse and store the user config settings in electrum-sv.conf into user_config[]."""
+    """Parse and return the user config settings as a dictionary."""
     if not path:
         return {}
     config_path = os.path.join(path, "config")

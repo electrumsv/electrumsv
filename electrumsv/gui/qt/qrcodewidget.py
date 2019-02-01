@@ -1,13 +1,13 @@
+import os
 
 from PyQt5.QtGui import QColor, QPainter
 from PyQt5.QtWidgets import (
     QApplication, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QWidget)
-
-import os
 import qrcode
 
-from electrumsv.simple_config import get_config
 from electrumsv.i18n import _
+from electrumsv.app_state import app_state
+
 from .util import WindowModalDialog
 
 
@@ -100,27 +100,25 @@ class QRDialog(WindowModalDialog):
         hbox = QHBoxLayout()
         hbox.addStretch(1)
 
-        config = get_config()
-        if config:
-            filename = os.path.join(config.path, "qrcode.png")
+        filename = os.path.join(app_state.config.path, "qrcode.png")
 
-            def print_qr():
-                p = qscreen.grabWindow(qrw.winId())
-                p.save(filename, 'png')
-                self.show_message(_("QR code saved to file") + " " + filename)
+        def print_qr():
+            p = qscreen.grabWindow(qrw.winId())
+            p.save(filename, 'png')
+            self.show_message(_("QR code saved to file") + " " + filename)
 
-            def copy_to_clipboard():
-                p = qscreen.grabWindow(qrw.winId())
-                QApplication.clipboard().setPixmap(p)
-                self.show_message(_("QR code copied to clipboard"))
+        def copy_to_clipboard():
+            p = qscreen.grabWindow(qrw.winId())
+            QApplication.clipboard().setPixmap(p)
+            self.show_message(_("QR code copied to clipboard"))
 
-            b = QPushButton(_("Copy"))
-            hbox.addWidget(b)
-            b.clicked.connect(copy_to_clipboard)
+        b = QPushButton(_("Copy"))
+        hbox.addWidget(b)
+        b.clicked.connect(copy_to_clipboard)
 
-            b = QPushButton(_("Save"))
-            hbox.addWidget(b)
-            b.clicked.connect(print_qr)
+        b = QPushButton(_("Save"))
+        hbox.addWidget(b)
+        b.clicked.connect(print_qr)
 
         b = QPushButton(_("Close"))
         hbox.addWidget(b)

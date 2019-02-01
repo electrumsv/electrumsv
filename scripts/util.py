@@ -7,8 +7,6 @@ from electrumsv.interface import Connection, Interface
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.network import parse_servers
 
-# import logging
-# logging.getLogger().setLevel(logging.DEBUG)
 
 def get_interfaces(servers, timeout=10):
     '''Returns a map of servers to connected interfaces.  If any

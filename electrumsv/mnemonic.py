@@ -22,19 +22,20 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import hashlib
-import logging
 import math
-import os
 import string
 import unicodedata
 
 import ecdsa
 
-from .bitcoin import is_old_seed, is_new_seed
 from . import version
+from .bitcoin import is_old_seed, is_new_seed
+from .logs import logs
+from .util import resource_path
 
-logger = logging.getLogger("mnemonic")
+logger = logs.get_logger("mnemonic")
 
 
 # http://www.asahi-net.or.jp/~ax2s-kmtn/ref/unicode/e_asia.html
@@ -93,7 +94,7 @@ def normalize_text(seed):
     return seed
 
 def load_wordlist(filename):
-    path = os.path.join(os.path.dirname(__file__), 'wordlist', filename)
+    path = resource_path('wordlist', filename)
     with open(path, 'r', encoding='utf-8') as f:
         s = f.read().strip()
     s = unicodedata.normalize('NFKD', s)

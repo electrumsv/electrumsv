@@ -26,25 +26,23 @@
 import copy
 import datetime
 import json
-import logging
 
-from PyQt5.QtGui import QIcon, QFont, QBrush, QTextCharFormat, QColor
+from PyQt5.QtGui import QFont, QBrush, QTextCharFormat, QColor
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit
 )
 
 from electrumsv.address import Address, PublicKey
+from electrumsv.app_state import app_state
 from electrumsv.bitcoin import base_encode
 from electrumsv.i18n import _
-from electrumsv.plugin import run_hook
-
+from electrumsv.logs import logs
+from electrumsv.platform import platform
 from electrumsv.util import bfh
-from .util import (
-    MessageBoxMixin, ButtonsLineEdit, Buttons, MONOSPACE_FONT, ColorScheme
-)
+from .util import MessageBoxMixin, ButtonsLineEdit, Buttons, ColorScheme, read_QIcon
 
 
-logger = logging.getLogger("tx_dialog")
+logger = logs.get_logger("tx_dialog")
 
 
 class TxDialog(QDialog, MessageBoxMixin):
@@ -55,27 +53,27 @@ class TxDialog(QDialog, MessageBoxMixin):
         '''
         # We want to be a top-level window
         QDialog.__init__(self, parent=None)
-        # Take a copy; it might get updated in the main window by
-        # e.g. the FX plugin.  If this happens during or after a long
-        # sign operation the signatures are lost.
+        # Take a copy; it might get updated in the main window by the FX thread.  If this
+        # happens during or after a long sign operation the signatures are lost.
         self.tx = copy.deepcopy(tx)
         self.tx.deserialize()
-        self.logger = logger
         self.main_window = parent
         self.wallet = parent.wallet
         self.prompt_if_unsaved = prompt_if_unsaved
         self.saved = False
         self.desc = desc
+        self.monospace_font = QFont(platform.monospace_font)
 
         self.setMinimumWidth(750)
         self.setWindowTitle(_("Transaction"))
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
 
         vbox = QVBoxLayout()
         self.setLayout(vbox)
 
         vbox.addWidget(QLabel(_("Transaction ID:")))
         self.tx_hash_e  = ButtonsLineEdit()
-        self.tx_hash_e.addButton(":icons/qrcode.png", self.show_tx_hash_qr, _("Show as QR code"))
+        self.tx_hash_e.addButton("qrcode.png", self.show_tx_hash_qr, _("Show as QR code"))
 
         self.tx_hash_e.setReadOnly(True)
         vbox.addWidget(self.tx_hash_e)
@@ -108,19 +106,20 @@ class TxDialog(QDialog, MessageBoxMixin):
         b.setDefault(True)
 
         self.qr_button = b = QPushButton()
-        b.setIcon(QIcon(":icons/qrcode.png"))
+        b.setIcon(read_QIcon("qrcode.png"))
         b.clicked.connect(self.show_qr)
 
         self.copy_button = QPushButton(_("Copy"))
         self.copy_button.clicked.connect(self.copy_tx_to_clipboard)
 
+        self.cosigner_button = b = QPushButton(_("Send to cosigner"))
+        b.clicked.connect(self.cosigner_send)
+
         # Action buttons
-        self.buttons = [self.sign_button, self.broadcast_button, self.cancel_button]
+        self.buttons = [self.cosigner_button, self.sign_button, self.broadcast_button,
+                        self.cancel_button]
         # Transaction sharing buttons
         self.sharing_buttons = [self.copy_button, self.qr_button, self.save_button]
-
-        # FIXME: if enabled, cosigner plugin takes reference to us, preventing GC
-        run_hook('transaction_dialog', self)
 
         hbox = QHBoxLayout()
         hbox.addLayout(Buttons(*self.sharing_buttons))
@@ -132,6 +131,9 @@ class TxDialog(QDialog, MessageBoxMixin):
         # connect slots so we update in realtime as blocks come in, etc
         parent.history_updated_signal.connect(self.update_tx_if_in_wallet)
         parent.network_signal.connect(self.got_verified_tx)
+
+    def cosigner_send(self):
+        app_state.app.cosigner_pool.do_send(self.wallet, self.tx)
 
     def copy_tx_to_clipboard(self):
         self.main_window.app.clipboard().setText(str(self.tx))
@@ -163,7 +165,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         return True
 
     def __del__(self):
-        self.logger.debug('TX dialog destroyed')
+        logger.debug('TX dialog destroyed')
 
     def reject(self):
         # Invoked on user escape key
@@ -214,21 +216,26 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     def update(self):
         desc = self.desc
-        base_unit = self.main_window.base_unit()
+        base_unit = app_state.base_unit()
         format_amount = self.main_window.format_amount
         tx_info = self.wallet.get_tx_info(self.tx)
+        tx_info_fee = tx_info.fee
 
         size = self.tx.estimated_size()
         self.broadcast_button.setEnabled(tx_info.can_broadcast)
+        if self.main_window.network is None:
+            self.broadcast_button.setEnabled(False)
+            self.broadcast_button.setToolTip(_('You are using ElectrumSV in offline mode; restart '
+                                               'ElectrumSV if you want to get connected'))
         can_sign = not self.tx.is_complete() and \
             (self.wallet.can_sign(self.tx) or bool(self.main_window.tx_external_keypairs))
         self.sign_button.setEnabled(can_sign)
         self.tx_hash_e.setText(tx_info.hash or _('Unknown'))
-        if tx_info.fee is None:
+        if tx_info_fee is None:
             try:
                 # Try and compute fee. We don't always have 'value' in
                 # all the inputs though. :/
-                tx_info.fee = self.tx.get_fee()
+                tx_info_fee = self.tx.get_fee()
             except KeyError: # Value key missing from an input
                 pass
         if desc is None:
@@ -256,15 +263,15 @@ class TxDialog(QDialog, MessageBoxMixin):
                                            format_amount(-tx_info.amount),
                                            base_unit)
         size_str = _("Size:") + ' %d bytes'% size
-        if tx_info.fee is not None:
-            fee_amount = '{} {}'.format(format_amount(tx_info.fee), base_unit)
+        if tx_info_fee is not None:
+            fee_amount = '{} {}'.format(format_amount(tx_info_fee), base_unit)
         else:
             fee_amount = _('unknown')
         fee_str = '{}: {}'.format(_("Fee"), fee_amount)
         dusty_fee = self.tx.ephemeral.get('dust_to_fee', 0)
-        if tx_info.fee is not None:
+        if tx_info_fee is not None:
             fee_str += '  ( {} ) '.format(self.main_window.format_fee_rate(
-                tx_info.fee / size * 1000))
+                tx_info_fee / size * 1000))
             if dusty_fee:
                 fee_str += (' <font color=#999999>' +
                             (_("( %s in dust was added to fee )") % format_amount(dusty_fee)) +
@@ -272,7 +279,10 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.amount_label.setText(amount_str)
         self.fee_label.setText(fee_str)
         self.size_label.setText(size_str)
-        run_hook('transaction_dialog_update', self)
+
+        # Cosigner button
+        visible = app_state.app.cosigner_pool.show_button(self.wallet, self.tx)
+        self.cosigner_button.setVisible(visible)
 
     def add_io(self, vbox):
         if self.tx.locktime > 0:
@@ -281,13 +291,13 @@ class TxDialog(QDialog, MessageBoxMixin):
         vbox.addWidget(QLabel(_("Inputs") + ' (%d)'%len(self.tx.inputs())))
 
         i_text = QTextEdit()
-        i_text.setFont(QFont(MONOSPACE_FONT))
+        i_text.setFont(self.monospace_font)
         i_text.setReadOnly(True)
 
         vbox.addWidget(i_text)
         vbox.addWidget(QLabel(_("Outputs") + ' (%d)'%len(self.tx.outputs())))
         o_text = QTextEdit()
-        o_text.setFont(QFont(MONOSPACE_FONT))
+        o_text.setFont(self.monospace_font)
         o_text.setReadOnly(True)
         vbox.addWidget(o_text)
         self.update_io(i_text, o_text)
@@ -325,7 +335,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 if addr is None:
                     addr_text = _('unknown')
                 else:
-                    addr_text = addr.to_ui_string()
+                    addr_text = addr.to_string()
                 cursor.insertText(addr_text, text_format(addr))
                 if x.get('value'):
                     cursor.insertText(format_amount(x['value']), ext)
@@ -334,7 +344,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         o_text.clear()
         cursor = o_text.textCursor()
         for addr, v in self.tx.get_outputs():
-            addrstr = addr.to_ui_string()
+            addrstr = addr.to_string()
             cursor.insertText(addrstr, text_format(addr))
             if v is not None:
                 if len(addrstr) > 42: # for long outputs, make a linebreak.

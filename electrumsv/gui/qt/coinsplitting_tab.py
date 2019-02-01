@@ -1,5 +1,4 @@
 import http
-import logging
 import requests
 import threading
 
@@ -9,11 +8,14 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv import bitcoin
+from electrumsv.app_state import app_state
 from electrumsv.i18n import _
-from electrumsv.address import Address
+from electrumsv.logs import logs
+from electrumsv.networks import Net
+
 from . import util
 
-logger = logging.getLogger("coinsplitting")
+logger = logs.get_logger("coinsplitting")
 
 TX_DESC_PREFIX = _("ElectrumSV coin splitting")
 
@@ -70,13 +72,8 @@ class CoinSplittingTab(QWidget):
     def _split_prepare_task(self):
         self.split_stage = STAGE_OBTAINING_DUST
 
-        if bitcoin.NetworkConstants.TESTNET:
-            faucet_url = "https://testnet.satoshisvision.network"
-        else:
-            faucet_url = "https://faucet.satoshisvision.network"
-
-        address_text = self.receiving_address.to_full_string(Address.FMT_BITCOIN)
-        result = requests.get("{}/submit/{}".format(faucet_url, address_text))
+        address_text = self.receiving_address.to_string()
+        result = requests.get("{}/submit/{}".format(Net.FAUCET_URL, address_text))
         self.faucet_result = result
         if result.status_code != 200:
             return RESULT_HTTP_FAILURE
@@ -208,9 +205,9 @@ class CoinSplittingTab(QWidget):
         if event == 'new_transaction':
             tx, wallet = args
             if wallet == window.wallet: # filter out tx's not for this wallet
-                our_storage_string = self.receiving_address.to_storage_string()
+                our_string = self.receiving_address.to_string()
                 for tx_output in tx.outputs():
-                    if tx_output[1].to_storage_string() == our_storage_string:
+                    if tx_output[1].to_string() == our_string:
                         extra_text = _("Dust from BSV faucet")
                         wallet.set_label(tx.txid(), f"{TX_DESC_PREFIX}: {extra_text}")
                         break
@@ -235,7 +232,7 @@ class CoinSplittingTab(QWidget):
         # + frozen_unmature
 
         splittable_amount_text = window.format_amount(splittable_amount)
-        unit_text = window.base_unit()
+        unit_text = app_state.base_unit()
 
         text = [
             "<p>",
@@ -360,6 +357,7 @@ class SplitWaitingDialog(QProgressDialog):
 
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle(_("Please wait"))
+        self.setWindowIcon(util.read_QIcon("electrum-sv.png"))
         # self.setCancelButton(None)
 
         self.stage_progress = 0

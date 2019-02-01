@@ -27,18 +27,21 @@ import time
 import webbrowser
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QBrush, QColor, QIcon
+from PyQt5.QtGui import QFont, QBrush, QColor
 from PyQt5.QtWidgets import QMenu
 
-from .util import MyTreeWidget, MONOSPACE_FONT, SortableTreeWidgetItem
-import electrumsv.web as web
+from electrumsv.app_state import app_state
 from electrumsv.i18n import _
+from electrumsv.platform import platform
 from electrumsv.util import timestamp_to_datetime, profiler
+import electrumsv.web as web
+
+from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon
 
 
 TX_ICONS = [
-    "warning.png",
-    "warning.png",
+    "unconfirmed.png",
+    "unconfirmed.png",
     "unconfirmed.png",
     "unconfirmed.png",
     "clock1.png",
@@ -60,14 +63,13 @@ class HistoryList(MyTreeWidget):
         self.setSortingEnabled(True)
         self.sortByColumn(0, Qt.AscendingOrder)
 
-        self.monospaceFont = QFont(MONOSPACE_FONT)
+        self.monospace_font = QFont(platform.monospace_font)
         self.withdrawalBrush = QBrush(QColor("#BC1E1E"))
-        self.invoiceIcon = QIcon(":icons/seal")
-        self.statusIcons = {}
+        self.invoiceIcon = read_QIcon("seal")
 
     def refresh_headers(self):
         headers = ['', '', _('Date'), _('Description') , _('Amount'), _('Balance')]
-        fx = self.parent.fx
+        fx = app_state.fx
         if fx and fx.show_history():
             headers.extend(['%s '%fx.ccy + _('Amount'), '%s '%fx.ccy + _('Balance')])
         self.update_headers(headers)
@@ -83,15 +85,14 @@ class HistoryList(MyTreeWidget):
         item = self.currentItem()
         current_tx = item.data(0, Qt.UserRole) if item else None
         self.clear()
-        fx = self.parent.fx
-        if fx: fx.history_used_spot = False
+        fx = app_state.fx
+        if fx:
+            fx.history_used_spot = False
         for h_item in h:
             tx_hash, height, conf, timestamp, value, balance = h_item
             status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)
             has_invoice = self.wallet.invoices.paid.get(tx_hash)
-            if status not in self.statusIcons:
-                self.statusIcons[status] = QIcon(":icons/" + TX_ICONS[status])
-            icon = self.statusIcons[status]
+            icon = read_QIcon(TX_ICONS[status])
             v_str = self.parent.format_amount(value, True, whitespaces=True)
             balance_str = self.parent.format_amount(balance, whitespaces=True)
             label = self.wallet.get_label(tx_hash)
@@ -111,7 +112,7 @@ class HistoryList(MyTreeWidget):
                 if i>3:
                     item.setTextAlignment(i, Qt.AlignRight)
                 if i!=2:
-                    item.setFont(i, self.monospaceFont)
+                    item.setFont(i, self.monospace_font)
             if value and value < 0:
                 item.setForeground(3, self.withdrawalBrush)
                 item.setForeground(4, self.withdrawalBrush)
@@ -139,7 +140,7 @@ class HistoryList(MyTreeWidget):
 
     def update_item(self, tx_hash, height, conf, timestamp):
         status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)
-        icon = QIcon(":icons/" +  TX_ICONS[status])
+        icon = read_QIcon(TX_ICONS[status])
         items = self.findItems(tx_hash, Qt.UserRole|Qt.MatchContains|Qt.MatchRecursive, column=1)
         if items:
             item = items[0]
@@ -187,7 +188,7 @@ class HistoryList(MyTreeWidget):
             if child_tx:
                 menu.addAction(_("Child pays for parent"), lambda: self.parent.cpfp(tx, child_tx))
         if pr_key:
-            menu.addAction(QIcon(":icons/seal"), _("View invoice"),
+            menu.addAction(read_QIcon("seal"), _("View invoice"),
                            lambda: self.parent.show_invoice(pr_key))
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))

@@ -23,15 +23,15 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
+
 from electrumsv.address import Address
 from electrumsv.i18n import _
 from electrumsv.util import format_time, age
-from electrumsv.plugin import run_hook
 from electrumsv.paymentrequest import PR_UNKNOWN
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
-from .util import MyTreeWidget, pr_tooltips, pr_icons
+
+from .util import MyTreeWidget, pr_tooltips, pr_icons, read_QIcon
 
 
 class RequestList(MyTreeWidget):
@@ -56,8 +56,8 @@ class RequestList(MyTreeWidget):
         req = self.wallet.receive_requests[addr]
         expires = age(req['time'] + req['exp']) if req.get('exp') else _('Never')
         amount = req['amount']
-        message = self.wallet.labels.get(addr.to_storage_string(), '')
-        self.parent.receive_address_e.setText(addr.to_ui_string())
+        message = self.wallet.labels.get(addr.to_string(), '')
+        self.parent.receive_address_e.setText(addr.to_string())
         self.parent.receive_message_e.setText(message)
         self.parent.receive_amount_e.setAmount(amount)
         self.parent.expires_combo.hide()
@@ -95,19 +95,19 @@ class RequestList(MyTreeWidget):
             amount = req.get('amount')
             expiration = req.get('exp', None)
             message = req.get('memo', '')
-            date = format_time(timestamp)
+            date = format_time(timestamp, _("Unknown"))
             status = req.get('status')
             signature = req.get('sig')
             requestor = req.get('name', '')
             amount_str = self.parent.format_amount(amount) if amount else ""
-            item = QTreeWidgetItem([date, address.to_ui_string(), '', message,
+            item = QTreeWidgetItem([date, address.to_string(), '', message,
                                     amount_str, pr_tooltips.get(status,'')])
             item.setData(0, Qt.UserRole, address)
             if signature is not None:
-                item.setIcon(2, QIcon(":icons/seal.png"))
+                item.setIcon(2, read_QIcon("seal.png"))
                 item.setToolTip(2, 'signed by '+ requestor)
             if status is not PR_UNKNOWN:
-                item.setIcon(6, QIcon(pr_icons.get(status)))
+                item.setIcon(6, read_QIcon(pr_icons.get(status)))
             self.addTopLevelItem(item)
 
 
@@ -128,5 +128,4 @@ class RequestList(MyTreeWidget):
                            'URI', '', self.parent.get_request_URI(addr)))
         menu.addAction(_("Save as BIP70 file"), lambda: self.parent.export_payment_request(addr))
         menu.addAction(_("Delete"), lambda: self.parent.delete_payment_request(addr))
-        run_hook('receive_list_menu', menu, addr)
         menu.exec_(self.viewport().mapToGlobal(position))

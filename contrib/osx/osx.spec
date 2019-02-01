@@ -1,109 +1,62 @@
 # -*- mode: python -*-
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
-
-import sys
+from importlib.machinery import SourceFileLoader
 import os
 
-PACKAGE='ElectrumSV'
-PYPKG='electrumsv'
-MAIN_SCRIPT='electrum-sv'
-ICONS_FILE='contrib/osx/electrum-sv.icns'
+from PyInstaller.utils.hooks import collect_dynamic_libs
 
-for i, x in enumerate(sys.argv):
-    if x == '--name':
-        VERSION = sys.argv[i+1]
-        break
-else:
-    raise Exception('no version')
+version = SourceFileLoader('version', 'electrumsv/version.py').load_module()
 
-home_dir = os.path.abspath(".") + "/"
-block_cipher = None
-
-# see https://github.com/pyinstaller/pyinstaller/issues/2005
-hiddenimports = []
-hiddenimports += collect_submodules('trezorlib')
-hiddenimports += collect_submodules('btchip')
-hiddenimports += collect_submodules('keepkeylib')
-hiddenimports += collect_submodules('websocket')
-# Keepkey imports PyQt5.Qt.  Provide our own until they fix it
-hiddenimports.remove('keepkeylib.qt.pinmatrix')
+# The directory with the electrum-sv script
+base_dir = os.path.abspath(".") + "/"
 
 datas = [
-    (home_dir + PYPKG + '/*.json', PYPKG),
-    (home_dir + PYPKG + '/wordlist/english.txt', PYPKG + '/wordlist'),
-    (home_dir + PYPKG + '/locale', PYPKG + '/locale'),
-    (home_dir + PYPKG + '/plugins', PYPKG + '/plugins'),
+    (base_dir + 'data', 'data'),
+    (base_dir + "contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app",
+     "CalinsQRReader.app"),
 ]
-datas += collect_data_files('trezorlib')
-datas += collect_data_files('btchip')
-datas += collect_data_files('keepkeylib')
 
-# Add the QR Scanner helper app
-datas += [(home_dir + "contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app", "./contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app")]
-
-binaries = [(home_dir + "contrib/osx/libsecp256k1.0.dylib", ".")]
+binaries = [(base_dir + "contrib/osx/libsecp256k1.0.dylib", ".")]
 
 # Workaround for "Retro Look":
 binaries += [b for b in collect_dynamic_libs('PyQt5') if 'macstyle' in b[0]]
 
-# We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
-a = Analysis([home_dir +  MAIN_SCRIPT,
-              home_dir + 'electrumsv/gui/qt/main_window.py',
-              home_dir + 'electrumsv/gui/text.py',
-              home_dir + 'electrumsv/util.py',
-              home_dir + 'electrumsv/wallet.py',
-              home_dir + 'electrumsv/simple_config.py',
-              home_dir + 'electrumsv/bitcoin.py',
-              home_dir + 'electrumsv/dnssec.py',
-              home_dir + 'electrumsv/commands.py',
-              home_dir + 'electrumsv/plugins/cosigner_pool/qt.py',
-              home_dir + 'electrumsv/plugins/email_requests/qt.py',
-              home_dir + 'electrumsv/plugins/trezor/qt.py',
-              home_dir + 'electrumsv/plugins/keepkey/qt.py',
-              home_dir + 'electrumsv/plugins/ledger/qt.py',
-              ],
-             binaries=binaries,
-             datas=datas,
-             hiddenimports=hiddenimports,
-             hookspath=[])
-
-# http://stackoverflow.com/questions/19055089/pyinstaller-onefile-warning-pyconfig-h-when-importing-scipy-or-scipy-signal
-for d in a.datas:
-    if 'pyconfig' in d[0]:
-        a.datas.remove(d)
-        break
+a = Analysis([base_dir + 'electrum-sv'], binaries=binaries, datas=datas)
 
 # Strip out parts of Qt that we never use to reduce binary size
 # Note we need qtdbus and qtprintsupport.
-qt_bins2remove = {
-    'qtquick', 'qtwebsockets', 'qtnetwork', 'qtqml',
-}
-print("Searching for Qt binaries to remove...")
+remove = {'qtquick', 'qtwebsockets', 'qtnetwork', 'qtqml'}
 for x in a.binaries.copy():
     lower = x[0].lower()
-    if lower in qt_bins2remove:
+    if lower in remove:
         a.binaries.remove(x)
-    elif lower.startswith('qt'):
-        print('----> Keeping ', x)
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+if False:
+    from pprint import pprint
+    for key in 'scripts', 'pure', 'binaries', 'datas':
+        print(f'a.{key}:')
+        pprint(getattr(a, key))
+
+PACKAGE='ElectrumSV'
+ICONS_FILE='contrib/osx/electrum-sv.icns'
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 exe = EXE(pyz,
           a.scripts,
           a.binaries,
           a.datas,
-          name=PACKAGE,
+          name=version.PACKAGE_VERSION,
           debug=False,
           strip=False,
           upx=True,
-          icon=home_dir + ICONS_FILE,
+          icon=base_dir + ICONS_FILE,
           console=False)
 
 app = BUNDLE(exe,
-             version = VERSION,
+             version=version.PACKAGE_VERSION,
              name=PACKAGE + '.app',
-             icon=home_dir + ICONS_FILE,
+             icon=base_dir + ICONS_FILE,
              bundle_identifier=None,
              info_plist={
                 'NSHighResolutionCapable': 'True',

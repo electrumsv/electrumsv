@@ -28,8 +28,7 @@ from electrumsv.address import Address
 
 from PyQt5.QtWidgets import QVBoxLayout, QLabel
 
-from .util import WindowModalDialog, ButtonsLineEdit, ColorScheme, Buttons, \
-    CloseButton
+from .util import WindowModalDialog, ButtonsLineEdit, ColorScheme, Buttons, CloseButton
 from .history_list import HistoryList
 from .qrtextedit import ShowQRTextEdit
 
@@ -53,7 +52,7 @@ class AddressDialog(WindowModalDialog):
         vbox.addWidget(QLabel(_("Address:")))
         self.addr_e = ButtonsLineEdit()
         self.addr_e.addCopyButton(self.app)
-        icon = ":icons/qrcode_white.png" if ColorScheme.dark_scheme else ":icons/qrcode.png"
+        icon = "qrcode_white.png" if ColorScheme.dark_scheme else "qrcode.png"
         self.addr_e.addButton(icon, self.show_qr, _("Show QR Code"))
         self.addr_e.setReadOnly(True)
         vbox.addWidget(self.addr_e)
@@ -62,11 +61,11 @@ class AddressDialog(WindowModalDialog):
         try:
             # the below line only works for deterministic wallets, other wallets lack this method
             pubkeys = self.wallet.get_public_keys(address)
-        except BaseException:
+        except Exception:
             try:
                 # ok, now try the usual method for imported wallets, etc
                 pubkey = self.wallet.get_public_key(address)
-                pubkeys = [pubkey.to_ui_string()]
+                pubkeys = [pubkey.to_string()]
             except Exception:
                 # watching only wallets (totally lacks a private/public key pair for this address)
                 pubkeys = None
@@ -79,7 +78,7 @@ class AddressDialog(WindowModalDialog):
 
         try:
             redeem_script = self.wallet.pubkeys_to_redeem_script(pubkeys)
-        except BaseException:
+        except Exception:
             redeem_script = None
         if redeem_script:
             vbox.addWidget(QLabel(_("Redeem Script") + ':'))
@@ -105,15 +104,13 @@ class AddressDialog(WindowModalDialog):
             self.hw.update_item(*args)
 
     def update_addr(self):
-        self.addr_e.setText(self.address.to_full_ui_string())
+        self.addr_e.setText(self.address.to_string())
 
     def get_domain(self):
         return [self.address]
 
     def show_qr(self):
-        text = self.address.to_full_ui_string()
-        if self.address.FMT_UI == self.address.FMT_CASHADDR:
-            text = text.upper()
+        text = self.address.to_string()
         try:
             self.parent.show_qrcode(text, 'Address', parent=self)
         except Exception as e:

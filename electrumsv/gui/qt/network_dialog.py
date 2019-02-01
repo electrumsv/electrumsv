@@ -23,23 +23,23 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import logging
 import socket
 
 from PyQt5.QtCore import pyqtSignal, Qt, QThread
-from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTreeWidget, QMenu, QTreeWidgetItem, QHeaderView, QTabWidget,
-    QWidget, QGridLayout, QLineEdit, QCheckBox, QLabel, QComboBox,
+    QWidget, QGridLayout, QLineEdit, QCheckBox, QLabel, QComboBox, QSizePolicy
 )
 
 from electrumsv.i18n import _
-from electrumsv.networks import NetworkConstants
+from electrumsv.logs import logs
+from electrumsv.networks import Net
 from electrumsv.network import serialize_server, deserialize_server
 
-from .util import Buttons, CloseButton, HelpButton
+from .password_dialog import PasswordLineEdit
+from .util import Buttons, CloseButton, HelpButton, read_QIcon
 
-logger = logging.getLogger("networkui")
+logger = logs.get_logger("networkui")
 
 protocol_names = ['TCP', 'SSL']
 protocol_letters = 'ts'
@@ -50,9 +50,12 @@ class NetworkDialog(QDialog):
     def __init__(self, network, config):
         QDialog.__init__(self)
         self.setWindowTitle(_('Network'))
-        self.setMinimumSize(500, 20)
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
+        self.setMinimumSize(500, 200)
+        self.resize(560, 400)
         self.nlayout = NetworkChoiceLayout(network, config)
         vbox = QVBoxLayout(self)
+        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         vbox.addLayout(self.nlayout.layout())
         vbox.addLayout(Buttons(CloseButton(self)))
         self.network_updated_signal.connect(self.on_update)
@@ -81,14 +84,15 @@ class NodesListWidget(QTreeWidget):
         item = self.currentItem()
         if not item:
             return
-        is_server = not bool(item.data(0, Qt.UserRole))
-        menu = QMenu()
-        if is_server:
+        is_server = item.data(0, Qt.UserRole)
+        if not is_server:
+            return
+
+        def use_as_server():
             server = item.data(1, Qt.UserRole)
-            menu.addAction(_("Use as server"), lambda: self.parent.follow_server(server))
-        else:
-            index = item.data(1, Qt.UserRole)
-            menu.addAction(_("Follow this branch"), lambda: self.parent.follow_branch(index))
+            self.parent.follow_server(server)
+        menu = QMenu()
+        menu.addAction(_("Use as server"), use_as_server)
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def keyPressEvent(self, event):
@@ -106,24 +110,24 @@ class NodesListWidget(QTreeWidget):
     def update(self, network):
         self.clear()
         self.addChild = self.addTopLevelItem
-        chains = network.get_blockchains()
-        n_chains = len(chains)
-        for k, items in chains.items():
-            b = network.blockchains[k]
-            name = b.get_name()
-            if n_chains >1:
-                x = QTreeWidgetItem([name + '@%d'%b.get_base_height(), '%d'%b.height()])
-                x.setData(0, Qt.UserRole, 1)
-                x.setData(1, Qt.UserRole, b.base_height)
+        blockchains = network.interfaces_by_blockchain()
+        multiple = len(blockchains) > 1
+        for blockchain, interfaces in blockchains.items():
+            name = blockchain.get_name()
+            if multiple:
+                x = QTreeWidgetItem([name + '@%d' % blockchain.get_base_height(),
+                                     '%d' % blockchain.height()])
+                x.setData(0, Qt.UserRole, False)  # is_server
+                x.setData(1, Qt.UserRole, blockchain.base_height)
             else:
                 x = self
-            for i in items:
+            for i in interfaces:
                 star = ' *' if i == network.interface else ''
-                item = QTreeWidgetItem([i.host + star, '%d'%i.tip])
-                item.setData(0, Qt.UserRole, 0)
+                item = QTreeWidgetItem([i.host + star, '%d' % i.tip])
+                item.setData(0, Qt.UserRole, True)   # is_server
                 item.setData(1, Qt.UserRole, i.server)
                 x.addChild(item)
-            if n_chains>1:
+            if multiple:
                 self.addTopLevelItem(x)
                 x.setExpanded(True)
 
@@ -196,6 +200,7 @@ class NetworkChoiceLayout(object):
         self.tor_proxy = None
 
         self.tabs = tabs = QTabWidget()
+        tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         server_tab = QWidget()
         proxy_tab = QWidget()
         blockchain_tab = QWidget()
@@ -254,13 +259,12 @@ class NetworkChoiceLayout(object):
         self.proxy_host = QLineEdit()
         self.proxy_host.setFixedWidth(200)
         self.proxy_port = QLineEdit()
-        self.proxy_port.setFixedWidth(60)
+        self.proxy_port.setFixedWidth(100)
         self.proxy_user = QLineEdit()
         self.proxy_user.setPlaceholderText(_("Proxy user"))
-        self.proxy_password = QLineEdit()
+        self.proxy_user.setFixedWidth(self.proxy_host.width())
+        self.proxy_password = PasswordLineEdit()
         self.proxy_password.setPlaceholderText(_("Password"))
-        self.proxy_password.setEchoMode(QLineEdit.Password)
-        self.proxy_password.setFixedWidth(60)
 
         self.proxy_mode.currentIndexChanged.connect(self.set_proxy)
         self.proxy_host.editingFinished.connect(self.set_proxy)
@@ -275,7 +279,7 @@ class NetworkChoiceLayout(object):
         self.proxy_password.textEdited.connect(self.proxy_settings_changed)
 
         self.tor_cb = QCheckBox(_("Use Tor Proxy"))
-        self.tor_cb.setIcon(QIcon(":icons/tor_logo.png"))
+        self.tor_cb.setIcon(read_QIcon("tor_logo.png"))
         self.tor_cb.hide()
         self.tor_cb.clicked.connect(self.use_tor_proxy)
 
@@ -286,8 +290,8 @@ class NetworkChoiceLayout(object):
         grid.addWidget(self.proxy_mode, 4, 1)
         grid.addWidget(self.proxy_host, 4, 2)
         grid.addWidget(self.proxy_port, 4, 3)
-        grid.addWidget(self.proxy_user, 5, 2)
-        grid.addWidget(self.proxy_password, 5, 3)
+        grid.addWidget(self.proxy_user, 5, 2, Qt.AlignTop)
+        grid.addWidget(self.proxy_password, 5, 3, Qt.AlignTop)
         grid.setRowStretch(7, 1)
 
         # Blockchain Tab
@@ -324,6 +328,7 @@ class NetworkChoiceLayout(object):
 
         vbox = QVBoxLayout()
         vbox.addWidget(tabs)
+        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         self.layout_ = vbox
         # tor detector
         self.td = td = TorDetector()
@@ -369,8 +374,7 @@ class NetworkChoiceLayout(object):
         n = len(self.network.get_interfaces())
         status = _("Connected to %d nodes.")%n if n else _("Not connected")
         self.status_label.setText(status)
-        chains = self.network.get_blockchains()
-        if len(chains)>1:
+        if self.network.blockchain_count() > 1:
             chain = self.network.blockchain()
             checkpoint = chain.get_base_height()
             name = chain.get_name()
@@ -410,7 +414,7 @@ class NetworkChoiceLayout(object):
     def change_protocol(self, use_ssl):
         p = 's' if use_ssl else 't'
         host = self.server_host.text()
-        pp = self.servers.get(host, NetworkConstants.DEFAULT_PORTS)
+        pp = self.servers.get(host, Net.DEFAULT_PORTS)
         if p not in pp.keys():
             p = list(pp.keys())[0]
         port = pp[p]
@@ -418,10 +422,6 @@ class NetworkChoiceLayout(object):
         self.server_port.setText(port)
         self.set_protocol(p)
         self.set_server()
-
-    def follow_branch(self, index):
-        self.network.follow_chain(index)
-        self.update()
 
     def follow_server(self, server):
         self.network.switch_to_interface(server)
@@ -435,7 +435,7 @@ class NetworkChoiceLayout(object):
             self.change_server(str(x.text(0)), self.protocol)
 
     def change_server(self, host, protocol):
-        pp = self.servers.get(host, NetworkConstants.DEFAULT_PORTS)
+        pp = self.servers.get(host, Net.DEFAULT_PORTS)
         if protocol and protocol not in protocol_letters:
             protocol = None
         if protocol:
@@ -490,7 +490,7 @@ class NetworkChoiceLayout(object):
         else:
             socks5_mode_index = self.proxy_mode.findText('SOCKS5')
             if socks5_mode_index == -1:
-                logger.error("[network_dialog] can't find proxy_mode 'SOCKS5'")
+                logger.error("can't find proxy_mode 'SOCKS5'")
                 return
             self.proxy_mode.setCurrentIndex(socks5_mode_index)
             self.proxy_host.setText("127.0.0.1")

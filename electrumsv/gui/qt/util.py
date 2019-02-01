@@ -1,37 +1,31 @@
 import os.path
 import time
 import sys
-import platform
 import queue
 from collections import namedtuple
-from functools import partial
+from functools import partial, lru_cache
 
-from PyQt5.QtCore import Qt, QCoreApplication, QTimer, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QCoreApplication, QTimer, QThread, pyqtSignal, QModelIndex
 from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
 from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
     QRadioButton, QFileDialog, QStyledItemDelegate, QTreeWidget, QButtonGroup, QComboBox,
     QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem,
-    QApplication
+    QApplication, QTableWidget, QTreeWidget
 )
+from PyQt5.uic import loadUi
 
 from electrumsv.i18n import _
 from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
-
-if platform.system() == 'Windows':
-    MONOSPACE_FONT = 'Lucida Console'
-elif platform.system() == 'Darwin':
-    MONOSPACE_FONT = 'Monaco'
-else:
-    MONOSPACE_FONT = 'monospace'
+from electrumsv.util import resource_path
 
 
 dialogs = []
 
 pr_icons = {
-    PR_UNPAID:":icons/unpaid.png",
-    PR_PAID:":icons/confirmed.png",
-    PR_EXPIRED:":icons/expired.png"
+    PR_UNPAID: "unpaid.png",
+    PR_PAID: "confirmed.png",
+    PR_EXPIRED: "expired.png"
 }
 
 pr_tooltips = {
@@ -123,6 +117,7 @@ class HelpButton(QPushButton):
         b.setTextFormat(self.textFormat)
         b.setText(self.help_text)
         b.setWindowTitle(self.title)
+        b.setWindowIcon(read_QIcon("electrum-sv.png"))
         b.exec()
 
 class Buttons(QHBoxLayout):
@@ -135,7 +130,7 @@ class Buttons(QHBoxLayout):
 class CloseButton(QPushButton):
     def __init__(self, dialog):
         QPushButton.__init__(self, _("Close"))
-        self.clicked.connect(dialog.close)
+        self.clicked.connect(dialog.accept)
         self.setDefault(True)
 
 class CopyButton(QPushButton):
@@ -204,6 +199,22 @@ class MessageBoxMixin(object):
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
+
+class MessageBox(object):
+
+    @classmethod
+    def show_warning(cls, msg, parent=None, title=None):
+        return cls.msg_box(QMessageBox.Warning, parent,
+                           title or _('Warning'), msg)
+
+    @classmethod
+    def msg_box(cls, icon, parent, title, text, buttons=QMessageBox.Ok,
+                defaultButton=QMessageBox.NoButton):
+        d = QMessageBox(icon, title, str(text), buttons, parent)
+        d.setDefaultButton(defaultButton)
+        return d.exec_()
+
+
 class WindowModalDialog(QDialog, MessageBoxMixin):
     '''Handy wrapper; window modal dialogs are better for our multi-window
     daemon model as other wallet windows can still be accessed.'''
@@ -212,6 +223,7 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
         self.setWindowModality(Qt.WindowModal)
         if title:
             self.setWindowTitle(title)
+            self.setWindowIcon(read_QIcon("electrum-sv.png"))
 
 
 class WaitingDialog(WindowModalDialog):
@@ -300,7 +312,7 @@ class ChoicesLayout(object):
 
 def address_combo(addresses):
     addr_combo = QComboBox()
-    addr_combo.addItems(addr.to_ui_string() for addr in addresses)
+    addr_combo.addItems(addr.to_string() for addr in addresses)
     addr_combo.setCurrentIndex(0)
 
     hbox = QHBoxLayout()
@@ -508,34 +520,35 @@ class ButtonsWidget(QWidget):
     def resizeButtons(self):
         frameWidth = self.style().pixelMetric(QStyle.PM_DefaultFrameWidth)
         x = self.rect().right() - frameWidth
-        y = self.rect().bottom() - frameWidth
+        y = self.rect().top() + frameWidth
         for button in self.buttons:
             sz = button.sizeHint()
             x -= sz.width()
-            button.move(x, y - sz.height())
+            button.move(x, y)
 
     def addButton(self, icon_name, on_click, tooltip):
         button = QToolButton(self)
-        button.setIcon(QIcon(icon_name))
+        button.setIcon(read_QIcon(icon_name))
         button.setStyleSheet("QToolButton { border: none; hover {border: 1px} "
                              "pressed {border: 1px} padding: 0px; }")
         button.setVisible(True)
         button.setToolTip(tooltip)
+        button.setCursor(QCursor(Qt.PointingHandCursor))
         button.clicked.connect(on_click)
         self.buttons.append(button)
         return button
 
     def addCopyButton(self, app):
         self.app = app
-        self.addButton(":icons/copy.png", self.on_copy, _("Copy to clipboard"))
+        self.addButton("copy.png", self.on_copy, _("Copy to clipboard"))
 
     def on_copy(self):
         self.app.clipboard().setText(self.text())
         QToolTip.showText(QCursor.pos(), _("Text copied to clipboard"), self)
 
 class ButtonsLineEdit(QLineEdit, ButtonsWidget):
-    def __init__(self, text=None):
-        QLineEdit.__init__(self, text)
+    def __init__(self, text=''):
+        QLineEdit.__init__(self, text, None)
         self.buttons = []
 
     def resizeEvent(self, e):
@@ -582,7 +595,7 @@ class TaskThread(QThread):
             try:
                 result = task.task()
                 self.doneSig.emit(result, task.cb_done, task.cb_success)
-            except BaseException:
+            except Exception:
                 self.doneSig.emit(sys.exc_info(), task.cb_done, task.cb_error)
 
     def on_done(self, result, cb_done, cb):
@@ -651,11 +664,36 @@ class SortableTreeWidgetItem(QTreeWidgetItem):
             # If not, we will just do string comparison
             return self.text(column) < other.text(column)
 
-class OPReturnError(Exception):
-    """ thrown when the OP_RETURN for a tx not of the right format """
 
-class OPReturnTooLarge(OPReturnError):
-    """ thrown when the OP_RETURN for a tx is >220 bytes """
+def update_fixed_tree_height(tree: QTreeWidget, maximum_height=None):
+    # We can't always rely on the manually set maximum height sticking.
+    # It's possible the setting of the fixed height explicitly replaces it.
+    if maximum_height is None:
+        maximum_height = tree.maximumHeight()
+
+    tree_model = tree.model()
+    cell_index = tree_model.index(0, 1)
+    row_height = tree.rowHeight(cell_index)
+    if row_height == 0:
+        row_height = tree.header().height()
+    row_count = tree_model.rowCount()
+    table_height = row_height * row_count
+    if maximum_height > 5:
+        table_height = min(table_height, maximum_height)
+    if tree.header().isVisible:
+        table_height += tree.header().height() + 2
+    tree.setFixedHeight(table_height)
+
+
+def icon_path(icon_basename):
+    return resource_path('icons', icon_basename)
+
+def read_qt_ui(ui_name):
+    return loadUi(resource_path("ui", ui_name))
+
+@lru_cache()
+def read_QIcon(icon_basename):
+    return QIcon(icon_path(icon_basename))
 
 
 if __name__ == "__main__":

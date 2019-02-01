@@ -23,33 +23,25 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import hashlib
-import logging
 import struct
 
-import ecdsa
-from ecdsa.curves import SECP256k1
-
-# Note: The deserialization code originally comes from ABE.
-
-from .bitcoin import (
-    to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, hash_encode, op_push, Hash,
-    MyVerifyingKey, point_to_ser, push_script, public_key_to_p2pk_script, int_to_hex,
-    var_int, public_key_from_private_key, regenerate_key, MySigningKey
-)
+from . import ecc
 from .address import (
-    PublicKey, Address, Script, ScriptOutput, hash160, UnknownAddress, OpCodes as opcodes
+    PublicKey, Address, Script, ScriptOutput, UnknownAddress, OpCodes as opcodes
 )
+from .bitcoin import (
+    to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, hash_encode, op_push,
+    push_script, public_key_to_p2pk_script, int_to_hex, var_int
+)
+from .crypto import sha256d, hash_160
+from .keystore import xpubkey_to_address, xpubkey_to_pubkey
+from .logs import logs
 from .util import profiler, bfh, bh2u
 
-#
-# Workalike python implementation of Bitcoin's CDataStream class.
-#
-from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 
 NO_SIGNATURE = 'ff'
 
-logger = logging.getLogger("transaction")
+logger = logs.get_logger("transaction")
 
 
 class SerializationError(Exception):
@@ -58,7 +50,7 @@ class SerializationError(Exception):
 class InputValueMissing(Exception):
     """ thrown when the value of an input is needed but not present """
 
-class BCDataStream(object):
+class _BCDataStream(object):
     def __init__(self):
         self.input = None
         self.read_cursor = 0
@@ -162,19 +154,7 @@ class BCDataStream(object):
         self.write(s)
 
 
-# This function comes from bitcointools, bct-LICENSE.txt.
-def long_hex(bytes):
-    return bytes.encode('hex_codec')
-
-# This function comes from bitcointools, bct-LICENSE.txt.
-def short_hex(bytes):
-    t = bytes.encode('hex_codec')
-    if len(t) < 11:
-        return t
-    return t[0:4]+"..."+t[-4:]
-
-
-def script_GetOp(_bytes):
+def _script_GetOp(_bytes):
     i = 0
     blen = len(_bytes)
     while i < blen:
@@ -201,23 +181,10 @@ def script_GetOp(_bytes):
         yield opcode, vch, i
 
 
-def script_GetOpName(opcode):
+def _script_GetOpName(opcode):
     return (opcodes.whatis(opcode)).replace("OP_", "")
 
-
-def decode_script(bytes):
-    result = ''
-    for (opcode, vch, i) in script_GetOp(bytes):
-        if len(result) > 0: result += " "
-        if opcode <= opcodes.OP_PUSHDATA4:
-            result += "%d:"%(opcode,)
-            result += short_hex(vch)
-        else:
-            result += script_GetOpName(opcode)
-    return result
-
-
-def match_decoded(decoded, to_match):
+def _match_decoded(decoded, to_match):
     if len(decoded) != len(to_match):
         return False
     for i in range(len(decoded)):
@@ -230,25 +197,25 @@ def match_decoded(decoded, to_match):
     return True
 
 
-def parse_sig(x_sig):
+def _parse_sig(x_sig):
     return [None if x == NO_SIGNATURE else x for x in x_sig]
 
-def safe_parse_pubkey(x):
+def _safe_parse_pubkey(x):
     try:
         return xpubkey_to_pubkey(x)
     except:
         return x
 
-def parse_scriptSig(d, _bytes):
+def _parse_scriptSig(d, _bytes):
     try:
-        decoded = list(script_GetOp(_bytes))
+        decoded = list(_script_GetOp(_bytes))
     except Exception:
         # coinbase transactions raise an exception
         logger.exception("cannot find address in input script %s", bh2u(_bytes))
         return
 
     match = [ opcodes.OP_PUSHDATA4 ]
-    if match_decoded(decoded, match):
+    if _match_decoded(decoded, match):
         item = decoded[0][1]
         # payto_pubkey
         d['type'] = 'p2pk'
@@ -262,11 +229,11 @@ def parse_scriptSig(d, _bytes):
     # (seventy-something bytes) and then their public key
     # (65 bytes) onto the stack:
     match = [ opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4 ]
-    if match_decoded(decoded, match):
+    if _match_decoded(decoded, match):
         sig = bh2u(decoded[0][1])
         x_pubkey = bh2u(decoded[1][1])
         try:
-            signatures = parse_sig([sig])
+            signatures = _parse_sig([sig])
             pubkey, address = xpubkey_to_address(x_pubkey)
         except:
             logger.exception("cannot find address in input script %s", bh2u(_bytes))
@@ -281,62 +248,62 @@ def parse_scriptSig(d, _bytes):
 
     # p2sh transaction, m of n
     match = [ opcodes.OP_0 ] + [ opcodes.OP_PUSHDATA4 ] * (len(decoded) - 1)
-    if not match_decoded(decoded, match):
+    if not _match_decoded(decoded, match):
         logger.error("cannot find address in input script %s", bh2u(_bytes))
         return
     x_sig = [bh2u(x[1]) for x in decoded[1:-1]]
-    m, n, x_pubkeys, pubkeys, redeemScript = parse_redeemScript(decoded[-1][1])
+    m, n, x_pubkeys, pubkeys, redeemScript = _parse_redeemScript(decoded[-1][1])
     # write result in d
     d['type'] = 'p2sh'
     d['num_sig'] = m
-    d['signatures'] = parse_sig(x_sig)
+    d['signatures'] = _parse_sig(x_sig)
     d['x_pubkeys'] = x_pubkeys
     d['pubkeys'] = pubkeys
     d['redeemScript'] = redeemScript
-    d['address'] = Address.from_P2SH_hash(hash160(redeemScript))
+    d['address'] = Address.from_P2SH_hash(hash_160(redeemScript))
 
 
-def parse_redeemScript(s):
-    dec2 = [ x for x in script_GetOp(s) ]
+def _parse_redeemScript(s):
+    dec2 = [ x for x in _script_GetOp(s) ]
     m = dec2[0][0] - opcodes.OP_1 + 1
     n = dec2[-2][0] - opcodes.OP_1 + 1
     op_m = opcodes.OP_1 + m - 1
     op_n = opcodes.OP_1 + n - 1
     match_multisig = [ op_m ] + [opcodes.OP_PUSHDATA4]*n + [ op_n, opcodes.OP_CHECKMULTISIG ]
-    if not match_decoded(dec2, match_multisig):
+    if not _match_decoded(dec2, match_multisig):
         logger.error("cannot find address in input script %s", bh2u(s))
         return
     x_pubkeys = [bh2u(x[1]) for x in dec2[1:-2]]
-    pubkeys = [safe_parse_pubkey(x) for x in x_pubkeys]
+    pubkeys = [_safe_parse_pubkey(x) for x in x_pubkeys]
     redeemScript = Script.multisig_script(m, [bytes.fromhex(p)
                                               for p in pubkeys])
     return m, n, x_pubkeys, pubkeys, redeemScript
 
 def get_address_from_output_script(_bytes):
-    decoded = [x for x in script_GetOp(_bytes)]
+    decoded = [x for x in _script_GetOp(_bytes)]
 
     # The Genesis Block, self-payments, and pay-by-IP-address payments look like:
     # 65 BYTES:... CHECKSIG
     match = [ opcodes.OP_PUSHDATA4, opcodes.OP_CHECKSIG ]
-    if match_decoded(decoded, match):
+    if _match_decoded(decoded, match):
         return TYPE_PUBKEY, PublicKey.from_pubkey(decoded[0][1])
 
     # Pay-by-Bitcoin-address TxOuts look like:
     # DUP HASH160 20 BYTES:... EQUALVERIFY CHECKSIG
     match = [ opcodes.OP_DUP, opcodes.OP_HASH160, opcodes.OP_PUSHDATA4,
               opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG ]
-    if match_decoded(decoded, match):
+    if _match_decoded(decoded, match):
         return TYPE_ADDRESS, Address.from_P2PKH_hash(decoded[2][1])
 
     # p2sh
     match = [ opcodes.OP_HASH160, opcodes.OP_PUSHDATA4, opcodes.OP_EQUAL ]
-    if match_decoded(decoded, match):
+    if _match_decoded(decoded, match):
         return TYPE_ADDRESS, Address.from_P2SH_hash(decoded[1][1])
 
     return TYPE_SCRIPT, ScriptOutput(bytes(_bytes))
 
 
-def parse_input(vds):
+def _parse_input(vds):
     d = {}
     prevout_hash = hash_encode(vds.read_bytes(32))
     prevout_n = vds.read_uint32()
@@ -357,7 +324,7 @@ def parse_input(vds):
         d['type'] = 'unknown'
         d['num_sig'] = 0
         d['scriptSig'] = bh2u(scriptSig)
-        parse_scriptSig(d, scriptSig)
+        _parse_scriptSig(d, scriptSig)
 
         if not Transaction.is_txin_complete(d):
             d['value'] = vds.read_uint64()
@@ -375,14 +342,14 @@ def parse_output(vds, i):
 
 
 def deserialize(raw):
-    vds = BCDataStream()
+    vds = _BCDataStream()
     vds.write(bfh(raw))
+
     d = {}
-    start = vds.read_cursor
     d['version'] = vds.read_int32()
     n_vin = vds.read_compact_size()
     assert n_vin != 0
-    d['inputs'] = [parse_input(vds) for i in range(n_vin)]
+    d['inputs'] = [_parse_input(vds) for i in range(n_vin)]
     n_vout = vds.read_compact_size()
     d['outputs'] = [parse_output(vds, i) for i in range(n_vout)]
     d['lockTime'] = vds.read_uint32()
@@ -390,8 +357,6 @@ def deserialize(raw):
 
 
 # pay & redeem scripts
-
-
 
 def multisig_script(public_keys, m):
     n = len(public_keys)
@@ -402,6 +367,22 @@ def multisig_script(public_keys, m):
     keylist = [op_push(len(k)//2) + k for k in public_keys]
     return op_m + ''.join(keylist) + op_n + 'ae'
 
+def tx_from_str(txt):
+    "json or raw hexadecimal"
+    import json
+    txt = txt.strip()
+    if not txt:
+        raise ValueError("empty string")
+    try:
+        bfh(txt)
+        is_hex = True
+    except:
+        is_hex = False
+    if is_hex:
+        return txt
+    tx_dict = json.loads(str(txt))
+    assert "hex" in tx_dict.keys()
+    return tx_dict["hex"]
 
 
 
@@ -423,7 +404,7 @@ class Transaction:
         elif isinstance(raw, dict):
             self.raw = raw['hex']
         else:
-            raise BaseException("cannot initialize transaction", raw)
+            raise Exception("cannot initialize transaction", raw)
         self._inputs = None
         self._outputs = None
         self.locktime = 0
@@ -462,35 +443,51 @@ class Transaction:
             txin['x_pubkeys'] = x_pubkeys = list(x_pubkeys)
         return pubkeys, x_pubkeys
 
-    def update_signatures(self, raw):
-        """Add new signatures to a transaction"""
-        d = deserialize(raw)
+    def update_signatures(self, signatures):
+        """Add new signatures to a transaction
+
+        `signatures` is expected to be a list of sigs with signatures[i]
+        intended for self._inputs[i].
+        This is used by hardware device code.
+        """
+        if self.is_complete():
+            return
+        if len(self.inputs()) != len(signatures):
+            raise RuntimeError('expected {} signatures; got {}'
+                               .format(len(self.inputs()), len(signatures)))
         for i, txin in enumerate(self.inputs()):
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
-            sigs1 = txin.get('signatures')
-            sigs2 = d['inputs'][i].get('signatures')
-            for sig in sigs2:
-                if sig in sigs1:
+            sig = bh2u(signatures[i] + bytes([self.nHashType() & 255]))
+            logger.warning(f'Signature {i}: {sig}')
+            if sig in txin.get('signatures'):
+                continue
+            pre_hash = sha256d(bfh(self.serialize_preimage(i)))
+            sig_string = ecc.sig_string_from_der_sig(bfh(sig[:-2]))
+            for recid in range(4):
+                try:
+                    public_key = ecc.ECPubkey.from_sig_string(sig_string, recid, pre_hash)
+                except ecc.InvalidECPointException:
+                    # the point might not be on the curve for some recid values
                     continue
-                pre_hash = Hash(bfh(self.serialize_preimage(i)))
-                # der to string
-                order = ecdsa.ecdsa.generator_secp256k1.order()
-                r, s = ecdsa.util.sigdecode_der(bfh(sig[:-2]), order)
-                sig_string = ecdsa.util.sigencode_string(r, s, order)
-                compressed = True
-                for recid in range(4):
-                    public_key = MyVerifyingKey.from_signature(
-                        sig_string, recid, pre_hash, curve = SECP256k1)
-                    pubkey = bh2u(point_to_ser(public_key.pubkey.point, compressed))
-                    if pubkey in pubkeys:
-                        public_key.verify_digest(sig_string, pre_hash,
-                                                 sigdecode=ecdsa.util.sigdecode_string)
-                        j = pubkeys.index(pubkey)
-                        logger.debug("adding sig %s %s %s %s", i, j, pubkey, sig)
-                        self._inputs[i]['signatures'][j] = sig
-                        break
+                pubkey_hex = public_key.get_public_key_hex(compressed=True)
+                if pubkey_hex in pubkeys:
+                    try:
+                        public_key.verify_message_hash(sig_string, pre_hash)
+                    except Exception:
+                        logger.exception('')
+                        continue
+                    j = pubkeys.index(pubkey_hex)
+                    logger.debug(f'adding sig {i} {j} {pubkey_hex} {sig}')
+                    self.add_signature_to_txin(i, j, sig)
+                    break
         # redo raw
         self.raw = self.serialize()
+
+    def add_signature_to_txin(self, i, signingPos, sig):
+        txin = self._inputs[i]
+        txin['signatures'][signingPos] = sig
+        txin['scriptSig'] = None  # force re-serialization
+        self.raw = None
 
     def deserialize(self):
         if self.raw is None:
@@ -658,10 +655,10 @@ class Transaction:
         outputs = self.outputs()
         txin = inputs[i]
 
-        hashPrevouts = bh2u(Hash(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
-        hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
+        hashPrevouts = bh2u(sha256d(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
+        hashSequence = bh2u(sha256d(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
                                              for txin in inputs))))
-        hashOutputs = bh2u(Hash(bfh(''.join(self.serialize_output(o) for o in outputs))))
+        hashOutputs = bh2u(sha256d(bfh(''.join(self.serialize_output(o) for o in outputs))))
         outpoint = self.serialize_outpoint(txin)
         preimage_script = self.get_preimage_script(txin)
         scriptCode = var_int(len(preimage_script) // 2) + preimage_script
@@ -694,7 +691,7 @@ class Transaction:
         if not self.is_complete():
             return None
         ser = self.serialize()
-        return bh2u(Hash(bfh(ser))[::-1])
+        return bh2u(sha256d(bfh(ser))[::-1])
 
     def add_inputs(self, inputs):
         self._inputs.extend(inputs)
@@ -754,23 +751,20 @@ class Transaction:
                 if x_pubkey in keypairs.keys():
                     logger.debug("adding signature for %s", x_pubkey)
                     sec, compressed = keypairs.get(x_pubkey)
-                    pubkey = public_key_from_private_key(sec, compressed)
-                    # add signature
-                    pre_hash = Hash(bfh(self.serialize_preimage(i)))
-                    pkey = regenerate_key(sec)
-                    secexp = pkey.secret
-                    private_key = MySigningKey.from_secret_exponent(secexp, curve = SECP256k1)
-                    public_key = private_key.get_verifying_key()
-                    sig = private_key.sign_digest_deterministic(
-                        pre_hash, hashfunc=hashlib.sha256,
-                        sigencode = ecdsa.util.sigencode_der)
-                    assert public_key.verify_digest(sig, pre_hash,
-                                                    sigdecode=ecdsa.util.sigdecode_der)
-                    txin['signatures'][j] = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
+                    sig = self.sign_txin(i, sec)
+                    txin['signatures'][j] = sig
+                    pubkey = ecc.ECPrivkey(sec).get_public_key_hex(compressed)
                     txin['pubkeys'][j] = pubkey # needed for fd keys
                     self._inputs[i] = txin
         logger.debug("is_complete %s", self.is_complete())
         self.raw = self.serialize()
+
+    def sign_txin(self, txin_index, privkey_bytes):
+        pre_hash = sha256d(bfh(self.serialize_preimage(txin_index)))
+        privkey = ecc.ECPrivkey(privkey_bytes)
+        sig = privkey.sign_transaction(pre_hash)
+        sig = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
+        return sig
 
     def get_outputs(self):
         """convert pubkeys to addresses"""
@@ -802,21 +796,3 @@ class Transaction:
             'final': self.is_final(),
         }
         return out
-
-
-def tx_from_str(txt):
-    "json or raw hexadecimal"
-    import json
-    txt = txt.strip()
-    if not txt:
-        raise ValueError("empty string")
-    try:
-        bfh(txt)
-        is_hex = True
-    except:
-        is_hex = False
-    if is_hex:
-        return txt
-    tx_dict = json.loads(str(txt))
-    assert "hex" in tx_dict.keys()
-    return tx_dict["hex"]

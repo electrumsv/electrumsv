@@ -1,21 +1,22 @@
+from decimal import Decimal
+from threading import Thread
 import csv
 import datetime
 import decimal
-from decimal import Decimal
 import inspect
 import json
-import logging
 import os
 import requests
 import sys
-from threading import Thread
 import time
 
+from .app_state import app_state
 from .bitcoin import COIN
 from .i18n import _
-from .util import ThreadJob
+from .logs import logs
+from .util import ThreadJob, resource_path
 
-logger = logging.getLogger("exchangerate")
+logger = logs.get_logger("exchangerate")
 
 
 # See https://en.wikipedia.org/wiki/ISO_4217
@@ -55,7 +56,7 @@ class ExchangeBase(object):
             logger.debug("getting fx quotes for %s", ccy)
             self.quotes = self.get_rates(ccy)
             logger.debug("received fx quotes")
-        except BaseException:
+        except Exception:
             logger.exception("failed fx quotes")
         self.on_quotes()
 
@@ -92,7 +93,7 @@ class ExchangeBase(object):
                 h = self.request_history(ccy)
                 logger.debug("received fx history for %s", ccy)
                 self.on_history()
-            except BaseException as e:
+            except Exception:
                 logger.exception("failed fx history")
                 return
             filename = os.path.join(cache_dir, self.name() + '_' + ccy)
@@ -293,7 +294,7 @@ def dictinvert(d):
     return inv
 
 def get_exchanges_and_currencies():
-    path = os.path.join(os.path.dirname(__file__), 'currencies.json')
+    path = resource_path('currencies.json')
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return json.loads(f.read())
@@ -333,6 +334,7 @@ def get_exchanges_by_ccy(history=True):
 
 
 class FxThread(ThreadJob):
+
     def __init__(self, config, network):
         self.config = config
         self.network = network
@@ -344,8 +346,10 @@ class FxThread(ThreadJob):
         self.set_exchange(self.config_exchange())
         if not os.path.exists(self.cache_dir):
             os.mkdir(self.cache_dir)
+        app_state.fx = self
 
-    def get_currencies(self, h):
+    def get_currencies(self):
+        h = self.get_history_config()
         d = get_exchanges_by_ccy(h)
         return sorted(d.keys())
 
@@ -363,7 +367,6 @@ class FxThread(ThreadJob):
         return fmt_str.format(rounded_amount)
 
     def run(self):
-        # This runs from the plugins thread which catches exceptions
         if self.is_enabled():
             if self.timeout ==0 and self.show_history():
                 self.exchange.get_historical_rates(self.ccy, self.cache_dir)
@@ -374,20 +377,23 @@ class FxThread(ThreadJob):
     def is_enabled(self):
         return bool(self.config.get('use_exchange_rate'))
 
-    def set_enabled(self, b):
-        return self.config.set_key('use_exchange_rate', bool(b))
+    def set_enabled(self, enabled):
+        return self.config.set_key('use_exchange_rate', enabled)
 
     def get_history_config(self):
         return bool(self.config.get('history_rates'))
 
-    def set_history_config(self, b):
-        self.config.set_key('history_rates', bool(b))
+    def set_history_config(self, enabled):
+        self.config.set_key('history_rates', enabled)
+        if self.is_enabled() and enabled:
+            # reset timeout to get historical rates
+            self.timeout = 0
 
     def get_fiat_address_config(self):
         return bool(self.config.get('fiat_address'))
 
     def set_fiat_address_config(self, b):
-        self.config.set_key('fiat_address', bool(b))
+        self.config.set_key('fiat_address', b)
 
     def get_currency(self):
         '''Use when dynamic fetching is needed'''
@@ -401,11 +407,11 @@ class FxThread(ThreadJob):
                 self.ccy in self.exchange.history_ccys())
 
     def set_currency(self, ccy):
-        self.ccy = ccy
         if self.get_currency() != ccy:
+            self.ccy = ccy
             self.config.set_key('currency', ccy, True)
-        self.timeout = 0 # Because self.ccy changes
-        self.on_quotes()
+            self.timeout = 0 # Because self.ccy changes
+            self.on_quotes()
 
     def set_exchange(self, name):
         class_ = globals().get(name, Kraken)
@@ -440,13 +446,17 @@ class FxThread(ThreadJob):
         rate = self.exchange_rate()
         return '' if rate is None else self.value_str(btc_balance, rate)
 
-    def get_fiat_status_text(self, btc_balance, base_unit, decimal_point):
+    def get_fiat_status(self, btc_balance, base_unit, decimal_point):
         rate = self.exchange_rate()
+        if rate is None:
+            return None, None
         default_prec = 2
         if base_unit == "bits":
             default_prec = 4
-        return _("  (No FX rate available)") if rate is None else " 1 %s~%s %s" % (base_unit,
-            self.value_str(COIN / (10**(8 - decimal_point)), rate, default_prec ), self.ccy )
+        bitcoin_value = f"1 {base_unit}"
+        fiat_value = (f"{self.value_str(COIN / (10**(8 - decimal_point)), rate, default_prec )} "+
+            f"{self.ccy}")
+        return bitcoin_value, fiat_value
 
     def value_str(self, satoshis, rate, default_prec = 2 ):
         if satoshis is None:  # Can happen with incomplete history

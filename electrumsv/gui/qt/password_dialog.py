@@ -23,15 +23,22 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import math
+import re
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import QLineEdit, QVBoxLayout, QGridLayout, QLabel, QCheckBox
-from electrumsv.i18n import _
-from .util import WindowModalDialog, OkButton, Buttons, CancelButton
-import re
-import math
+from PyQt5.QtWidgets import (
+    QVBoxLayout, QGridLayout, QLabel, QCheckBox, QLineEdit, QWidget
+)
 
-from electrumsv.plugin import run_hook
+from electrumsv.i18n import _
+
+from .virtual_keyboard import VirtualKeyboard
+from .util import (
+    WindowModalDialog, OkButton, Buttons, CancelButton, icon_path, read_QIcon, ButtonsLineEdit,
+)
+
 
 def check_password_strength(password):
 
@@ -40,6 +47,7 @@ def check_password_strength(password):
     :param password: password entered by user in New Password
     :return: password strength Weak or Medium or Strong
     '''
+
     password = password
     n = math.log(len(set(password)))
     num = re.search("[0-9]", password) is not None and re.match("^[0-9]*$", password) is None
@@ -53,6 +61,57 @@ def check_password_strength(password):
 PW_NEW, PW_CHANGE, PW_PASSPHRASE = range(0, 3)
 
 
+class PasswordLineEdit(QWidget):
+    """
+    Display a password QLineEdit with a button to open a virtual keyboard.
+    """
+
+    reveal_png = "icons8-eye-32.png"
+    hide_png = "icons8-hide-32.png"
+
+    def __init__(self, text=''):
+        super().__init__()
+        self.pw = ButtonsLineEdit(text)
+        self.pw.setMinimumWidth(220)
+        self.reveal_button = self.pw.addButton(self.reveal_png, self.toggle_visible,
+                                               _("Toggle visibility"))
+        self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))
+        self.pw.setEchoMode(QLineEdit.Password)
+        # self.pw.setMinimumWidth(200)
+        self.keyboard = VirtualKeyboard(self.pw)
+        self.keyboard.setVisible(False)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        layout.addWidget(self.pw)
+        layout.addWidget(self.keyboard)
+        self.setLayout(layout)
+
+        # Pass-throughs
+        self.returnPressed = self.pw.returnPressed
+        self.setFocus = self.pw.setFocus
+        self.setMaxLength = self.pw.setMaxLength
+        self.setPlaceholderText = self.pw.setPlaceholderText
+        self.setText = self.pw.setText
+        self.setValidator = self.pw.setValidator
+        self.text = self.pw.text
+        self.textChanged = self.pw.textChanged
+        self.editingFinished = self.pw.editingFinished
+        self.textEdited = self.pw.textEdited
+
+    def toggle_keyboard(self):
+        self.keyboard.setVisible(not self.keyboard.isVisible())
+
+    def toggle_visible(self):
+        if self.pw.echoMode() == QLineEdit.Password:
+            self.pw.setEchoMode(QLineEdit.Normal)
+            self.reveal_button.setIcon(read_QIcon(self.hide_png))
+        else:
+            self.pw.setEchoMode(QLineEdit.Password)
+            self.reveal_button.setIcon(read_QIcon(self.reveal_png))
+
+
 class PasswordLayout(object):
 
     titles = [_("Enter Password"), _("Change Password"), _("Enter Passphrase")]
@@ -60,12 +119,9 @@ class PasswordLayout(object):
     def __init__(self, wallet, msg, kind, OK_button):
         self.wallet = wallet
 
-        self.pw = QLineEdit()
-        self.pw.setEchoMode(2)
-        self.new_pw = QLineEdit()
-        self.new_pw.setEchoMode(2)
-        self.conf_pw = QLineEdit()
-        self.conf_pw.setEchoMode(2)
+        self.pw = PasswordLineEdit()
+        self.new_pw = PasswordLineEdit()
+        self.conf_pw = PasswordLineEdit()
         self.kind = kind
         self.OK_button = OK_button
 
@@ -98,17 +154,23 @@ class PasswordLayout(object):
             m1 = _('New Password:') if kind == PW_CHANGE else _('Password:')
             msgs = [m1, _('Confirm Password:')]
             if wallet and wallet.has_password():
-                grid.addWidget(QLabel(_('Current Password:')), 0, 0)
+                pwlabel = QLabel(_('Current Password:'))
+                pwlabel.setAlignment(Qt.AlignTop)
+                grid.addWidget(pwlabel, 0, 0)
                 grid.addWidget(self.pw, 0, 1)
-                lockfile = ":icons/lock.png"
+                lockfile = "lock.png"
             else:
-                lockfile = ":icons/unlock.png"
-            logo.setPixmap(QPixmap(lockfile).scaledToWidth(36))
+                lockfile = "unlock.png"
+            logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(36))
 
-        grid.addWidget(QLabel(msgs[0]), 1, 0)
+        label0 = QLabel(msgs[0])
+        label0.setAlignment(Qt.AlignTop)
+        grid.addWidget(label0, 1, 0)
         grid.addWidget(self.new_pw, 1, 1)
 
-        grid.addWidget(QLabel(msgs[1]), 2, 0)
+        label1 = QLabel(msgs[1])
+        label1.setAlignment(Qt.AlignTop)
+        grid.addWidget(label1, 2, 0)
         grid.addWidget(self.conf_pw, 2, 1)
         vbox.addLayout(grid)
 
@@ -181,38 +243,46 @@ class ChangePasswordDialog(WindowModalDialog):
         OK_button = OkButton(self)
         self.playout = PasswordLayout(wallet, msg, PW_CHANGE, OK_button)
         self.setWindowTitle(self.playout.title())
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         vbox = QVBoxLayout(self)
+        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         vbox.addLayout(self.playout.layout())
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CancelButton(self), OK_button))
         self.playout.encrypt_cb.setChecked(is_encrypted or not wallet.has_password())
 
     def run(self):
-        if not self.exec_():
-            return False, None, None, None
-        return (True, self.playout.old_password(), self.playout.new_password(),
-                self.playout.encrypt_cb.isChecked())
+        try:
+            if not self.exec_():
+                return False, None, None, None
+            return (True, self.playout.old_password(), self.playout.new_password(),
+                    self.playout.encrypt_cb.isChecked())
+        finally:
+            self.playout.pw.setText('')
+            self.playout.conf_pw.setText('')
+            self.playout.new_pw.setText('')
 
 
 class PasswordDialog(WindowModalDialog):
+    def __init__(self, parent=None, msg=None, force_keyboard=False):
+        super().__init__(parent, _("Enter Password"))
 
-    def __init__(self, parent=None, msg=None):
-        msg = msg or _('Please enter your password')
-        WindowModalDialog.__init__(self, parent, _("Enter Password"))
-        self.pw = pw = QLineEdit()
-        pw.setEchoMode(2)
+        self.pw = pw = PasswordLineEdit()
+
+        about_label = QLabel(msg or _('Enter your password:'))
+
         vbox = QVBoxLayout()
-        vbox.addWidget(QLabel(msg))
-        grid = QGridLayout()
-        grid.setSpacing(8)
-        grid.addWidget(QLabel(_('Password')), 1, 0)
-        grid.addWidget(pw, 1, 1)
-        vbox.addLayout(grid)
-        vbox.addLayout(Buttons(CancelButton(self), OkButton(self)))
+        vbox.addWidget(about_label)
+        vbox.addWidget(pw)
+        vbox.addStretch(1)
+        vbox.addLayout(Buttons(CancelButton(self), OkButton(self)), Qt.AlignBottom)
+        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         self.setLayout(vbox)
-        run_hook('password_dialog', pw, grid, 1)
 
     def run(self):
-        if not self.exec_():
-            return
-        return self.pw.text()
+        try:
+            if not self.exec_():
+                return None
+            return self.pw.text()
+        finally:
+            self.pw.setText("")

@@ -24,13 +24,14 @@
 # SOFTWARE.
 
 import hashlib
-import logging
 from threading import Lock
 
+from .logs import logs
 from .transaction import Transaction
 from .util import ThreadJob, bh2u
 
-logger = logging.getLogger("synchronizer")
+
+logger = logs.get_logger("synchronizer")
 
 
 class Synchronizer(ThreadJob):
@@ -75,11 +76,12 @@ class Synchronizer(ThreadJob):
             self.new_addresses.add(address)
 
     def subscribe_to_addresses(self, addresses):
-        hashes = [addr.to_scripthash_hex() for addr in addresses]
-        # Keep a hash -> address mapping
-        self.h2addr.update({h:addr for h, addr in zip(hashes, addresses)})
-        self.network.subscribe_to_scripthashes(hashes, self.on_address_status)
-        self.requested_hashes |= set(hashes)
+        if addresses:
+            hashes = [addr.to_scripthash_hex() for addr in addresses]
+            # Keep a hash -> address mapping
+            self.h2addr.update({h:addr for h, addr in zip(hashes, addresses)})
+            self.network.subscribe_to_scripthashes(hashes, self.on_address_status)
+            self.requested_hashes |= set(hashes)
 
     def get_status(self, h):
         if not h:
@@ -142,12 +144,11 @@ class Synchronizer(ThreadJob):
         if not params:
             return
         tx_hash = params[0]
-        #assert tx_hash == hash_encode(Hash(bytes.fromhex(result)))
         tx = Transaction(result)
         try:
             tx.deserialize()
         except Exception:
-            logging.exception("cannot deserialize transaction, skipping %s", tx_hash)
+            logger.exception("cannot deserialize transaction, skipping %s", tx_hash)
             return
         tx_height = self.requested_tx.pop(tx_hash)
         self.wallet.receive_tx_callback(tx_hash, tx, tx_height)

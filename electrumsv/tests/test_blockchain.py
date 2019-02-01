@@ -29,8 +29,8 @@ def get_block(prior, time_interval, bits):
 class TestBlockchain(unittest.TestCase):
 
     def test_bits_to_target_conversion(self):
-        self.assertEqual(bc.bits_to_target(0), 0)
-        self.assertEqual(bc.target_to_bits(0), 0)
+        self.assertEqual(bc._bits_to_target(0), 0)
+        self.assertEqual(bc._target_to_bits(0), 0)
         bits = bc.MAX_BITS
         for step in (1, 17, 149, 1019, 14851, 104729, 1000001):
             for n in range(100):
@@ -38,8 +38,8 @@ class TestBlockchain(unittest.TestCase):
                     test_bits = bits
                     if test_bits & 0x800000:
                         test_bits -= 0x800000
-                    target = bc.bits_to_target(test_bits)
-                    self.assertEqual(bc.target_to_bits(target), test_bits)
+                    target = bc._bits_to_target(test_bits)
+                    self.assertEqual(bc._target_to_bits(target), test_bits)
                 bits -= step
 
     def test_retargetting(self):
@@ -54,11 +54,11 @@ class TestBlockchain(unittest.TestCase):
             'block_height': 0
         }
         blocks = [first]
-        chunk_bytes = bytes.fromhex(bc.serialize_header(first))
+        chunk_bytes = bytes.fromhex(bc._serialize_header(first))
         for n in range(1, 1000):
             block = get_block(blocks[-1], 600, first['bits'])
             blocks.append(block)
-            chunk_bytes += bytes.fromhex(bc.serialize_header(block))
+            chunk_bytes += bytes.fromhex(bc._serialize_header(block))
 
         chain = MyBlockchain()
 
@@ -66,11 +66,11 @@ class TestBlockchain(unittest.TestCase):
         for n in range(11):
             block = get_block(blocks[-1], 2 * 3600, first['bits'])
             blocks.append(block)
-            chunk_bytes += bytes.fromhex(bc.serialize_header(block))
-            chunk = bc.HeaderChunk(0, chunk_bytes)
-            self.assertEqual(chain.get_bits(block, chunk), first['bits'])
+            chunk_bytes += bytes.fromhex(bc._serialize_header(block))
+            chunk = bc._HeaderChunk(0, chunk_bytes)
+            self.assertEqual(chain._get_bits(block, chunk), first['bits'])
 
         # Now we expect difficulty to decrease
         # MTP(1010) is TimeStamp(1005), MTP(1004) is TimeStamp(999)
         hdr = {'block_height': block['block_height'] + 1}
-        self.assertEqual(chain.get_bits(hdr, chunk), 0x1801b553)
+        self.assertEqual(chain._get_bits(hdr, chunk), 0x1801b553)

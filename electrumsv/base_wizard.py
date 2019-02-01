@@ -23,22 +23,27 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import logging
 import os
 
+from . import bip32
 from . import bitcoin
 from . import keystore
-from .keystore import bip44_derivation, bip44_derivation_145
-from .wallet import (ImportedAddressWallet, ImportedPrivkeyWallet,
-                     Standard_Wallet, Multisig_Wallet, wallet_types)
+from .app_state import app_state
 from .i18n import _
+from .keystore import bip44_derivation_145
+from .logs import logs
+from .wallet import (
+    ImportedAddressWallet, ImportedPrivkeyWallet, Standard_Wallet, Multisig_Wallet, wallet_types,
+)
+
+
+logger = logs.get_logger('wizard')
 
 
 class BaseWizard(object):
 
-    def __init__(self, config, storage):
+    def __init__(self, storage):
         super(BaseWizard, self).__init__()
-        self.config = config
         self.storage = storage
         self.wallet = None
         self.stack = []
@@ -61,10 +66,10 @@ class BaseWizard(object):
             f = getattr(self, action)
             f(*args)
         else:
-            raise BaseException("unknown action", action)
+            raise Exception("unknown action", action)
 
     def can_go_back(self):
-        return len(self.stack)>1
+        return len(self.stack) > 1
 
     def go_back(self):
         if not self.can_go_back():
@@ -172,38 +177,34 @@ class BaseWizard(object):
 
     def choose_hw_device(self):
         title = _('Hardware Keystore')
-        # check available plugins
-        supported_plugins = self.plugins.get_hardware_support()
         # scan devices
         devices = []
-        devmgr = self.plugins.device_manager
+        devmgr = app_state.device_manager
         debug_msg = ''
+        # This needs to be done before the scan, otherwise the devices will not be loaded.
+        supported_devices = devmgr.supported_devices()
         try:
             scanned_devices = devmgr.scan_devices()
         except:
-            logging.exception(f'error scanning devices')
+            logger.exception(f'error scanning devices')
         else:
-            for splugin in supported_plugins:
-                name, plugin = splugin.name, splugin.plugin
+            for device_kind, plugin in supported_devices.items():
                 # plugin init errored?
-                if not plugin:
-                    e = splugin.exception
-                    indented_error_msg = '    '.join([''] + str(e).splitlines(keepends=True))
-                    debug_msg += f'  {name}: (error during plugin init)\n'
-                    debug_msg += '    {}\n'.format(_('You might have an incompatible library.'))
-                    debug_msg += f'{indented_error_msg}\n'
+                if isinstance(plugin, Exception):
+                    tail = '\n    '.join([_('You might have an incompatible library.'), '']
+                                         + str(plugin).splitlines())
+                    debug_msg += f'  {device_kind}: (error loding plugin)\n{tail}\n'
                     continue
-                # see if plugin recognizes 'scanned_devices'
+
                 try:
                     # FIXME: side-effect: unpaired_device_info sets client.handler
                     u = devmgr.unpaired_device_infos(None, plugin, devices=scanned_devices)
+                    devices += [(device_kind, x) for x in u]
                 except Exception as e:
-                    logging.exception('error getting device infos for %s',
-                                       name)
-                    indented_error_msg = '    '.join([''] + str(e).splitlines(keepends=True))
-                    debug_msg += f'  {name}: (error getting device infos)\n{indented_error_msg}\n'
-                    continue
-                devices += [(name, x) for x in u]
+                    logger.exception(f'error getting device infos for {device_kind}')
+                    tail = '\n    '.join([''] + str(e).splitlines())
+                    debug_msg += f'  {device_kind}: (error getting device infos)\n{tail}\n'
+
         if not debug_msg:
             debug_msg = '  {}'.format(_('No exceptions encountered.'))
         if not devices:
@@ -226,15 +227,12 @@ class BaseWizard(object):
         for name, info in devices:
             state = _("initialized") if info.initialized else _("wiped")
             label = info.label or _("An unnamed {}").format(name)
-            try: transport_str = info.device.transport_ui_string[:20]
-            except: transport_str = 'unknown transport'
-            descr = f"{label} [{name}, {state}, {transport_str}]"
-            choices.append(((name, info), descr))
+            choices.append(((name, info), f"{label} [{name}, {state}]"))
         msg = _('Select a device') + ':'
         self.choice_dialog(title=title, message=msg, choices=choices, run_next=self.on_device)
 
     def on_device(self, name, device_info):
-        self.plugin = self.plugins.get_plugin(name)
+        self.plugin = app_state.device_manager.get_plugin(name)
         try:
             self.plugin.setup_device(device_info, self)
         except OSError as e:
@@ -242,11 +240,10 @@ class BaseWizard(object):
                             + '\n' + str(e) + '\n'
                             + _('To try to fix this, we will now re-pair with your device.') + '\n'
                             + _('Please try again.'))
-            devmgr = self.plugins.device_manager
-            devmgr.unpair_id(device_info.device.id_)
+            app_state.device_manager.unpair_id(device_info.device.id_)
             self.choose_hw_device()
             return
-        except BaseException as e:
+        except Exception as e:
             self.show_error(str(e))
             self.choose_hw_device()
             return
@@ -271,14 +268,13 @@ class BaseWizard(object):
         self.line_dialog(run_next=f,
                          title=_('Derivation for {} wallet').format(self.wallet_type),
                          message=message, default=default_derivation,
-                         test=bitcoin.is_bip32_derivation)
+                         test=bip32.is_bip32_derivation)
 
     def on_hw_derivation(self, name, device_info, derivation):
-        from .keystore import hardware_keystore
         xtype = 'standard'
         try:
             xpub = self.plugin.get_xpub(device_info.device.id_, derivation, xtype, self)
-        except BaseException as e:
+        except Exception as e:
             self.show_error(e)
             return
         d = {
@@ -288,7 +284,7 @@ class BaseWizard(object):
             'xpub': xpub,
             'label': device_info.label,
         }
-        k = hardware_keystore(d)
+        k = app_state.device_manager.create_keystore(d)
         self.on_keystore(k)
 
     def passphrase_dialog(self, run_next):
@@ -321,7 +317,7 @@ class BaseWizard(object):
         elif self.seed_type == 'old':
             self.run('create_keystore', seed, '')
         else:
-            raise BaseException('Unknown seed type', self.seed_type)
+            raise Exception('Unknown seed type', self.seed_type)
 
     def on_restore_bip39(self, seed, passphrase):
         f = lambda x: self.run('on_bip44', seed, passphrase, str(x))
@@ -338,8 +334,7 @@ class BaseWizard(object):
     def on_keystore(self, k):
         has_xpub = isinstance(k, keystore.Xpub)
         if has_xpub:
-            from .bitcoin import xpub_type
-            t1 = xpub_type(k.xpub)
+            t1 = bip32.xpub_type(k.xpub)
         if self.wallet_type == 'standard':
             if has_xpub and t1 not in ['standard']:
                 self.show_error(_('Wrong key type') + ' %s'%t1)
@@ -358,7 +353,7 @@ class BaseWizard(object):
                 self.run('choose_keystore')
                 return
             if len(self.keystores)>0:
-                t2 = xpub_type(self.keystores[0].xpub)
+                t2 = bip32.xpub_type(self.keystores[0].xpub)
                 if t1 != t2:
                     self.show_error(_('Cannot add this cosigner:') + '\n' +
                                     "Their key type is '%s', we are '%s'"%(t1, t2))

@@ -22,9 +22,8 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import logging
+
 import os
-import re
 import requests
 import socket
 import ssl
@@ -35,9 +34,10 @@ import traceback
 
 ca_path = requests.certs.where()
 
+from . import pem
 from . import util
 from . import x509
-from . import pem
+from .logs import logs
 
 
 def Connection(server, queue, config_path):
@@ -69,7 +69,7 @@ class TcpConnection(threading.Thread):
         self.use_ssl = (self.protocol == 's')
         self.daemon = True
 
-        self.logger = logging.getLogger("connection-tcp[{}]".format(self.host))
+        self.logger = logs.get_logger("connection-tcp[{}]".format(self.host))
 
     def check_host_name(self, peercert, name):
         """Simple certificate/host name checker.  Returns True if the
@@ -113,7 +113,7 @@ class TcpConnection(threading.Thread):
                 s.settimeout(2)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                 return s
-            except BaseException as _e:
+            except Exception as _e:
                 e = _e
                 continue
         self.logger.debug("failed to connect %s", e)
@@ -218,7 +218,7 @@ class TcpConnection(threading.Thread):
                 if e.errno == 104:
                     return
                 return
-            except BaseException:
+            except Exception:
                 self.logger.exception("")
                 return
 
@@ -265,7 +265,7 @@ class Interface:
         self.closed_remotely = False
 
         self.mode = None
-        self.logger = logging.getLogger("interface[{}]".format(self.host))
+        self.logger = logs.get_logger("interface[{}]".format(self.host))
 
     def set_mode(self, mode):
         self.logger.debug("set_mode(%s)", mode)

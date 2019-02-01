@@ -32,7 +32,7 @@ import re
 from decimal import Decimal
 from electrumsv import bitcoin
 from electrumsv.address import Address, ScriptOutput
-from electrumsv.networks import NetworkConstants
+from electrumsv.web import is_URI
 
 from . import util
 
@@ -110,7 +110,7 @@ class PayToEdit(ScanQRTextEdit):
         self.payto_address = None
         if len(lines) == 1:
             data = lines[0]
-            if data.lower().startswith(NetworkConstants.CASHADDR_PREFIX + ":"):
+            if is_URI(data):
                 self.scan_f(data)
                 return
             try:

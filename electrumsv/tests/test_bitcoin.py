@@ -16,11 +16,6 @@ from electrumsv.bitcoin import (
 from electrumsv.networks import NetworkConstants
 from electrumsv.util import bfh
 
-try:
-    import ecdsa
-except ImportError:
-    sys.exit("Error: python-ecdsa does not seem to be installed. Try 'sudo pip install ecdsa'")
-
 
 class Test_bitcoin(unittest.TestCase):
 

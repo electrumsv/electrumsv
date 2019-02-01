@@ -30,20 +30,21 @@ import datetime
 from decimal import Decimal
 from functools import wraps
 import json
-import logging
 import sys
 
-from .util import bfh, bh2u, format_satoshis, json_decode, to_bytes
-from .import bitcoin
+from . import bitcoin
+from . import ecc
 from .address import Address
-from .bitcoin import hash_160, COIN, TYPE_ADDRESS
+from .bitcoin import COIN, TYPE_ADDRESS
+from .crypto import hash_160
 from .i18n import _
-from .transaction import Transaction, multisig_script
+from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
-from .plugin import run_hook
+from .transaction import Transaction, multisig_script
+from .util import bfh, bh2u, format_satoshis, json_decode, to_bytes
 
 
-logger = logging.getLogger("commands")
+logger = logs.get_logger("commands")
 
 known_commands = {}
 
@@ -94,9 +95,9 @@ def command(s):
             network = args[0].network
             password = kwargs.get('password')
             if c.requires_network and network is None:
-                raise BaseException("Daemon offline")  # Same wording as in daemon.py.
+                raise Exception("Daemon offline")  # Same wording as in daemon.py.
             if c.requires_wallet and wallet is None:
-                raise BaseException("Wallet not loaded. Use 'electrum-sv daemon load_wallet'")
+                raise Exception("Wallet not loaded. Use 'electrum-sv daemon load_wallet'")
             if c.requires_password and password is None and wallet.storage.get('use_encryption') \
                and not kwargs.get("unsigned"):
                 return {'error': 'Password required' }
@@ -136,14 +137,14 @@ class Commands:
     def _EnsureDictNamedTuplesAreJSONSafe(d):
         """Address, ScriptOutput and other objects contain bytes.  They cannot be serialized
             using JSON. This makes sure they get serialized properly by calling
-            .to_ui_string() on them.  See issue #638
+            .to_string() on them.  See issue #638
         """
         def DoChk(v):
             def ChkList(l):
                 for i in range(0,len(l)): l[i] = DoChk(l[i]) # recurse
                 return l
             def EncodeNamedTupleObject(nt):
-                if hasattr(nt, 'to_ui_string'): return nt.to_ui_string()
+                if hasattr(nt, 'to_string'): return nt.to_string()
                 return nt
 
             if isinstance(v, tuple): v = EncodeNamedTupleObject(v)
@@ -163,7 +164,7 @@ class Commands:
     @command('')
     def create(self):
         """Create a new wallet"""
-        raise BaseException('Not a JSON-RPC command')
+        raise Exception('Not a JSON-RPC command')
 
     @command('wn')
     def restore(self, text):
@@ -171,7 +172,7 @@ class Commands:
         public key, a master private key, a list of bitcoin cash addresses
         or bitcoin cash private keys. If you want to be prompted for your
         seed, type '?' or ':' (concealed) """
-        raise BaseException('Not a JSON-RPC command')
+        raise Exception('Not a JSON-RPC command')
 
     @command('wp')
     def password(self, password=None, new_password=None):
@@ -227,7 +228,7 @@ class Commands:
         for i in l:
             v = i["value"]
             i["value"] = str(Decimal(v)/COIN) if v is not None else None
-            i["address"] = i["address"].to_ui_string()
+            i["address"] = i["address"].to_string()
         return l
 
     @command('n')
@@ -256,7 +257,7 @@ class Commands:
             sec = txin.get('privkey')
             if sec:
                 txin_type, privkey, compressed = bitcoin.deserialize_privkey(sec)
-                pubkey = bitcoin.public_key_from_private_key(privkey, compressed)
+                pubkey = ecc.ECPrivkey(privkey).get_public_key_hex(compressed=compressed)
                 keypairs[pubkey] = privkey, compressed
                 txin['type'] = txin_type
                 txin['x_pubkeys'] = [pubkey]
@@ -275,8 +276,8 @@ class Commands:
         tx = Transaction(tx)
         if privkey:
             txin_type, privkey2, compressed = bitcoin.deserialize_privkey(privkey)
-            pubkey = bitcoin.public_key_from_private_key(privkey2, compressed)
-            h160 = bitcoin.hash_160(bfh(pubkey))
+            pubkey = ecc.ECPrivkey(privkey2).get_public_key_hex(compressed=compressed)
+            h160 = hash_160(bfh(pubkey))
             x_pubkey = 'fd' + bh2u(b'\x00' + h160)
             tx.sign({x_pubkey:(privkey2, compressed)})
         else:
@@ -416,7 +417,7 @@ class Commands:
         try:
             addr = self.wallet.import_private_key(privkey, password)
             out = "Keypair imported: " + addr
-        except BaseException as e:
+        except Exception as e:
             out = "Error: " + str(e)
         return out
 
@@ -427,7 +428,7 @@ class Commands:
         if (out.get('type') == 'openalias' and
                 self.nocheck is False and
                 out.get('validated') is False):
-            raise BaseException('cannot verify alias', x)
+            raise Exception('cannot verify alias', x)
         return out['address']
 
     @command('n')
@@ -457,7 +458,7 @@ class Commands:
         address = Address.from_string(address)
         sig = base64.b64decode(signature)
         message = to_bytes(message)
-        return bitcoin.verify_message(address, sig, message)
+        return ecc.verify_message_with_address(address, sig, message)
 
     def _mktx(self, outputs, fee=None, change_addr=None, domain=None, nocheck=False,
               unsigned=False, password=None, locktime=None):
@@ -476,7 +477,6 @@ class Commands:
         if locktime is not None:
             tx.locktime = locktime
         if not unsigned:
-            run_hook('sign_tx', self.wallet, tx)
             self.wallet.sign_transaction(tx, password)
         return tx
 
@@ -512,8 +512,7 @@ class Commands:
             kwargs['to_timestamp'] = time.mktime(end_date.timetuple())
         if show_fiat:
             from .exchange_rate import FxThread
-            fx = FxThread(self.config, None)
-            kwargs['fx'] = fx
+            FxThread(self.config, None)
         return self.wallet.export_history(**kwargs)
 
     @command('w')
@@ -559,13 +558,13 @@ class Commands:
                 continue
             if funded and self.wallet.is_empty(addr):
                 continue
-            item = addr.to_ui_string()
+            item = addr.to_string()
             if labels or balance:
                 item = (item,)
             if balance:
                 item += (format_satoshis(sum(self.wallet.get_addr_balance(addr))),)
             if labels:
-                item += (repr(self.wallet.labels.get(addr.to_storage_string(), '')),)
+                item += (repr(self.wallet.labels.get(addr.to_string(), '')),)
             out.append(item)
         return out
 
@@ -579,13 +578,15 @@ class Commands:
             if raw:
                 tx = Transaction(raw)
             else:
-                raise BaseException("Unknown transaction")
+                raise Exception("Unknown transaction")
         return tx.as_dict()
 
     @command('')
     def encrypt(self, pubkey, message):
         """Encrypt a message with a public key. Use quotes if the message contains whitespaces."""
-        return bitcoin.encrypt_message(message, pubkey)
+        public_key = ecc.ECPubkey(bfh(pubkey))
+        encrypted = public_key.encrypt_message(message)
+        return encrypted
 
     @command('wp')
     def decrypt(self, pubkey, encrypted, password=None):
@@ -599,7 +600,7 @@ class Commands:
             PR_PAID: 'Paid',
             PR_EXPIRED: 'Expired',
         }
-        out['address'] = out.get('address').to_ui_string()
+        out['address'] = out.get('address').to_string()
         out['amount (BTC)'] = format_satoshis(out.get('amount'))
         out['status'] = pr_str[out.get('status', PR_UNKNOWN)]
         return out
@@ -609,7 +610,7 @@ class Commands:
         """Return a payment request"""
         r = self.wallet.get_payment_request(Address.from_string(key), self.config)
         if not r:
-            raise BaseException("Request not found")
+            raise Exception("Request not found")
         return self._format_request(r)
 
     @command('w')
@@ -631,7 +632,7 @@ class Commands:
     @command('w')
     def createnewaddress(self):
         """Create a new receiving address, beyond the gap limit of the wallet"""
-        return self.wallet.create_new_address(False).to_ui_string()
+        return self.wallet.create_new_address(False).to_string()
 
     @command('w')
     def getunusedaddress(self):
@@ -639,7 +640,7 @@ class Commands:
         address is considered as used if it has received a transaction, or if it is used
         in a payment request.
         """
-        return self.wallet.get_unused_address().to_ui_string()
+        return self.wallet.get_unused_address().to_string()
 
     @command('w')
     def addrequest(self, amount, memo='', expiration=None, force=False):
@@ -666,7 +667,7 @@ class Commands:
         "Sign payment request with an OpenAlias"
         alias = self.config.get('alias')
         if not alias:
-            raise BaseException('No alias in your configuration')
+            raise Exception('No alias in your configuration')
         alias_addr = self.wallet.contacts.resolve(alias)['address']
         self.wallet.sign_payment_request(address, alias, alias_addr, password)
 
@@ -693,7 +694,7 @@ class Commands:
                 req = urllib.request.Request(URL, serialized_data, headers)
                 response_stream = urllib.request.urlopen(req, timeout=5)
                 logger.debug('Got Response for %s', address)
-            except BaseException as e:
+            except Exception as e:
                 logger.error("exception processing response %s", e)
         h = Address.from_string(address).to_scripthash_hex()
         self.network.send([('blockchain.scripthash.subscribe', [h])], callback)
@@ -797,12 +798,12 @@ config_variables = {
         'ssl_chain': ('Chain of SSL certificates, needed for signed requests. '
                       'Put your certificate at the top and the root CA at the end'),
         'url_rewrite': ('Parameters passed to str.replace(), in order to create the r= part '
-                        'of bitcoincash: URIs. Example: '
+                        'of bitcoin: URIs. Example: '
                         '\"(\'file:///var/www/\',\'https://electrum.org/\')\"'),
     },
     'listrequests':{
         'url_rewrite': ('Parameters passed to str.replace(), in order to create the r= part '
-                        'of bitcoincash: URIs. Example: '
+                        'of bitcoin: URIs. Example: '
                         '\"(\'file:///var/www/\',\'https://electrum.org/\')\"'),
     }
 }
@@ -870,8 +871,10 @@ def add_network_options(parser):
 
 def add_global_options(parser):
     group = parser.add_argument_group('global options')
-    group.add_argument("-v", "--verbose", action="store_true", dest="verbose", default=False,
-                       help="Show debugging information")
+    group.add_argument("-v", "--verbose", action="store", dest="verbose",
+                       const='info', default='warning', nargs='?',
+                       choices = ('debug', 'info', 'warning', 'error'),
+                       help="Set logging verbosity")
     group.add_argument("-D", "--dir", dest="electrum_sv_path", help="ElectrumSV directory")
     group.add_argument("-P", "--portable", action="store_true", dest="portable", default=False,
                        help="Use local 'electrum_data' directory")
@@ -895,7 +898,7 @@ def get_parser():
                                        help="Run GUI (default)")
     parser_gui.add_argument("url", nargs='?', default=None, help="bitcoin URI (or bip70 file)")
     parser_gui.add_argument("-g", "--gui", dest="gui", help="select graphical user interface",
-                            choices=['qt', 'text', 'stdio'])
+                            choices=['qt'])
     parser_gui.add_argument("-o", "--offline", action="store_true", dest="offline", default=False,
                             help="Run offline")
     parser_gui.add_argument("-m", action="store_true", dest="hide_gui", default=False,

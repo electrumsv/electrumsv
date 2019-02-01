@@ -1,26 +1,14 @@
 # -*- mode: python -*-
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
-
+import os
 import sys
-for i, x in enumerate(sys.argv):
-    if x == '--name':
-        cmdline_name = sys.argv[i+1]
-        break
-else:
-    raise Exception('no name')
+
+from PyInstaller.utils.hooks import collect_dynamic_libs
 
 PYHOME = 'c:/python3'
 
+cmdline_name = "ElectrumSV"
 home = 'C:\\electrum\\'
-
-# see https://github.com/pyinstaller/pyinstaller/issues/2005
-hiddenimports = []
-hiddenimports += collect_submodules('trezorlib')
-hiddenimports += collect_submodules('btchip')
-hiddenimports += collect_submodules('keepkeylib')
-# Keepkey imports PyQt5.Qt.  Provide our own until they fix it
-hiddenimports.remove('keepkeylib.qt.pinmatrix')
 
 # Add libusb binary
 binaries = [(PYHOME+"/libusb-1.0.dll", ".")]
@@ -31,40 +19,15 @@ binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]
 binaries += [('C:/tmp/libsecp256k1.dll', '.')]
 
 datas = [
-    (home+'electrumsv/*.json', 'electrumsv'),
-    (home+'electrumsv/wordlist/english.txt', 'electrumsv/wordlist'),
-    (home+'electrumsv/locale', 'electrumsv/locale'),
-    (home+'electrumsv/plugins', 'electrumsv/plugins'),
+    (home+'data', 'data'),
     ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),
 ]
-datas += collect_data_files('trezorlib')
-datas += collect_data_files('btchip')
-datas += collect_data_files('keepkeylib')
 
-# We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
-a = Analysis([home+'electrum-sv',
-              home+'electrumsv/gui/qt/main_window.py',
-              home+'electrumsv/gui/text.py',
-              home+'electrumsv/util.py',
-              home+'electrumsv/wallet.py',
-              home+'electrumsv/simple_config.py',
-              home+'electrumsv/bitcoin.py',
-              home+'electrumsv/dnssec.py',
-              home+'electrumsv/commands.py',
-              home+'electrumsv/plugins/cosigner_pool/qt.py',
-              home+'electrumsv/plugins/email_requests/qt.py',
-              home+'electrumsv/plugins/trezor/client.py',
-              home+'electrumsv/plugins/trezor/qt.py',
-              home+'electrumsv/plugins/keepkey/qt.py',
-              home+'electrumsv/plugins/ledger/qt.py',
-              #home+'packages/requests/utils.py'
-              ],
+# We don't put these files in to actually include them in the script but to make the
+# Analysis method scan them for imports
+a = Analysis([home+'electrum-sv'],
              binaries=binaries,
-             datas=datas,
-             #pathex=[home+'lib', home+'gui', home+'plugins'],
-             hiddenimports=hiddenimports,
-             hookspath=[])
-
+             datas=datas)
 
 # http://stackoverflow.com/questions/19055089/pyinstaller-onefile-warning-pyconfig-h-when-importing-scipy-or-scipy-signal
 for d in a.datas:
@@ -72,16 +35,13 @@ for d in a.datas:
         a.datas.remove(d)
         break
 
-# Strip out parts of Qt that we never use. Reduces binary size by tens of MBs. see #4815
-qt_bins2remove=('qt5web', 'qt53d', 'qt5game', 'qt5designer', 'qt5quick',
-                'qt5location', 'qt5test', 'qt5xml', r'pyqt5\qt\qml\qtquick',
-                r'PyQt5\Qt\bin')
-print("Removing Qt binaries:", *qt_bins2remove)
+# Strip out parts of Qt that we never use to reduce binary size
+# Note we need qtdbus and qtprintsupport.
+qt_bins2remove = {'qtquick', 'qtwebsockets', 'qtnetwork', 'qtqml'}
 for x in a.binaries.copy():
-    for r in qt_bins2remove:
-        if x[0].lower().startswith(r.lower()):
-            a.binaries.remove(x)
-            print('----> Removed x =', x)
+    lower = x[0].lower()
+    if lower in qt_bins2remove:
+        a.binaries.remove(x)
 
 qt_data2remove=(r'pyqt5\qt\translations\qtwebengine_locales', )
 print("Removing Qt datas:", *qt_data2remove)
@@ -109,7 +69,7 @@ exe_standalone = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons\\electrum-sv.ico',
+    icon=home+'data\\icons\\electrum-sv.ico',
     console=False)
     # console=True makes an annoying black box pop up, but it does make Electrum output command line commands, with this turned off no output will be given but commands can still be used
 
@@ -122,7 +82,7 @@ exe_portable = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons\\electrum-sv.ico',
+    icon=home+'data\\icons\\electrum-sv.ico',
     console=False)
 
 #####
@@ -136,7 +96,7 @@ exe_dependent = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons\\electrum-sv.ico',
+    icon=home+'data\\icons\\electrum-sv.ico',
     console=False)
 
 coll = COLLECT(
@@ -147,6 +107,6 @@ coll = COLLECT(
     strip=None,
     upx=True,
     debug=False,
-    icon=home+'icons\\electrum-sv.ico',
+    icon=home+'data\\icons\\electrum-sv.ico',
     console=False,
     name=os.path.join('dist', 'electrum'))

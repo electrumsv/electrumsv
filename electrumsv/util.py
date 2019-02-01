@@ -27,7 +27,6 @@ from collections import defaultdict
 from datetime import datetime
 import json
 import hmac
-import logging
 import os
 import re
 import socket
@@ -37,58 +36,15 @@ import sys
 import threading
 import time
 
-from .i18n import _
-
-# Get the root logger.
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.CRITICAL)
-
-profiler_logger = logging.getLogger("profiler")
-
-
-def add_logging_handler(handler):
-    formatter = logging.Formatter('%(asctime)s:'+ logging.BASIC_FORMAT)
-    handler.setFormatter(formatter)
-    root_logger.addHandler(handler)
-
-add_logging_handler(logging.StreamHandler())
+from .logs import logs
+from .startup import base_dir
 
 
 def inv_dict(d):
     return {v: k for k, v in d.items()}
 
-fee_levels = [_('Within 25 blocks'), _('Within 10 blocks'), _('Within 5 blocks'),
-              _('Within 2 blocks'), _('In the next block')]
-
 def normalize_version(v):
     return [int(x) for x in re.sub(r'(\.0+)*$','', v).split(".")]
-
-class NotEnoughFunds(Exception): pass
-
-class ExcessiveFee(Exception): pass
-
-class InvalidPassword(Exception):
-    def __str__(self):
-        return _("Incorrect password")
-
-
-class FileImportFailed(Exception):
-    def __str__(self):
-        return _("Failed to import file.")
-
-
-class FileImportFailedEncrypted(FileImportFailed):
-    def __str__(self):
-        return (_('Failed to import file.') + ' ' +
-                _('Perhaps it is encrypted...') + '\n' +
-                _('Importing encrypted files is not supported.'))
-
-
-# Throw this exception to unwind the stack like when an error occurs.
-# However unlike other exceptions the user won't be informed.
-class UserCancelled(Exception):
-    '''An exception that is suppressed from the user'''
-    pass
 
 class MyEncoder(json.JSONEncoder):
     # https://github.com/PyCQA/pylint/issues/414
@@ -114,10 +70,11 @@ class DebugMem(ThreadJob):
         self.next_time = 0
         self.classes = classes
         self.interval = interval
+        self.logger = logs.get_logger('memory')
 
     def mem_stats(self):
         import gc
-        root_logger.debug("Start memscan")
+        self.logger.debug("start memscan")
         gc.collect()
         objmap = defaultdict(list)
         for obj in gc.get_objects():
@@ -125,8 +82,8 @@ class DebugMem(ThreadJob):
                 if isinstance(obj, class_):
                     objmap[class_].append(obj)
         for class_, objs in objmap.items():
-            root_logger.debug("%s: %d", class_.__name__, len(objs))
-        root_logger.debug("Finish memscan")
+            self.logger.debug("%s: %d", class_.__name__, len(objs))
+        self.logger.debug("finish memscan")
 
     def run(self):
         if time.time() > self.next_time:
@@ -136,13 +93,15 @@ class DebugMem(ThreadJob):
 class DaemonThread(threading.Thread):
     """ daemon thread that terminates cleanly """
 
-    def __init__(self):
+    def __init__(self, name):
         threading.Thread.__init__(self)
+        self.name = name
         self.parent_thread = threading.currentThread()
         self.running = False
         self.running_lock = threading.Lock()
         self.job_lock = threading.Lock()
         self.jobs = []
+        self.logger = logs.get_logger(f'{name} thread')
 
     def add_jobs(self, jobs):
         with self.job_lock:
@@ -157,7 +116,7 @@ class DaemonThread(threading.Thread):
                 try:
                     job.run()
                 except Exception as e:
-                    logging.exception("")
+                    self.logger.exception("running job")
 
     def remove_jobs(self, jobs):
         with self.job_lock:
@@ -178,30 +137,8 @@ class DaemonThread(threading.Thread):
             self.running = False
 
     def on_stop(self):
-        if 'ANDROID_DATA' in os.environ:
-            try:
-                import jnius
-                jnius.detach()
-                root_logger.debug("jnius detach")
-            except ImportError:
-                pass  # Chaquopy detaches automatically.
-        root_logger.debug("stopped")
+        self.logger.debug("stopped")
 
-def disable_verbose_logging():
-    root_logger.setLevel(logging.ERROR)
-
-def enable_verbose_logging():
-    root_logger.setLevel(logging.DEBUG)
-
-def is_logging_verbose():
-    return logging.getLogger().level == logging.DEBUG
-
-# TODO: disable
-is_verbose = True
-def set_verbosity(b):
-    global is_verbose
-    root_logger.setLevel(logging.DEBUG if b else logging.CRITICAL)
-    is_verbose = b
 
 # Method decorator.  To be used for calculations that will always
 # deliver the same result.  The method cannot take any arguments
@@ -241,10 +178,11 @@ def constant_time_compare(val1, val2):
 def profiler(func):
     def do_profile(func, args, kw_args):
         n = func.__name__
+        logger = logs.get_logger("profiler")
         t0 = time.time()
         o = func(*args, **kw_args)
         t = time.time() - t0
-        profiler_logger.debug("%s %.4f", n, t)
+        logger.debug("%s %.4f", n, t)
         return o
     return lambda *args, **kw_args: do_profile(func, args, kw_args)
 
@@ -257,15 +195,6 @@ def android_ext_dir():
         from android.os import Environment as env  # Chaquopy import hook
     return env.getExternalStorageDirectory().getPath()
 
-def ensure_sparse_file(filename):
-    if os.name == "nt":
-        try:
-            os.system("fsutil sparse setFlag \""+ filename +"\" 1")
-        except:
-            pass
-
-def get_headers_dir(config):
-    return config.path
 
 def assert_datadir_available(config_path):
     path = config_path
@@ -292,8 +221,8 @@ def assert_bytes(*args):
     try:
         for x in args:
             assert isinstance(x, (bytes, bytearray))
-    except Exception:
-        root_logger.error('assert bytes failed %s', [type(arg) for arg in args])
+    except AssertionError:
+        logs.root.error('assert bytes failed %s', [type(arg) for arg in args])
         raise
 
 
@@ -343,7 +272,7 @@ def bh2u(x):
     :param x: bytes
     :rtype: str
     """
-    return hfu(x).decode('ascii')
+    return x.hex()
 
 def get_electron_cash_user_dir(esv_user_dir):
     """Convert the ESV user directory to what it would be in Electron Cash.
@@ -357,26 +286,12 @@ def get_electron_cash_user_dir(esv_user_dir):
     esv_user_dir = esv_user_dir.replace("ElectrumSV", "ElectronCash")
     return esv_user_dir
 
-def user_dir(prefer_local=False):
-    if os.name == 'posix' and "HOME" in os.environ:
-        return os.path.join(os.environ["HOME"], ".electrum-sv" )
-    elif "APPDATA" in os.environ or "LOCALAPPDATA" in os.environ:
-        app_dir = os.environ.get("APPDATA")
-        localapp_dir = os.environ.get("LOCALAPPDATA")
-        # Prefer APPDATA, but may get LOCALAPPDATA if present and req'd.
-        if localapp_dir is not None and prefer_local or app_dir is None:
-            app_dir = localapp_dir
-        return os.path.join(app_dir, "ElectrumSV")
-    else:
-        #raise Exception("No home directory found in environment variables.")
-        return
-
 
 def make_dir(path):
     # Make directory if it does not yet exist.
     if not os.path.exists(path):
         if os.path.islink(path):
-            raise BaseException('Dangling link: ' + path)
+            raise Exception('Dangling link: ' + path)
         os.mkdir(path)
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
@@ -419,9 +334,9 @@ def timestamp_to_datetime(timestamp):
     except:
         return None
 
-def format_time(timestamp):
+def format_time(timestamp, default_text):
     date = timestamp_to_datetime(timestamp)
-    return date.isoformat(' ')[:-3] if date else _("Unknown")
+    return date.isoformat(' ')[:-3] if date else default_text
 
 
 # Takes a timestamp and returns a string with the approximation of the age
@@ -514,6 +429,7 @@ class SocketPipe:
         self.message = b''
         self.set_timeout(0.1)
         self.recv_time = time.time()
+        self.logger = logs.get_logger('SocketPipe')
 
     def set_timeout(self, t):
         self.socket.settimeout(t)
@@ -536,15 +452,15 @@ class SocketPipe:
                 if err.errno == 60:
                     raise timeout
                 elif err.errno in [11, 35, 10035]:
-                    root_logger.debug("socket errno %d (resource temporarily unavailable)",
-                                      err.errno)
+                    self.logger.info("socket errno %d (resource temporarily unavailable)",
+                                     err.errno)
                     time.sleep(0.2)
                     raise timeout
                 else:
-                    root_logger.exception("pipe: socket error")
+                    self.logger.exception(f"socket.recv unknown socket.error {err.errno}")
                     data = b''
-            except:
-                root_logger.exception("")
+            except Exception as e:
+                self.logger.exception("socket.recv unknown exception {e}")
                 data = b''
 
             if not data:  # Connection closed remotely
@@ -595,3 +511,7 @@ def setup_thread_excepthook():
 
 def versiontuple(v):
     return tuple(int(x) for x in v.split("."))
+
+
+def resource_path(*parts):
+    return os.path.join(base_dir, "data", *parts)

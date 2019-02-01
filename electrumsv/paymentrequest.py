@@ -25,31 +25,32 @@
 
 import hashlib
 import json
-import logging
 import requests
-import sys
 import time
 import urllib.parse
 
 from . import bitcoin
+from . import ecc
 # Create with 'protoc --proto_path=lib/ --python_out=lib/ lib/paymentrequest.proto'
 from . import paymentrequest_pb2 as pb2
 from . import rsakey
 from . import transaction
 from . import util
 from . import x509
-from .util import FileImportFailed, FileImportFailedEncrypted
+from .exceptions import FileImportFailed, FileImportFailedEncrypted
+from .logs import logs
 from .util import bh2u, bfh
 
-logger = logging.getLogger("paymentrequest")
+
+logger = logs.get_logger("paymentrequest")
 
 REQUEST_HEADERS = {
-    'Accept': 'application/bitcoincash-paymentrequest',
+    'Accept': 'application/bitcoin-paymentrequest',
     'User-Agent': 'ElectrumSV'
 }
 ACK_HEADERS = {
-    'Content-Type': 'application/bitcoincash-payment',
-    'Accept': 'application/bitcoincash-paymentack',
+    'Content-Type': 'application/bitcoin-payment',
+    'Accept': 'application/bitcoin-paymentack',
     'User-Agent': 'ElectrumSV'
 }
 
@@ -80,11 +81,11 @@ def get_payment_request(url):
         try:
             response = requests.request('GET', url, headers=REQUEST_HEADERS)
             response.raise_for_status()
-            # Guard against `bitcoincash:`-URIs with invalid payment request URLs
+            # Guard against `bitcoin:`-URIs with invalid payment request URLs
             if "Content-Type" not in response.headers \
-            or response.headers["Content-Type"] != "application/bitcoincash-paymentrequest":
+            or response.headers["Content-Type"] != "application/bitcoin-paymentrequest":
                 data = None
-                error = "payment URL not pointing to a bitcoincash payment request handling server"
+                error = "payment URL not pointing to a bitcoinSV payment request handling server"
             else:
                 data = response.content
             logger.debug('fetched payment request \'%s\' (%d)', url, len(response.content))
@@ -102,7 +103,7 @@ def get_payment_request(url):
             data = None
             error = "payment URL not pointing to a valid file"
     else:
-        raise BaseException("unknown scheme", url)
+        raise Exception("unknown scheme", url)
     pr = PaymentRequest(data, error)
     return pr
 
@@ -175,8 +176,8 @@ class PaymentRequest:
         # verify the chain of certificates
         try:
             x, ca = verify_cert_chain(cert.certificate)
-        except BaseException as e:
-            logging.exception("")
+        except Exception as e:
+            logger.exception("")
             self.error = str(e)
             return False
         # get requestor name
@@ -214,7 +215,7 @@ class PaymentRequest:
             address = info.get('address')
             pr.signature = ''
             message = pr.SerializeToString()
-            if bitcoin.verify_message(address, sig, message):
+            if ecc.verify_message_with_address(address, sig, message):
                 self.error = 'Verified with DNSSEC'
                 return True
             else:
@@ -236,7 +237,7 @@ class PaymentRequest:
     def get_address(self):
         o = self.outputs[0]
         assert o[0] == bitcoin.TYPE_ADDRESS
-        return o[1].to_ui_string()
+        return o[1].to_string()
 
     def get_requestor(self):
         return self.requestor if self.requestor else self.get_address()
@@ -334,8 +335,7 @@ def sign_request_with_alias(pr, alias, alias_privkey):
     pr.pki_type = 'dnssec+btc'
     pr.pki_data = str(alias)
     message = pr.SerializeToString()
-    ec_key = bitcoin.regenerate_key(alias_privkey)
-    address = bitcoin.address_from_private_key(alias_privkey)
+    ec_key = ecc.ECPrivkey(alias_privkey)
     compressed = bitcoin.is_compressed(alias_privkey)
     pr.signature = ec_key.sign_message(message, compressed)
 
@@ -353,9 +353,9 @@ def verify_cert_chain(chain):
             x.check_date()
         else:
             if not x.check_ca():
-                raise BaseException("ERROR: Supplied CA Certificate Error")
+                raise Exception("ERROR: Supplied CA Certificate Error")
     if not cert_num > 1:
-        raise BaseException("ERROR: CA Certificate Chain Not Provided by Payment Processor")
+        raise Exception("ERROR: CA Certificate Chain Not Provided by Payment Processor")
     # if the root CA is not supplied, add it to the chain
     ca = x509_chain[cert_num-1]
     if ca.getFingerprint() not in ca_list:
@@ -365,7 +365,7 @@ def verify_cert_chain(chain):
             root = ca_list[f]
             x509_chain.append(root)
         else:
-            raise BaseException("Supplied CA Not Found in Trusted CA Store.")
+            raise Exception("Supplied CA Not Found in Trusted CA Store.")
     # verify the chain of signatures
     cert_num = len(x509_chain)
     for i in range(1, cert_num):
@@ -386,10 +386,10 @@ def verify_cert_chain(chain):
             hashBytes = bytearray(hashlib.sha512(data).digest())
             verify = pubkey.verify(sig, x509.PREFIX_RSA_SHA512 + hashBytes)
         else:
-            raise BaseException("Algorithm not supported")
+            raise Exception("Algorithm not supported")
             # logger.error("%s %s", self.error, algo.getComponentByName('algorithm'))
         if not verify:
-            raise BaseException("Certificate not Signed by Provided CA Certificate Chain")
+            raise Exception("Certificate not Signed by Provided CA Certificate Chain")
 
     return x509_chain[0], ca
 
@@ -486,10 +486,10 @@ class InvoiceStore(object):
                 d = json.loads(f.read())
                 self.load(d)
         except json.decoder.JSONDecodeError:
-            logging.exception("")
+            logger.exception("")
             raise FileImportFailedEncrypted()
-        except BaseException:
-            logging.exception("")
+        except Exception:
+            logger.exception("")
             raise FileImportFailed()
         self.save()
 

@@ -28,20 +28,21 @@ import base64
 import copy
 import hashlib
 import json
-import logging
 import os
 import re
 import stat
 import threading
 import zlib
 
-from .address import Address
-from .util import profiler
-from .plugin import run_hook, plugin_loaders
-from .keystore import bip44_derivation
 from . import bitcoin
+from . import ecc
+from .address import Address
+from .keystore import bip44_derivation
+from .logs import logs
+from .util import profiler, bfh
 
-logger = logging.getLogger("storage")
+
+logger = logs.get_logger("storage")
 
 
 # seed_version is now used for the version of the wallet file
@@ -69,7 +70,7 @@ class WalletStorage:
         logger.debug("wallet path '%s'", path)
         dirname = os.path.dirname(path)
         if not os.path.exists(dirname):
-            raise RuntimeError(f'directory {dirname} does not exist')
+            raise IOError(f'directory {dirname} does not exist')
         self.manual_upgrades = manual_upgrades
         self.lock = threading.RLock()
         self.data = {}
@@ -107,14 +108,9 @@ class WalletStorage:
                     continue
                 self.data[key] = value
 
-        # check here if I need to load a plugin
-        t = self.get('wallet_type')
-        l = plugin_loaders.get(t)
-        if l: l()
-
         if not self.manual_upgrades:
             if self.requires_split():
-                raise BaseException("This wallet has multiple accounts and must be split")
+                raise Exception("This wallet has multiple accounts and must be split")
             if self.requires_upgrade():
                 self.upgrade()
 
@@ -127,23 +123,27 @@ class WalletStorage:
     def file_exists(self):
         return self.path and os.path.exists(self.path)
 
-    def get_key(self, password):
+    @staticmethod
+    def get_eckey_from_password(password):
         secret = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), b'', iterations=1024)
-        ec_key = bitcoin.EC_KEY(secret)
+        ec_key = ecc.ECPrivkey.from_arbitrary_size_secret(secret)
         return ec_key
 
     def decrypt(self, password):
-        ec_key = self.get_key(password)
-        s = zlib.decompress(ec_key.decrypt_message(self.raw)) if self.raw else None
-        self.pubkey = ec_key.get_public_key()
+        ec_key = self.get_eckey_from_password(password)
+        if self.raw:
+            s = zlib.decompress(ec_key.decrypt_message(self.raw))
+        else:
+            s = None
+        self.pubkey = ec_key.get_public_key_hex()
         s = s.decode('utf8')
         self.load_data(s)
 
     def set_password(self, password, encrypt):
         self.put('use_encryption', bool(password))
         if encrypt and password:
-            ec_key = self.get_key(password)
-            self.pubkey = ec_key.get_public_key()
+            ec_key = self.get_eckey_from_password(password)
+            self.pubkey = ec_key.get_public_key_hex()
         else:
             self.pubkey = None
 
@@ -187,7 +187,9 @@ class WalletStorage:
         if self.pubkey:
             s = bytes(s, 'utf8')
             c = zlib.compress(s)
-            s = bitcoin.encrypt_message(c, self.pubkey)
+            enc_magic = b'BIE1'
+            public_key = ecc.ECPubkey(bfh(self.pubkey))
+            s = public_key.encrypt_message(c, enc_magic)
             s = s.decode('utf8')
 
         temp_path = "%s.tmp.%s" % (self.path, os.getpid())
@@ -256,7 +258,7 @@ class WalletStorage:
                 storage2.write()
                 result.append(new_path)
         else:
-            raise BaseException("This wallet has multiple accounts and must be split")
+            raise Exception("This wallet has multiple accounts and must be split")
         return result
 
     def requires_upgrade(self):
@@ -489,7 +491,7 @@ class WalletStorage:
             else:
                 addresses.append(addr)
         if addresses and keypairs:
-            raise BaseException('mixed addresses and privkeys')
+            raise Exception('mixed addresses and privkeys')
         elif addresses:
             self.put('addresses', addresses)
             self.put('accounts', None)
@@ -499,7 +501,7 @@ class WalletStorage:
             self.put('keypairs', keypairs)
             self.put('accounts', None)
         else:
-            raise BaseException('no addresses or privkeys')
+            raise Exception('no addresses or privkeys')
 
     def convert_account(self):
         if not self._is_upgrade_method_needed(0, 13):
@@ -512,16 +514,13 @@ class WalletStorage:
         if cur_version > max_version:
             return False
         elif cur_version < min_version:
-            raise BaseException(
+            raise Exception(
                 ('storage upgrade: unexpected version %d (should be %d-%d)'
                  % (cur_version, min_version, max_version)))
         else:
             return True
 
     def get_action(self):
-        action = run_hook('get_action', self)
-        if action:
-            return action
         if not self.file_exists():
             return 'new'
 
@@ -531,7 +530,7 @@ class WalletStorage:
             seed_version = (OLD_SEED_VERSION if len(self.get('master_public_key','')) == 128
                             else NEW_SEED_VERSION)
         if seed_version > FINAL_SEED_VERSION:
-            raise BaseException('This version of Electrum is too old to open this wallet')
+            raise Exception('This version of Electrum is too old to open this wallet')
         if seed_version >=12:
             return seed_version
         if seed_version not in [OLD_SEED_VERSION, NEW_SEED_VERSION]:
@@ -557,4 +556,4 @@ class WalletStorage:
                 # creation was complete if electrum was run from source
                 msg += ("\nPlease open this file with Electrum 1.9.8, and move "
                         "your coins to a new wallet.")
-        raise BaseException(msg)
+        raise Exception(msg)

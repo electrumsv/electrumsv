@@ -27,8 +27,7 @@ import webbrowser
 from electrumsv.i18n import _
 import electrumsv.web as web
 from electrumsv.address import Address
-from electrumsv.plugin import run_hook
-from electrumsv.util import FileImportFailed
+from electrumsv.exceptions import FileImportFailed
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QAbstractItemView, QFileDialog, QMenu, QTreeWidgetItem)
@@ -87,7 +86,6 @@ class ContactList(MyTreeWidget):
                 menu.addAction(_("View on block explorer"),
                                lambda: [webbrowser.open(URL) for URL in URLs])
 
-        run_hook('create_contact_menu', menu, selected)
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def on_update(self):
@@ -101,4 +99,3 @@ class ContactList(MyTreeWidget):
             self.addTopLevelItem(item)
             if key == current_key:
                 self.setCurrentItem(item)
-        run_hook('update_contacts_tab', self)

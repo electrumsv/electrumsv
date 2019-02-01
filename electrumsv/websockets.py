@@ -25,21 +25,19 @@
 
 from collections import defaultdict
 import json
-import logging
 import os
 import queue
-import sys
 import threading
 
-try:
-    from SimpleWebSocketServer import WebSocket, SimpleSSLWebSocketServer
-except ImportError:
-    sys.exit("install SimpleWebSocketServer")
+# pylint: disable=import-error
+from SimpleWebSocketServer import WebSocket, SimpleSSLWebSocketServer
 
 from . import util
 from .address import Address
+from .logs import logs
 
-logger = logging.getLogger("websockets")
+
+logger = logs.get_logger("websockets")
 
 request_queue = queue.Queue()
 
@@ -62,7 +60,7 @@ class ElectrumWebSocket(WebSocket):
 class WsClientThread(util.DaemonThread):
 
     def __init__(self, config, network):
-        util.DaemonThread.__init__(self)
+        super.__init__('websocket client')
         self.network = network
         self.config = config
         self.response_queue = queue.Queue()
