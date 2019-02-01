@@ -245,28 +245,7 @@ def run_offline_command(config, config_options):
     return result
 
 
-def enforce_requirements():
-    requirement_path = os.path.join(
-        os.path.dirname(sys.argv[0]), "contrib", "requirements", "requirements.txt")
-    if not os.path.exists(requirement_path):
-        return
-
-    import pkg_resources
-    from pkg_resources import DistributionNotFound, VersionConflict
-    with open(requirement_path, 'r') as f:
-        try:
-            pkg_resources.require(f.readlines())
-        except VersionConflict as e:
-            # e.g. "Dependency version conflict, got 'bitcoinX 0.0.4', expected 'bitcoinX==0.0.5'"
-            sys.exit(f"Dependency version conflict, got '{e.args[0]}', expected '{e.args[1]}'")
-        except DistributionNotFound as e:
-            # e.g. "The 'qrcode' distribution was not found and is required by the application"
-            sys.exit(str(e))
-
-
 def main():
-    enforce_requirements()
-
     # The hook will only be used in the Qt GUI right now
     setup_thread_excepthook()
     # on osx, delete Process Serial Number arg generated for apps launched in Finder
