@@ -103,7 +103,7 @@ DoCodeSignMaybe "CalinsQRReader.app" "${d}/build/Release/CalinsQRReader.app" "$A
 info "Installing $PACKAGE..."
 python3 setup.py install > /dev/null || fail "Could not build $PACKAGE"
 
-VERSION=1.0.0
+VERSION=1.1.0b1
 info "Using Pyinstaller to build $PACKAGE version $VERSION"
 pyinstaller --noconfirm --ascii contrib/osx/osx.spec || fail "Could not build binary"
 
