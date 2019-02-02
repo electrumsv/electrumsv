@@ -12,32 +12,59 @@
 #- release-1.0
 
 jobs:
-- job: LinuxBasedWindowsBuild
+- job: BuildLinuxBasedWindows
   pool:
     vmImage: 'ubuntu-16.04'
   steps:
   - script: |
       sudo docker pull $(imageName)
       sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine electrumsv/electrumsv-wine-builder-img ./build.sh
+      pushd contrib/build-wine/dist
+      # We cannot write to the 'dist' directory, so need to write them elsewhere.
+      sha256sum *.exe > $(Build.Repository.LocalPath)/windows-hashes.txt
+      popd
     displayName: 'Windows build'
   - task: CopyFiles@2
     inputs:
-      contents: contrib/build-wine/dist/?(*.exe|*.txt)
+      contents: |
+        windows-hashes.txt
+        contrib/build-wine/dist/?(*.exe|*.txt)
       targetFolder: $(Build.ArtifactStagingDirectory)
       flattenFolders: true
       OverWrite: true
   - task: PublishPipelineArtifact@0
     inputs:
-      artifactName: 'Windows Build'
+      artifactName: 'Windows build files'
       targetPath: $(Build.ArtifactStagingDirectory)
   variables:
     imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img:latest'
-    system.debug: true
-- job: MacOSBuild
+- job: BuildPackages
+  pool:
+    vmImage: 'ubuntu-16.04'
+  steps:
+  - script: |
+      ./contrib/make_packages
+      ./contrib/make_tgz
+      pushd dist
+      # We cannot write to the 'dist' directory, so need to write them elsewhere.
+      sha256sum * > $(Build.Repository.LocalPath)/package-hashes.txt
+      popd
+    displayName: 'Build Python packages'
+  - task: CopyFiles@2
+    inputs:
+      contents: dist/?(*.zip|*.gz|*.txt)
+      targetFolder: $(Build.ArtifactStagingDirectory)
+      flattenFolders: true
+      OverWrite: true
+  - task: PublishPipelineArtifact@0
+    inputs:
+      artifactName: 'Python package files'
+      targetPath: $(Build.ArtifactStagingDirectory)
+- job: BuildMacOS
   pool:
     vmImage: 'macOS-10.13'
   steps:
   - script: |
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
-    displayName: 'Macos build'
+    displayName: 'Build MacOS binaries'
