@@ -79,7 +79,7 @@ setup(
     packages=find_packages(exclude=('electrumsv.tests', )),
     # If set to True, this tells setuptools to automatically include any data files it finds inside
     # your package directories that are specified by your MANIFEST.in file.
-    include_package_package=True,
+    include_package_data=True,
     scripts=['electrum-sv'],
     data_files=data_files,
     description="Lightweight Bitcoin SV Wallet",
