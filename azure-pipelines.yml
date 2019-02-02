@@ -5,15 +5,26 @@
 
 trigger:
 - master
+- release-1.0
 
-pool:
-  vmImage: 'Ubuntu-16.04'
+pr:
+- master
+- release-1.0
 
-variables:
-  imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img:latest'
-
-steps:
-- script: |
-    sudo docker pull $(imageName)
-    sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine electrumsv/electrumsv-wine-builder-img ./build.sh
-  displayName: 'docker build'
+jobs:
+- job: LinuxBasedWindowsBuild
+  pool:
+    vmImage: 'ubuntu-16.04'
+  steps:
+  - script: |
+      sudo docker pull $(imageName)
+      sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine electrumsv/electrumsv-wine-builder-img ./build.sh
+    displayName: 'Windows build'
+  variables:
+    imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img:latest'
+- job: MacOSBuild
+  pool:
+    vmImage: 'macOS-10.13'
+  steps:
+  - script: ./contrib/osx/make_osx
+    displayName: 'Macos build'
