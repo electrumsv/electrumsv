@@ -24,6 +24,7 @@ jobs:
       sha256sum *.exe > $(Build.Repository.LocalPath)/windows-hashes.txt
       popd
     displayName: 'Windows build'
+    continueOnError: false
   - task: CopyFiles@2
     inputs:
       contents: |
@@ -38,11 +39,12 @@ jobs:
       targetPath: $(Build.ArtifactStagingDirectory)
   variables:
     imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img:latest'
-- job: BuildPackages
+- job: BuildPythonPackages
   pool:
     vmImage: 'ubuntu-16.04'
   steps:
   - script: |
+      pip install --upgrade pip
       ./contrib/make_packages
       ./contrib/make_tgz
       pushd dist
@@ -50,6 +52,7 @@ jobs:
       sha256sum * > $(Build.Repository.LocalPath)/package-hashes.txt
       popd
     displayName: 'Build Python packages'
+    continueOnError: false
   - task: CopyFiles@2
     inputs:
       contents: dist/?(*.zip|*.gz|*.txt)
@@ -67,4 +70,5 @@ jobs:
   - script: |
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
+    continueOnError: false
     displayName: 'Build MacOS binaries'
