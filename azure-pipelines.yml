@@ -3,13 +3,13 @@
 # Add steps that use Docker Compose, tag images, push to a registry, run an image, and more:
 # https://docs.microsoft.com/azure/devops/pipelines/languages/docker
 
-trigger:
-- master
-- release-1.0
+#trigger:
+#- master
+#- release-1.0
 
-pr:
-- master
-- release-1.0
+#pr:
+#- master
+#- release-1.0
 
 jobs:
 - job: LinuxBasedWindowsBuild
@@ -20,10 +20,16 @@ jobs:
       sudo docker pull $(imageName)
       sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine electrumsv/electrumsv-wine-builder-img ./build.sh
     displayName: 'Windows build'
+  - task: CopyFiles@2
+    inputs:
+      contents: contrib/build-wine/dist/?(*.exe|*.txt)
+      targetFolder: $(Build.ArtifactStagingDirectory)
+      flattenFolders: true
+      OverWrite: true
   - task: PublishPipelineArtifact@0
     inputs:
-      artifactName: 'Windows Binaries' 
-      targetPath: contrib/build-wine/dist
+      artifactName: 'Windows Build'
+      targetPath: $(Build.ArtifactStagingDirectory)
   variables:
     imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img:latest'
     system.debug: true
@@ -32,6 +38,6 @@ jobs:
     vmImage: 'macOS-10.13'
   steps:
   - script: |
-      brew install xgettext && brew link gettext --force
+      brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
     displayName: 'Macos build'
