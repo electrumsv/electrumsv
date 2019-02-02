@@ -9,10 +9,14 @@ ElectrumSV - Lightweight Bitcoin SV client
   Language: Python (>=3.6)
   Homepage: https://electrumsv.io/
 
+|crowdin_badge| |azurepipeline_badge|
 
-.. image:: https://d322cqt584bo4o.cloudfront.net/electrumsv/localized.svg
+.. |crowdin_badge| image:: https://d322cqt584bo4o.cloudfront.net/electrumsv/localized.svg
     :target: https://crowdin.com/project/electrumsv
-    :alt: Help translate ElectrumSV online
+    :alt: Help translate ElectrumSV online \
+.. |azurepipeline_badge| image:: https://dev.azure.com/electrumsv/ElectrumSV/_apis/build/status/electrumsv.electrumsv?branchName=master
+    :target: https://dev.azure.com/electrumsv/ElectrumSV/_build/latest?definitionId=1&branchName=master
+    :alt: Build status on Azure Pipelines
 
 Getting started
 ===============
