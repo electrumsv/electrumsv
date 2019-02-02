@@ -20,11 +20,18 @@ jobs:
       sudo docker pull $(imageName)
       sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine electrumsv/electrumsv-wine-builder-img ./build.sh
     displayName: 'Windows build'
+  - task: PublishPipelineArtifact@0
+    inputs:
+      artifactName: 'Windows Binaries' 
+      targetPath: contrib/build-wine/dist
   variables:
     imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img:latest'
+    system.debug: true
 - job: MacOSBuild
   pool:
     vmImage: 'macOS-10.13'
   steps:
-  - script: ./contrib/osx/make_osx
+  - script: |
+      brew install xgettext && brew link gettext --force
+      ./contrib/osx/make_osx
     displayName: 'Macos build'
