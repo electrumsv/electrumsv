@@ -15,5 +15,5 @@ variables:
 steps:
 - script: |
     sudo docker pull $(imageName)
-    sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine electrumsv-wine-builder-img ./build.sh
+    sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine electrumsv/electrumsv-wine-builder-img ./build.sh
   displayName: 'docker build'
