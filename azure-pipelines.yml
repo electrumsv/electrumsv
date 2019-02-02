@@ -24,7 +24,9 @@ jobs:
       sha256sum *.exe > $(Build.Repository.LocalPath)/windows-hashes.txt
       popd
     displayName: 'Windows build'
+    enabled: true
     continueOnError: false
+    failOnStderr: true
   - task: CopyFiles@2
     inputs:
       contents: |
@@ -43,16 +45,22 @@ jobs:
   pool:
     vmImage: 'ubuntu-16.04'
   steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: 3.6
+      addToPath: true
+      architecture: x64
   - script: |
       sudo pip3 install --upgrade pip setuptools
       ./contrib/make_packages
       ./contrib/make_tgz
       pushd dist
-      # We cannot write to the 'dist' directory, so need to write them elsewhere.
-      sha256sum * > $(Build.Repository.LocalPath)/package-hashes.txt
+      sha256sum * > package-hashes.txt
       popd
     displayName: 'Build Python packages'
+    enabled: true
     continueOnError: false
+    failOnStderr: true
   - task: CopyFiles@2
     inputs:
       contents: dist/?(*.zip|*.gz|*.txt)
@@ -70,5 +78,7 @@ jobs:
   - script: |
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
+    enabled: true
     continueOnError: false
+    failOnStderr: true
     displayName: 'Build MacOS binaries'
