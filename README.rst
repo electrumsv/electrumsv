@@ -31,8 +31,7 @@ directory. To run Electrum SV from its root directory, just do::
 
 You can also install Electrum SV on your system, by running this command::
 
-    sudo apt-get install python3-setuptools
-    python3 setup.py install
+    pip3 install .
 
 This will download and install the Python dependencies used by
 Electrum SV, instead of using the 'packages' directory.
@@ -52,7 +51,7 @@ Check out the code from Github::
 
 Run install (this should install dependencies)::
 
-    python3 setup.py install
+    pip3 install .
 
 Compile the protobuf description file::
 
