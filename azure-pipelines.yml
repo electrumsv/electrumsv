@@ -26,7 +26,7 @@ jobs:
     displayName: 'Windows build'
     enabled: true
     continueOnError: false
-    failOnStderr: true
+    failOnStderr: false
   - task: CopyFiles@2
     inputs:
       contents: |
@@ -60,7 +60,7 @@ jobs:
     displayName: 'Build Python packages'
     enabled: true
     continueOnError: false
-    failOnStderr: true
+    failOnStderr: false
   - task: CopyFiles@2
     inputs:
       contents: dist/?(*.zip|*.gz|*.txt)
@@ -80,5 +80,5 @@ jobs:
       ./contrib/osx/make_osx
     enabled: true
     continueOnError: false
-    failOnStderr: true
+    failOnStderr: false
     displayName: 'Build MacOS binaries'
