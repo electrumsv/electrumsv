@@ -44,7 +44,7 @@ jobs:
     vmImage: 'ubuntu-16.04'
   steps:
   - script: |
-      sudo -H  pip install --upgrade pip
+      sudo pip3 install --upgrade pip
       ./contrib/make_packages
       ./contrib/make_tgz
       pushd dist
