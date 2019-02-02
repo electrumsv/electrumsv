@@ -37,7 +37,7 @@ import threading
 import time
 
 from .logs import logs
-from .startup import base_dir
+from .startup import package_dir
 
 
 def inv_dict(d):
@@ -514,4 +514,4 @@ def versiontuple(v):
 
 
 def resource_path(*parts):
-    return os.path.join(base_dir, "data", *parts)
+    return os.path.join(package_dir, "data", *parts)

@@ -36,7 +36,8 @@ if vtuple < (3, 6, 0):
 
 # True if a pyinstaller binary
 is_bundle = getattr(sys, 'frozen', False)
-base_dir, _base_name = path.split(path.dirname(path.realpath(__file__)))
+package_dir = path.dirname(path.realpath(__file__))
+base_dir, _base_name = path.split(package_dir)
 
 # Add 'packages' directory to search path if running from source
 if not is_bundle and path.exists(path.join(base_dir, 'electrum-sv.desktop')):

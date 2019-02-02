@@ -61,11 +61,12 @@ if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
         share_dir = user_share
     data_files += [
         # Menu icon
-        (os.path.join(share_dir, 'icons/hicolor/128x128/apps/'), ['data/icons/electrum-sv.png']),
-        (os.path.join(share_dir, 'pixmaps/'),                    ['data/icons/electrum-sv.png']),
+        (os.path.join(share_dir, 'icons/hicolor/128x128/apps/'),
+         ['electrumsv/data/icons/electrum-sv.png']),
+        (os.path.join(share_dir, 'pixmaps/'),
+         ['electrumsv/data/icons/electrum-sv.png']),
         # Menu entry
         (os.path.join(share_dir, 'applications/'), ['electrum-sv.desktop']),
-        ('', [ file_name for file_name in copy_dir('data') ]),
     ]
 
 setup(
@@ -76,6 +77,9 @@ setup(
         'hardware': requirements_hw,
     },
     packages=find_packages(exclude=('electrumsv.tests', )),
+    # If set to True, this tells setuptools to automatically include any data files it finds inside
+    # your package directories that are specified by your MANIFEST.in file.
+    include_package_package=True,
     scripts=['electrum-sv'],
     data_files=data_files,
     description="Lightweight Bitcoin SV Wallet",

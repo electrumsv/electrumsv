@@ -19,7 +19,7 @@ binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]
 binaries += [('C:/tmp/libsecp256k1.dll', '.')]
 
 datas = [
-    (home+'data', 'data'),
+    (home+'electrumsv/data', 'electrumsv/data'),
     ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),
 ]
 
@@ -37,7 +37,8 @@ for d in a.datas:
 
 # Strip out parts of Qt that we never use to reduce binary size
 # Note we need qtdbus and qtprintsupport.
-qt_bins2remove = {'qtquick', 'qtwebsockets', 'qtnetwork', 'qtqml'}
+qt_bins2remove = {'qt5web', 'qt53d', 'qt5game', 'qt5designer', 'qt5quick',
+                  'qt5location', 'qt5test', 'qt5xml', r'pyqt5\qt\qml\qtquick'}
 for x in a.binaries.copy():
     lower = x[0].lower()
     if lower in qt_bins2remove:

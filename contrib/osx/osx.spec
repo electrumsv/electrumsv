@@ -11,7 +11,7 @@ version = SourceFileLoader('version', 'electrumsv/version.py').load_module()
 base_dir = os.path.abspath(".") + "/"
 
 datas = [
-    (base_dir + 'data', 'data'),
+    (base_dir + 'electrumsv/data', 'electrumsv/data'),
     (base_dir + "contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app",
      "CalinsQRReader.app"),
 ]
