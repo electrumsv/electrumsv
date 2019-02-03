@@ -1,7 +1,10 @@
 # - Unable to get the prefix wildcard to work in the trigger branch include list, e.g. 'release-*' or 'release*' is invalid.
 #   - Microsoft appear to force a branch naming based on '/', e.g. 'release/*' okay, 'release-*' not okay.
+#   - This means that as we make new major level releases we will have to manually add those branches (or adopt Microsoft's policy).
 # - 'failOnStdErr' flags unimportant things that are written to stderr, so cannot easily be enabled.
 #   - This means that if one command fails it will proceed onto the next and fail that.
+# - The Wine build docker image is specified by hash, with the intent that it ensures that what we get is what we uploaded to Docker Hub.
+#   - Also tying it to the hash, ensures historical reproducibility and failure will be indicated by Docker image availability.
 
 trigger:
   batch: true
@@ -48,7 +51,7 @@ jobs:
       artifactName: 'Windows build files'
       targetPath: $(Build.ArtifactStagingDirectory)
   variables:
-    imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img:latest'
+    imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img@sha256:8274d555237fc569f032006eccb7d76c1e2e4c9d9ca420d98a00efb527cce46e'
 - job: BuildPythonPackages
   pool:
     vmImage: 'ubuntu-16.04'
