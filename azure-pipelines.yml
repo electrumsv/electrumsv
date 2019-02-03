@@ -1,11 +1,14 @@
-# Docker image
-# Build a Docker image to deploy, run, or push to a container registry.
-# Add steps that use Docker Compose, tag images, push to a registry, run an image, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+# - Unable to get the prefix wildcard to work in the trigger branch include list, e.g. 'release-*' or 'release*' is invalid.
+#   - Microsoft appear to force a branch naming based on '/', e.g. 'release/*' okay, 'release-*' not okay.
+# - 'failOnStdErr' flags unimportant things that are written to stderr, so cannot easily be enabled.
+#   - This means that if one command fails it will proceed onto the next and fail that.
 
 trigger:
-- master
-- release-1.0
+  batch: true
+  branches:
+    include:
+    - master
+    - release-1.0
 
 pr:
 - master
