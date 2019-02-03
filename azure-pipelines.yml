@@ -29,7 +29,7 @@ jobs:
       architecture: x64
   - script: |
       sudo docker pull $(imageName)
-      sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine electrumsv/electrumsv-wine-builder-img ./build.sh
+      sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
       pushd contrib/build-wine/dist
       # We cannot write to the 'dist' directory, so need to write them elsewhere.
       sha256sum *.exe > $(Build.Repository.LocalPath)/windows-hashes.txt
