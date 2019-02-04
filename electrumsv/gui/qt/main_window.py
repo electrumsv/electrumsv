@@ -610,14 +610,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _update_check_toolbar_update(self):
         update_check_state = "default"
         check_result = self.config.get('last_update_check')
+        stable_version = "?"
         if check_result is not None:
             # The latest stable release date, the date of the build we are using.
-            release_date, current_date = get_update_check_dates(check_result['date'])
+            stable_result = check_result["stable"]
+            release_date, current_date = get_update_check_dates(stable_result["date"])
             if release_date > current_date:
                 if time.time() - release_date.timestamp() < 24 * 60 * 60:
                     update_check_state = "update-present-immediate"
                 else:
                     update_check_state = "update-present-prolonged"
+            stable_version = stable_result["version"]
 
         def _on_check_for_updates(checked: bool=False):
             self.show_update_check()
@@ -637,7 +640,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             menu.setDefaultAction(self._update_check_action)
         elif update_check_state == "update-present-immediate":
             icon_path = "icons8-available-updates-80-yellow"
-            icon_text = f"{check_result['version']}"
+            icon_text = f"{stable_version}"
             tooltip = _("A newer version of ElectrumSV is available, and "+
                 "was released on {0:%c}").format(release_date)
             self._update_view_pending_action = menu.addAction(
@@ -645,7 +648,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             menu.setDefaultAction(self._update_view_pending_action)
         elif update_check_state == "update-present-prolonged":
             icon_path = "icons8-available-updates-80-red"
-            icon_text = f"{check_result['version']}"
+            icon_text = f"{stable_version}"
             tooltip = _("A newer version of ElectrumSV is available, and "+
                 "was released on {0:%c}").format(release_date)
             self._update_view_pending_action = menu.addAction(
@@ -659,16 +662,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._update_check_state = update_check_state
 
     def _on_update_tray_notify(self, result):
+        stable_version = result["stable"]["version"]
         self.app.tray.showMessage(
             "ElectrumSV",
             _("A new version of ElectrumSV, version {}, is available for download")
-                .format(result["version"]),
+                .format(stable_version),
             read_QIcon("electrum_dark_icon"), 20000)
 
     def on_update_check(self, success, result):
         if success:
             # The latest stable release date, the date of the build we are using.
-            release_date, current_date = get_update_check_dates(result['date'])
+            stable_date_string = result["stable"]["date"]
+            release_date, current_date = get_update_check_dates(stable_date_string)
             if release_date > current_date:
                 self._on_update_tray_notify(result)
 

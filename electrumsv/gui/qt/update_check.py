@@ -28,10 +28,11 @@ MSG_BODY_UPDATE_AVAILABLE = (
 MSG_BODY_NO_UPDATE_AVAILABLE = ("The update check was successful.<br/><br/>"+
     "You are already using <b>{this_version}</b>, which is the latest version.")
 MSG_BODY_UNRELEASED_AVAILABLE = ("The update check was successful.<br/><br/>"+
-    "You are already using <b>{this_version}</b>, which is the later than the "+
+    "You are already using <b>{this_version}</b>, which is the more recent than the "+
     "last official version <b>{latest_version}</b>.")
 MSG_BODY_UNSTABLE_AVAILABLE = ("<br/><br/>"+
-    "<i>The latest unstable release {unstable_version} was released on {unstable_date:%Y/%m/%d %I:%M%p}.</i>")
+    "<i>The latest unstable release {unstable_version} was released on "+
+    "{unstable_date:%Y/%m/%d %I:%M%p}.</i>")
 
 logger = logs.get_logger("update_check.ui")
 
@@ -99,7 +100,9 @@ class UpdateCheckDialog(QWidget):
         self._title_label.setText(text)
 
     def _set_message(self, text):
-        self._message_label.setText(text)
+        # rt12 -- If the trailing breaks are not added, the QLabel depending on random
+        # circumstances may clip and not display text from the end of the message.
+        self._message_label.setText(text+"<br/><br/>")
 
     def _on_update_result(self, success, result):
         if success:
@@ -114,36 +117,39 @@ class UpdateCheckDialog(QWidget):
         self._set_progress(1.0)
 
         # Handle the case where data was fetched and it is incorrect or lacking.
-        if type(result) is not dict or 'version' not in result or 'date' not in result:
+        if type(result) is not dict or 'stable' not in result or 'unstable' not in result:
             self._set_message(_("The information about the latest version is broken."))
             return
 
         # Handle the case where the stable release is newer than our build.
-        release_date, current_date = get_update_check_dates(result['date'])
+        release_date, current_date = get_update_check_dates(result["stable"]["date"])
+        stable_version = result["stable"]["version"]
         message = ""
         if release_date > current_date:
             message = _(MSG_BODY_UPDATE_AVAILABLE).format(
                 this_version = PACKAGE_VERSION,
-                next_version = result['version'],
+                next_version = stable_version,
                 next_version_date = release_date,
                 download_uri='https://electrumsv.io/download/')
         # Handle the case where the we are newer than the latest stable release.
-        elif StrictVersion(result['version']) < StrictVersion(PACKAGE_VERSION):
+        elif StrictVersion(stable_version) < StrictVersion(PACKAGE_VERSION):
             message = _(MSG_BODY_UNRELEASED_AVAILABLE).format(
-                this_version=PACKAGE_VERSION, latest_version=result['version'])
+                this_version=PACKAGE_VERSION,
+                latest_version=stable_version)
         # Handle the case where we are the latest stable release.
         else:
             message = _(MSG_BODY_NO_UPDATE_AVAILABLE).format(
-                this_version=result['version'])
+                this_version=stable_version)
 
         # By default users ignore unstable releases.
         if not app_state.config.get('check_updates_ignore_unstable', True):
             # If we are stable.  We show later unstable releases.
             # If we are unstable.  We show later unstable releases.
-            release_date, current_date = get_update_check_dates(result['date_unstable'])
+            unstable_result = result["unstable"]
+            release_date, current_date = get_update_check_dates(unstable_result["date"])
             if release_date > current_date:
                 message += _(MSG_BODY_UNSTABLE_AVAILABLE).format(
-                    unstable_version = result['version_unstable'],
+                    unstable_version = unstable_result["version"],
                     unstable_date = release_date
                 )
         self._set_message(message)
