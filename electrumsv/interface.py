@@ -143,7 +143,8 @@ class TcpConnection(threading.Thread):
                     context = self.get_ssl_context(cert_reqs=ssl.CERT_REQUIRED, ca_certs=ca_path)
                     s = context.wrap_socket(s, do_handshake_on_connect=True)
                 except ssl.SSLError as e:
-                    self.logger.exception("")
+                    if 'self signed certificate' not in str(e):
+                        self.logger.exception("")
                     s = None
                 except:
                     return
