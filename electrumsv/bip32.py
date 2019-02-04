@@ -253,7 +253,7 @@ def bip32_path_to_uints(n: str) -> List[int]:
 
 def is_bip32_derivation(x: str) -> bool:
     try:
-        bip32_derivation(x)
+        list(bip32_derivation(x))
         return True
     except Exception:
         return False
