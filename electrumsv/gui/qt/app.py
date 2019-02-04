@@ -29,7 +29,6 @@ import shutil
 import signal
 import sys
 import threading
-import time
 
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import pyqtSignal, QObject, QTimer

@@ -24,9 +24,7 @@
 
 import base64
 import csv
-import datetime
 from decimal import Decimal
-from distutils.version import StrictVersion
 from functools import partial
 import json
 import os
@@ -60,6 +58,7 @@ from electrumsv.paymentrequest import PR_PAID
 from electrumsv.transaction import Transaction
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, bfh, format_fee_satoshis,
+    get_update_check_dates
 )
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import Multisig_Wallet, sweep_preparations
@@ -602,10 +601,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._update_action = update_action
         toolbar.addAction(update_action)
         self._update_check_toolbar_update()
-        # This does not work, it results in double notifications and stale notifications.
-        # if self._update_check_state != "default":
-        #     check_result = self.config.get('last_update_check')
-        #     self._on_update_tray_notify(check_result)
 
         toolbar.insertSeparator(update_action)
 
@@ -616,9 +611,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         update_check_state = "default"
         check_result = self.config.get('last_update_check')
         if check_result is not None:
-            from electrumsv import py37datetime
-            release_date = py37datetime.datetime.fromisoformat(check_result['date']).astimezone()
-            if StrictVersion(check_result['version']) > StrictVersion(PACKAGE_VERSION):
+            # The latest stable release date, the date of the build we are using.
+            release_date, current_date = get_update_check_dates(check_result['date'])
+            if release_date > current_date:
                 if time.time() - release_date.timestamp() < 24 * 60 * 60:
                     update_check_state = "update-present-immediate"
                 else:
@@ -672,7 +667,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def on_update_check(self, success, result):
         if success:
-            if StrictVersion(result['version']) > StrictVersion(PACKAGE_VERSION):
+            # The latest stable release date, the date of the build we are using.
+            release_date, current_date = get_update_check_dates(result['date'])
+            if release_date > current_date:
                 self._on_update_tray_notify(result)
 
         self._update_check_toolbar_update()

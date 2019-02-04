@@ -9,6 +9,7 @@ from electrumsv.app_state import app_state
 from electrumsv.gui.qt.util import read_QIcon, read_qt_ui
 from electrumsv.i18n import _
 from electrumsv.logs import logs
+from electrumsv.util import get_update_check_dates
 from electrumsv.version import PACKAGE_VERSION
 
 
@@ -29,6 +30,8 @@ MSG_BODY_NO_UPDATE_AVAILABLE = ("The update check was successful.<br/><br/>"+
 MSG_BODY_UNRELEASED_AVAILABLE = ("The update check was successful.<br/><br/>"+
     "You are already using <b>{this_version}</b>, which is the later than the "+
     "last official version <b>{latest_version}</b>.")
+MSG_BODY_UNSTABLE_AVAILABLE = ("<br/><br/>"+
+    "<i>The latest unstable release {unstable_version} was released on {unstable_date:%Y/%m/%d %I:%M%p}.</i>")
 
 logger = logs.get_logger("update_check.ui")
 
@@ -113,23 +116,37 @@ class UpdateCheckDialog(QWidget):
         # Handle the case where data was fetched and it is incorrect or lacking.
         if type(result) is not dict or 'version' not in result or 'date' not in result:
             self._set_message(_("The information about the latest version is broken."))
-        # Handle the case where the data indicates a later version.
-        elif StrictVersion(result['version']) > StrictVersion(PACKAGE_VERSION):
-            from electrumsv import py37datetime
-            release_date = py37datetime.datetime.fromisoformat(result['date']).astimezone()
-            self._set_message(_(MSG_BODY_UPDATE_AVAILABLE).format(
+            return
+
+        # Handle the case where the stable release is newer than our build.
+        release_date, current_date = get_update_check_dates(result['date'])
+        message = ""
+        if release_date > current_date:
+            message = _(MSG_BODY_UPDATE_AVAILABLE).format(
                 this_version = PACKAGE_VERSION,
                 next_version = result['version'],
                 next_version_date = release_date,
-                download_uri='https://electrumsv.io/download/'))
-        # Handle the case where the data indicates the same or older version.
-        # Older version may be in the case of running from github.
+                download_uri='https://electrumsv.io/download/')
+        # Handle the case where the we are newer than the latest stable release.
         elif StrictVersion(result['version']) < StrictVersion(PACKAGE_VERSION):
-            self._set_message(_(MSG_BODY_UNRELEASED_AVAILABLE).format(
-                this_version=PACKAGE_VERSION, latest_version=result['version']))
+            message = _(MSG_BODY_UNRELEASED_AVAILABLE).format(
+                this_version=PACKAGE_VERSION, latest_version=result['version'])
+        # Handle the case where we are the latest stable release.
         else:
-            self._set_message(_(MSG_BODY_NO_UPDATE_AVAILABLE).format(
-                this_version=result['version']))
+            message = _(MSG_BODY_NO_UPDATE_AVAILABLE).format(
+                this_version=result['version'])
+
+        # By default users ignore unstable releases.
+        if not app_state.config.get('check_updates_ignore_unstable', True):
+            # If we are stable.  We show later unstable releases.
+            # If we are unstable.  We show later unstable releases.
+            release_date, current_date = get_update_check_dates(result['date_unstable'])
+            if release_date > current_date:
+                message += _(MSG_BODY_UNSTABLE_AVAILABLE).format(
+                    unstable_version = result['version_unstable'],
+                    unstable_date = release_date
+                )
+        self._set_message(message)
 
     def _on_update_error(self, exc_info):
         self._stop_updates()

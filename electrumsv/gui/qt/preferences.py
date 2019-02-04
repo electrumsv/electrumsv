@@ -29,13 +29,12 @@ from functools import partial
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QTabWidget, QGridLayout, QLineEdit, QLabel, QComboBox, QVBoxLayout,
-    QWidget, QSpinBox, QCheckBox, QDialog
+    QWidget, QSpinBox, QCheckBox, QDialog, QGroupBox
 )
 
 from electrumsv import paymentrequest, qrscanner
 from electrumsv.app_state import app_state
 from electrumsv.extensions import label_sync
-from electrumsv.logs import logs
 from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
 import electrumsv.web as web
@@ -215,11 +214,23 @@ class PreferencesDialog(QDialog):
             app_state.config.set_key("video_device", qr_combo.itemData(index), True)
         qr_combo.currentIndexChanged.connect(on_video_device)
 
+        updatecheck_box = QGroupBox(_("Software Updates"))
+        updatecheck_vbox = QVBoxLayout()
+        updatecheck_box.setLayout(updatecheck_vbox)
+        # The main checkbox, which turns update checking on or off completely.
         updatecheck_cb = QCheckBox(_("Automatically check for software updates"))
         updatecheck_cb.setChecked(app_state.config.get('check_updates', True))
         def on_set_updatecheck(v):
             app_state.config.set_key('check_updates', v == Qt.Checked, save=True)
         updatecheck_cb.stateChanged.connect(on_set_updatecheck)
+        updatecheck_vbox.addWidget(updatecheck_cb)
+        # The secondary checkbox, which determines if unstable releases result in notifications.
+        updatecheck_unstable_cb = QCheckBox(_("Ignore unstable releases"))
+        updatecheck_unstable_cb.setChecked(app_state.config.get('check_updates_ignore_unstable', True))
+        def on_set_updatecheck_unstable(v):
+            app_state.config.set_key('check_updates_ignore_unstable', v == Qt.Checked, save=True)
+        updatecheck_unstable_cb.stateChanged.connect(on_set_updatecheck_unstable)
+        updatecheck_vbox.addWidget(updatecheck_unstable_cb)
 
         return [
             (lang_label, lang_combo),
@@ -227,7 +238,7 @@ class PreferencesDialog(QDialog):
             (unit_label, unit_combo),
             (block_ex_label, block_ex_combo),
             (qr_label, qr_combo),
-            (updatecheck_cb, ),
+            (updatecheck_box, ),
         ]
 
     def fiat_widgets(self):
