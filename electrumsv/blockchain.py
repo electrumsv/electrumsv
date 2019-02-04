@@ -107,9 +107,14 @@ class Blockchain:
         return self.chain.first_height
 
     # Called by gui.qt.network_dialog.py:NodesListWidget.update()
-    def get_name(self):
-        header = self.header_at_height(self.get_base_height())
-        return hash_to_hex_str(header.hash).lstrip('00')[0:10]
+    def get_name(self, other_chain):
+        if other_chain is self:
+            return f'our_chain'
+        else:
+            fork_height = self.common_height(other_chain) + 1
+            header = self.header_at_height(fork_height)
+            prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
+            return f'{prefix}@{fork_height}'
 
     # Called by network.py:Network._on_block_headers()
     # Called by network.py:Network._on_header()

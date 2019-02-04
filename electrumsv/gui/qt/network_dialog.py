@@ -111,14 +111,14 @@ class NodesListWidget(QTreeWidget):
         self.clear()
         self.addChild = self.addTopLevelItem
         blockchains = network.interfaces_by_blockchain()
+        our_chain = network.blockchain()
         multiple = len(blockchains) > 1
         for blockchain, interfaces in blockchains.items():
-            name = blockchain.get_name()
             if multiple:
-                x = QTreeWidgetItem([name + '@%d' % blockchain.get_base_height(),
-                                     '%d' % blockchain.height()])
+                name = blockchain.get_name(our_chain)
+                x = QTreeWidgetItem([name, '%d' % blockchain.height()])
                 x.setData(0, Qt.UserRole, False)  # is_server
-                x.setData(1, Qt.UserRole, blockchain.base_height)
+                x.setData(1, Qt.UserRole, blockchain.get_base_height())
             else:
                 x = self
             for i in interfaces:
@@ -376,12 +376,12 @@ class NetworkChoiceLayout(object):
         self.status_label.setText(status)
         if self.network.blockchain_count() > 1:
             chain = self.network.blockchain()
-            checkpoint = chain.get_base_height()
-            name = chain.get_name()
-            msg = _('Chain split detected at block %d')%checkpoint + '\n'
-            msg += (_('You are following branch') if auto_connect
-                    else _('Your server is on branch'))+ ' ' + name
-            msg += ' (%d %s)' % (chain.get_branch_size(), _('blocks'))
+            heights = set()
+            for blockchain in self.network.interfaces_by_blockchain():
+                if blockchain != chain:
+                    heights.add(chain.common_height(blockchain) + 1)
+            msg = _('Chain split detected at height(s) {}\n').format(
+                ','.join(f'{height:,d}' for height in sorted(heights)))
         else:
             msg = ''
         self.split_label.setText(msg)
