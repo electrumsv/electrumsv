@@ -886,7 +886,7 @@ class Network(util.DaemonThread):
             if not self._validate_checkpoint_result(interface, result["root"],
                                                    result["branch"], header, header_height):
                 # Got checkpoint validation data, server failed to provide proof.
-                interface.logger.error("disconnecting server for incorrect checkpoint proof")
+                interface.logger.error("blacklisting server for incorrect checkpoint proof")
                 self._connection_down(interface.server, blacklist=True)
                 return
             proof_was_provided = True
@@ -900,7 +900,7 @@ class Network(util.DaemonThread):
             interface.blockchain = Blockchain.connect_chunk(request_base_height, raw_chunk,
                                                             proof_was_provided)
         except (IncorrectBits, InsufficientPoW, MissingHeader) as e:
-            interface.logger.warning(str(e))
+            interface.logger.error(f'blacklisting server for failed connect_chunk: {e}')
             self._connection_down(interface.server, blacklist=True)
             return
 
@@ -950,7 +950,7 @@ class Network(util.DaemonThread):
             return
 
         if not request:
-            interface.logger.error("disconnecting server for sending unsolicited header, "
+            interface.logger.error("blacklisting server for sending unsolicited header, "
                                    "no request, params=%s", response['params'])
             self._connection_down(interface.server, blacklist=True)
             return
@@ -992,7 +992,7 @@ class Network(util.DaemonThread):
             interface.logger.info(str(e))
             interface.blockchain = None
         except (IncorrectBits, InsufficientPoW) as e:
-            interface.logger.warning(str(e))
+            interface.logger.error(f'blacklisting server for failed _on_header connect: {e}')
             self._connection_down(interface.server, blacklist=True)
             return
 
@@ -1152,7 +1152,7 @@ class Network(util.DaemonThread):
         except MissingHeader as e:
             interface.logger.info(str(e))
         except (IncorrectBits, InsufficientPoW) as e:
-            interface.logger.warning(str(e))
+            interface.logger.error(f'blacklisting server for failed connect: {e}')
             self._connection_down(interface.server, blacklist=True)
             return
         else:
