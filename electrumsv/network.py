@@ -989,7 +989,7 @@ class Network(util.DaemonThread):
                                                                proof_was_provided)
             interface.logger.debug(f'Connected header at height {height:,d}')
         except MissingHeader as e:
-            interface.logger.info(str(e))
+            interface.logger.info(f'failed to connect header at height {height:,d}: {e}')
             interface.blockchain = None
         except (IncorrectBits, InsufficientPoW) as e:
             interface.logger.error(f'blacklisting server for failed _on_header connect: {e}')
@@ -1015,16 +1015,16 @@ class Network(util.DaemonThread):
                 # If the longest chain does not connect at any point we check to the
                 # chain this interface is serving, then we fall back on the checkpoint
                 # height which is expected to work.
-                next_height = max(Net.VERIFICATION_BLOCK_HEIGHT,
+                next_height = max(Net.VERIFICATION_BLOCK_HEIGHT + 1,
                                   interface.tip - 2 * delta)
         elif interface.mode == Interface.MODE_BINARY:
             if interface.blockchain:
                 interface.good = height
             else:
                 interface.bad = height
-            next_height = (interface.bad + interface.good + 1) // 2
-            if next_height == height:
-                next_height = None
+            next_height = (interface.bad + interface.good) // 2
+            if next_height == interface.good:
+                interface.set_mode(Interface.MODE_CATCH_UP)
         elif interface.mode == Interface.MODE_CATCH_UP:
             if interface.blockchain is None:
                 # go back
@@ -1136,11 +1136,6 @@ class Network(util.DaemonThread):
         interface.tip_raw = raw_header
         interface.tip = height
         interface.set_mode(Interface.MODE_DEFAULT)
-        if not interface.blockchain:
-            interface.blockchain = Blockchain.longest()
-            if interface.blockchain.height() < interface.tip:
-                self._request_headers(interface, interface.blockchain.height(), 1000)
-                return
         self._process_latest_tip(interface)
 
     def _process_latest_tip(self, interface):
@@ -1167,13 +1162,12 @@ class Network(util.DaemonThread):
         heights = [x.height() for x in Blockchain.blockchains]
         tip = max(heights)
         if tip > Net.VERIFICATION_BLOCK_HEIGHT:
-            interface.logger.debug("attempt to reconcile longest chain tip=%s heights=%s",
-                                   tip, heights)
+            interface.logger.debug('attempt to connect: our tip={tip:,d} their tip={height:,d}')
             interface.set_mode(Interface.MODE_BACKWARD)
             interface.bad = height
             self._request_header(interface, min(tip, height - 1))
         else:
-            interface.logger.debug("attempt to catch up tip=%s heights=%s", tip, heights)
+            interface.logger.debug('attempt to catch up: our tip={tip:,d} their tip={height:,d}')
             chain = Blockchain.longest()
             if chain.catch_up is None:
                 chain.catch_up = interface
