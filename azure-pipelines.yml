@@ -5,9 +5,10 @@
 #   - This means that if one command fails it will proceed onto the next and fail that.
 # - The Wine build docker image is specified by hash, with the intent that it ensures that what we get is what we uploaded to Docker Hub.
 #   - Also tying it to the hash, ensures historical reproducibility and failure will be indicated by Docker image availability.
+# - MacOS build errors in Calin's QR reader.
 
 trigger:
-  batch: true
+  batch: false
   branches:
     include:
     - master
@@ -95,7 +96,7 @@ jobs:
       sudo pip3 install --upgrade pip setuptools wheel
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
-    enabled: true
+    enabled: false
     continueOnError: false
     failOnStderr: false
     displayName: 'Build MacOS binaries'
