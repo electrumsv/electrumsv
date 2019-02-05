@@ -36,7 +36,7 @@ jobs:
       sha256sum *.exe > $(Build.Repository.LocalPath)/windows-hashes.txt
       popd
     displayName: 'Windows build'
-    enabled: true
+    enabled: false
     continueOnError: false
     failOnStderr: false
   - task: CopyFiles@2
@@ -70,7 +70,7 @@ jobs:
       sha256sum * > package-hashes.txt
       popd
     displayName: 'Build Python packages'
-    enabled: true
+    enabled: false
     continueOnError: false
     failOnStderr: false
   - task: CopyFiles@2
