@@ -96,7 +96,7 @@ info "Building CalinsQRReader..."
 d=contrib/osx/CalinsQRReader
 pushd $d
 rm -fr build
-xcodebuild -destination 'platform=macOS' || fail "Could not build CalinsQRReader"
+xcodebuild -sdk macosx10.14 || fail "Could not build CalinsQRReader"
 popd
 DoCodeSignMaybe "CalinsQRReader.app" "${d}/build/Release/CalinsQRReader.app" "$APP_SIGN"
 
