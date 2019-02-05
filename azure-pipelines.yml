@@ -93,12 +93,25 @@ jobs:
       addToPath: true
       architecture: x64
   - script: |
-      # Calin's QR reader requires SDK 10.1.14, which is not available in the default Xcode.
+      # Calin's QR reader requires SDK 10.14, which is not available in the default Xcode version.
       /bin/bash -c "sudo xcode-select -s /Applications/Xcode_10.1.app/Contents/Developer"
       sudo pip3 install --upgrade pip setuptools wheel
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
+      pushd dist
+      shasum -a 256 * > macos-10.14-hashes.txt
+      popd
     enabled: true
     continueOnError: false
     failOnStderr: false
     displayName: 'Build MacOS binaries'
+  - task: CopyFiles@2
+    inputs:
+      contents: dist/?(*.dmg|*.txt)
+      targetFolder: $(Build.ArtifactStagingDirectory)
+      flattenFolders: true
+      OverWrite: true
+  - task: PublishPipelineArtifact@0
+    inputs:
+      artifactName: 'MacOS SDK 10.14 files (with QR reader)'
+      targetPath: $(Build.ArtifactStagingDirectory)
