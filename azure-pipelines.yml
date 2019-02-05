@@ -94,7 +94,7 @@ jobs:
       architecture: x64
   - script: |
       xcrun --sdk macosx --show-sdk-version
-      ls -la /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/
+      ls -la /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/
       sudo pip3 install --upgrade pip setuptools wheel
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
