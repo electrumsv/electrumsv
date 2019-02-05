@@ -99,7 +99,7 @@ jobs:
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
       pushd dist
-      shasum -a 256 * > macos-10.14-hashes.txt
+      shasum -a 256 *.dmg > macos-10.14-hashes.txt
       popd
     enabled: true
     continueOnError: false
