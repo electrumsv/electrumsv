@@ -14,7 +14,7 @@ ElectrumSV - Lightweight Bitcoin SV client
 .. |crowdin_badge| image:: https://d322cqt584bo4o.cloudfront.net/electrumsv/localized.svg
     :target: https://crowdin.com/project/electrumsv
     :alt: Help translate ElectrumSV online \
-.. |azurepipeline_badge| image:: https://dev.azure.com/electrumsv/ElectrumSV/_apis/build/status/electrumsv.electrumsv?branchName=master
+.. |azurepipeline_badge| image:: https://dev.azure.com/electrumsv/ElectrumSV/_apis/build/status/All-In-One%20Build?branchName=master
     :target: https://dev.azure.com/electrumsv/ElectrumSV/_build/latest?definitionId=1&branchName=master
     :alt: Build status on Azure Pipelines
 
