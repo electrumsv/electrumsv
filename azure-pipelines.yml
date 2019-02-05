@@ -93,7 +93,8 @@ jobs:
       addToPath: true
       architecture: x64
   - script: |
-      ls -la /Applications/
+      /bin/bash -c "sudo xcode-select -s /Applications/Xcode_10.1.app/Contents/Developer"
+      xcodebuild --showsdks
       #sudo pip3 install --upgrade pip setuptools wheel
       #brew install gettext && brew link gettext --force
       #./contrib/osx/make_osx
