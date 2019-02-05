@@ -93,7 +93,7 @@ jobs:
       addToPath: true
       architecture: x64
   - script: |
-      xcodebuild -version
+      ls -la /Applications/
       #sudo pip3 install --upgrade pip setuptools wheel
       #brew install gettext && brew link gettext --force
       #./contrib/osx/make_osx
