@@ -23,6 +23,7 @@
 
 '''ElectrumSV application.'''
 
+import datetime
 from functools import partial
 import os
 import shutil
@@ -301,8 +302,7 @@ class SVApplication(QApplication):
 
     def _on_update_check(self, success, result):
         if success:
-            from electrumsv import py37datetime
-            when_checked = py37datetime.datetime.now().astimezone().isoformat()
+            when_checked = datetime.datetime.now().astimezone().isoformat()
             app_state.config.set_key('last_update_check', result)
             app_state.config.set_key('last_update_check_time', when_checked, True)
         self.update_check_signal.emit(success, result)
@@ -346,8 +346,7 @@ class SVApplication(QApplication):
             self.quit()
 
     def run_gui(self):
-        from electrumsv import py37datetime
-        when_started = py37datetime.datetime.now().astimezone().isoformat()
+        when_started = datetime.datetime.now().astimezone().isoformat()
         app_state.config.set_key('previous_start_time', app_state.config.get("start_time"))
         app_state.config.set_key('start_time', when_started, True)
         self.update_check()

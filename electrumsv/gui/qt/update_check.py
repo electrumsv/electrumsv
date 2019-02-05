@@ -31,8 +31,8 @@ MSG_BODY_UNRELEASED_AVAILABLE = ("The update check was successful.<br/><br/>"+
     "You are already using <b>{this_version}</b>, which is the more recent than the "+
     "last official version <b>{latest_version}</b>.")
 MSG_BODY_UNSTABLE_AVAILABLE = ("<br/><br/>"+
-    "<i>The latest unstable release {unstable_version} was released on "+
-    "{unstable_date:%Y/%m/%d %I:%M%p}.</i>")
+    "The latest unstable release {unstable_version} was released on "+
+    "{unstable_date:%Y/%m/%d %I:%M%p}.")
 
 logger = logs.get_logger("update_check.ui")
 

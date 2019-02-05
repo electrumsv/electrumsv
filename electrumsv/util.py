@@ -517,9 +517,9 @@ def resource_path(*parts):
     return os.path.join(package_dir, "data", *parts)
 
 def get_update_check_dates(new_date):
-    from . import py37datetime
+    from dateutil.parser import isoparse
     # This is the latest stable release date.
-    release_date = py37datetime.datetime.fromisoformat(new_date).astimezone()
+    release_date = isoparse(new_date).astimezone()
     # This is the rough date of the current release (might be stable or unstable).
-    current_date = py37datetime.datetime.fromisoformat(PACKAGE_DATE).astimezone()
+    current_date = isoparse(PACKAGE_DATE).astimezone()
     return release_date, current_date
