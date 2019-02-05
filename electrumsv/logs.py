@@ -39,6 +39,9 @@ class Logs(object):
         handler.setFormatter(formatter)
         self.root.addHandler(handler)
 
+    def remove_handler(self, handler):
+        self.root.removeHandler(handler)
+
     def add_file_output(self, path):
         self.add_handler(logging.FileHandler(path))
 

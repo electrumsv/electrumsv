@@ -360,6 +360,7 @@ class SVApplication(QApplication):
         QTimer.singleShot(0, self.event_loop_started)
         self.exec_()
 
+        logs.remove_handler(self.log_handler)
         # Shut down the timer cleanly
         self.timer.stop()
         # clipboard persistence
