@@ -96,7 +96,7 @@ jobs:
       sudo pip3 install --upgrade pip setuptools wheel
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
-    enabled: false
+    enabled: true
     continueOnError: false
     failOnStderr: false
     displayName: 'Build MacOS binaries'
