@@ -44,7 +44,7 @@ from electrumsv.network import Network
 from electrumsv.networks import Net, SVTestnet
 from electrumsv.platform import platform
 from electrumsv.simple_config import SimpleConfig
-from electrumsv.startup import is_bundle
+from electrumsv import startup
 from electrumsv.storage import WalletStorage
 from electrumsv.util import json_encode, json_decode, setup_thread_excepthook
 from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
@@ -246,9 +246,18 @@ def run_offline_command(config, config_options):
 
 
 def enforce_requirements():
+    # Are we running from source, and do we have the requirements?  If not we do not apply.
     requirement_path = os.path.join(
-        os.path.dirname(sys.argv[0]), "contrib", "requirements", "requirements.txt")
+        startup.base_dir, "contrib", "requirements", "requirements.txt")
     if not os.path.exists(requirement_path):
+        return
+
+    # The method below only checks installed Python packages. It does not check the packages in
+    # the local 'packages' directory created by `./contrib/make_packages`.
+    if os.path.exists(startup.packages_dir):
+        print("Warning: You have a local 'packages' directory. As this is present we are unable "+
+            "to check if you have the correct set of dependencies installed and the "+
+            "required versions of them.")
         return
 
     import pkg_resources
@@ -309,7 +318,7 @@ def main():
 
     # fixme: this can probably be achieved with a runtime hook (pyinstaller)
     try:
-        if is_bundle and os.path.exists(os.path.join(sys._MEIPASS, 'is_portable')):
+        if startup.is_bundle and os.path.exists(os.path.join(sys._MEIPASS, 'is_portable')):
             config_options['portable'] = True
     except AttributeError:
         config_options['portable'] = False
