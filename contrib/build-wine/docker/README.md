@@ -41,11 +41,11 @@ similar system.
     ```
     $ git checkout $REV
     $ sudo docker run -it \
-        --name electrum-wine-builder-cont \
+        --name electrumsv-wine-builder-cont \
         -v $PWD:/opt/wine64/drive_c/electrum \
         --rm \
         --workdir /opt/wine64/drive_c/electrum/contrib/build-wine \
-        electrum-wine-builder-img \
+        electrumsv-wine-builder-img \
         ./build.sh
     ```
 4. The generated binaries are in `$PROJECT_ROOT/contrib/build-wine/dist`.
