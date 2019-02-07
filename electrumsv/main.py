@@ -255,9 +255,6 @@ def enforce_requirements():
     # The method below only checks installed Python packages. It does not check the packages in
     # the local 'packages' directory created by `./contrib/make_packages`.
     if os.path.exists(startup.packages_dir):
-        print("Warning: You have a local 'packages' directory. As this is present we are unable "+
-            "to check if you have the correct set of dependencies installed and the "+
-            "required versions of them.")
         return
 
     import pkg_resources
