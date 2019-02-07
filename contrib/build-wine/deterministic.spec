@@ -38,11 +38,14 @@ for d in a.datas:
 # Strip out parts of Qt that we never use to reduce binary size
 # Note we need qtdbus and qtprintsupport.
 qt_bins2remove = {'qt5web', 'qt53d', 'qt5game', 'qt5designer', 'qt5quick',
-                  'qt5location', 'qt5test', 'qt5xml', r'pyqt5\qt\qml\qtquick'}
+                  'qt5location', 'qt5test', 'qt5xml', r'pyqt5\qt\qml\qtquick',
+                  'qt5webwockets', 'd3dcompiler', 'libegl', 'libgles',
+                  'opengl'}
 for x in a.binaries.copy():
-    lower = x[0].lower()
-    if lower in qt_bins2remove:
-        a.binaries.remove(x)
+    lower_path = x[0].lower()
+    for keyword in qt_bins2remove:
+        if keyword in lower_path:
+            a.binaries.remove(x)
 
 qt_data2remove=(r'pyqt5\qt\translations\qtwebengine_locales', )
 print("Removing Qt datas:", *qt_data2remove)
