@@ -8,7 +8,6 @@
 # - MacOS build errors in Calin's QR reader.
 
 trigger:
-  batch: false
   branches:
     include:
     - master
