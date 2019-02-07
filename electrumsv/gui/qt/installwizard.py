@@ -3,11 +3,11 @@ import shutil
 import threading
 
 from PyQt5.QtCore import Qt, pyqtSignal, QEventLoop, QRect
-from PyQt5.QtGui import QPalette, QPen, QPainter
+from PyQt5.QtGui import QPalette, QPen, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QDialog, QLabel, QPushButton, QScrollArea, QHBoxLayout, QVBoxLayout, QListWidget,
     QAbstractItemView, QListWidgetItem, QLineEdit, QFileDialog, QMessageBox, QSlider,
-    QGridLayout
+    QGridLayout, QDialogButtonBox
 )
 
 from electrumsv.app_state import app_state
@@ -23,7 +23,8 @@ from electrumsv.wallet import Wallet
 from .network_dialog import NetworkChoiceLayout
 from .password_dialog import PasswordLayout, PW_NEW, PasswordLineEdit
 from .seed_dialog import SeedLayout, KeysLayout
-from .util import MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, read_QIcon
+from .util import (MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, read_QIcon, icon_path,
+    WindowModalDialog)
 
 
 logger = logs.get_logger('wizard')
@@ -108,7 +109,6 @@ MSG_BUTTON_NEXT = "Next"
 MSG_BUTTON_BACK = "Back"
 MSG_BUTTON_CANCEL = "Cancel"
 
-# WindowModalDialog must come first as it overrides show_error
 class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     accept_signal = pyqtSignal()
@@ -159,12 +159,14 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         vbox.addStretch(1)
         vbox.addWidget(self.please_wait)
         vbox.addStretch(1)
+        self.template_hbox = QHBoxLayout()
+        vbox.addLayout(self.template_hbox)
         return vbox
 
     def start_gui(self, is_startup=False):
         if is_startup:
             self._copy_electron_cash_wallets()
-        return self.run_and_get_wallet()
+        return self.run_and_get_wallet(is_startup)
 
     def _copy_electron_cash_wallets(self):
         """
@@ -172,62 +174,18 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         Electron Cash wallets to their ElectrumSV wallet directory, and
         if so, show it and give them the chance.
         """
-        def ignore_wallet_file(wallet_path):
-            if os.path.isdir(wallet_path):
-                return True
-            if wallet_path.startswith("."):
-                return True
-            return False
-
-        def count_user_wallets(wallets_path):
-            if os.path.exists(wallets_path):
-                filenames = [filename for filename in os.listdir(wallets_path)
-                             if not ignore_wallet_file(os.path.join(wallets_path, filename))]
-                return len(filenames)
-            return 0
-
         # If the user has ElectrumSV wallets already, we do not offer to copy the one's
         # Electron Cash has.
-        esv_wallets_dir = os.path.join(platform.user_dir(), "wallets")
-        if count_user_wallets(esv_wallets_dir) > 0:
+        esv_wallets_dir = os.path.join(app_state.config.electrum_path(), "wallets")
+        if len(self._list_user_wallets(esv_wallets_dir)) > 0:
             return
         ec_wallets_dir = get_electron_cash_user_dir(esv_wallets_dir)
-        ec_wallet_count = count_user_wallets(ec_wallets_dir)
+        ec_wallet_count = len(self._list_user_wallets(ec_wallets_dir))
         # If the user does not have Electron Cash wallets to copy, there's no point in offering.
         if ec_wallet_count == 0:
             return
 
-        def update_summary_label():
-            selection_count = len(file_list.selectedItems())
-            if selection_count == 0:
-                summary_label.setText(_("No wallets are selected / will be copied."))
-            elif selection_count == 1:
-                summary_label.setText(_("1 wallet is selected / will be copied."))
-            else:
-                summary_label.setText(_("%d wallets are selected / will be copied.")
-                                      % selection_count)
-
-        wallet_filenames = sorted(os.listdir(ec_wallets_dir), key=lambda s: s.lower())
-
-        file_list = QListWidget()
-        file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        for filename in wallet_filenames:
-            if not ignore_wallet_file(os.path.join(ec_wallets_dir, filename)):
-                file_list.addItem(QListWidgetItem(filename))
-        file_list.itemSelectionChanged.connect(update_summary_label)
-
-        vbox = QVBoxLayout()
-        introduction_label = QLabel(
-            _("Your Electron Cash wallet directory was found. If you want ElectrumSV to import "
-              "any of them on your behalf, select the ones you want copied from the list below "
-              "before clicking the Next button."))
-        introduction_label.setWordWrap(True)
-        vbox.setSpacing(20)
-        vbox.addWidget(introduction_label)
-        vbox.addWidget(file_list)
-        summary_label = QLabel()
-        update_summary_label()
-        vbox.addWidget(summary_label)
+        vbox, file_list = self._create_copy_electron_cash_wallets_layout(ec_wallets_dir)
         self._set_standard_layout(vbox, title=_('Import Electron Cash wallets'))
 
         v = self.loop.exec_()
@@ -237,18 +195,82 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         if v != 2:
             raise GoBack()
 
+        self._do_copy_electron_cash_wallets(file_list, esv_wallets_dir, ec_wallets_dir)
+
+    def _do_copy_electron_cash_wallets(self, file_list, esv_wallets_dir, ec_wallets_dir):
         # If the user selected any files, then we copy them before exiting to the next page.
         for item in file_list.selectedItems():
             filename = item.text()
             source_path = os.path.join(ec_wallets_dir, filename)
             target_path = os.path.join(esv_wallets_dir, filename)
+            # If they are copying an Electron Cash wallet over an ElectrumSV wallet, make sure
+            # they confirm they are going to replace/overwrite it.
+            if os.path.exists(target_path):
+                if self.question(_("You already have a wallet named '{}' for ElectrumSV. "+
+                                "Replace/overwrite it?").format(filename), self, _("Delete Wallet?")):
+                    os.remove(target_path)
+                else:
+                    continue
             try:
                 shutil.copyfile(source_path, target_path)
             except shutil.Error:
                 # For now we ignore copy errors.
                 pass
 
-    def run_and_get_wallet(self):
+    def _create_copy_electron_cash_wallets_layout(self, ec_wallets_dir):
+        def update_summary_label():
+            selection_count = len(file_list.selectedItems())
+            if selection_count == 0:
+                summary_label.setText(_("No wallets are selected / will be copied."))
+            elif selection_count == 1:
+                summary_label.setText(_("1 wallet is selected / will be copied."))
+            else:
+                summary_label.setText(_("%d wallets are selected / will be copied.")
+                                    % selection_count)
+
+        wallet_filenames = sorted(os.listdir(ec_wallets_dir), key=lambda s: s.lower())
+
+        file_list = QListWidget()
+        file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        for filename in wallet_filenames:
+            if not self._ignore_wallet_file(os.path.join(ec_wallets_dir, filename)):
+                file_list.addItem(QListWidgetItem(filename))
+        file_list.itemSelectionChanged.connect(update_summary_label)
+
+        vbox = QVBoxLayout()
+        introduction_label = QLabel(
+            _("Your Electron Cash wallet directory was found. If you want ElectrumSV to import "
+            "any of them on your behalf, select the ones you want copied from the list below "
+            "before clicking the Next button."))
+        introduction_label.setWordWrap(True)
+        vbox.setSpacing(20)
+        vbox.addWidget(introduction_label)
+        vbox.addWidget(file_list)
+        summary_label = QLabel()
+        update_summary_label()
+        vbox.addWidget(summary_label)
+        return vbox, file_list
+
+    def _list_user_wallets(self, wallets_path):
+        if os.path.exists(wallets_path):
+            from stat import ST_MTIME
+            l = [
+                (os.stat(os.path.join(wallets_path, filename))[ST_MTIME], filename)
+                for filename in os.listdir(wallets_path)
+                if not self._ignore_wallet_file(os.path.join(wallets_path, filename))
+            ]
+            l = sorted(l, reverse=True)
+            return [ entry[1] for entry in l ]
+        return []
+
+    def _ignore_wallet_file(self, wallet_path):
+        if os.path.isdir(wallet_path):
+            return True
+        if wallet_path.startswith("."):
+            return True
+        return False
+
+    def run_and_get_wallet(self, is_startup):
         vbox = QVBoxLayout()
         hbox = QHBoxLayout()
         hbox.addWidget(QLabel(_('Wallet') + ':'))
@@ -273,6 +295,44 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         self._set_standard_layout(vbox,
             title=_('ElectrumSV wallet'),
             back_text=_(MSG_BUTTON_CANCEL))
+
+        if is_startup:
+            def _show_copy_electron_cash_wallets_dialog(*args):
+                nonlocal esv_wallets_dir, ec_wallets_dir
+
+                d = WindowModalDialog(self, _("Copy Electron Cash Wallets"))
+
+                vbox, file_list = self._create_copy_electron_cash_wallets_layout(ec_wallets_dir)
+
+                bbox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+                bbox.rejected.connect(d.reject)
+                bbox.accepted.connect(d.accept)
+                vbox.addWidget(bbox)
+
+                d.setLayout(vbox)
+
+                result = d.exec()
+                if result == QDialog.Accepted:
+                    self._do_copy_electron_cash_wallets(file_list, esv_wallets_dir, ec_wallets_dir)
+
+                _update_selected_wallet()
+
+            ec_import_icon = QLabel("")
+            ec_import_icon.setPixmap(QPixmap(icon_path("icons8-info.svg")).scaledToWidth(16, Qt.SmoothTransformation))
+            ec_import_label = QLabel(_("Existing Electron Cash wallets detected"))
+            ec_import_button = QPushButton(_("Import..."))
+            ec_import_button.clicked.connect(_show_copy_electron_cash_wallets_dialog)
+            self.template_hbox.addWidget(ec_import_icon)
+            self.template_hbox.addWidget(ec_import_label)
+            self.template_hbox.addWidget(ec_import_button)
+            self.template_hbox.addStretch(1)
+
+            esv_wallets_dir = os.path.join(app_state.config.electrum_path(), "wallets")
+            ec_wallets_dir = get_electron_cash_user_dir(esv_wallets_dir)
+            if len(self._list_user_wallets(ec_wallets_dir)) == 0:
+                ec_import_button.setEnabled(False)
+                ec_import_button.setTooltip(_("Nothing to import"))
+                ec_import_label.setText(_("No Electron Cash wallets detected"))
 
         wallet_folder = os.path.dirname(self.storage.path)
 
@@ -315,10 +375,19 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 self.pw_label.hide()
                 self.pw_e.hide()
 
+        def _update_selected_wallet():
+            wallet_name = None
+            if not self.storage.file_exists() and is_startup:
+                esv_wallet_names = self._list_user_wallets(esv_wallets_dir)
+                if len(esv_wallet_names):
+                    wallet_name = esv_wallet_names[0]
+            if wallet_name is None:
+                wallet_name = os.path.basename(self.storage.path)
+            self.name_e.setText(wallet_name)
+
         button.clicked.connect(on_choose)
         self.name_e.textChanged.connect(on_filename)
-        n = os.path.basename(self.storage.path)
-        self.name_e.setText(n)
+        _update_selected_wallet()
 
         while True:
             if self.storage.file_exists() and not self.storage.is_encrypted():
