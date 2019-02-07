@@ -63,6 +63,10 @@ class BoxBase(object):
         icon = kwargs.get('icon', self.icon)
         dialog = QMessageBox(icon, '', main_text, buttons=buttons, parent=parent)
         dialog.setInformativeText(info_text)
+        # The text on the RHS on windows looks awful up against the edge of the window.
+        margins = dialog.contentsMargins()
+        margins.setRight(20)
+        dialog.setContentsMargins(margins)
         _set_window_title_and_icon(dialog)
         if parent:
             dialog.setWindowModality(Qt.WindowModal)
@@ -117,14 +121,31 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
 
 all_boxes = [
     InfoBox('welcome-ESV-1.1',
-            _('Welcome to Electrum SV 1.1'),
-            '\n'.join((
-                _('This release includes bug fixes, performance improvements and some '
-                  'new features, including:-'),
-                _('item A'),
-                _('item B'),
-                _('item C'),
-            )),
+            _('Welcome to ElectrumSV 1.1'),
+            _('This release includes bug fixes, performance improvements and some '
+                'new features, including:-') +
+            '<ul>'+
+            '<li>'+
+            _('Check for updated versions on startup.') +
+            '</li>'+
+            '<li>'+
+            _('Various hardware wallet fixes.') +
+            '</li>'+
+            '<li>'+
+            _('New blockchain parsing and fork handling code, replacing the historically '+
+                'unstable code') +
+            '</li>'+
+            '<li>'+
+            _('Tentative support for file attachments in OP_RETURN pushdatas when sending a '+
+                'transaction.') +
+            '</li>'+
+            '<li>'+
+            _('Support for new ?sv style urls, which are also used in QR codes.') +
+            '</li>'+
+            '<li>'+
+            _('Testnet now uses the correct derivation path. Users may need to recreate wallets.') +
+            '</li>'+
+            '</ul>'
     ),
     YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Cancel"), False),
     WarningBox('illegal-files-are-traceable',

@@ -37,7 +37,7 @@ at first, to yourself, to confirm the network is processing your transactions as
 ElectrumSV
 -----------
 
-# Release 1.1.0 (upcoming)
+# Release 1.1.0
   * Check for updated versions on startup, and indicates updates in the wallet UI.
   * Various hardware wallet fixes.  Note hardware wallets may display Bitcoin Cash
     addresses instead of Bitcoin addresses; this is out of our control and pending
