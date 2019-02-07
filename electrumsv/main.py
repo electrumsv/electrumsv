@@ -317,15 +317,20 @@ def main():
     config_options['cwd'] = os.getcwd()
 
     # fixme: this can probably be achieved with a runtime hook (pyinstaller)
+    portable_base_path = None
     try:
         if startup.is_bundle and os.path.exists(os.path.join(sys._MEIPASS, 'is_portable')):
             config_options['portable'] = True
+            # Ensure the wallet data is stored in the same directory as the executable.
+            portable_base_path = os.path.dirname(sys.executable)
     except AttributeError:
         config_options['portable'] = False
 
     if config_options.get('portable'):
-        config_options['electrum_sv_path'] = os.path.join(
-            os.path.dirname(os.path.realpath(__file__)), 'electrum_sv_data')
+        if portable_base_path is None:
+            # Default to the same directory the 'electrum-sv' script is in.
+            portable_base_path = os.path.dirname(os.path.realpath(sys.argv[0]))
+        config_options['electrum_sv_path'] = os.path.join(portable_base_path, 'electrum_sv_data')
 
     if config_options.get('file_logging'):
         log_path = os.path.join(platform.user_dir(prefer_local=True), "logs")
