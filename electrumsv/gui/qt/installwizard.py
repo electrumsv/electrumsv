@@ -331,7 +331,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             ec_wallets_dir = get_electron_cash_user_dir(esv_wallets_dir)
             if len(self._list_user_wallets(ec_wallets_dir)) == 0:
                 ec_import_button.setEnabled(False)
-                ec_import_button.setTooltip(_("Nothing to import"))
+                ec_import_button.setToolTip(_("Nothing to import"))
                 ec_import_label.setText(_("No Electron Cash wallets detected"))
 
         wallet_folder = os.path.dirname(self.storage.path)
