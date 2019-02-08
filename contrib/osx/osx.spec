@@ -3,7 +3,7 @@
 from importlib.machinery import SourceFileLoader
 import os
 
-from PyInstaller.utils.hooks import collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_data_files
 
 version = SourceFileLoader('version', 'electrumsv/version.py').load_module()
 
@@ -15,6 +15,12 @@ datas = [
     (base_dir + "contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app",
      "CalinsQRReader.app"),
 ]
+
+# rt12 -- As far as I know only trezor has required data files. It will error if it cannot load
+# things like coins.json and so on.
+datas += collect_data_files('trezorlib')
+datas += collect_data_files('btchip')
+datas += collect_data_files('keepkeylib')
 
 binaries = [(base_dir + "contrib/osx/libsecp256k1.0.dylib", ".")]
 
