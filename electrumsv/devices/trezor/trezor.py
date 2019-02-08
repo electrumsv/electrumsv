@@ -16,6 +16,7 @@ from electrumsv.util import bfh
 from ..hw_wallet import HW_PluginBase
 from ..hw_wallet.plugin import LibraryFoundButUnusable
 
+logger = logs.get_logger("plugin.trezor")
 
 try:
     import trezorlib
@@ -33,13 +34,11 @@ try:
 
     TREZORLIB = True
 except Exception as e:
-    import traceback
-    traceback.print_exc()
+    logger.exception("Failed to import trezorlib")
     TREZORLIB = False
 
     RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX = range(2)
 
-logger = logs.get_logger("plugin.trezor")
 
 # Trezor initialization methods
 TIM_NEW, TIM_RECOVER = range(2)

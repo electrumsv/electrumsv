@@ -3,7 +3,7 @@
 import os
 import sys
 
-from PyInstaller.utils.hooks import collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_data_files
 
 PYHOME = 'c:/python3'
 
@@ -22,6 +22,11 @@ datas = [
     (home+'electrumsv/data', 'electrumsv/data'),
     ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),
 ]
+# rt12 -- As far as I know only trezor has required data files. It will error if it cannot load
+# things like coins.json and so on.
+datas += collect_data_files('trezorlib')
+datas += collect_data_files('btchip')
+datas += collect_data_files('keepkeylib')
 
 # We don't put these files in to actually include them in the script but to make the
 # Analysis method scan them for imports
