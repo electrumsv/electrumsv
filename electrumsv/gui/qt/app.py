@@ -243,10 +243,10 @@ class SVApplication(QApplication):
             try:
                 wallet = app_state.daemon.load_wallet(path, None)
                 if not wallet:
-                    storage = WalletStorage(path, manual_upgrades=True)
-                    wizard = InstallWizard(storage)
+                    wizard = InstallWizard(None)
                     try:
-                        wallet = wizard.start_gui(is_startup=is_startup)
+                        if wizard.select_storage(path, is_startup=is_startup):
+                            wallet = wizard.run_and_get_wallet()
                     except UserQuit:
                         pass
                     except UserCancelled:

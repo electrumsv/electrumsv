@@ -75,6 +75,7 @@ class WalletStorage:
         self.lock = threading.RLock()
         self.data = {}
         self.path = path
+        self._file_exists = self.path and os.path.exists(self.path)
         self.modified = False
         self.pubkey = None
         if self.file_exists():
@@ -121,7 +122,11 @@ class WalletStorage:
             return False
 
     def file_exists(self):
-        return self.path and os.path.exists(self.path)
+        """
+        We preserve the existence of the file, in order to detect the case where the user selects
+        a wallet, and then goes into the folder and deletes it unbeknownst to ElectrumSV.
+        """
+        return self._file_exists
 
     @staticmethod
     def get_eckey_from_password(password):
@@ -198,8 +203,7 @@ class WalletStorage:
             f.flush()
             os.fsync(f.fileno())
 
-        mode = (os.stat(self.path).st_mode if os.path.exists(self.path)
-                else stat.S_IREAD | stat.S_IWRITE)
+        mode = os.stat(self.path).st_mode if self.file_exists() else stat.S_IREAD | stat.S_IWRITE
         # perform atomic write on POSIX systems
         try:
             os.rename(temp_path, self.path)
@@ -207,6 +211,7 @@ class WalletStorage:
             os.remove(self.path)
             os.rename(temp_path, self.path)
         os.chmod(self.path, mode)
+        self._file_exists = True
         self.raw = s
         logger.debug("saved '%s'", self.path)
         self.modified = False
