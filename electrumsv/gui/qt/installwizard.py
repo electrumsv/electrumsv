@@ -162,10 +162,159 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         vbox.addLayout(self.template_hbox)
         return vbox
 
-    def start_gui(self, is_startup=False):
+    def select_storage(self, path, is_startup=False):
         if is_startup:
             self._copy_electron_cash_wallets()
-        return self.run_and_get_wallet(is_startup)
+
+        vbox = QVBoxLayout()
+        hbox = QHBoxLayout()
+        hbox.addWidget(QLabel(_('Wallet') + ':'))
+        self.name_e = QLineEdit()
+        hbox.addWidget(self.name_e)
+        button = QPushButton(_('Choose...'))
+        hbox.addWidget(button)
+        vbox.addLayout(hbox)
+
+        self.msg_label = QLabel('')
+        vbox.addWidget(self.msg_label)
+
+        hbox2 = QHBoxLayout()
+        self.pw_e = PasswordLineEdit()
+        self.pw_e.setMinimumWidth(200)
+        self.pw_label = QLabel(_('Password') + ':')
+        self.pw_label.setAlignment(Qt.AlignTop)
+        hbox2.addWidget(self.pw_label)
+        hbox2.addWidget(self.pw_e)
+        hbox2.addStretch()
+        vbox.addLayout(hbox2)
+        self._set_standard_layout(vbox,
+            title=_('ElectrumSV wallet'),
+            back_text=_(MSG_BUTTON_CANCEL))
+
+        esv_wallets_dir = os.path.join(app_state.config.electrum_path(), "wallets")
+
+        if is_startup:
+            def _show_copy_electron_cash_wallets_dialog(*args):
+                nonlocal esv_wallets_dir, ec_wallets_dir
+
+                d = WindowModalDialog(self, _("Copy Electron Cash Wallets"))
+
+                vbox, file_list = self._create_copy_electron_cash_wallets_layout(ec_wallets_dir)
+
+                bbox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+                bbox.rejected.connect(d.reject)
+                bbox.accepted.connect(d.accept)
+                vbox.addWidget(bbox)
+
+                d.setLayout(vbox)
+
+                result = d.exec()
+                if result == QDialog.Accepted:
+                    self._do_copy_electron_cash_wallets(file_list, esv_wallets_dir, ec_wallets_dir)
+
+                _update_selected_wallet()
+
+            ec_import_icon = QLabel("")
+            ec_import_icon.setPixmap(
+                QPixmap(icon_path("icons8-info.svg")).scaledToWidth(16, Qt.SmoothTransformation))
+            ec_import_label = QLabel(_("Existing Electron Cash wallets detected"))
+            ec_import_button = QPushButton(_("Import..."))
+            ec_import_button.clicked.connect(_show_copy_electron_cash_wallets_dialog)
+            self.template_hbox.addWidget(ec_import_icon)
+            self.template_hbox.addWidget(ec_import_label)
+            self.template_hbox.addWidget(ec_import_button)
+            self.template_hbox.addStretch(1)
+
+            ec_wallets_dir = get_electron_cash_user_dir(esv_wallets_dir)
+            if len(self._list_user_wallets(ec_wallets_dir)) == 0:
+                ec_import_button.setEnabled(False)
+                ec_import_button.setToolTip(_("Nothing to import"))
+                ec_import_label.setText(_("No Electron Cash wallets detected"))
+
+        self.storage = WalletStorage(path, manual_upgrades=True)
+        wallet_folder = os.path.dirname(path)
+
+        def _on_choose():
+            path, __ = QFileDialog.getOpenFileName(self, "Select your wallet file", wallet_folder)
+            if path:
+                self.name_e.setText(path)
+
+        def _on_filename(filename):
+            # A relative path will be relative to the folder we offered in the choose dialog.
+            # An absolute path will not get joined to the dialog folder (no-op).
+            path = os.path.join(wallet_folder, filename)
+            try:
+                self.storage = WalletStorage(path, manual_upgrades=True)
+                self.next_button.setEnabled(True)
+            except IOError:
+                self.storage = None
+                self.next_button.setEnabled(False)
+            if self.storage:
+                if not self.storage.file_exists():
+                    msg =_("This file does not exist.") + '\n' \
+                          + _("Press 'Next' to create this wallet, or choose another file.")
+                    pw = False
+                elif self.storage.file_exists() and self.storage.is_encrypted():
+                    msg = '\n'.join([
+                        _("This file is encrypted."),
+                        _('Enter your password or choose another file.'),
+                    ])
+                    pw = True
+                else:
+                    msg = _("Press 'Next' to open this wallet.")
+                    pw = False
+            else:
+                msg = _('Cannot read file')
+                pw = False
+            self.msg_label.setText(msg)
+            if pw:
+                self.pw_label.show()
+                self.pw_e.show()
+                self.pw_e.setFocus()
+            else:
+                self.pw_label.hide()
+                self.pw_e.hide()
+
+        def _update_selected_wallet(skip_pick_most_recent=False):
+            wallet_name = None
+            if not skip_pick_most_recent and not self.storage.file_exists() and is_startup:
+                esv_wallet_names = self._list_user_wallets(esv_wallets_dir)
+                if len(esv_wallet_names):
+                    wallet_name = esv_wallet_names[0]
+            if wallet_name is None:
+                wallet_name = os.path.basename(self.storage.path)
+            self.name_e.setText(wallet_name)
+
+        button.clicked.connect(_on_choose)
+        self.name_e.textChanged.connect(_on_filename)
+
+        # We do not pick the most recent when first displaying the wizard because we want to
+        # treat the preselected wallet as the user's explicit choice. So a non-existent name
+        # should be a possible wallet creation.
+        _update_selected_wallet(skip_pick_most_recent=True)
+
+        while True:
+            if self.storage.file_exists() and not self.storage.is_encrypted():
+                break
+            if self.loop.exec_() != 2:  # 2 = next
+                return
+            if not self.storage.file_exists():
+                break
+            if self.storage.file_exists() and self.storage.is_encrypted():
+                password = self.pw_e.text()
+                try:
+                    self.storage.decrypt(password)
+                    self.pw_e.setText('')
+                    break
+                except InvalidPassword as e:
+                    QMessageBox.information(None, _('Error'), str(e))
+                    continue
+                except Exception as e:
+                    logger.exception("decrypting storage")
+                    QMessageBox.information(None, _('Error'), str(e))
+                    return
+
+        return True
 
     def _copy_electron_cash_wallets(self):
         """
@@ -206,8 +355,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             # they confirm they are going to replace/overwrite it.
             if os.path.exists(target_path):
                 if self.question(_("You already have a wallet named '{}' for ElectrumSV. "+
-                                "Replace/overwrite it?").format(filename), self,
-                                _("Delete Wallet?")):
+                        "Replace/overwrite it?").format(filename), self, _("Delete Wallet?")):
                     os.remove(target_path)
                 else:
                     continue
@@ -270,147 +418,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             return True
         return False
 
-    def run_and_get_wallet(self, is_startup):
-        vbox = QVBoxLayout()
-        hbox = QHBoxLayout()
-        hbox.addWidget(QLabel(_('Wallet') + ':'))
-        self.name_e = QLineEdit()
-        hbox.addWidget(self.name_e)
-        button = QPushButton(_('Choose...'))
-        hbox.addWidget(button)
-        vbox.addLayout(hbox)
-
-        self.msg_label = QLabel('')
-        vbox.addWidget(self.msg_label)
-
-        hbox2 = QHBoxLayout()
-        self.pw_e = PasswordLineEdit()
-        self.pw_e.setMinimumWidth(200)
-        self.pw_label = QLabel(_('Password') + ':')
-        self.pw_label.setAlignment(Qt.AlignTop)
-        hbox2.addWidget(self.pw_label)
-        hbox2.addWidget(self.pw_e)
-        hbox2.addStretch()
-        vbox.addLayout(hbox2)
-        self._set_standard_layout(vbox,
-            title=_('ElectrumSV wallet'),
-            back_text=_(MSG_BUTTON_CANCEL))
-
-        if is_startup:
-            def _show_copy_electron_cash_wallets_dialog(*args):
-                nonlocal esv_wallets_dir, ec_wallets_dir
-
-                d = WindowModalDialog(self, _("Copy Electron Cash Wallets"))
-
-                vbox, file_list = self._create_copy_electron_cash_wallets_layout(ec_wallets_dir)
-
-                bbox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-                bbox.rejected.connect(d.reject)
-                bbox.accepted.connect(d.accept)
-                vbox.addWidget(bbox)
-
-                d.setLayout(vbox)
-
-                result = d.exec()
-                if result == QDialog.Accepted:
-                    self._do_copy_electron_cash_wallets(file_list, esv_wallets_dir, ec_wallets_dir)
-
-                _update_selected_wallet()
-
-            ec_import_icon = QLabel("")
-            ec_import_icon.setPixmap(
-                QPixmap(icon_path("icons8-info.svg")).scaledToWidth(16, Qt.SmoothTransformation))
-            ec_import_label = QLabel(_("Existing Electron Cash wallets detected"))
-            ec_import_button = QPushButton(_("Import..."))
-            ec_import_button.clicked.connect(_show_copy_electron_cash_wallets_dialog)
-            self.template_hbox.addWidget(ec_import_icon)
-            self.template_hbox.addWidget(ec_import_label)
-            self.template_hbox.addWidget(ec_import_button)
-            self.template_hbox.addStretch(1)
-
-            esv_wallets_dir = os.path.join(app_state.config.electrum_path(), "wallets")
-            ec_wallets_dir = get_electron_cash_user_dir(esv_wallets_dir)
-            if len(self._list_user_wallets(ec_wallets_dir)) == 0:
-                ec_import_button.setEnabled(False)
-                ec_import_button.setToolTip(_("Nothing to import"))
-                ec_import_label.setText(_("No Electron Cash wallets detected"))
-
-        wallet_folder = os.path.dirname(self.storage.path)
-
-        def on_choose():
-            path, __ = QFileDialog.getOpenFileName(self, "Select your wallet file", wallet_folder)
-            if path:
-                self.name_e.setText(path)
-
-        def on_filename(filename):
-            path = os.path.join(wallet_folder, filename)
-            try:
-                self.storage = WalletStorage(path, manual_upgrades=True)
-                self.next_button.setEnabled(True)
-            except IOError:
-                self.storage = None
-                self.next_button.setEnabled(False)
-            if self.storage:
-                if not self.storage.file_exists():
-                    msg =_("This file does not exist.") + '\n' \
-                          + _("Press 'Next' to create this wallet, or choose another file.")
-                    pw = False
-                elif self.storage.file_exists() and self.storage.is_encrypted():
-                    msg = '\n'.join([
-                        _("This file is encrypted."),
-                        _('Enter your password or choose another file.'),
-                    ])
-                    pw = True
-                else:
-                    msg = _("Press 'Next' to open this wallet.")
-                    pw = False
-            else:
-                msg = _('Cannot read file')
-                pw = False
-            self.msg_label.setText(msg)
-            if pw:
-                self.pw_label.show()
-                self.pw_e.show()
-                self.pw_e.setFocus()
-            else:
-                self.pw_label.hide()
-                self.pw_e.hide()
-
-        def _update_selected_wallet():
-            wallet_name = None
-            if not self.storage.file_exists() and is_startup:
-                esv_wallet_names = self._list_user_wallets(esv_wallets_dir)
-                if len(esv_wallet_names):
-                    wallet_name = esv_wallet_names[0]
-            if wallet_name is None:
-                wallet_name = os.path.basename(self.storage.path)
-            self.name_e.setText(wallet_name)
-
-        button.clicked.connect(on_choose)
-        self.name_e.textChanged.connect(on_filename)
-        _update_selected_wallet()
-
-        while True:
-            if self.storage.file_exists() and not self.storage.is_encrypted():
-                break
-            if self.loop.exec_() != 2:  # 2 = next
-                return
-            if not self.storage.file_exists():
-                break
-            if self.storage.file_exists() and self.storage.is_encrypted():
-                password = self.pw_e.text()
-                try:
-                    self.storage.decrypt(password)
-                    self.pw_e.setText('')
-                    break
-                except InvalidPassword as e:
-                    QMessageBox.information(None, _('Error'), str(e))
-                    continue
-                except Exception as e:
-                    logger.exception("decrypting storage")
-                    QMessageBox.information(None, _('Error'), str(e))
-                    return
-
+    def run_and_get_wallet(self):
         path = self.storage.path
         if self.storage.requires_split():
             self.hide()
