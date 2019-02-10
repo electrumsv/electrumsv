@@ -40,7 +40,6 @@ from electrumsv.app_state import app_state
 from electrumsv.exceptions import UserCancelled, UserQuit
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
-from electrumsv.storage import WalletStorage
 
 from . import dialogs
 from .cosigner_pool import CosignerPool

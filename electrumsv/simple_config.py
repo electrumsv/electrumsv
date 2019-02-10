@@ -3,7 +3,6 @@ import json
 import os
 import stat
 import threading
-import time
 
 from . import util
 from .bitcoin import MAX_FEE_RATE

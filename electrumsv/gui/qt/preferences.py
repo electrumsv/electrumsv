@@ -226,7 +226,8 @@ class PreferencesDialog(QDialog):
         updatecheck_vbox.addWidget(updatecheck_cb)
         # The secondary checkbox, which determines if unstable releases result in notifications.
         updatecheck_unstable_cb = QCheckBox(_("Ignore unstable releases"))
-        updatecheck_unstable_cb.setChecked(app_state.config.get('check_updates_ignore_unstable', True))
+        updatecheck_unstable_cb.setChecked(
+            app_state.config.get('check_updates_ignore_unstable', True))
         def on_set_updatecheck_unstable(v):
             app_state.config.set_key('check_updates_ignore_unstable', v == Qt.Checked, save=True)
         updatecheck_unstable_cb.stateChanged.connect(on_set_updatecheck_unstable)

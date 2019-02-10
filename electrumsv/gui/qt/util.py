@@ -5,13 +5,13 @@ import queue
 from collections import namedtuple
 from functools import partial, lru_cache
 
-from PyQt5.QtCore import Qt, QCoreApplication, QTimer, QThread, pyqtSignal, QModelIndex
+from PyQt5.QtCore import Qt, QCoreApplication, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
 from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
     QRadioButton, QFileDialog, QStyledItemDelegate, QTreeWidget, QButtonGroup, QComboBox,
     QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem,
-    QApplication, QTableWidget, QTreeWidget
+    QApplication
 )
 from PyQt5.uic import loadUi
 

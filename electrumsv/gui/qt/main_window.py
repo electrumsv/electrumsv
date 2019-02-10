@@ -594,7 +594,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         toolbar.addAction(log_action)
 
         self._update_check_state = "default"
-        update_action = QAction(read_QIcon("icons8-available-updates-80-blue"), _("Update Check"), self)
+        update_action = QAction(
+            read_QIcon("icons8-available-updates-80-blue"), _("Update Check"), self)
         def _update_show_menu(checked: bool = False):
             self._update_menu.exec(QCursor.pos())
         update_action.triggered.connect(_update_show_menu)
@@ -2358,6 +2359,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         b = QPushButton(_("Sign"))
         def do_sign(checked=False):
+            # pylint: disable=no-value-for-parameter
             self.do_sign(address_e, message_e, signature_e)
         b.clicked.connect(do_sign)
         hbox.addWidget(b)
@@ -2425,6 +2427,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         b = QPushButton(_("Decrypt"))
         def do_decrypt(checked=False):
+            # pylint: disable=no-value-for-parameter
             self.do_decrypt(message_e, pubkey_e, encrypted_e)
         b.clicked.connect(do_decrypt)
         hbox.addWidget(b)

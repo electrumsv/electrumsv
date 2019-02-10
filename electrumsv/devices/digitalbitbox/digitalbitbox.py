@@ -6,9 +6,11 @@
 import base64
 import binascii
 import hashlib
+import hmac
 import json
 import math
 import os
+import re
 import requests
 import struct
 import time
@@ -128,10 +130,9 @@ class DigitalBitbox_Client():
             return True
         return False
 
-
     def stretch_key(self, key):
-        return to_hexstr(hashlib.pbkdf2_hmac('sha512', key.encode('utf-8'), b'Digital Bitbox', iterations = 20480))
-
+        return to_hexstr(hashlib.pbkdf2_hmac('sha512', key.encode('utf-8'), b'Digital Bitbox',
+            iterations = 20480))
 
     def backup_password_dialog(self):
         msg = _("Enter the password used when the backup was created:")
@@ -171,7 +172,8 @@ class DigitalBitbox_Client():
             raise Exception("error detecting firmware version")
         major_version = int(match.group(1))
         if major_version < MIN_MAJOR_VERSION:
-            raise Exception("Please upgrade to the newest firmware using the BitBox Desktop app: https://shiftcrypto.ch/start")
+            raise Exception("Please upgrade to the newest firmware using the BitBox Desktop app: "+
+                            "https://shiftcrypto.ch/start")
         # Set password if fresh device
         if self.password is None and not self.dbb_has_password():
             if not self.setupRunning:
@@ -410,7 +412,8 @@ class DigitalBitbox_Client():
             if 'ciphertext' in reply:
                 b64_unencoded = bytes(base64.b64decode(''.join(reply["ciphertext"])))
                 reply_hmac = b64_unencoded[-sha256_byte_len:]
-                hmac_calculated = hmac_oneshot(authentication_key, b64_unencoded[:-sha256_byte_len], hashlib.sha256)
+                hmac_calculated = hmac_oneshot(
+                    authentication_key, b64_unencoded[:-sha256_byte_len], hashlib.sha256)
                 if not hmac.compare_digest(reply_hmac, hmac_calculated):
                     raise Exception("Failed to validate HMAC")
                 reply = DecodeAES_bytes(encryption_key, b64_unencoded[:-sha256_byte_len])
