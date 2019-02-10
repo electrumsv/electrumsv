@@ -16,7 +16,32 @@ pr:
   - master
 
 jobs:
+- job: Preparation
+  pool:
+    vmImage: 'ubuntu-16.04'
+  steps:
+  - script: |
+      REPO_DESC=`git describe --tags --dirty --always --match sv-*`
+      REPO_CLOSEST_TAG=`git describe --tags --abbrev=0 --match sv-*`
+      # Only set this flag if the commit is on the tag.
+      if [ "$REPO_DESC" == "$REPO_CLOSEST_TAG" ]
+      then
+        echo "##vso[task.setvariable variable=commitTag;isOutput=true]${REPO_CLOSEST_TAG:3}"
+      else
+        echo "##vso[task.setvariable variable=commitTag;isOutput=true]not-tagged"
+      fi
+      echo Commit description = '$REPO_DESC'
+      echo Commit closest tag = '$REPO_CLOSEST_TAG'
+      echo Commit source branch = '$(Build.SourceBranch)'
+      echo Commit build reason = '$(Build.Reason)'
+    name: exportVars
+    displayName: Export commit tag for dependent tasks
+    enabled: true
+    continueOnError: false
+    failOnStderr: true
 - job: BuildLinuxBasedWindows
+  dependsOn:
+  - Preparation
   pool:
     vmImage: 'ubuntu-16.04'
   steps:
@@ -25,21 +50,6 @@ jobs:
       versionSpec: 3.6
       addToPath: true
       architecture: x64
-  - script: |
-      REPO_DESC=`git describe --tags --dirty --always --match sv-*`
-      REPO_CLOSEST_TAG=`git describe --tags --abbrev=0 --match sv-*`
-      # Only set this flag if the commit is on the tag.
-      if [ "$REPO_DESC" == "$REPO_CLOSEST_TAG" ]
-      then
-        echo "##vso[task.setvariable variable=committag;isOutput=true]${REPO_CLOSEST_TAG:3}"
-      else
-        echo "##vso[task.setvariable variable=committag;isOutput=true]not-tagged"
-      fi
-    name: exportVars
-    displayName: Export commit tag for dependent tasks
-    enabled: true
-    continueOnError: false
-    failOnStderr: true
   - script: |
       sudo docker pull $(imageName)
       sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
@@ -60,6 +70,8 @@ jobs:
   variables:
     imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img@sha256:8274d555237fc569f032006eccb7d76c1e2e4c9d9ca420d98a00efb527cce46e'
 - job: BuildPythonPackages
+  dependsOn:
+  - Preparation
   pool:
     vmImage: 'ubuntu-16.04'
   steps:
@@ -87,6 +99,8 @@ jobs:
       artifactName: 'build-files-intermediate-packages'
       targetPath: $(Build.ArtifactStagingDirectory)
 - job: BuildMacOS10_14
+  dependsOn:
+  - Preparation
   pool:
     vmImage: 'macOS-10.13'
   steps:
@@ -116,6 +130,21 @@ jobs:
       artifactName: 'build-files-intermediate-macos'
       targetPath: $(Build.ArtifactStagingDirectory)
 - job: ProcessArtifacts
+  # We only build this if:
+  # - The branch being built is master.
+  # - The commit is tagged.
+  # - The build was triggered manually.
+  condition: |
+    and(
+      and(
+          and(
+              succeeded(),
+              eq(variables['Build.SourceBranch'], 'refs/heads/master')
+          ),
+          eq(variables['Build.Reason'], 'Manual')
+      ),
+      startsWith(variables['commitTag'], 'sv-')
+    )
   dependsOn:
     - BuildLinuxBasedWindows
     - BuildPythonPackages
@@ -124,8 +153,6 @@ jobs:
     vmImage: 'ubuntu-16.04'
   steps:
   - checkout: none
-  - script: |
-      echo Running with commit tag $(commitTag)
   - task: DownloadPipelineArtifact@0
     inputs:
       artifactName: 'build-files-intermediate-windows'
@@ -149,6 +176,5 @@ jobs:
     inputs:
       artifactName: 'build-files'
       targetPath: $(Build.ArtifactStagingDirectory)
-    condition: and(succeeded(), startsWith(variables['commitTag'], 'sv-'))
   variables:
-    commitTag: $(dependencies.BuildLinuxBasedWindows.outputs['exportVars.committag'])
+    commitTag: $[dependencies.Preparation.outputs['exportVars.commitTag']]
