@@ -10,12 +10,10 @@
 trigger:
   branches:
     include:
-    - master
-    - release-1.0
+      - master
 
 pr:
-- master
-- release-1.0
+  - master
 
 jobs:
 - job: BuildLinuxBasedWindows
@@ -28,27 +26,36 @@ jobs:
       addToPath: true
       architecture: x64
   - script: |
+      REPO_DESC=`git describe --tags --dirty --always --match sv-*`
+      REPO_CLOSEST_TAG=`git describe --tags --abbrev=0 --match sv-*`
+      # Only set this flag if the commit is on the tag.
+      if [ "$REPO_DESC" == "$REPO_CLOSEST_TAG" ]
+      then
+        echo "##vso[task.setvariable variable=committag;isOutput=true]${REPO_CLOSEST_TAG:3}"
+      else
+        echo "##vso[task.setvariable variable=committag;isOutput=true]not-tagged"
+      fi
+    name: exportVars
+    displayName: Export commit tag for dependent tasks
+    enabled: true
+    continueOnError: false
+    failOnStderr: true
+  - script: |
       sudo docker pull $(imageName)
       sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
-      pushd contrib/build-wine/dist
-      # We cannot write to the 'dist' directory, so need to write them elsewhere.
-      sha256sum *.exe > $(Build.Repository.LocalPath)/windows-hashes.txt
-      popd
     displayName: 'Windows build'
     enabled: true
     continueOnError: false
     failOnStderr: false
   - task: CopyFiles@2
     inputs:
-      contents: |
-        windows-hashes.txt
-        contrib/build-wine/dist/?(*.exe|*.txt)
+      contents: contrib/build-wine/dist/?(*.exe|*.txt)
       targetFolder: $(Build.ArtifactStagingDirectory)
       flattenFolders: true
       OverWrite: true
   - task: PublishPipelineArtifact@0
     inputs:
-      artifactName: 'build-files'
+      artifactName: 'build-files-intermediate-windows'
       targetPath: $(Build.ArtifactStagingDirectory)
   variables:
     imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img@sha256:8274d555237fc569f032006eccb7d76c1e2e4c9d9ca420d98a00efb527cce46e'
@@ -65,22 +72,19 @@ jobs:
       sudo pip3 install --upgrade pip setuptools wheel
       ./contrib/make_packages
       ./contrib/make_tgz
-      pushd dist
-      sha256sum * > package-hashes.txt
-      popd
     displayName: 'Build Python packages'
     enabled: true
     continueOnError: false
     failOnStderr: false
   - task: CopyFiles@2
     inputs:
-      contents: dist/?(*.zip|*.gz|*.txt)
+      contents: dist/?(*.zip|*.gz)
       targetFolder: $(Build.ArtifactStagingDirectory)
       flattenFolders: true
       OverWrite: true
   - task: PublishPipelineArtifact@0
     inputs:
-      artifactName: 'build-files'
+      artifactName: 'build-files-intermediate-packages'
       targetPath: $(Build.ArtifactStagingDirectory)
 - job: BuildMacOS10_14
   pool:
@@ -97,9 +101,6 @@ jobs:
       sudo pip3 install --upgrade pip setuptools wheel
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
-      pushd dist
-      shasum -a 256 *.dmg > macos-10.14-hashes.txt
-      popd
     enabled: true
     continueOnError: false
     failOnStderr: false
@@ -112,5 +113,42 @@ jobs:
       OverWrite: true
   - task: PublishPipelineArtifact@0
     inputs:
+      artifactName: 'build-files-intermediate-macos'
+      targetPath: $(Build.ArtifactStagingDirectory)
+- job: ProcessArtifacts
+  dependsOn: |
+    BuildLinuxBasedWindows
+    BuildPythonPackages
+    BuildMacOS10_14
+  pool:
+    vmImage: 'ubuntu-16.04'
+  steps:
+  - checkout: none
+  - script: |
+      echo Running with commit tag $(commitTag)
+  - task: DownloadPipelineArtifact@0
+    inputs:
+      artifactName: 'build-files-intermediate-windows'
+      targetPath: $(Build.ArtifactStagingDirectory)
+  - task: DownloadPipelineArtifact@0
+    inputs:
+      artifactName: 'build-files-intermediate-packages'
+      targetPath: $(Build.ArtifactStagingDirectory)
+  - task: DownloadPipelineArtifact@0
+    inputs:
+      artifactName: 'build-files-intermediate-macos'
+      targetPath: $(Build.ArtifactStagingDirectory)
+  - script: |
+      cd $(Build.ArtifactStagingDirectory)
+      sha256sum * > build-hashes.txt
+    enabled: true
+    continueOnError: false
+    failOnStderr: false
+    displayName: 'Collect build artifacts'
+  - task: PublishPipelineArtifact@0
+    inputs:
       artifactName: 'build-files'
       targetPath: $(Build.ArtifactStagingDirectory)
+    condition: and(succeeded(), startsWith(variables['commitTag'], 'sv-'))
+  variables:
+    commitTag: $(dependencies.BuildLinuxBasedWindows.outputs['exportVars.committag'])
