@@ -90,18 +90,24 @@ def aes_decrypt_with_iv(key: bytes, iv: bytes, data: bytes) -> bytes:
         raise InvalidPassword()
 
 
-def EncodeAES(secret: bytes, msg: bytes) -> bytes:
+def EncodeAES_base64(secret: bytes, msg: bytes) -> bytes:
     """Returns base64 encoded ciphertext."""
+    e = EncodeAES_bytes(secret, msg)
+    return base64.b64encode(e)
+
+def EncodeAES_bytes(secret: bytes, msg: bytes) -> bytes:
     assert_bytes(msg)
     iv = bytes(os.urandom(16))
     ct = aes_encrypt_with_iv(secret, iv, msg)
-    e = iv + ct
-    return base64.b64encode(e)
+    return iv + ct
 
+def DecodeAES_base64(secret: bytes, ciphertext_b64: Union[bytes, str]) -> bytes:
+    ciphertext = bytes(base64.b64decode(ciphertext_b64))
+    return DecodeAES_bytes(secret, ciphertext)
 
-def DecodeAES(secret: bytes, ciphertext_b64: Union[bytes, str]) -> bytes:
-    e = bytes(base64.b64decode(ciphertext_b64))
-    iv, e = e[:16], e[16:]
+def DecodeAES_bytes(secret: bytes, ciphertext: bytes) -> bytes:
+    assert_bytes(ciphertext)
+    iv, e = ciphertext[:16], ciphertext[16:]
     s = aes_decrypt_with_iv(secret, iv, e)
     return s
 
@@ -110,7 +116,7 @@ def pw_encode(data: str, password: Union[bytes, str]) -> str:
     if not password:
         return data
     secret = sha256d(password)
-    return EncodeAES(secret, to_bytes(data, "utf8")).decode('utf8')
+    return EncodeAES_base64(secret, to_bytes(data, "utf8")).decode('utf8')
 
 
 def pw_decode(data: str, password: Union[bytes, str]) -> str:
@@ -118,7 +124,7 @@ def pw_decode(data: str, password: Union[bytes, str]) -> str:
         return data
     secret = sha256d(password)
     try:
-        d = to_string(DecodeAES(secret, data), "utf8")
+        d = to_string(DecodeAES_base64(secret, data), "utf8")
     except Exception:
         raise InvalidPassword()
     return d
