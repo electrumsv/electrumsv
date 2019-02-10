@@ -21,7 +21,13 @@ cd tmp
 
 pushd $WINEPREFIX/drive_c/electrum
 
-VERSION=`git describe --tags --dirty --always --match sv-*`
+# --dirty: If there are local modifications, add the '-dirty' text.
+# --always: If we are not directly on a tag, add the abbreviated commit.
+# --match: Only consider tags matching the given pattern.
+# e.g. "sv-1.1.0-12-f3d2d22" (12 commits past tag, and on commit f3d2d22)
+RAW_VERSION=`git describe --tags --dirty --always --match sv-*`
+# Strip the leading 3 characters from the description, 'sv-1.1.0' -> '1.1.0' (the release version).
+VERSION=${RAW_VERSION:3}
 echo "Last commit: $VERSION"
 
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
