@@ -21,19 +21,26 @@ jobs:
     vmImage: 'ubuntu-16.04'
   steps:
   - script: |
-      REPO_DESC=`git describe --tags --dirty --always --match sv-*`
-      REPO_CLOSEST_TAG=`git describe --tags --abbrev=0 --match sv-*`
+      MOST_RECENT_TAG=`git describe --tags --abbrev=0 --match sv-*`
+      TAGGED_COMMIT=`git rev-list -n 1 ${MOST_RECENT_TAG}`
+      ZZZ=1
       # Only set this flag if the commit is on the tag.
-      if [ "$REPO_DESC" == "$REPO_CLOSEST_TAG" ]
+      if [ "$(Build.SourceVersion)" == "$TAGGED_COMMIT" ]
       then
-        echo "##vso[task.setvariable variable=commitTag;isOutput=true]${REPO_CLOSEST_TAG:3}"
+        echo "##vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]yes"
+        echo "##vso[task.setvariable variable=COMMIT_TAG;isOutput=true]${MOST_RECENT_TAG}"
+        ZZZ=2
       else
-        echo "##vso[task.setvariable variable=commitTag;isOutput=true]not-tagged"
+        echo "##vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]no"
+        echo "##vso[task.setvariable variable=COMMIT_TAG;isOutput=true]"
+        ZZZ=3
       fi
-      echo Commit description = '$REPO_DESC'
-      echo Commit closest tag = '$REPO_CLOSEST_TAG'
-      echo Commit source branch = '$(Build.SourceBranch)'
-      echo Commit build reason = '$(Build.Reason)'
+      echo "Commit zzz = $ZZZ"
+      echo "Commit description = $TAGGED_COMMIT"
+      echo "Commit closest tag = $MOST_RECENT_TAG"
+      echo "Commit source version = $(Build.SourceVersion)"
+      echo "Commit source branch = $(Build.SourceBranch)"
+      echo "Commit build reason = $(Build.Reason)"
     name: exportVars
     displayName: Export commit tag for dependent tasks
     enabled: true
@@ -50,6 +57,9 @@ jobs:
       versionSpec: 3.6
       addToPath: true
       architecture: x64
+  - script: |
+      echo "$()"
+    displayName: 'Debug step'
   - script: |
       sudo docker pull $(imageName)
       sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
@@ -136,14 +146,11 @@ jobs:
   # - The build was triggered manually.
   condition: |
     and(
-      and(
-          and(
-              succeeded(),
-              eq(variables['Build.SourceBranch'], 'refs/heads/master')
-          ),
-          eq(variables['Build.Reason'], 'Manual')
-      ),
-      startsWith(variables['commitTag'], 'sv-')
+      succeeded(),
+      eq(variables['Build.Reason'], 'Manual'),
+      eq(variables['Build.SourceBranch'], 'refs/heads/master'),
+      eq(variables['COMMIT_TAGGED'], 'yes'),
+      startsWith(variables['COMMIT_TAG'], 'sv-')
     )
   dependsOn:
     - BuildLinuxBasedWindows
@@ -177,4 +184,5 @@ jobs:
       artifactName: 'build-files'
       targetPath: $(Build.ArtifactStagingDirectory)
   variables:
-    commitTag: $[dependencies.Preparation.outputs['exportVars.commitTag']]
+    COMMIT_TAG: $[dependencies.Preparation.outputs['exportVars.COMMIT_TAG']]
+    COMMIT_TAGGED: $[dependencies.Preparation.outputs['exportVars.COMMIT_TAGGED']]
