@@ -653,7 +653,10 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         self.refresh_gui()
         t = threading.Thread(target = task)
         t.start()
-        t.join()
+        # Quasi-busy loop to ensure QT remains responsive.
+        while t.is_alive() and not app_state.app.closingDown():
+            app_state.app.processEvents()
+            t.join(0.1)
 
     @wizard_dialog
     def choice_dialog(self, title, message, choices, run_next):
