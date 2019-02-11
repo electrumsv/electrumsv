@@ -13,8 +13,8 @@ export PYTHONHASHSEED=22
 PYTHON_VERSION=3.6.4
 BUILDDIR=/tmp/electrum-sv-build
 PACKAGE=ElectrumSV
-GIT_REPO_ACCT=https://github.com/Electron-Cash
-GIT_REPO=$GIT_REPO_ACCT/Electron-Cash
+GIT_REPO_ACCT=https://github.com/electrumsv
+GIT_REPO=$GIT_REPO_ACCT/electrumsv
 LIBSECP_VERSION=452d8e4d2a2f9f1b5be6b02e18f1ba102e5ca0b4
 
 which xcodebuild > /dev/null 2>&1 || fail "Please install Xcode and xcode command line tools to continue"
@@ -103,7 +103,14 @@ DoCodeSignMaybe "CalinsQRReader.app" "${d}/build/Release/CalinsQRReader.app" "$A
 info "Installing $PACKAGE..."
 python3 -m pip install . > /dev/null || fail "Could not build $PACKAGE"
 
-VERSION=1.1.0
+# --dirty: If there are local modifications, add the '-dirty' text.
+# --always: If we are not directly on a tag, add the abbreviated commit.
+# --match: Only consider tags matching the given pattern.
+# e.g. "sv-1.1.0-12-f3d2d22" (12 commits past tag, and on commit f3d2d22)
+RAW_VERSION=`git describe --tags --dirty --always --match sv-*`
+# Strip the leading 3 characters from the description, 'sv-1.1.0' -> '1.1.0' (the release version).
+VERSION=${RAW_VERSION:3}
+
 info "Using Pyinstaller to build $PACKAGE version $VERSION"
 pyinstaller --noconfirm --ascii contrib/osx/osx.spec || fail "Could not build binary"
 
