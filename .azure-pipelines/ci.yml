@@ -21,6 +21,8 @@ jobs:
   steps:
   - script: |
       python3 -m pip install -U pip setuptools
+      sudo apt-get install libusb-dev
+      PATH=/home/vsts/.local/bin:$PATH
       python3 -m pip install --user -r contrib/deterministic-build/requirements.txt
       python3 -m pip install --user -r contrib/deterministic-build/requirements-hw.txt
       python3 -m pip install --user -U pylint
