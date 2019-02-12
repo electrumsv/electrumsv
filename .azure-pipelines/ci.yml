@@ -21,9 +21,9 @@ jobs:
   steps:
   - script: |
       python3 -m pip install -U pip setuptools
-      python3 -m pip install -r ../../deterministic-build/requirements.txt
-      python3 -m pip install -r ../../deterministic-build/requirements-hw.txt
-      python3 -m pip install -U pylint
+      python3 -m pip install --user -r contrib/deterministic-build/requirements.txt
+      python3 -m pip install --user -r contrib/deterministic-build/requirements-hw.txt
+      python3 -m pip install --user -U pylint
       python3 -m pylint --rcfile .pylintrc electrum-sv electrumsv
       if [ $? -gt 0 ]
       then
