@@ -15,20 +15,56 @@ pr:
   - master
 
 jobs:
+- job: ValidateCommit
+  pool:
+    vmImage: 'ubuntu-16.04'
+  steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: 3.6
+      addToPath: true
+      architecture: x64
+  - script: |
+      sudo apt-get install libusb-1.0-0-dev libudev-dev
+      python3 -m pip install -r contrib/deterministic-build/requirements.txt
+      python3 -m pip install -r contrib/deterministic-build/requirements-hw.txt
+      python3 -m pip install --ignore-installed PyQt5
+      python3 -m pip install --ignore-installed PyQt5.sip
+      python3 -m pip install -U pylint
+      python3 -m pylint --rcfile .pylintrc electrum-sv electrumsv
+      if [ $? -gt 0 ]
+      then
+        # https://docs.pylint.org/en/1.6.0/run.html#exit-codes
+        echo "##vso[task.complete result=Failed;]DONE"
+      fi
+    displayName: Run pylint
+    enabled: false
+    continueOnError: false
+    failOnStderr: true
 - job: Preparation
   pool:
     vmImage: 'ubuntu-16.04'
+  dependsOn:
+  - ValidateCommit
   steps:
   - script: |
       MOST_RECENT_TAG=`git describe --tags --abbrev=0 --match sv-*`
       RX_VERSION='^[0-9]+\.[0-9]+\.[0-9]+[ab]{1}[0-9]+$'
       if [[ ${MOST_RECENT_TAG:3} =~ $RX_VERSION ]]
       then
-        echo "##vso[build.addbuildtag]COMMIT_TAGGED"
+        # This causes errors in pull requests.
+        if [ "$(Build.Reason)" != "PullRequest" ]
+        then
+          echo "##vso[build.addbuildtag]COMMIT_TAGGED"
+        fi
         echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]yes"
         echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]yes"
       else
-        echo "##vso[build.addbuildtag]COMMIT_UNTAGGED"
+        # This causes errors in pull requests.
+        if [ "$(Build.Reason)" != "PullRequest" ]
+        then
+          echo "##vso[build.addbuildtag]COMMIT_UNTAGGED"
+        fi
         echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
         echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
       fi
@@ -67,9 +103,6 @@ jobs:
       versionSpec: 3.6
       addToPath: true
       architecture: x64
-  - script: |
-      echo "$()"
-    displayName: 'Debug step'
   - script: |
       sudo docker pull $(imageName)
       sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
