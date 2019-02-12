@@ -28,7 +28,7 @@ jobs:
       sudo apt-get install libusb-1.0-0-dev libudev-dev
       python3 -m pip install -r contrib/deterministic-build/requirements.txt
       python3 -m pip install -r contrib/deterministic-build/requirements-hw.txt
-      python3 -m pip install --ignore-installed PyQt
+      python3 -m pip install --ignore-installed PyQt5
       python3 -m pip install --ignore-installed PyQt5.sip
       python3 -m pip install -U pylint
       python3 -m pylint --rcfile .pylintrc electrum-sv electrumsv
