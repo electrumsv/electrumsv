@@ -19,13 +19,10 @@ jobs:
   pool:
     vmImage: 'ubuntu-16.04'
   steps:
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: 3.6
-      addToPath: true
-      architecture: x64
   - script: |
       python3 -m pip install -U pylint
+      python3 -m pip install -r ../../deterministic-build/requirements.txt
+      python3 -m pip install -r ../../deterministic-build/requirements-hw.txt
       python3 -m pylint --rcfile .pylintrc electrum-sv electrumsv
       if [ $? -gt 0 ]
       then
