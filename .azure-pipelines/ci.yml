@@ -37,6 +37,10 @@ jobs:
         # https://docs.pylint.org/en/1.6.0/run.html#exit-codes
         echo "##vso[task.complete result=Failed;]DONE"
       fi
+    displayName: Run pylint
+    enabled: false
+    continueOnError: false
+    failOnStderr: true
 - job: Preparation
   pool:
     vmImage: 'ubuntu-16.04'
@@ -48,11 +52,17 @@ jobs:
       RX_VERSION='^[0-9]+\.[0-9]+\.[0-9]+[ab]{1}[0-9]+$'
       if [[ ${MOST_RECENT_TAG:3} =~ $RX_VERSION ]]
       then
-        echo "##vso[build.addbuildtag]COMMIT_TAGGED"
+        if [ "$(Build.Reason)" != "PullRequest" ]
+        then
+          echo "##vso[build.addbuildtag]COMMIT_TAGGED"
+        fi
         echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]yes"
         echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]yes"
       else
-        echo "##vso[build.addbuildtag]COMMIT_UNTAGGED"
+        if [ "$(Build.Reason)" != "PullRequest" ]
+        then
+          echo "##vso[build.addbuildtag]COMMIT_UNTAGGED"
+        fi
         echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
         echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
       fi
