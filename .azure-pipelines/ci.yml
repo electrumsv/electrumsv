@@ -20,7 +20,7 @@ jobs:
     vmImage: 'ubuntu-16.04'
   steps:
   - script: |
-      python3 -m pip install -U pylint
+      python3 -m pip install -U setuptools pylint
       python3 -m pip install -r ../../deterministic-build/requirements.txt
       python3 -m pip install -r ../../deterministic-build/requirements-hw.txt
       python3 -m pylint --rcfile .pylintrc electrum-sv electrumsv
