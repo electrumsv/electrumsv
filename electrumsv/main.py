@@ -390,12 +390,6 @@ def main():
                         sys.exit(0)
                 d = daemon.Daemon(fd, False)
                 d.start()
-                if config.get('websocket_server'):
-                    try:
-                        from electrumsv import websockets
-                    except ImportError as e:
-                        platform.missing_import(e)
-                    websockets.WebSocketServer(config, d.network).start()
                 if config.get('requests_dir'):
                     path = os.path.join(config.get('requests_dir'), 'index.html')
                     if not os.path.exists(path):

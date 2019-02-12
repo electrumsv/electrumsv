@@ -694,8 +694,6 @@ class Network(util.DaemonThread):
         self.send([('blockchain.scripthash.get_history', [sh])], callback)
 
     # Called by commands.py:notify()
-    # Called by websockets.py:reading_thread()
-    # Called by websockets.py:run()
     # Called locally.
     def send(self, messages, callback):
         '''Messages is a list of (method, params) tuples'''
