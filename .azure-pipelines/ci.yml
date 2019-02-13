@@ -38,7 +38,7 @@ jobs:
         echo "##vso[task.complete result=Failed;]DONE"
       fi
     displayName: Run pylint
-    enabled: false
+    enabled: true
     continueOnError: false
     failOnStderr: true
 - job: Preparation
