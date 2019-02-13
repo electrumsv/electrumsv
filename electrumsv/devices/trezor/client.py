@@ -70,7 +70,7 @@ class TrezorClientSV:
             if issubclass(exc_type, Cancelled):
                 raise UserCancelled from exc_value
             elif issubclass(exc_type, TrezorFailure):
-                raise RuntimeError(exc_value.message) from exc_value
+                raise RuntimeError(str(exc_value)) from exc_value
             elif issubclass(exc_type, OutdatedFirmwareError):
                 raise
             else:
