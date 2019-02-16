@@ -41,12 +41,11 @@ from aiorpcx import (
     SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth
 )
 from bitcoinx import (
-    MissingHeader, IncorrectBits, InsufficientPoW, hex_str_to_hash, hash_to_hex_str,
+    Chain, MissingHeader, IncorrectBits, InsufficientPoW, hex_str_to_hash, hash_to_hex_str,
     sha256, double_sha256
 )
 
 from .app_state import app_state
-from .blockchain import Blockchain
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
@@ -56,6 +55,8 @@ from .version import PACKAGE_VERSION, PROTOCOL_VERSION
 
 
 logger = logs.get_logger("network")
+
+HEADER_SIZE = 80
 ONE_MINUTE = 60
 ONE_DAY = 24 * 3600
 HEADERS_SUBSCRIBE = 'blockchain.headers.subscribe'
@@ -325,6 +326,7 @@ class SVSession(RPCSession):
 
     ca_path = certifi.where()
     _connecting_tips = {}
+    _need_checkpoint_headers = True
     # wallet -> list of script hashes.  Also acts as a list of registered wallets
     _subs_by_wallet = {}
     # script_hash -> address
@@ -341,6 +343,80 @@ class SVSession(RPCSession):
         self.tip = None
         self.version = None
 
+    @classmethod
+    def _required_checkpoint_headers(cls):
+        '''Returns (start_height, count).  The range of headers needed for the DAA so that all
+        post-checkpoint headers can have their difficulty verified.
+        '''
+        if cls._need_checkpoint_headers:
+            headers_obj = app_state.headers
+            chain = headers_obj.longest_chain()
+            cp_height = headers_obj.checkpoint.height
+            try:
+                for height in range(cp_height - 146, cp_height):
+                    headers_obj.header_at_height(chain, height)
+                cls._need_checkpoint_headers = False
+            except MissingHeader:
+                return height, cp_height - height
+        return 0, 0
+
+    @classmethod
+    def _connect_header(cls, height, raw_header):
+        '''It is assumed that if height is <= the checkpoint height then the header has
+        been checked for validity.
+        '''
+        headers_obj = app_state.headers
+        checkpoint = headers_obj.checkpoint
+
+        if height <= checkpoint.height:
+            headers_obj.set_one(height, raw_header)
+            header = Net.COIN.deserialized_header(raw_header, height)
+            return header, headers_obj.longest_chain()
+        else:
+            return app_state.headers.connect(raw_header)
+
+    @classmethod
+    def _connect_chunk(cls, start_height, raw_chunk):
+        '''It is assumed that if the last header of the raw chunk is before the checkpoint height
+        then it has been checked for validity.
+        '''
+        headers_obj = app_state.headers
+        checkpoint = headers_obj.checkpoint
+        coin = headers_obj.coin
+        end_height = start_height + len(raw_chunk) // HEADER_SIZE
+
+        def extract_header(height):
+            start = (height - start_height) * 80
+            return raw_chunk[start: start + 80]
+
+        def verify_chunk_contiguous_and_set(next_raw_header, to_height):
+            # Set headers backwards from a proven header, verifying the prev_hash links.
+            for height in reversed(range(start_height, to_height)):
+                raw_header = extract_header(height)
+                if coin.header_prev_hash(next_raw_header) != coin.header_hash(raw_header):
+                    raise MissingHeader('prev_hash does not connect')
+                headers_obj.set_one(height, raw_header)
+                next_raw_header = raw_header
+
+        # For pre-checkpoint headers with a verified proof, just set the headers after
+        # verifying the prev_hash links
+        if end_height < checkpoint.height:
+            # Set the last proven header
+            last_header = extract_header(end_height - 1)
+            headers_obj.set_one(end_height - 1, last_header)
+            verify_chunk_contiguous_and_set(last_header, end_height - 1)
+            return headers_obj.longest_chain()
+
+        # For chunks prior to but connecting to the checkpoint, no proof is required
+        verify_chunk_contiguous_and_set(checkpoint.raw_header, checkpoint.height)
+
+        # Process any remaining headers forwards from the checkpoint
+        chain = None
+        for height in range(max(checkpoint.height + 1, start_height), end_height):
+            _header, chain = headers_obj.connect(extract_header(height))
+
+        return chain or headers_obj.longest_chain()
+
     async def _negotiate_protocol(self):
         '''Raises: RPCError, TaskTimeout'''
         args = (PACKAGE_VERSION, PROTOCOL_VERSION)
@@ -350,7 +426,7 @@ class SVSession(RPCSession):
     async def _get_checkpoint_headers(self):
         '''Raises: RPCError, TaskTimeout'''
         while True:
-            start_height, count = Blockchain.required_checkpoint_headers()
+            start_height, count = self._required_checkpoint_headers()
             if not count:
                 break
             logger.info(f'{count:,d} checkpoint headers needed')
@@ -376,13 +452,13 @@ class SVSession(RPCSession):
                 self.logger.info(f'received just {rec_count:,d} headers')
 
             raw_chunk = bytes.fromhex(result['hex'])
-            assert len(raw_chunk) == 80 * rec_count
+            assert len(raw_chunk) == HEADER_SIZE * rec_count
             if cp_height:
                 hex_root = result['root']
                 branch = [hex_str_to_hash(item) for item in result['branch']]
-                self._check_header_proof(hex_root, branch, raw_chunk[-80:], last_height)
+                self._check_header_proof(hex_root, branch, raw_chunk[-HEADER_SIZE:], last_height)
 
-            self.chain = Blockchain.connect_chunk(height, raw_chunk)
+            self.chain = self._connect_chunk(height, raw_chunk)
         except (AssertionError, KeyError, TypeError, ValueError,
                 IncorrectBits, InsufficientPoW, MissingHeader) as e:
             raise DisconnectSessionError(f'{method} failed: {e}', blacklist=True)
@@ -439,7 +515,7 @@ class SVSession(RPCSession):
 
         while True:
             try:
-                self.tip, self.chain = Blockchain.connect(tip.height, tip.raw)
+                self.tip, self.chain = self._connect_header(tip.height, tip.raw)
                 self.logger.debug(f'connected tip at height {height:,d}')
                 self._network.check_main_chain_event.set()
                 return
@@ -467,8 +543,9 @@ class SVSession(RPCSession):
 
     async def _catch_up_to_tip(self, tip):
         '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
-        cp_height = Net.CHECKPOINT.height
-        max_height = max(blockchain.height() for blockchain in Blockchain.blockchains)
+        headers_obj = app_state.headers
+        cp_height = headers_obj.checkpoint.height
+        max_height = max(chain.height for chain in headers_obj.chains())
         heights = [cp_height + 1]
         step = 1
         height = min(tip.height, max_height)
@@ -557,7 +634,7 @@ class SVSession(RPCSession):
                     self._check_header_proof(hex_root, branch, raw_header, height)
                 else:
                     raw_header = bytes.fromhex(result)
-                _header, self.chain = Blockchain.connect(height, raw_header)
+                _header, self.chain = self._connect_header(height, raw_header)
                 good_height = height
         except MissingHeader:
             hex_str = hash_to_hex_str(Net.COIN.header_hash(raw_header))
@@ -652,15 +729,16 @@ class SVSession(RPCSession):
         '''Raises: MissingHeader, DisconnectSessionError, BatchError, TaskTimeout'''
         result = {}
         missing = []
+        header_at_height = app_state.headers.header_at_height
         for height in set(heights):
             try:
-                result[height] = self.chain.header_at_height(height)
+                result[height] = header_at_height(self.chain, height)
             except MissingHeader:
                 missing.append(height)
         if missing:
             await self._request_headers_at_heights(missing)
             for height in missing:
-                result[height] = self.chain.header_at_height(height)
+                result[height] = header_at_height(self.chain, height)
         return result
 
     async def request_tx(self, tx_hash):
@@ -705,7 +783,7 @@ class Network:
     '''
 
     def __init__(self):
-        Blockchain.read_blockchains()
+        app_state.read_headers()
 
         # Sessions
         self.sessions = []
@@ -846,7 +924,7 @@ class Network:
             main_session = await self._main_session()
             new_main_chain = main_session.chain
             if main_chain != new_main_chain and main_chain:
-                above_height = main_chain.common_height(new_main_chain)
+                _chain, above_height = main_chain.common_chain_and_height(new_main_chain)
                 logger.info(f'main chain updated; undoing wallet verifications '
                             f'above height {above_height:,d}')
                 self.wallet_jobs.put(('undo_verifications', above_height))
@@ -1112,14 +1190,14 @@ class Network:
             callbacks = self.callbacks[event][:]
         [callback(event, *args) for callback in callbacks]
 
-    def blockchain(self):
+    def chain(self):
         main_session = self.main_session()
         if main_session:
             return main_session.chain
-        return Blockchain.longest()
+        return app_state.headers.longest_chain()
 
     def get_local_height(self):
-        return self.blockchain().height()
+        return self.chain().height
 
     def get_server_height(self):
         main_session = self.main_session()
@@ -1145,18 +1223,13 @@ class Network:
             logger.info(f"Set proxy to {proxy}")
             app_state.async_.spawn(self._restart_network)
 
-    def sessions_by_blockchain(self):
-        '''Return a map {blockchain: sessions} for each blockchain being followed by any
-        session.
-        '''
+    def sessions_by_chain(self):
+        '''Return a map {chain: sessions} for each chain being followed by any session.'''
         result = defaultdict(list)
         for session in self.sessions:
             if session.chain:
                 result[session.chain].append(session)
         return result
-
-    def blockchain_count(self):
-        return len(self.sessions_by_blockchain())
 
     def status(self):
         return {

@@ -103,16 +103,24 @@ class NodesListWidget(QTreeWidget):
         pt.setX(50)
         self.customContextMenuRequested.emit(pt)
 
+    def chain_name(self, chain, our_chain):
+        if chain is our_chain:
+            return f'our_chain'
+        _chain, common_height = our_chain.common_chain_and_height(other_chain)
+        fork_height = common_height + 1
+        header = self.header_at_height(fork_height)
+        prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
+        return f'{prefix}@{fork_height}'
+
     def update(self, network):
         self.clear()
         self.addChild = self.addTopLevelItem
-        blockchains = network.sessions_by_blockchain()
-        our_chain = network.blockchain()
-        multiple = len(blockchains) > 1
-        for blockchain, sessions in blockchains.items():
-            if multiple:
-                name = blockchain.get_name(our_chain)
-                x = QTreeWidgetItem([name, '%d' % blockchain.height()])
+        chains = network.sessions_by_chain()
+        our_chain = network.chain()
+        for chain, sessions in chains.items():
+            if len(chains) > 1:
+                name = self.chain_name(chain, our_chain)
+                x = QTreeWidgetItem([name, '%d' % chain.height])
                 x.setData(0, Qt.UserRole, None)  # server
             else:
                 x = self
@@ -121,7 +129,7 @@ class NodesListWidget(QTreeWidget):
                 item = QTreeWidgetItem([session.server.host + star, str(session.tip.height)])
                 item.setData(0, Qt.UserRole, session.server)
                 x.addChild(item)
-            if multiple:
+            if len(chains) > 1:
                 self.addTopLevelItem(x)
                 x.setExpanded(True)
 
@@ -367,12 +375,14 @@ class NetworkChoiceLayout(object):
         n = len(self.network.sessions)
         status = _("Connected to {:d} servers.").format(n) if n else _("Not connected")
         self.status_label.setText(status)
-        if self.network.blockchain_count() > 1:
-            chain = self.network.blockchain()
+        chains = self.network.sessions_by_chain().keys()
+        if len(chains) > 1:
+            our_chain = self.network.chain()
             heights = set()
-            for blockchain in self.network.sessions_by_blockchain():
-                if blockchain != chain:
-                    heights.add(chain.common_height(blockchain) + 1)
+            for chain in chains:
+                if chain != our_chain:
+                    _chain, common_height = our_chain.common_chain_and_height(chain)
+                    heights.add(common_height + 1)
             msg = _('Chain split detected at height(s) {}\n').format(
                 ','.join(f'{height:,d}' for height in sorted(heights)))
         else:
