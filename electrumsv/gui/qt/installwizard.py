@@ -648,16 +648,6 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
     def terminate(self):
         self.accept_signal.emit()
 
-    def waiting_dialog(self, task, msg):
-        self.please_wait.setText(MSG_GENERATING_WAIT)
-        self.refresh_gui()
-        t = threading.Thread(target = task)
-        t.start()
-        # Quasi-busy loop to ensure QT remains responsive.
-        while t.is_alive() and not app_state.app.closingDown():
-            app_state.app.processEvents()
-            t.join(0.1)
-
     @wizard_dialog
     def choice_dialog(self, title, message, choices, run_next):
         c_values = [x[0] for x in choices]
