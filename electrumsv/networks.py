@@ -59,8 +59,6 @@ class SVMainnet(object):
         '7799f2d8b62b3c745aa94514da4c831193bd057a916e1f45183600b5d001f95b11fd02180d32952e'
     ), height=557957, prev_work=0xd54c44dbdc491c25d097bf)
 
-    VERIFICATION_BLOCK_HEIGHT = 557957
-
     # Inegrate this into BitcoinX?
     VERIFICATION_BLOCK_MERKLE_ROOT = (
         "2eb4a1d21caa056385dbedd7743878e481d26052092aba97b319a6459ff6fa1b"
@@ -138,8 +136,6 @@ class SVTestnet(object):
         'fc96f7a7183ef0e0c6b65dd0dc3626c3cded68ccc7dfd06e53dbb6180c74065c2442111cda61b4ef'
     ), height=1273000, prev_work=0x3f53f8e19733a00946)
 
-    VERIFICATION_BLOCK_HEIGHT = 1273000
-
     VERIFICATION_BLOCK_MERKLE_ROOT = (
         "2fde3bf6de5266bd7a2c65b6e6971f8aa5e7b839ee18523994309ab42a18a70c"
     )
@@ -187,7 +183,6 @@ class Net(metaclass=_CurrentNetMeta):
     Use like so:
 
         from electrumsv.networks import Net, SVTestnet
-        Net.VERIFICATION_BLOCK_HEIGHT
         Net.set_to(SVTestnet)
     '''
 
