@@ -27,6 +27,7 @@
 import sys
 
 from electrumsv.app_state import AppStateProxy
+from electrumsv.async_ import ASync
 
 from .app import SVApplication
 
@@ -35,6 +36,7 @@ class QtAppStateProxy(AppStateProxy):
 
     def __init__(self, *args):
         super().__init__(*args)
+        self.async_ = ASync()
         self.app = SVApplication(sys.argv)
 
     def alias_resolved(self):
