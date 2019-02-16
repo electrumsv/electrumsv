@@ -1,3 +1,4 @@
+import tempfile
 import unittest
 from unittest import mock
 
@@ -24,7 +25,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         self.assertFalse(ks.has_seed())
 
     def _create_standard_wallet(self, ks):
-        store = storage.WalletStorage('if_this_exists_mocking_failed_648151893')
+        store = storage.WalletStorage(tempfile.mktemp())
         store.put('keystore', ks.dump())
         store.put('gap_limit', self.gap_limit)
         w = wallet.Standard_Wallet(store)
@@ -32,7 +33,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         return w
 
     def _create_multisig_wallet(self, ks1, ks2):
-        store = storage.WalletStorage('if_this_exists_mocking_failed_648151893')
+        store = storage.WalletStorage(tempfile.mktemp())
         multisig_type = "%dof%d" % (2, 2)
         store.put('wallet_type', multisig_type)
         store.put('x%d/' % 1, ks1.dump())

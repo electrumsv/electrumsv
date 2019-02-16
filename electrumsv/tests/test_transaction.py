@@ -88,13 +88,6 @@ class TestTransaction(unittest.TestCase):
 
         self.assertEqual(tx.serialize(), unsigned_blob)
 
-        tx.update_signatures(signed_blob)
-        self.assertEqual(tx.raw, signed_blob)
-
-        tx.update(unsigned_blob)
-        tx.raw = None
-        blob = str(tx)
-        self.assertEqual(transaction.deserialize(blob), expected)
 
     def test_tx_signed(self):
         expected = {
