@@ -1,5 +1,5 @@
 ElectrumSV - Lightweight Bitcoin SV client
-=====================================
+==========================================
 
 ::
 
@@ -21,27 +21,27 @@ ElectrumSV - Lightweight Bitcoin SV client
 Getting started
 ===============
 
-Electrum SV is a pure python application forked from Electrum. If you want to use the
+ElectrumSV is a pure python application forked from Electrum. If you want to use the
 Qt interface, install the Qt dependencies::
 
     sudo apt-get install python3-pyqt5
 
 If you downloaded the official package (tar.gz), you can run
-Electrum SV from its root directory (called Electrum), without installing it on your
+ElectrumSV from its root directory (called Electrum), without installing it on your
 system; all the python dependencies are included in the 'packages'
-directory. To run Electrum SV from its root directory, just do::
+directory. To run ElectrumSV from its root directory, just do::
 
     ./electrum-sv
 
-You can also install Electrum SV on your system, by running this command::
+You can also install ElectrumSV on your system, by running this command::
 
     pip3 install .
 
 This will download and install the Python dependencies used by
-Electrum SV, instead of using the 'packages' directory.
+ElectrumSV, instead of using the 'packages' directory.
 
 If you cloned the git repository, you need to compile extra files
-before you can run Electrum SV. Read the next section, "Development
+before you can run ElectrumSV. Read the next section, "Development
 Version".
 
 
@@ -84,7 +84,7 @@ To create binaries, create the 'packages/' directory::
 
     ./contrib/make_packages
 
-This directory contains the python dependencies used by Electrum SV.
+This directory contains the python dependencies used by ElectrumSV.
 
 The `make_packages` command may fail with some Ubuntu-packaged versions of
 pip ("can't combine user with prefix."). To solve this, it is necessary to

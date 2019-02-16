@@ -6,7 +6,7 @@
 ;--------------------------------
 ;Variables
 
-  !define PRODUCT_NAME "Electrum SV"
+  !define PRODUCT_NAME "ElectrumSV"
   !define PRODUCT_WEB_SITE "https://electrumsv.io"
   !define PRODUCT_PUBLISHER "Roger Taylor"
   !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"

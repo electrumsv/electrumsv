@@ -1,8 +1,5 @@
-#!/usr/bin/env python3
-# -*- mode: python -*-
-#
-# Electrum SV - lightweight Bitcoin SV client
-# Copyright (C) 2018-2019 The Electrum SV Developers
+# ElectrumSV - lightweight Bitcoin SV client
+# Copyright (C) 2018-2019 The ElectrumSV Developers
 #
 # Electrum Cash - lightweight Bitcoin Cash client
 # Copyright (C) 2017-2018 The Electron Cash Developers

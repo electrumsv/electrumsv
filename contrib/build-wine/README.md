@@ -2,8 +2,9 @@ Windows Binary Builds
 =====================
 
 
-These scripts can be used for cross-compilation of Windows Electrum SV executables from Linux/Wine.
-Produced binaries are deterministic so you should be able to generate binaries that match the official releases.
+These scripts can be used for cross-compilation of Windows ElectrumSV executables from
+Linux/Wine.  Produced binaries are deterministic so you should be able to generate
+binaries that match the official releases.
 
 Usage:
 1. Install Wine 2, e.g.

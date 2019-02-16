@@ -1,7 +1,7 @@
 Building Mac OS binaries
 ========================
 
-This guide explains how to build Electrum SV binaries for macOS systems.
+This guide explains how to build ElectrumSV binaries for macOS systems.
 We build our binaries on El Capitan (10.11.6) as building it on High Sierra
 makes the binaries incompatible with older versions.
 
@@ -33,7 +33,7 @@ Make sure it is the "selected" xcode (e.g.):
     sudo xcode-select -s $HOME/Downloads/Xcode.app/Contents/Developer/
 
 
-#### 1.2 Build Electrum SV
+#### 1.2 Build ElectrumSV
 
     cd electrum-sv
     ./contrib/osx/make_osx
