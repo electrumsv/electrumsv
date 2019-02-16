@@ -387,8 +387,8 @@ class SVSession(RPCSession):
         end_height = start_height + len(raw_chunk) // HEADER_SIZE
 
         def extract_header(height):
-            start = (height - start_height) * 80
-            return raw_chunk[start: start + 80]
+            start = (height - start_height) * HEADER_SIZE
+            return raw_chunk[start: start + HEADER_SIZE]
 
         def verify_chunk_contiguous_and_set(next_raw_header, to_height):
             # Set headers backwards from a proven header, verifying the prev_hash links.
