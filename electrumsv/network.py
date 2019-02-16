@@ -1,4 +1,4 @@
-# Electrum - Lightweight Bitcoin Client
+# ElectrumSV - lightweight Bitcoin SV client
 # Copyright (C) 2019 The ElectrumSV Developers
 # Copyright (c) 2011-2016 Thomas Voegtlin
 #
