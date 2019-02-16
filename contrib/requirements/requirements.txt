@@ -7,4 +7,5 @@ dnspython
 jsonrpclib-pelix
 PySocks>=1.6.6
 bitcoinX==0.0.5
+aiorpcX==0.10.5
 python-dateutil
