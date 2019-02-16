@@ -55,7 +55,17 @@ def rev_hex(s):
 
 
 def int_to_hex(i, length=1):
-    assert isinstance(i, int)
+    """Converts int to little-endian hex string.
+    `length` is the number of bytes available
+    """
+    if not isinstance(i, int):
+        raise TypeError('{} instead of int'.format(i))
+    range_size = pow(256, length)
+    if i < -(range_size//2) or i >= range_size:
+        raise OverflowError('cannot convert int {} to hex ({} bytes)'.format(i, length))
+    if i < 0:
+        # two's complement
+        i = range_size + i
     s = hex(i)[2:].rstrip('L')
     s = "0"*(2*length - len(s)) + s
     return rev_hex(s)
@@ -73,18 +83,38 @@ def var_int(i):
         return "ff"+int_to_hex(i,8)
 
 
-def op_push(i):
-    if i<0x4c:
+def op_push(i: int) -> str:
+    if i<0x4c:  # OP_PUSHDATA1
         return int_to_hex(i)
-    elif i<0xff:
+    elif i<=0xff:
         return '4c' + int_to_hex(i)
-    elif i<0xffff:
+    elif i<=0xffff:
         return '4d' + int_to_hex(i,2)
     else:
         return '4e' + int_to_hex(i,4)
 
-def push_script(x):
-    return op_push(len(x)//2) + x
+
+def push_script(data: str) -> str:
+    """Returns pushed data to the script, automatically
+    choosing canonical opcodes depending on the length of the data.
+    hex -> hex
+
+    ported from https://github.com/btcsuite/btcd
+    """
+    data = bfh(data)
+    from .transaction import opcodes
+
+    data_len = len(data)
+
+    # "small integer" opcodes
+    if data_len == 0 or data_len == 1 and data[0] == 0:
+        return bh2u(bytes([opcodes.OP_0]))
+    elif data_len == 1 and data[0] <= 16:
+        return bh2u(bytes([opcodes.OP_1 - 1 + data[0]]))
+    elif data_len == 1 and data[0] == 0x81:
+        return bh2u(bytes([opcodes.OP_1NEGATE]))
+
+    return op_push(data_len) + bh2u(data)
 
 
 hash_encode = lambda x: bh2u(x[::-1])
@@ -285,10 +315,10 @@ def serialize_privkey(secret, compressed, txin_type):
 
 def deserialize_privkey(key):
     # whether the pubkey is compressed should be visible from the keystore
-    vch = DecodeBase58Check(key)
     if is_minikey(key):
         return 'p2pkh', minikey_to_private_key(key), False
-    elif vch:
+    vch = DecodeBase58Check(key)
+    if vch:
         txin_type = inv_dict(SCRIPT_TYPES)[vch[0] - Net.WIF_PREFIX]
         assert len(vch) in [33, 34]
         compressed = len(vch) == 34
