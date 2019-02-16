@@ -29,7 +29,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         store.put('keystore', ks.dump())
         store.put('gap_limit', self.gap_limit)
         w = wallet.Standard_Wallet(store)
-        w.synchronize()
+        w.wait_until_synchronized()
         return w
 
     def _create_multisig_wallet(self, ks1, ks2):
@@ -40,7 +40,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         store.put('x%d/' % 2, ks2.dump())
         store.put('gap_limit', self.gap_limit)
         w = wallet.Multisig_Wallet(store)
-        w.synchronize()
+        w.wait_until_synchronized()
         return w
 
     @mock.patch.object(storage.WalletStorage, '_write')

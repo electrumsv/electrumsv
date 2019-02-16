@@ -433,9 +433,5 @@ class BaseWizard(object):
             f('')
 
     def create_addresses(self):
-        def task():
-            self.wallet.synchronize()
-            self.wallet.storage.write()
-            self.terminate()
-        msg = _("ElectrumSV is generating your addresses, please wait.")
-        self.waiting_dialog(task, msg)
+        # FIXME: wallet should be added to the network earlier!
+        pass

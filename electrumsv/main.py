@@ -35,6 +35,7 @@ from electrumsv import daemon, keystore, web
 from electrumsv.app_state import app_state, AppStateProxy
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
 from electrumsv.exceptions import InvalidPassword
+from electrumsv.exchange_rate import FxTask
 from electrumsv.logs import logs
 from electrumsv.mnemonic import Mnemonic
 from electrumsv.network import Network
@@ -93,12 +94,10 @@ def run_non_RPC(config):
             storage.write()
             wallet = Wallet(storage)
         if not config.get('offline'):
-            network = Network(config)
-            network.start()
-            wallet.start_threads(network)
+            network = Network()
+            network.add_wallet(wallet)
             print("Recovering wallet...")
-            wallet.synchronize()
-            wallet.wait_until_synchronized()
+            wallet.synchronize(wait=True)
             msg = ("Recovery successful" if wallet.is_found()
                    else "Found no history for this wallet")
         else:
@@ -116,7 +115,7 @@ def run_non_RPC(config):
         storage.put('wallet_type', 'standard')
         wallet = Wallet(storage)
         wallet.update_password(None, password, True)
-        wallet.synchronize()
+        wallet.synchronize(wait=True)
         print("Your wallet generation seed is:\n\"%s\"" % seed)
         print("Please keep it in a safe place; if you lose it, "
               "you will not be able to restore your wallet.")
@@ -297,7 +296,7 @@ def main():
     parser = get_parser()
     args = parser.parse_args()
 
-    # config is an object passed to the various constructors (wallet, interface, gui)
+    # config is an object passed to various constructors
     config_options = args.__dict__
     config_options = {
         key: value for key, value in config_options.items()
@@ -365,9 +364,18 @@ def main():
     if cmdname == 'gui':
         fd, server = daemon.get_fd_or_server(config)
         if fd is not None:
-            d = daemon.Daemon(fd, True)
-            d.start()
-            app_state.app.run_gui()
+            with app_state.async_ as async_:
+                d = daemon.Daemon(fd, True)
+                d.start()
+                try:
+                    if not config.get('offline'):
+                        app_state.fx = FxTask(config, d.network)
+                        async_.spawn(app_state.fx.refresh_loop)
+                    app_state.app.run_gui()
+                finally:
+                    # Shut down the daemon before exiting the async loop
+                    d.stop()
+                    d.join()
             sys.exit(0)
         else:
             result = server.gui(config_options)

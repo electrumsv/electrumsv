@@ -35,8 +35,10 @@ import sys
 from . import bitcoin
 from . import ecc
 from .address import Address
+from .app_state import app_state
 from .bitcoin import COIN, TYPE_ADDRESS
 from .crypto import hash_160
+from .exchange_rate import FxTask
 from .i18n import _
 from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
@@ -218,7 +220,7 @@ class Commands:
         walletless server query, results are not checked by SPV.
         """
         sh = Address.from_string(address).to_scripthash_hex()
-        return self.network.synchronous_get(('blockchain.scripthash.get_history', [sh]))
+        return self.network.request_and_wait('blockchain.scripthash.get_history', [sh])
 
     @command('w')
     def listunspent(self):
@@ -237,7 +239,7 @@ class Commands:
         is a walletless server query, results are not checked by SPV.
         """
         sh = Address.from_string(address).to_scripthash_hex()
-        return self.network.synchronous_get(('blockchain.scripthash.listunspent', [sh]))
+        return self.network.request_and_wait('blockchain.scripthash.listunspent', [sh])
 
     @command('')
     def serialize(self, jsontx):
@@ -294,7 +296,7 @@ class Commands:
     def broadcast(self, tx):
         """Broadcast a transaction to the network. """
         tx = Transaction(tx)
-        return self.network.broadcast_transaction(tx)
+        return self.network.broadcast_transaction_and_wait(tx)
 
     @command('')
     def createmultisig(self, num, pubkeys):
@@ -369,7 +371,7 @@ class Commands:
         server query, results are not checked by SPV.
         """
         sh = Address.from_string(address).to_scripthash_hex()
-        out = self.network.synchronous_get(('blockchain.scripthash.get_balance', [sh]))
+        out = self.network.request_and_wait('blockchain.scripthash.get_balance', [sh])
         out["confirmed"] =  str(Decimal(out["confirmed"])/COIN)
         out["unconfirmed"] =  str(Decimal(out["unconfirmed"])/COIN)
         return out
@@ -378,8 +380,8 @@ class Commands:
     def getmerkle(self, txid, height):
         """Get Merkle branch of a transaction included in a block. Electrum
         uses this to verify transactions (Simple Payment Verification)."""
-        return self.network.synchronous_get(('blockchain.transaction.get_merkle',
-                                             [txid, int(height)]))
+        return self.network.request_and_wait('blockchain.transaction.get_merkle',
+                                             [txid, int(height)])
 
     @command('n')
     def getservers(self):
@@ -511,8 +513,7 @@ class Commands:
             kwargs['from_timestamp'] = time.mktime(start_date.timetuple())
             kwargs['to_timestamp'] = time.mktime(end_date.timetuple())
         if show_fiat:
-            from .exchange_rate import FxThread
-            FxThread(self.config, None)
+            app_state.fx = FxTask(app_state.config, None)
         return self.wallet.export_history(**kwargs)
 
     @command('w')
@@ -574,7 +575,7 @@ class Commands:
         if self.wallet and txid in self.wallet.transactions:
             tx = self.wallet.transactions[txid]
         else:
-            raw = self.network.synchronous_get(('blockchain.transaction.get', [txid]))
+            raw = self.network.request_and_wait('blockchain.transaction.get', [txid])
             if raw:
                 tx = Transaction(raw)
             else:
@@ -703,7 +704,7 @@ class Commands:
     @command('wn')
     def is_synchronized(self):
         """ return wallet synchronization status """
-        return self.wallet.is_up_to_date()
+        return self.wallet.is_synchronized()
 
     @command('n')
     def getfeerate(self):

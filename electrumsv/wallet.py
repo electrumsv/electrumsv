@@ -30,11 +30,14 @@
 from collections import defaultdict, namedtuple
 import copy
 import errno
+import itertools
 import json
 import os
 import random
 import threading
 import time
+
+from aiorpcx import run_in_thread, sleep
 
 from . import bip32
 from . import bitcoin
@@ -55,13 +58,10 @@ from .logs import logs
 from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type
-from .synchronizer import Synchronizer
 from .transaction import Transaction
 from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
-from .verifier import SPV
 from .version import PACKAGE_VERSION
 from .web import create_URI
-
 
 logger = logs.get_logger("wallet")
 
@@ -76,16 +76,7 @@ TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
                     'fee height conf timestamp')
 
 
-def relayfee(network):
-    RELAY_FEE = 5000
-    MAX_RELAY_FEE = 50000
-    f = network.relay_fee if network and network.relay_fee else RELAY_FEE
-    return min(f, MAX_RELAY_FEE)
-
 def dust_threshold(network):
-    # Change < dust threshold is added to the tx fee
-    #return 182 * 3 * relayfee(network) / 1000 # original Electrum logic
-    #return 1 # <-- was this value until late Sept. 2018
     return 546 # hard-coded Bitcoin SV dust threshold. Was changed to this as of Sept. 2018
 
 
@@ -95,7 +86,7 @@ def append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax):
     else:
         address = PublicKey.from_pubkey(pubkey)
     sh = address.to_scripthash_hex()
-    u = network.synchronous_get(('blockchain.scripthash.listunspent', [sh]))
+    u = network.request_and_wait('blockchain.scripthash.listunspent', [sh])
     for item in u:
         if len(inputs) >= imax:
             break
@@ -172,11 +163,17 @@ class Abstract_Wallet:
         self.logger = logs.get_logger("wallet[{}]".format(self.basename()))
         self.electrum_version = PACKAGE_VERSION
         self.network = None
-        # verifier (SPV) and synchronizer are started in start_threads
-        self.synchronizer = None
-        self.verifier = None
 
-        self.gap_limit_for_change = 6 # constant
+        # For synchronization.
+        self._new_addresses = []
+        self._new_addresses_lock = threading.Lock()
+        self._new_addresses_event = app_state.async_.event()
+        self._synchronize_event = app_state.async_.event()
+        self._synchronize_event.set()
+        self._synchronized_event = app_state.async_.event()
+        self.txs_changed_event = app_state.async_.event()
+
+        self.gap_limit_for_change = 6  # constant
         # saved fields
         self.use_change            = storage.get('use_change', True)
         self.multiple_change       = storage.get('multiple_change', False)
@@ -192,13 +189,11 @@ class Abstract_Wallet:
         # levels of freezing.
         self.frozen_coins = set(storage.get('frozen_coins', []))
         # address -> list(txid, height)
-        history = storage.get('addr_history',{})
-        self._history = self.to_Address_dict(history)
+        self._history = self.to_Address_dict(storage.get('addr_history',{}))
 
         self.load_keystore()
         self.load_addresses()
         self.load_transactions()
-        self.build_reverse_history()
 
         # load requests
         requests = self.storage.get('payment_requests', {})
@@ -207,23 +202,16 @@ class Abstract_Wallet:
         self.receive_requests = {req['address']: req
                                  for req in requests.values()}
 
-        # Transactions pending verification.  A map from tx hash to transaction
-        # height.  Access is not contended so no lock is needed.
-        self.unverified_tx = defaultdict(int)
+        # In-memory tx_hash -> tx_height map.  Use self.lock
+        self.hh_map = {}
 
-        # Verified transactions.  Each value is a (height, timestamp,
-        # block_pos) tuple.  Access with self.lock.
+        # Verified transactions.  Each value is a (height, timestamp, block_pos) tuple.
+        # Access with self.lock.
         self.verified_tx = storage.get('verified_tx3', {})
 
-        # there is a difference between wallet.up_to_date and interface.is_up_to_date()
-        # interface.is_up_to_date() returns true when all requests have been answered and processed
-        # wallet.up_to_date is true when the wallet is synchronized (stronger requirement)
-        self.up_to_date = False
         # locks: if you need to take several, acquire them in the order they are defined here!
         self.lock = threading.RLock()
         self.transaction_lock = threading.RLock()
-
-        self.check_history()
 
         # save wallet type the first time
         if self.storage.get('wallet_type') is None:
@@ -232,6 +220,59 @@ class Abstract_Wallet:
         # invoices and contacts
         self.invoices = InvoiceStore(self.storage)
         self.contacts = Contacts(self.storage)
+
+        # Inform network of our addresses
+        self._add_new_addresses(self.get_addresses(), save=False)
+        self.analyze_history()
+
+    def missing_transactions(self):
+        '''Returns a set of tx_hashes.'''
+        with self.lock:
+            return set(self.hh_map).difference(self.transactions)
+
+    def unverified_transactions(self):
+        '''Returns a map of tx_hash to tx_height.'''
+        hh_map = self.hh_map
+        local_height = self.get_local_height()
+        with self.lock:
+            return {tx_hash: hh_map[tx_hash]
+                    for tx_hash in set(hh_map).difference(self.verified_tx)
+                    if 0 < hh_map[tx_hash] <= local_height}
+
+    async def synchronize_loop(self):
+        while True:
+            await self._synchronize_event.wait()
+            self._synchronize_event.clear()
+            await self._synchronize()
+
+    async def _trigger_synchronization(self, *, wait=False):
+        # Set when an address' history changes - might be missing txs or new verifications
+        self.txs_changed_event.set()
+        self._synchronize_event.set()
+        if wait:
+            while not self.is_synchronized():
+                self.logger.debug('waiting until synced...')
+                await self._synchronized_event.wait()
+                # FIXME
+                await sleep(0.25)
+
+    async def _synchronize_wallet(self):
+        '''Class-specific synchronization (generation of missing addresses).'''
+        pass
+
+    async def _synchronize(self):
+        self.logger.debug('synchronizing...')
+        await self._synchronize_wallet()
+        self._synchronized_event.set()
+        if self.network:
+            self.network.trigger_callback('updated')
+
+    def synchronize(self, *, wait=False):
+        app_state.async_.spawn_and_wait(self._trigger_synchronization(wait=wait))
+
+    def is_synchronized(self):
+        return (self._synchronized_event.is_set() and
+                not (self.network and self.missing_transactions()))
 
     @classmethod
     def to_Address_dict(cls, d):
@@ -269,9 +310,8 @@ class Abstract_Wallet:
         for tx_hash, raw in tx_list.items():
             tx = Transaction(raw)
             self.transactions[tx_hash] = tx
-            if (self.txi.get(tx_hash) is None and
-                    self.txo.get(tx_hash) is None and
-                    tx_hash not in self.pruned_txo.values()):
+            if not any((tx_hash in self.txi, tx_hash in self.txo, tx_hash
+                        in self.pruned_txo.values())):
                 self.logger.debug("removing unreferenced tx %s", tx_hash)
                 self.transactions.pop(tx_hash)
 
@@ -301,50 +341,6 @@ class Abstract_Wallet:
             if write:
                 self.storage.write()
 
-    def clear_history(self):
-        with self.transaction_lock:
-            self.txi = {}
-            self.txo = {}
-            self.tx_fees = {}
-            self.pruned_txo = {}
-        self.save_transactions()
-        with self.lock:
-            self._history = {}
-            self.tx_addr_hist = {}
-
-    @profiler
-    def build_reverse_history(self):
-        self.tx_addr_hist = {}
-        for addr, hist in self._history.items():
-            for tx_hash, h in hist:
-                s = self.tx_addr_hist.get(tx_hash, set())
-                s.add(addr)
-                self.tx_addr_hist[tx_hash] = s
-
-    @profiler
-    def check_history(self):
-        save = False
-        my_addrs = [addr for addr in self._history if self.is_mine(addr)]
-
-        for addr in set(self._history) - set(my_addrs):
-            self._history.pop(addr)
-            save = True
-
-        for addr in my_addrs:
-            hist = self._history[addr]
-
-            for tx_hash, tx_height in hist:
-                if (tx_hash in self.pruned_txo.values() or
-                        self.txi.get(tx_hash) or
-                        self.txo.get(tx_hash)):
-                    continue
-                tx = self.transactions.get(tx_hash)
-                if tx is not None:
-                    self.add_transaction(tx_hash, tx)
-                    save = True
-        if save:
-            self.save_transactions()
-
     def basename(self):
         return os.path.basename(self.storage.path)
 
@@ -362,24 +358,8 @@ class Abstract_Wallet:
         self.receiving_addresses = Address.from_strings(d.get('receiving', []))
         self.change_addresses = Address.from_strings(d.get('change', []))
 
-    def synchronize(self):
-        pass
-
     def is_deterministic(self):
         return self.keystore.is_deterministic()
-
-    def set_up_to_date(self, up_to_date):
-        with self.lock:
-            self.up_to_date = up_to_date
-        if up_to_date:
-            self.save_transactions(write=True)
-            # if the verifier is also up to date, persist that too;
-            # otherwise it will persist its results when it finishes
-            if self.verifier and self.verifier.is_up_to_date():
-                self.save_verified_tx(write=True)
-
-    def is_up_to_date(self):
-        with self.lock: return self.up_to_date
 
     def set_label(self, name, text = None):
         if isinstance(name, Address):
@@ -434,39 +414,21 @@ class Abstract_Wallet:
         sequence = self.get_address_index(address)
         return self.get_pubkeys(*sequence)
 
-    def add_unverified_tx(self, tx_hash, tx_height):
-        if tx_height == 0 and tx_hash in self.verified_tx:
-            self.verified_tx.pop(tx_hash)
-            if self.verifier:
-                self.verifier.merkle_roots.pop(tx_hash, None)
-
-        # tx will be verified only if height > 0
-        if tx_hash not in self.verified_tx:
-            self.unverified_tx[tx_hash] = tx_height
-
     def add_verified_tx(self, tx_hash, info):
         # Remove from the unverified map and add to the verified map and
-        self.unverified_tx.pop(tx_hash, None)
         with self.lock:
             self.verified_tx[tx_hash] = info  # (tx_height, timestamp, pos)
         height, conf, timestamp = self.get_tx_height(tx_hash)
         self.network.trigger_callback('verified', tx_hash, height, conf, timestamp)
 
-    def get_unverified_txs(self):
-        '''Returns a map from tx hash to transaction height'''
-        return self.unverified_tx
-
     def undo_verifications(self, above_height):
         '''Used by the verifier when a reorg has happened'''
-        tx_hashes = set()
         with self.lock:
             for tx_hash, item in self.verified_tx.items():
                 tx_height, timestamp, pos = item
                 if tx_height > above_height:
-                    tx_hashes.add(tx_hash)
-            for tx_hash in tx_hashes:
-                self.verified_tx.pop(tx_hash)
-        return tx_hashes
+                    self.logger.info(f'removing verification of {tx_hash}')
+                    self.verified_tx.pop(tx_hash)
 
     def get_local_height(self):
         """ return last known height if we are offline """
@@ -481,8 +443,7 @@ class Abstract_Wallet:
                 conf = max(self.get_local_height() - height + 1, 0)
                 return height, conf, timestamp
             else:
-                height = self.unverified_tx[tx_hash]
-                return height, 0, False
+                return self.hh_map[tx_hash], 0, False
 
     def get_txpos(self, tx_hash):
         "return position, even if the tx is unverified"
@@ -490,8 +451,8 @@ class Abstract_Wallet:
             if tx_hash in self.verified_tx:
                 height, timestamp, pos = self.verified_tx[tx_hash]
                 return height, pos
-            elif tx_hash in self.unverified_tx:
-                height = self.unverified_tx[tx_hash]
+            elif tx_hash in self.hh_map:
+                height = self.hh_map[tx_hash]
                 return (height, 0) if height > 0 else ((1e9 - height), 0)
             else:
                 return (1e9+1, 0)
@@ -593,10 +554,6 @@ class Abstract_Wallet:
                     status = _('Unconfirmed')
                     if fee is None:
                         fee = self.tx_fees.get(tx_hash)
-                    # fee_estimate: where is this used?
-                    if False: # and fee and self.network.config.has_fee_estimates():
-                        size = tx.estimated_size()
-                        fee_per_kb = fee * 1000 / size
             else:
                 status = _("Signed")
                 can_broadcast = self.network is not None
@@ -748,6 +705,7 @@ class Abstract_Wallet:
         return self._history.get(address, [])
 
     def add_transaction(self, tx_hash, tx):
+        '''Return True if tx_hash is verified.'''
         is_coinbase = tx.inputs()[0]['type'] == 'coinbase'
         with self.transaction_lock:
             # add inputs
@@ -793,7 +751,6 @@ class Abstract_Wallet:
     def remove_transaction(self, tx_hash):
         with self.transaction_lock:
             self.logger.debug("removing tx from history %s", tx_hash)
-            #tx = self.transactions.pop(tx_hash)
             for ser, hh in list(self.pruned_txo.items()):
                 if hh == tx_hash:
                     self.pruned_txo.pop(ser)
@@ -817,40 +774,25 @@ class Abstract_Wallet:
             except KeyError:
                 self.logger.error("tx was not in history %s", tx_hash)
 
-    def receive_tx_callback(self, tx_hash, tx, tx_height):
-        self.add_transaction(tx_hash, tx)
-        self.add_unverified_tx(tx_hash, tx_height)
-
-    def receive_history_callback(self, addr, hist, tx_fees):
+    async def set_address_history(self, addr, hist, tx_fees):
         with self.lock:
-            old_hist = self.get_address_history(addr)
-            for tx_hash, height in old_hist:
-                if (tx_hash, height) not in hist:
-                    # remove tx if it's not referenced in histories
-                    self.tx_addr_hist[tx_hash].remove(addr)
-                    if not self.tx_addr_hist[tx_hash]:
-                        self.remove_transaction(tx_hash)
             self._history[addr] = hist
+            for tx_hash, tx_height in hist:
+                self.hh_map[tx_hash] = tx_height
 
-        for tx_hash, tx_height in hist:
-            # add it in case it was previously unconfirmed
-            self.add_unverified_tx(tx_hash, tx_height)
-            # add reference in tx_addr_hist
-            s = self.tx_addr_hist.get(tx_hash, set())
-            s.add(addr)
-            self.tx_addr_hist[tx_hash] = s
-            # if addr is new, we have to recompute txi and txo
-            tx = self.transactions.get(tx_hash)
-            if (tx is not None and
-                    self.txi.get(tx_hash, {}).get(addr) is None and
-                    self.txo.get(tx_hash, {}).get(addr) is None):
-                self.add_transaction(tx_hash, tx)
+                # If unconfirmed it is not verified
+                if tx_height <= 0:
+                    self.verified_tx.pop(tx_hash, None)
+                # if addr is new, we have to recompute txi and txo
+                tx = self.transactions.get(tx_hash)
+                if (tx is not None and
+                        self.txi.get(tx_hash, {}).get(addr) is None and
+                        self.txo.get(tx_hash, {}).get(addr) is None):
+                    self.add_transaction(tx_hash, tx)
 
-        # Store fees
-        self.tx_fees.update(tx_fees)
-
-        if self.network:
-            self.network.trigger_callback('on_history')
+            # Store fees
+            self.tx_fees.update(tx_fees)
+        await self._trigger_synchronization(wait=False)
 
     def get_history(self, domain=None):
         # get domain
@@ -972,9 +914,6 @@ class Abstract_Wallet:
         time_str = format_time(timestamp, _("unknown")) if timestamp else _("unknown")
         status_str = TX_STATUS[status] if status < len(TX_STATUS) else time_str
         return status, status_str
-
-    def relayfee(self):
-        return relayfee(self.network)
 
     def dust_threshold(self):
         return dust_threshold(self.network)
@@ -1125,69 +1064,48 @@ class Abstract_Wallet:
             self.storage.put('frozen_coins', list(self.frozen_coins))
         return ok
 
-    def prepare_for_verifier(self):
-        # review transactions that are in the history
-        for addr, hist in self._history.items():
+    def analyze_history(self):
+        bad_addrs = [addr for addr in self._history if not self.is_mine(addr)]
+        for addr in bad_addrs:
+            self._history.pop(addr)
+
+        # FIXME: the wallet format sucks - why is history a list of pairs?
+        self.hh_map = {tx_hash: tx_height
+                       for addr_history in self._history.values()
+                       for tx_hash, tx_height in addr_history}
+
+        for hist in self._history.values():
             for tx_hash, tx_height in hist:
-                # add it in case it was previously unconfirmed
-                self.add_unverified_tx(tx_hash, tx_height)
+                if (tx_hash in self.txi or tx_hash in self.txo or
+                        tx_hash in self.pruned_txo.values()):
+                    continue
+                tx = self.transactions.get(tx_hash)
+                if tx is not None:
+                    self.add_transaction(tx_hash, tx)
 
-        # if we are on a pruning server, remove unverified transactions
-        with self.lock:
-            vr = list(self.verified_tx.keys()) + list(self.unverified_tx.keys())
-        for tx_hash in list(self.transactions):
-            if tx_hash not in vr:
-                self.logger.debug("removing transaction %s", tx_hash)
-                self.transactions.pop(tx_hash)
+        for tx_hash, tx_height in self.hh_map.items():
+            # If unconfirmed it is not verified
+            if tx_height <= 0:
+                self.logger.debug(f'unverifying {tx_hash}')
+                self.verified_tx.pop(tx_hash, None)
 
-    def start_threads(self, network):
+        for tx_hash in set(self.transactions).difference(self.hh_map):
+            self.logger.debug(f'removing transaction {tx_hash}')
+            self.transactions.pop(tx_hash)
+
+    def start(self, network):
         self.network = network
-        if self.network is not None:
-            self.prepare_for_verifier()
-            self.verifier = SPV(self.network, self)
-            self.synchronizer = Synchronizer(self, network)
-            network.add_jobs([self.verifier, self.synchronizer])
-        else:
-            self.verifier = None
-            self.synchronizer = None
+        if network:
+            network.add_wallet(self)
 
-    def stop_threads(self):
+    def stop(self):
         if self.network:
-            self.network.remove_jobs([self.synchronizer, self.verifier])
-            self.synchronizer.release()
-            self.synchronizer = None
-            self.verifier = None
-            # Now no references to the syncronizer or verifier
-            # remain so they will be GC-ed
+            self.network.remove_wallet(self)
             self.storage.put('stored_height', self.get_local_height())
+            self.network = None
         self.save_transactions()
         self.save_verified_tx()
         self.storage.write()
-
-    def wait_until_synchronized(self, callback=None):
-        def wait_for_wallet():
-            self.set_up_to_date(False)
-            while not self.is_up_to_date():
-                if callback:
-                    msg = "%s\n%s %d"%(
-                        _("Please wait..."),
-                        _("Addresses generated:"),
-                        len(self.addresses(True)))
-                    callback(msg)
-                time.sleep(0.1)
-        def wait_for_network():
-            while not self.network.is_connected():
-                if callback:
-                    msg = "%s \n" % (_("Connecting..."))
-                    callback(msg)
-                time.sleep(0.1)
-        # wait until we are connected, because the user
-        # might have selected another server
-        if self.network:
-            wait_for_network()
-            wait_for_wallet()
-        else:
-            self.synchronize()
 
     def can_export(self):
         return not self.is_watching_only() and hasattr(self.keystore, 'get_private_key')
@@ -1198,17 +1116,6 @@ class Abstract_Wallet:
     def is_empty(self, address):
         assert isinstance(address, Address)
         return any(self.get_addr_balance(address))
-
-    def address_is_old(self, address, age_limit=2):
-        age = -1
-        for tx_hash, tx_height in self.get_address_history(address):
-            if tx_height == 0:
-                tx_age = 0
-            else:
-                tx_age = self.get_local_height() - tx_height + 1
-            if tx_age > age:
-                age = tx_age
-        return age > age_limit
 
     def cpfp(self, tx, fee):
         txid = tx.txid()
@@ -1266,8 +1173,8 @@ class Abstract_Wallet:
         # all the input txs, in which case we ask the network.
         tx = self.transactions.get(tx_hash)
         if not tx and self.network:
-            request = ('blockchain.transaction.get', [tx_hash])
-            tx = Transaction(self.network.synchronous_get(request))
+            tx_hex = self.network.request_and_wait('blockchain.transaction.get', [tx_hash])
+            tx = Transaction(tx_hex)
         return tx
 
     def add_input_values_to_tx(self, tx):
@@ -1405,7 +1312,7 @@ class Abstract_Wallet:
             expiration = 0
         conf = None
         if amount:
-            if self.up_to_date:
+            if self.is_synchronized():
                 paid, conf = self.get_payment_status(address, amount)
                 status = PR_PAID if paid else PR_UNPAID
                 if (status == PR_UNPAID and expiration is not None and
@@ -1521,12 +1428,25 @@ class Abstract_Wallet:
     def can_delete_address(self):
         return False
 
-    def add_address(self, address):
-        assert isinstance(address, Address)
-        if address not in self._history:
-            self._history[address] = []
-        if self.synchronizer:
-            self.synchronizer.add(address)
+    def _add_new_addresses(self, addresses, *, save=True):
+        assert all(isinstance(address, Address) for address in addresses)
+        if addresses:
+            with self._new_addresses_lock:
+                self._new_addresses.extend(addresses)
+            self._new_addresses_event.set()
+            if save:
+                self.save_addresses()
+            # Ensures addresses show in address list
+            if self.network:
+                self.network.trigger_callback('updated')
+
+    async def new_addresses(self):
+        await self._new_addresses_event.wait()
+        self._new_addresses_event.clear()
+        with self._new_addresses_lock:
+            result = self._new_addresses
+            self._new_addresses = []
+        return result
 
     def has_password(self):
         return self.storage.get('use_encryption', False)
@@ -1629,9 +1549,7 @@ class ImportedWalletBase(Simple_Wallet):
                 self.remove_transaction(tx_hash)
                 self.tx_fees.pop(tx_hash, None)
                 self.verified_tx.pop(tx_hash, None)
-                self.unverified_tx.pop(tx_hash, None)
                 self.transactions.pop(tx_hash, None)
-                # FIXME: what about pruned_txo?
 
             self.storage.put('verified_tx3', self.verified_tx)
 
@@ -1700,15 +1618,13 @@ class ImportedAddressWallet(ImportedWalletBase):
         if address in self.addresses:
             return False
         self.addresses.append(address)
-        self.save_addresses()
-        self.storage.write()
-        self.add_address(address)
+        self._add_new_addresses([address])
         self._sorted = None
         return True
 
     def delete_address_derived(self, address):
         self.addresses.remove(address)
-        self._sorted.remove(address)
+        self._sorted = None
 
     def add_input_sig_info(self, txin, address):
         x_pubkey = 'fd' + address.to_script_hex()
@@ -1861,34 +1777,38 @@ class Deterministic_Wallet(Abstract_Wallet):
         return nmax + 1
 
     def create_new_address(self, for_change=False):
-        assert type(for_change) is bool
         with self.lock:
-            addr_list = self.change_addresses if for_change else self.receiving_addresses
-            n = len(addr_list)
-            x = self.derive_pubkeys(for_change, n)
-            address = self.pubkeys_to_address(x)
-            addr_list.append(address)
-            self.save_addresses()
-            self.add_address(address)
+            address, = self._create_new_addresses(for_change, 1)
             return address
 
-    def synchronize_sequence(self, for_change):
-        limit = self.gap_limit_for_change if for_change else self.gap_limit
-        while True:
-            addresses = (self.get_change_addresses() if for_change
-                         else self.get_receiving_addresses())
-            if len(addresses) < limit:
-                self.create_new_address(for_change)
-                continue
-            if [self.address_is_old(x) for x in addresses[-limit:]] == limit*[False]:
-                break
-            else:
-                self.create_new_address(for_change)
+    def _create_new_addresses(self, for_change, count):
+        # Caller MUST have taken self.lock (perhaps in a different thread)
+        self.logger.info(f'creating {count} new addresses')
+        chain = self.change_addresses if for_change else self.receiving_addresses
+        first_index = len(chain)
+        addresses = [self.pubkeys_to_address(self.derive_pubkeys(for_change, index))
+                     for index in range(first_index, first_index + count)]
+        chain.extend(addresses)
+        self._add_new_addresses(addresses)
+        return addresses
 
-    def synchronize(self):
+    def _is_fresh_address(self, address):
+        heights = [height for _, height in self.get_address_history(address) if height > 0]
+        conf_count = self.get_local_height() - max(heights) + 1 if heights else 0
+        return conf_count <= 0
+
+    async def _synchronize_chain(self, for_change):
+        wanted = self.gap_limit_for_change if for_change else self.gap_limit
+        chain = self.change_addresses if for_change else self.receiving_addresses
+        count = len(list(itertools.takewhile(self._is_fresh_address, reversed(chain))))
+        self.logger.info(f'chain {for_change} has {len(chain):,d} addresses, {count} fresh')
+        return await run_in_thread(self._create_new_addresses, for_change, wanted - count)
+
+    async def _synchronize_wallet(self):
+        '''Class-specific synchronization (generation of missing addresses).'''
         with self.lock:
-            self.synchronize_sequence(False)
-            self.synchronize_sequence(True)
+            await self._synchronize_chain(False)
+            await self._synchronize_chain(True)
 
     def is_beyond_limit(self, address, is_change):
         if is_change:
@@ -1898,12 +1818,9 @@ class Deterministic_Wallet(Abstract_Wallet):
             addr_list = self.get_receiving_addresses()
             limit = self.gap_limit
         idx = addr_list.index(address)
-        if idx < limit:
-            return False
-        for addr in addr_list[-limit:]:
-            if addr in self._history:
-                return False
-        return True
+        addresses = addr_list[max(idx - limit, 0): max(idx, 1)]
+        # This isn't really right but it's good enough for now and not entirely broken...
+        return all(addr not in self._history for addr in addresses)
 
     def get_master_public_keys(self):
         return [self.get_master_public_key()]

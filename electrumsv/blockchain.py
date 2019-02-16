@@ -24,24 +24,9 @@
 from bitcoinx import Chain, MissingHeader, hash_to_hex_str
 
 from .app_state import app_state
-from .crypto import sha256d
 
 
 HEADER_SIZE = 80 # bytes
-
-
-# Called by network.py:Network._validate_checkpoint_result()
-def root_from_proof(hash_, branch, index):
-    """ Copied from electrumx """
-    for elt in branch:
-        if index & 1:
-            hash_ = sha256d(elt + hash_)
-        else:
-            hash_ = sha256d(hash_ + elt)
-        index >>= 1
-    if index:
-        raise ValueError('index out of range for branch')
-    return hash_
 
 
 class Blockchain:
@@ -54,7 +39,6 @@ class Blockchain:
 
     def __init__(self, chain):
         self.chain = chain
-        self.catch_up = None   # interface catching up
         # Add ourselves to the global
         self.blockchains.append(self)
 
@@ -100,13 +84,9 @@ class Blockchain:
                 return height, cp_height - height
         return 0, 0
 
-    # Called by verifier.py:SPV.undo_verifications()
-    # Called by gui.qt.network_dialog.py:NetworkChoiceLayout.update()
-    # Called by gui.qt.network_dialog.py:NodesListWidget.update()
     def get_base_height(self):
         return self.chain.first_height
 
-    # Called by gui.qt.network_dialog.py:NodesListWidget.update()
     def get_name(self, other_chain):
         if other_chain is self:
             return f'our_chain'
@@ -116,11 +96,6 @@ class Blockchain:
             prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
             return f'{prefix}@{fork_height}'
 
-    # Called by network.py:Network._on_block_headers()
-    # Called by network.py:Network._on_header()
-    # Called by network.py:Network._process_latest_tip()
-    # Called by network.py:Network.get_local_height()
-    # Called by gui.qt.network_dialog.py:NodesListWidget.update()
     def height(self):
         return self.chain.height
 
@@ -132,27 +107,29 @@ class Blockchain:
         return height
 
     @classmethod
-    def connect(cls, height, raw_header, proof_was_provided):
+    def connect(cls, height, raw_header):
+        '''It is assumed that if height is <= the checkpoint height then the header has
+        been checked for validity.
+        '''
         headers_obj = app_state.headers
         checkpoint = headers_obj.checkpoint
 
-        if height < checkpoint.height:
-            assert proof_was_provided
+        if height <= checkpoint.height:
             headers_obj.set_one(height, raw_header)
-            return headers_obj.coin.deserialized_header(raw_header), cls.longest()
+            return headers_obj.coin.deserialized_header(raw_header, height), cls.longest()
         else:
             header, chain = app_state.headers.connect(raw_header)
             return header, cls.from_chain(chain)
 
     @classmethod
-    def connect_chunk(cls, start_height, raw_chunk, proof_was_provided):
+    def connect_chunk(cls, start_height, raw_chunk):
+        '''It is assumed that if the last header of the raw chunk is before the checkpoint height
+        then it has been checked for validity.
+        '''
         headers_obj = app_state.headers
         checkpoint = headers_obj.checkpoint
         coin = headers_obj.coin
         end_height = start_height + len(raw_chunk) // HEADER_SIZE
-
-        # This should be enforced by network.py
-        assert (end_height < checkpoint.height) is proof_was_provided
 
         def extract_header(height):
             start = (height - start_height) * 80
@@ -170,7 +147,6 @@ class Blockchain:
         # For pre-checkpoint headers with a verified proof, just set the headers after
         # verifying the prev_hash links
         if end_height < checkpoint.height:
-            assert proof_was_provided
             # Set the last proven header
             last_header = extract_header(end_height - 1)
             headers_obj.set_one(end_height - 1, last_header)

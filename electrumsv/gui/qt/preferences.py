@@ -57,7 +57,7 @@ class PreferencesDialog(QDialog):
 
     def accept(self):
         if app_state.fx:
-            app_state.fx.timeout = 0
+            app_state.fx.trigger_history_refresh()
         # Qt on Mac has a bug with "modalSession has been exited prematurely" That means
         # you cannot create a modal dialog when exiting a model dialog, such as in the
         # finished signal.  So we do this in the accept() function instead.

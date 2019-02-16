@@ -31,7 +31,6 @@ import jsonrpclib
 
 from .app_state import app_state
 from .commands import known_commands, Commands
-from .exchange_rate import FxThread
 from .jsonrpc import VerifyingJSONRPCServer
 from .logs import logs
 from .network import Network
@@ -132,11 +131,7 @@ class Daemon(DaemonThread):
         if config.get('offline'):
             self.network = None
         else:
-            self.network = Network(config)
-            self.network.start()
-        fx = FxThread(config, self.network)
-        if self.network:
-            self.network.add_jobs([fx])
+            self.network = Network()
         self.wallets = {}
         # Setup JSONRPC server
         self.init_server(config, fd, is_gui)
@@ -183,26 +178,19 @@ class Daemon(DaemonThread):
         elif sub == 'close_wallet':
             path = config.get_wallet_path()
             if path in self.wallets:
-                self.stop_wallet(path)
+                self.stop_wallet_at_path(path)
                 response = True
             else:
                 response = False
         elif sub == 'status':
             if self.network:
-                p = self.network.get_parameters()
-                response = {
-                    'path': self.network.config.path,
-                    'server': p[0],
-                    'blockchain_height': self.network.get_local_height(),
-                    'server_height': self.network.get_server_height(),
-                    'spv_nodes': len(self.network.get_interfaces()),
-                    'connected': self.network.is_connected(),
-                    'auto_connect': p[4],
-                    'version': PACKAGE_VERSION,
-                    'wallets': {k: w.is_up_to_date()
-                                for k, w in self.wallets.items()},
+                response = self.network.status()
+                response.update({
                     'fee_per_kb': self.config.fee_per_kb(),
-                }
+                    'path': self.config.path,
+                    'version': PACKAGE_VERSION,
+                    'wallets': {k: w.is_synchronized() for k, w in self.wallets.items()},
+                })
             else:
                 response = "Daemon offline"
         elif sub == 'stop':
@@ -239,22 +227,21 @@ class Daemon(DaemonThread):
         if storage.get_action():
             return
         wallet = Wallet(storage)
-        wallet.start_threads(self.network)
-        self.wallets[path] = wallet
+        self.start_wallet(wallet)
         return wallet
-
-    def add_wallet(self, wallet):
-        path = wallet.storage.path
-        self.wallets[path] = wallet
 
     def get_wallet(self, path):
         return self.wallets.get(path)
 
-    def stop_wallet(self, path):
+    def start_wallet(self, wallet):
+        self.wallets[wallet.storage.path] = wallet
+        wallet.start(self.network)
+
+    def stop_wallet_at_path(self, path):
         # Issue #659 wallet may already be stopped.
         if path in self.wallets:
             wallet = self.wallets.pop(path)
-            wallet.stop_threads()
+            wallet.stop()
 
     def run_cmdline(self, config_options):
         password = config_options.get('password')
@@ -287,12 +274,8 @@ class Daemon(DaemonThread):
     def run(self):
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)
-        for k, wallet in self.wallets.items():
-            wallet.stop_threads()
         if self.network:
-            logger.debug("shutting down network")
-            self.network.stop()
-            self.network.join()
+            self.network.shutdown()
         self.on_stop()
 
     def stop(self):

@@ -224,7 +224,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # partials, lambdas or methods of subobjects.  Hence...
             self.network.register_callback(self.on_network, interests)
             # set initial message
-            self.console.showMessage(self.network.banner)
+            self.console.showMessage(self.network.main_server.state.banner)
             self.network.register_callback(self.on_quotes, ['on_quotes'])
             self.network.register_callback(self.on_history, ['on_history'])
             self.new_fx_quotes_signal.connect(self.on_fx_quotes)
@@ -335,7 +335,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if event == 'status':
             self.update_status()
         elif event == 'banner':
-            self.console.showMessage(args[0])
+            self.console.showMessage(self.network.main_server.state.banner)
         elif event == 'verified':
             self.history_list.update_item(*args)
         elif event == 'fee':
@@ -681,11 +681,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._update_check_toolbar_update()
 
     def donate_to_server(self):
-        server = self.network.get_parameters()[0]
-        addr = self.network.get_donation_address()
-        if addr and Address.is_valid(addr):
+        server = self.network.main_server
+        addr = server.state.donation_address
+        if Address.is_valid(addr):
             addr = Address.from_string(addr)
-            self.pay_to_URI(web.create_URI(addr, 0, _('Donation for {}').format(server)))
+            self.pay_to_URI(web.create_URI(addr, 0, _('Donation for {}').format(server.host)))
         else:
             self.show_error(_('The server {} has not provided a valid donation address')
                             .format(server))
@@ -876,7 +876,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         balance_status = None
         fiat_status = None
 
-        if self.network is None or not self.network.is_running():
+        if self.network is None:
             network_text = _("Offline")
         elif self.network.is_connected():
             server_height = self.network.get_server_height()
@@ -884,7 +884,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # Server height can be 0 after switching to a new server
             # until we get a headers subscription request response.
             # Display the synchronizing message in that case.
-            if not self.wallet.up_to_date or server_height == 0:
+            if not self.wallet.is_synchronized() or server_height == 0:
                 network_text = _("Synchronizing...")
             elif server_lag > 1:
                 network_text = _("Server {} blocks behind)").format(server_lag)
@@ -905,7 +905,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def update_wallet(self):
         self.update_status()
-        if self.wallet.up_to_date or not self.network or not self.network.is_connected():
+        if self.wallet.is_synchronized() or not self.network or not self.network.is_connected():
             self.update_tabs()
 
     def update_tabs(self):
@@ -1696,7 +1696,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     self.payment_request = None
                     status = True
             else:
-                status, msg =  self.network.broadcast_transaction(tx)
+                status, msg =  self.network.broadcast_transaction_and_wait(tx)
             return status, msg
 
         # Capture current TL window; override might be removed on return
@@ -2229,7 +2229,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _delete_wallet(self, password):
         wallet_path = self.wallet.storage.path
         basename = os.path.basename(wallet_path)
-        app_state.daemon.stop_wallet(wallet_path)
+        app_state.daemon.stop_wallet_at_path(wallet_path)
         self.close()
         os.unlink(wallet_path)
         self.update_recently_visited(wallet_path) # this ensures it's deleted from the menu
@@ -2532,7 +2532,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if ok and txid:
             txid = str(txid).strip()
             try:
-                r = self.network.synchronous_get(('blockchain.transaction.get',[txid]))
+                r = self.network.request_and_wait('blockchain.transaction.get', [txid])
             except Exception as e:
                 self.show_message(str(e))
                 return

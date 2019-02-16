@@ -1,5 +1,4 @@
 from decimal import Decimal
-from threading import Thread
 import csv
 import datetime
 import decimal
@@ -10,11 +9,13 @@ import requests
 import sys
 import time
 
+from aiorpcx import ignore_after, run_in_thread
+
 from .app_state import app_state
 from .bitcoin import COIN
 from .i18n import _
 from .logs import logs
-from .util import ThreadJob, resource_path
+from .util import resource_path
 
 logger = logs.get_logger("exchangerate")
 
@@ -30,11 +31,9 @@ CCY_PRECISIONS = {'BHD': 3, 'BIF': 0, 'BYR': 0, 'CLF': 4, 'CLP': 0,
 
 class ExchangeBase(object):
 
-    def __init__(self, on_quotes, on_history):
+    def __init__(self):
         self.history = {}
         self.quotes = {}
-        self.on_quotes = on_quotes
-        self.on_history = on_history
 
     def get_json(self, site, get_string):
         # APIs must have https
@@ -51,22 +50,16 @@ class ExchangeBase(object):
     def name(self):
         return self.__class__.__name__
 
-    def update_safe(self, ccy):
+    async def update(self, ccy):
         try:
-            logger.debug("getting fx quotes for %s", ccy)
-            self.quotes = self.get_rates(ccy)
-            logger.debug("received fx quotes")
-        except Exception:
-            logger.exception("failed fx quotes")
-        self.on_quotes()
+            logger.debug(f'getting fx quotes for {ccy}')
+            self.quotes = await run_in_thread(self.get_rates, ccy)
+            logger.debug('received fx quotes')
+        except Exception as e:
+            logger.error(f'exception updating FX quotes: {e}')
 
     def get_rates(self, ccy):
         raise NotImplementedError()
-
-    def update(self, ccy):
-        t = Thread(target=self.update_safe, args=(ccy,))
-        t.setDaemon(True)
-        t.start()
 
     def read_historical_rates(self, ccy, cache_dir):
         filename = os.path.join(cache_dir, self.name() + '_'+ ccy)
@@ -74,44 +67,37 @@ class ExchangeBase(object):
             timestamp = os.stat(filename).st_mtime
             try:
                 with open(filename, 'r', encoding='utf-8') as f:
-                    h = json.loads(f.read())
+                    return json.loads(f.read()), timestamp
             except:
-                h = None
-        else:
-            h = None
-            timestamp = False
-        if h:
-            self.history[ccy] = h
-            self.on_history()
-        return h, timestamp
+                pass
+        return None, None
 
-    def get_historical_rates_safe(self, ccy, cache_dir):
+    def _get_historical_rates(self, ccy, cache_dir):
         h, timestamp = self.read_historical_rates(ccy, cache_dir)
         if h is None or time.time() - timestamp < 24*3600:
-            try:
-                logger.debug("requesting fx history for %s", ccy)
-                h = self.request_history(ccy)
-                logger.debug("received fx history for %s", ccy)
-                self.on_history()
-            except Exception:
-                logger.exception("failed fx history")
-                return
+            logger.debug(f'getting historical FX rates for {ccy}')
+            h = self.request_history(ccy)
+            logger.debug(f'received historical FX rates')
             filename = os.path.join(cache_dir, self.name() + '_' + ccy)
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(json.dumps(h))
-        self.history[ccy] = h
-        self.on_history()
+        return h
+
+    async def get_historical_rates(self, ccy, cache_dir):
+        try:
+            self.history[ccy] = await run_in_thread(self._get_historical_rates, ccy, cache_dir)
+        except Exception:
+            logger.exception('exception getting historical FX rates')
 
     def request_history(self, ccy):
         raise NotImplementedError()
 
-    def get_historical_rates(self, ccy, cache_dir):
+    def refresh_historical_rates(self, ccy, cache_dir):
         result = self.history.get(ccy)
         if not result and ccy in self.history_ccys():
-            t = Thread(target=self.get_historical_rates_safe, args=(ccy, cache_dir))
-            t.setDaemon(True)
-            t.start()
-        return result
+            self.get_historical_rates_safe(ccy, cache_dir)
+            return True
+        return False
 
     def history_ccys(self):
         return []
@@ -174,6 +160,8 @@ class Bitfinex(ExchangeBase):
 
     def get_rates(self, ccy):
         json_value = self.get_json('api.bitfinex.com', '/v2/tickers?symbols=tBSVUSD')
+        if not isinstance(json_value, list) or not json_value:
+            raise RuntimeError(f'bad Bitfinex rates: {json_value}')
         usd_entry = json_value[0]
         return {
             'USD': Decimal(usd_entry[Bitfinex.INDEX_LAST_PRICE]),
@@ -333,12 +321,14 @@ def get_exchanges_by_ccy(history=True):
     return dictinvert(d)
 
 
-class FxThread(ThreadJob):
+class FxTask:
 
     def __init__(self, config, network):
         self.config = config
         self.network = network
         self.ccy = self.get_currency()
+        self.fetch_history = False
+        self.refresh_event = app_state.async_.event()
         self.history_used_spot = False
         self.ccy_combo = None
         self.hist_checkbox = None
@@ -346,7 +336,6 @@ class FxThread(ThreadJob):
         self.set_exchange(self.config_exchange())
         if not os.path.exists(self.cache_dir):
             os.mkdir(self.cache_dir)
-        app_state.fx = self
 
     def get_currencies(self):
         h = self.get_history_config()
@@ -366,13 +355,23 @@ class FxThread(ThreadJob):
             rounded_amount = amount
         return fmt_str.format(rounded_amount)
 
-    def run(self):
-        if self.is_enabled():
-            if self.timeout ==0 and self.show_history():
-                self.exchange.get_historical_rates(self.ccy, self.cache_dir)
-            if self.timeout <= time.time():
-                self.timeout = time.time() + 150
-                self.exchange.update(self.ccy)
+    async def refresh_loop(self):
+        while True:
+            async with ignore_after(150):
+                await self.refresh_event.wait()
+            self.refresh_event.clear()
+            if not self.is_enabled():
+                continue
+
+            if self.fetch_history and self.show_history():
+                self.fetch_history = False
+                await self.exchange.get_historical_rates(self.ccy, self.cache_dir)
+                if self.network:
+                    self.network.trigger_callback('on_history')
+
+            await self.exchange.update(self.ccy)
+            if self.network:
+                self.network.trigger_callback('on_quotes')
 
     def is_enabled(self):
         return bool(self.config.get('use_exchange_rate'))
@@ -386,8 +385,7 @@ class FxThread(ThreadJob):
     def set_history_config(self, enabled):
         self.config.set_key('history_rates', enabled)
         if self.is_enabled() and enabled:
-            # reset timeout to get historical rates
-            self.timeout = 0
+            self.trigger_history_refresh()
 
     def get_fiat_address_config(self):
         return bool(self.config.get('fiat_address'))
@@ -406,31 +404,24 @@ class FxThread(ThreadJob):
         return (self.is_enabled() and self.get_history_config() and
                 self.ccy in self.exchange.history_ccys())
 
+    def trigger_history_refresh(self):
+        self.fetch_history = True
+        self.refresh_event.set()
+
     def set_currency(self, ccy):
         if self.get_currency() != ccy:
             self.ccy = ccy
             self.config.set_key('currency', ccy, True)
-            self.timeout = 0 # Because self.ccy changes
-            self.on_quotes()
+            self.trigger_history_refresh()
 
     def set_exchange(self, name):
         class_ = globals().get(name, Kraken)
         logger.debug("using exchange %s", name)
         if self.config_exchange() != name:
             self.config.set_key('use_exchange', name, True)
-        self.exchange = class_(self.on_quotes, self.on_history)
-        # A new exchange means new fx quotes, initially empty.  Force
-        # a quote refresh
-        self.timeout = 0
-        self.exchange.read_historical_rates(self.ccy, self.cache_dir)
-
-    def on_quotes(self):
-        if self.network:
-            self.network.trigger_callback('on_quotes')
-
-    def on_history(self):
-        if self.network:
-            self.network.trigger_callback('on_history')
+        self.exchange = class_()
+        # A new exchange means new fx quotes, initially empty.
+        self.trigger_history_refresh()
 
     def exchange_rate(self):
         '''Returns None, or the exchange rate as a Decimal'''

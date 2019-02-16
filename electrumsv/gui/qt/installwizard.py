@@ -616,7 +616,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         # with a re-appeared ghost install wizard window...
         if network:
             def task():
-                wallet.wait_until_synchronized()
+                wallet.synchronize(wait=True)
                 if wallet.is_found():
                     msg = _("Recovery successful")
                 else:
@@ -627,8 +627,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             t.daemon = True
             t.start()
         else:
-            msg = _("This wallet was restored offline. It may "
-                    "contain more addresses than displayed.")
+            msg = _("You restored this wallet whilst offline, so ElectrumSV can show no "
+                    "transactions and will only generate the first few addresses.")
             self.show_message(msg)
 
     @wizard_dialog
@@ -716,8 +716,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         self.back_button.setText(_(MSG_BUTTON_CANCEL))
         self.exec_layout(clayout.layout(), title)
         r = clayout.selected_index()
-        network.auto_connect = (r == 0)
-        app_state.config.set_key('auto_connect', network.auto_connect, True)
+        app_state.config.set_key('auto_connect', r == 0, True)
         if r == 1:
             nlayout = NetworkChoiceLayout(network, app_state.config, wizard=True)
             if self.exec_layout(nlayout.layout()):

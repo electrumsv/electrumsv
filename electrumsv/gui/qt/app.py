@@ -140,6 +140,7 @@ class SVApplication(QApplication):
             window.close()
 
     def close_window(self, window):
+        app_state.daemon.stop_wallet_at_path(window.wallet.storage.path)
         self.windows.remove(window)
         self.window_closed_signal.emit(window)
         self._build_tray_menu()
@@ -256,8 +257,7 @@ class SVApplication(QApplication):
                         wizard.terminate()
                     if not wallet:
                         return
-                    wallet.start_threads(app_state.daemon.network)
-                    app_state.daemon.add_wallet(wallet)
+                    app_state.daemon.start_wallet(wallet)
             except Exception as e:
                 logger.exception("")
                 if '2fa' in str(e):

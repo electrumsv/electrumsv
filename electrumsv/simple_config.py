@@ -1,5 +1,4 @@
 from copy import deepcopy
-import json
 import os
 import stat
 import threading
@@ -8,7 +7,7 @@ from . import util
 from .bitcoin import MAX_FEE_RATE
 from .logs import logs
 from .platform import platform
-from .util import make_dir
+from .util import make_dir, JSON
 
 
 logger = logs.get_logger("config")
@@ -85,6 +84,11 @@ class SimpleConfig:
             os.remove(obsolete_file)
         logger.debug("electrum-sv directory '%s'", path)
         return path
+
+    def file_path(self, file_name):
+        if self.path:
+            return os.path.join(self.path, file_name)
+        return None
 
     def rename_config_keys(self, config, keypairs, deprecation_warning=False):
         """Migrate old key names to new ones"""
@@ -177,7 +181,7 @@ class SimpleConfig:
         if not self.path:
             return
         path = os.path.join(self.path, "config")
-        s = json.dumps(self.user_config, indent=4, sort_keys=True)
+        s = JSON.dumps(self.user_config, indent=4, sort_keys=True)
         with open(path, "w", encoding='utf-8') as f:
             f.write(s)
         os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
@@ -282,7 +286,7 @@ def read_user_config(path):
     try:
         with open(config_path, "r", encoding='utf-8') as f:
             data = f.read()
-        result = json.loads(data)
+        result = JSON.loads(data)
     except:
         logger.error("Cannot read config file %s.", config_path)
         return {}
