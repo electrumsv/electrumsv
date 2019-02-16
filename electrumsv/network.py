@@ -25,7 +25,6 @@
 from collections import defaultdict
 from contextlib import suppress
 from functools import partial
-import json
 import os
 import random
 import re
@@ -41,7 +40,7 @@ from aiorpcx import (
     SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth
 )
 from bitcoinx import (
-    Chain, MissingHeader, IncorrectBits, InsufficientPoW, hex_str_to_hash, hash_to_hex_str,
+    MissingHeader, IncorrectBits, InsufficientPoW, hex_str_to_hash, hash_to_hex_str,
     sha256, double_sha256
 )
 
@@ -214,6 +213,11 @@ class SVServer:
         return (self.host, self.port, self.protocol, self.state)
 
     @classmethod
+    def from_string(cls, s):
+        parts = s.split(':', 3)
+        return cls._unique(*parts)
+
+    @classmethod
     def from_json(cls, hpps):
         host, port, protocol, state = hpps
         result = cls._unique(host, port, protocol)
@@ -249,9 +253,6 @@ class SVServer:
         if self.protocol == 's':
             return 'SSL'
         return 'TCP'
-
-    def from_string(self, s):
-        return self._unique(s.split(':', 3))
 
     def __repr__(self):
         return f'SVServer("{self.host}", {self.port}, "{self.protocol}")'
@@ -957,7 +958,7 @@ class Network:
         if isinstance(main_server, str):
             try:
                 main_server = SVServer.from_string(main_server)
-                app_state.config.set_key('server', server, True)
+                app_state.config.set_key('server', main_server, True)
             except Exception:
                 pass
         if not isinstance(main_server, SVServer):
