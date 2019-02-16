@@ -1,4 +1,5 @@
-# Electrum - lightweight Bitcoin client
+# ElectrumSV - lightweight Bitcoin SV client
+# Copyright (C) 2019 The ElectrumSV Developers
 # Copyright (C) 2011 Thomas Voegtlin
 #
 # Permission is hereby granted, free of charge, to any person
@@ -54,6 +55,38 @@ class MyEncoder(json.JSONEncoder):
         if isinstance(o, Transaction):
             return o.as_dict()
         return super(MyEncoder, self).default(o)
+
+
+class JSON:
+
+    classes = {}
+
+    @classmethod
+    def register(cls, *classes):
+        for klass in classes:
+            cls.classes[klass.__name__] = klass
+
+    @classmethod
+    def dumps(cls, obj, **kwargs):
+        def encode_obj(obj):
+            class_name = obj.__class__.__name__
+            if class_name not in cls.classes:
+                raise TypeError(f'object of type {class_name} is not JSON serializable')
+            return {'_sv': (class_name, obj.to_json())}
+
+        kwargs['default'] = encode_obj
+        return json.dumps(obj, **kwargs)
+
+    @classmethod
+    def loads(cls, s, **kwargs):
+        def decode_obj(obj):
+            if '_sv' in obj:
+                class_name, ser = obj['_sv']
+                obj = cls.classes[class_name].from_json(ser)
+            return obj
+
+        kwargs['object_hook'] = decode_obj
+        return json.loads(s, **kwargs)
 
 
 class ThreadJob:
