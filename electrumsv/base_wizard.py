@@ -385,13 +385,11 @@ class BaseWizard(object):
             keys = self.keystores[0].dump()
             self.storage.put('keystore', keys)
             self.wallet = Standard_Wallet(self.storage)
-            self.run('create_addresses')
         elif self.wallet_type == 'multisig':
             for i, k in enumerate(self.keystores):
                 self.storage.put('x%d/'%(i+1), k.dump())
             self.storage.write()
             self.wallet = Multisig_Wallet(self.storage)
-            self.run('create_addresses')
         elif self.wallet_type == 'imported':
             self.wallet.save_keystore()
 
@@ -431,7 +429,3 @@ class BaseWizard(object):
                              test=lambda x: x==passphrase)
         else:
             f('')
-
-    def create_addresses(self):
-        # FIXME: wallet should be added to the network earlier!
-        pass
