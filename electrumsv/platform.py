@@ -38,6 +38,7 @@ class Platform(object):
     module_map = {
         'PyQt5': 'PyQt5',
         'SimpleWebSocketServer': 'SimpleWebSocketServer',
+        'dateutil': 'python-dateutil',
         'dns': 'dnspython',
         'ecdsa': 'ecdsa',
         'jsonrpclib': 'jsonrpclib-pelix',
