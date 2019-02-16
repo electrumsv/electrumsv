@@ -479,7 +479,7 @@ class SVSession(RPCSession):
 
         height = await self._request_headers_at_heights(heights)
         # Catch up
-        while height is not False and height < tip.height:
+        while height < tip.height:
             height = await self._request_chunk(height + 1, 2016)
 
     async def _subscribe_to_script_hash(self, script_hash):
