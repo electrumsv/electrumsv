@@ -2390,8 +2390,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         except BaseException as e:
             self.logger.exception("")
             self.show_warning(_('Invalid Public key'))
-        encrypted = public_key.encrypt_message(message)
-        encrypted_e.setText(encrypted.decode('ascii'))
+        else:
+            encrypted = public_key.encrypt_message(message)
+            encrypted_e.setText(encrypted.decode('ascii'))
 
     def encrypt_message(self, address=None):
         d = WindowModalDialog(self, _('Encrypt/decrypt Message'))
