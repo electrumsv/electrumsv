@@ -324,6 +324,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if wallet == self.wallet: # filter out tx's not for this wallet
                 self.tx_notifications.append(tx)
                 self.notify_transactions_signal.emit()
+                self.need_update.set()
         elif event in ['status', 'banner', 'verified', 'fee']:
             # Handle in GUI thread
             self.network_signal.emit(event, args)

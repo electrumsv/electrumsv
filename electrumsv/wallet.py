@@ -169,7 +169,6 @@ class Abstract_Wallet:
         self._new_addresses_lock = threading.Lock()
         self._new_addresses_event = app_state.async_.event()
         self._synchronize_event = app_state.async_.event()
-        self._synchronize_event.set()
         self._synchronized_event = app_state.async_.event()
         self.txs_changed_event = app_state.async_.event()
 
@@ -241,20 +240,14 @@ class Abstract_Wallet:
 
     async def synchronize_loop(self):
         while True:
-            await self._synchronize_event.wait()
-            self._synchronize_event.clear()
             await self._synchronize()
+            await self._synchronize_event.wait()
 
-    async def _trigger_synchronization(self, *, wait=False):
-        # Set when an address' history changes - might be missing txs or new verifications
-        self.txs_changed_event.set()
-        self._synchronize_event.set()
-        if wait:
-            while not self.is_synchronized():
-                self.logger.debug('waiting until synced...')
-                await self._synchronized_event.wait()
-                # FIXME
-                await sleep(0.25)
+    async def _trigger_synchronization(self):
+        if self.network:
+            self._synchronize_event.set()
+        else:
+            await self._synchronize()
 
     async def _synchronize_wallet(self):
         '''Class-specific synchronization (generation of missing addresses).'''
@@ -262,13 +255,16 @@ class Abstract_Wallet:
 
     async def _synchronize(self):
         self.logger.debug('synchronizing...')
+        self._synchronize_event.clear()
+        self._synchronized_event.clear()
         await self._synchronize_wallet()
         self._synchronized_event.set()
         if self.network:
             self.network.trigger_callback('updated')
 
-    def synchronize(self, *, wait=False):
-        app_state.async_.spawn_and_wait(self._trigger_synchronization(wait=wait))
+    def synchronize(self):
+        app_state.async_.spawn_and_wait(self._trigger_synchronization)
+        app_state.async_.spawn_and_wait(self._synchronized_event.wait)
 
     def is_synchronized(self):
         return (self._synchronized_event.is_set() and
@@ -792,7 +788,8 @@ class Abstract_Wallet:
 
             # Store fees
             self.tx_fees.update(tx_fees)
-        await self._trigger_synchronization(wait=False)
+        self.txs_changed_event.set()
+        await self._trigger_synchronization()
 
     def get_history(self, domain=None):
         # get domain
@@ -1085,9 +1082,8 @@ class Abstract_Wallet:
 
         for tx_hash, tx_height in self.hh_map.items():
             # If unconfirmed it is not verified
-            if tx_height <= 0:
+            if tx_height <= 0 and self.verified_tx.pop(tx_hash, None):
                 self.logger.debug(f'unverifying {tx_hash}')
-                self.verified_tx.pop(tx_hash, None)
 
         for tx_hash in set(self.transactions).difference(self.hh_map):
             self.logger.debug(f'removing transaction {tx_hash}')

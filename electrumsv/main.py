@@ -97,7 +97,7 @@ def run_non_RPC(config):
             network = Network()
             network.add_wallet(wallet)
             print("Recovering wallet...")
-            wallet.synchronize(wait=True)
+            wallet.synchronize()
             msg = ("Recovery successful" if wallet.is_found()
                    else "Found no history for this wallet")
         else:
@@ -115,7 +115,7 @@ def run_non_RPC(config):
         storage.put('wallet_type', 'standard')
         wallet = Wallet(storage)
         wallet.update_password(None, password, True)
-        wallet.synchronize(wait=True)
+        wallet.synchronize()
         print("Your wallet generation seed is:\n\"%s\"" % seed)
         print("Please keep it in a safe place; if you lose it, "
               "you will not be able to restore your wallet.")

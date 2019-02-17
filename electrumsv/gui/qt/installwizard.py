@@ -616,7 +616,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         # with a re-appeared ghost install wizard window...
         if network:
             def task():
-                wallet.synchronize(wait=True)
+                wallet.synchronize()
                 if wallet.is_found():
                     msg = _("Recovery successful")
                 else:
