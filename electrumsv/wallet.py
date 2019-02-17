@@ -37,7 +37,7 @@ import random
 import threading
 import time
 
-from aiorpcx import run_in_thread, sleep
+from aiorpcx import run_in_thread
 
 from . import bip32
 from . import bitcoin
