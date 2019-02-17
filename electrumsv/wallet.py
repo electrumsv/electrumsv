@@ -1777,18 +1777,22 @@ class Deterministic_Wallet(Abstract_Wallet):
         return nmax + 1
 
     def create_new_address(self, for_change=False):
-        with self.lock:
-            address, = self._create_new_addresses(for_change, 1)
-            return address
+        address, = app_state.async_.spawn_and_wait(self._create_new_addresses, for_change, 1)
+        return address
 
-    def _create_new_addresses(self, for_change, count):
-        # Caller MUST have taken self.lock (perhaps in a different thread)
+    async def _create_new_addresses(self, for_change, count):
+        if count <= 0:
+            return []
         self.logger.info(f'creating {count} new addresses')
-        chain = self.change_addresses if for_change else self.receiving_addresses
-        first_index = len(chain)
-        addresses = [self.pubkeys_to_address(self.derive_pubkeys(for_change, index))
-                     for index in range(first_index, first_index + count)]
-        chain.extend(addresses)
+
+        def derive_addresses(index_range):
+            return [self.pubkeys_to_address(self.derive_pubkeys(for_change, index))
+                    for index in index_range]
+        with self.lock:
+            chain = self.change_addresses if for_change else self.receiving_addresses
+            first = len(chain)
+            addresses = await run_in_thread(derive_addresses, range(first, first + count))
+            chain.extend(addresses)
         self._add_new_addresses(addresses)
         return addresses
 
@@ -1801,14 +1805,14 @@ class Deterministic_Wallet(Abstract_Wallet):
         wanted = self.gap_limit_for_change if for_change else self.gap_limit
         chain = self.change_addresses if for_change else self.receiving_addresses
         count = len(list(itertools.takewhile(self._is_fresh_address, reversed(chain))))
-        self.logger.info(f'chain {for_change} has {len(chain):,d} addresses, {count} fresh')
-        return await run_in_thread(self._create_new_addresses, for_change, wanted - count)
+        name = 'change' if for_change else 'receiving'
+        self.logger.info(f'chain {name} has {len(chain):,d} addresses, {count:,d} fresh')
+        return await self._create_new_addresses(for_change, wanted - count)
 
     async def _synchronize_wallet(self):
         '''Class-specific synchronization (generation of missing addresses).'''
-        with self.lock:
-            await self._synchronize_chain(False)
-            await self._synchronize_chain(True)
+        await self._synchronize_chain(False)
+        await self._synchronize_chain(True)
 
     def is_beyond_limit(self, address, is_change):
         if is_change:
@@ -1820,7 +1824,7 @@ class Deterministic_Wallet(Abstract_Wallet):
         idx = addr_list.index(address)
         addresses = addr_list[max(idx - limit, 0): max(idx, 1)]
         # This isn't really right but it's good enough for now and not entirely broken...
-        return all(addr not in self._history for addr in addresses)
+        return all(not self._history.get(addr) for addr in addresses)
 
     def get_master_public_keys(self):
         return [self.get_master_public_key()]
