@@ -10,9 +10,13 @@ trigger:
   branches:
     include:
       - master
+      - releases/*
+      - features/*
 
 pr:
   - master
+  - releases/*
+  - features/*
 
 jobs:
 - job: ValidateCommit
