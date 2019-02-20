@@ -567,15 +567,37 @@ class SVSession(RPCSession):
 
     async def _on_status_changed(self, script_hash, status):
         address = self._address_map.get(script_hash)
-        if address:
-            wallets = [wallet for wallet, subs in self._subs_by_wallet.items()
-                       if script_hash in subs]
-            async with TaskGroup() as group:
-                for wallet in wallets:
-                    await group.spawn(self._network.on_status_changed,
-                                      wallet, address, script_hash, status)
-        else:
+        if not address:
             self.logger.error(f'received status notification for unsubscribed {script_hash}')
+            return
+
+        # Wallets needing a notification
+        wallets = [wallet for wallet, subs in self._subs_by_wallet.items()
+                   if script_hash in subs and
+                   _history_status(wallet.get_address_history(address)) != status]
+        if not wallets:
+            return
+
+        # Status has changed; get history
+        result = await self.request_history(script_hash)
+        self.logger.debug(f'received history of {address} length {len(result)}')
+        try:
+            history = [(item['tx_hash'], item['height']) for item in result]
+            tx_fees = {item['tx_hash']: item['fee'] for item in result if 'fee' in item}
+            # Check that txids are unique
+            assert len(set(tx_hash for tx_hash, tx_height in history)) == len(history), \
+                f'server history for {address} has duplicate transactions'
+        except (AssertionError, KeyError) as e:
+            raise DisconnectSessionError(f'bad history returned: {e}')
+
+        # Check the status; it can change legitimately between initial notification and
+        # history request
+        hstatus = _history_status(history)
+        if hstatus != status:
+            self.logger.warning(f'history status mismatch {hstatus} vs {status} for {address}')
+
+        for wallet in wallets:
+            await wallet.set_address_history(address, history, tx_fees)
 
     async def _main_server_batch(self):
         '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
@@ -1125,27 +1147,6 @@ class Network:
         if session.server is self.main_server:
             self.trigger_callback('status')
         self.trigger_callback('sessions')
-
-    async def on_status_changed(self, wallet, address, script_hash, status):
-        '''Called when the status of an address is received.'''
-        history = wallet.get_address_history(address)
-        if _history_status(history) == status:
-            return
-        # Status has changed; get history
-        session = await self._main_session()
-        result = await session.request_history(script_hash)
-        session.logger.debug(f'received history of {address} length {len(result)}')
-        history = [(item['tx_hash'], item['height']) for item in result]
-        # Check the status; it can change legitimately between initial notification and
-        # client history request
-        hstatus = _history_status(history)
-        if hstatus != status:
-            session.logger.warning(f'history status mismatch {hstatus} vs {status} for {address}')
-        # Check that txids are unique
-        if len(set(tx_hash for tx_hash, tx_height in history)) != len(history):
-            session.logger.error(f'server history for {address} has non-unique txids')
-        tx_fees = {item['tx_hash']: item['fee'] for item in result if 'fee' in item}
-        await wallet.set_address_history(address, history, tx_fees)
 
     #
     # External API
