@@ -767,9 +767,10 @@ class SVSession(RPCSession):
         async with TaskGroup() as group:
             for address, script_hash in pairs:
                 subs.append(script_hash)
-                if script_hash not in self._address_map:
-                    self._address_map[script_hash] = address
-                    await group.spawn(self._subscribe_to_script_hash(script_hash))
+                # Send request even if already subscribed, as our user expects a response
+                # to trigger other actions and won't get one if we swallow it.
+                self._address_map[script_hash] = address
+                await group.spawn(self._subscribe_to_script_hash(script_hash))
         # A wallet shouldn't be subscribing the same address twice
         assert len(set(subs)) == len(subs)
 
