@@ -1691,6 +1691,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         pubkey = self.keystore.import_privkey(sec, pw)
         self.save_keystore()
         self.storage.write()
+        self._add_new_addresses([pubkey.address])
         return pubkey.address.to_string()
 
     def export_private_key(self, address, password):
