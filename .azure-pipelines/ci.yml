@@ -29,7 +29,7 @@ jobs:
       addToPath: true
       architecture: x64
   - script: |
-      sudo apt-get upgrade
+      sudo apt-get update
       sudo apt-get install libusb-1.0-0-dev libudev-dev
       python3 -m pip install -r contrib/deterministic-build/requirements.txt
       python3 -m pip install -r contrib/deterministic-build/requirements-hw.txt
