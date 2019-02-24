@@ -44,7 +44,7 @@ if False:
         pprint(getattr(a, key))
 
 PACKAGE='ElectrumSV'
-ICONS_FILE='contrib/osx/electrum-sv.icns'
+ICONS_FILE='contrib/osx/ElectrumSV.icns'
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
