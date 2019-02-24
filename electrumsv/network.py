@@ -24,6 +24,7 @@
 
 from collections import defaultdict
 from contextlib import suppress
+from enum import IntEnum
 from functools import partial
 import os
 import random
@@ -81,6 +82,13 @@ BROADCAST_TX_MSG_LIST = (
     ('scriptsig-not-pushonly', _('a scriptsig is not simply data')),
     ('bad-txns-nonfinal', _("transaction is not final"))
 )
+
+
+class SwitchReason(IntEnum):
+    '''The reason the main server was changed.'''
+    disconnected = 0
+    lagging = 1
+    user_set = 2
 
 
 def _require_list(obj):
@@ -146,6 +154,12 @@ class SVServerState:
         self.last_good = 0
         self.last_blacklisted = 0
         self.retry_delay = 0
+
+    def can_retry(self, now):
+        return not self.is_blacklisted(now) and self.last_try + self.retry_delay < now
+
+    def is_blacklisted(self, now):
+        return self.last_blacklisted > now - ONE_DAY
 
     def to_json(self):
         return {
@@ -227,7 +241,7 @@ class SVServer:
     async def connect(self, network, n):
         '''Raises: OSError'''
         await sleep(self.state.retry_delay)
-        self.state.retry_delay = min(self.state.retry_delay * 2 + 1, 600)
+        self.state.retry_delay = max(10, min(self.state.retry_delay * 2 + 1, 600))
         logger = self._logger(n)
         logger.info('connecting...')
 
@@ -241,13 +255,6 @@ class SVServer:
             except (RPCError, BatchError, TaskTimeout) as error:
                 await self.session.disconnect(str(error))
         logger.info('disconnected')
-
-    def is_blacklisted(self, now=None):
-        now = now or time.time()
-        return self.state.last_blacklisted > now - ONE_DAY
-
-    def can_retry(self, now):
-        return not self.is_blacklisted(now) and self.state.last_try < now - ONE_MINUTE
 
     def protocol_text(self):
         if self.protocol == 's':
@@ -854,10 +861,8 @@ class Network:
 
     async def _start_network(self, group):
         while True:
-            # Treat all servers as not used in one minute so connections are not delayed
-            cutoff = time.time() - ONE_MINUTE
+            # Treat all servers as not used so connections are not delayed
             for server in SVServer.all_servers.values():
-                server.state.last_try = min(server.state.last_try, cutoff)
                 server.state.retry_delay = 0
 
             if self.main_server is None:
@@ -898,7 +903,7 @@ class Network:
                 self.chosen_servers.remove(server)
 
             if server is self.main_server:
-                await self._maybe_switch_main_server('disconnected')
+                await self._maybe_switch_main_server(SwitchReason.disconnected)
 
     async def _maybe_switch_main_server(self, reason):
         now = time.time()
@@ -926,7 +931,7 @@ class Network:
         while True:
             async with ignore_after(20):
                 await self.sessions_changed_event.wait()
-            await self._maybe_switch_main_server('lagging')
+            await self._maybe_switch_main_server(SwitchReason.lagging)
 
     async def _monitor_wallets(self, group):
         wallet_tasks = {}
@@ -961,14 +966,16 @@ class Network:
             self.trigger_callback('updated')
 
     async def _set_main_server(self, server, reason):
-        '''Set the main server to something new.  This triggers a disconnect of the old main
-        session, if any, in order to lose scripthash subscriptions.
-        '''
-        logger.info(f'switching main server to {server}: {reason}')
+        '''Set the main server to something new.'''
+        logger.info(f'switching main server to {server}: {reason.name}')
         main_session = self.main_session()
         self.main_server = server
         self.check_main_chain_event.set()
+        # Disconnect the old main session, if any, in order to lose scripthash
+        # subscriptions.
         if main_session:
+            if reason == SwitchReason.user_set:
+                main_session.server.retry_delay = 0
             await main_session.close()
 
     def _read_config(self):
@@ -1031,7 +1038,7 @@ class Network:
         now = time.time()
         unchosen = set(SVServer.all_servers.values()).difference(self.chosen_servers)
         return [server for server in unchosen
-                if server.protocol == protocol and server.can_retry(now)]
+                if server.protocol == protocol and server.state.can_retry(now)]
 
     def _random_server_nowait(self, protocol):
         servers = self._available_servers(protocol)
@@ -1218,8 +1225,7 @@ class Network:
         config.set_key('server', server, True)
         if config.get('server') is server:
             app_state.config.set_key('auto_connect', auto_connect, False)
-            server.state.retry_delay = 0
-            app_state.async_.spawn(self._set_main_server, server, 'set by user')
+            app_state.async_.spawn(self._set_main_server, server, SwitchReason.user_set)
 
     def set_proxy(self, proxy):
         if str(proxy) == str(self.proxy):
