@@ -121,6 +121,7 @@ class SVApplication(QApplication):
             QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
         if hasattr(QGuiApplication, 'setDesktopFileName'):
             QGuiApplication.setDesktopFileName('electrum-sv.desktop')
+        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.installEventFilter(OpenFileEventFilter(self.windows))
         self.create_new_window_signal.connect(self.start_new_window)
         self.num_zeros_changed.connect(partial(self._signal_all, 'on_num_zeros_changed'))
