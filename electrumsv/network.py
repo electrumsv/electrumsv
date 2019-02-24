@@ -327,6 +327,8 @@ class SVSession(RPCSession):
 
     ca_path = certifi.where()
     _connecting_tips = {}
+    # Prevents sending wallet subscriptions twice on startup
+    _first_main_server = True
     _need_checkpoint_headers = True
     # wallet -> list of script hashes.  Also acts as a list of registered wallets
     _subs_by_wallet = {}
@@ -730,7 +732,10 @@ class SVSession(RPCSession):
             async with TaskGroup() as group:
                 if is_main_server:
                     self.logger.info('using as main server')
-                    await group.spawn(self._resubscribe_wallets, group)
+                    if SVSession._first_main_server:
+                        SVSession._first_main_server = False
+                    else:
+                        await group.spawn(self._resubscribe_wallets, group)
                     await group.spawn(self._main_server_batch)
                 await group.spawn(self._ping_loop)
                 await self.closed_event.wait()
