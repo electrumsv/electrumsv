@@ -10,7 +10,7 @@ symlinks = {
     'Applications': '/Applications',
 }
 
-icon = 'contrib/osx/electrum-sv.icns'
+icon = 'contrib/osx/ElectrumSV.icns'
 
 files = [
     application,
