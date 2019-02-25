@@ -198,6 +198,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 nonlocal esv_wallets_dir, ec_wallets_dir
 
                 d = WindowModalDialog(self, _("Copy Electron Cash Wallets"))
+                d.setMinimumWidth(400)
 
                 vbox, file_list = self._create_copy_electron_cash_wallets_layout(ec_wallets_dir)
 
