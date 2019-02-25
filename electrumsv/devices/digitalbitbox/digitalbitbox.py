@@ -120,10 +120,9 @@ class DigitalBitbox_Client():
             return True
         return False
 
-
     def stretch_key(self, key):
-        return binascii.hexlify(hashlib.pbkdf2_hmac('sha512', key.encode('utf-8'),
-                                                    b'Digital Bitbox', iterations = 20480))
+        return to_hexstr(hashlib.pbkdf2_hmac('sha512', key.encode('utf-8'), b'Digital Bitbox',
+            iterations = 20480))
 
     def backup_password_dialog(self):
         msg = _("Enter the password used when the backup was created:")

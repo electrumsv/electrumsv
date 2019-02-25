@@ -15,7 +15,6 @@ from electrumsv.base_wizard import BaseWizard
 from electrumsv.exceptions import UserCancelled, InvalidPassword
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.platform import platform
 from electrumsv.storage import WalletStorage
 from electrumsv.util import get_electron_cash_user_dir
 from electrumsv.wallet import Wallet
@@ -207,7 +206,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             # they confirm they are going to replace/overwrite it.
             if os.path.exists(target_path):
                 if self.question(_("You already have a wallet named '{}' for ElectrumSV. "+
-                                "Replace/overwrite it?").format(filename), self, _("Delete Wallet?")):
+                                "Replace/overwrite it?").format(filename), self,
+                                _("Delete Wallet?")):
                     os.remove(target_path)
                 else:
                     continue
@@ -318,7 +318,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 _update_selected_wallet()
 
             ec_import_icon = QLabel("")
-            ec_import_icon.setPixmap(QPixmap(icon_path("icons8-info.svg")).scaledToWidth(16, Qt.SmoothTransformation))
+            ec_import_icon.setPixmap(
+                QPixmap(icon_path("icons8-info.svg")).scaledToWidth(16, Qt.SmoothTransformation))
             ec_import_label = QLabel(_("Existing Electron Cash wallets detected"))
             ec_import_button = QPushButton(_("Import..."))
             ec_import_button.clicked.connect(_show_copy_electron_cash_wallets_dialog)

@@ -37,7 +37,6 @@ import time
 import socks
 from bitcoinx import MissingHeader, IncorrectBits, InsufficientPoW
 
-from . import bitcoin
 from . import blockchain
 from . import util
 from .app_state import app_state
