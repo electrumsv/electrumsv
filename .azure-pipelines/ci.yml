@@ -29,6 +29,11 @@ jobs:
       versionSpec: 3.6
       addToPath: true
       architecture: x64
+    condition: |
+      and(
+        succeeded(),
+        eq(variables['Build.Reason'], 'PullRequest')
+      )
   - script: |
       sudo apt-get update
       sudo apt-get install libusb-1.0-0-dev libudev-dev
@@ -43,6 +48,11 @@ jobs:
         # https://docs.pylint.org/en/1.6.0/run.html#exit-codes
         echo "##vso[task.complete result=Failed;]DONE"
       fi
+    condition: |
+      and(
+        succeeded(),
+        eq(variables['Build.Reason'], 'PullRequest')
+      )
     displayName: Run pylint
     enabled: true
     continueOnError: false
