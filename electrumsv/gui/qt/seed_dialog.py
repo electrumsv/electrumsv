@@ -23,13 +23,14 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QVBoxLayout, QDialog, QCheckBox, QHBoxLayout, QLabel, QLineEdit
 from electrumsv.i18n import _
 
 from .util import (
     WWLabel, ButtonsTextEdit, EnterButton, Buttons, OkButton, WindowModalDialog, CloseButton,
-    icon_path,
+    icon_path, HelpLabel
 )
 from .qrtextedit import ScanQRTextEdit
 
@@ -136,6 +137,25 @@ class SeedLayout(QVBoxLayout):
         hbox.addWidget(self.seed_e)
         self.addLayout(hbox)
         hbox = QHBoxLayout()
+        seed_text = ("<p>"+ _("You can simply enter a seed previously created in ElectrumSV or "+
+            "Electron Cash here, and when you have entered enough words, the 'Next' button will "+
+            "become enabled. The 'Options' can be ignored unless you know you need them due to "+
+            "previous special choices made when creating your seed.") +"</p>"+
+            "<p>"+
+            _("Be aware that if you are importing a seed created using another wallet like "+
+            "Centbee, Handcash or Moneybutton only do so if it is absolutely necessary or you "+
+            "do not plan to do anything other than watch the coins.  At least Handcash and "+
+            "Moneybutton get confused if other wallets try and manage the same coins at the "+
+            "same time. You will need to fix your original Handcash or Moneybutton wallets if "+
+            "you send or receive the same coins in ElectrumSV, in order to get them to work "+
+            "correctly again.") +
+            "</p>")
+        seed_help_label = HelpLabel("label text", seed_text)
+        seed_help_label.setPixmap(
+            QPixmap(icon_path("icons8-info.svg")).scaledToWidth(16, Qt.SmoothTransformation))
+        hbox.addWidget(seed_help_label)
+        seed_label = QLabel(_("About importing a seed"))
+        hbox.addWidget(seed_label)
         hbox.addStretch(1)
         self.seed_type_label = QLabel('')
         hbox.addWidget(self.seed_type_label)
