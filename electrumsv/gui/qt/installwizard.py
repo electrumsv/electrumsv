@@ -118,7 +118,6 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         BaseWizard.__init__(self, storage)
         QDialog.__init__(self, None)
         self.setWindowTitle('ElectrumSV')
-        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.language_for_seed = app_state.config.get('language')
         self.setMinimumSize(600, 420)
         self.accept_signal.connect(self.accept)

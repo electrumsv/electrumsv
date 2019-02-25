@@ -76,7 +76,6 @@ class SVLogWindow(QDialog):
         super().__init__(parent)
         self.setModal(False)
         self.setWindowTitle('ElectrumSV Log Viewer')
-        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.log_handler = log_handler
         self.category = 'all'
         self.levels = {

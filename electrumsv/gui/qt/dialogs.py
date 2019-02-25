@@ -162,7 +162,6 @@ all_boxes_by_name = {box.name: box for box in all_boxes}
 def _set_window_title_and_icon(dialog):
     # These have no effect on a Mac, but improve the look on Windows
     dialog.setWindowTitle('ElectrumSV')
-    dialog.setWindowIcon(read_QIcon("electrum-sv.png"))
 
 
 def error_dialog(main_text, *, info_text='', parent=None):

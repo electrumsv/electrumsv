@@ -44,7 +44,6 @@ class UpdateCheckDialog(QWidget):
         super().__init__()
 
         self.setWindowTitle('ElectrumSV - ' + _('Update Check'))
-        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.resize(600, 400)
 
         widget: QWidget = read_qt_ui("updater_widget.ui")

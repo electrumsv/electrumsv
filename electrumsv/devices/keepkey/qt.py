@@ -179,7 +179,6 @@ class CharacterDialog(WindowModalDialog):
     def __init__(self, parent):
         super(CharacterDialog, self).__init__(parent)
         self.setWindowTitle(_("KeepKey Seed Recovery"))
-        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.character_pos = 0
         self.word_pos = 0
         self.loop = QEventLoop()

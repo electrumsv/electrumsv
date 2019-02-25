@@ -39,7 +39,6 @@ class QR_Window(QWidget):
         QWidget.__init__(self)
         self.win = win
         self.setWindowTitle('ElectrumSV - ' + _('Payment Request'))
-        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.setMinimumSize(800, 250)
         self.label = ''
         self.amount = 0

@@ -43,7 +43,6 @@ class MatrixDialog(WindowModalDialog):
     def __init__(self, parent):
         super(MatrixDialog, self).__init__(parent)
         self.setWindowTitle(_("Trezor Matrix Recovery"))
-        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.num = 9
         self.loop = QEventLoop()
 

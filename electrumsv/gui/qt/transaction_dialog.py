@@ -66,7 +66,6 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         self.setMinimumWidth(750)
         self.setWindowTitle(_("Transaction"))
-        self.setWindowIcon(read_QIcon("electrum-sv.png"))
 
         vbox = QVBoxLayout()
         self.setLayout(vbox)
