@@ -310,6 +310,9 @@ class SVApplication(QApplication):
     def initial_dialogs(self):
         '''Suppressible dialogs that are shown when first opening the app.'''
         dialogs.show_named('welcome-ESV-1.1')
+        # This needs to be reworked or removed, as non-advanced users aren't sure whether
+        # it is safe, and likely many people aren't quite sure if it should be done.
+        """
         old_items = []
         headers_path = os.path.join(app_state.config.path, 'blockchain_headers')
         if os.path.exists(headers_path):
@@ -330,6 +333,7 @@ class SVApplication(QApplication):
                 except OSError as e:
                     logger.exception('deleting obsolete files')
                     dialogs.error_dialog(_('Error deleting files:'), info_text=str(e))
+        """
 
     def event_loop_started(self):
         self.cosigner_pool = CosignerPool()
