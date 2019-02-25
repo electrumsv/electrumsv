@@ -14,7 +14,6 @@ from btchip.btchip import BTChipException
 
 from electrumsv.gui.qt.password_dialog import PasswordLineEdit
 from electrumsv.gui.qt.qrcodewidget import QRCodeWidget
-from electrumsv.gui.qt.util import read_QIcon
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 

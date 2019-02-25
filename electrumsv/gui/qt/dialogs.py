@@ -27,8 +27,6 @@ from PyQt5.QtWidgets import QMessageBox, QCheckBox
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 
-from .util import read_QIcon
-
 
 class BoxBase(object):
 

@@ -30,7 +30,7 @@ from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 
 from .qrcodewidget import QRCodeWidget
-from .util import WWLabel, read_QIcon
+from .util import WWLabel
 
 
 class QR_Window(QWidget):
