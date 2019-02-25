@@ -243,7 +243,6 @@ class ChangePasswordDialog(WindowModalDialog):
         OK_button = OkButton(self)
         self.playout = PasswordLayout(wallet, msg, PW_CHANGE, OK_button)
         self.setWindowTitle(self.playout.title())
-        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         vbox = QVBoxLayout(self)
         vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         vbox.addLayout(self.playout.layout())

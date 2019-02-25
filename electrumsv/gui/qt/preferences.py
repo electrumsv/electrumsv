@@ -51,7 +51,6 @@ class PreferencesDialog(QDialog):
         '''The preferences dialog has a wallet tab only if wallet is given.'''
         super().__init__()
         self.setWindowTitle(_('Preferences'))
-        self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.lay_out(wallet)
         self.initial_language = app_state.config.get('language', None)
 
