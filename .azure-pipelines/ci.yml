@@ -7,6 +7,7 @@
 #   - Also tying it to the hash, ensures historical reproducibility and failure will be indicated by Docker image availability.
 
 trigger:
+  batch: true
   branches:
     include:
       - master
