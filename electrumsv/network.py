@@ -334,8 +334,6 @@ class SVSession(RPCSession):
 
     ca_path = certifi.where()
     _connecting_tips = {}
-    # Prevents sending wallet subscriptions twice on startup
-    _first_main_server = True
     _need_checkpoint_headers = True
     # wallet -> list of script hashes.  Also acts as a list of registered wallets
     _subs_by_wallet = {}
@@ -679,26 +677,6 @@ class SVSession(RPCSession):
             raise DisconnectSessionError(f'cannot connect to checkpoint', blacklist=True)
         return good_height
 
-    async def _resubscribe_wallets(self, group):
-        '''When switching main server, send script hash subs to new session.
-
-        Raises: RPCError, TaskTimeout'''
-        address_map = self._address_map
-        subs_by_wallet = self._subs_by_wallet
-        SVSession._address_map = {}
-        SVSession._subs_by_wallet = {wallet: [] for wallet in subs_by_wallet}
-
-        async def resubscribe_wallet(wallet):
-            # If wallet was unsubscribed in the meantime keep it that way
-            if wallet in self._subs_by_wallet:
-                subs = subs_by_wallet[wallet]
-                self.logger.info(f'resubscribing to {len(subs):,d} addresses for {wallet}')
-                pairs = ((address_map[sh], sh) for sh in subs)
-                await self.subscribe_to_pairs(wallet, pairs)
-
-        for wallet in list(subs_by_wallet):
-            await group.spawn(resubscribe_wallet, wallet)
-
     async def handle_request(self, request):
         if isinstance(request, Notification):
             handler = self._handlers.get(request.method)
@@ -739,16 +717,40 @@ class SVSession(RPCSession):
             async with TaskGroup() as group:
                 if is_main_server:
                     self.logger.info('using as main server')
-                    if SVSession._first_main_server:
-                        SVSession._first_main_server = False
-                    else:
-                        await group.spawn(self._resubscribe_wallets, group)
+                    await group.spawn(self.subscribe_wallets)
                     await group.spawn(self._main_server_batch)
                 await group.spawn(self._ping_loop)
                 await self.closed_event.wait()
                 await group.cancel_remaining()
         finally:
             await self._network.session_closed(self)
+
+    async def subscribe_wallet(self, wallet, pairs=None):
+        if pairs is None:
+            pairs = [(address, address.to_scripthash_hex())
+                     for address in wallet.get_addresses()]
+        else:
+            # If wallet was unsubscribed in the meantime keep it that way
+            if wallet not in self._subs_by_wallet:
+                return
+        self.logger.info(f'subscribing to {len(pairs):,d} addresses for {wallet}')
+        await self.subscribe_to_pairs(wallet, pairs)
+
+    async def subscribe_wallets(self):
+        '''When switching main server or when initially connected to the main server, send script
+        hash subs to the new main session.
+
+        Raises: RPCError, TaskTimeout
+        '''
+        subs_by_wallet = self._subs_by_wallet
+        address_map = self._address_map
+        SVSession._address_map = {}
+        SVSession._subs_by_wallet = {wallet: [] for wallet in subs_by_wallet}
+
+        async with TaskGroup() as group:
+            for wallet in list(subs_by_wallet):
+                pairs = [(address_map[sh], sh) for sh in subs_by_wallet[wallet]]
+                await group.spawn(self.subscribe_wallet, wallet, pairs)
 
     async def send_request(self, method, args=()):
         '''Send a request to the server.
@@ -968,15 +970,18 @@ class Network:
     async def _set_main_server(self, server, reason):
         '''Set the main server to something new.'''
         logger.info(f'switching main server to {server}: {reason.name}')
-        main_session = self.main_session()
+        old_main_session = self.main_session()
         self.main_server = server
         self.check_main_chain_event.set()
+        main_session = self.main_session()
+        if main_session:
+            await main_session.subscribe_wallets()
         # Disconnect the old main session, if any, in order to lose scripthash
         # subscriptions.
-        if main_session:
+        if old_main_session:
             if reason == SwitchReason.user_set:
-                main_session.server.retry_delay = 0
-            await main_session.close()
+                old_main_session.server.retry_delay = 0
+            await old_main_session.close()
 
     def _read_config(self):
         # Remove obsolete key
@@ -1098,13 +1103,14 @@ class Network:
 
     async def _monitor_addresses(self, wallet):
         '''Raises: RPCError, TaskTimeout'''
+        addresses = wallet.get_addresses()
         while True:
-            addresses = await wallet.new_addresses()
             session = await self._main_session()
             session.logger.info(f'subscribing to {len(addresses):,d} new addresses for {wallet}')
             # Do in reverse to require fewer wallet re-sync loops
             pairs = reversed([(address, address.to_scripthash_hex()) for address in addresses])
             await session.subscribe_to_pairs(wallet, pairs)
+            addresses = await wallet.new_addresses()
 
     async def _maintain_wallet(self, wallet):
         '''Put all tasks for a single wallet in a group so they can be cancelled together.'''

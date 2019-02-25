@@ -220,8 +220,6 @@ class Abstract_Wallet:
         self.invoices = InvoiceStore(self.storage)
         self.contacts = Contacts(self.storage)
 
-        # Inform network of our addresses
-        self._add_new_addresses(self.get_addresses(), save=False)
         self.analyze_history()
 
     def missing_transactions(self):
