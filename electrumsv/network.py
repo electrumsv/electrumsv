@@ -251,9 +251,9 @@ class SVServer:
             try:
                 await session.run()
             except DisconnectSessionError as error:
-                await self.session.disconnect(str(error), blacklist=error.blacklist)
+                await session.disconnect(str(error), blacklist=error.blacklist)
             except (RPCError, BatchError, TaskTimeout) as error:
-                await self.session.disconnect(str(error))
+                await session.disconnect(str(error))
         logger.info('disconnected')
 
     def protocol_text(self):
