@@ -23,8 +23,9 @@ from electrumsv.wallet import Wallet
 from .network_dialog import NetworkChoiceLayout
 from .password_dialog import PasswordLayout, PW_NEW, PasswordLineEdit
 from .seed_dialog import SeedLayout, KeysLayout
-from .util import (MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, read_QIcon, icon_path,
-    WindowModalDialog)
+from .util import (
+    MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, icon_path, WindowModalDialog,
+)
 
 
 logger = logs.get_logger('wizard')

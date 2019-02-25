@@ -42,7 +42,7 @@ from electrumsv.i18n import _
 from electrumsv.util import bh2u
 
 from electrumsv.gui.qt.util import (
-    WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton, read_QIcon,
+    WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton,
 )
 
 

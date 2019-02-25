@@ -6,7 +6,7 @@ from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QProgressBar, QLabel, QDialogButtonBox
 
 from electrumsv.app_state import app_state
-from electrumsv.gui.qt.util import read_QIcon, read_qt_ui
+from electrumsv.gui.qt.util import read_qt_ui
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.util import get_update_check_dates

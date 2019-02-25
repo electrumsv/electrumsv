@@ -41,7 +41,7 @@ import electrumsv.web as web
 
 from .amountedit import BTCSatsByteEdit
 from .util import (
-    ColorScheme, HelpButton, HelpLabel, Buttons, CloseButton, read_QIcon, MessageBox,
+    ColorScheme, HelpButton, HelpLabel, Buttons, CloseButton, MessageBox,
 )
 
 

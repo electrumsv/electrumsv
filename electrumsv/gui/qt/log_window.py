@@ -34,8 +34,6 @@ from electrumsv.app_state import app_state
 from electrumsv.logs import logs
 from electrumsv.i18n import _
 
-from .util import read_QIcon
-
 
 class SVLogHandler(logging.Handler):
 

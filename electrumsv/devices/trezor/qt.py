@@ -10,8 +10,9 @@ from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.util import bh2u
 
-from electrumsv.gui.qt.util import WindowModalDialog, WWLabel, Buttons, \
-    CancelButton, OkButton, CloseButton, read_QIcon
+from electrumsv.gui.qt.util import (
+    WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton,
+)
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 from .trezor import (TrezorPlugin, TIM_RECOVER,
                      RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX)
