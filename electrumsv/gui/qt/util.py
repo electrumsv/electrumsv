@@ -81,9 +81,12 @@ class HelpLabel(QLabel):
 
     def __init__(self, text, help_text):
         QLabel.__init__(self, text)
-        self.help_text = help_text
         self.app = QCoreApplication.instance()
         self.font = QFont()
+        self.set_help_text(help_text)
+
+    def set_help_text(self, help_text):
+        self.help_text = help_text
 
     def mouseReleaseEvent(self, x):
         QMessageBox.information(self, 'Help', self.help_text)

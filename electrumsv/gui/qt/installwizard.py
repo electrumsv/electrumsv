@@ -23,7 +23,7 @@ from .network_dialog import NetworkChoiceLayout
 from .password_dialog import PasswordLayout, PW_NEW, PasswordLineEdit
 from .seed_dialog import SeedLayout, KeysLayout
 from .util import (
-    MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, icon_path, WindowModalDialog,
+    MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, icon_path, WindowModalDialog, HelpLabel
 )
 
 
@@ -215,7 +215,17 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
                 _update_selected_wallet()
 
-            ec_import_icon = QLabel("")
+            ec_import_text = ("<p>"+ _("You have previously run Electron Cash and created at "+
+                "least one wallet with it. ElectrumSV should not be used to open these wallets "+
+                "directly using the 'Choose' button, and you should instead use the 'Import' "+
+                "button to help you copy them.") +"</p>"+
+                "<p>"+
+                _("There are many reasons for this, and the simplest is that if Electron Cash "+
+                "and ElectrumSV were to operate on the same wallet at the same time, then the "+
+                "wallet will most likely become corrupted. It's simpler in every way to just "+
+                "copy the wallet over to ElectrumSV and use a separate wallet file for each.") +
+                "</p>")
+            ec_import_icon = HelpLabel("label text", ec_import_text)
             ec_import_icon.setPixmap(
                 QPixmap(icon_path("icons8-info.svg")).scaledToWidth(16, Qt.SmoothTransformation))
             ec_import_label = QLabel(_("Existing Electron Cash wallets detected"))
@@ -228,6 +238,16 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
             ec_wallets_dir = get_electron_cash_user_dir(esv_wallets_dir)
             if len(self._list_user_wallets(ec_wallets_dir)) == 0:
+                ec_import_icon.set_help_text("<p>"+ _("This feature is aimed at users who were "+
+                    "already using Electron Cash and have existing wallets associated with it. "+
+                    "None were detected on this computer, but if you do have some stored in "+
+                    "places ElectrumSV does not know about you may need to copy them "+
+                    "yourself.") +"</p>"+
+                    "<p>"+
+                    _("You should never open your existing Electron Cash wallets directly in "+
+                    "ElectrumSV as this can lead to them being opened in both applications at "+
+                    "the same time, and can result in corruption.")+
+                    "</p>")
                 ec_import_button.setEnabled(False)
                 ec_import_button.setToolTip(_("Nothing to import"))
                 ec_import_label.setText(_("No Electron Cash wallets detected"))
@@ -348,6 +368,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     def _do_copy_electron_cash_wallets(self, file_list, esv_wallets_dir, ec_wallets_dir):
         # If the user selected any files, then we copy them before exiting to the next page.
+        copy_count = 0
         for item in file_list.selectedItems():
             filename = item.text()
             source_path = os.path.join(ec_wallets_dir, filename)
@@ -362,9 +383,15 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                     continue
             try:
                 shutil.copyfile(source_path, target_path)
+                copy_count += 1
             except shutil.Error:
                 # For now we ignore copy errors.
                 pass
+
+        if copy_count == 1:
+            self.show_message(_("1 wallet copied."))
+        elif copy_count > 1:
+            self.show_message(_("%d wallets copied.") % copy_count)
 
     def _create_copy_electron_cash_wallets_layout(self, ec_wallets_dir):
         def update_summary_label():
