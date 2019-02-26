@@ -1,5 +1,4 @@
 import os.path
-import time
 import sys
 import queue
 from collections import namedtuple
@@ -11,10 +10,10 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
     QRadioButton, QFileDialog, QStyledItemDelegate, QTreeWidget, QButtonGroup, QComboBox,
     QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem,
-    QApplication
 )
 from PyQt5.uic import loadUi
 
+from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
 from electrumsv.util import resource_path
@@ -198,12 +197,13 @@ class MessageBox(object):
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
+
 class UntrustedMessageDialog(QDialog):
     def __init__(self, parent, title, description, exception):
         QDialog.__init__(self, parent)
         self.setWindowTitle(title)
         self.setMinimumSize(500, 280)
-        self.setMaximumSize(1000, 300)
+        self.setMaximumSize(1000, 400)
         vbox = QVBoxLayout(self)
         text_label = QLabel(description)
         text_label.setWordWrap(True)
@@ -237,23 +237,18 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
 class WaitingDialog(WindowModalDialog):
     '''Shows a please wait dialog whilst runnning a task.  It is not
     necessary to maintain a reference to this dialog.'''
-    def __init__(self, parent, message, task, on_success=None, on_error=None):
+    def __init__(self, parent, message, func, *args, on_done=None):
         assert parent
-        if isinstance(parent, MessageBoxMixin):
-            parent = parent.top_level_window()
-        WindowModalDialog.__init__(self, parent, _("Please wait"))
+        super().__init__(parent, _("Please wait"))
         vbox = QVBoxLayout(self)
         vbox.addWidget(QLabel(message))
-        self.accepted.connect(self.on_accepted)
+
+        def _on_done(future):
+            self.accept()
+            on_done(future)
+        future = app_state.app.run_in_thread(func, *args, on_done=_on_done)
+        self.accepted.connect(future.cancel)
         self.show()
-        self.thread = TaskThread(self)
-        self.thread.add(task, on_success, self.accept, on_error)
-
-    def wait(self):
-        self.thread.wait()
-
-    def on_accepted(self):
-        self.thread.stop()
 
 
 def line_dialog(parent, title, label, ok_label, default=None):
@@ -702,11 +697,3 @@ def read_qt_ui(ui_name):
 @lru_cache()
 def read_QIcon(icon_basename):
     return QIcon(icon_path(icon_basename))
-
-
-if __name__ == "__main__":
-    app = QApplication([])
-    t = WaitingDialog(None, 'testing ...', lambda: [time.sleep(1)],
-                      lambda x: QMessageBox.information(None, 'done', "done"))
-    t.start()
-    app.exec_()

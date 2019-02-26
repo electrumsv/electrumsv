@@ -53,6 +53,7 @@ from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
+from electrumsv.network import broadcast_failure_reason
 from electrumsv.networks import Net
 from electrumsv.paymentrequest import PR_PAID
 from electrumsv.transaction import Transaction
@@ -1651,39 +1652,45 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.sign_tx_with_password(tx, sign_done, password)
 
     @protected
-    def sign_tx(self, tx, callback, password):
-        self.sign_tx_with_password(tx, callback, password)
+    def sign_tx(self, tx, callback, password, window=None):
+        self.sign_tx_with_password(tx, callback, password, window=window)
 
-    def sign_tx_with_password(self, tx, callback, password):
+    def sign_tx_with_password(self, tx, callback, password, window=None):
         '''Sign the transaction in a separate thread.  When done, calls
         the callback with a success code of True or False.
         '''
-        def on_signed(result):
-            callback(True)
-        def on_failed(exc_info):
-            self.on_error(exc_info)
-            callback(False)
+        def on_done(future):
+            try:
+                future.result()
+            except Exception as exc:
+                self.on_exception(exc)
+                callback(False)
+            else:
+                callback(True)
 
-        if self.tx_external_keypairs:
-            task = partial(Transaction.sign, tx, self.tx_external_keypairs)
-        else:
-            task = partial(self.wallet.sign_transaction, tx, password)
-        WaitingDialog(self, _('Signing transaction...'), task,
-                      on_signed, on_failed)
+        def sign_tx():
+            if self.tx_external_keypairs:
+                tx.sign(self.tx_external_keypairs)
+            else:
+                self.wallet.sign_transaction(tx, password)
 
-    def broadcast_transaction(self, tx, tx_desc, success_text=None):
+        window = window or self
+        WaitingDialog(window, _('Signing transaction...'), sign_tx, on_done=on_done)
+
+    def broadcast_transaction(self, tx, tx_desc, success_text=None, window=None):
         if success_text is None:
             success_text = _('Payment sent.')
+        window = window or self
 
-        def broadcast_thread():
+        def broadcast_tx():
             # non-GUI thread
             status = False
             msg = "Failed"
             pr = self.payment_request
-            if pr and pr.has_expired():
-                self.payment_request = None
-                return False, _("Payment request has expired")
             if pr:
+                if pr.has_expired():
+                    self.payment_request = None
+                    raise Exception(_("Payment request has expired"))
                 refund_address = self.wallet.get_receiving_addresses()[0]
                 ack_status, ack_msg = pr.send_payment(str(tx), refund_address)
                 msg = ack_msg
@@ -1691,29 +1698,31 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     self.invoices.set_paid(pr, tx.txid())
                     self.invoices.save()
                     self.payment_request = None
-                    status = True
+                return None
             else:
-                status, msg =  self.network.broadcast_transaction_and_wait(tx)
-            return status, msg
+                return self.network.broadcast_transaction_and_wait(tx)
 
-        # Capture current TL window; override might be removed on return
-        parent = self.top_level_window()
-
-        def broadcast_done(result):
+        def on_done(future):
             # GUI thread
-            if result:
-                status, msg = result
-                if status:
+            try:
+                tx_id = future.result()
+            except Exception as exception:
+                self.logger.info(f'raw server error (untrusted): {exception}')
+                reason = broadcast_failure_reason(exception)
+                d = UntrustedMessageDialog(
+                    window, _("Transaction Broadcast Error"),
+                    _("Your transaction was not sent: ") + reason + ".",
+                    exception)
+                d.exec()
+            else:
+                if tx_id:
                     if tx_desc is not None and tx.is_complete():
                         self.wallet.set_label(tx.txid(), tx_desc)
-                    parent.show_message(success_text + '\n' + msg)
+                    window.show_message(success_text + '\n' + tx_id)
                     self.invoice_list.update()
                     self.do_clear()
-                else:
-                    parent.show_error(msg)
 
-        WaitingDialog(self, _('Broadcasting transaction...'),
-                      broadcast_thread, broadcast_done, self.on_error)
+        WaitingDialog(window, _('Broadcasting transaction...'), broadcast_tx, on_done=on_done)
 
     def query_choice(self, msg, choices):
         # Needed by QtHandler for hardware wallets
@@ -2311,16 +2320,21 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.run_in_thread(self.wallet.sign_message, addr, message, password,
                            on_success=show_signed_message)
 
-    def run_in_thread(self, func, *args, on_success=None):
-        def on_done(future):
+    def run_in_thread(self, func, *args, on_success=None, on_failed=None, on_done=None):
+        def _on_done(future):
+            if on_done:
+                on_done()
             try:
                 result = future.result()
             except Exception as exc:
-                self.on_exception(exc)
+                if on_failed:
+                    on_failed(exc)
+                else:
+                    self.on_exception(exc)
             else:
                 if on_success:
                     on_success(result)
-        self.app.run_in_thread(func, *args, on_done=on_done)
+        return self.app.run_in_thread(func, *args, on_done=_on_done)
 
     def do_verify(self, address, message, signature):
         try:

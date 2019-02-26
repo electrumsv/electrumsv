@@ -23,6 +23,7 @@
 # SOFTWARE.
 
 from collections import namedtuple
+from functools import partial
 import time
 from xmlrpc.client import ServerProxy
 
@@ -142,18 +143,16 @@ class CosignerPool(object):
         return any(self.is_theirs(wallet, item, tx) for item in self.items)
 
     def do_send(self, wallet, tx):
-        def on_success(result):
-            item.window.show_message('\n'.join((
-                _("Your transaction was sent to the cosigning pool."),
-                _("Open your cosigner wallet to retrieve it."),
-            )))
-
-        def on_failure(exc_info):
-            logger.exception("", exc_info=exc_info)
-            item.window.show_error('\n'.join((
-                _("Failed to send transaction to cosigning pool"),
-                str(exc_info[1]),
-            )))
+        def on_done(window, future):
+            try:
+                future.result()
+            except Exception as exc:
+                window.on_exception(exc)
+            else:
+                window.show_message('\n'.join((
+                    _("Your transaction was sent to the cosigning pool."),
+                    _("Open your cosigner wallet to retrieve it."),
+                )))
 
         def send_message():
             server.put(item.hash, message)
@@ -164,7 +163,7 @@ class CosignerPool(object):
                 public_key = ecc.ECPubkey(item.K)
                 message = public_key.encrypt_message(raw_tx_bytes).decode('ascii')
                 WaitingDialog(item.window, _('Sending transaction to cosigning pool...'),
-                              send_message, on_success, on_failure)
+                              send_message, on_done=partial(on_done, item.window))
 
     def on_receive(self, keyhash, message):
         logger.debug("signal arrived for '%s'", keyhash)

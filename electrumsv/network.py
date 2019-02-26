@@ -84,6 +84,17 @@ BROADCAST_TX_MSG_LIST = (
 )
 
 
+def broadcast_failure_reason(exception):
+    if isinstance(exception, RPCError):
+        msg = exception.message
+        for in_msgs, out_msg in BROADCAST_TX_MSG_LIST:
+            if isinstance(in_msgs, str):
+                in_msgs = (in_msgs, )
+            if any(in_msg in msg for in_msg in in_msgs):
+                return out_msg
+    return _('reason unknown')
+
+
 class SwitchReason(IntEnum):
     '''The reason the main server was changed.'''
     disconnected = 0
@@ -104,17 +115,6 @@ def _require_number(obj):
 def _require_string(obj):
     assert isinstance(obj, str)
     return obj
-
-
-def _sanitized_broadcast_message(error):
-    msg = str(error.get('message', ''))
-    for in_msgs, out_msg in BROADCAST_TX_MSG_LIST:
-        if isinstance(in_msgs, str):
-            in_msgs = (in_msgs, )
-        if any(in_msg in msg for in_msg in in_msgs):
-            return out_msg
-    logger.info(f'server error (untrusted): {error}')
-    return _('reason unknown')
 
 
 def _history_status(history):
@@ -1269,28 +1269,8 @@ class Network:
 
         return app_state.async_.spawn_and_wait(send_request)
 
-    # FIXME: fix callers so can simply return the tx_id or raise an error
     def broadcast_transaction_and_wait(self, transaction):
-        our_txid = transaction.txid()
-
-        try:
-            their_txid = self.request_and_wait('blockchain.transaction.broadcast',
-                                               [str(transaction)])
-        except RPCError as e:
-            msg = _sanitized_broadcast_message(e.args[0])
-            return False, _('transaction broadcast failed: ') + msg
-        except Exception as e:
-            return False, str(e)
-
-        if their_txid != our_txid:
-            try:
-                their_txid = int(their_txid, 16)
-            except ValueError:
-                return False, _('bad server response; it is unknown whether '
-                                'the transaction broadcast succeeded')
-            logger.warning(f'server TxID {their_txid} differs from ours {our_txid}')
-
-        return True, our_txid
+        return self.request_and_wait('blockchain.transaction.broadcast', [str(transaction)])
 
 
 JSON.register(SVServerState, SVServer, SVProxy)
