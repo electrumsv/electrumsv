@@ -98,8 +98,8 @@ class ASync(object):
 
     def spawn(self, coro, *args, on_done=None):
         future = self._spawn(coro, args)
-        future.add_done_callback(partial(self._collect, on_done))
         self.futures.add(future)
+        future.add_done_callback(partial(self._collect, on_done))
         return future
 
     def spawn_and_wait(self, coro, *args, timeout=None):
