@@ -2388,7 +2388,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         message = message.encode('utf-8')
         try:
             public_key = ecc.ECPubkey(bfh(pubkey_e.text()))
-        except BaseException as e:
+        except Exception as e:
             self.logger.exception("")
             self.show_warning(_('Invalid Public key'))
         else:
