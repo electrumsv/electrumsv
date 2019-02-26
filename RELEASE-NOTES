@@ -55,6 +55,8 @@ ElectrumSV
     MrScatman (https://twitter.com/bsmith12251960) for the original icon.
   * Fix a bug where importing or sweeping a private key would error
     (https://github.com/electrumsv/electrumsv/issues/45).
+  * Fix a bug in encrypting messages where the user entered a bad public key
+    (https://github.com/electrumsv/electrumsv/issues/46).
 
 # Release 1.1.0
   * Check for updated versions on startup, and indicates updates in the wallet UI.
