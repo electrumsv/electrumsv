@@ -72,7 +72,7 @@ from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
 from .transaction_dialog import TxDialog
 from .util import (
-    MessageBoxMixin, TaskThread, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
+    MessageBoxMixin, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
     WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton,
     WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
     CloseButton, CancelButton, text_dialog, filename_field, address_combo, icon_path,
@@ -343,7 +343,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def load_wallet(self):
         wallet = self.wallet
-        wallet.thread = TaskThread(self, self.on_error)
         self.logger = logs.get_logger("mainwindow[{}]".format(self.wallet.basename()))
         self.update_recently_visited(wallet.storage.path)
         # address used to create a dummy transaction and estimate transaction fee
@@ -2306,11 +2305,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if not self.wallet.is_mine(addr):
             self.show_message(_('Address not in wallet.'))
             return
-        task = partial(self.wallet.sign_message, addr, message, password)
 
         def show_signed_message(sig):
             signature.setText(base64.b64encode(sig).decode('ascii'))
-        self.wallet.thread.add(task, on_success=show_signed_message)
+        self.run_in_thread(self.wallet.sign_message, addr, message, password,
+                           on_success=show_signed_message)
 
     def run_in_thread(self, func, *args, on_success=None):
         def on_done(future):
@@ -2388,9 +2387,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_message(_('This is a watching-only wallet.'))
             return
         cyphertext = encrypted_e.toPlainText()
-        task = partial(self.wallet.decrypt_message, pubkey_e.text(), cyphertext, password)
-        self.wallet.thread.add(
-            task, on_success= lambda text: message_e.setText(text.decode('utf-8')))
+
+        def show_decrypted_message(msg):
+            message_e.setText(msg.decode())
+        self.run_in_thread(self.wallet.decrypt_message, pubkey_e.text(), cyphertext, password,
+                           on_success=show_decrypted_message)
 
     def do_encrypt(self, message_e, pubkey_e, encrypted_e):
         message = message_e.toPlainText()
@@ -2894,7 +2895,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             event.ignore()
 
     def clean_up(self):
-        self.wallet.thread.stop()
         if self.network:
             self.network.unregister_callback(self.on_network)
 
