@@ -76,7 +76,7 @@ from .util import (
     WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton,
     WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
     CloseButton, CancelButton, text_dialog, filename_field, address_combo, icon_path,
-    update_fixed_tree_height
+    update_fixed_tree_height, UntrustedMessageDialog
 )
 
 
@@ -2533,7 +2533,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             try:
                 r = self.network.synchronous_get(('blockchain.transaction.get',[txid]))
             except Exception as e:
-                self.show_message(str(e))
+                d = UntrustedMessageDialog(self, _("Transaction Lookup Error"),
+                    _("The server was unable to locate the transaction you specified. "+
+                    "It returned the following message, which may or may not help describe "+
+                    "why. It is entirely possible a malicious server may return misleading "+
+                    "messages, so act on it at your own risk."),
+                    str(e))
+                d.exec()
                 return
             tx = transaction.Transaction(r)
             self.show_transaction(tx)

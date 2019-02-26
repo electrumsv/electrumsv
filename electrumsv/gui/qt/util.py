@@ -216,6 +216,22 @@ class MessageBox(object):
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
+class UntrustedMessageDialog(QDialog):
+    def __init__(self, parent, title, description, external_message):
+        QDialog.__init__(self, parent)
+        self.setWindowTitle(title)
+        self.setWindowModality(Qt.WindowModal)
+        self.setMinimumSize(300, 200)
+        vbox = QVBoxLayout(self)
+        text_label = QLabel(description)
+        text_label.setWordWrap(True)
+        vbox.addWidget(text_label)
+        text_edit = QPlainTextEdit(external_message)
+        text_edit.setEnabled(False)
+        vbox.addWidget(text_edit)
+        vbox.addStretch(1)
+        vbox.addLayout(Buttons(CloseButton(self)))
+        self.setLayout(vbox)
 
 class WindowModalDialog(QDialog, MessageBoxMixin):
     '''Handy wrapper; window modal dialogs are better for our multi-window
