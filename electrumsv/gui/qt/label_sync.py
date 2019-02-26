@@ -29,17 +29,17 @@ import hashlib
 import requests
 import threading
 
-from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QVBoxLayout)
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QMessageBox, QPushButton
 
 from electrumsv.app_state import app_state
 from electrumsv.crypto import aes_decrypt_with_iv, aes_encrypt_with_iv
+from electrumsv.exceptions import UserCancelled
 from electrumsv.extensions import label_sync
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 
-from electrumsv.gui.qt.util import (
-    ThreadedButton, Buttons, EnterButton, WindowModalDialog, OkButton,
-)
+from electrumsv.gui.qt.util import Buttons, EnterButton, WindowModalDialog, OkButton
 
 
 logger = logs.get_logger("labels")
@@ -215,16 +215,19 @@ class LabelSync(object):
     def settings_widget(self, *args):
         return EnterButton(_('Settings'), partial(self.settings_dialog, *args))
 
+    def threaded_button(self, text, dialog, func, *args):
+        def on_clicked(_checked):
+            self.run_in_thread(dialog, button, func, *args)
+        button = QPushButton(text)
+        button.clicked.connect(on_clicked)
+        return button
+
     def settings_dialog(self, prefs_window, wallet):
         d = WindowModalDialog(prefs_window, _("Label Settings"))
         hbox = QHBoxLayout()
         hbox.addWidget(QLabel("Label sync options:"))
-        upload = ThreadedButton("Force upload",
-                                partial(self.push_thread, wallet),
-                                partial(self.done_processing, d))
-        download = ThreadedButton("Force download",
-                                  partial(self.pull_thread, wallet, True),
-                                  partial(self.done_processing, d))
+        upload = self.threaded_button("Force upload", d, self.push_thread, wallet)
+        download = self.threaded_button("Force download", d, self.pull_thread, wallet, True)
         vbox = QVBoxLayout()
         vbox.addWidget(upload)
         vbox.addWidget(download)
@@ -238,5 +241,22 @@ class LabelSync(object):
     def on_pulled(self, wallet):
         app_state.app.labels_changed_signal.emit(wallet)
 
-    def done_processing(self, dialog, result):
-        dialog.show_message(_("Your labels have been synchronised."))
+    def on_exception(self, dialog, exception):
+        if not isinstance(exception, UserCancelled):
+            logger.exception("")
+            d = QMessageBox(QMessageBox.Warning, dialog, _('Error'), str(exception))
+            d.setWindowModality(Qt.WindowModal)
+            d.exec_()
+
+    def run_in_thread(self, dialog, button, func, *args):
+        def on_done(future):
+            button.setEnabled(True)
+            try:
+                future.result()
+            except Exception as exc:
+                self.on_exception(dialog, exc)
+            else:
+                dialog.show_message(_("Your labels have been synchronised."))
+
+        button.setEnabled(False)
+        app_state.app.run_in_thread(func, *args, on_done=on_done)

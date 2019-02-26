@@ -24,7 +24,6 @@
 
 import binascii
 from decimal import Decimal
-from collections import defaultdict
 from datetime import datetime
 import json
 import hmac

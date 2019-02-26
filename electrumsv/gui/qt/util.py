@@ -53,24 +53,6 @@ class EnterButton(QPushButton):
             self.func()
 
 
-class ThreadedButton(QPushButton):
-    def __init__(self, text, task, on_success=None, on_error=None):
-        QPushButton.__init__(self, text)
-        self.task = task
-        self.on_success = on_success
-        self.on_error = on_error
-        self.clicked.connect(self.run_task)
-
-    def run_task(self):
-        self.setEnabled(False)
-        self.thread = TaskThread(self)
-        self.thread.add(self.task, self.on_success, self.done, self.on_error)
-
-    def done(self):
-        self.setEnabled(True)
-        self.thread.stop()
-
-
 class WWLabel(QLabel):
     def __init__ (self, text="", parent=None):
         QLabel.__init__(self, text, parent)
