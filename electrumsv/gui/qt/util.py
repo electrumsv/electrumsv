@@ -1,10 +1,7 @@
 import os.path
-import sys
-import queue
-from collections import namedtuple
 from functools import partial, lru_cache
 
-from PyQt5.QtCore import Qt, QCoreApplication, QTimer, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QCoreApplication, QTimer
 from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
 from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
@@ -570,46 +567,6 @@ class ButtonsTextEdit(QPlainTextEdit, ButtonsWidget):
         o = QPlainTextEdit.resizeEvent(self, e)
         self.resizeButtons()
         return o
-
-
-class TaskThread(QThread):
-    '''Thread that runs background tasks.  Callbacks are guaranteed
-    to happen in the context of its parent.'''
-
-    Task = namedtuple("Task", "task cb_success cb_done cb_error")
-    doneSig = pyqtSignal(object, object, object)
-
-    def __init__(self, parent, on_error=None):
-        super(TaskThread, self).__init__(parent)
-        self.on_error = on_error
-        self.tasks = queue.Queue()
-        self.doneSig.connect(self.on_done)
-        self.start()
-
-    def add(self, task, on_success=None, on_done=None, on_error=None):
-        on_error = on_error or self.on_error
-        self.tasks.put(TaskThread.Task(task, on_success, on_done, on_error))
-
-    def run(self):
-        while True:
-            task = self.tasks.get()
-            if not task:
-                break
-            try:
-                result = task.task()
-                self.doneSig.emit(result, task.cb_done, task.cb_success)
-            except Exception:
-                self.doneSig.emit(sys.exc_info(), task.cb_done, task.cb_error)
-
-    def on_done(self, result, cb_done, cb):
-        # This runs in the parent's thread.
-        if cb_done:
-            cb_done()
-        if cb:
-            cb(result)
-
-    def stop(self):
-        self.tasks.put(None)
 
 
 class ColorSchemeItem:
