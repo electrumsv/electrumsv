@@ -217,17 +217,26 @@ class MessageBox(object):
         return d.exec_()
 
 class UntrustedMessageDialog(QDialog):
-    def __init__(self, parent, title, description, external_message):
+    def __init__(self, parent, title, description, exception):
         QDialog.__init__(self, parent)
         self.setWindowTitle(title)
-        self.setWindowModality(Qt.WindowModal)
-        self.setMinimumSize(300, 200)
+        self.setMinimumSize(500, 280)
+        self.setMaximumSize(1000, 300)
         vbox = QVBoxLayout(self)
         text_label = QLabel(description)
         text_label.setWordWrap(True)
         vbox.addWidget(text_label)
-        text_edit = QPlainTextEdit(external_message)
+        text_label = QLabel(_(
+            "The server returned the following message, which may or may not help describe "
+            "the problem.  A malicious server may return misleading messages, so act on it "
+            "at your own risk.  In particular, do not download software from any links "
+            "provided; the official ElectrumSV website is only https://electrumsv.io/."
+        ))
+        text_label.setWordWrap(True)
+        vbox.addWidget(text_label)
+        text_edit = QPlainTextEdit(str(exception))
         text_edit.setEnabled(False)
+        text_edit.setMaximumHeight(100)
         vbox.addWidget(text_edit)
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CloseButton(self)))

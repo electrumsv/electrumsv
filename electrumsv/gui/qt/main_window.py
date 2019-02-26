@@ -2533,13 +2533,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             txid = str(txid).strip()
             try:
                 r = self.network.request_and_wait('blockchain.transaction.get', [txid])
-            except Exception as e:
-                d = UntrustedMessageDialog(self, _("Transaction Lookup Error"),
-                    _("The server was unable to locate the transaction you specified. "+
-                    "It returned the following message, which may or may not help describe "+
-                    "why. It is entirely possible a malicious server may return misleading "+
-                    "messages, so act on it at your own risk."),
-                    str(e))
+            except Exception as exc:
+                d = UntrustedMessageDialog(
+                    self, _("Transaction Lookup Error"),
+                    _("The server was unable to locate the transaction you specified."),
+                    exc)
                 d.exec()
                 return
             tx = transaction.Transaction(r)
