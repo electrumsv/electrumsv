@@ -116,34 +116,36 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
         raise ValueError(f'no box with name {name} found')
     return box.result(parent, wallet, **kwargs)
 
+raw_release_notes = """
+  * Do not display raw errors from the server when the user uses the 'Tools / Load Transaction /
+    From the blockchain' menu. They are now presented in a way where it is highlighted that
+    the actual message can be maliciously replaced by the server, and the user needs to use their
+    own good judgement to determine whether the error message is relevant or correct.
+  * Added a popup help dialog for the 'Existing Electron Cash wallets detected' message, shown
+    on the wallet selection page of the wizard.
+  * Added a popup help dialog for the 'I already have a seed' page, shown during the wallet
+    creation process in the wizard. This goes into detail about the repercussions of importing
+    seeds created in Centbee, Handcash or Moneybutton/Yours, where that seed is still being
+    used in those wallets. The gist is that it is not supported, and you're best to check with
+    those wallets before doing it.
+  * Added a popup dialog confirming how many Electron Cash wallets were imported by the user,
+    which will give the user feedback that something actually happened.
+  * Include the new logos and icons kindly provided by the Bitcoin Association. Thanks again to
+    MrScatman (https://twitter.com/bsmith12251960) for the original icon.
+  * Fix a bug where importing or sweeping a private key would error
+    (https://github.com/electrumsv/electrumsv/issues/45).
+  * Fix a bug in encrypting messages where the user entered a bad public key
+    (https://github.com/electrumsv/electrumsv/issues/46).
+"""
+raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
+raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
+raw_release_notes += "</li>"
 
 all_boxes = [
-    InfoBox('welcome-ESV-1.1',
-            _('Welcome to ElectrumSV 1.1'),
-            _('This release includes bug fixes, performance improvements and some '
-                'new features, including:-') +
-            '<ul>'+
-            '<li>'+
-            _('Check for updated versions on startup.') +
-            '</li>'+
-            '<li>'+
-            _('Various hardware wallet fixes.') +
-            '</li>'+
-            '<li>'+
-            _('New blockchain parsing and fork handling code, replacing the historically '+
-                'unstable code') +
-            '</li>'+
-            '<li>'+
-            _('Tentative support for file attachments in OP_RETURN pushdatas when sending a '+
-                'transaction.') +
-            '</li>'+
-            '<li>'+
-            _('Support for new ?sv style urls, which are also used in QR codes.') +
-            '</li>'+
-            '<li>'+
-            _('Testnet now uses the correct derivation path. Users may need to recreate wallets.') +
-            '</li>'+
-            '</ul>'
+    InfoBox('welcome-ESV-1.1.1',
+            _('Welcome to ElectrumSV 1.1.1'),
+            _('This release includes the following changes:') +
+            '<ul>'+ raw_release_notes +'</ul>'
     ),
     YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Cancel"), False),
     WarningBox('illegal-files-are-traceable',
