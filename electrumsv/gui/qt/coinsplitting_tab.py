@@ -66,8 +66,7 @@ class CoinSplittingTab(QWidget):
 
         window.network.register_callback(self._on_network_event, ['new_transaction'])
         self.waiting_dialog = SplitWaitingDialog(window, self, self._split_prepare_task,
-                                                 self._on_split_prepare_task_success,
-                                                 self._on_split_prepare_task_error)
+                                                 on_done=self._on_split_prepare_done)
 
     def _split_prepare_task(self):
         self.split_stage = STAGE_OBTAINING_DUST
@@ -104,9 +103,13 @@ class CoinSplittingTab(QWidget):
 
         return RESULT_READY_FOR_SPLIT
 
-    def _on_split_prepare_task_success(self, result):
+    def _on_split_prepare_done(self, future):
         window = self.window()
         try:
+            result = future.result()
+        except Exception as exc:
+            window.on_exception(exc)
+        else:
             if result == RESULT_READY_FOR_SPLIT:
                 self._ask_send_split_transaction()
                 return
@@ -135,14 +138,9 @@ class CoinSplittingTab(QWidget):
                 window.show_error(_("It took too long to get the dust from the faucet."))
             else:
                 window.show_error(_("Unexpected situation. You should not even be here."))
-
             self._cleanup_tx_final()
         finally:
             self._cleanup_tx_created()
-
-    def _on_split_prepare_task_error(self, exc_info):
-        logger.exception("on_split_prepare_task_error", exc_info=exc_info)
-        self._cleanup_tx_created()
 
     def _ask_send_split_transaction(self):
         window = self.window()
@@ -346,7 +344,7 @@ class SplitWaitingDialog(QProgressDialog):
     update_signal = pyqtSignal()
     update_label = None
 
-    def __init__(self, parent, splitter, task, on_success=None, on_error=None):
+    def __init__(self, parent, splitter, func, on_done):
         self.splitter = splitter
 
         # These flags remove the close button, which removes a corner case that we'd
@@ -358,19 +356,15 @@ class SplitWaitingDialog(QProgressDialog):
         self.setWindowTitle(_("Please wait"))
 
         self.stage_progress = 0
+
+        def _on_done(future):
+            self.accept()
+            on_done(future)
+        future = app_state.app.run_in_thread(func, on_done=_on_done)
+        self.accepted.connect(future.cancel)
         self.update_signal.connect(self.update)
         self.update()
-
-        self.accepted.connect(self._on_accepted)
         self.show()
-        self.thread = util.TaskThread(self)
-        self.thread.add(task, on_success, self.accept, on_error)
-
-    def wait(self):
-        self.thread.wait()
-
-    def _on_accepted(self):
-        self.thread.stop()
 
     def set_stage_progress(self, stage_progress):
         self.stage_progress = max(0, min(0.99, stage_progress))
