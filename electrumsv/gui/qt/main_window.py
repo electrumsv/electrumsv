@@ -2312,6 +2312,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             signature.setText(base64.b64encode(sig).decode('ascii'))
         self.wallet.thread.add(task, on_success=show_signed_message)
 
+    def run_in_thread(self, func, *args, on_success=None):
+        def on_done(future):
+            try:
+                result = future.result()
+            except Exception as exc:
+                self.on_exception(exc)
+            else:
+                if on_success:
+                    on_success(result)
+        self.app.run_in_thread(func, *args, on_done=on_done)
+
     def do_verify(self, address, message, signature):
         try:
             address = Address.from_string(address.text().strip())

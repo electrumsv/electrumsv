@@ -278,13 +278,7 @@ class SettingsDialog(WindowModalDialog):
                     app_state.device_manager.unpair_id(device_id)
                 return client.features
 
-            def on_done(future):
-                try:
-                    update(future.result())
-                except Exception as e:
-                    window.on_exception(e)
-
-            app_state.app.run_in_thread(task, on_done=on_done)
+            window.run_in_thread(task, on_success=update)
 
         def update(features):
             self.features = features

@@ -197,7 +197,7 @@ class AddressList(MyTreeWidget):
             keystore = self.wallet.get_keystore()
             if self.wallet.wallet_type == 'standard' and isinstance(keystore, Hardware_KeyStore):
                 def show_address():
-                    app_state.app.run_in_thread(keystore.plugin.show_address, self.wallet, addr)
+                    self.parent.run_in_thread(keystore.plugin.show_address, self.wallet, addr)
                 menu.addAction(_("Show on {}").format(keystore.plugin.device), show_address)
 
         freeze = self.parent.set_frozen_state
