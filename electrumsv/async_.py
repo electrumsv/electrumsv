@@ -112,4 +112,4 @@ class ASync(object):
             try:
                 on_done(future)
             except Exception:
-                logger.exception('unhandled exception')
+                logger.exception('unhandled exception in run_pending_callbacks')

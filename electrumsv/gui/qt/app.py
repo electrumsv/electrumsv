@@ -25,12 +25,11 @@
 
 import datetime
 from functools import partial
-import os
-import shutil
 import signal
 import sys
 import threading
 
+from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import pyqtSignal, QObject, QTimer
 from PyQt5.QtGui import QGuiApplication
@@ -77,6 +76,8 @@ class SVApplication(QApplication):
     labels_changed_signal = pyqtSignal(object)
     window_opened_signal = pyqtSignal(object)
     window_closed_signal = pyqtSignal(object)
+    # Async tasks
+    async_tasks_done = pyqtSignal()
     # Logging
     new_category = pyqtSignal(str)
     new_log = pyqtSignal(object)
@@ -124,6 +125,7 @@ class SVApplication(QApplication):
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.installEventFilter(OpenFileEventFilter(self.windows))
         self.create_new_window_signal.connect(self.start_new_window)
+        self.async_tasks_done.connect(app_state.async_.run_pending_callbacks)
         self.num_zeros_changed.connect(partial(self._signal_all, 'on_num_zeros_changed'))
         self.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
         self.base_unit_changed.connect(partial(self._signal_all, 'on_base_unit_changed'))
@@ -371,3 +373,21 @@ class SVApplication(QApplication):
         event = QtCore.QEvent(QtCore.QEvent.Clipboard)
         self.sendEvent(self.clipboard(), event)
         self.tray.hide()
+
+    def run_coro(self, coro, *args, on_done=None):
+        '''Run a coroutine.  on_done, if given, is passed the future containing the reuslt or
+        exception, and is guaranteed to be called in the context of the GUI thread.
+        '''
+        def task_done(future):
+            self.async_tasks_done.emit()
+
+        future = app_state.async_.spawn(coro, *args, on_done=on_done)
+        future.add_done_callback(task_done)
+        return future
+
+    def run_in_thread(self, func, *args, on_done=None):
+        '''Run func(*args) in a thread.  on_done, if given, is passed the future containing the
+        reuslt or exception, and is guaranteed to be called in the context of the GUI
+        thread.
+        '''
+        return self.run_coro(run_in_thread, func, *args, on_done=on_done)
