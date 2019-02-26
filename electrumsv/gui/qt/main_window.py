@@ -304,15 +304,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.show()
         self.raise_()
 
+    def on_exception(self, exception):
+        if not isinstance(exception, UserCancelled):
+            self.logger.exception("")
+            self.show_error(str(exception))
+
     def on_error(self, exc_info):
-        if not isinstance(exc_info[1], UserCancelled):
-            try:
-                self.logger.exception("", exc_info=exc_info)
-            except OSError:
-                # Issue #662, user got IO error.
-                # We want them to still get the error displayed to them.
-                pass
-            self.show_error(str(exc_info[1]))
+        self.on_exception(exc_info[1])
 
     def on_network(self, event, *args):
         if event == 'updated':

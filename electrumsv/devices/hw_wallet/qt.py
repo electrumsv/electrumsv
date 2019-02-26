@@ -37,7 +37,7 @@ from electrumsv.i18n import _
 
 from electrumsv.gui.qt.password_dialog import PasswordDialog, PW_PASSPHRASE, PasswordLineEdit
 from electrumsv.gui.qt.util import (
-    WindowModalDialog, Buttons, OkButton, CancelButton, TaskThread, WWLabel, read_QIcon,
+    WindowModalDialog, Buttons, OkButton, CancelButton, WWLabel, read_QIcon,
 )
 
 
@@ -203,7 +203,6 @@ class QtPluginBase(object):
         handler.action = action
         handler.icon_unpaired = self.icon_unpaired
         handler.icon_paired = self.icon_paired
-        keystore.thread = TaskThread(window, window.on_error)
 
     def missing_message(self):
         if hasattr(self, 'libraries_available_message'):

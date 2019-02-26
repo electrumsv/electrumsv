@@ -316,8 +316,6 @@ class SettingsDialog(WindowModalDialog):
         self.setMaximumWidth(540)
 
         config = app_state.config
-        handler = keystore.handler
-        thread = keystore.thread
         hs_rows, hs_cols = (64, 128)
 
         def invoke_client(method, *args, **kw_args):
@@ -333,7 +331,13 @@ class SettingsDialog(WindowModalDialog):
                     app_state.device_manager.unpair_id(device_id)
                 return client.features
 
-            thread.add(task, on_success=update)
+            def on_done(future):
+                try:
+                    update(future.result())
+                except Exception as e:
+                    window.on_exception(e)
+
+            app_state.app.run_in_thread(task, on_done=on_done)
 
         def update(features):
             self.features = features
