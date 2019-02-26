@@ -89,41 +89,6 @@ class JSON:
         return json.loads(s, **kwargs)
 
 
-class ThreadJob:
-    """A job that is run periodically from a thread's main loop.  run() is
-    called from that thread's context.
-    """
-
-    def run(self):
-        """Called periodically from the thread"""
-        pass
-
-class DebugMem(ThreadJob):
-    '''A handy class for debugging GC memory leaks'''
-    def __init__(self, classes, interval=30):
-        self.next_time = 0
-        self.classes = classes
-        self.interval = interval
-        self.logger = logs.get_logger('memory')
-
-    def mem_stats(self):
-        import gc
-        self.logger.debug("start memscan")
-        gc.collect()
-        objmap = defaultdict(list)
-        for obj in gc.get_objects():
-            for class_ in self.classes:
-                if isinstance(obj, class_):
-                    objmap[class_].append(obj)
-        for class_, objs in objmap.items():
-            self.logger.debug("%s: %d", class_.__name__, len(objs))
-        self.logger.debug("finish memscan")
-
-    def run(self):
-        if time.time() > self.next_time:
-            self.mem_stats()
-            self.next_time = time.time() + self.interval
-
 class DaemonThread(threading.Thread):
     """ daemon thread that terminates cleanly """
 

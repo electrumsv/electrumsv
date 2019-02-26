@@ -31,7 +31,6 @@ from .app_state import app_state
 from .i18n import _
 from .exceptions import UserCancelled
 from .logs import logs
-from .util import ThreadJob
 
 
 logger = logs.get_logger("devices")
@@ -48,7 +47,7 @@ class DeviceUnpairableError(DeviceError):
     pass
 
 
-class DeviceMgr(ThreadJob):
+class DeviceMgr:
     '''Manages hardware clients.  A client communicates over a hardware channel with the
     device.
 
@@ -74,7 +73,6 @@ class DeviceMgr(ThreadJob):
     all_devices = ['digitalbitbox', 'keepkey', 'ledger', 'trezor']
 
     def __init__(self):
-        super().__init__()
         self.plugins = {}
         # Keyed by xpub.  The value is the device id
         # has been paired, and None otherwise.
