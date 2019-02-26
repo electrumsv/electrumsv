@@ -2320,17 +2320,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.run_in_thread(self.wallet.sign_message, addr, message, password,
                            on_success=show_signed_message)
 
-    def run_in_thread(self, func, *args, on_success=None, on_failed=None, on_done=None):
+    def run_in_thread(self, func, *args, on_success=None):
         def _on_done(future):
-            if on_done:
-                on_done()
             try:
                 result = future.result()
             except Exception as exc:
-                if on_failed:
-                    on_failed(exc)
-                else:
-                    self.on_exception(exc)
+                self.on_exception(exc)
             else:
                 if on_success:
                     on_success(result)

@@ -344,7 +344,6 @@ class CoinSplittingTab(QWidget):
 
 class SplitWaitingDialog(QProgressDialog):
     update_signal = pyqtSignal()
-
     update_label = None
 
     def __init__(self, parent, splitter, task, on_success=None, on_error=None):
@@ -352,12 +351,11 @@ class SplitWaitingDialog(QProgressDialog):
 
         # These flags remove the close button, which removes a corner case that we'd
         # otherwise have to handle.
-        QProgressDialog.__init__(self, "", None, 0, 100, parent,
-                                 Qt.Window | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
+        super.__init__("", None, 0, 100, parent,
+                       Qt.Window | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
 
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle(_("Please wait"))
-        # self.setCancelButton(None)
 
         self.stage_progress = 0
         self.update_signal.connect(self.update)
