@@ -349,8 +349,8 @@ class SplitWaitingDialog(QProgressDialog):
 
         # These flags remove the close button, which removes a corner case that we'd
         # otherwise have to handle.
-        super.__init__("", None, 0, 100, parent,
-                       Qt.Window | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
+        super().__init__("", None, 0, 100, parent,
+                         Qt.Window | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
 
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle(_("Please wait"))
