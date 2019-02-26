@@ -263,6 +263,7 @@ class SettingsDialog(WindowModalDialog):
         self.setMaximumWidth(540)
 
         config = app_state.config
+        handler = keystore.handler
         hs_rows, hs_cols = (64, 128)
 
         def invoke_client(method, *args, **kw_args):
