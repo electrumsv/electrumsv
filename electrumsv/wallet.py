@@ -1985,15 +1985,7 @@ class Wallet(object):
     def __new__(self, storage):
         wallet_type = storage.get('wallet_type')
         WalletClass = Wallet.wallet_class(wallet_type)
-        wallet = WalletClass(storage)
-        # Convert hardware wallets restored with older versions of Electrum to BIP44
-        # wallets.  A hardware wallet does not have a seed.
-        rwc = getattr(wallet, 'restore_wallet_class', None)
-        if rwc and storage.get('seed', ''):
-            logger.debug("converting wallet type to %s", rwc.wallet_type)
-            storage.put('wallet_type', rwc.wallet_type)
-            wallet = rwc(storage) # pylint: disable=not-callable
-        return wallet
+        return WalletClass(storage)
 
     @staticmethod
     def wallet_class(wallet_type):
