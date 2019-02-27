@@ -384,7 +384,7 @@ class WalletStorage:
                 d = {'change': []}
                 receiving_addresses = []
                 for pubkey in pubkeys:
-                    addr = bitcoin.pubkey_to_address('p2pkh', pubkey)
+                    addr = bitcoin.pubkey_to_address(pubkey)
                     receiving_addresses.append(addr)
                 d['receiving'] = receiving_addresses
                 self.put('addresses', d)
@@ -409,7 +409,7 @@ class WalletStorage:
                 assert len(addresses) == len(pubkeys)
                 d = {}
                 for pubkey in pubkeys:
-                    addr = bitcoin.pubkey_to_address('p2pkh', pubkey)
+                    addr = bitcoin.pubkey_to_address(pubkey)
                     assert addr in addresses
                     d[addr] = {
                         'pubkey': pubkey,

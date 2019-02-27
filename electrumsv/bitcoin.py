@@ -199,11 +199,8 @@ def hash160_to_p2sh(h160):
 def public_key_to_p2pkh(public_key):
     return hash160_to_p2pkh(hash_160(public_key))
 
-def pubkey_to_address(txin_type, pubkey):
-    if txin_type == 'p2pkh':
-        return public_key_to_p2pkh(bfh(pubkey))
-    else:
-        raise NotImplementedError(txin_type)
+def pubkey_to_address(pubkey):
+    return public_key_to_p2pkh(bfh(pubkey))
 
 def script_to_address(script):
     from .transaction import get_address_from_output_script
