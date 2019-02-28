@@ -25,9 +25,11 @@
 
 import struct
 
+from bitcoinx import Ops
+
 from . import ecc
 from .address import (
-    PublicKey, Address, Script, ScriptOutput, UnknownAddress, OpCodes as opcodes
+    PublicKey, Address, Script, ScriptOutput, UnknownAddress
 )
 from .bitcoin import (
     to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, hash_encode, op_push,
@@ -162,16 +164,16 @@ def _script_GetOp(_bytes):
         opcode = _bytes[i]
         i += 1
 
-        if opcode <= opcodes.OP_PUSHDATA4:
+        if opcode <= Ops.OP_PUSHDATA4:
             nSize = opcode
-            if opcode == opcodes.OP_PUSHDATA1:
+            if opcode == Ops.OP_PUSHDATA1:
                 nSize = _bytes[i] if i < blen else 0
                 i += 1
-            elif opcode == opcodes.OP_PUSHDATA2:
+            elif opcode == Ops.OP_PUSHDATA2:
                 # tolerate truncated script
                 (nSize,) = struct.unpack_from('<H', _bytes, i) if i+2 <= blen else (0,)
                 i += 2
-            elif opcode == opcodes.OP_PUSHDATA4:
+            elif opcode == Ops.OP_PUSHDATA4:
                 (nSize,) = struct.unpack_from('<I', _bytes, i) if i+4 <= blen else (0,)
                 i += 4
             # array slicing here never throws exception even if truncated script
@@ -181,16 +183,13 @@ def _script_GetOp(_bytes):
         yield opcode, vch, i
 
 
-def _script_GetOpName(opcode):
-    return (opcodes.whatis(opcode)).replace("OP_", "")
-
 def _match_decoded(decoded, to_match):
     if len(decoded) != len(to_match):
         return False
     for i in range(len(decoded)):
-        # Opcodes below OP_PUSHDATA4 all just push data
-        if (to_match[i] == opcodes.OP_PUSHDATA4 and
-                decoded[i][0] <= opcodes.OP_PUSHDATA4 and decoded[i][0] > 0):
+        # Ops below OP_PUSHDATA4 all just push data
+        if (to_match[i] == Ops.OP_PUSHDATA4 and
+                decoded[i][0] <= Ops.OP_PUSHDATA4 and decoded[i][0] > 0):
             continue
         if to_match[i] != decoded[i][0]:
             return False
@@ -214,7 +213,7 @@ def _parse_scriptSig(d, _bytes):
         logger.exception("cannot find address in input script %s", bh2u(_bytes))
         return
 
-    match = [ opcodes.OP_PUSHDATA4 ]
+    match = [ Ops.OP_PUSHDATA4 ]
     if _match_decoded(decoded, match):
         item = decoded[0][1]
         # payto_pubkey
@@ -228,7 +227,7 @@ def _parse_scriptSig(d, _bytes):
     # non-generated TxIn transactions push a signature
     # (seventy-something bytes) and then their public key
     # (65 bytes) onto the stack:
-    match = [ opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4 ]
+    match = [ Ops.OP_PUSHDATA4, Ops.OP_PUSHDATA4 ]
     if _match_decoded(decoded, match):
         sig = bh2u(decoded[0][1])
         x_pubkey = bh2u(decoded[1][1])
@@ -247,7 +246,7 @@ def _parse_scriptSig(d, _bytes):
         return
 
     # p2sh transaction, m of n
-    match = [ opcodes.OP_0 ] + [ opcodes.OP_PUSHDATA4 ] * (len(decoded) - 1)
+    match = [ Ops.OP_0 ] + [ Ops.OP_PUSHDATA4 ] * (len(decoded) - 1)
     if not _match_decoded(decoded, match):
         logger.error("cannot find address in input script %s", bh2u(_bytes))
         return
@@ -265,11 +264,11 @@ def _parse_scriptSig(d, _bytes):
 
 def _parse_redeemScript(s):
     dec2 = [ x for x in _script_GetOp(s) ]
-    m = dec2[0][0] - opcodes.OP_1 + 1
-    n = dec2[-2][0] - opcodes.OP_1 + 1
-    op_m = opcodes.OP_1 + m - 1
-    op_n = opcodes.OP_1 + n - 1
-    match_multisig = [ op_m ] + [opcodes.OP_PUSHDATA4]*n + [ op_n, opcodes.OP_CHECKMULTISIG ]
+    m = dec2[0][0] - Ops.OP_1 + 1
+    n = dec2[-2][0] - Ops.OP_1 + 1
+    op_m = Ops.OP_1 + m - 1
+    op_n = Ops.OP_1 + n - 1
+    match_multisig = [ op_m ] + [Ops.OP_PUSHDATA4]*n + [ op_n, Ops.OP_CHECKMULTISIG ]
     if not _match_decoded(dec2, match_multisig):
         logger.error("cannot find address in input script %s", bh2u(s))
         return
@@ -284,19 +283,19 @@ def get_address_from_output_script(_bytes):
 
     # The Genesis Block, self-payments, and pay-by-IP-address payments look like:
     # 65 BYTES:... CHECKSIG
-    match = [ opcodes.OP_PUSHDATA4, opcodes.OP_CHECKSIG ]
+    match = [ Ops.OP_PUSHDATA4, Ops.OP_CHECKSIG ]
     if _match_decoded(decoded, match):
         return TYPE_PUBKEY, PublicKey.from_pubkey(decoded[0][1])
 
     # Pay-by-Bitcoin-address TxOuts look like:
     # DUP HASH160 20 BYTES:... EQUALVERIFY CHECKSIG
-    match = [ opcodes.OP_DUP, opcodes.OP_HASH160, opcodes.OP_PUSHDATA4,
-              opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG ]
+    match = [ Ops.OP_DUP, Ops.OP_HASH160, Ops.OP_PUSHDATA4,
+              Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG ]
     if _match_decoded(decoded, match):
         return TYPE_ADDRESS, Address.from_P2PKH_hash(decoded[2][1])
 
     # p2sh
-    match = [ opcodes.OP_HASH160, opcodes.OP_PUSHDATA4, opcodes.OP_EQUAL ]
+    match = [ Ops.OP_HASH160, Ops.OP_PUSHDATA4, Ops.OP_EQUAL ]
     if _match_decoded(decoded, match):
         return TYPE_ADDRESS, Address.from_P2SH_hash(decoded[1][1])
 
@@ -362,8 +361,8 @@ def multisig_script(public_keys, m):
     n = len(public_keys)
     assert n <= 15
     assert m <= n
-    op_m = format(opcodes.OP_1 + m - 1, 'x')
-    op_n = format(opcodes.OP_1 + n - 1, 'x')
+    op_m = format(Ops.OP_1 + m - 1, 'x')
+    op_n = format(Ops.OP_1 + n - 1, 'x')
     keylist = [op_push(len(k)//2) + k for k in public_keys]
     return op_m + ''.join(keylist) + op_n + 'ae'
 

@@ -25,6 +25,7 @@
 
 import hashlib
 
+from bitcoinx import Ops
 import ecdsa
 from ecdsa.ecdsa import curve_secp256k1, generator_secp256k1
 from ecdsa.curves import SECP256k1
@@ -102,17 +103,15 @@ def push_script(data: str) -> str:
     ported from https://github.com/btcsuite/btcd
     """
     data = bfh(data)
-    from .transaction import opcodes
-
     data_len = len(data)
 
     # "small integer" opcodes
     if data_len == 0 or data_len == 1 and data[0] == 0:
-        return bh2u(bytes([opcodes.OP_0]))
+        return bh2u(bytes([Ops.OP_0]))
     elif data_len == 1 and data[0] <= 16:
-        return bh2u(bytes([opcodes.OP_1 - 1 + data[0]]))
+        return bh2u(bytes([Ops.OP_1 - 1 + data[0]]))
     elif data_len == 1 and data[0] == 0x81:
-        return bh2u(bytes([opcodes.OP_1NEGATE]))
+        return bh2u(bytes([Ops.OP_1NEGATE]))
 
     return op_push(data_len) + bh2u(data)
 

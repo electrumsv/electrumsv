@@ -27,10 +27,11 @@
 from collections import namedtuple
 import struct
 
+from bitcoinx import Ops
+
 from . import cashaddr
 from .bitcoin import is_minikey, minikey_to_private_key
 from .crypto import hash_160, sha256, sha256d
-from .enum import Enumeration
 from .networks import Net
 from .util import cachedproperty
 
@@ -43,30 +44,6 @@ class AddressError(Exception):
 
 class ScriptError(Exception):
     '''Exception used for Script errors.'''
-
-
-OpCodes = Enumeration("OpCodes", [
-    ("OP_0", 0), ("OP_PUSHDATA1",76), "OP_PUSHDATA2", "OP_PUSHDATA4", "OP_1NEGATE", "OP_RESERVED",
-    "OP_1", "OP_2", "OP_3", "OP_4", "OP_5", "OP_6", "OP_7",
-    "OP_8", "OP_9", "OP_10", "OP_11", "OP_12", "OP_13", "OP_14", "OP_15", "OP_16",
-    "OP_NOP", "OP_VER", "OP_IF", "OP_NOTIF", "OP_VERIF", "OP_VERNOTIF", "OP_ELSE", "OP_ENDIF",
-    "OP_VERIFY", "OP_RETURN", "OP_TOALTSTACK", "OP_FROMALTSTACK", "OP_2DROP", "OP_2DUP",
-    "OP_3DUP", "OP_2OVER", "OP_2ROT", "OP_2SWAP", "OP_IFDUP", "OP_DEPTH", "OP_DROP", "OP_DUP",
-    "OP_NIP", "OP_OVER", "OP_PICK", "OP_ROLL", "OP_ROT", "OP_SWAP", "OP_TUCK",
-    "OP_CAT", "OP_SPLIT", "OP_NUM2BIN", "OP_BIN2NUM", "OP_SIZE", "OP_INVERT", "OP_AND",
-    "OP_OR", "OP_XOR", "OP_EQUAL", "OP_EQUALVERIFY", "OP_RESERVED1", "OP_RESERVED2",
-    "OP_1ADD", "OP_1SUB", "OP_2MUL", "OP_2DIV", "OP_NEGATE", "OP_ABS", "OP_NOT",
-    "OP_0NOTEQUAL", "OP_ADD", "OP_SUB", "OP_MUL", "OP_DIV",
-    "OP_MOD", "OP_LSHIFT", "OP_RSHIFT", "OP_BOOLAND", "OP_BOOLOR",
-    "OP_NUMEQUAL", "OP_NUMEQUALVERIFY", "OP_NUMNOTEQUAL", "OP_LESSTHAN",
-    "OP_GREATERTHAN", "OP_LESSTHANOREQUAL", "OP_GREATERTHANOREQUAL", "OP_MIN", "OP_MAX",
-    "OP_WITHIN", "OP_RIPEMD160", "OP_SHA1", "OP_SHA256", "OP_HASH160",
-    "OP_HASH256", "OP_CODESEPARATOR", "OP_CHECKSIG", "OP_CHECKSIGVERIFY", "OP_CHECKMULTISIG",
-    "OP_CHECKMULTISIGVERIFY",
-    ("OP_NOP1", 0xB0),
-    "OP_CHECKLOCKTIMEVERIFY", "OP_CHECKSEQUENCEVERIFY",
-    "OP_NOP4", "OP_NOP5", "OP_NOP6", "OP_NOP7", "OP_NOP8", "OP_NOP9", "OP_NOP10",
-])
 
 
 # Utility functions
@@ -108,9 +85,6 @@ class UnknownAddress(object):
 
 
 class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
-
-    TO_ADDRESS_OPS = [OpCodes.OP_DUP, OpCodes.OP_HASH160, -1,
-                      OpCodes.OP_EQUALVERIFY, OpCodes.OP_CHECKSIG]
 
     @classmethod
     def from_pubkey(cls, pubkey):
@@ -211,9 +185,10 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
         script = bytearray()
         for word in string.split():
             if word.startswith('OP_'):
-                opcode = OpCodes.lookup.get(word)
-                if opcode is None:
-                    raise AddressError('unknown opcode {}'.format(word))
+                try:
+                    opcode = Ops[word]
+                except KeyError:
+                    raise AddressError(f'unknown opcode "{word}"') from None
                 script.append(opcode)
             else:
                 script.extend(Script.push_data(bytes.fromhex(word)))
@@ -228,10 +203,15 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
         except ScriptError:
             # Truncated script -- so just default to hex string.
             return self.script.hex()
+
+        def lookup(n):
+            try:
+                return Ops(n).name
+            except ValueError:
+                return f'({n})'
+
         parts = []
         for op in ops:
-            def lookup(x):
-                return OpCodes.reverseLookup.get(x, ('('+str(x)+')'))
             if isinstance(op, tuple):
                 op, data = op
                 if data is None:
@@ -253,7 +233,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
                     friendlystring = data.hex()
 
                 parts.append(lookup(op) + " " + friendlystring)
-            else: # isinstance(op, int):
+            else:
                 parts.append(lookup(op))
         return ', '.join(parts)
 
@@ -269,7 +249,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
     @classmethod
     def as_op_return(self, data_chunks):
         script = bytearray()
-        script.append(OpCodes.OP_RETURN)
+        script.append(Ops.OP_RETURN)
         for data_bytes in data_chunks:
             script.extend(Script.push_data(data_bytes))
         return ScriptOutput(bytes(script))
@@ -423,19 +403,19 @@ class Script(object):
 
     @classmethod
     def P2SH_script(cls, hash160value):
-        return (bytes([OpCodes.OP_HASH160])
+        return (bytes([Ops.OP_HASH160])
                 + cls.push_data(hash160value)
-                + bytes([OpCodes.OP_EQUAL]))
+                + bytes([Ops.OP_EQUAL]))
 
     @classmethod
     def P2PKH_script(cls, hash160value):
-        return (bytes([OpCodes.OP_DUP, OpCodes.OP_HASH160])
+        return (bytes([Ops.OP_DUP, Ops.OP_HASH160])
                 + cls.push_data(hash160value)
-                + bytes([OpCodes.OP_EQUALVERIFY, OpCodes.OP_CHECKSIG]))
+                + bytes([Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG]))
 
     @classmethod
     def P2PK_script(cls, pubkey):
-        return cls.push_data(pubkey) + bytes([OpCodes.OP_CHECKSIG])
+        return cls.push_data(pubkey) + bytes([Ops.OP_CHECKSIG])
 
     @classmethod
     def multisig_script(cls, m, pubkeys):
@@ -448,23 +428,23 @@ class Script(object):
             PublicKey.validate(pubkey)   # Can be compressed or not
         # See https://bitcoin.org/en/developer-guide
         # 2 of 3 is: OP_2 pubkey1 pubkey2 pubkey3 OP_3 OP_CHECKMULTISIG
-        return (bytes([OpCodes.OP_1 + m - 1])
+        return (bytes([Ops.OP_1 + m - 1])
                 + b''.join(cls.push_data(pubkey) for pubkey in pubkeys)
-                + bytes([OpCodes.OP_1 + n - 1, OpCodes.OP_CHECKMULTISIG]))
+                + bytes([Ops.OP_1 + n - 1, Ops.OP_CHECKMULTISIG]))
 
     @classmethod
     def push_data(cls, data):
-        '''Returns the OpCodes to push the data on the stack.'''
+        '''Returns the Ops to push the data on the stack.'''
         assert isinstance(data, (bytes, bytearray))
 
         n = len(data)
-        if n < OpCodes.OP_PUSHDATA1:
+        if n < Ops.OP_PUSHDATA1:
             return bytes([n]) + data
         if n < 256:
-            return bytes([OpCodes.OP_PUSHDATA1, n]) + data
+            return bytes([Ops.OP_PUSHDATA1, n]) + data
         if n < 65536:
-            return bytes([OpCodes.OP_PUSHDATA2]) + struct.pack('<H', n) + data
-        return bytes([OpCodes.OP_PUSHDATA4]) + struct.pack('<I', n) + data
+            return bytes([Ops.OP_PUSHDATA2]) + struct.pack('<H', n) + data
+        return bytes([Ops.OP_PUSHDATA4]) + struct.pack('<I', n) + data
 
     @classmethod
     def get_ops(cls, script):
@@ -477,14 +457,14 @@ class Script(object):
                 op = script[n]
                 n += 1
 
-                if op <= OpCodes.OP_PUSHDATA4:
+                if op <= Ops.OP_PUSHDATA4:
                     # Raw bytes follow
-                    if op < OpCodes.OP_PUSHDATA1:
+                    if op < Ops.OP_PUSHDATA1:
                         dlen = op
-                    elif op == OpCodes.OP_PUSHDATA1:
+                    elif op == Ops.OP_PUSHDATA1:
                         dlen = script[n]
                         n += 1
-                    elif op == OpCodes.OP_PUSHDATA2:
+                    elif op == Ops.OP_PUSHDATA2:
                         dlen, = struct.unpack('<H', script[n: n + 2])
                         n += 2
                     else:

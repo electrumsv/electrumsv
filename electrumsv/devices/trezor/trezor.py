@@ -1,9 +1,10 @@
 from collections import defaultdict
 
+from bitcoinx import Ops
+
 from electrumsv.bip32 import deserialize_xpub, bip32_path_to_uints as parse_path
 from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
 
-from electrumsv.address import OpCodes as opcodes
 from electrumsv.app_state import app_state
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
@@ -50,7 +51,7 @@ def validate_op_return_output_and_get_data(output):
     if output.type != TYPE_SCRIPT:
         raise Exception("Unexpected output type: {}".format(output.type))
     script = bfh(output.address)
-    if not (script[0] == opcodes.OP_RETURN and
+    if not (script[0] == Ops.OP_RETURN and
             script[1] == len(script) - 2 and script[1] <= 75):
         raise Exception(_("Only OP_RETURN scripts, with one constant push, are supported."))
     if output.value != 0:
