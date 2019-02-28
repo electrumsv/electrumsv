@@ -283,8 +283,12 @@ def get_electron_cash_user_dir(esv_user_dir):
     Arguments:
     esv_user_dir --- the ElectrumSV `user_dir` generated path.
     """
-    esv_user_dir = esv_user_dir.replace(".electrum-sv", ".electron-cash")
-    esv_user_dir = esv_user_dir.replace("ElectrumSV", "ElectronCash")
+    from electrumsv.app_state import app_state
+    if app_state.config.cmdline_options['portable']:
+        esv_user_dir = esv_user_dir.replace("electrum_sv_data", "electron_cash_data")
+    else:
+        esv_user_dir = esv_user_dir.replace(".electrum-sv", ".electron-cash")
+        esv_user_dir = esv_user_dir.replace("ElectrumSV", "ElectronCash")
     return esv_user_dir
 
 
