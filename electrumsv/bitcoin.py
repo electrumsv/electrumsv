@@ -395,17 +395,6 @@ def point_to_ser(P, comp=True ):
     return bfh( '04'+('%064x'%P.x())+('%064x'%P.y()) )
 
 
-def ser_to_point(Aser):
-    curve = curve_secp256k1
-    generator = generator_secp256k1
-    _r  = generator.order()
-    assert Aser[0] in [0x02, 0x03, 0x04]
-    if Aser[0] == 0x04:
-        return Point( curve, string_to_number(Aser[1:33]), string_to_number(Aser[33:]), _r )
-    Mx = string_to_number(Aser[1:])
-    return Point( curve, Mx, ECC_YfromX(Mx, curve, Aser[0] == 0x03)[0], _r )
-
-
 class MyVerifyingKey(ecdsa.VerifyingKey):
     @classmethod
     def from_signature(klass, sig, recid, h, curve):
