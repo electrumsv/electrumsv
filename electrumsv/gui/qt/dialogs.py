@@ -117,33 +117,17 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
     return box.result(parent, wallet, **kwargs)
 
 raw_release_notes = """
-  * Do not display raw errors from the server when the user uses the 'Tools / Load Transaction /
-    From the blockchain' menu. They are now presented in a way where it is highlighted that
-    the actual message can be maliciously replaced by the server, and the user needs to use their
-    own good judgement to determine whether the error message is relevant or correct.
-  * Added a popup help dialog for the 'Existing Electron Cash wallets detected' message, shown
-    on the wallet selection page of the wizard.
-  * Added a popup help dialog for the 'I already have a seed' page, shown during the wallet
-    creation process in the wizard. This goes into detail about the repercussions of importing
-    seeds created in Centbee, Handcash or Moneybutton/Yours, where that seed is still being
-    used in those wallets. The gist is that it is not supported, and you're best to check with
-    those wallets before doing it.
-  * Added a popup dialog confirming how many Electron Cash wallets were imported by the user,
-    which will give the user feedback that something actually happened.
-  * Include the new logos and icons kindly provided by the Bitcoin Association. Thanks again to
-    MrScatman (https://twitter.com/bsmith12251960) for the original icon.
-  * Fix a bug where importing or sweeping a private key would error
-    (https://github.com/electrumsv/electrumsv/issues/45).
-  * Fix a bug in encrypting messages where the user entered a bad public key
-    (https://github.com/electrumsv/electrumsv/issues/46).
+  * When run in portable mode, ElectrumSV would fail to correctly locate the Electron Cash
+    wallets directory, and would show the portable mode ElectrumSV wallets as the Electron Cash
+    wallets. The Electron Cash portable mode wallet directory is now correctly located.
 """
 raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
 raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
 raw_release_notes += "</li>"
 
 all_boxes = [
-    InfoBox('welcome-ESV-1.1.1',
-            _('Welcome to ElectrumSV 1.1.1'),
+    InfoBox('welcome-ESV-1.1.2',
+            _('Welcome to ElectrumSV 1.1.2'),
             _('This release includes the following changes:') +
             '<ul>'+ raw_release_notes +'</ul>'
     ),
