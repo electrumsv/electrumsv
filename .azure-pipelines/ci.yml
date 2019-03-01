@@ -70,7 +70,7 @@ jobs:
         # This causes errors in pull requests.
         if [ "$(Build.Reason)" != "PullRequest" ]
         then
-          echo "##vso[build.addbuildtag]COMMIT_TAGGED"
+          echo "##vso[build.addbuildtag]UNSTABLE_BUILD"
         fi
         echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]yes"
         echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]yes"
@@ -78,7 +78,7 @@ jobs:
         # This causes errors in pull requests.
         if [ "$(Build.Reason)" != "PullRequest" ]
         then
-          echo "##vso[build.addbuildtag]COMMIT_UNTAGGED"
+          echo "##vso[build.addbuildtag]STABLE_BUILD"
         fi
         echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
         echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
@@ -87,11 +87,21 @@ jobs:
       # Only set this flag if the commit is on the tag.
       if [ "$(Build.SourceVersion)" == "$TAGGED_COMMIT" ]
       then
+        if [ "$(Build.Reason)" != "PullRequest" ]
+        then
+          echo "##vso[build.addbuildtag]TAGGED_BUILD"
+        fi
+
         echo "vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]yes"
         echo "##vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]yes"
         echo "vso[task.setvariable variable=COMMIT_TAG;isOutput=true]${MOST_RECENT_TAG}"
         echo "##vso[task.setvariable variable=COMMIT_TAG;isOutput=true]${MOST_RECENT_TAG}"
       else
+        if [ "$(Build.Reason)" != "PullRequest" ]
+        then
+          echo "##vso[build.addbuildtag]UNTAGGED_BUILD"
+        fi
+
         echo "vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]no"
         echo "##vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]no"
         echo "vso[task.setvariable variable=COMMIT_TAG;isOutput=true]"
