@@ -26,11 +26,6 @@
 import hashlib
 
 from bitcoinx import Ops
-import ecdsa
-from ecdsa.ecdsa import curve_secp256k1, generator_secp256k1
-from ecdsa.curves import SECP256k1
-from ecdsa.ellipticcurve import Point
-from ecdsa.util import string_to_number
 
 from .crypto import hash_160, sha256d, hmac_oneshot, sha256
 from .networks import Net
@@ -367,72 +362,3 @@ def msg_magic(message):
 
 def chunks(l, n):
     return [l[i:i+n] for i in range(0, len(l), n)]
-
-
-def ECC_YfromX(x,curved=curve_secp256k1, odd=True):
-    _p = curved.p()
-    _a = curved.a()
-    _b = curved.b()
-    for offset in range(128):
-        Mx = x + offset
-        My2 = pow(Mx, 3, _p) + _a * pow(Mx, 2, _p) + _b % _p
-        My = pow(My2, (_p+1)//4, _p )
-
-        if curved.contains_point(Mx,My):
-            if odd == bool(My&1):
-                return [My,offset]
-            return [_p-My,offset]
-    raise Exception('ECC_YfromX: No Y found')
-
-
-def negative_point(P):
-    return Point( P.curve(), P.x(), -P.y(), P.order() )
-
-
-def point_to_ser(P, comp=True ):
-    if comp:
-        return bfh( ('%02x'%(2+(P.y()&1)))+('%064x'%P.x()) )
-    return bfh( '04'+('%064x'%P.x())+('%064x'%P.y()) )
-
-
-class MyVerifyingKey(ecdsa.VerifyingKey):
-    @classmethod
-    def from_signature(klass, sig, recid, h, curve):
-        """ See http://www.secg.org/download/aid-780/sec1-v2.pdf, chapter 4.1.6 """
-        from ecdsa import util, numbertheory
-        from . import msqr
-        curveFp = curve.curve
-        G = curve.generator
-        order = G.order()
-        # extract r,s from signature
-        r, s = util.sigdecode_string(sig, order)
-        # 1.1
-        x = r + (recid//2) * order
-        # 1.3
-        alpha = ( x * x * x  + curveFp.a() * x + curveFp.b() ) % curveFp.p()
-        beta = msqr.modular_sqrt(alpha, curveFp.p())
-        y = beta if (beta - recid) % 2 == 0 else curveFp.p() - beta
-        # 1.4 the constructor checks that nR is at infinity
-        R = Point(curveFp, x, y, order)
-        # 1.5 compute e from message:
-        e = string_to_number(h)
-        minus_e = -e % order
-        # 1.6 compute Q = r^-1 (sR - eG)
-        inv_r = numbertheory.inverse_mod(r,order)
-        Q = inv_r * ( s * R + minus_e * G )
-        return klass.from_public_point( Q, curve )
-
-
-def pubkey_from_signature(sig, h):
-    if len(sig) != 65:
-        raise Exception("Wrong encoding")
-    nV = sig[0]
-    if nV < 27 or nV >= 35:
-        raise Exception("Bad encoding")
-    if nV >= 31:
-        compressed = True
-        nV -= 4
-    else:
-        compressed = False
-    recid = nV - 27
-    return MyVerifyingKey.from_signature(sig[1:], recid, h, curve = SECP256k1), compressed
