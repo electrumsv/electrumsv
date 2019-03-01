@@ -14,15 +14,8 @@ import requests
 import struct
 import time
 
-from ecdsa.curves import SECP256k1
-from ecdsa.ecdsa import generator_secp256k1
-from ecdsa.util import sigencode_der
-
-from electrumsv.bitcoin import (
-    TYPE_ADDRESS, push_script, msg_magic, pubkey_from_signature,
-    point_to_ser, public_key_to_p2pkh, MyVerifyingKey, int_to_hex,
-)
 from electrumsv.app_state import app_state
+from electrumsv.bitcoin import TYPE_ADDRESS, push_script, msg_magic, public_key_to_p2pkh
 from electrumsv.crypto import (sha256d, EncodeAES_base64, EncodeAES_bytes, DecodeAES_bytes,
     hmac_oneshot)
 import electrumsv.ecc as ecc
@@ -492,17 +485,18 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
 
             if 'recid' in reply['sign'][0]:
                 # firmware > v2.1.1
-                sig = (bytes([27 + int(reply['sign'][0]['recid'], 16) + 4])
-                       + bytes.fromhex(reply['sign'][0]['sig']))
-                pk, compressed = pubkey_from_signature(sig, msg_hash)
-                pk = point_to_ser(pk.pubkey.point, compressed)
-                addr = public_key_to_p2pkh(pk)
+                sig_string = bytes.fromhex(reply['sign'][0]['sig'])
+                recid = int(reply['sign'][0]['recid'], 16)
+                sig = ecc.construct_sig65(sig_string, recid, True)
+                pubkey, compressed = ecc.ECPubkey.from_signature65(sig, msg_hash)
+                addr = public_key_to_p2pkh(pubkey.get_public_key_bytes(compressed=compressed))
                 if not ecc.verify_message_with_address(addr, sig, message):
-                    raise Exception(_("Could not sign message"))
+                    raise RuntimeError(_("Could not sign message"))
             elif 'pubkey' in reply['sign'][0]:
                 # firmware <= v2.1.1
-                for i in range(4):
-                    sig = bytes([27 + i + 4]) + bytes.fromhex(reply['sign'][0]['sig'])
+                for rec_id in range(4):
+                    sig_string = bytes.fromhex(reply['sign'][0]['sig'])
+                    sig = ecc.construct_sig65(sig_string, recid, True)
                     try:
                         addr = public_key_to_p2pkh(bytes.fromhex(reply['sign'][0]['pubkey']))
                         if ecc.verify_message_with_address(addr, sig, message):
@@ -510,8 +504,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     except Exception:
                         continue
                 else:
-                    raise Exception(_("Could not sign message"))
-
+                    raise RuntimeError(_("Could not sign message"))
 
         except Exception as e:
             self.give_error(e)
@@ -657,8 +650,8 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                         recid = int(signed['recid'], 16)
                         s = bytes.fromhex(signed['sig'])
                         h = inputhasharray[i]
-                        pk = MyVerifyingKey.from_signature(s, recid, h, curve = SECP256k1)
-                        pk = point_to_ser(pk.pubkey.point, True).hex()
+                        pk = ecc.ECPubkey.from_sig_string(s, recid, h)
+                        pk = pk.get_public_key_hex(compressed=True)
                     elif 'pubkey' in signed:
                         # firmware <= v2.1.1
                         pk = signed['pubkey']
@@ -666,10 +659,9 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                         continue
                     sig_r = int(signed['sig'][:64], 16)
                     sig_s = int(signed['sig'][64:], 16)
-                    sig = sigencode_der(sig_r, sig_s, generator_secp256k1.order())
-                    txin['signatures'][ii] = (sig.hex() +
-                                              int_to_hex(Transaction.nHashType() & 255, 1))
-                    tx._inputs[i] = txin
+                    sig = (ecc.der_sig_from_r_and_s(sig_r, sig_s) +
+                           bytes([Transaction.nHashType() & 255]))
+                    tx.add_signature_to_txin(i, ii, sig)
         except UserCancelled:
             raise
         except Exception as e:
