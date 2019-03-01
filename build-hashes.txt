@@ -14,3 +14,8 @@ ae8cca72fb241a77ba40790aaf87465a7064f3f9f4c649ed4b091f0010078dfe  ElectrumSV-1.1
 5514904826ce26c5836bd74529020f1304ae1b648e8eab396762cee6ceda8b80  ElectrumSV-1.1.1-portable.exe
 9abad46607471f41efdcf04ad7cacc8ba3e64beebd19c2b215f062b4bb7e43ca  ElectrumSV-1.1.1.tar.gz
 36f2cb95be19ed010c074541d1d1b9ef3b0139f4364f5f30164a4195fc785cc7  ElectrumSV-1.1.1.zip
+edb28bd165d12617daeb89b1a601e4eb31689e9cb658895b2e0501774cefd5e9  ElectrumSV-1.1.2.dmg
+9fa9132db478876920a8b14348311b89461a9fe83c5fcb5d48d01f67701ec5a2  ElectrumSV-1.1.2.exe
+7d2e73da0d4bf6fdde7cab094df0d4d195105456867302bc07b4bcbc19adca85  ElectrumSV-1.1.2-portable.exe
+5abbed56df322fa5c82c25e45fcbefbf87e432ce1b41c5fe9c92e798fff5060e  ElectrumSV-1.1.2.tar.gz
+526068f9bf3cadabe5d7f712b8922863bc90fef4ea21dc6911db7f671fdd69bc  ElectrumSV-1.1.2.zip
