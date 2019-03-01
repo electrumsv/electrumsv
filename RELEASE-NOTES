@@ -36,6 +36,10 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.1.2
+  * When run in portable mode, ElectrumSV would fail to correctly locate the Electron Cash
+    wallets directory, and would show the portable mode ElectrumSV wallets as the Electron Cash
+    wallets. The Electron Cash portable mode wallet directory is now correctly located.
 
 # Release 1.1.1
   * Do not display raw errors from the server when the user uses the 'Tools / Load Transaction /
