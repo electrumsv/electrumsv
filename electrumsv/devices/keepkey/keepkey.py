@@ -22,7 +22,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from binascii import hexlify, unhexlify
 import threading
 
 from electrumsv.app_state import app_state
@@ -140,17 +139,8 @@ class KeepKeyPlugin(HW_PluginBase):
             self.logger.error("cannot connect at %s %s", device.path, e)
             return None
 
-    def _try_bridge(self, device):
-        self.logger.debug("Trying to connect over Trezor Bridge...")
-        try:
-            return self.bridge_transport({'path': hexlify(device.path)})
-        except Exception as e:
-            self.logger.error("cannot connect to bridge %s", e)
-            return None
-
     def create_client(self, device, handler):
         # disable bridge because it seems to never returns if keepkey is plugged
-        #transport = self._try_bridge(device) or self._try_hid(device)
         transport = self._try_hid(device)
         if not transport:
             self.logger.error("cannot connect to device")
@@ -323,7 +313,7 @@ class KeepKeyPlugin(HW_PluginBase):
                                     txinputtype.address_n.extend(xpub_n + s)
                                     break
 
-                prev_hash = unhexlify(txin['prevout_hash'])
+                prev_hash = bytes.fromhex(txin['prevout_hash'])
                 prev_index = txin['prevout_n']
 
             if 'value' in txin:

@@ -216,8 +216,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
                     raise AddressError('unknown opcode {}'.format(word))
                 script.append(opcode)
             else:
-                import binascii
-                script.extend(Script.push_data(binascii.unhexlify(word)))
+                script.extend(Script.push_data(bytes.fromhex(word)))
         return ScriptOutput(bytes(script))
 
     def to_string(self):

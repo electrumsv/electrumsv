@@ -45,7 +45,6 @@ from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
 from .networks import Net
-from .util import hfu
 
 
 logger = logs.get_logger("keystore")
@@ -639,7 +638,7 @@ def bip39_is_checksum_valid(mnemonic):
     while len(h) < entropy_length/4:
         h = '0'+h
     b = bytearray.fromhex(h)
-    hashed = int(hfu(hashlib.sha256(b).digest()), 16)
+    hashed = int(hashlib.sha256(b).digest().hex(), 16)
     calculated_checksum = hashed >> (256 - checksum_length)
     return checksum == calculated_checksum, True
 

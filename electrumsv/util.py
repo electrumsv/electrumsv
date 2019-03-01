@@ -22,7 +22,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import binascii
 from decimal import Decimal
 from datetime import datetime
 import json
@@ -256,7 +255,6 @@ def to_bytes(something, encoding='utf8'):
 
 
 bfh = bytes.fromhex
-hfu = binascii.hexlify
 
 
 def bh2u(x):

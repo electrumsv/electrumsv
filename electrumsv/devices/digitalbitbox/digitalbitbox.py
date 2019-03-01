@@ -4,7 +4,6 @@
 #
 
 import base64
-import binascii
 import hashlib
 import hmac
 import json
@@ -48,10 +47,6 @@ logger = logs.get_logger("plugin.bitbox")
 # ----------------------------------------------------------------------------------
 # USB HID interface
 #
-
-def to_hexstr(s):
-    return binascii.hexlify(s).decode('ascii')
-
 
 def derive_keys(x):
     h = sha256d(x)
@@ -131,8 +126,8 @@ class DigitalBitbox_Client():
         return False
 
     def stretch_key(self, key):
-        return to_hexstr(hashlib.pbkdf2_hmac('sha512', key.encode('utf-8'), b'Digital Bitbox',
-            iterations = 20480))
+        return hashlib.pbkdf2_hmac('sha512', key.encode('utf-8'), b'Digital Bitbox',
+                                   iterations = 20480).hex()
 
     def backup_password_dialog(self):
         msg = _("Enter the password used when the backup was created:")
@@ -467,7 +462,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             message = message.encode('utf8')
             inputPath = self.get_derivation() + "/%d/%d" % sequence
             msg_hash = sha256d(msg_magic(message))
-            inputHash = to_hexstr(msg_hash)
+            inputHash = msg_hash.hex()
             hasharray = []
             hasharray.append({'hash': inputHash, 'keypath': inputPath})
             hasharray = json.dumps(hasharray)
@@ -498,7 +493,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             if 'recid' in reply['sign'][0]:
                 # firmware > v2.1.1
                 sig = (bytes([27 + int(reply['sign'][0]['recid'], 16) + 4])
-                       + binascii.unhexlify(reply['sign'][0]['sig']))
+                       + bytes.fromhex(reply['sign'][0]['sig']))
                 pk, compressed = pubkey_from_signature(sig, msg_hash)
                 pk = point_to_ser(pk.pubkey.point, compressed)
                 addr = public_key_to_p2pkh(pk)
@@ -507,9 +502,9 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             elif 'pubkey' in reply['sign'][0]:
                 # firmware <= v2.1.1
                 for i in range(4):
-                    sig = bytes([27 + i + 4]) + binascii.unhexlify(reply['sign'][0]['sig'])
+                    sig = bytes([27 + i + 4]) + bytes.fromhex(reply['sign'][0]['sig'])
                     try:
-                        addr = public_key_to_p2pkh(binascii.unhexlify(reply['sign'][0]['pubkey']))
+                        addr = public_key_to_p2pkh(bytes.fromhex(reply['sign'][0]['pubkey']))
                         if ecc.verify_message_with_address(addr, sig, message):
                             break
                     except Exception:
@@ -546,8 +541,8 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     if x_pubkey in derivations:
                         index = derivations.get(x_pubkey)
                         inputPath = "%s/%d/%d" % (self.get_derivation(), index[0], index[1])
-                        inputHash = sha256d(binascii.unhexlify(tx.serialize_preimage(i)))
-                        hasharray_i = {'hash': to_hexstr(inputHash), 'keypath': inputPath}
+                        inputHash = sha256d(bytes.fromhex(tx.serialize_preimage(i)))
+                        hasharray_i = {'hash': inputHash.hex(), 'keypath': inputPath}
                         hasharray.append(hasharray_i)
                         inputhasharray.append(inputHash)
                         break
@@ -598,7 +593,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     },
                 }
                 if tx_dbb_serialized is not None:
-                    msg["sign"]["meta"] = to_hexstr(sha256d(tx_dbb_serialized))
+                    msg["sign"]["meta"] = sha256d(tx_dbb_serialized).hex()
                 msg = json.dumps(msg).encode('ascii')
                 dbb_client = self.plugin.get_client(self)
 
@@ -660,10 +655,10 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     if 'recid' in signed:
                         # firmware > v2.1.1
                         recid = int(signed['recid'], 16)
-                        s = binascii.unhexlify(signed['sig'])
+                        s = bytes.fromhex(signed['sig'])
                         h = inputhasharray[i]
                         pk = MyVerifyingKey.from_signature(s, recid, h, curve = SECP256k1)
-                        pk = to_hexstr(point_to_ser(pk.pubkey.point, True))
+                        pk = point_to_ser(pk.pubkey.point, True).hex()
                     elif 'pubkey' in signed:
                         # firmware <= v2.1.1
                         pk = signed['pubkey']
@@ -672,7 +667,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     sig_r = int(signed['sig'][:64], 16)
                     sig_s = int(signed['sig'][64:], 16)
                     sig = sigencode_der(sig_r, sig_s, generator_secp256k1.order())
-                    txin['signatures'][ii] = (to_hexstr(sig) +
+                    txin['signatures'][ii] = (sig.hex() +
                                               int_to_hex(Transaction.nHashType() & 255, 1))
                     tx._inputs[i] = txin
         except UserCancelled:
