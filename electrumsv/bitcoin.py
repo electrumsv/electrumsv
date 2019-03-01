@@ -149,39 +149,12 @@ def seed_type(x):
 
 is_seed = lambda x: bool(seed_type(x))
 
-# pywallet openssl private key implementation
-
-def i2o_ECPublicKey(pubkey, compressed=False):
-    # public keys are 65 bytes long (520 bits)
-    # 0x04 + 32-byte X-coordinate + 32-byte Y-coordinate
-    # 0x00 = point at infinity, 0x02 and 0x03 = compressed, 0x04 = uncompressed
-    # compressed keys: <sign> <x> where <sign> is 0x02 if y is even and 0x03 if y is odd
-    if compressed:
-        if pubkey.point.y() & 1:
-            key = '03' + '%064x' % pubkey.point.x()
-        else:
-            key = '02' + '%064x' % pubkey.point.x()
-    else:
-        key = '04' + \
-              '%064x' % pubkey.point.x() + \
-              '%064x' % pubkey.point.y()
-
-    return bfh(key)
-# end pywallet openssl private key implementation
-
-
 ############ functions from pywallet #####################
 
 def hash160_to_b58_address(h160, addrtype):
     s = bytes([addrtype])
     s += h160
     return base_encode(s + sha256d(s)[0:4], base=58)
-
-
-def b58_address_to_hash160(addr):
-    addr = to_bytes(addr, 'ascii')
-    _bytes = base_decode(addr, 25, base=58)
-    return _bytes[0], _bytes[1:21]
 
 
 def hash160_to_p2pkh(h160):
@@ -316,14 +289,6 @@ def deserialize_privkey(key):
         return txin_type, vch[1:33], compressed
     else:
         raise Exception("cannot deserialize", key)
-
-
-def GetPubKey(pubkey, compressed=False):
-    return i2o_ECPublicKey(pubkey, compressed)
-
-
-def GetSecret(pkey):
-    return bfh('%064x' % pkey.secret)
 
 
 def is_compressed(sec):
