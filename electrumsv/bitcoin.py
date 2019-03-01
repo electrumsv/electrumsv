@@ -447,16 +447,3 @@ def pubkey_from_signature(sig, h):
         compressed = False
     recid = nV - 27
     return MyVerifyingKey.from_signature(sig[1:], recid, h, curve = SECP256k1), compressed
-
-
-class MySigningKey(ecdsa.SigningKey):
-    """Enforce low S values in signatures"""
-
-    def sign_number(self, number, entropy=None, k=None):
-        curve = SECP256k1
-        G = curve.generator
-        order = G.order()
-        r, s = ecdsa.SigningKey.sign_number(self, number, entropy, k)
-        if s > order//2:
-            s = order - s
-        return r, s
