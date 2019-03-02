@@ -103,13 +103,13 @@ class QRDialog(WindowModalDialog):
         filename = os.path.join(app_state.config.path, "qrcode.png")
 
         def print_qr():
-            p = qscreen.grabWindow(qrw.winId())
-            p.save(filename, 'png')
+            pixmap = qrw.grab()
+            pixmap.save(filename, 'png')
             self.show_message(_("QR code saved to file") + " " + filename)
 
         def copy_to_clipboard():
-            p = qscreen.grabWindow(qrw.winId())
-            QApplication.clipboard().setPixmap(p)
+            pixmap = qrw.grab()
+            QApplication.clipboard().setPixmap(pixmap)
             self.show_message(_("QR code copied to clipboard"))
 
         b = QPushButton(_("Copy"))
