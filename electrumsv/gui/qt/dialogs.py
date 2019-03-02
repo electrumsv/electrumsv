@@ -117,6 +117,8 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
     return box.result(parent, wallet, **kwargs)
 
 raw_release_notes = """
+  * <b>NOTE</b>: this is beta software; please ensure it works properly for you with small amounts
+    before using large ones
   * Rewrite of the networking code to use asynchronous logic. This allows the code to
     be written in a clearer and more straightforward fashion, and helps us ensure that it both
     works correctly and reduces the chance of bugs.
@@ -128,6 +130,7 @@ raw_release_notes = """
     irrelevant on some operating systems, but on Windows it ensures that the application icon
     featured in the top left-hand corner of the window is not blandly undefined but rather the
     glorious new icon that we have.
+  * several cleanups and improvements to internals that increase robustness and stability
 """
 raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
 raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
