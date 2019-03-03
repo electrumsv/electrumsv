@@ -1254,7 +1254,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         completer = QCompleter()
         completer.setCaseSensitivity(False)
-        self.payto_e.setCompleter(completer)
+        self.payto_e.set_completer(completer)
         completer.setModel(self.completions)
 
         msg = (_('Description of the transaction (not mandatory).') + '\n\n' +
@@ -1764,9 +1764,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
         self.payto_e.is_pr = True
         if not pr.has_expired():
-            self.payto_e.setGreen()
+            self.payto_e.set_validated()
         else:
-            self.payto_e.setExpired()
+            self.payto_e.set_expired()
         self.payto_e.setText(pr.get_requestor())
         self.amount_e.setText(format_satoshis_plain(pr.get_amount(), app_state.decimal_point))
         self.message_e.setText(pr.get_memo())

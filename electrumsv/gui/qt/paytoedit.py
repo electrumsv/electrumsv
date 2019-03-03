@@ -57,7 +57,7 @@ class PayToEdit(ScanQRTextEdit):
         self.heightMin = 0
         self.heightMax = 150
         self.c = None
-        self.textChanged.connect(self.check_text)
+        self.textChanged.connect(self._on_text_changed)
         self.outputs = []
         self.errors = []
         self.is_pr = False
@@ -74,10 +74,10 @@ class PayToEdit(ScanQRTextEdit):
         for button in self.buttons:
             button.setHidden(b)
 
-    def setGreen(self):
+    def set_validated(self):
         self.setStyleSheet(util.ColorScheme.GREEN.as_stylesheet(True))
 
-    def setExpired(self):
+    def set_expired(self):
         self.setStyleSheet(util.ColorScheme.RED.as_stylesheet(True))
 
     def _show_cashaddr_warning(self, address_text):
@@ -112,15 +112,15 @@ class PayToEdit(ScanQRTextEdit):
                 )
             util.MessageBox.show_warning(message, title=_("Cash address warning"))
 
-    def parse_address_and_amount(self, line):
+    def _parse_address_and_amount(self, line):
         x, y = line.split(',')
-        out_type, out = self.parse_output(x)
-        amount = self.parse_amount(y)
+        out_type, out = self._parse_output(x)
+        amount = self._parse_amount(y)
         return out_type, out, amount
 
-    def parse_output(self, x):
+    def _parse_output(self, x):
         try:
-            address = self.parse_address(x)
+            address = self._parse_address(x)
             self._show_cashaddr_warning(x)
             return bitcoin.TYPE_ADDRESS, address
         except:
@@ -135,22 +135,22 @@ class PayToEdit(ScanQRTextEdit):
         m = re.match(RE_ALIAS, r)
         return m.group(2) if m else r
 
-    def parse_address(self, line):
+    def _parse_address(self, line):
         address = self._parse_address_text(line)
         return Address.from_string(address)
 
-    def parse_amount(self, x):
+    def _parse_amount(self, x):
         if x.strip() == '!':
             return '!'
         p = pow(10, self.amount_edit.decimal_point())
         return int(p * Decimal(x.strip()))
 
-    def check_text(self):
+    def _on_text_changed(self):
         self.errors = []
         if self.is_pr:
             return
         # filter out empty lines
-        lines = [i for i in self.lines() if i]
+        lines = [i for i in self._lines() if i]
         outputs = []
         total = 0
         self.payto_address = None
@@ -160,7 +160,7 @@ class PayToEdit(ScanQRTextEdit):
                 self.scan_f(data)
                 return
             try:
-                self.payto_address = self.parse_output(data)
+                self.payto_address = self._parse_output(data)
             except:
                 pass
             if self.payto_address:
@@ -170,7 +170,7 @@ class PayToEdit(ScanQRTextEdit):
         is_max = False
         for i, line in enumerate(lines):
             try:
-                _type, to_address, amount = self.parse_address_and_amount(line)
+                _type, to_address, amount = self._parse_address_and_amount(line)
             except:
                 self.errors.append((i, line.strip()))
                 continue
@@ -209,11 +209,11 @@ class PayToEdit(ScanQRTextEdit):
 
         return self.outputs[:]
 
-    def lines(self):
+    def _lines(self):
         return self.toPlainText().split('\n')
 
-    def is_multiline(self):
-        return len(self.lines()) > 1
+    def _is_multiline(self):
+        return len(self._lines()) > 1
 
     def paytomany(self):
         self.setText("\n\n\n")
@@ -228,15 +228,13 @@ class PayToEdit(ScanQRTextEdit):
             self.setMaximumHeight(h)
         self.verticalScrollBar().hide()
 
-
-    def setCompleter(self, completer):
+    def set_completer(self, completer):
         self.c = completer
         self.c.setWidget(self)
         self.c.setCompletionMode(QCompleter.PopupCompletion)
-        self.c.activated.connect(self.insertCompletion)
+        self.c.activated.connect(self._insert_completion)
 
-
-    def insertCompletion(self, completion):
+    def _insert_completion(self, completion):
         if self.c.widget() != self:
             return
         tc = self.textCursor()
@@ -246,12 +244,10 @@ class PayToEdit(ScanQRTextEdit):
         tc.insertText(completion[-extra:])
         self.setTextCursor(tc)
 
-
-    def textUnderCursor(self):
+    def _get_text_under_cursor(self):
         tc = self.textCursor()
         tc.select(QTextCursor.WordUnderCursor)
         return tc.selectedText()
-
 
     def keyPressEvent(self, e):
         if self.isReadOnly():
@@ -266,7 +262,7 @@ class PayToEdit(ScanQRTextEdit):
             e.ignore()
             return
 
-        if e.key() in [Qt.Key_Down, Qt.Key_Up] and not self.is_multiline():
+        if e.key() in [Qt.Key_Down, Qt.Key_Up] and not self._is_multiline():
             e.ignore()
             return
 
@@ -278,7 +274,7 @@ class PayToEdit(ScanQRTextEdit):
 
         eow = "~!@#$%^&*()_+{}|:\"<>?,./;'[]\\-="
         hasModifier = (e.modifiers() != Qt.NoModifier) and not ctrlOrShift
-        completionPrefix = self.textUnderCursor()
+        completionPrefix = self._get_text_under_cursor()
 
         if hasModifier or not e.text() or len(completionPrefix) < 1 or eow.find(e.text()[-1]) >= 0:
             self.c.popup().hide()
@@ -303,7 +299,7 @@ class PayToEdit(ScanQRTextEdit):
         self.is_alias = False
         if self.hasFocus():
             return
-        if self.is_multiline():  # only supports single line entries atm
+        if self._is_multiline():  # only supports single line entries atm
             return
         if self.is_pr:
             return
@@ -338,8 +334,8 @@ class PayToEdit(ScanQRTextEdit):
         if data.get('type') == 'openalias':
             self.validated = data.get('validated')
             if self.validated:
-                self.setGreen()
+                self.set_validated()
             else:
-                self.setExpired()
+                self.set_expired()
         else:
             self.validated = None
