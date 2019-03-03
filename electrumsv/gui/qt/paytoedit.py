@@ -29,9 +29,13 @@ from PyQt5.QtWidgets import QCompleter, QPlainTextEdit
 from .qrtextedit import ScanQRTextEdit
 
 import re
+import time
+
 from decimal import Decimal
 from electrumsv import bitcoin
+from electrumsv import cashaddr
 from electrumsv.address import Address, ScriptOutput
+from electrumsv.i18n import _
 from electrumsv.web import is_URI
 
 from . import util
@@ -42,6 +46,8 @@ frozen_style = "QWidget { background-color:none; border:none;}"
 normal_style = "QPlainTextEdit { }"
 
 class PayToEdit(ScanQRTextEdit):
+    ''' timestamp indicating when the user was last warned about using cash addresses. '''
+    last_cashaddr_warning = None
 
     def __init__(self, win):
         ScanQRTextEdit.__init__(self)
@@ -74,6 +80,38 @@ class PayToEdit(ScanQRTextEdit):
     def setExpired(self):
         self.setStyleSheet(util.ColorScheme.RED.as_stylesheet(True))
 
+    def _show_cashaddr_warning(self, address_text):
+        '''
+        cash addresses are not in the future for BSV. Anyone who uses one should be warned that
+        they are being phased out, in order to encourage them to pre-emptively move on.
+        '''
+        address_text = self._parse_address_text(address_text)
+        # We only care if it is decoded, as this will be a cash address.
+        try:
+            cashaddr.decode(address_text)
+        except:
+            return
+
+        last_check_time = PayToEdit.last_cashaddr_warning
+        ignore_watermark_time = time.time() - 24 * 60 * 60
+        if last_check_time is None or last_check_time < ignore_watermark_time:
+            PayToEdit.last_cashaddr_warning = time.time()
+
+            message = ("<p>"+
+                _("One or more of the addresses you have provided has been recognized "+
+                "as a 'cash address'. For now, this is acceptable but is recommended that you get "+
+                "in the habit of requesting that anyone who provides you with payment addresses "+
+                "do so in the form of normal Bitcoin SV addresses.")+
+                "</p>"+
+                "<p>"+
+                _("Within the very near future, various services and applications in the Bitcoin "+
+                "SV ecosystem will stop accepting 'cash addresses'. It is in your best interest "+
+                "to make sure you transition over to normal Bitcoin SV addresses as soon as "+
+                "possible, in order to ensure that you can both be paid, and also get paid.")+
+                "</p>"
+                )
+            util.MessageBox.show_warning(message, title=_("Cash address warning"))
+
     def parse_address_and_amount(self, line):
         x, y = line.split(',')
         out_type, out = self.parse_output(x)
@@ -83,14 +121,22 @@ class PayToEdit(ScanQRTextEdit):
     def parse_output(self, x):
         try:
             address = self.parse_address(x)
+            self._show_cashaddr_warning(x)
             return bitcoin.TYPE_ADDRESS, address
         except:
             return bitcoin.TYPE_SCRIPT, ScriptOutput.from_string(x)
 
-    def parse_address(self, line):
+    def _parse_address_text(self, line):
+        '''
+        This checks to see if the address is in the form of a contact, with name and address,
+        and if so, extracts the address. Otherwise the line is assumed to be the address.
+        '''
         r = line.strip()
         m = re.match(RE_ALIAS, r)
-        address = m.group(2) if m else r
+        return m.group(2) if m else r
+
+    def parse_address(self, line):
+        address = self._parse_address_text(line)
         return Address.from_string(address)
 
     def parse_amount(self, x):
