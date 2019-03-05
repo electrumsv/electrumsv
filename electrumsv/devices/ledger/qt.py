@@ -72,4 +72,4 @@ class Ledger_Handler(QtHandlerBase):
         #dialog = StartBTChipPersoDialog()
         #dialog.exec_()
         # rt12 -- Ledger settings use PyQt4, which we do not have.
-        self.show_error(_('Ledger do not currently support this.'))
+        self.show_error(_('This button does nothing.'))
