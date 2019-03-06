@@ -65,7 +65,6 @@ def _prepare_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1():
 
         pubkey_serialized = electrumsv_secp256k1.ffi.new('unsigned char [65]')
         pubkey_size = electrumsv_secp256k1.ffi.new('size_t *', 65)
-        print("xxxx mul")
         _libsecp256k1.secp256k1_ec_pubkey_serialize(
             _context, pubkey_serialized, pubkey_size, pubkey,
             _libsecp256k1.SECP256K1_EC_UNCOMPRESSED)
