@@ -74,11 +74,11 @@ exe_standalone = EXE(
     a.binaries,
     a.datas,
     name=os.path.join('build\\pyi.win32\\electrum', cmdline_name + ".exe"),
-    debug=True,
+    debug=False,
     strip=None,
     upx=False,
     icon=home+'electrumsv\\data\\icons\\electrum-sv.ico',
-    console=True)
+    console=False)
     # console=True makes an annoying black box pop up, but it does make Electrum output command line commands, with this turned off no output will be given but commands can still be used
 
 exe_portable = EXE(
@@ -87,11 +87,11 @@ exe_portable = EXE(
     a.binaries,
     a.datas + [ ('is_portable', 'README.md', 'DATA' ) ],
     name=os.path.join('build\\pyi.win32\\electrum', cmdline_name + "-portable.exe"),
-    debug=True,
+    debug=False,
     strip=None,
     upx=False,
     icon=home+'electrumsv\\data\\icons\\electrum-sv.ico',
-    console=True)
+    console=False)
 
 #####
 # exe and separate files that NSIS uses to build installer "setup" exe
@@ -101,11 +101,11 @@ exe_dependent = EXE(
     a.scripts,
     exclude_binaries=True,
     name=os.path.join('build\\pyi.win32\\electrum', cmdline_name),
-    debug=True,
+    debug=False,
     strip=None,
     upx=False,
     icon=home+'electrumsv\\data\\icons\\electrum-sv.ico',
-    console=True)
+    console=False)
 
 coll = COLLECT(
     exe_dependent,
@@ -114,7 +114,7 @@ coll = COLLECT(
     a.datas,
     strip=None,
     upx=True,
-    debug=True,
+    debug=False,
     icon=home+'electrumsv\\data\\icons\\electrum-sv.ico',
-    console=True,
+    console=False,
     name=os.path.join('dist', 'electrum'))
