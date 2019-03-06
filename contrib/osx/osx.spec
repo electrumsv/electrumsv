@@ -21,11 +21,14 @@ datas = [
 datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
 datas += collect_data_files('keepkeylib')
-
-binaries = [(base_dir + "contrib/osx/libsecp256k1.0.dylib", ".")]
+# Pretty sure this collects nothing, but it's necessary on Windows, so here for completeness.
+# MacOS seems to get the shared library dependencies automatically, perhaps because they are
+# linked in via a binary python extension, which follows from wheel creation behaving the same
+# way (as compared to Windows where the shared library is loaded from Python dynamically).
+datas += collect_data_files('electrumsv_secp256k1')
 
 # Workaround for "Retro Look":
-binaries += [b for b in collect_dynamic_libs('PyQt5') if 'macstyle' in b[0]]
+binaries = [b for b in collect_dynamic_libs('PyQt5') if 'macstyle' in b[0]]
 
 a = Analysis([base_dir + 'electrum-sv'], binaries=binaries, datas=datas)
 

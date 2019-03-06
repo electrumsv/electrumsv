@@ -25,10 +25,6 @@ RUN dpkg --add-architecture i386 && \
         git=1:2.17.1-1ubuntu0.4 \
         p7zip-full=16.02+dfsg-6 \
         make=4.1-9.1ubuntu1 \
-        mingw-w64=5.0.3-1 \
-        autotools-dev=20180224.1 \
-        autoconf=2.69-11 \
-        libtool=2.4.6-2 \
         gettext=0.19.8.1-6 \
         && \
     rm -rf /var/lib/apt/lists/* && \

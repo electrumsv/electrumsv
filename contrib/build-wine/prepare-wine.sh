@@ -49,7 +49,21 @@ verify_hash() {
 download_if_not_exist() {
     local file_name=$1 url=$2
     if [ ! -e $file_name ] ; then
+        local retrycount=0
+        set +e
         wget -O $PWD/$file_name "$url"
+        # Sourceforge has sporadic connectivity problems, perhaps related to DDOS. They advise
+        # retrying. We'll retry 5 times.
+        while [[ $? != 0 && $retrycount < 5 ]]; do
+            sleep 1
+            retrycount=$(($retrycount + 1))
+            echo wget rety attempt $retrycount for $url
+            wget -c --tries=3 --retry-connrefused --waitretry=3 -O $PWD/$file_name "$url"
+        done
+        if [ $? -ne 0 ]; then
+            exit $?
+        fi
+        set -e
     fi
 }
 
@@ -108,8 +122,5 @@ verify_hash $LIBUSB_FILENAME "$LIBUSB_SHA256"
 7z x -olibusb $LIBUSB_FILENAME -aoa
 
 cp libusb/MS32/dll/libusb-1.0.dll $WINEPREFIX/drive_c/$PYTHON_FOLDER/
-
-mkdir -p $WINEPREFIX/drive_c/tmp
-cp secp256k1/libsecp256k1.dll $WINEPREFIX/drive_c/tmp/
 
 echo "Wine is configured."

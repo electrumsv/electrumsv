@@ -30,9 +30,10 @@ for r_suffix in [ '',  '-hw', '-binaries']:
     venv_python = os.path.join(venv_dir, venv_script_dirname, "python")
     venv_pip = os.path.join(venv_dir, venv_script_dirname, "pip")
 
-    print("Installing dependencies")
+    requirements_filename = f"requirements{r_suffix}.txt"
+    print(f"Installing dependencies for '{requirements_filename}'")
 
-    r_path = os.path.join(CONTRIB_PATH, "requirements", f"requirements{r_suffix}.txt")
+    r_path = os.path.join(CONTRIB_PATH, "requirements", requirements_filename)
     result = subprocess.run([ venv_pip, "install", "-r", r_path, "--upgrade" ])
 
     result = subprocess.run([ venv_pip, 'freeze', '--all'], stdout=subprocess.PIPE)
@@ -44,9 +45,15 @@ for r_suffix in [ '',  '-hw', '-binaries']:
     subprocess.run([ venv_pip, "install", "hashin" ])
 
     dr_path = os.path.join(CONTRIB_PATH, "deterministic-build", f"requirements{r_suffix}.txt")
+    # If these files are not updating correctly, they can be forced to update by deleting them.
+    # But hashin will not write to a non-existent requrirements file, so we should recreate them.
+    if not os.path.exists(dr_path):
+        with open(dr_path, 'w') as f:
+            f.write('')
+
+    print(f".. target: {dr_path}")
     for package_name in package_names:
-        print(f"Hashing {package_name}")
-        [ venv_python, "-m", "hashin", "-r", dr_path, package_name ]
+        print(f".. hashing {package_name}")
         subprocess.run(
             [ venv_python, "-m", "hashin", "-r", dr_path, bytes.decode(package_name, 'utf-8') ],
             stdout=subprocess.PIPE,

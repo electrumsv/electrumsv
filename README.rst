@@ -28,16 +28,27 @@ Qt interface, install the Qt dependencies::
 
 If you downloaded the official package (tar.gz), you can run
 ElectrumSV from its root directory (called Electrum), without installing it on your
-system; all the python dependencies are included in the 'packages'
-directory. To run ElectrumSV from its root directory, just do::
+system; all the python-only dependencies are included in the 'packages'
+directory.
+
+To run ElectrumSV from its root directory, first install the dependencies
+which are not python-only::
+
+    pip3 install electrumsv-secp256k1
+
+If your platform is not supported with binary builds, you may be required to install the
+`further dependencies <https://github.com/electrumsv/electrumsv-secp256k1>`_ of this dependency.
+
+Then invoke it as so::
 
     ./electrum-sv
 
-You can also install ElectrumSV on your system, by running this command::
+You can also install ElectrumSV on your system, by running these commands::
 
     pip3 install .
+    pip3 install electrumsv-secp256k1
 
-This will download and install the Python dependencies used by
+This will download and install all Python-based dependencies used by
 ElectrumSV, instead of using the 'packages' directory.
 
 If you cloned the git repository, you need to compile extra files
@@ -53,9 +64,10 @@ Check out the code from Github::
     git clone https://github.com/ElectrumSV/ElectrumSV
     cd ElectrumSV
 
-Run install (this should install dependencies)::
+Run the pip installs (this should install dependencies)::
 
     pip3 install .
+    pip3 install electrumsv-secp256k1
 
 Compile the protobuf description file::
 
