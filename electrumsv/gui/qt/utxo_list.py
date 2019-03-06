@@ -59,14 +59,14 @@ class UTXOList(MyTreeWidget):
             height = x['height']
             name = self.get_name(x)
             label = self.wallet.get_label(x['prevout_hash'])
-            amount = self.parent.format_amount(x['value'])
+            amount = self.parent.format_amount(x['value'], whitespaces=True)
             utxo_item = SortableTreeWidgetItem([address_text, label, amount,
                                          str(height),
                                          name[0:10] + '...' + name[-2:]])
             # set this here to avoid sorting based on Qt.UserRole+1
             utxo_item.DataRole = Qt.UserRole+100
-            utxo_item.setFont(0, self.monospace_font)
-            utxo_item.setFont(4, self.monospace_font)
+            for col in (0, 2, 4):
+                utxo_item.setFont(col, self.monospace_font)
             utxo_item.setData(0, Qt.UserRole, name)
             a_frozen = self.wallet.is_frozen(address)
             c_frozen = x['is_frozen_coin']
