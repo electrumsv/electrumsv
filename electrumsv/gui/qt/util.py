@@ -188,6 +188,11 @@ class MessageBox(object):
                            title or _('Warning'), msg)
 
     @classmethod
+    def show_error(cls, msg, parent=None, title=None):
+        return cls.msg_box(QMessageBox.Warning, parent,
+                           title or _('Error'), msg)
+
+    @classmethod
     def msg_box(cls, icon, parent, title, text, buttons=QMessageBox.Ok,
                 defaultButton=QMessageBox.NoButton):
         d = QMessageBox(icon, title, str(text), buttons, parent)

@@ -39,7 +39,7 @@ from electrumsv.network import SVServer, SVProxy, SVUserAuth
 from electrumsv.networks import Net
 
 from .password_dialog import PasswordLineEdit
-from .util import Buttons, CloseButton, HelpButton, read_QIcon
+from .util import Buttons, CloseButton, HelpButton, read_QIcon, MessageBox
 
 logger = logs.get_logger("networkui")
 
@@ -66,7 +66,6 @@ class NetworkDialog(QDialog):
     def on_update(self):
         ''' This always runs in main GUI thread '''
         self.nlayout.update()
-
 
 
 class NodesListWidget(QTreeWidget):
@@ -337,6 +336,8 @@ class NetworkChoiceLayout(object):
         td.found_proxy.connect(self.suggest_proxy)
         td.start()
 
+        self.last_values = None
+
         self.fill_in_proxy_settings()
         self.update()
 
@@ -450,10 +451,18 @@ class NetworkChoiceLayout(object):
         pass
 
     def set_server(self, server=None):
-        if not server:
-            server = SVServer(self.server_host.text(), self.server_port.text(),
-                              self.network.main_server.protocol)
-        self.network.set_server(server, self.autoconnect_cb.isChecked())
+        # EditingFinished can fire twice in Qt (a bug).  More generally, prevent repeats
+        # on e.g. dialog exit
+        values = (self.server_host.text(), self.server_port.text(),
+                  self.network.main_server.protocol)
+        if values != self.last_values:
+            self.last_values = values
+            try:
+                if not server:
+                    server = SVServer.unique(*values)
+                    self.network.set_server(server, self.autoconnect_cb.isChecked())
+            except Exception as e:
+                MessageBox.show_error(str(e))
 
     def set_proxy(self):
         if self.filling_in:
