@@ -201,9 +201,10 @@ class SVServer:
         self.state = SVServerState()
 
     @classmethod
-    def _unique(cls, host, port, protocol):
+    def unique(cls, host, port, protocol):
         if isinstance(port, str):
-            port = int(port)
+            with suppress(ValueError):
+                port = int(port)
         key = (host, port, protocol)
         obj = cls.all_servers.get(key)
         if not obj:
@@ -229,12 +230,12 @@ class SVServer:
     @classmethod
     def from_string(cls, s):
         parts = s.split(':', 3)
-        return cls._unique(*parts)
+        return cls.unique(*parts)
 
     @classmethod
     def from_json(cls, hpps):
         host, port, protocol, state = hpps
-        result = cls._unique(host, port, protocol)
+        result = cls.unique(host, port, protocol)
         result.state = state
         return result
 
@@ -631,7 +632,7 @@ class SVSession(RPCSession):
                 if re.match(r"[st]\d*", _require_string(v)):
                     protocol, port = v[0], v[1:]
                     try:
-                        peers.append(SVServer._unique(host, port, protocol))
+                        peers.append(SVServer.unique(host, port, protocol))
                     except ValueError:
                         pass
         self.logger.info(f'{len(peers)} servers returned from server.peers.subscribe')
@@ -993,7 +994,7 @@ class Network:
             for host, data in Net.DEFAULT_SERVERS.items():
                 for protocol in 'st':
                     if protocol in data:
-                        SVServer._unique(host, data[protocol], protocol)
+                        SVServer.unique(host, data[protocol], protocol)
         main_server = app_state.config.get('server', None)
         if isinstance(main_server, str):
             try:
