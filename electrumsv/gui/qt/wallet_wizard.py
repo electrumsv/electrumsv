@@ -5,7 +5,8 @@ from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QAbstractItemView, QWidget,
-    QHBoxLayout, QLabel, QMessageBox, QWizard, QWizardPage
+    QHBoxLayout, QLabel, QMessageBox, QWizard, QWizardPage, QListWidget,
+    QListWidgetItem
 )
 
 from electrumsv.app_state import app_state
@@ -14,7 +15,7 @@ from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
 
 from .password_dialog import PasswordDialog
-from .util import icon_path
+from .util import icon_path, read_QIcon
 
 logger = logs.get_logger('wallet_wizard')
 
@@ -27,6 +28,8 @@ def open_wallet_wizard():
         return
 
     wallet_data = wizard_window.wallet_data
+    if not wallet_data:
+        return
     wallet_window = app_state.app.get_wallet_window(wallet_data['path'])
     if not wallet_window:
         password = None
@@ -91,18 +94,13 @@ class WalletWizard2(QWizard):
 
     def accept(self):
         page = self.currentPage()
-        self.wallet_data = page.get_wallet_data()
+        self.wallet_data = None
+        if isinstance(page, SelectWalletWizardPage):
+            self.wallet_data = page.get_wallet_data()
         super().accept()
 
 
-class ESVWizardPage(QWizardPage):
-    def __init__(self, parent):
-        self.wizard = parent
-
-        super().__init__(parent)
-
-
-class SelectWalletWizardPage(ESVWizardPage):
+class SelectWalletWizardPage(QWizardPage):
     def __init__(self, parent):
         super().__init__(parent)
 
@@ -174,8 +172,8 @@ class SelectWalletWizardPage(ESVWizardPage):
 
         self.setLayout(layout)
 
-        wallet_table.selectRow(0)
         wallet_table.setFocus()
+        wallet_table.selectRow(0)
 
     def nextId(self):
         return Pages.ADD_WALLET
@@ -187,9 +185,7 @@ class SelectWalletWizardPage(ESVWizardPage):
 
     def validatePage(self):
         selected_indexes = self.wallet_table.selectedIndexes()
-        if not len(selected_indexes):
-            return False
-        return True
+        return len(selected_indexes)
 
     def _get_recently_opened_wallets(self):
         return [
@@ -202,9 +198,63 @@ class SelectWalletWizardPage(ESVWizardPage):
             if os.path.exists(file_path)
         ]
 
-class AddWalletWizardPage(ESVWizardPage):
+
+class AddEntryType(enum.IntEnum):
+    CREATE_NEW = 1
+    EXTERNAL_SEED_IMPORT = 2
+
+
+class AddWalletWizardPage(QWizardPage):
     def __init__(self, parent):
         super().__init__(parent)
 
         self.setTitle(_("Add Wallet"))
+
+        option_list = self.option_list = QListWidget()
+        option_list.setIconSize(QSize(50, 50))
+        option_list.setStyleSheet("""
+            QListView::item:selected {
+                background-color: #F5F8FA;
+                color: black;
+            }
+        """)
+
+        entries = [
+            {
+                'type': AddEntryType.CREATE_NEW,
+                'description': _("Create new wallet"),
+                'icon_filename': 'icons8-reuse-80.png',
+            },
+            {
+                'type': AddEntryType.EXTERNAL_SEED_IMPORT,
+                'description': _("Import any seed phrase with guessing"),
+                'icon_filename': 'icons8-brain-80.png',
+            },
+            {
+                'type': AddEntryType.EXTERNAL_SEED_IMPORT,
+                'description': _("Import using Centbee seed phrase"),
+                'icon_filename': 'icons8-reuse-80.png',
+            },
+            {
+                'type': AddEntryType.EXTERNAL_SEED_IMPORT,
+                'description': _("Import using HandCash seed phrase"),
+                'icon_filename': 'icons8-reuse-80.png',
+            },
+            {
+                'type': AddEntryType.EXTERNAL_SEED_IMPORT,
+                'description': _("Import using MoneyButton seed phrase"),
+                'icon_filename': 'icons8-reuse-80.png',
+            },
+        ]
+
+        for entry in entries:
+            list_item = QListWidgetItem()
+            list_item.setSizeHint(QSize(100, 80))
+            list_item.setIcon(read_QIcon(entry['icon_filename']))
+            list_item.setText(entry['description'])
+            option_list.addItem(list_item)
+
+        layout = QVBoxLayout()
+        layout.addWidget(option_list)
+        self.setLayout(layout)
 
