@@ -8,6 +8,28 @@ from electrumsv import keystore
 from electrumsv import storage
 from electrumsv import wallet
 
+from electrumsv.simple_config import SimpleConfig
+from electrumsv.app_state import AppStateProxy
+from electrumsv.async_ import ASync
+
+
+class AppStateProxyTest(AppStateProxy):
+
+    def __init__(self):
+        config = SimpleConfig()
+        super().__init__(config, 'qt')
+        self.async_ = ASync()
+
+proxy = AppStateProxyTest()
+
+
+def setUpModule():
+    proxy.async_.__enter__()
+
+
+def tearDownModule():
+    proxy.async_.__exit__(None, None, None)
+
 
 class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
     gap_limit = 1  # make tests run faster
@@ -29,7 +51,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         store.put('keystore', ks.dump())
         store.put('gap_limit', self.gap_limit)
         w = wallet.Standard_Wallet(store)
-        w.wait_until_synchronized()
+        w.synchronize()
         return w
 
     def _create_multisig_wallet(self, ks1, ks2):
@@ -40,7 +62,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         store.put('x%d/' % 2, ks2.dump())
         store.put('gap_limit', self.gap_limit)
         w = wallet.Multisig_Wallet(store)
-        w.wait_until_synchronized()
+        w.synchronize()
         return w
 
     @mock.patch.object(storage.WalletStorage, '_write')
