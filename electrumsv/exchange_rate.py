@@ -316,7 +316,7 @@ def get_exchanges_by_ccy(history=True):
     exchanges = CURRENCIES.keys()
     for name in exchanges:
         klass = globals()[name]
-        exchange = klass(None, None)
+        exchange = klass()
         d[name] = exchange.history_ccys()
     return dictinvert(d)
 
