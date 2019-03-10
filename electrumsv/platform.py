@@ -47,7 +47,6 @@ class Platform(object):
         'pyaes': 'pyaes',
         'qrcode': 'qrcode',
         'requests': 'requests',
-        'socks': 'PySocks',
     }
     libzbar_name = 'libzbar.so.0'
     monospace_font = 'monospace'
