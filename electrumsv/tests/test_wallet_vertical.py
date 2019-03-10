@@ -8,27 +8,15 @@ from electrumsv import keystore
 from electrumsv import storage
 from electrumsv import wallet
 
-from electrumsv.simple_config import SimpleConfig
-from electrumsv.app_state import AppStateProxy
-from electrumsv.async_ import ASync
-
-
-class AppStateProxyTest(AppStateProxy):
-
-    def __init__(self):
-        config = SimpleConfig()
-        super().__init__(config, 'qt')
-        self.async_ = ASync()
-
-proxy = AppStateProxyTest()
+from .util import setup_async, tear_down_async
 
 
 def setUpModule():
-    proxy.async_.__enter__()
+    setup_async()
 
 
 def tearDownModule():
-    proxy.async_.__exit__(None, None, None)
+    tear_down_async()
 
 
 class TestWalletKeystoreAddressIntegrity(unittest.TestCase):

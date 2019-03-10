@@ -6,6 +6,16 @@ from electrumsv.wallet import Wallet
 
 from electrumsv.tests.test_wallet import WalletTestCase
 
+from .util import setup_async, tear_down_async
+
+
+def setUpModule():
+    setup_async()
+
+
+def tearDownModule():
+    tear_down_async()
+
 
 # TODO add other wallet types: xpub-only
 # TODO hw wallet with client version 2.6.x (single-, and multiacc)
@@ -255,15 +265,10 @@ class TestStorageUpgrade(WalletTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        from electrumsv.plugin import Plugins
         from electrumsv.simple_config import SimpleConfig
 
         cls.electrum_sv_path = tempfile.mkdtemp()
         config = SimpleConfig({'electrum_sv_path': cls.electrum_sv_path})
-
-        gui_name = 'cmdline'
-        # TODO it's probably wasteful to load all plugins... only need Trezor
-        Plugins(config, gui_name)
 
     @classmethod
     def tearDownClass(cls):
