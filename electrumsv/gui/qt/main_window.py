@@ -501,6 +501,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         wallet_menu = menubar.addMenu(_("&Wallet"))
         wallet_menu.addAction(_("&Information"), self.show_master_public_keys)
+        if Net.NAME == "testnet":
+            def temp_func():
+                from importlib import reload
+                from . import wallet_wizard
+                reload(wallet_wizard)
+                wallet_wizard.open_wallet_wizard()
+            wallet_menu.addAction(_("&New Wizard"), temp_func)
         wallet_menu.addSeparator()
         self.password_menu = wallet_menu.addAction(_("&Password"), self.change_password_dialog)
         self.seed_menu = wallet_menu.addAction(_("&Seed"), self.show_seed_dialog)

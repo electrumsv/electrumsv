@@ -569,9 +569,6 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         app_state.app.processEvents()
         app_state.app.processEvents()
 
-    def remove_from_recently_open(self, filename):
-        app_state.config.remove_from_recently_open(filename)
-
     def text_input(self, title, message, is_valid, allow_multi=False):
         slayout = KeysLayout(parent=self, title=message, is_valid=is_valid,
                              allow_multi=allow_multi)

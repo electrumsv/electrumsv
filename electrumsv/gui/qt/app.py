@@ -235,6 +235,11 @@ class SVApplication(QApplication):
         self.window_opened_signal.emit(w)
         return w
 
+    def get_wallet_window(self, path):
+        for w in self.windows:
+            if w.wallet.storage.path == path:
+                return w
+
     def start_new_window(self, path, uri, is_startup=False):
         '''Raises the window for the wallet if it is open.  Otherwise
         opens the wallet and creates a new window for it.'''

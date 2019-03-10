@@ -212,12 +212,6 @@ class SimpleConfig:
 
         return new_path
 
-    def remove_from_recently_open(self, filename):
-        recent = self.get('recently_open', [])
-        if filename in recent:
-            recent.remove(filename)
-            self.set_key('recently_open', recent)
-
     def set_session_timeout(self, seconds):
         logger.debug("session timeout -> %d seconds", seconds)
         self.set_key('session_timeout', seconds)
