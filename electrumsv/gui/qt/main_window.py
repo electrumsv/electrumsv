@@ -892,7 +892,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if not self.wallet.is_synchronized() or server_height == 0:
                 network_text = _("Synchronizing...")
             elif server_lag > 1:
-                network_text = _("Server {} blocks behind)").format(server_lag)
+                network_text = _("Server {} blocks behind").format(server_lag)
             else:
                 c, u, x = self.wallet.get_balance()
                 balance_status = self.get_amount_and_units(c)
