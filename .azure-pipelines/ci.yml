@@ -33,13 +33,10 @@ jobs:
         succeeded(),
         eq(variables['Build.Reason'], 'PullRequest')
       )
+  - template: prepare-general-environment.yml
+    parameters:
+      onlyPullRequests: true
   - script: |
-      sudo apt-get update
-      sudo apt-get install libusb-1.0-0-dev libudev-dev
-      python3 -m pip install -r contrib/deterministic-build/requirements.txt
-      python3 -m pip install -r contrib/deterministic-build/requirements-hw.txt
-      python3 -m pip install --ignore-installed PyQt5
-      python3 -m pip install --ignore-installed PyQt5.sip
       python3 -m pip install -U pylint
       python3 -m pylint --rcfile .pylintrc electrum-sv electrumsv
       if [ $? -gt 0 ]
@@ -248,6 +245,17 @@ jobs:
     inputs:
       artifactName: 'build-files'
       targetPath: $(Build.ArtifactStagingDirectory)
+- template: jobs-run-python-tests.yml
+  parameters:
+    name: TestPythonPackages36
+    vmImage: 'ubuntu-16.04'
+    pythonVersion: '3.6'
+- template: jobs-run-python-tests.yml
+  parameters:
+    name: TestPythonPackages37
+    vmImage: 'ubuntu-16.04'
+    pythonVersion: '3.7'
+
   # This requires an extra github access token added. It's a lot of hassle and it's likely better
   # to just use the API and do it externally and manually.
   # - task: GitHubRelease@0

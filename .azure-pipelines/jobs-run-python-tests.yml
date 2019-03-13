@@ -1,0 +1,32 @@
+parameters:
+  name: ''  # defaults for any parameters that aren't specified
+  vmImage: ''
+  pythonVersion: ''
+
+jobs:
+- job: ${{ parameters.name }}
+  dependsOn:
+  - ProcessArtifacts
+  pool:
+    vmImage: ${{ parameters.vmImage }}
+  steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: ${{ parameters.pythonVersion }}
+      addToPath: true
+      architecture: x64
+  - template: prepare-general-environment.yml
+  - script: |
+      python3 -m pip install pytest pytest-cov
+      python3 -m pytest --doctest-modules --junitxml=junit/test-results.xml --cov=electrumsv --cov-report=xml --cov-report=html electrumsv/tests
+    displayName: 'Test with pytest'
+  - task: PublishTestResults@2
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFiles: '**/test-*.xml'
+      testRunTitle: 'Publish test results for Python ${{ parameters.pythonVersion }}'
+  - task: PublishCodeCoverageResults@1
+    inputs:
+      codeCoverageTool: Cobertura
+      summaryFileLocation: '$(System.DefaultWorkingDirectory)/**/coverage.xml'
+      reportDirectory: '$(System.DefaultWorkingDirectory)/**/htmlcov'

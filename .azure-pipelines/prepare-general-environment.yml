@@ -1,0 +1,22 @@
+parameters:
+  onlyPullRequests: false
+
+steps:
+- script: |
+    sudo apt-get update
+    sudo apt-get install libusb-1.0-0-dev libudev-dev
+    python3 -m pip install -r contrib/deterministic-build/requirements.txt
+    python3 -m pip install -r contrib/deterministic-build/requirements-hw.txt
+    python3 -m pip install -r contrib/deterministic-build/requirements-binaries.txt
+  displayName: Prepare general environment
+  condition: |
+    and(
+      succeeded(),
+      or(
+        eq(variables['Build.Reason'], 'PullRequest'),
+        eq(${{ parameters.onlyPullRequests }}, false)
+      )        
+    )
+  enabled: true
+  continueOnError: false
+  failOnStderr: false
