@@ -76,7 +76,8 @@ class PasswordLineEdit(QWidget):
         self.reveal_button = self.pw.addButton(self.reveal_png, self.toggle_visible,
                                                _("Toggle visibility"))
         self.reveal_button.setFocusPolicy(Qt.NoFocus)
-        keyboard_button = self.pw.addButton("keyboard.png", self.toggle_keyboard, _("Virtual keyboard"))
+        keyboard_button = self.pw.addButton("keyboard.png", self.toggle_keyboard,
+            _("Virtual keyboard"))
         keyboard_button.setFocusPolicy(Qt.NoFocus)
         self.pw.setEchoMode(QLineEdit.Password)
         # self.pw.setMinimumWidth(200)
