@@ -298,7 +298,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
         def _update_selected_wallet(skip_pick_most_recent=False):
             wallet_name = None
-            if not skip_pick_most_recent and not self.storage.file_exists() and is_startup:
+            if (is_startup and not skip_pick_most_recent and
+                (self.storage is None or not self.storage.file_exists())):
                 esv_wallet_names = self._list_user_wallets(esv_wallets_dir)
                 if len(esv_wallet_names):
                     wallet_name = esv_wallet_names[0]
