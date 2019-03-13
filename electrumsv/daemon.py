@@ -234,6 +234,8 @@ class Daemon(DaemonThread):
         return self.wallets.get(path)
 
     def start_wallet(self, wallet):
+        # This will raise an exception if the wallet is not valid.
+        wallet.check_valid()
         self.wallets[wallet.storage.path] = wallet
         wallet.start(self.network)
 

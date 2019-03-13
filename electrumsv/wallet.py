@@ -284,6 +284,19 @@ class Abstract_Wallet:
     def get_master_public_key(self):
         return None
 
+    def check_valid(self):
+        """
+        An exception raised in this function indicates that the master public key for this wallet
+        is not usable. An example scenario is where it was discovered that testnet keys were being
+        created incorrectly. We no longer handle the incorrect keys, and bip32 will error
+        processing them.
+        """
+        # pylint: disable=assignment-from-none
+        xpub = self.get_master_public_key()
+        if xpub:
+            # Verify that the derivation path is supported. If
+            bip32.deserialize_xpub(xpub)
+
     def create_gui_handlers(self, window):
         for keystore in self.get_keystores():
             if isinstance(keystore, Hardware_KeyStore):
