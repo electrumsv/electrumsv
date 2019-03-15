@@ -11,7 +11,7 @@
 import enum
 import os
 
-from PyQt5.QtCore import QSize, Qt, QModelIndex
+from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QAbstractItemView, QWidget,
@@ -64,7 +64,8 @@ def open_wallet_wizard():
             return
         wallet_window = app_state.app._create_window_for_wallet(wallet)
     wallet_window.bring_to_top()
-    wallet_window.setWindowState(wallet_window.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+    wallet_window.setWindowState(wallet_window.windowState() &
+                                 ~Qt.WindowMinimized | Qt.WindowActive)
 
     # this will activate the window
     wallet_window.activateWindow()
