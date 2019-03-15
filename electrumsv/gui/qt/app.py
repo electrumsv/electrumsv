@@ -316,7 +316,7 @@ class SVApplication(QApplication):
 
     def initial_dialogs(self):
         '''Suppressible dialogs that are shown when first opening the app.'''
-        dialogs.show_named('welcome-ESV-1.1.2')
+        dialogs.show_named('welcome-ESV-1.2.0a1')
         # This needs to be reworked or removed, as non-advanced users aren't sure whether
         # it is safe, and likely many people aren't quite sure if it should be done.
         # old_items = []

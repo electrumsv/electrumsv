@@ -117,19 +117,33 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
     return box.result(parent, wallet, **kwargs)
 
 raw_release_notes = """
-  * When run in portable mode, ElectrumSV would fail to correctly locate the Electron Cash
-    wallets directory, and would show the portable mode ElectrumSV wallets as the Electron Cash
-    wallets. The Electron Cash portable mode wallet directory is now correctly located.
+  * <b>NOTE</b>: this is beta software; please ensure it works properly for you with small amounts
+    before using large ones
+  * Rewrite of the networking code to use asynchronous logic. This allows the code to
+    be written in a clearer and more straightforward fashion, and helps us ensure that it both
+    works correctly and reduces the chance of bugs.
+  * Rewrite of the SPV support functionality to work with the new asynchronous networking.
+    This includes both the synchronisation of address usage in blockchain transactions and
+    verification that located transactions are real and were included in blocks using merkle
+    proofs.
+  * Correctly set the application icon so that it is displayed for all windows. This is possibly
+    irrelevant on some operating systems, but on Windows it ensures that the application icon
+    featured in the top left-hand corner of the window is not blandly undefined but rather the
+    glorious new icon that we have.
+  * several cleanups and improvements to internals that increase robustness and stability
 """
 raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
 raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
 raw_release_notes += "</li>"
 
 all_boxes = [
-    InfoBox('welcome-ESV-1.1.2',
-            _('Welcome to ElectrumSV 1.1.2'),
-            _('This release includes the following changes:') +
-            '<ul>'+ raw_release_notes +'</ul>'
+    InfoBox('welcome-ESV-1.2.0a1',
+            _('Welcome to ElectrumSV 1.2.0a1'),
+            _('This preview release includes the following changes:') +
+            '<ul>'+ raw_release_notes +'</ul>'+
+            _('These are not the final contents of the future 1.2.0 release, this release is '+
+              'being made in order to allow people to both use and test the extensive changes '+
+              'that have already been made')
     ),
     YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Cancel"), False),
     WarningBox('illegal-files-are-traceable',
