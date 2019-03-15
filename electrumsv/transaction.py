@@ -483,6 +483,7 @@ class Transaction:
         self.raw = self.serialize()
 
     def add_signature_to_txin(self, i, signingPos, sig):
+        assert isinstance(sig, str)
         txin = self._inputs[i]
         txin['signatures'][signingPos] = sig
         txin['scriptSig'] = None  # force re-serialization

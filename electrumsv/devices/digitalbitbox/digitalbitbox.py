@@ -661,7 +661,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     sig_s = int(signed['sig'][64:], 16)
                     sig = (ecc.der_sig_from_r_and_s(sig_r, sig_s) +
                            bytes([Transaction.nHashType() & 255]))
-                    tx.add_signature_to_txin(i, ii, sig)
+                    tx.add_signature_to_txin(i, ii, sig.hex())
         except UserCancelled:
             raise
         except Exception as e:
