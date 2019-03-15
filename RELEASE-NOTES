@@ -50,7 +50,9 @@ ElectrumSV
     irrelevant on some operating systems, but on Windows it ensures that the application icon
     featured in the top left-hand corner of the window is not blandly undefined but rather the
     glorious new icon that we have.
-  * several cleanups and improvements to internals that increase robustness and stability
+  * Switch to cointype 236 (BSV) for BIP44-derivations by default.  145 (BCH) and 0 (BTC)
+    are still supported and suggested.  You may need to try several when restoring a wallet.
+  * Several cleanups and improvements to internals that increase robustness and stability.
 
 # Release 1.1.2
   * When run in portable mode, ElectrumSV would fail to correctly locate the Electron Cash

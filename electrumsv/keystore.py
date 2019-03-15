@@ -736,8 +736,8 @@ is_bip32_key = lambda x: is_xprv(x) or is_xpub(x)
 def bip44_derivation(account_id):
     return "m/44'/%d'/%d'" % (Net.BIP44_COIN_TYPE, int(account_id))
 
-def bip44_derivation_145(account_id):
-    return "m/44'/145'/%d'" % int(account_id)
+def bip44_derivation_cointype(cointype, account_id):
+    return f"m/44'/{cointype:d}'/{account_id:d}'"
 
 def from_seed(seed, passphrase, is_p2sh):
     t = seed_type(seed)
