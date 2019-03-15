@@ -1817,7 +1817,10 @@ class Deterministic_Wallet(Abstract_Wallet):
             addr_list = self.get_receiving_addresses()
             limit = self.gap_limit
         idx = addr_list.index(address)
-        addresses = addr_list[max(idx - limit, 0): max(idx, 1)]
+        ref_idx = idx - limit
+        if ref_idx < 0:
+            return False
+        addresses = addr_list[ref_idx: idx]
         # This isn't really right but it's good enough for now and not entirely broken...
         return all(not self._history.get(addr) for addr in addresses)
 
