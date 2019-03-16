@@ -22,6 +22,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import base64
 from decimal import Decimal
 from datetime import datetime
 import json
@@ -522,3 +523,28 @@ def get_update_check_dates(new_date):
     # This is the rough date of the current release (might be stable or unstable).
     current_date = isoparse(PACKAGE_DATE).astimezone()
     return release_date, current_date
+
+def get_identified_release_signers(entry):
+    from .address import Address
+    from . import ecc
+
+    signature_addresses = [
+        ("rt121212121", Address.from_string("1Bu6ABvLAXn1ARFo1gjq6sogpajGbp6iK6")),
+        ("kyuupichan", Address.from_string("1BH8E3TkuJMCcH5WGD11kVweKZuhh6vb7V")),
+    ]
+
+    release_version = entry['version']
+    release_date = entry['date']
+    release_signatures = entry.get('signatures', [])
+
+    message = release_version + release_date
+    message = message.encode('utf-8')
+    signed_names = set()
+    for signature in release_signatures:
+        sig = base64.b64decode(signature)
+        for signer_name, signer_address in signature_addresses:
+            if signer_name not in signed_names:
+                if ecc.verify_message_with_address(signer_address, sig, message):
+                    signed_names.add(signer_name)
+                    break
+    return signed_names

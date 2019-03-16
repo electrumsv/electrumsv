@@ -1,4 +1,3 @@
-
 from distutils.version import StrictVersion
 import requests
 
@@ -6,10 +5,10 @@ from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QProgressBar, QLabel, QDialogButtonBox
 
 from electrumsv.app_state import app_state
-from electrumsv.gui.qt.util import read_qt_ui
+from electrumsv.gui.qt.util import read_qt_ui, icon_path
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.util import get_update_check_dates
+from electrumsv.util import get_update_check_dates, get_identified_release_signers
 from electrumsv.version import PACKAGE_VERSION
 
 
@@ -33,6 +32,12 @@ MSG_BODY_UNRELEASED_AVAILABLE = ("The update check was successful.<br/><br/>"+
 MSG_BODY_UNSTABLE_AVAILABLE = ("<br/><br/>"+
     "The latest unstable release {unstable_version} was released on "+
     "{unstable_date:%Y/%m/%d %I:%M%p}.")
+MSG_BODY_NO_SIGNEDS_AVAILABLE = ("<img src='"+ icon_path("icons8-warning-shield-32.png") +"'/>"+
+    "<br/><br/>"+
+    "The update check located unverifiable release information.<br/><br/>"+
+    "This either means the developers forgot to sign the release information, or the web site has "+
+    "been compromised. If updates are identified by later update checks, this means that there "+
+    "are valid releases available, otherwise it is advised you avoid updating.")
 
 logger = logs.get_logger("update_check.ui")
 
@@ -123,34 +128,40 @@ class UpdateCheckDialog(QWidget):
         # Handle the case where the stable release is newer than our build.
         release_date, current_date = get_update_check_dates(result["stable"]["date"])
         stable_version = result["stable"]["version"]
+        stable_signers = get_identified_release_signers(result["stable"])
         message = ""
-        if release_date > current_date:
-            message = _(MSG_BODY_UPDATE_AVAILABLE).format(
-                this_version = PACKAGE_VERSION,
-                next_version = stable_version,
-                next_version_date = release_date,
-                download_uri='https://electrumsv.io/download/')
-        # Handle the case where the we are newer than the latest stable release.
-        elif StrictVersion(stable_version) < StrictVersion(PACKAGE_VERSION):
-            message = _(MSG_BODY_UNRELEASED_AVAILABLE).format(
-                this_version=PACKAGE_VERSION,
-                latest_version=stable_version)
-        # Handle the case where we are the latest stable release.
-        else:
-            message = _(MSG_BODY_NO_UPDATE_AVAILABLE).format(
-                this_version=stable_version)
-
-        # By default users ignore unstable releases.
-        if not app_state.config.get('check_updates_ignore_unstable', True):
-            # If we are stable.  We show later unstable releases.
-            # If we are unstable.  We show later unstable releases.
-            unstable_result = result["unstable"]
-            release_date, current_date = get_update_check_dates(unstable_result["date"])
+        if stable_signers:
             if release_date > current_date:
-                message += _(MSG_BODY_UNSTABLE_AVAILABLE).format(
-                    unstable_version = unstable_result["version"],
-                    unstable_date = release_date
-                )
+                message = _(MSG_BODY_UPDATE_AVAILABLE).format(
+                    this_version = PACKAGE_VERSION,
+                    next_version = stable_version,
+                    next_version_date = release_date,
+                    download_uri='https://electrumsv.io/download/')
+            # Handle the case where the we are newer than the latest stable release.
+            elif StrictVersion(stable_version) < StrictVersion(PACKAGE_VERSION):
+                message = _(MSG_BODY_UNRELEASED_AVAILABLE).format(
+                    this_version=PACKAGE_VERSION,
+                    latest_version=stable_version)
+            # Handle the case where we are the latest stable release.
+            else:
+                message = _(MSG_BODY_NO_UPDATE_AVAILABLE).format(
+                    this_version=stable_version)
+
+            # By default users ignore unstable releases.
+            if not app_state.config.get('check_updates_ignore_unstable', True):
+                # If we are stable.  We show later unstable releases.
+                # If we are unstable.  We show later unstable releases.
+                unstable_result = result["unstable"]
+                unstable_signers = get_identified_release_signers(result["stable"])
+                release_date, current_date = get_update_check_dates(unstable_result["date"])
+                if unstable_signers and release_date > current_date:
+                    message += _(MSG_BODY_UNSTABLE_AVAILABLE).format(
+                        unstable_version = unstable_result["version"],
+                        unstable_date = release_date
+                    )
+        else:
+            message = _(MSG_BODY_NO_SIGNEDS_AVAILABLE)
+
         self._set_message(message)
 
     def _on_update_error(self, exc_info):
