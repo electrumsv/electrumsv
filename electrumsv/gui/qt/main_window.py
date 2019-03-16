@@ -44,11 +44,10 @@ from PyQt5.QtWidgets import (
 )
 
 import electrumsv
-from electrumsv import bitcoin, commands, keystore, paymentrequest, util
+from electrumsv import bitcoin, commands, ecc, keystore, paymentrequest, util
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
-import electrumsv.ecc as ecc
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -59,7 +58,7 @@ from electrumsv.paymentrequest import PR_PAID
 from electrumsv.transaction import Transaction
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, bfh, format_fee_satoshis,
-    get_update_check_dates
+    get_update_check_dates, get_identified_release_signers
 )
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import Multisig_Wallet, sweep_preparations
@@ -620,13 +619,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if check_result is not None:
             # The latest stable release date, the date of the build we are using.
             stable_result = check_result["stable"]
-            release_date, current_date = get_update_check_dates(stable_result["date"])
-            if release_date > current_date:
-                if time.time() - release_date.timestamp() < 24 * 60 * 60:
-                    update_check_state = "update-present-immediate"
-                else:
-                    update_check_state = "update-present-prolonged"
-            stable_version = stable_result["version"]
+            stable_signers = get_identified_release_signers(stable_result)
+            if stable_signers:
+                release_date, current_date = get_update_check_dates(stable_result["date"])
+                if release_date > current_date:
+                    if time.time() - release_date.timestamp() < 24 * 60 * 60:
+                        update_check_state = "update-present-immediate"
+                    else:
+                        update_check_state = "update-present-prolonged"
+                stable_version = stable_result["version"]
 
         def _on_check_for_updates(checked: bool=False):
             self.show_update_check()
@@ -667,21 +668,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._update_action.setToolTip(tooltip)
         self._update_check_state = update_check_state
 
-    def _on_update_tray_notify(self, result):
-        stable_version = result["stable"]["version"]
-        self.app.tray.showMessage(
-            "ElectrumSV",
-            _("A new version of ElectrumSV, version {}, is available for download")
-                .format(stable_version),
-            read_QIcon("electrum_dark_icon"), 20000)
-
     def on_update_check(self, success, result):
         if success:
-            # The latest stable release date, the date of the build we are using.
-            stable_date_string = result["stable"]["date"]
-            release_date, current_date = get_update_check_dates(stable_date_string)
-            if release_date > current_date:
-                self._on_update_tray_notify(result)
+            stable_result = result["stable"]
+            stable_signers = get_identified_release_signers(stable_result)
+            if stable_signers:
+                # The latest stable release date, the date of the build we are using.
+                stable_date_string = stable_result["date"]
+                release_date, current_date = get_update_check_dates(stable_date_string)
+                if release_date > current_date:
+                    self.app.tray.showMessage(
+                        "ElectrumSV",
+                        _("A new version of ElectrumSV, version {}, is available for download")
+                            .format(stable_result["version"]),
+                        read_QIcon("electrum_dark_icon"), 20000)
 
         self._update_check_toolbar_update()
 

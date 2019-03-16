@@ -1,17 +1,14 @@
-import base64
 from distutils.version import StrictVersion
 import requests
 
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QProgressBar, QLabel, QDialogButtonBox
 
-from electrumsv import ecc
-from electrumsv.address import Address
 from electrumsv.app_state import app_state
 from electrumsv.gui.qt.util import read_qt_ui, icon_path
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.util import get_update_check_dates
+from electrumsv.util import get_update_check_dates, get_identified_release_signers
 from electrumsv.version import PACKAGE_VERSION
 
 
@@ -38,19 +35,15 @@ MSG_BODY_UNSTABLE_AVAILABLE = ("<br/><br/>"+
 MSG_BODY_NO_SIGNEDS_AVAILABLE = ("<img src='"+ icon_path("icons8-warning-shield-32.png") +"'/>"+
     "<br/><br/>"+
     "The update check located unverifiable release information.<br/><br/>"+
-    "This either means the developers forgot to sign the releases, or the site has been "+
-    "compromised. If updates are identified by later update checks, you should be safe "+
-    "to install them, otherwise it is advised you avoid updating.")
+    "This either means the developers forgot to sign the release information, or the web site has "+
+    "been compromised. If updates are identified by later update checks, this means that there "+
+    "are valid releases available, otherwise it is advised you avoid updating.")
 
 logger = logs.get_logger("update_check.ui")
 
 
 class UpdateCheckDialog(QWidget):
     _timer = None
-
-    _signature_addresses = [
-        ("rt121212121", Address.from_string("1Bu6ABvLAXn1ARFo1gjq6sogpajGbp6iK6")),
-    ]
 
     def __init__(self):
         super().__init__()
@@ -135,7 +128,7 @@ class UpdateCheckDialog(QWidget):
         # Handle the case where the stable release is newer than our build.
         release_date, current_date = get_update_check_dates(result["stable"]["date"])
         stable_version = result["stable"]["version"]
-        stable_signers = self._identify_signers(result["stable"])
+        stable_signers = get_identified_release_signers(result["stable"])
         message = ""
         if stable_signers:
             if release_date > current_date:
@@ -159,7 +152,7 @@ class UpdateCheckDialog(QWidget):
                 # If we are stable.  We show later unstable releases.
                 # If we are unstable.  We show later unstable releases.
                 unstable_result = result["unstable"]
-                unstable_signers = self._identify_signers(result["stable"])
+                unstable_signers = get_identified_release_signers(result["stable"])
                 release_date, current_date = get_update_check_dates(unstable_result["date"])
                 if unstable_signers and release_date > current_date:
                     message += _(MSG_BODY_UNSTABLE_AVAILABLE).format(
@@ -170,23 +163,6 @@ class UpdateCheckDialog(QWidget):
             message = _(MSG_BODY_NO_SIGNEDS_AVAILABLE)
 
         self._set_message(message)
-
-    def _identify_signers(self, entry):
-        release_version = entry['version']
-        release_date = entry['date']
-        release_signatures = entry.get('signatures', [])
-
-        message = release_version + release_date
-        message = message.encode('utf-8')
-        signed_names = set()
-        for signature in release_signatures:
-            sig = base64.b64decode(signature)
-            for signer_name, signer_address in self._signature_addresses:
-                if signer_name not in signed_names:
-                    if ecc.verify_message_with_address(signer_address, sig, message):
-                        signed_names.add(signer_name)
-                        break
-        return signed_names
 
     def _on_update_error(self, exc_info):
         self._stop_updates()
