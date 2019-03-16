@@ -940,6 +940,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tx_dialog.finished.connect(partial(self.on_tx_dialog_finished, tx_dialog))
         self.tx_dialogs.append(tx_dialog)
         tx_dialog.show()
+        return tx_dialog
 
     def on_tx_dialog_finished(self, tx_dialog, status):
         tx_dialog.finished.disconnect()

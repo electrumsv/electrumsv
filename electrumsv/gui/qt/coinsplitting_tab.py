@@ -152,6 +152,7 @@ class CoinSplittingTab(QWidget):
         ]
         coins = wallet.get_utxos(None, exclude_frozen=True, mature=True, confirmed_only=False)
         tx = wallet.make_unsigned_transaction(coins, outputs, window.config)
+
         amount = tx.output_value()
         fee = tx.get_fee()
 
@@ -174,11 +175,12 @@ class CoinSplittingTab(QWidget):
         def sign_done(success):
             if success:
                 if not tx.is_complete():
-                    window.show_error(_("Signed transaction is unexpectedly incomplete."))
-                    return
-                extra_text = _("Your split coins")
-                window.broadcast_transaction(tx, f"{TX_DESC_PREFIX}: {extra_text}",
-                                             success_text=_("Your coins have now been split."))
+                    dialog = self.window().show_transaction(tx)
+                    dialog.exec()
+                else:
+                    extra_text = _("Your split coins")
+                    window.broadcast_transaction(tx, f"{TX_DESC_PREFIX}: {extra_text}",
+                                                success_text=_("Your coins have now been split."))
             self._cleanup_tx_final()
         window.sign_tx_with_password(tx, sign_done, password)
 
