@@ -527,10 +527,11 @@ def get_update_check_dates(new_date):
 def get_identified_release_signers(entry):
     from .address import Address
     from . import ecc
+    from .networks import SVMainnet
 
     signature_addresses = [
-        ("rt121212121", Address.from_string("1Bu6ABvLAXn1ARFo1gjq6sogpajGbp6iK6")),
-        ("kyuupichan", Address.from_string("1BH8E3TkuJMCcH5WGD11kVweKZuhh6vb7V")),
+        ("rt121212121", Address.from_string("1Bu6ABvLAXn1ARFo1gjq6sogpajGbp6iK6", net=SVMainnet)),
+        ("kyuupichan", Address.from_string("1BH8E3TkuJMCcH5WGD11kVweKZuhh6vb7V", net=SVMainnet)),
     ]
 
     release_version = entry['version']

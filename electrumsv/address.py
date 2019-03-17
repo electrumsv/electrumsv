@@ -288,7 +288,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
             raise AddressError('address has unexpected kind {}'.format(kind))
 
     @classmethod
-    def from_string(cls, string):
+    def from_string(cls, string, net=Net):
         '''Construct from an address string.'''
         if len(string) > 35:
             try:
@@ -306,9 +306,9 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
             raise AddressError('invalid address: {}'.format(string))
 
         verbyte, hash160_ = raw[0], raw[1:]
-        if verbyte == Net.ADDRTYPE_P2PKH:
+        if verbyte == net.ADDRTYPE_P2PKH:
             kind = cls.ADDR_P2PKH
-        elif verbyte == Net.ADDRTYPE_P2SH:
+        elif verbyte == net.ADDRTYPE_P2SH:
             kind = cls.ADDR_P2SH
         else:
             raise AddressError('unknown version byte: {}'.format(verbyte))
