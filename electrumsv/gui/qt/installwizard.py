@@ -19,6 +19,7 @@ from electrumsv.storage import WalletStorage
 from electrumsv.util import get_electron_cash_user_dir
 from electrumsv.wallet import Wallet
 
+from . import dialogs
 from .network_dialog import NetworkChoiceLayout
 from .password_dialog import PasswordLayout, PW_NEW, PasswordLineEdit
 from .seed_dialog import SeedLayout, KeysLayout
@@ -776,3 +777,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         m = int(m_edit.value())
         n = int(n_edit.value())
         return (m, n)
+
+    def choose_hw_device(self):
+        dialogs.show_named('hardware-wallet-quality')
+        super().choose_hw_device()

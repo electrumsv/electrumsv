@@ -229,6 +229,9 @@ class SVApplication(QApplication):
                 self.quit()
 
     def _create_window_for_wallet(self, wallet):
+        if wallet.is_hardware_wallet():
+            dialogs.show_named('hardware-wallet-quality')
+
         w = ElectrumWindow(wallet)
         self.windows.append(w)
         self._build_tray_menu()
