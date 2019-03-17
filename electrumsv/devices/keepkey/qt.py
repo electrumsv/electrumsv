@@ -254,6 +254,7 @@ class CharacterDialog(WindowModalDialog):
         self.refresh()
         if self.loop.exec_():
             self.data = None  # User cancelled
+        return self.data
 
 
 class QtHandler(QtHandlerBase):
@@ -271,11 +272,7 @@ class QtHandler(QtHandlerBase):
         self.done.clear()
         self.char_signal.emit(msg)
         self.done.wait()
-        data = self.character_dialog.data
-        if not data or 'done' in data:
-            self.character_dialog.accept()
-            self.character_dialog = None
-        return data
+        return self.done.data
 
     def get_pin(self, msg):
         self.done.clear()
@@ -301,7 +298,11 @@ class QtHandler(QtHandlerBase):
     def update_character_dialog(self, msg):
         if not self.character_dialog:
             self.character_dialog = CharacterDialog(self.top_level_window())
-        self.character_dialog.get_char(msg.word_pos, msg.character_pos)
+        data = self.character_dialog.get_char(msg.word_pos, msg.character_pos)
+        if not data or 'done' in data:
+            self.character_dialog.accept()
+            self.character_dialog = None
+        self.done.data = data
         self.done.set()
 
 

@@ -82,8 +82,6 @@ class DeviceMgr:
         self.clients = {}
         # What we recognise.  Each entry is a (vendor_id, product_id) pair.
         self.recognised_hardware = set()
-        # Custom enumerate functions for devices we don't know about.
-        self.enumerate_func = set()
         # For synchronization
         self.lock = threading.RLock()
         self.hid_lock = threading.RLock()
@@ -191,9 +189,6 @@ class DeviceMgr:
     def register_devices(self, device_pairs):
         for pair in device_pairs:
             self.recognised_hardware.add(pair)
-
-    def register_enumerate_func(self, func):
-        self.enumerate_func.add(func)
 
     def xpub_id(self, xpub):
         with self.lock:
@@ -350,17 +345,14 @@ class DeviceMgr:
     def scan_devices(self):
         logger.debug("scanning devices...")
 
-        # First see what's connected that we know about
-        devices = self._scan_devices_with_hid()
-
-        # Let hardware handlers enumerate devices we don't know about
-        for f in self.enumerate_func:
+        # Let plugins enumerate devices
+        devices = []
+        for vendor in self.all_devices:
             try:
-                new_devices = f()
+                plugin = self.get_plugin(vendor)
+                devices.extend(plugin.enumerate_devices())
             except Exception as e:
-                logger.error('custom device enum failed. func %s, error %s', f, e)
-            else:
-                devices.extend(new_devices)
+                pass
 
         # find out what was disconnected
         pairs = [(dev.path, dev.id_) for dev in devices]
