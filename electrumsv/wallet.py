@@ -1574,6 +1574,8 @@ class ImportedAddressWallet(ImportedWalletBase):
         wallet = cls(storage)
         for address in text.split():
             wallet.import_address(Address.from_string(address))
+        # Avoid adding addresses twice in network.py
+        wallet._new_addresses.clear()
         return wallet
 
     def is_watching_only(self):
@@ -1643,6 +1645,8 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         storage.put('use_encryption', bool(password))
         for privkey in text.split():
             wallet.import_private_key(privkey, password)
+        # Avoid adding addresses twice in network.py
+        wallet._new_addresses.clear()
         return wallet
 
     def is_watching_only(self):
