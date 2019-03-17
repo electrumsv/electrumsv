@@ -1,19 +1,19 @@
 ElectrumSV is a fork of the open source Electrum Bitcoin wallet (www.electrum.org) for
 Bitcoin SV.  It continues on from the Electron Cash fork from the Electrum 2.9.0 codebase,
 which continues to work with Bitcoin Cash, which like Bitcoin Core retains the Bitcoin
-name while no longer following the Bitcoin design from the whitepaper. Bitcoin SV is the
-only real Bitcoin, the only cryptocurrency that follows the Bitcoin whitepaper.
+name while no longer following the Bitcoin design from the whitepaper.  Bitcoin SV is the
+only real Bitcoin following the whitepaper.
 
 The ElectrumSV software is NOT affiliated, associated, or endorsed by Electrum,
-electrum.org or the Electrum developers. Neither with Electron Cash.
+electrum.org or the Electrum developers.  Likeswise neither with Electron Cash.
 
 If you are concerned about running ElectrumSV binaries you can always install and/or run
-it from the Github source directly. However, all binaries are GPG signed, and SHA256
+it from the Github source directly.  However, all binaries are GPG signed, and SHA256
 hashes are provided, with both hashes and signatures being checked into the Github
 repository -- published through separate means and on separate web sites from the
-binaries. The Windows builds are also created deterministically and it should be possible
+binaries.  The Windows builds are also created deterministically and it should be possible
 for users to verify that the source they should have been created from, is exactly the
-source they were created from. So, there are several tools in a users hands that allow
+source they were created from.  So, there are several tools in a users hands that allow
 them to ascertain they can trust the builds and binaries provided.
 
 
@@ -21,7 +21,7 @@ Usage
 -----
 
 When you first run ElectrumSV it will use a different configuration directory to Electrum
-or Electron Cash.  On Unix it is ".electrum-sv", and on Windows/MacOS it is "ElectrumSV".
+or Electron Cash.  On Unix it is "~/.electrum-sv", and on Windows/MacOS it is "ElectrumSV".
 The first time you run ElectrumSV, you will be given the option of copying your wallets
 from Electron Cash.  Initially transactions will show up as unverified because ElectrumSV
 is downloading the blockchain headers to verify the transactions.  This can take a few
@@ -40,7 +40,7 @@ ElectrumSV
   * NOTE: this is beta software; please ensure it works properly for you with small amounts
     before using large ones.
   * Rewrite of the networking code to use asynchronous logic. This allows the code to
-    be written in a clearer and more straightforward fashion, and helps us ensure that it both
+    be written in a clearer and more straightforward fashion, and both helps us ensure that it
     works correctly and reduces the chance of bugs.
   * Rewrite of the SPV support functionality to work with the new asynchronous networking.
     This includes both the synchronisation of address usage in blockchain transactions and
@@ -50,8 +50,8 @@ ElectrumSV
     irrelevant on some operating systems, but on Windows it ensures that the application icon
     featured in the top left-hand corner of the window is not blandly undefined but rather the
     glorious new icon that we have.
-  * Switch to cointype 236 (BSV) for BIP44-derivations by default.  145 (BCH) and 0 (BTC)
-    are still supported and suggested.  You may need to try several when restoring a wallet.
+  * Switch to cointype 0 (Bitcoin) for BIP44-derivations by default.  145 (BCH) and 236 (BSV)
+    might need to be tried when restoring a wallet.
   * Several cleanups and improvements to internals that increase robustness and stability.
   * KeepKey users: you must upgrade to a recent firmware (6.0.4 is recommended)
 
