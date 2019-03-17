@@ -176,11 +176,10 @@ Below is the current support status for each vendor:
 </p>
 <ul>
 <li>
-<b>KeepKey</b> Bitcoin SV will be fully supported in the next firmware and client library
-release from KeepKey.  Currently we pretend to be Bitcoin Cash, but are able to show
-Bitcoin addresses on the screen.  However the hardware may give warnings about wrong
-address paths for the selected coin, which you can safely ignore.
-Once the new firmware and client library are released we will update ElectrumSV to match.
+<b>KeepKey</b> Bitcoin SV is fully supported with the most recent firmware and client
+library releases from KeepKey.  The the hardware gives warnings about "wrong address path
+for the selected coin" for wallets with Bitcoin Cash 145' derivations, which you can safely
+ignore.
 </li>
 <li>
 <b>Trezor</b> Trezor show no intent to support Bitcoin SV.  The hardware currently works
