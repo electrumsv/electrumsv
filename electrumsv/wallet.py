@@ -355,6 +355,9 @@ class Abstract_Wallet:
     def is_deterministic(self):
         return self.keystore.is_deterministic()
 
+    def is_hardware_wallet(self):
+        return any([ isinstance(k, Hardware_KeyStore) for k in self.get_keystores() ])
+
     def set_label(self, name, text = None):
         if isinstance(name, Address):
             name = name.to_string()

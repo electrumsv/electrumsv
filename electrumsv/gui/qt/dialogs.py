@@ -21,23 +21,38 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import enum
+import time
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox, QCheckBox
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 
+class DisplayFrequency(enum.Enum):
+    Always = 1
+    OncePerRun = 2
+
 
 class BoxBase(object):
+    display_frequency = DisplayFrequency.Always
+    last_shown = {}
 
-    def __init__(self, name, main_text, info_text):
+    def __init__(self, name, main_text, info_text, frequency=None):
         self.name = name
         self.main_text = main_text
         self.info_text = info_text
+        self.display_frequency = frequency or self.display_frequency
 
     def result(self, parent, wallet, **kwargs):
         '''Return the result of the suppressible box.  If this is saved in the configuration
         then the saved value is returned, otherwise the user is asked.'''
+        if self.name in self.last_shown:
+            when, value = self.last_shown[self.name]
+            if self.display_frequency == DisplayFrequency.OncePerRun:
+                return value
+
         key = f'suppress_{self.name}'
         if wallet:
             value = wallet.storage.get(key, None)
@@ -51,6 +66,8 @@ class BoxBase(object):
                     wallet.storage.put(key, value)
                 else:
                     app_state.config.set_key(key, value, True)
+
+            self.__class__.last_shown[self.name] = time.time(), value
 
         return value
 
@@ -90,11 +107,11 @@ class WarningBox(InfoBox):
 class YesNoBox(BoxBase):
     icon = QMessageBox.Question
 
-    def __init__(self, name, main_text, info_text, yes_text, no_text, default):
+    def __init__(self, name, main_text, info_text, yes_text, no_text, default, frequency=None):
         '''yes_text and no_text do not have defaults to encourage you to choose something more
         informative and direct than Yes or No.
         '''
-        super().__init__(name, main_text, info_text)
+        super().__init__(name, main_text, info_text, frequency=frequency)
         self.yes_text = yes_text
         self.no_text = no_text
         self.default = default
@@ -136,6 +153,26 @@ raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
 raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
 raw_release_notes += "</li>"
 
+hardware_wallet_notes = """
+<p>
+This hardware wallet is made by a business that has actively chosen not to support
+use of Bitcoin SV with their product. In addition to not adding support for Bitcoin SV
+to their hardware wallet, they also do not maintain the code in ElectrumSV that
+allows you to continue to use their product.
+</p>
+<p>
+Due to the large amount of work required to maintain ElectrumSV, and the often poor
+quality of the hardware wallet code, we have decided to limit maintenance of hardware
+wallet code to the minimum necessary. Users will continue be able to access their
+hardware wallets where we are able to keep the current hardware wallet code stable
+and perform the normal wallet operations with their hardware wallets.
+</p>
+<p>
+Hopefully in the future there will be less political, more professional and higher
+quality hardware wallets, or equivalent solutions, available for our user's needs.
+</p>
+"""
+
 all_boxes = [
     InfoBox('welcome-ESV-1.2.0a1',
             _('Welcome to ElectrumSV 1.2.0a1'),
@@ -152,6 +189,10 @@ all_boxes = [
                 _('Bitcoin transactions are traceable. If you choose to upload illegal '
                   'material, you can be identified, and will risk the consequences.'),
             ))),
+    WarningBox('hardware-wallet-quality',
+            _('Hardware Wallet Quality'),
+            hardware_wallet_notes,
+            frequency=DisplayFrequency.OncePerRun),
 ]
 
 all_boxes_by_name = {box.name: box for box in all_boxes}
