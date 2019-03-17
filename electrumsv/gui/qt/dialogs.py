@@ -155,22 +155,47 @@ raw_release_notes += "</li>"
 
 hardware_wallet_notes = """
 <p>
-This hardware wallet is made by a business that has actively chosen not to support
-use of Bitcoin SV with their product. In addition to not adding support for Bitcoin SV
-to their hardware wallet, they also do not maintain the code in ElectrumSV that
-allows you to continue to use their product.
+Hardware wallet vendors have been slow to properly support Bitcoin SV with their products.
+In addition they do not maintain the code in ElectrumSV that enables you to continue
+to use their product.
 </p>
 <p>
-Due to the large amount of work required to maintain ElectrumSV, and the often poor
-quality of the hardware wallet code, we have decided to limit maintenance of hardware
-wallet code to the minimum necessary. Users will continue be able to access their
-hardware wallets where we are able to keep the current hardware wallet code stable
-and perform the normal wallet operations with their hardware wallets.
+Maintaining and improving ElectrumSV takes time and resources that we have to prioritize.
+Owing to vendor apathy and the poor quality of the hardware wallet code and documentation,
+we limit our efforts to the minimum necessary to enable you to continue to use the
+hardware for normal operations.  However the vendors frequently change their software
+libraries and wallet firmware, so we cannot guarantee we will be able to support the
+hardware wallets and features indefinitely.
 </p>
 <p>
 Hopefully in the future there will be less political, more professional and higher
-quality hardware wallets, or equivalent solutions, available for our user's needs.
+quality hardware wallets, or equivalent solutions, available for our users' needs.
 </p>
+<p>
+Below is the current support status for each vendor:
+</p>
+<ul>
+<li>
+<b>KeepKey</b> Bitcoin SV will be fully supported in the next firmware and client library
+release from KeepKey.  Currently we pretend to be Bitcoin Cash, but are able to show
+Bitcoin addresses on the screen.  However the hardware may give warnings about wrong
+address paths for the selected coin, which you can safely ignore.
+Once the new firmware and client library are released we will update ElectrumSV to match.
+</li>
+<li>
+<b>Trezor</b> Trezor show no intent to support Bitcoin SV.  The hardware currently works
+if we pretend to be Bitcoin Cash.  This means addresses show as Bitcoin Cash addresses, not
+Bitcoin addresses, making verification difficult for you.
+</li>
+<li>
+<b>Ledger</b> Ledger state that Bitcoin SV support is "not planned at this time".  The
+hardware currently works if we pretend to be Bitcoin Cash.
+</li>
+<li>
+<b>Digital Bitbox</b> DBB show no intent to support Bitcoin SV.  The hardware currently
+works if we pretend to be Bitcoin Cash.
+</li>
+</ul>
 """
 
 all_boxes = [
