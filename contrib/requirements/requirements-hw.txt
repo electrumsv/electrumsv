@@ -1,4 +1,4 @@
 Cython>=0.27
 trezor>=0.11.1
-keepkey>=6.0.2
+keepkey>=6.0.3
 btchip-python

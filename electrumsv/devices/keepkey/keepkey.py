@@ -27,6 +27,7 @@ import threading
 from electrumsv.app_state import app_state
 from electrumsv.bip32 import xpub_from_pubkey
 from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
+from electrumsv.device import Device
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 from electrumsv.logs import logs
@@ -38,11 +39,12 @@ from ..hw_wallet import HW_PluginBase
 
 # TREZOR initialization methods
 TIM_NEW, TIM_RECOVER, TIM_MNEMONIC, TIM_PRIVKEY = range(0, 4)
+KEEPKEY_PRODUCT_KEY = 'KeepKey'
 
 
 class KeepKey_KeyStore(Hardware_KeyStore):
     hw_type = 'keepkey'
-    device = 'KeepKey'
+    device = KEEPKEY_PRODUCT_KEY
 
     def get_derivation(self):
         return self.derivation
@@ -58,7 +60,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         client = self.get_client()
         address_path = self.get_derivation() + "/%d/%d"%sequence
         address_n = client.expand_path(address_path)
-        msg_sig = client.sign_message(self.plugin.get_coin_name(), address_n, message)
+        msg_sig = client.sign_message(self.plugin.get_coin_name(client), address_n, message)
         return msg_sig.signature
 
     def sign_transaction(self, tx, password):
@@ -97,11 +99,10 @@ class KeepKeyPlugin(HW_PluginBase):
             from . import client
             import keepkeylib
             import keepkeylib.ckd_public
-            import keepkeylib.transport_hid
             self.client_class = client.KeepKeyClient
             self.ckd_public = keepkeylib.ckd_public
             self.types = keepkeylib.client.types
-            self.DEVICE_IDS = keepkeylib.transport_hid.DEVICE_IDS
+            self.DEVICE_IDS = (KEEPKEY_PRODUCT_KEY,)
             self.libraries_available = True
         except ImportError:
             self.libraries_available = False
@@ -113,38 +114,76 @@ class KeepKeyPlugin(HW_PluginBase):
         if self.libraries_available:
             app_state.device_manager.register_devices(self.DEVICE_IDS)
 
-    def hid_transport(self, pair):
-        from keepkeylib.transport_hid import HidTransport
-        return HidTransport(pair)
-
-    def bridge_transport(self, d):
-        raise NotImplementedError('')
-
     def get_coin_name(self):
         # No testnet support yet
-        return "BitcoinCash"
+        if client.features.major_version < 6:
+            return "BitcoinCash"
+        return "BitcoinSV"
 
-    def _try_hid(self, device):
-        self.logger.debug("Trying to connect over USB...")
-        if device.interface_number == 1:
-            pair = [None, device.path]
-        else:
-            pair = [device.path, None]
-
+    def _enumerate_hid(self):
         try:
-            return self.hid_transport(pair)
-        except Exception as e:
-            # see fdb810ba622dc7dbe1259cbafb5b28e19d2ab114
-            # raise
-            self.logger.error("cannot connect at %s %s", device.path, e)
-            return None
+            from keepkeylib.transport_hid import HidTransport
+        except ModuleNotFoundError:
+            return []
+        else:
+            return HidTransport.enumerate()
+
+    def _enumerate_web_usb(self):
+        try:
+            from keepkeylib.transport_webusb import WebUsbTransport
+        except ModuleNotFoundError:
+            return []
+        else:
+            return WebUsbTransport.enumerate()
+
+    def _get_transport(self, device):
+        self.logger.debug("Trying to connect over USB...")
+
+        if device.path.startswith('web_usb'):
+            for d in self._enumerate_web_usb():
+                if self._web_usb_path(d) == device.path:
+                    from keepkeylib.transport_webusb import WebUsbTransport
+                    return WebUsbTransport(d)
+        else:
+            for d in self._enumerate_hid():
+                if str(d[0]) == device.path:
+                    from keepkeylib.transport_hid import HidTransport
+                    return HidTransport(d)
+
+        raise RuntimeError(f'device {device} not found')
+
+    def _device_for_path(self, path):
+        return Device(
+            path=path,
+            interface_number=-1,
+            id_=path,
+            product_key=KEEPKEY_PRODUCT_KEY,
+            usage_page=0,
+            transport_ui_string=path,
+        )
+
+    def _web_usb_path(self, device):
+        return f'web_usb:{device.getBusNumber()}:{device.getPortNumberList()}'
+
+    def enumerate_devices(self):
+        devices = []
+
+        for device in self._enumerate_web_usb():
+            devices.append(self._device_for_path(self._web_usb_path(device)))
+
+        for device in self._enumerate_hid():
+            # Cast needed for older firmware
+            devices.append(self._device_for_path(str(device[0])))
+
+        return devices
 
     def create_client(self, device, handler):
         # disable bridge because it seems to never returns if keepkey is plugged
-        transport = self._try_hid(device)
-        if not transport:
+        try:
+            transport = self._get_transport(device)
+        except Exception as e:
             self.logger.error("cannot connect to device")
-            return
+            raise
 
         self.logger.debug("connected to device at %s", device.path)
 
@@ -205,7 +244,7 @@ class KeepKeyPlugin(HW_PluginBase):
         item, label, pin_protection, passphrase_protection = settings
 
         language = 'english'
-        client = app_state.devicemanager.client_by_id(device_id)
+        client = app_state.device_manager.client_by_id(device_id)
 
         if method == TIM_NEW:
             strength = 64 * (item + 2)  # 128, 192 or 256
@@ -214,8 +253,8 @@ class KeepKeyPlugin(HW_PluginBase):
         elif method == TIM_RECOVER:
             word_count = 6 * (item + 2)  # 12, 18 or 24
             client.step = 0
-            client.recovery_device(word_count, passphrase_protection,
-                                       pin_protection, label, language)
+            client.recovery_device(False, word_count, passphrase_protection,
+                                   pin_protection, label, language)
         elif method == TIM_MNEMONIC:
             pin = pin_protection  # It's the pin, not a boolean
             client.load_device_by_mnemonic(str(item), pin,
@@ -253,7 +292,7 @@ class KeepKeyPlugin(HW_PluginBase):
         client = self.get_client(keystore)
         inputs = self.tx_inputs(tx, True)
         outputs = self.tx_outputs(keystore.get_derivation(), tx)
-        signatures = client.sign_tx(self.get_coin_name(), inputs, outputs,
+        signatures = client.sign_tx(self.get_coin_name(client), inputs, outputs,
                                     lock_time=tx.locktime)[0]
         tx.update_signatures(signatures)
 

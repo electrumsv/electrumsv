@@ -120,7 +120,6 @@ class TrezorPlugin(HW_PluginBase):
         self.libraries_available = self.check_libraries_available()
         if not self.libraries_available:
             return
-        app_state.device_manager.register_enumerate_func(self.enumerate)
 
     def get_library_version(self):
         import trezorlib
@@ -133,7 +132,7 @@ class TrezorPlugin(HW_PluginBase):
         else:
             raise LibraryFoundButUnusable(library_version=version)
 
-    def enumerate(self):
+    def enumerate_devices(self):
         devices = trezorlib.transport.enumerate_devices()
         return [Device(path=d.get_path(),
                        interface_number=-1,
