@@ -32,7 +32,6 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import deserialize
 from electrumsv.util import bfh
 
 from ..hw_wallet import HW_PluginBase
