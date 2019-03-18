@@ -114,7 +114,7 @@ class KeepKeyPlugin(HW_PluginBase):
         if self.libraries_available:
             app_state.device_manager.register_devices(self.DEVICE_IDS)
 
-    def get_coin_name(self):
+    def get_coin_name(self, client):
         # No testnet support yet
         if client.features.major_version < 6:
             return "BitcoinCash"
