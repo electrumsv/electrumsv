@@ -415,21 +415,3 @@ class KeepKeyPlugin(HW_PluginBase):
             outputs.append(txoutputtype)
 
         return outputs
-
-    def electrumsv_tx_to_txtype(self, tx):
-        t = self.types.TransactionType()
-        d = deserialize(tx.raw)
-        t.version = d['version']
-        t.lock_time = d['lockTime']
-        inputs = self.tx_inputs(tx)
-        t.inputs.extend(inputs)
-        for vout in d['outputs']:
-            o = t.bin_outputs.add()
-            o.amount = vout['value']
-            o.script_pubkey = bfh(vout['scriptPubKey'])
-        return t
-
-    # This function is called from the trezor libraries (via tx_api)
-    def get_tx(self, tx_hash):
-        tx = self.prev_tx[tx_hash]
-        return self.electrumsv_tx_to_txtype(tx)
