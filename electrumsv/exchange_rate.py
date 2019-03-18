@@ -55,8 +55,8 @@ class ExchangeBase(object):
             logger.debug(f'getting fx quotes for {ccy}')
             self.quotes = await run_in_thread(self.get_rates, ccy)
             logger.debug('received fx quotes')
-        except Exception as e:
-            logger.error(f'exception updating FX quotes: {e}')
+        except Exception:
+            logger.exception(f'exception updating FX quotes')
 
     def get_rates(self, ccy):
         raise NotImplementedError()
@@ -110,37 +110,12 @@ class ExchangeBase(object):
         return sorted([str(a) for (a, b) in rates.items() if b is not None and len(a)==3])
 
 
-class BitcoinAverage(ExchangeBase):
-
-    def get_rates(self, ccy):
-        json = self.get_json('apiv2.bitcoinaverage.com', '/indices/global/ticker/short')
-        return dict([(r.replace("BSV", ""), Decimal(json[r]['last']))
-                     for r in json if r != 'timestamp'])
-
-    def history_ccys(self):
-        return ['AUD', 'BRL', 'CAD', 'CHF', 'CNY', 'EUR', 'GBP', 'IDR', 'ILS',
-                'MXN', 'NOK', 'NZD', 'PLN', 'RON', 'RUB', 'SEK', 'SGD', 'USD',
-                'ZAR']
-
-    def request_history(self, ccy):
-        history = self.get_csv('apiv2.bitcoinaverage.com',
-                               "/indices/global/history/BSV%s?period=alltime&format=csv" % ccy)
-        return dict([(h['DateTime'][:10], h['Average'])
-                     for h in history])
-
-
-class Bitmarket(ExchangeBase):
-
-    def get_rates(self, ccy):
-        json = self.get_json('www.bitmarket.pl', '/json/BCCPLN/ticker.json')
-        return {'PLN': Decimal(json['last'])}
-
-
 class BitPay(ExchangeBase):
 
     def get_rates(self, ccy):
         json = self.get_json('bitpay.com', '/api/rates/BSV')
         return dict([(r['code'], Decimal(r['rate'])) for r in json])
+
 
 class Bitfinex(ExchangeBase):
     """
@@ -167,32 +142,14 @@ class Bitfinex(ExchangeBase):
             'USD': Decimal(usd_entry[Bitfinex.INDEX_LAST_PRICE]),
         }
 
-class Bitso(ExchangeBase):
-
-    def get_rates(self, ccy):
-        json = self.get_json('api.bitso.com', '/v2/ticker/?book=bch_btc')
-        return {'BTC': Decimal(json['last'])}
-
-
-class BitStamp(ExchangeBase):
-
-    def get_rates(self, ccy):
-        json_usd = self.get_json('www.bitstamp.net', '/api/v2/ticker/bchusd')
-        json_eur = self.get_json('www.bitstamp.net', '/api/v2/ticker/bcheur')
-        json_btc = self.get_json('www.bitstamp.net', '/api/v2/ticker/bchbtc')
-        return {
-            'USD': Decimal(json_usd['last']),
-            'EUR': Decimal(json_eur['last']),
-            'BTC': Decimal(json_btc['last'])}
-
 
 class Coinbase(ExchangeBase):
 
     def get_rates(self, ccy):
-        json = self.get_json('coinbase.com',
-                             '/api/v1/currencies/exchange_rates')
-        return dict([(r[7:].upper(), Decimal(json[r]))
-                     for r in json if r.startswith('bch_to_')])
+        json = self.get_json('api.coinbase.com',
+                             '/v2/exchange-rates?currency=BSV')
+        return {ccy: Decimal(rate) for (ccy, rate) in json["data"]["rates"].items()}
+
 
 class Kraken(ExchangeBase):
 
@@ -210,6 +167,7 @@ class CoinFloor(ExchangeBase):
     def get_rates(self, ccy):
         json = self.get_json('webapi.coinfloor.co.uk:8090/bist/BSV/GBP', '/ticker/')
         return {'GBP': Decimal(json['last'])}
+
 
 class CoinPaprika(ExchangeBase):
     def get_rates(self, ccy):
@@ -230,6 +188,7 @@ class CoinPaprika(ExchangeBase):
         return dict([(datetime.datetime.strptime(
             h['timestamp'], '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d'), h['price'])
                      for h in history])
+
 
 class CoinCap(ExchangeBase):
     def get_rates(self, ccy):
@@ -280,6 +239,7 @@ def dictinvert(d):
             keys = inv.setdefault(v, [])
             keys.append(k)
     return inv
+
 
 def get_exchanges_and_currencies():
     path = resource_path('currencies.json')
