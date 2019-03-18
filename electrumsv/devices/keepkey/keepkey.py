@@ -66,14 +66,11 @@ class KeepKey_KeyStore(Hardware_KeyStore):
     def sign_transaction(self, tx, password):
         if tx.is_complete():
             return
-        # previous transactions used as inputs
-        prev_tx = {}
         # path of the xpubs that are involved
         xpub_path = {}
         for txin in tx.inputs():
             pubkeys, x_pubkeys = tx.get_sorted_pubkeys(txin)
             tx_hash = txin['prevout_hash']
-            prev_tx[tx_hash] = txin['prev_tx']
             for x_pubkey in x_pubkeys:
                 if not is_xpubkey(x_pubkey):
                     continue
@@ -81,7 +78,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
                 if xpub == self.get_master_public_key():
                     xpub_path[xpub] = self.get_derivation()
 
-        self.plugin.sign_transaction(self, tx, prev_tx, xpub_path)
+        self.plugin.sign_transaction(self, tx, xpub_path)
 
 
 class KeepKeyPlugin(HW_PluginBase):
@@ -286,8 +283,7 @@ class KeepKeyPlugin(HW_PluginBase):
         client.used()
         return xpub
 
-    def sign_transaction(self, keystore, tx, prev_tx, xpub_path):
-        self.prev_tx = prev_tx
+    def sign_transaction(self, keystore, tx, xpub_path):
         self.xpub_path = xpub_path
         client = self.get_client(keystore)
         inputs = self.tx_inputs(tx, True)
