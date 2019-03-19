@@ -314,7 +314,6 @@ class SettingsDialog(WindowModalDialog):
     def __init__(self, window, plugin, keystore, device_id):
         title = _("{} Settings").format(plugin.device)
         super(SettingsDialog, self).__init__(window, title)
-        self.setMaximumWidth(540)
 
         config = app_state.config
         handler = keystore.handler
@@ -348,7 +347,6 @@ class SettingsDialog(WindowModalDialog):
             version = "%d.%d.%d" % (features.major_version,
                                     features.minor_version,
                                     features.patch_version)
-            coins = ", ".join(coin.coin_name for coin in features.coins)
 
             device_label.setText(features.label)
             pin_set_label.setText(noyes[features.pin_protection])
@@ -358,7 +356,6 @@ class SettingsDialog(WindowModalDialog):
             device_id_label.setText(features.device_id)
             initialized_label.setText(noyes[features.initialized])
             version_label.setText(version)
-            coins_label.setText(coins)
             clear_pin_button.setVisible(features.pin_protection)
             clear_pin_warning.setVisible(features.pin_protection)
             pin_button.setText(setchange[features.pin_protection])
@@ -461,7 +458,6 @@ class SettingsDialog(WindowModalDialog):
             (_("Firmware Version"), version_label),
             (_("Device ID"), device_id_label),
             (_("Bootloader Hash"), bl_hash_label),
-            (_("Supported Coins"), coins_label),
             (_("Language"), language_label),
             (_("Initialized"), initialized_label),
         ]
@@ -591,8 +587,6 @@ class SettingsDialog(WindowModalDialog):
         advanced_glayout.addWidget(wipe_device_button, 6, 2)
         advanced_glayout.addWidget(wipe_device_msg, 7, 0, 1, 5)
         advanced_glayout.addWidget(wipe_device_warning, 8, 0, 1, 5)
-#        advanced_layout.addLayout(advanced_glayout)
-#        advanced_layout.addStretch(1)
 
         tabs = QTabWidget(self)
         tabs.addTab(info_tab, _("Information"))
