@@ -44,7 +44,7 @@ from PyQt5.QtWidgets import (
 )
 
 import electrumsv
-from electrumsv import bitcoin, commands, ecc, keystore, paymentrequest, util
+from electrumsv import bitcoin, commands, ecc, keystore, paymentrequest, qrscanner, util
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
@@ -55,7 +55,7 @@ from electrumsv.logs import logs
 from electrumsv.network import broadcast_failure_reason
 from electrumsv.networks import Net
 from electrumsv.paymentrequest import PR_PAID
-from electrumsv.transaction import Transaction
+from electrumsv.transaction import Transaction, SerializationError, tx_from_str
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, bfh, format_fee_satoshis,
     get_update_check_dates, get_identified_release_signers
@@ -561,7 +561,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         raw_transaction_menu.addAction(_("&From file"), self.do_process_from_file)
         raw_transaction_menu.addAction(_("&From text"), self.do_process_from_text)
         raw_transaction_menu.addAction(_("&From the blockchain"), self.do_process_from_txid)
-        raw_transaction_menu.addAction(_("&From QR code"), self.read_tx_from_qrcode)
+        raw_transaction_menu.addAction(_("&From QR code"), self.do_process_from_qrcode)
         self.raw_transaction_menu = raw_transaction_menu
 
         help_menu = menubar.addMenu(_("&Help"))
@@ -2365,6 +2365,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         layout = QGridLayout(d)
 
         message_e = QTextEdit()
+        message_e.setAcceptRichText(False)
         layout.addWidget(QLabel(_('Message')), 1, 0)
         layout.addWidget(message_e, 1, 1)
         layout.setRowStretch(2,3)
@@ -2375,6 +2376,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         layout.addWidget(address_e, 2, 1)
 
         signature_e = QTextEdit()
+        signature_e.setAcceptRichText(False)
         layout.addWidget(QLabel(_('Signature')), 3, 0)
         layout.addWidget(signature_e, 3, 1)
         layout.setRowStretch(3,1)
@@ -2429,6 +2431,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         layout = QGridLayout(d)
 
         message_e = QTextEdit()
+        message_e.setAcceptRichText(False)
         layout.addWidget(QLabel(_('Message')), 1, 0)
         layout.addWidget(message_e, 1, 1)
         layout.setRowStretch(2,3)
@@ -2443,6 +2446,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         layout.addWidget(pubkey_e, 2, 1)
 
         encrypted_e = QTextEdit()
+        encrypted_e.setAcceptRichText(False)
         layout.addWidget(QLabel(_('Encrypted')), 3, 0)
         layout.addWidget(encrypted_e, 3, 1)
         layout.setRowStretch(3,1)
@@ -2473,33 +2477,24 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return d.run()
 
     def tx_from_text(self, txt):
-        from electrumsv.transaction import tx_from_str
-        try:
-            txt_tx = tx_from_str(txt)
-            tx = Transaction(txt_tx)
-            tx.deserialize()
-            if self.wallet:
-                my_coins = self.wallet.get_spendable_coins(None, self.config)
-                my_outpoints = [vin['prevout_hash'] + ':' + str(vin['prevout_n'])
-                                for vin in my_coins]
-                for i, txin in enumerate(tx.inputs()):
-                    outpoint = txin['prevout_hash'] + ':' + str(txin['prevout_n'])
-                    if outpoint in my_outpoints:
-                        my_index = my_outpoints.index(outpoint)
-                        tx._inputs[i]['value'] = my_coins[my_index]['value']
-            return tx
-        except:
-            self.logger.exception("")
-            self.show_critical(_("ElectrumSV was unable to parse your transaction"))
-            return
+        if not txt:
+            return None
+        txt_tx = tx_from_str(txt)
+        tx = Transaction(txt_tx)
+        tx.deserialize()
+        if self.wallet:
+            my_coins = self.wallet.get_spendable_coins(None, self.config)
+            my_outpoints = [vin['prevout_hash'] + ':' + str(vin['prevout_n'])
+                            for vin in my_coins]
+            for i, txin in enumerate(tx.inputs()):
+                outpoint = txin['prevout_hash'] + ':' + str(txin['prevout_n'])
+                if outpoint in my_outpoints:
+                    my_index = my_outpoints.index(outpoint)
+                    tx._inputs[i]['value'] = my_coins[my_index]['value']
+        return tx
 
     def read_tx_from_qrcode(self):
-        from electrumsv import qrscanner
-        try:
-            data = qrscanner.scan_barcode(self.config.get_video_device())
-        except Exception as e:
-            self.show_error(str(e))
-            return
+        data = qrscanner.scan_barcode(self.config.get_video_device())
         if not data:
             return
         # if the user scanned a bitcoin URI
@@ -2508,50 +2503,45 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
         # else if the user scanned an offline signed tx
         data = bh2u(bitcoin.base_decode(data, length=None, base=43))
-        tx = self.tx_from_text(data)
-        if not tx:
-            return
-        self.show_transaction(tx)
+        return self.tx_from_text(data)
 
     def read_tx_from_file(self):
         fileName = self.getOpenFileName(_("Select your transaction file"), "*.txn")
         if not fileName:
             return
+        with open(fileName, "r") as f:
+            file_content = f.read()
+        tx_file_dict = json.loads(file_content.strip())
+        return self.tx_from_text(file_content)
+
+    def do_process_from_qrcode(self):
         try:
-            with open(fileName, "r") as f:
-                file_content = f.read()
-        except (ValueError, IOError, os.error) as reason:
-            self.show_critical(_("ElectrumSV was unable to open your transaction file") + "\n" +
-                               str(reason), title=_("Unable to read file or no transaction found"))
-            return
-        file_content = file_content.strip()
-        tx_file_dict = json.loads(str(file_content))
-        tx = self.tx_from_text(file_content)
-        return tx
+            tx = self.read_tx_from_qrcode()
+            if tx:
+                self.show_transaction(tx)
+        except Exception as reason:
+            self.show_critical(_("ElectrumSV was unable to read the transaction:") +
+                               "\n" + str(reason))
 
     def do_process_from_text(self):
-        from electrumsv.transaction import SerializationError
         text = text_dialog(self, _('Input raw transaction'), _("Transaction:"),
                            _("Load transaction"))
-        if not text:
-            return
         try:
             tx = self.tx_from_text(text)
             if tx:
                 self.show_transaction(tx)
-        except SerializationError as e:
-            self.show_critical(_("ElectrumSV was unable to deserialize the transaction:") +
-                               "\n" + str(e))
+        except (SerializationError, Exception) as reason:
+            self.show_critical(_("ElectrumSV was unable to read the transaction:") +
+                               "\n" + str(reason))
 
     def do_process_from_file(self):
-        from electrumsv.transaction import SerializationError
         try:
             tx = self.read_tx_from_file()
             if tx:
                 self.show_transaction(tx)
-        except SerializationError as e:
-            self.show_critical(_("ElectrumSV was unable to deserialize the transaction:") +
-                               "\n" + str(e))
+        except Exception as reason:
+            self.show_critical(_("ElectrumSV was unable to read the transaction:") +
+                               "\n" + str(reason))
 
     def do_process_from_txid(self):
         from electrumsv import transaction
