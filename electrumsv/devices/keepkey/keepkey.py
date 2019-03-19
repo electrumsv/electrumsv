@@ -106,9 +106,6 @@ class KeepKeyPlugin(HW_PluginBase):
         self.logger = logs.get_logger("plugin.keepkey")
 
         self.main_thread = threading.current_thread()
-        # FIXME: move to base class when Ledger is fixed
-        if self.libraries_available:
-            app_state.device_manager.register_devices(self.DEVICE_IDS)
 
     def get_coin_name(self, client):
         # No testnet support yet
@@ -117,20 +114,16 @@ class KeepKeyPlugin(HW_PluginBase):
         return "BitcoinSV"
 
     def _enumerate_hid(self):
-        try:
+        if self.libraries_available:
             from keepkeylib.transport_hid import HidTransport
-        except ModuleNotFoundError:
-            return []
-        else:
             return HidTransport.enumerate()
+        return []
 
     def _enumerate_web_usb(self):
-        try:
+        if self.libraries_available:
             from keepkeylib.transport_webusb import WebUsbTransport
-        except ModuleNotFoundError:
-            return []
-        else:
             return WebUsbTransport.enumerate()
+        return []
 
     def _get_transport(self, device):
         self.logger.debug("Trying to connect over USB...")

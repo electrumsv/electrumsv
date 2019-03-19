@@ -24,6 +24,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import threading
+
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.util import versiontuple
@@ -32,11 +34,7 @@ from .cmdline import CmdLineHandler
 
 
 class HW_PluginBase(object):
-    # Derived classes provide:
-    #
-    #  class-static variables: client_class, firmware_URL, handler_class,
-    #     libraries_available, libraries_URL, minimum_firmware,
-    #     wallet_class, ckd_public, types, HidTransport
+    hid_lock = threading.Lock()
 
     def __init__(self, device_kind):
         self.device = self.keystore_class.device
@@ -98,6 +96,9 @@ class HW_PluginBase(object):
             message = _("Missing libraries for {}.").format(self.name)
         message += '\n' + _("Make sure you install it with python3")
         return message
+
+    def enumerate_devices(self):
+        raise NotImplementedError
 
 
 class LibraryFoundButUnusable(Exception):

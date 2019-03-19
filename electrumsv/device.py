@@ -80,8 +80,6 @@ class DeviceMgr:
         # A list of clients.  The key is the client, the value is
         # a (path, id_) pair.
         self.clients = {}
-        # What we recognise.  Each entry is a (vendor_id, product_id) pair.
-        self.recognised_hardware = set()
         # For synchronization
         self.lock = threading.RLock()
         self.hid_lock = threading.RLock()
@@ -185,10 +183,6 @@ class DeviceMgr:
                 return e
 
         return {device_kind: plugin(device_kind) for device_kind in self.all_devices}
-
-    def register_devices(self, device_pairs):
-        for pair in device_pairs:
-            self.recognised_hardware.add(pair)
 
     def xpub_id(self, xpub):
         with self.lock:
@@ -314,7 +308,10 @@ class DeviceMgr:
             handler.win.wallet.save_keystore()
         return info
 
-    def _scan_devices_with_hid(self):
+    def find_hid_devices(self, device_ids):
+        # Devices with a list of product keys that have to be found by hid should call this
+        # method.
+        # device_ids -- List of known (vendor_id, product_id) pairs (a pair is a product key).
         try:
             import hid
         except ImportError:
@@ -325,21 +322,27 @@ class DeviceMgr:
 
         devices = []
         for d in hid_list:
-            product_key = (d['vendor_id'], d['product_id'])
-            if product_key in self.recognised_hardware:
-                # Older versions of hid don't provide interface_number
-                interface_number = d.get('interface_number', -1)
-                usage_page = d['usage_page']
-                id_ = d['serial_number']
-                if len(id_) == 0:
-                    id_ = str(d['path'])
-                id_ += str(interface_number) + str(usage_page)
-                devices.append(Device(path=d['path'],
-                                      interface_number=interface_number,
-                                      id_=id_,
-                                      product_key=product_key,
-                                      usage_page=usage_page,
-                                      transport_ui_string='hid'))
+            product_id = d['product_id']
+            vendor_id = d['vendor_id']
+            product_key = (vendor_id, product_id)
+            if product_key not in device_ids:
+                continue
+
+            # Older versions of hid don't provide interface_number
+            interface_number = d.get('interface_number', -1)
+            path = d['path']
+            serial_number = d['serial_number']
+            usage_page = d['usage_page']
+
+            if len(serial_number) == 0:
+                serial_number = str(path)
+            serial_number += str(interface_number) + str(usage_page)
+            devices.append(Device(path=path,
+                                    interface_number=interface_number,
+                                    id_=serial_number,
+                                    product_key=product_key,
+                                    usage_page=usage_page,
+                                    transport_ui_string='hid'))
         return devices
 
     def scan_devices(self):
@@ -352,7 +355,7 @@ class DeviceMgr:
                 plugin = self.get_plugin(vendor)
                 devices.extend(plugin.enumerate_devices())
             except Exception as e:
-                pass
+                logger.exception(f"Failed to enumerate devices from {vendor} plugin")
 
         # find out what was disconnected
         pairs = [(dev.path, dev.id_) for dev in devices]
