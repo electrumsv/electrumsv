@@ -315,7 +315,6 @@ class SettingsDialog(WindowModalDialog):
         super(SettingsDialog, self).__init__(window, title)
 
         config = app_state.config
-        handler = keystore.handler
         hs_rows, hs_cols = (64, 128)
 
         def invoke_client(method, *args, **kw_args):
