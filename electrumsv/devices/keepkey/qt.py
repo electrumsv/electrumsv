@@ -23,15 +23,15 @@
 # SOFTWARE.
 
 from functools import partial
-import math
 
 from PyQt5.QtCore import Qt, QEventLoop, pyqtSignal, QRegExp
 from PyQt5.QtGui import QRegExpValidator
 from PyQt5.QtWidgets import (
     QGridLayout, QTabWidget, QPushButton, QVBoxLayout, QLabel, QHBoxLayout, QDialog,
-    QLineEdit, QGroupBox, QButtonGroup, QRadioButton, QCheckBox, QTextEdit, QFileDialog,
-    QMessageBox, QWidget, QSlider,  QSizePolicy
+    QLineEdit, QGroupBox, QButtonGroup, QRadioButton, QCheckBox, QTextEdit,
+    QMessageBox, QWidget, QSlider
 )
+from keepkeylib.qt.pinmatrix import PinMatrixWidget
 
 from .keepkey import KeepKeyPlugin, TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
@@ -284,7 +284,6 @@ class QtHandler(QtHandlerBase):
         # Needed e.g. when resetting a device
         self.clear_dialog()
         dialog = WindowModalDialog(self.top_level_window(), _("Enter PIN"))
-        # From keepkeylib.qt.pinmatrix import PinMatrixWidget
         matrix = PinMatrixWidget()
         vbox = QVBoxLayout()
         vbox.addWidget(QLabel(msg))
@@ -389,28 +388,6 @@ class SettingsDialog(WindowModalDialog):
                 return
             invoke_client('toggle_passphrase', unpair_after=currently_enabled)
 
-        def change_homescreen():
-            # pylint: disable=import-error
-            from PIL import Image  # FIXME
-            dialog = QFileDialog(self, _("Choose Homescreen"))
-            filename, __ = dialog.getOpenFileName()
-            if filename:
-                im = Image.open(str(filename))
-                if im.size != (hs_cols, hs_rows):
-                    raise Exception('Image must be 64 x 128 pixels')
-                im = im.convert('1')
-                pix = im.load()
-                img = ''
-                for j in range(hs_rows):
-                    for i in range(hs_cols):
-                        img += '1' if pix[i, j] else '0'
-                img = ''.join(chr(int(img[i:i + 8], 2))
-                              for i in range(0, len(img), 8))
-                invoke_client('change_homescreen', img)
-
-        def clear_homescreen():
-            invoke_client('change_homescreen', '\x00')
-
         def set_pin():
             invoke_client('set_pin', remove=False)
 
@@ -447,8 +424,6 @@ class SettingsDialog(WindowModalDialog):
         device_id_label = QLabel()
         bl_hash_label = QLabel()
         bl_hash_label.setWordWrap(True)
-        coins_label = QLabel()
-        coins_label.setWordWrap(True)
         language_label = QLabel()
         initialized_label = QLabel()
         rows = [
@@ -472,7 +447,7 @@ class SettingsDialog(WindowModalDialog):
         settings_glayout = QGridLayout()
 
         # Settings tab - Label
-        label_msg = QLabel(_("Name this {}.  If you have mutiple devices "
+        label_msg = QLabel(_("Name this {}.  If you have multiple devices "
                              "their labels help distinguish them.")
                            .format(plugin.device))
         label_msg.setWordWrap(True)
@@ -502,24 +477,6 @@ class SettingsDialog(WindowModalDialog):
         pin_msg.setStyleSheet("color: red")
         settings_glayout.addWidget(pin_msg, 3, 1, 1, -1)
 
-        # Settings tab - Homescreen
-        if plugin.device != 'KeepKey':   # Not yet supported by KK firmware
-            homescreen_layout = QHBoxLayout()
-            homescreen_label = QLabel(_("Homescreen"))
-            homescreen_change_button = QPushButton(_("Change..."))
-            homescreen_clear_button = QPushButton(_("Reset"))
-            homescreen_change_button.clicked.connect(change_homescreen)
-            homescreen_clear_button.clicked.connect(clear_homescreen)
-            homescreen_msg = QLabel(_("You can set the homescreen on your "
-                                      "device to personalize it.  You must "
-                                      "choose a {} x {} monochrome black and "
-                                      "white image.").format(hs_rows, hs_cols))
-            homescreen_msg.setWordWrap(True)
-            settings_glayout.addWidget(homescreen_label, 4, 0)
-            settings_glayout.addWidget(homescreen_change_button, 4, 1)
-            settings_glayout.addWidget(homescreen_clear_button, 4, 2)
-            settings_glayout.addWidget(homescreen_msg, 5, 1, 1, -1)
-
         # Settings tab - Session Timeout
         timeout_label = QLabel(_("Session Timeout"))
         timeout_minutes = QLabel()
@@ -548,7 +505,8 @@ class SettingsDialog(WindowModalDialog):
 
         # Advanced tab
         advanced_tab = QWidget()
-        advanced_glayout = QGridLayout(advanced_tab)
+        advanced_layout = QVBoxLayout(advanced_tab)
+        advanced_glayout = QGridLayout()
 
         # Advanced tab - clear PIN
         clear_pin_button = QPushButton(_("Disable PIN"))
@@ -587,6 +545,8 @@ class SettingsDialog(WindowModalDialog):
         advanced_glayout.addWidget(wipe_device_button, 6, 2)
         advanced_glayout.addWidget(wipe_device_msg, 7, 0, 1, 5)
         advanced_glayout.addWidget(wipe_device_warning, 8, 0, 1, 5)
+        advanced_layout.addLayout(advanced_glayout)
+        advanced_layout.addStretch(1)
 
         tabs = QTabWidget(self)
         tabs.addTab(info_tab, _("Information"))
@@ -598,80 +558,3 @@ class SettingsDialog(WindowModalDialog):
 
         # Update information
         invoke_client(None)
-
-
-class PinButton(QPushButton):
-    def __init__(self, password, encoded_value):
-        super(PinButton, self).__init__('?')
-        self.password = password
-        self.encoded_value = encoded_value
-        self.clicked.connect(self._pressed)
-
-    def _pressed(self):
-        self.password.setText(self.password.text() + str(self.encoded_value))
-        self.password.setFocus()
-
-
-class PinMatrixWidget(QWidget):
-    '''
-        Displays widget with nine blank buttons and password box.
-        Encodes button clicks into sequence of numbers for passing
-        into PinAck messages of KeepKey.
-        show_strength=True may be useful for entering new PIN
-    '''
-    def __init__(self, show_strength=True, parent=None):
-        super(PinMatrixWidget, self).__init__(parent)
-
-        # No need for a PasswordLineEdit as it's obfuscated anyway
-        self.password = QLineEdit()
-        self.password.setValidator(QRegExpValidator(QRegExp('[1-9]+'), None))
-        self.password.setEchoMode(QLineEdit.Password)
-
-        self.strength = QLabel()
-        self.strength.setMinimumWidth(75)
-        self.strength.setAlignment(Qt.AlignCenter)
-        self._set_strength(0)
-
-        grid = QGridLayout()
-        grid.setSpacing(0)
-        for y in range(3)[::-1]:
-            for x in range(3):
-                button = PinButton(self.password, x + y * 3 + 1)
-                button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-                button.setFocusPolicy(Qt.NoFocus)
-                grid.addWidget(button, 3 - y, x)
-
-        hbox = QHBoxLayout()
-        hbox.addWidget(self.password)
-        if show_strength:
-            hbox.addWidget(self.strength)
-
-        vbox = QVBoxLayout()
-        vbox.addLayout(grid)
-        vbox.addLayout(hbox)
-        self.setLayout(vbox)
-
-    def _set_strength(self, strength):
-        if strength < 3000:
-            self.strength.setText('weak')
-            self.strength.setStyleSheet("QLabel { color : #d00; }")
-        elif strength < 60000:
-            self.strength.setText('fine')
-            self.strength.setStyleSheet("QLabel { color : #db0; }")
-        elif strength < 360000:
-            self.strength.setText('strong')
-            self.strength.setStyleSheet("QLabel { color : #0a0; }")
-        else:
-            self.strength.setText('ULTIMATE')
-            self.strength.setStyleSheet("QLabel { color : #000; font-weight: bold;}")
-
-    def _password_changed(self, password):
-        self._set_strength(self.get_strength())
-
-    def get_strength(self):
-        digits = len(set(str(self.password.text())))
-        strength = math.factorial(9) / math.factorial(9 - digits)
-        return strength
-
-    def get_value(self):
-        return self.password.text()
