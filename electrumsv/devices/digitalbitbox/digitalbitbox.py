@@ -684,17 +684,17 @@ class DigitalBitboxPlugin(HW_PluginBase):
         super().__init__(name)
         self.logger = logger
 
-        if self.libraries_available:
-            app_state.device_manager.register_devices(self.DEVICE_IDS)
-
         self.digitalbitbox_config = app_state.config.get('digitalbitbox', {})
 
+    def enumerate_devices(self):
+        if self.libraries_available:
+            return app_state.device_manager.find_hid_devices(self.DEVICE_IDS)
+        return []
 
     def get_dbb_device(self, device):
         dev = hid.device()
         dev.open_path(device.path)
         return dev
-
 
     def create_client(self, device, handler):
         if device.interface_number == 0 or device.usage_page == 0xffff:
