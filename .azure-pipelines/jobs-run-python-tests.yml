@@ -5,8 +5,6 @@ parameters:
 
 jobs:
 - job: ${{ parameters.name }}
-  dependsOn:
-  - ProcessArtifacts
   pool:
     vmImage: ${{ parameters.vmImage }}
   steps:
