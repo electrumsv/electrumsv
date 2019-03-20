@@ -53,7 +53,7 @@ ElectrumSV
   * Switch to cointype 0 (Bitcoin) for BIP44-derivations by default.  145 (BCH) and 236 (BSV)
     might need to be tried when restoring a wallet.
   * Several cleanups and improvements to internals that increase robustness and stability.
-  * KeepKey users: you must upgrade to a recent firmware (6.0.4 is recommended)
+  * KeepKey users: updating your firmware is recommended
 
 # Release 1.1.2
   * When run in portable mode, ElectrumSV would fail to correctly locate the Electron Cash
