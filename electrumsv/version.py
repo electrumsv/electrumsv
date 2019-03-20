@@ -1,5 +1,5 @@
-PACKAGE_VERSION = '1.2.0a1'                          # version of the client package
-PACKAGE_DATE = '2019-03-02T16:00:00.000000+13:00'  # official timestamp for client package
+PACKAGE_VERSION = '1.2.0'                          # version of the client package
+PACKAGE_DATE = '2019-03-20T18:00:00.000000+13:00'  # official timestamp for client package
 PROTOCOL_VERSION = '1.4'                           # protocol version requested
 
 # The hash of the mnemonic seed must begin with this
