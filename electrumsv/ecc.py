@@ -284,7 +284,6 @@ class ECPubkey(object):
         assert_bytes(message)
 
         randint = ecdsa.util.randrange(CURVE_ORDER)
-        print("RANDINT:", randint)
         ephemeral_exponent = number_to_string(randint, CURVE_ORDER)
         ephemeral = ECPrivkey(ephemeral_exponent)
         ecdh_key = (self * ephemeral.secret_scalar).get_public_key_bytes(compressed=True)
