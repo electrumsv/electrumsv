@@ -262,7 +262,6 @@ class TrezorPlugin(HW_PluginBase):
         if client is None:
             raise Exception(_('Failed to create a client for this device.') + '\n' +
                             _('Make sure it is in the correct state.'))
-        # fixme: we should use: client.handler = wizard
         client.handler = self.create_handler(wizard)
         if not device_info.initialized:
             self.initialize_device(device_id, wizard, client.handler)
@@ -271,7 +270,7 @@ class TrezorPlugin(HW_PluginBase):
 
     def get_xpub(self, device_id, derivation, xtype, wizard):
         client = app_state.device_manager.client_by_id(device_id)
-        client.handler = wizard
+        client.handler = self.create_handler(wizard)
         xpub = client.get_xpub(derivation, xtype)
         client.used()
         return xpub
