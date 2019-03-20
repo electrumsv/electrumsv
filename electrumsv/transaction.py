@@ -25,14 +25,14 @@
 
 import struct
 
-from bitcoinx import Ops
+from bitcoinx import Ops, hash_to_hex_str
 
 from . import ecc
 from .address import (
     PublicKey, Address, Script, ScriptOutput, UnknownAddress
 )
 from .bitcoin import (
-    to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, hash_encode, op_push,
+    to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, op_push,
     push_script, public_key_to_p2pk_script, int_to_hex, var_int
 )
 from .crypto import sha256d, hash_160
@@ -304,7 +304,7 @@ def get_address_from_output_script(_bytes):
 
 def _parse_input(vds):
     d = {}
-    prevout_hash = hash_encode(vds.read_bytes(32))
+    prevout_hash = hash_to_hex_str(vds.read_bytes(32))
     prevout_n = vds.read_uint32()
     scriptSig = vds.read_bytes(vds.read_compact_size())
     sequence = vds.read_uint32()

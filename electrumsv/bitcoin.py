@@ -111,10 +111,6 @@ def push_script(data: str) -> str:
     return op_push(data_len) + bh2u(data)
 
 
-hash_encode = lambda x: bh2u(x[::-1])
-hash_decode = lambda x: bfh(x)[::-1]
-
-
 def is_new_seed(x, prefix=version.SEED_PREFIX):
     from . import mnemonic
     x = mnemonic.normalize_text(x)
@@ -323,7 +319,3 @@ def minikey_to_private_key(text):
 def msg_magic(message):
     length = bfh(var_int(len(message)))
     return b"\x18Bitcoin Signed Message:\n" + length + message
-
-
-def chunks(l, n):
-    return [l[i:i+n] for i in range(0, len(l), n)]

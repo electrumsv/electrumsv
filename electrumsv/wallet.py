@@ -1574,6 +1574,8 @@ class ImportedAddressWallet(ImportedWalletBase):
         wallet = cls(storage)
         for address in text.split():
             wallet.import_address(Address.from_string(address))
+        # Avoid adding addresses twice in network.py
+        wallet._new_addresses.clear()
         return wallet
 
     def is_watching_only(self):
@@ -1643,6 +1645,8 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         storage.put('use_encryption', bool(password))
         for privkey in text.split():
             wallet.import_private_key(privkey, password)
+        # Avoid adding addresses twice in network.py
+        wallet._new_addresses.clear()
         return wallet
 
     def is_watching_only(self):
@@ -1820,7 +1824,10 @@ class Deterministic_Wallet(Abstract_Wallet):
             addr_list = self.get_receiving_addresses()
             limit = self.gap_limit
         idx = addr_list.index(address)
-        addresses = addr_list[max(idx - limit, 0): max(idx, 1)]
+        ref_idx = idx - limit
+        if ref_idx < 0:
+            return False
+        addresses = addr_list[ref_idx: idx]
         # This isn't really right but it's good enough for now and not entirely broken...
         return all(not self._history.get(addr) for addr in addresses)
 
