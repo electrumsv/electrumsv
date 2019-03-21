@@ -51,6 +51,11 @@ You can also install ElectrumSV on your system, by running these commands::
 This will download and install all Python-based dependencies used by
 ElectrumSV, instead of using the 'packages' directory.
 
+If you are on Windows, and plan to use hardware wallets, you will need to obtain the `libusb`
+dlls and put them in the same directory as the `electrum-sv` script. Refer to the Azure Pipelines
+files in order to see where ElectrumSV gets it from, and what SHA256 checksum is expected forked
+the downloaded archive that includes the DLLs.
+
 If you cloned the git repository, you need to compile extra files
 before you can run ElectrumSV. Read the next section, "Development
 Version".
