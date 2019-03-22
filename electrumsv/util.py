@@ -22,7 +22,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import base64
 from decimal import Decimal
 from datetime import datetime
 import json
