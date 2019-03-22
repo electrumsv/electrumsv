@@ -38,11 +38,11 @@ import threading
 import time
 
 from aiorpcx import run_in_thread
+from bitcoinx import PrivateKey
 
 from . import bip32
 from . import bitcoin
 from . import coinchooser
-from . import ecc
 from . import paymentrequest
 from .address import Address, Script, PublicKey
 from .app_state import app_state
@@ -103,7 +103,7 @@ def append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax):
 def sweep_preparations(privkeys, network, imax=100):
 
     def find_utxos_for_privkey(txin_type, privkey, compressed):
-        pubkey = ecc.ECPrivkey(privkey).get_public_key_hex(compressed=compressed)
+        pubkey = PrivateKey(privkey).public_key.to_hex(compressed=compressed)
         append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax)
         keypairs[pubkey] = privkey, compressed
 
