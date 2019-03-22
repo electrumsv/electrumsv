@@ -11,18 +11,21 @@
 import enum
 import os
 
-from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QAbstractItemView, QWidget,
     QHBoxLayout, QLabel, QMessageBox, QWizard, QWizardPage, QListWidget,
-    QListWidgetItem, QHeaderView
+    QListWidgetItem, QHeaderView, QTextBrowser, QTextEdit
 )
 
 from electrumsv.app_state import app_state
+from electrumsv import bitcoin
 from electrumsv.i18n import _
+from electrumsv import keystore
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
+from electrumsv.version import PACKAGE_VERSION
 
 from .password_dialog import PasswordDialog
 from .util import icon_path, read_QIcon
@@ -31,7 +34,7 @@ logger = logs.get_logger('wallet_wizard')
 
 
 def open_wallet_wizard():
-    wizard_window = WalletWizard2()
+    wizard_window = WalletWizard(is_startup=True)
     result = wizard_window.run()
 
     if result != QDialog.Accepted:
@@ -73,36 +76,56 @@ def open_wallet_wizard():
 
 
 class Pages(enum.IntEnum):
-    SELECT_WALLET = 1
-    ADD_WALLET_MENU = 2
-    CREATE_NEW_STANDARD_WALLET = 3
-    CREATE_NEW_MULTISIG_WALLET = 4
-    IMPORT_WALLET_FILE = 5
-    IMPORT_WALLET_TEXT = 6
+    SPLASH_SCREEN = 1
+    RELEASE_NOTES = 2
+    SELECT_WALLET = 11
+    ADD_WALLET_MENU = 12
+    CREATE_NEW_STANDARD_WALLET = 13
+    CREATE_NEW_MULTISIG_WALLET = 14
+    IMPORT_WALLET_FILE = 15
+    IMPORT_WALLET_TEXT = 16
+    # Import other wallets from the eco-system.
     IMPORT_WALLET_TEXT_SEED_PHRASE_CENTBEE = 41
     IMPORT_WALLET_TEXT_SEED_PHRASE_HANDCASH = 42
     IMPORT_WALLET_TEXT_SEED_PHRASE_MONEYBUTTON = 43
+    # Hardware wallets.
     IMPORT_HARDWARE_WALLET_FOR_DIGITALBITBOX = 51
     IMPORT_HARDWARE_WALLET_FOR_KEEPKEY = 52
     IMPORT_HARDWARE_WALLET_FOR_LEDGER = 53
     IMPORT_HARDWARE_WALLET_FOR_TREZOR = 54
+    #
+    IMPORT_WALLET_IDENTIFY_USAGE = 100
 
 
-class WalletWizard2(QWizard):
-    def __init__(self):
+class WalletWizard(QWizard):
+    _last_page_id = None
+
+    def __init__(self, is_startup=False):
         super().__init__(None)
-
-        self.setWindowTitle('ElectrumSV')
-        self.setMinimumSize(600, 600)
-        self.setOption(QWizard.NoDefaultButton, True)
 
         self.wallet_data = None
 
-        self.setOption(QWizard.HaveHelpButton, True)
+        self.setWindowTitle('ElectrumSV')
+        self.setMinimumSize(600, 600)
+        self.setOption(QWizard.IndependentPages, False)
+        self.setOption(QWizard.NoDefaultButton, True)
+        # TODO: implement consistent help
+        self.setOption(QWizard.HaveHelpButton, False)
+        self.setOption(QWizard.HaveCustomButton1, True)
+
+        self.setPage(Pages.SPLASH_SCREEN, SplashScreenPage(self))
+        self.setPage(Pages.RELEASE_NOTES, ReleaseNotesPage(self))
         self.setPage(Pages.SELECT_WALLET, SelectWalletWizardPage(self))
         self.setPage(Pages.ADD_WALLET_MENU, AddWalletWizardPage(self))
+        self.setPage(Pages.IMPORT_WALLET_TEXT, ImportWalletTextPage(self))
+        self.setPage(Pages.IMPORT_WALLET_IDENTIFY_USAGE, ImportWalletIdentifyUsagePage(self))
 
-        self.setStartId(Pages.SELECT_WALLET)
+        self.currentIdChanged.connect(self.on_current_id_changed)
+
+        if is_startup:
+            self.setStartId(Pages.SPLASH_SCREEN)
+        else:
+            self.setStartId(Pages.SELECT_WALLET)
 
     def run(self):
         self.ensure_shown()
@@ -121,8 +144,112 @@ class WalletWizard2(QWizard):
             self.wallet_data = page.get_wallet_data()
         super().accept()
 
+    def on_current_id_changed(self, page_id):
+        if self._last_page_id is not None:
+            page = self.page(self._last_page_id)
+            if hasattr(page, "on_leave"):
+                page.on_leave()
+
+        self._last_page_id = page_id
+        page = self.page(page_id)
+        if hasattr(page, "on_enter"):
+            page.on_enter()
+        else:
+            button = self.button(QWizard.CustomButton1)
+            button.setVisible(False)
+
 
 wallet_table = None
+
+
+class SplashScreenPage(QWizardPage):
+    _next_page_id = None
+
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        layout = QVBoxLayout()
+        logo_layout = QHBoxLayout()
+        logo_label = QLabel()
+        logo_label.setPixmap(QPixmap(icon_path("title_logo.png"))
+            .scaledToWidth(500, Qt.SmoothTransformation))
+        logo_layout.addStretch(1)
+        logo_layout.addWidget(logo_label)
+        logo_layout.addStretch(1)
+        layout.addLayout(logo_layout)
+        version_label = QLabel(f"<b><big>v{PACKAGE_VERSION}</big></b>")
+        version_label.setAlignment(Qt.AlignHCenter)
+        version_label.setTextFormat(Qt.RichText)
+        layout.addWidget(version_label)
+        layout.addStretch(1)
+        release_text = (
+            "<big>"+
+            "<p>"+
+            _("ElectrumSV is a lightweight SPV wallet for Bitcoin SV.") +
+            "</p>"+
+            "<p>"+
+            _("Bitcoin SV is the only Bitcoin that follows "+
+            "the original whitepaper<br/> and values being stable and non-experimental.") +
+            "</p>"+
+            "</big>")
+        release_label = QLabel(release_text)
+        release_label.setAlignment(Qt.AlignHCenter)
+        release_label.setWordWrap(True)
+        layout.addWidget(release_label)
+        layout.addStretch(1)
+
+        self.setLayout(layout)
+
+        self._on_reset_next_page()
+
+    def _on_reset_next_page(self):
+        self._next_page_id = Pages.SELECT_WALLET
+
+    def _on_release_notes_clicked(self, *checked):
+        # Change the page to the release notes page by intercepting nextId.
+        self._next_page_id = Pages.RELEASE_NOTES
+        self.wizard().next()
+
+    def nextId(self):
+        return self._next_page_id
+
+    def on_enter(self):
+        self._on_reset_next_page()
+
+        button = self.wizard().button(QWizard.CustomButton1)
+        button.setVisible(True)
+        button.setText("    "+ _("Release notes") +"    ")
+        button.setContentsMargins(10, 0, 10, 0)
+        button.clicked.connect(self._on_release_notes_clicked)
+
+    def on_leave(self):
+        button = self.wizard().button(QWizard.CustomButton1)
+        button.clicked.disconnect()
+
+
+class ReleaseNotesPage(QWizardPage):
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        self.setTitle(_("Release Notes"))
+
+        # TODO: Relocate the release note text from dialogs.
+        # TODO: Make it look better and more readable, currently squashed horizontally.
+        from .dialogs import raw_release_notes
+        notes_text = raw_release_notes.replace(
+            "</li><li>", "<br/><br/>").replace("</li>", "").replace("<li>", "")
+
+        widget = QTextBrowser()
+        widget.setAcceptRichText(True)
+        widget.setHtml(notes_text)
+
+        layout = QVBoxLayout()
+        layout.addWidget(widget)
+        self.setLayout(layout)
+
+    def nextId(self):
+        return Pages.SELECT_WALLET
+
 
 class SelectWalletWizardPage(QWizardPage):
     def __init__(self, parent):
@@ -455,3 +582,148 @@ class AddWalletWizardPage(QWizardPage):
                 'icon_filename': 'icons8-usb-2-80.png',
             },
         ]
+
+
+class TextImportTypes(enum.IntEnum):
+    UNKNOWN = 0
+    PRIVATE_KEY_SEED = 10
+    PRIVATE_KEY_MINIKEY = 11
+
+
+def identify_wallet_text(text):
+    text = text.strip()
+
+    if bitcoin.is_minikey(text):
+        return TextImportTypes.PRIVATE_KEY_MINIKEY
+    elif keystore.is_seed(text):
+        return TextImportTypes.PRIVATE_KEY_SEED
+    return TextImportTypes.UNKNOWN
+
+
+class ImportWalletTextPage(QWizardPage):
+    kind_signal = pyqtSignal()
+
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        self.setTitle(_("Import Wallet From Text"))
+        self.setFinalPage(False)
+
+        self._text_kind = TextImportTypes.UNKNOWN
+
+        self.text_area = QTextEdit()
+        self.text_area.textChanged.connect(self._on_text_changed)
+
+        self.registerField("wallet-type*", self, "_text_kind", self.kind_signal)
+
+        label_text = self._get_label_text()
+        label_area = self._label = QLabel(label_text)
+        label_area.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+        label_area.setContentsMargins(10, 20, 10, 20)
+        label_area.setTextFormat(Qt.PlainText)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.text_area)
+        layout.addWidget(label_area)
+
+        self.setLayout(layout)
+
+    def _get_label_text(self):
+        text = self.text_area.toPlainText()
+
+        if self._text_kind == TextImportTypes.PRIVATE_KEY_MINIKEY:
+            return f"{_('Private key')} ({_('minikey')})"
+        elif self._text_kind == TextImportTypes.PRIVATE_KEY_SEED:
+            return f"{_('Private key')} ({_('seed words')})"
+
+        if len(text):
+            return _("The text you have entered above is unrecognized.")
+        return _("Please enter some wallet-related text above.")
+
+    def _on_text_changed(self):
+        """ The contents of the text area have changed. """
+        text = self.text_area.toPlainText()
+        new_text_kind = identify_wallet_text(text)
+        if new_text_kind != self._text_kind:
+            self._text_kind = new_text_kind
+            self.kind_signal.emit()
+        self._label.setText(self._get_label_text())
+
+    def isFinalPage(self):
+        return False
+
+    def isComplete(self):
+        return self._text_kind != TextImportTypes.UNKNOWN
+
+    def validatePage(self):
+        return self._text_kind != TextImportTypes.UNKNOWN
+
+    def nextId(self):
+        if self._text_kind != TextImportTypes.UNKNOWN:
+            return Pages.IMPORT_WALLET_IDENTIFY_USAGE
+        return Pages.IMPORT_WALLET_TEXT
+
+
+class DerivationPathSearcher:
+    stop_signal = pyqtSignal()
+
+    def __init__(self):
+        pass
+
+    def start(self, key_data, on_done):
+        self.key_data = key_data
+
+        def _on_done(future):
+            on_done(future)
+
+        future = app_state.app.run_in_thread(self._on_start, on_done=self._on_done)
+        self.stop_signal.connect(future.cancel)
+
+    def stop(self):
+        self.stop_signal.emit()
+        self.stop_signal.disconnect()
+
+    def _on_start(self):
+        pass
+
+    def _on_done(self):
+        self.stop_signal.disconnect()
+
+
+class ImportWalletIdentifyUsagePage(QWizardPage):
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        self.setTitle(_("Analyze Wallet"))
+        self.setFinalPage(False)
+
+        title_label = QLabel(_("Searching for key usage.."))
+        title_label.setAlignment(Qt.AlignHCenter)
+
+        layout = QVBoxLayout()
+        layout.addStretch(1)
+        layout.addWidget(title_label)
+        layout.addStretch(1)
+        self.setLayout(layout)
+
+        self.searcher = DerivationPathSearcher()
+        self.searcher.start()
+
+    def _search_derivation_paths(self)
+        pass
+
+    def _search_derivation_paths_complete(self):
+        pass
+
+    def isFinalPage(self):
+        return False
+
+    def isComplete(self):
+        return False
+
+    def validatePage(self):
+        return False
+
+    def nextId(self):
+        return -1
+
