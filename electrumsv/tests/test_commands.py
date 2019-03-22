@@ -2,6 +2,11 @@ import unittest
 from decimal import Decimal
 
 from electrumsv.commands import Commands
+from bitcoinx import PrivateKey, PublicKey
+
+
+privkey = PrivateKey.from_WIF('L2o1ztYYR9t7DcXGzsV2zKWJUXEmfh3C6vmKM3CCAAfeJ44AkLcr')
+pubkey_hex = privkey.public_key.to_hex()
 
 
 class TestCommands(unittest.TestCase):
@@ -31,3 +36,16 @@ class TestCommands(unittest.TestCase):
         self.assertEqual("2asd", Commands._setconfig_normalize_value('rpcpassword', '2asd'))
         self.assertEqual("['file:///var/www/','https://electrum.org']",
             Commands._setconfig_normalize_value('rpcpassword', "['file:///var/www/','https://electrum.org']"))
+
+    def test_encrypt(self):
+        c = Commands(None, None, None)
+        msg = 'BitcoinSV'
+        enc_msg = c.encrypt(pubkey_hex, msg)
+        assert privkey.decrypt_message(enc_msg).decode() == msg
+
+    def test_verifymessage(self):
+        c = Commands(None, None, None)
+        message = 'Hello'
+        signature = privkey.sign_message_to_base64(message)
+        address = privkey.public_key.to_address()
+        assert c.verifymessage(address, signature, message)
