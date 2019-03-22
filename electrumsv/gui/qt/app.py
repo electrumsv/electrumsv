@@ -71,7 +71,6 @@ class SVApplication(QApplication):
 
     # Signals need to be on a QObject
     create_new_window_signal = pyqtSignal(str, object)
-    alias_resolved = pyqtSignal()
     cosigner_received_signal = pyqtSignal(object, object)
     labels_changed_signal = pyqtSignal(object)
     window_opened_signal = pyqtSignal(object)

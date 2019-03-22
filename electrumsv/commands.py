@@ -428,10 +428,6 @@ class Commands:
         if x is None:
             return None
         out = self.wallet.contacts.resolve(x)
-        if (out.get('type') == 'openalias' and
-                self.nocheck is False and
-                out.get('validated') is False):
-            raise Exception('cannot verify alias', x)
         return out['address']
 
     @command('n')
@@ -527,7 +523,7 @@ class Commands:
 
     @command('w')
     def getalias(self, key):
-        """Retrieve alias. Lookup in your list of contacts, and for an OpenAlias DNS record."""
+        """Retrieve alias. Lookup in your list of contacts."""
         return self.wallet.contacts.resolve(key)
 
     @command('w')
@@ -663,12 +659,7 @@ class Commands:
 
     @command('wp')
     def signrequest(self, address, password=None):
-        "Sign payment request with an OpenAlias"
-        alias = self.config.get('alias')
-        if not alias:
-            raise Exception('No alias in your configuration')
-        alias_addr = self.wallet.contacts.resolve(alias)['address']
-        self.wallet.sign_payment_request(address, alias, alias_addr, password)
+        raise Exception("Not applicable as no openalias")
 
     @command('w')
     def rmrequest(self, address):

@@ -23,20 +23,16 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import hashlib
 import json
 import requests
 import time
 import urllib.parse
 
 from . import bitcoin
-from . import ecc
 # Create with 'protoc --proto_path=lib/ --python_out=lib/ lib/paymentrequest.proto'
 from . import paymentrequest_pb2 as pb2
-from . import rsakey
 from . import transaction
 from . import util
-from . import x509
 from .exceptions import FileImportFailed, FileImportFailedEncrypted
 from .logs import logs
 from .util import bh2u, bfh
@@ -54,15 +50,8 @@ ACK_HEADERS = {
     'User-Agent': 'ElectrumSV'
 }
 
+# Used for requests.
 ca_path = requests.certs.where()
-ca_list = None
-ca_keyID = None
-
-def load_ca_list():
-    global ca_list, ca_keyID
-    if ca_list is None:
-        ca_list, ca_keyID = x509.load_certificates(ca_path)
-
 
 
 # status of payment requests
@@ -154,76 +143,9 @@ class PaymentRequest:
         except:
             self.error = "Error: Cannot parse payment request"
             return False
-        if not pr.signature:
-            # the address will be dispayed as requestor
-            self.requestor = None
-            return True
-        if pr.pki_type in ["x509+sha256", "x509+sha1"]:
-            return self.verify_x509(pr)
-        elif pr.pki_type in ["dnssec+btc", "dnssec+ecdsa"]:
-            return self.verify_dnssec(pr, contacts)
-        else:
-            self.error = "ERROR: Unsupported PKI Type for Message Signature"
-            return False
-
-    def verify_x509(self, paymntreq):
-        load_ca_list()
-        if not ca_list:
-            self.error = "Trusted certificate authorities list not found"
-            return False
-        cert = pb2.X509Certificates()
-        cert.ParseFromString(paymntreq.pki_data)
-        # verify the chain of certificates
-        try:
-            x, ca = verify_cert_chain(cert.certificate)
-        except Exception as e:
-            logger.exception("")
-            self.error = str(e)
-            return False
-        # get requestor name
-        self.requestor = x.get_common_name()
-        if self.requestor.startswith('*.'):
-            self.requestor = self.requestor[2:]
-        # verify the BIP70 signature
-        pubkey0 = rsakey.RSAKey(x.modulus, x.exponent)
-        sig = paymntreq.signature
-        paymntreq.signature = b''
-        s = paymntreq.SerializeToString()
-        sigBytes = bytearray(sig)
-        msgBytes = bytearray(s)
-        if paymntreq.pki_type == "x509+sha256":
-            hashBytes = bytearray(hashlib.sha256(msgBytes).digest())
-            verify = pubkey0.verify(sigBytes, x509.PREFIX_RSA_SHA256 + hashBytes)
-        elif paymntreq.pki_type == "x509+sha1":
-            verify = pubkey0.hashAndVerify(sigBytes, msgBytes)
-        if not verify:
-            self.error = "ERROR: Invalid Signature for Payment Request Data"
-            return False
-        ### SIG Verified
-        self.error = 'Signed by Trusted CA: ' + ca.get_common_name()
+        # the address will be dispayed as requestor
+        self.requestor = None
         return True
-
-    def verify_dnssec(self, pr, contacts):
-        sig = pr.signature
-        alias = pr.pki_data
-        info = contacts.resolve(alias)
-        if info.get('validated') is not True:
-            self.error = "Alias verification failed (DNSSEC)"
-            return False
-        if pr.pki_type == "dnssec+btc":
-            self.requestor = alias
-            address = info.get('address')
-            pr.signature = ''
-            message = pr.SerializeToString()
-            if ecc.verify_message_with_address(address, sig, message):
-                self.error = 'Verified with DNSSEC'
-                return True
-            else:
-                self.error = "verify failed"
-                return False
-        else:
-            self.error = "unknown algo"
-            return False
 
     def has_expired(self):
         return self.details.expires and self.details.expires < int(time.time())
@@ -331,127 +253,12 @@ def make_unsigned_request(req):
     return pr
 
 
-def sign_request_with_alias(pr, alias, alias_privkey):
-    pr.pki_type = 'dnssec+btc'
-    pr.pki_data = str(alias)
-    message = pr.SerializeToString()
-    ec_key = ecc.ECPrivkey(alias_privkey)
-    compressed = bitcoin.is_compressed(alias_privkey)
-    pr.signature = ec_key.sign_message(message, compressed)
-
-
-def verify_cert_chain(chain):
-    """ Verify a chain of certificates. The last certificate is the CA"""
-    load_ca_list()
-    # parse the chain
-    cert_num = len(chain)
-    x509_chain = []
-    for i in range(cert_num):
-        x = x509.X509(bytearray(chain[i]))
-        x509_chain.append(x)
-        if i == 0:
-            x.check_date()
-        else:
-            if not x.check_ca():
-                raise Exception("ERROR: Supplied CA Certificate Error")
-    if not cert_num > 1:
-        raise Exception("ERROR: CA Certificate Chain Not Provided by Payment Processor")
-    # if the root CA is not supplied, add it to the chain
-    ca = x509_chain[cert_num-1]
-    if ca.getFingerprint() not in ca_list:
-        keyID = ca.get_issuer_keyID()
-        f = ca_keyID.get(keyID)
-        if f:
-            root = ca_list[f]
-            x509_chain.append(root)
-        else:
-            raise Exception("Supplied CA Not Found in Trusted CA Store.")
-    # verify the chain of signatures
-    cert_num = len(x509_chain)
-    for i in range(1, cert_num):
-        x = x509_chain[i]
-        prev_x = x509_chain[i-1]
-        algo, sig, data = prev_x.get_signature()
-        sig = bytearray(sig)
-        pubkey = rsakey.RSAKey(x.modulus, x.exponent)
-        if algo == x509.ALGO_RSA_SHA1:
-            verify = pubkey.hashAndVerify(sig, data)
-        elif algo == x509.ALGO_RSA_SHA256:
-            hashBytes = bytearray(hashlib.sha256(data).digest())
-            verify = pubkey.verify(sig, x509.PREFIX_RSA_SHA256 + hashBytes)
-        elif algo == x509.ALGO_RSA_SHA384:
-            hashBytes = bytearray(hashlib.sha384(data).digest())
-            verify = pubkey.verify(sig, x509.PREFIX_RSA_SHA384 + hashBytes)
-        elif algo == x509.ALGO_RSA_SHA512:
-            hashBytes = bytearray(hashlib.sha512(data).digest())
-            verify = pubkey.verify(sig, x509.PREFIX_RSA_SHA512 + hashBytes)
-        else:
-            raise Exception("Algorithm not supported")
-            # logger.error("%s %s", self.error, algo.getComponentByName('algorithm'))
-        if not verify:
-            raise Exception("Certificate not Signed by Provided CA Certificate Chain")
-
-    return x509_chain[0], ca
-
-
-def check_ssl_config(config):
-    from . import pem
-    key_path = config.get('ssl_privkey')
-    cert_path = config.get('ssl_chain')
-    with open(key_path, 'r', encoding='utf-8') as f:
-        params = pem.parse_private_key(f.read())
-    with open(cert_path, 'r', encoding='utf-8') as f:
-        s = f.read()
-    bList = pem.dePemList(s, "CERTIFICATE")
-    # verify chain
-    x, ca = verify_cert_chain(bList)
-    # verify that privkey and pubkey match
-    privkey = rsakey.RSAKey(*params)
-    pubkey = rsakey.RSAKey(x.modulus, x.exponent)
-    assert x.modulus == params[0]
-    assert x.exponent == params[1]
-    # return requestor
-    requestor = x.get_common_name()
-    if requestor.startswith('*.'):
-        requestor = requestor[2:]
-    return requestor
-
-def sign_request_with_x509(pr, key_path, cert_path):
-    from . import pem
-    with open(key_path, 'r', encoding='utf-8') as f:
-        params = pem.parse_private_key(f.read())
-        privkey = rsakey.RSAKey(*params)
-    with open(cert_path, 'r', encoding='utf-8') as f:
-        s = f.read()
-        bList = pem.dePemList(s, "CERTIFICATE")
-    certificates = pb2.X509Certificates()
-    certificates.certificate.extend(bytes(x) for x in bList)
-    pr.pki_type = 'x509+sha256'
-    pr.pki_data = certificates.SerializeToString()
-    msgBytes = bytearray(pr.SerializeToString())
-    hashBytes = bytearray(hashlib.sha256(msgBytes).digest())
-    sig = privkey.sign(x509.PREFIX_RSA_SHA256 + hashBytes)
-    pr.signature = bytes(sig)
-
-
 def serialize_request(req):
-    pr = make_unsigned_request(req)
-    signature = req.get('sig')
-    requestor = req.get('name')
-    if requestor and signature:
-        pr.signature = bfh(signature)
-        pr.pki_type = 'dnssec+btc'
-        pr.pki_data = str(requestor)
-    return pr
+    return make_unsigned_request(req)
 
 
 def make_request(config, req):
-    pr = make_unsigned_request(req)
-    key_path = config.get('ssl_privkey')
-    cert_path = config.get('ssl_chain')
-    if key_path and cert_path:
-        sign_request_with_x509(pr, key_path, cert_path)
-    return pr
+    return make_unsigned_request(req)
 
 
 

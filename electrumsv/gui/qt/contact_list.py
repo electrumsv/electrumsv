@@ -43,8 +43,7 @@ class ContactList(MyTreeWidget):
         self.setSortingEnabled(True)
 
     def on_permit_edit(self, item, column):
-        # openalias items shouldn't be editable
-        return item.text(1) != "openalias"
+        return True
 
     def on_edited(self, item, column, _prior):
         self.parent.set_contact(item.text(0), item.text(1))

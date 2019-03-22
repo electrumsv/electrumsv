@@ -71,7 +71,6 @@ class PreferencesDialog(QDialog):
             (self.general_widgets(), _('General')),
             (self.tx_widgets(), _('Transactions')),
             (self.fiat_widgets(), _('Fiat')),
-            (self.id_widgets(), _('Identity')),
             (self.extensions_widgets(wallet), _('Extensions')),
         ]
         if wallet:
@@ -330,58 +329,6 @@ class PreferencesDialog(QDialog):
             (QLabel(_('Fiat currency')), ccy_combo, QLabel(_('Source')), ex_combo),
             (hist_checkbox, ),
             (fiat_balance_checkbox, ),
-        ]
-
-    def id_widgets(self):
-        msg = _('OpenAlias record, used to receive coins and to sign payment requests.') + '\n\n'\
-              + _('The following alias providers are available:') + '\n'\
-              + '\n'.join(['https://cryptoname.co/', 'http://xmr.link']) + '\n\n'\
-              + 'For more information, see http://openalias.org'
-        alias_label = HelpLabel(_('OpenAlias') + ':', msg)
-        alias = app_state.config.get('alias','')
-        alias_e = QLineEdit(alias)
-        def on_alias_edit():
-            alias_e.setStyleSheet("")
-            app_state.set_alias(alias_e.text())
-        def set_alias_color():
-            if not app_state.config.get('alias'):
-                alias_e.setStyleSheet("")
-            elif app_state.alias_info:
-                _alias_addr, _alias_name, validated = app_state.alias_info
-                alias_e.setStyleSheet((ColorScheme.GREEN if validated
-                                       else ColorScheme.RED).as_stylesheet(True))
-            else:
-                alias_e.setStyleSheet(ColorScheme.RED.as_stylesheet(True))
-        app_state.app.alias_resolved.connect(set_alias_color)
-        alias_e.editingFinished.connect(on_alias_edit)
-        set_alias_color()
-
-        # SSL certificate
-        msg = ' '.join([
-            _('SSL certificate used to sign payment requests.'),
-            _('Use setconfig to set ssl_chain and ssl_privkey.'),
-        ])
-        if app_state.config.get('ssl_privkey') or app_state.config.get('ssl_chain'):
-            try:
-                SSL_identity = paymentrequest.check_ssl_config(app_state.config)
-                SSL_error = None
-            except Exception as e:
-                SSL_identity = "error"
-                SSL_error = str(e)
-        else:
-            SSL_identity = ""
-            SSL_error = None
-        SSL_id_label = HelpLabel(_('SSL certificate') + ':', msg)
-        SSL_id_e = QLineEdit(SSL_identity)
-        SSL_id_e.setStyleSheet((ColorScheme.RED if SSL_error else ColorScheme.GREEN)
-                               .as_stylesheet(True) if SSL_identity else '')
-        if SSL_error:
-            SSL_id_e.setToolTip(SSL_error)
-        SSL_id_e.setReadOnly(True)
-
-        return [
-            (alias_label, alias_e),
-            (SSL_id_label, SSL_id_e),
         ]
 
     def extensions_widgets(self, wallet):

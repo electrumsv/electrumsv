@@ -1066,23 +1066,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             URI += "&name=" + req['name'] + "&sig="+sig
         return str(URI)
 
-    def sign_payment_request(self, addr):
-        alias_privkey = None
-        if app_state.alias_info:
-            alias_addr, alias_name, validated = app_state.alias_info
-            if alias_addr and self.wallet.is_mine(alias_addr):
-                msg = '\n'.join([
-                    _('This payment request will be signed.'),
-                    _('Please enter your password')
-                ])
-                password = self.password_dialog(msg)
-                if password:
-                    alias = self.config.get('alias')
-                    try:
-                        self.wallet.sign_payment_request(addr, alias, alias_addr, password)
-                    except Exception as e:
-                        self.show_error(str(e))
-
     def save_payment_request(self):
         if not self.receive_address:
             self.show_error(_('No receiving address'))
@@ -1096,7 +1079,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         req = self.wallet.make_payment_request(self.receive_address, amount,
                                                message, expiration)
         self.wallet.add_payment_request(req, self.config)
-        self.sign_payment_request(self.receive_address)
         self.request_list.update()
         self.address_list.update()
         self.save_request_button.setEnabled(False)
@@ -1525,14 +1507,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                                               for x in errors]))
                 return
             outputs = self.payto_e.get_outputs(self.is_max)
-
-            if self.payto_e.is_alias and self.payto_e.validated is False:
-                alias = self.payto_e.toPlainText()
-                msg = _('WARNING: the alias "{}" could not be validated via an additional '
-                        'security check, DNSSEC, and thus may not be correct.\n').format(alias)
-                msg += _('Do you wish to continue?')
-                if not self.question(msg):
-                    return
 
         outputs.extend(self.get_opreturn_outputs(outputs))
 

@@ -1349,16 +1349,6 @@ class Abstract_Wallet:
         self.storage.put('payment_requests', requests)
         self.storage.write()
 
-    def sign_payment_request(self, key, alias, alias_addr, password):
-        req = self.receive_requests.get(key)
-        alias_privkey = self.export_private_key(alias_addr, password)
-        pr = paymentrequest.make_unsigned_request(req)
-        paymentrequest.sign_request_with_alias(pr, alias, alias_privkey)
-        req['name'] = pr.pki_data
-        req['sig'] = bh2u(pr.signature)
-        self.receive_requests[key] = req
-        self.save_payment_requests()
-
     def add_payment_request(self, req, config, set_address_label=True):
         addr = req['address']
         addr_text = addr.to_string()

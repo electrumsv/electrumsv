@@ -24,7 +24,6 @@
 import json
 
 from .address import Address
-from .dnssec import resolve_openalias
 from .exceptions import FileImportFailed, FileImportFailedEncrypted
 from .logs import logs
 
@@ -89,15 +88,6 @@ class Contacts(dict):
                     'address': addr,
                     'type': 'contact'
                 }
-        out = resolve_openalias(k)
-        if out:
-            address, name, validated = out
-            return {
-                'address': address,
-                'name': name,
-                'type': 'openalias',
-                'validated': validated
-            }
         raise Exception("Invalid Bitcoin address or alias", k)
 
     def _validate(self, data):

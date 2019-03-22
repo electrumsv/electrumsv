@@ -38,7 +38,6 @@ import threading
 
 from bitcoinx import Headers
 
-from .dnssec import resolve_openalias
 from .logs import logs
 from .networks import Net
 
@@ -63,8 +62,6 @@ class AppStateProxy(object):
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get('decimal_point', 8)
         self.num_zeros = config.get('num_zeros', 0)
-        # Ugh
-        self.fetch_alias()
 
     def headers_filename(self):
         return os.path.join(self.config.path, 'headers')
@@ -85,27 +82,6 @@ class AppStateProxy(object):
         if self.decimal_point != prior:
             self.config.set_key('decimal_point', self.decimal_point, True)
         return self.decimal_point != prior
-
-    def set_alias(self, alias):
-        self.config.set_key('alias', alias, True)
-        if alias:
-            self.fetch_alias()
-
-    def fetch_alias(self):
-        self.alias_info = None
-        alias = self.config.get('alias')
-        if alias:
-            alias = str(alias)
-            def f():
-                self.alias_info = resolve_openalias(alias)
-                self.alias_resolved()
-            t = threading.Thread(target=f)
-            t.setDaemon(True)
-            t.start()
-
-    def alias_resolved(self):
-        '''Derived classes can hook into this.'''
-        pass
 
 
 class _AppStateMeta(type):
