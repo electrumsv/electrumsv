@@ -36,6 +36,8 @@ import sys
 import threading
 import time
 
+from bitcoinx import PublicKey
+
 from .logs import logs
 from .startup import package_dir
 from .version import PACKAGE_DATE
@@ -525,13 +527,9 @@ def get_update_check_dates(new_date):
     return release_date, current_date
 
 def get_identified_release_signers(entry):
-    from .address import Address
-    from . import ecc
-    from .networks import SVMainnet
-
     signature_addresses = [
-        ("rt121212121", Address.from_string("1Bu6ABvLAXn1ARFo1gjq6sogpajGbp6iK6", net=SVMainnet)),
-        ("kyuupichan", Address.from_string("1BH8E3TkuJMCcH5WGD11kVweKZuhh6vb7V", net=SVMainnet)),
+        ("rt121212121", "1Bu6ABvLAXn1ARFo1gjq6sogpajGbp6iK6"),
+        ("kyuupichan", "1BH8E3TkuJMCcH5WGD11kVweKZuhh6vb7V"),
     ]
 
     release_version = entry['version']
@@ -539,13 +537,11 @@ def get_identified_release_signers(entry):
     release_signatures = entry.get('signatures', [])
 
     message = release_version + release_date
-    message = message.encode('utf-8')
     signed_names = set()
     for signature in release_signatures:
-        sig = base64.b64decode(signature)
         for signer_name, signer_address in signature_addresses:
             if signer_name not in signed_names:
-                if ecc.verify_message_with_address(signer_address, sig, message):
+                if PublicKey.verify_message_and_address(signature, message, signer_address):
                     signed_names.add(signer_name)
                     break
     return signed_names

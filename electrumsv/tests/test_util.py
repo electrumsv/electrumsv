@@ -1,6 +1,6 @@
 import unittest
 
-from electrumsv.util import format_satoshis
+from electrumsv.util import format_satoshis, get_identified_release_signers
 from electrumsv.web import parse_URI, URIError
 
 
@@ -130,3 +130,16 @@ class TestUtil(unittest.TestCase):
     def test_fail_bitcoincash(self):
         self.assertRaises(URIError, parse_URI,
             'bitcoincash:15mKKb2eos1hWa6tisdPwwDC1a5J1y9nma?label=electrum%20test')
+
+
+def test_get_identified_release_signers():
+    entry = {
+	"version": "1.2.0",
+	"date": "2019-03-20T18:00:00.000000+13:00",
+	"signatures": ["IPHe+QklAmNmIdROtaMXt8YSomu9edExbQSg+Rm8Ckc8Mm1iAvb1yYIo1eqhJvndT9b6gaVtgtjzXaNAnfyKa20=","IOpCqrDwQsOjOyMfr4FiHMeY6ekyHZz/qUJ/eas0KWN/XDl9HegERwL7Qcz+jKWg66X+2k9nT3KBvV0OopNpZd8="]
+    }
+
+    assert get_identified_release_signers(entry) == {'kyuupichan', 'rt121212121'}
+
+    entry['version'] = "1.2"
+    assert not get_identified_release_signers(entry)
