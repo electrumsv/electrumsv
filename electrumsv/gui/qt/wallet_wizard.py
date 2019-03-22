@@ -12,7 +12,7 @@ import enum
 import os
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QTextOption
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QAbstractItemView, QWidget,
     QHBoxLayout, QLabel, QMessageBox, QWizard, QWizardPage, QListWidget,
@@ -25,6 +25,7 @@ from electrumsv.i18n import _
 from electrumsv import keystore
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
+from electrumsv import wallet_support
 from electrumsv.version import PACKAGE_VERSION
 
 from .password_dialog import PasswordDialog
@@ -584,43 +585,30 @@ class AddWalletWizardPage(QWizardPage):
         ]
 
 
-class TextImportTypes(enum.IntEnum):
-    UNKNOWN = 0
-    PRIVATE_KEY_SEED = 10
-    PRIVATE_KEY_MINIKEY = 11
-
-
-def identify_wallet_text(text):
-    text = text.strip()
-
-    if bitcoin.is_minikey(text):
-        return TextImportTypes.PRIVATE_KEY_MINIKEY
-    elif keystore.is_seed(text):
-        return TextImportTypes.PRIVATE_KEY_SEED
-    return TextImportTypes.UNKNOWN
-
-
 class ImportWalletTextPage(QWizardPage):
-    kind_signal = pyqtSignal()
-
     def __init__(self, parent):
         super().__init__(parent)
 
         self.setTitle(_("Import Wallet From Text"))
         self.setFinalPage(False)
 
-        self._text_kind = TextImportTypes.UNKNOWN
+        self._text_matches = set([])
+        self._text_value = None
 
         self.text_area = QTextEdit()
         self.text_area.textChanged.connect(self._on_text_changed)
+        self.text_area.setAcceptRichText(False)
+        self.text_area.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.text_area.setTabChangesFocus(True)
 
-        self.registerField("wallet-type*", self, "_text_kind", self.kind_signal)
+        # Beats me.
+        self.registerField("wallet-import-text*", self.text_area, "plainText",
+            self.text_area.textChanged)
 
         label_text = self._get_label_text()
         label_area = self._label = QLabel(label_text)
         label_area.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
         label_area.setContentsMargins(10, 20, 10, 20)
-        label_area.setTextFormat(Qt.PlainText)
 
         layout = QVBoxLayout()
         layout.addWidget(self.text_area)
@@ -628,38 +616,64 @@ class ImportWalletTextPage(QWizardPage):
 
         self.setLayout(layout)
 
+    def get_text_value(self):
+        return self._text_value
+
+    def set_text_value(self, value):
+        self._text_value = value
+
+    text_value = property(get_text_value, set_text_value)
+
     def _get_label_text(self):
-        text = self.text_area.toPlainText()
+        text = self.text_area.toPlainText().strip()
 
-        if self._text_kind == TextImportTypes.PRIVATE_KEY_MINIKEY:
-            return f"{_('Private key')} ({_('minikey')})"
-        elif self._text_kind == TextImportTypes.PRIVATE_KEY_SEED:
-            return f"{_('Private key')} ({_('seed words')})"
+        general_name = _('Private key')
+        error_name = _('error identifying text')
+        if len(self._text_matches) == 0:
+            if len(text):
+                return _("The text you have entered above is unrecognized.")
+            return _("Please enter some wallet-related text above.")
 
-        if len(text):
-            return _("The text you have entered above is unrecognized.")
-        return _("Please enter some wallet-related text above.")
+        if len(self._text_matches) > 1:
+            return f"{general_name} ({_('ambiguous matches')})"
+
+        if wallet_support.TextImportTypes.PRIVATE_KEY_MINIKEY in self._text_matches:
+            return f"{general_name} ({_('minikey')})"
+
+        if wallet_support.TextImportTypes.PRIVATE_KEY_SEED in self._text_matches:
+            matches = wallet_support.find_matching_seed_word_types(text)
+            error_name = _("error identifying seed words")
+
+            if len(matches) > 1:
+                return f"{general_name} ({_('ambiguous seed words')})"
+            elif wallet_support.SeedWordTypes.ELECTRUM_OLD in matches:
+                return f"{general_name} ({_('Electrum old seed words')})"
+            elif wallet_support.SeedWordTypes.ELECTRUM_NEW in matches:
+                return f"{general_name} ({_('Electrum seed words')})"
+            elif wallet_support.SeedWordTypes.BIP39 in matches:
+                return f"{general_name} ({_('BIP39 seed words')})"
+
+        return f"{_('Private key')} ({error_name})"
 
     def _on_text_changed(self):
         """ The contents of the text area have changed. """
-        text = self.text_area.toPlainText()
-        new_text_kind = identify_wallet_text(text)
-        if new_text_kind != self._text_kind:
-            self._text_kind = new_text_kind
-            self.kind_signal.emit()
+        text = self.text_area.toPlainText().strip()
+        new_text_matches = wallet_support.find_matching_text_import_types(text)
+        if new_text_matches != self._text_matches:
+            self._text_matches = new_text_matches
         self._label.setText(self._get_label_text())
 
     def isFinalPage(self):
         return False
 
     def isComplete(self):
-        return self._text_kind != TextImportTypes.UNKNOWN
+        return len(self._text_matches)
 
     def validatePage(self):
-        return self._text_kind != TextImportTypes.UNKNOWN
+        return len(self._text_matches)
 
     def nextId(self):
-        if self._text_kind != TextImportTypes.UNKNOWN:
+        if len(self._text_matches):
             return Pages.IMPORT_WALLET_IDENTIFY_USAGE
         return Pages.IMPORT_WALLET_TEXT
 
@@ -706,14 +720,8 @@ class ImportWalletIdentifyUsagePage(QWizardPage):
         layout.addStretch(1)
         self.setLayout(layout)
 
-        self.searcher = DerivationPathSearcher()
-        self.searcher.start()
-
-    def _search_derivation_paths(self)
-        pass
-
-    def _search_derivation_paths_complete(self):
-        pass
+        # self.searcher = DerivationPathSearcher()
+        #self.searcher.start()
 
     def isFinalPage(self):
         return False
@@ -727,3 +735,8 @@ class ImportWalletIdentifyUsagePage(QWizardPage):
     def nextId(self):
         return -1
 
+    def on_enter(self):
+        pass
+
+    def on_leave(self):
+        pass
