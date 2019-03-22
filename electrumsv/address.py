@@ -27,7 +27,7 @@
 from collections import namedtuple
 import struct
 
-from bitcoinx import Ops
+from bitcoinx import Ops, PrivateKey
 
 from . import cashaddr
 from .bitcoin import is_minikey, minikey_to_private_key
@@ -116,10 +116,8 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
     def from_WIF_privkey(cls, WIF_privkey):
         '''Create a compressed or uncompressed public key from a private
         key.'''
-        from . import ecc
         privkey, compressed = cls.privkey_from_WIF_privkey(WIF_privkey)
-        ec_key = ecc.ECPrivkey(privkey)
-        return cls.from_pubkey(ec_key.get_public_key_bytes(compressed))
+        return cls.from_pubkey(PrivateKey(privkey).public_key.to_bytes(compressed=compressed))
 
     @classmethod
     def from_string(cls, string):
