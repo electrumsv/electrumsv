@@ -5,7 +5,7 @@ from electrumsv.address import Address
 from electrumsv.keystore import xpubkey_to_address
 from electrumsv.util import bh2u
 
-from bitcoinx import PrivateKey, PublicKey, Tx, script_ops
+from bitcoinx import PrivateKey, PublicKey, Tx, Script
 
 
 unsigned_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000005701ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300feffffffd8e43201000000000118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700'
@@ -233,7 +233,7 @@ class TestTransaction:
 
     def test_update_signatures(self):
         signed_tx = Tx.from_hex(signed_tx_3)
-        sigs = [next(script_ops(input.script_sig))[:-1] for input in signed_tx.inputs]
+        sigs = [next(Script(input.script_sig).ops())[:-1] for input in signed_tx.inputs]
         tx = transaction.Transaction(unsigned_tx)
         tx.update_signatures(sigs)
         assert tx.is_complete()

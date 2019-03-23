@@ -462,13 +462,11 @@ class Transaction:
             if sig in txin.get('signatures'):
                 continue
             pre_hash = sha256d(bfh(self.serialize_preimage(i)))
-            recoverable_sig = bytearray(der_signature_to_compact(signatures[i]))
-            recoverable_sig.append(0)
+            rec_sig_base = der_signature_to_compact(signatures[i])
             for recid in range(4):
-                recoverable_sig[-1] = recid
+                rec_sig = rec_sig_base + bytes([recid])
                 try:
-                    public_key = PublicKey.from_recoverable_signature(
-                        bytes(recoverable_sig), pre_hash, None)
+                    public_key = PublicKey.from_recoverable_signature(rec_sig, pre_hash, None)
                 except (InvalidSignatureError, ValueError):
                     # the point might not be on the curve for some recid values
                     continue
@@ -476,7 +474,7 @@ class Transaction:
                 pubkey_hex = public_key.to_hex()
                 if pubkey_hex in pubkeys:
                     try:
-                        public_key.verify_signature(recoverable_sig, pre_hash, None)
+                        public_key.verify_signature(rec_sig, pre_hash, None)
                     except Exception:
                         logger.exception('')
                         continue
