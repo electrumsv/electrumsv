@@ -486,7 +486,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
 
             siginfo = reply['sign'][0]
             compact_sig = bytes.fromhex(siginfo['sig'])
-            if recid in siginfo:
+            if 'recid' in siginfo:
                 recids = [int(siginfo['recid'], 16)]
             else:
                 recids = range(4)
