@@ -857,7 +857,7 @@ def add_network_options(parser):
                         help="set server host:port:protocol, where protocol is either "
                         "t (tcp) or s (ssl)")
     parser.add_argument("-p", "--proxy", dest="proxy", default=None,
-                        help="set proxy [type:]host[:port], where type is socks4,socks5 or http")
+                        help="set proxy [type:]host[:port], where type is socks4 or socks5")
 
 def add_global_options(parser):
     group = parser.add_argument_group('global options')
