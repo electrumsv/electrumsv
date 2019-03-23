@@ -25,7 +25,8 @@
 import hashlib
 from typing import List
 
-from . import ecc
+from bitcoinx import PrivateKey, PublicKey, be_bytes_to_int, int_to_be_bytes, CURVE_ORDER
+
 from .bitcoin import rev_hex, int_to_hex, EncodeBase58Check, DecodeBase58Check
 from .crypto import hash_160, hmac_oneshot
 from .logs import logs
@@ -44,6 +45,10 @@ class InvalidMasterKeyVersionBytes(BIP32Error):
     pass
 
 
+class InvalidECPointException(Exception):
+    pass
+
+
 def protect_against_invalid_ecpoint(func):
     def func_wrapper(*args):
         n = args[-1]
@@ -51,7 +56,7 @@ def protect_against_invalid_ecpoint(func):
             is_prime = n & BIP32_PRIME
             try:
                 return func(*args[:-1], n=n)
-            except ecc.InvalidECPointException:
+            except InvalidECPointException:
                 logs.root.warning('bip32 protect_against_invalid_ecpoint: skipping index')
                 n += 1
                 is_prime2 = n & BIP32_PRIME
@@ -78,17 +83,17 @@ def CKD_priv(k, c, n):
 
 def _CKD_priv(k, c, s, is_prime):
     try:
-        keypair = ecc.ECPrivkey(k)
-    except ecc.InvalidECPointException as e:
-        raise BIP32Error('Impossible xprv (not within curve order)') from e
-    cK = keypair.get_public_key_bytes(compressed=True)
+        keypair = PrivateKey(k)
+    except ValueError:
+        raise BIP32Error('Impossible xprv (not within curve order)')
+    cK = keypair.public_key.to_bytes(compressed=True)
     data = bytes([0]) + k + s if is_prime else cK + s
     I_full = hmac_oneshot(c, data, hashlib.sha512)
-    I_left = ecc.string_to_number(I_full[0:32])
-    k_n = (I_left + ecc.string_to_number(k)) % ecc.CURVE_ORDER
-    if I_left >= ecc.CURVE_ORDER or k_n == 0:
-        raise ecc.InvalidECPointException()
-    k_n = ecc.number_to_string(k_n, ecc.CURVE_ORDER)
+    I_left = be_bytes_to_int(I_full[0:32])
+    k_n = (I_left + be_bytes_to_int(k)) % CURVE_ORDER
+    if I_left >= CURVE_ORDER or k_n == 0:
+        raise InvalidECPointException()
+    k_n = int_to_be_bytes(k_n, 32)
     c_n = I_full[32:]
     return k_n, c_n
 
@@ -112,10 +117,11 @@ def CKD_pub(cK, c, n):
 # note: 's' does not need to fit into 32 bits here! (c.f. trustedcoin billing)
 def _CKD_pub(cK, c, s):
     I_full = hmac_oneshot(c, cK + s, hashlib.sha512)
-    pubkey = ecc.ECPrivkey(I_full[0:32]) + ecc.ECPubkey(cK)
-    if pubkey.is_at_infinity():
-        raise ecc.InvalidECPointException()
-    cK_n = pubkey.get_public_key_bytes(compressed=True)
+    try:
+        pubkey = PublicKey.from_bytes(cK).add(I_full[0:32])
+    except ValueError:
+        raise InvalidECPointException()
+    cK_n = pubkey.to_bytes(compressed=True)
     c_n = I_full[32:]
     return cK_n, c_n
 
@@ -132,7 +138,7 @@ def xpub_header(xtype, *, net=None):
 
 def serialize_xprv(xtype, c, k, depth=0, fingerprint=b'\x00'*4,
                    child_number=b'\x00'*4, *, net=None):
-    if not ecc.is_secret_within_curve_range(k):
+    if not 0 < be_bytes_to_int(k) < CURVE_ORDER:
         raise BIP32Error('Impossible xprv (not within curve order)')
     xprv = b''.join((xprv_header(xtype, net=net), bytes([depth]), fingerprint,
                      child_number, c, bytes([0]), k))
@@ -164,7 +170,7 @@ def deserialize_xkey(xkey, prv, *, net=None):
     xtype = list(headers.keys())[list(headers.values()).index(header)]
     n = 33 if prv else 32
     K_or_k = xkey[13+n:]
-    if prv and not ecc.is_secret_within_curve_range(K_or_k):
+    if prv and not 0 < be_bytes_to_int(K_or_k) < CURVE_ORDER:
         raise BIP32Error('Impossible xprv (not within curve order)')
     return xtype, depth, fingerprint, child_number, c, K_or_k
 
@@ -199,7 +205,7 @@ def is_xprv(text):
 
 def xpub_from_xprv(xprv):
     xtype, depth, fingerprint, child_number, c, k = deserialize_xprv(xprv)
-    cK = ecc.ECPrivkey(k).get_public_key_bytes(compressed=True)
+    cK = PrivateKey(k).public_key.to_bytes(compressed=True)
     return serialize_xpub(xtype, c, cK, depth, fingerprint, child_number)
 
 
@@ -209,7 +215,7 @@ def bip32_root(seed, xtype):
     master_c = I_full[32:]
     # create xprv first, as that will check if master_k is within curve order
     xprv = serialize_xprv(xtype, master_c, master_k)
-    cK = ecc.ECPrivkey(master_k).get_public_key_bytes(compressed=True)
+    cK = PrivateKey(master_k).public_key.to_bytes(compressed=True)
     xpub = serialize_xpub(xtype, master_c, cK)
     return xprv, xpub
 
@@ -274,10 +280,10 @@ def bip32_private_derivation(xprv, branch, sequence):
         parent_k = k
         k, c = CKD_priv(k, c, i)
         depth += 1
-    parent_cK = ecc.ECPrivkey(parent_k).get_public_key_bytes(compressed=True)
+    parent_cK = PrivateKey(parent_k).public_key.to_bytes(compressed=True)
     fingerprint = hash_160(parent_cK)[0:4]
     child_number = bfh("%08X" % i)
-    cK = ecc.ECPrivkey(k).get_public_key_bytes(compressed=True)
+    cK = PrivateKey(k).public_key.to_bytes(compressed=True)
     xpub = serialize_xpub(xtype, c, cK, depth, fingerprint, child_number)
     xprv = serialize_xprv(xtype, c, k, depth, fingerprint, child_number)
     return xprv, xpub
