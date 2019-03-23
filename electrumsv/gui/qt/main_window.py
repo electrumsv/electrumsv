@@ -34,6 +34,8 @@ import time
 import weakref
 import webbrowser
 
+from bitcoinx import PublicKey
+
 from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl
 from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices, QPixmap
 from PyQt5.QtWidgets import (
@@ -44,7 +46,7 @@ from PyQt5.QtWidgets import (
 )
 
 import electrumsv
-from electrumsv import bitcoin, commands, ecc, keystore, paymentrequest, qrscanner, util
+from electrumsv import bitcoin, commands, keystore, paymentrequest, qrscanner, util
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
@@ -2315,15 +2317,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def do_verify(self, address, message, signature):
         try:
-            address = Address.from_string(address.text().strip())
+            address = Address.from_string(address.text().strip()).to_string()
         except:
             self.show_message(_('Invalid Bitcoin SV address.'))
             return
-        message = message.toPlainText().strip().encode('utf-8')
+        message = message.toPlainText().strip()
         try:
             # This can throw on invalid base64
             sig = base64.b64decode(signature.toPlainText())
-            verified = ecc.verify_message_with_address(address, sig, message)
+            verified = PublicKey.verify_message_and_address(sig, message, address)
         except:
             verified = False
 
@@ -2390,13 +2392,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         message = message_e.toPlainText()
         message = message.encode('utf-8')
         try:
-            public_key = ecc.ECPubkey(bfh(pubkey_e.text()))
+            public_key = PublicKey.from_hex(pubkey_e.text())
         except Exception as e:
             self.logger.exception("")
             self.show_warning(_('Invalid Public key'))
         else:
-            encrypted = public_key.encrypt_message(message)
-            encrypted_e.setText(encrypted.decode('ascii'))
+            encrypted = public_key.encrypt_message_to_base64(message)
+            encrypted_e.setText(encrypted)
 
     def encrypt_message(self, address=None):
         d = WindowModalDialog(self, _('Encrypt/decrypt Message'))
