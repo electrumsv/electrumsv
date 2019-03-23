@@ -1,7 +1,6 @@
 import pytest
 
 from electrumsv.keystore import Imported_KeyStore
-from electrumsv.address import PublicKey as PublicKeyA
 
 
 class TestImported_KeyStore:

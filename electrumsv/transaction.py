@@ -500,7 +500,7 @@ class Transaction:
         d = deserialize(self.raw)
         self._inputs = d['inputs']
         self._outputs = [(x['type'], x['address'], x['value']) for x in d['outputs']]
-        assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
+        assert all(isinstance(output[1], (PublicKeyA, Address, ScriptOutput))
                    for output in self._outputs)
         self.locktime = d['lockTime']
         self.version = d['version']
@@ -508,7 +508,7 @@ class Transaction:
 
     @classmethod
     def from_io(klass, inputs, outputs, locktime=0):
-        assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
+        assert all(isinstance(output[1], (PublicKeyA, Address, ScriptOutput))
                    for output in outputs)
         self = klass(None)
         self._inputs = inputs
@@ -701,7 +701,7 @@ class Transaction:
         self.raw = None
 
     def add_outputs(self, outputs):
-        assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
+        assert all(isinstance(output[1], (PublicKeyA, Address, ScriptOutput))
                    for output in outputs)
         self._outputs.extend(outputs)
         self.raw = None

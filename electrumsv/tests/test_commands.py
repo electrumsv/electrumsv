@@ -2,7 +2,7 @@ import unittest
 from decimal import Decimal
 
 from electrumsv.commands import Commands
-from bitcoinx import PrivateKey, PublicKey
+from bitcoinx import PrivateKey
 
 
 privkey = PrivateKey.from_WIF('L2o1ztYYR9t7DcXGzsV2zKWJUXEmfh3C6vmKM3CCAAfeJ44AkLcr')
