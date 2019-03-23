@@ -24,12 +24,13 @@
 import hashlib
 from unicodedata import normalize
 
+from bitcoinx import PrivateKey
+
 import ecdsa
 from ecdsa.ecdsa import generator_secp256k1
 from ecdsa.curves import SECP256k1
 from ecdsa.util import string_to_number, number_to_string
 
-from . import ecc
 from .address import Address, PublicKey
 from .app_state import app_state
 from .bip32 import (
@@ -104,12 +105,12 @@ class Software_KeyStore(KeyStore):
 
     def sign_message(self, sequence, message, password):
         privkey, compressed = self.get_private_key(sequence, password)
-        key = ecc.ECPrivkey(privkey)
-        return key.sign_message(message, compressed)
+        key = PrivateKey(privkey, compressed)
+        return key.sign_message(message)
 
     def decrypt_message(self, sequence, message, password):
         privkey, compressed = self.get_private_key(sequence, password)
-        key = ecc.ECPrivkey(privkey)
+        key = PrivateKey(privkey)
         return key.decrypt_message(message)
 
     def sign_transaction(self, tx, password):
