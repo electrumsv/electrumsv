@@ -1270,7 +1270,7 @@ class Abstract_Wallet:
         out['status'] = status
         if conf is not None:
             out['confirmations'] = conf
-        # check if bip70 file exists
+        # check if bip270 file exists
         rdir = config.get('requests_dir')
         if rdir:
             key = out.get('id', addr.to_string())
@@ -1340,30 +1340,33 @@ class Abstract_Wallet:
         return result
 
     def save_payment_requests(self):
-        def delete_address(value):
+        def _delete_transient_state(value):
             del value['address']
             return value
 
-        requests = {addr.to_string() : delete_address(value.copy())
-                    for addr, value in self.receive_requests.items()}
+        requests = {
+            address_.to_string(): _delete_transient_state(value.copy())
+            for address_, value in self.receive_requests.items()
+        }
         self.storage.put('payment_requests', requests)
         self.storage.write()
 
     def add_payment_request(self, req, config, set_address_label=True):
-        addr = req['address']
-        addr_text = addr.to_string()
+        address_ = req['address']
+        address_text = address_.to_string()
         amount = req['amount']
         message = req['memo']
-        self.receive_requests[addr] = req
+        self.receive_requests[address_] = req
         self.save_payment_requests()
-        if set_address_label:
-            self.set_label(addr_text, message) # should be a default label
 
-        rdir = config.get('requests_dir')
-        if rdir and amount is not None:
-            key = req.get('id', addr_text)
-            pr = paymentrequest.make_request(config, req)
-            path = os.path.join(rdir, 'req', key[0], key[1], key)
+        if set_address_label:
+            self.set_label(address_text, message) # should be a default label
+
+        requests_path = config.get('requests_dir')
+        if requests_path and amount is not None:
+            key = req.get('id', address_text)
+            pr = paymentrequest.make_unsigned_request(req)
+            path = os.path.join(requests_path, 'req', key[0], key[1], key)
             if not os.path.exists(path):
                 try:
                     os.makedirs(path)
@@ -1373,7 +1376,7 @@ class Abstract_Wallet:
             with open(os.path.join(path, key), 'wb') as f:
                 f.write(pr.SerializeToString())
             # reload
-            req = self.get_payment_request(addr, config)
+            req = self.get_payment_request(address_, config)
             req['address'] = req['address'].to_string()
             with open(os.path.join(path, key + '.json'), 'w', encoding='utf-8') as f:
                 f.write(json.dumps(req))

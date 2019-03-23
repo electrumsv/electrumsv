@@ -24,29 +24,31 @@
 # SOFTWARE.
 
 import json
-import requests
+import os
 import time
+from typing import Any, List, Optional, Tuple
 import urllib.parse
 
+import bitcoinx
+import requests
+
+from . import address
 from . import bitcoin
-# Create with 'protoc --proto_path=lib/ --python_out=lib/ lib/paymentrequest.proto'
-from . import paymentrequest_pb2 as pb2
 from . import transaction
-from . import util
-from .exceptions import FileImportFailed, FileImportFailedEncrypted
+from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .logs import logs
-from .util import bh2u, bfh
+from .util import bfh
 
 
 logger = logs.get_logger("paymentrequest")
 
 REQUEST_HEADERS = {
-    'Accept': 'application/bitcoin-paymentrequest',
+    'Accept': 'application/bitcoinsv-paymentrequest',
     'User-Agent': 'ElectrumSV'
 }
 ACK_HEADERS = {
-    'Content-Type': 'application/bitcoin-payment',
-    'Accept': 'application/bitcoin-paymentack',
+    'Content-Type': 'application/bitcoinsv-payment',
+    'Accept': 'application/bitcoinsv-paymentack',
     'User-Agent': 'ElectrumSV'
 }
 
@@ -62,10 +64,359 @@ PR_PAID    = 3     # send and propagated
 
 
 
-def get_payment_request(url):
-    u = urllib.parse.urlparse(url)
+class Output:
+    def __init__(self, script_asm: str, amount: Optional[int]=None,
+                 description: Optional[str]=None):
+        self.script_asm = script_asm
+        self.description = description
+        self.amount = amount
+
+    def to_ui_dict(self) -> dict:
+        return {
+            'amount': self.amount,
+            'address': self._get_address_from_script_asm(self.script_asm)
+        }
+
+    def get_address_string(self):
+        address_ = self._get_address_from_script_asm(self.script_asm)
+        return address_.to_string()
+
+    def _get_address_from_script_asm(self, script_asm):
+        tokens = script_asm.split(" ")
+        assert len(tokens) == 5
+        assert tokens[0] == "OP_DUP"
+        assert tokens[1] == "OP_HASH160"
+        assert tokens[3] == "OP_EQUALVERIFY"
+        assert tokens[4] == "OP_CHECKSIG"
+        pkh_hex = tokens[2]
+        return address.Address.from_P2PKH_hash(bytes.fromhex(pkh_hex))
+
+    @classmethod
+    def from_dict(klass, data: dict) -> 'Output':
+        if 'script' not in data:
+            raise Bip270Exception("Missing required 'script' field")
+        script_asm = data['script']
+
+        amount = data.get('amount')
+        if amount is not None and type(amount) is not int:
+            raise Bip270Exception("Invalid 'amount' field")
+
+        description = data.get('description')
+        if description is not None and type(description) is not str:
+            raise Bip270Exception("Invalid 'description' field")
+
+        return klass(script_asm, amount, description)
+
+    def to_dict(self) -> dict:
+        data = {
+            'script': self.script_asm,
+        }
+        if self.amount and type(self.amount) is int:
+            data['amount'] = self.amount
+        if self.description:
+            data['description'] = self.description
+        return data
+
+    @classmethod
+    def from_json(klass, s: str) -> 'Output':
+        data = json.loads(s)
+        return klass.from_dict(data)
+
+    def to_json(self) -> str:
+        data = self.to_dict()
+        return json.dumps(data)
+
+
+class PaymentRequest:
+    def __init__(self, outputs, creation_timestamp=None, expiration_timestamp=None, memo=None,
+                 payment_url=None, merchant_data=None):
+        # This is only used if there is a requestor identity (old openalias, needs rewrite).
+        self.id = os.urandom(16).hex()
+        # This is related to identity.
+        self.requestor = None # known after verify
+        self.tx = None
+
+        self.outputs = outputs
+        if creation_timestamp is not None:
+            creation_timestamp = int(creation_timestamp)
+        else:
+            creation_timestamp = int(time.time())
+        self.creation_timestamp = creation_timestamp
+        if expiration_timestamp is not None:
+            expiration_timestamp = int(expiration_timestamp)
+        self.expiration_timestamp = expiration_timestamp
+        self.memo = memo
+        self.payment_url = payment_url
+        self.merchant_data = merchant_data
+
+    def __str__(self) -> str:
+        return self.to_json()
+
+    @classmethod
+    def from_wallet_entry(klass, data: dict) -> 'PaymentRequest':
+        address_ = data['address']
+        amount = data['amount']
+        memo = data['memo']
+
+        creation_timestamp = data.get('time')
+        expiration_timestamp = None
+        expiration_seconds = data.get('exp')
+        if creation_timestamp is not None and expiration_seconds is not None:
+            expiration_timestamp = creation_timestamp + expiration_seconds
+
+        script_asm = bitcoinx.Script.P2PKH_script(address_.hash160).to_asm()
+
+        outputs = [ Output(script_asm, amount) ]
+        return klass(outputs, creation_timestamp, expiration_timestamp, memo)
+
+    @classmethod
+    def from_json(klass, s: str) -> 'PaymentRequest':
+        if len(s) > 10 * 1024 * 1024:
+            raise Bip270Exception(f"Invalid payment request, too large")
+
+        d = json.loads(s)
+
+        network = d.get('network')
+        if network != 'bitcoin':
+            raise Bip270Exception(f"Invalid json network: {network}")
+
+        if 'outputs' not in d:
+            raise Bip270Exception("Missing required json 'outputs' field")
+        if type(d['outputs']) is not list:
+            raise Bip270Exception("Invalid json 'outputs' field")
+
+        outputs = []
+        for ui_dict in d['outputs']:
+            outputs.append(Output.from_dict(ui_dict))
+        pr = klass(outputs)
+
+        if 'creationTimestamp' not in d:
+            raise Bip270Exception("Missing required json 'creationTimestamp' field")
+        creation_timestamp = d['creationTimestamp']
+        if type(creation_timestamp) is not int:
+            raise Bip270Exception("Invalid json 'creationTimestamp' field")
+        pr.creation_timestamp = creation_timestamp
+
+        expiration_timestamp = d.get('expirationTimestamp')
+        if expiration_timestamp is not None and type(expiration_timestamp) is not int:
+            raise Bip270Exception("Invalid json 'expirationTimestamp' field")
+        pr.expiration_timestamp = expiration_timestamp
+
+        memo = d.get('memo')
+        if memo is not None and type(memo) is not str:
+            raise Bip270Exception("Invalid json 'memo' field")
+        pr.memo = memo
+
+        payment_url = d.get('paymentUrl')
+        if payment_url is not None and type(payment_url) is not str:
+            raise Bip270Exception("Invalid json 'paymentUrl' field")
+        pr.payment_url = payment_url
+
+        merchant_data = d.get('merchantData')
+        if merchant_data is not None and type(merchant_data) is not str:
+            raise Bip270Exception("Invalid json 'merchantData' field")
+        pr.merchant_data = merchant_data
+
+        return pr
+
+    def to_json(self) -> str:
+        d = {}
+        d['network'] = 'bitcoin'
+        d['outputs'] = [ output.to_dict() for output in self.outputs ]
+        d['creationTimestamp'] = self.creation_timestamp
+        if self.expiration_timestamp is not None:
+            d['expirationTimestamp'] = self.expiration_timestamp
+        if self.memo is not None:
+            d['memo'] = self.memo
+        if self.payment_url is not None:
+            d['paymentUrl'] = self.payment_url
+        if self.merchant_data is not None:
+            d['merchantData'] = self.merchant_data
+        return json.dumps(d)
+
+    def is_pr(self):
+        return self.get_amount() != 0
+
+    def verify(self, contacts) -> bool:
+        # the address will be dispayed as requestor
+        self.requestor = None
+        return True
+
+    def has_expired(self) -> bool:
+        return self.expiration_timestamp and self.expiration_timestamp < int(time.time())
+
+    def get_expiration_date(self) -> int:
+        return self.expiration_timestamp
+
+    def get_amount(self) -> int:
+        return sum(x.amount for x in self.outputs)
+
+    def get_address(self) -> str:
+        return self.outputs[0].get_address_string()
+
+    def get_requestor(self) -> str:
+        return self.requestor if self.requestor else self.get_address()
+
+    def get_verify_status(self) -> str:
+        return self.error if self.requestor else "No Signature"
+
+    def get_memo(self) -> str:
+        return self.memo
+
+    def get_id(self):
+        return self.id if self.requestor else self.get_address()
+
+    def get_outputs(self) -> List[Output]:
+        return self.outputs[:]
+
+    def send_payment(self, transaction_hex, refund_address) -> Tuple[bool, str]:
+        if not self.payment_url:
+            return False, "no url"
+
+        refund_address_hash160 = address.Address.from_string(refund_address).hash160
+
+        payment_memo = "Paid using ElectrumSV"
+        payment = Payment(self.merchant_data, transaction_hex, [], payment_memo)
+        refund_script_asm = bitcoinx.Script.P2PKH_script(refund_address_hash160).to_asm()
+        payment.refund_outputs.append(Output(refund_script_asm))
+
+        parsed_url = urllib.parse.urlparse(self.payment_url)
+        response = self._make_request(parsed_url.geturl(), payment.to_json())
+        if response is None:
+            return False, "Payment Message/PaymentACK Failed"
+
+        if response.get_status_code() != 200:
+            # Propagate 'Bad request' (HTTP 400) messages to the user since they
+            # contain valuable information.
+            if response.get_status_code() == 400:
+                return False, f"{response.get_reason()}: {response.get_content().decode('UTF-8')}"
+            # Some other errors might display an entire HTML document.
+            # Hide those and just display the name of the error code.
+            return False, response.get_reason()
+        try:
+            payment_ack = PaymentACK.from_json(response.get_content())
+        except Exception:
+            return False, ("PaymentACK could not be processed. Payment was sent; "
+                           "please manually verify that payment was received.")
+
+        logger.debug("PaymentACK message received: %s", payment_ack.memo)
+        return True, payment_ack.memo
+
+    # The following function and classes is abstracted to allow unit testing.
+    def _make_request(self, url, message):
+        try:
+            r = requests.post(url, data=message, headers=ACK_HEADERS, verify=ca_path)
+        except requests.exceptions.SSLError:
+            logger.exception("Payment Message/PaymentACK")
+            return None
+
+        return self._RequestsResponseWrapper(r)
+
+    class _RequestsResponseWrapper:
+        def __init__(self, response):
+            self._response = response
+
+        def get_status_code(self):
+            return self._response.status_code
+
+        def get_reason(self):
+            return self._response.reason
+
+        def get_content(self):
+            return self._response.content
+
+
+class Payment:
+    def __init__(self, merchant_data: Any, transaction_hex: str, refund_outputs: List[Output],
+                 memo: Optional[str]=None):
+        self.merchant_data = merchant_data
+        self.transaction_hex = transaction_hex
+        self.refund_outputs = refund_outputs
+        self.memo = memo
+
+    @classmethod
+    def from_dict(klass, data: dict) -> 'Payment':
+        if 'merchantData' not in data:
+            raise Bip270Exception("Missing required json 'merchantData' field")
+        merchant_data = data['merchantData']
+
+        if 'transaction' not in data:
+            raise Bip270Exception("Missing required json 'transaction' field")
+        transaction_hex = data['transaction']
+        if type(transaction_hex) is not str:
+            raise Bip270Exception("Invalid json 'transaction' field")
+
+        if 'refundTo' not in data:
+            raise Bip270Exception("Missing required json 'refundTo' field")
+        refundTo = data['refundTo']
+        if type(refundTo) is not list:
+            raise Bip270Exception("Invalid json 'refundTo' field")
+        refund_outputs = [ Output.from_dict(data) for data in refundTo ]
+
+        memo = data.get('memo')
+        if memo is not None and type(memo) is not str:
+            raise Bip270Exception("Invalid json 'memo' field")
+
+        return klass(merchant_data, transaction_hex, refund_outputs, memo)
+
+    def to_dict(self) -> dict:
+        data = {
+            'merchantData': self.merchant_data,
+            'transaction': self.transaction_hex,
+            'refundTo': [ output.to_dict() for output in self.refund_outputs ],
+        }
+        if self.memo:
+            data['memo'] = self.memo
+        return data
+
+    @classmethod
+    def from_json(klass, s: str) -> 'Output':
+        data = json.loads(s)
+        return klass.from_dict(data)
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict())
+
+
+class PaymentACK:
+    def __init__(self, payment: Payment, memo: Optional[str]=None):
+        self.payment = payment
+        self.memo = memo
+
+    def to_dict(self):
+        data = {
+            'payment': self.payment.to_json(),
+        }
+        if self.memo:
+            data['memo'] = self.memo
+        return data
+
+    @classmethod
+    def from_dict(klass, data: dict) -> 'PaymentACK':
+        if 'payment' not in data:
+            raise Bip270Exception("Missing required json 'payment' field")
+
+        memo = data.get('memo')
+        if memo is not None and type(memo) is not str:
+            raise Bip270Exception("Invalid json 'memo' field")
+
+        payment = Payment.from_json(data['payment'])
+        return klass(payment, memo)
+
+    def to_json(self) -> str:
+        data = self.to_dict()
+        return json.dumps(data)
+
+    @classmethod
+    def from_json(klass, s: str) -> 'PaymentACK':
+        data = json.loads(s)
+        return klass.from_dict(data)
+
+
+def get_payment_request(url: str) -> PaymentRequest:
     error = None
     response = None
+    u = urllib.parse.urlparse(url)
     if u.scheme in ['http', 'https']:
         try:
             response = requests.request('GET', url, headers=REQUEST_HEADERS)
@@ -92,178 +443,39 @@ def get_payment_request(url):
             data = None
             error = "payment URL not pointing to a valid file"
     else:
-        raise Exception("unknown scheme", url)
-    pr = PaymentRequest(data, error)
-    return pr
+         error = f"unknown scheme {url}"
+
+    if error:
+        raise Bip270Exception(error)
+
+    return PaymentRequest.from_json(data)
 
 
-class PaymentRequest:
-
-    def __init__(self, data, error=None):
-        self.raw = data
-        self.error = error
-        self.parse(data)
-        self.requestor = None # known after verify
-        self.tx = None
-
-    def __str__(self):
-        return str(self.raw)
-
-    def parse(self, r):
-        if self.error:
-            return
-        self.id = bh2u(bitcoin.sha256(r)[0:16])
-        try:
-            self.data = pb2.PaymentRequest()
-            self.data.ParseFromString(r)
-        except:
-            self.error = "cannot parse payment request"
-            return
-        self.details = pb2.PaymentDetails()
-        self.details.ParseFromString(self.data.serialized_payment_details)
-        self.outputs = []
-        for o in self.details.outputs:
-            addr = transaction.get_address_from_output_script(o.script)[1]
-            self.outputs.append((bitcoin.TYPE_ADDRESS, addr, o.amount))
-        self.memo = self.details.memo
-        self.payment_url = self.details.payment_url
-
-    def is_pr(self):
-        return self.get_amount() != 0
-
-    def verify(self, contacts):
-        if self.error:
-            return False
-        if not self.raw:
-            self.error = "Empty request"
-            return False
-        pr = pb2.PaymentRequest()
-        try:
-            pr.ParseFromString(self.raw)
-        except:
-            self.error = "Error: Cannot parse payment request"
-            return False
-        # the address will be dispayed as requestor
-        self.requestor = None
-        return True
-
-    def has_expired(self):
-        return self.details.expires and self.details.expires < int(time.time())
-
-    def get_expiration_date(self):
-        return self.details.expires
-
-    def get_amount(self):
-        return sum(x[2] for x in self.outputs)
-
-    def get_address(self):
-        o = self.outputs[0]
-        assert o[0] == bitcoin.TYPE_ADDRESS
-        return o[1].to_string()
-
-    def get_requestor(self):
-        return self.requestor if self.requestor else self.get_address()
-
-    def get_verify_status(self):
-        return self.error if self.requestor else "No Signature"
-
-    def get_memo(self):
-        return self.memo
-
-    def get_dict(self):
-        return {
-            'requestor': self.get_requestor(),
-            'memo':self.get_memo(),
-            'exp': self.get_expiration_date(),
-            'amount': self.get_amount(),
-            'signature': self.get_verify_status(),
-            'txid': self.tx,
-            'outputs': self.get_outputs()
-        }
-
-    def get_id(self):
-        return self.id if self.requestor else self.get_address()
-
-    def get_outputs(self):
-        return self.outputs[:]
-
-    def send_payment(self, raw_tx, refund_addr):
-        pay_det = self.details
-        if not self.details.payment_url:
-            return False, "no url"
-        paymnt = pb2.Payment()
-        paymnt.merchant_data = pay_det.merchant_data
-        paymnt.transactions.append(bfh(raw_tx))
-        ref_out = paymnt.refund_to.add()
-        ref_out.script = bfh(transaction.Transaction.pay_script(refund_addr))
-        paymnt.memo = "Paid using ElectrumSV"
-        pm = paymnt.SerializeToString()
-        payurl = urllib.parse.urlparse(pay_det.payment_url)
-        try:
-            r = requests.post(payurl.geturl(), data=pm, headers=ACK_HEADERS, verify=ca_path)
-        except requests.exceptions.SSLError:
-            logger.debug("Payment Message/PaymentACK verify Failed")
-            try:
-                r = requests.post(payurl.geturl(), data=pm, headers=ACK_HEADERS, verify=False)
-            except Exception as e:
-                logger.exception("Payment Message/PaymentACK")
-                return False, "Payment Message/PaymentACK Failed"
-        if r.status_code != 200:
-            # Propagate 'Bad request' (HTTP 400) messages to the user since they
-            # contain valuable information.
-            if r.status_code == 400:
-                return False, (r.reason + ": " + r.content.decode('UTF-8'))
-            # Some other errors might display an entire HTML document.
-            # Hide those and just display the name of the error code.
-            return False, r.reason
-        try:
-            paymntack = pb2.PaymentACK()
-            paymntack.ParseFromString(r.content)
-        except Exception:
-            return False, ("PaymentACK could not be processed. Payment was sent; "
-                           "please manually verify that payment was received.")
-        logger.debug("PaymentACK message received: %s", paymntack.memo)
-        return True, paymntack.memo
-
-
-def make_unsigned_request(req):
-    from .transaction import Transaction
-    addr = req['address']
-    time = req.get('time', 0)
-    exp = req.get('exp', 0)
-    if time and type(time) != int:
-        time = 0
-    if exp and type(exp) != int:
-        exp = 0
+def make_unsigned_request(req: dict) -> PaymentRequest:
+    address = req['address']
+    creation_timestamp = req.get('time')
+    expiration_seconds = req.get('exp')
+    if creation_timestamp and type(creation_timestamp) is not int:
+        creation_timestamp = None
+    if expiration_seconds and type(expiration_seconds) is not int:
+        expiration_seconds = None
     amount = req['amount']
     if amount is None:
         amount = 0
     memo = req['memo']
-    script = bfh(Transaction.pay_script(addr))
-    outputs = [(script, amount)]
-    pd = pb2.PaymentDetails()
-    for script, amount in outputs:
-        pd.outputs.add(amount=amount, script=script)
-    pd.time = time
-    pd.expires = time + exp if exp else 0
-    pd.memo = memo
-    pr = pb2.PaymentRequest()
-    pr.serialized_payment_details = pd.SerializeToString()
-    pr.signature = util.to_bytes('')
+
+    script_bytes = bfh(transaction.Transaction.pay_script(address))
+    script_asm = bitcoinx.Script(script_bytes).to_asm()
+
+    pr = PaymentRequest([ Output(script_asm, amount=amount) ])
+    pr.creation_timestamp = creation_timestamp
+    if expiration_seconds is not None:
+        pr.expiration_timestamp = creation_timestamp + expiration_seconds
+    pr.memo = memo
     return pr
 
 
-def serialize_request(req):
-    return make_unsigned_request(req)
-
-
-def make_request(config, req):
-    return make_unsigned_request(req)
-
-
-
 class InvoiceStore(object):
-
     def __init__(self, storage):
         self.storage = storage
         self.invoices = {}
@@ -304,7 +516,6 @@ class InvoiceStore(object):
         l = {}
         for k, pr in self.invoices.items():
             l[k] = {
-                'hex': bh2u(pr.raw),
                 'requestor': pr.requestor,
                 'txid': pr.tx
             }

@@ -52,5 +52,10 @@ class UserCancelled(Exception):
     '''An exception that is suppressed from the user'''
     pass
 
+
 class UserQuit(Exception):
+    pass
+
+
+class Bip270Exception(Exception):
     pass

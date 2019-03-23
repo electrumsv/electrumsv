@@ -17,3 +17,4 @@ for k, v in results.items():
 
 print("Received %d answers"%len(results))
 print("Propagation rate: %.1f percent" % (len(r1) *100./(len(r1)+ len(r2))))
+

@@ -125,20 +125,12 @@ def parse_URI(uri, on_pr=None):
         out['time'] = int(out['time'])
     if 'exp' in out:
         out['exp'] = int(out['exp'])
-    if 'sig' in out:
-        out['sig'] = bh2u(bitcoin.base_decode(out['sig'], None, base=58))
 
-    r = out.get('r')
-    sig = out.get('sig')
-    name = out.get('name')
-    if on_pr and (r or (name and sig)):
+    payment_url = out.get('r')
+    if on_pr and payment_url:
         def get_payment_request_thread():
-            from . import paymentrequest as pr
-            if name and sig:
-                s = pr.serialize_request(out).SerializeToString()
-                request = pr.PaymentRequest(s)
-            else:
-                request = pr.get_payment_request(r)
+            from . import paymentrequest
+            request = paymentrequest.get_payment_request(payment_url)
             if on_pr:
                 on_pr(request)
         t = threading.Thread(target=get_payment_request_thread)

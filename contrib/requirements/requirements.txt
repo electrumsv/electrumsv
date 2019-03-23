@@ -2,7 +2,6 @@ pyaes>=0.1a1
 ecdsa>=0.13
 requests
 qrcode
-protobuf
 jsonrpclib-pelix
 aiorpcX==0.10.5
 python-dateutil>=2.8.0

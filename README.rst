@@ -74,11 +74,6 @@ Run the pip installs (this should install dependencies)::
     pip3 install .
     pip3 install electrumsv-secp256k1
 
-Compile the protobuf description file::
-
-    sudo apt-get install protobuf-compiler
-    protoc --proto_path=lib/ --python_out=lib/ lib/paymentrequest.proto
-
 Create translations (optional)::
 
     sudo apt-get install python-requests gettext

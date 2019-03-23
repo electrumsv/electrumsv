@@ -1062,10 +1062,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             URI += "&time=%d"%req.get('time')
         if req.get('exp'):
             URI += "&exp=%d"%req.get('exp')
-        if req.get('name') and req.get('sig'):
-            sig = bfh(req.get('sig'))
-            sig = bitcoin.base_encode(sig, base=58)
-            URI += "&name=" + req['name'] + "&sig="+sig
         return str(URI)
 
     def save_payment_request(self):
@@ -1099,13 +1095,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def export_payment_request(self, addr):
         r = self.wallet.receive_requests[addr]
-        pr = paymentrequest.serialize_request(r).SerializeToString()
-        name = r['id'] + '.bip70'
+        pr_data = paymentrequest.PaymentRequest.from_wallet_entry(r).to_json()
+        name = r['id'] + '.bip270.json'
         fileName = self.getSaveFileName(_("Select where to save your payment request"),
-                                        name, "*.bip70")
+                                        name, "*.bip270.json")
         if fileName:
-            with open(fileName, "wb+") as f:
-                f.write(util.to_bytes(pr))
+            with open(fileName, "w") as f:
+                f.write(pr_data)
             self.show_message(_("Request saved successfully"))
             self.saved = True
 
@@ -1778,12 +1774,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_error(str(e))
             return
         self.show_send_tab()
-        r = out.get('r')
-        sig = out.get('sig')
-        name = out.get('name')
-        if r or (name and sig):
+
+        payment_url = out.get('r')
+        if payment_url:
             self.prepare_for_payment_request()
             return
+
         address = out.get('address')
         amount = out.get('amount')
         label = out.get('label')
@@ -1963,11 +1959,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             grid.addWidget(QLabel(format_time(expires, _("Unknown"))), 4, 1)
         vbox.addLayout(grid)
         def do_export():
-            fn = self.getSaveFileName(_("Save invoice to file"), "*.bip70")
+            fn = self.getSaveFileName(_("Save invoice to file"), "*.bip270.json")
             if not fn:
                 return
-            with open(fn, 'wb') as f:
-                data = f.write(pr.raw)
+            with open(fn, 'w') as f:
+                data = f.write(pr.to_json())
             self.show_message(_('Invoice saved as' + ' ' + fn))
         exportButton = EnterButton(_('Save'), do_export)
         def do_delete():
