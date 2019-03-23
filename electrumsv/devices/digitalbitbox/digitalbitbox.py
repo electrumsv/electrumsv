@@ -14,6 +14,8 @@ import requests
 import struct
 import time
 
+from bitcoinx import PublicKey
+
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import TYPE_ADDRESS, push_script, msg_magic, public_key_to_p2pkh
 from electrumsv.crypto import (sha256d, EncodeAES_base64, EncodeAES_bytes, DecodeAES_bytes,
@@ -483,29 +485,22 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             if 'sign' not in reply:
                 raise Exception(_("Could not sign message."))
 
-            if 'recid' in reply['sign'][0]:
+            siginfo = reply['sign'][0]
+            compact_sig = bytes.fromhex(siginfo['sig'])
+            if recid in siginfo:
+                recids = [int(siginfo['recid'], 16)]
+            else:
+                recids = range(4)
+            for recid in recids:
                 # firmware > v2.1.1
-                sig_string = bytes.fromhex(reply['sign'][0]['sig'])
-                recid = int(reply['sign'][0]['recid'], 16)
-                sig = ecc.construct_sig65(sig_string, recid, True)
-                pubkey, compressed = ecc.ECPubkey.from_signature65(sig, msg_hash)
-                addr = public_key_to_p2pkh(pubkey.get_public_key_bytes(compressed=compressed))
-                if not ecc.verify_message_with_address(addr, sig, message):
-                    raise RuntimeError(_("Could not sign message"))
-            elif 'pubkey' in reply['sign'][0]:
-                # firmware <= v2.1.1
-                for rec_id in range(4):
-                    sig_string = bytes.fromhex(reply['sign'][0]['sig'])
-                    sig = ecc.construct_sig65(sig_string, recid, True)
-                    try:
-                        addr = public_key_to_p2pkh(bytes.fromhex(reply['sign'][0]['pubkey']))
-                        if ecc.verify_message_with_address(addr, sig, message):
-                            break
-                    except Exception:
-                        continue
-                else:
-                    raise RuntimeError(_("Could not sign message"))
-
+                recoverable_sig = compact_sig + bytes([recid])
+                try:
+                    pubkey = PublicKey.from_recoverable_signature(recoverable_sig, msg_hash, None)
+                except Exception:
+                    continue
+                if pubkey.verify_message(recoverable_sig, message):
+                    return recoverable_sig
+            raise RuntimeError(_("Could not sign message"))
         except Exception as e:
             self.give_error(e)
         return sig
@@ -644,22 +639,21 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     if len(signatures) == num:
                         break # txin is complete
                     ii = txin['pubkeys'].index(pubkey)
-                    signed = dbb_signatures[i]
-                    if 'recid' in signed:
+                    siginfo = dbb_signatures[i]
+                    compact_sig = bytes.fromhex(siginfo['sig'])
+                    if 'recid' in siginfo:
                         # firmware > v2.1.1
-                        recid = int(signed['recid'], 16)
-                        s = bytes.fromhex(signed['sig'])
+                        recid = int(siginfo['recid'], 16)
+                        recoverable_sig = compact_sig + bytes([recid])
                         h = inputhasharray[i]
-                        pk = ecc.ECPubkey.from_sig_string(s, recid, h)
-                        pk = pk.get_public_key_hex(compressed=True)
-                    elif 'pubkey' in signed:
+                        pk = PublicKey.from_recoverable_signature(recoverable_sig, h, None)
+                        pk = pk.to_hex(compressed=True)
+                    elif 'pubkey' in siginfo:
                         # firmware <= v2.1.1
-                        pk = signed['pubkey']
+                        pk = siginfo['pubkey']
                     if pk != pubkey:
                         continue
-                    sig_r = int(signed['sig'][:64], 16)
-                    sig_s = int(signed['sig'][64:], 16)
-                    sig = (ecc.der_sig_from_r_and_s(sig_r, sig_s) +
+                    sig = (compact_signature_to_der(compact_sig) +
                            bytes([Transaction.nHashType() & 255]))
                     tx.add_signature_to_txin(i, ii, sig.hex())
         except UserCancelled:
