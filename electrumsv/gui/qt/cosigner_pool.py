@@ -27,7 +27,9 @@ from functools import partial
 import time
 from xmlrpc.client import ServerProxy
 
-from electrumsv import util, keystore, ecc
+from bitcoinx import PublicKey, PrivateKey
+
+from electrumsv import util, keystore
 from electrumsv import transaction
 from electrumsv.app_state import app_state
 from electrumsv.bip32 import deserialize_xpub, deserialize_xprv
@@ -160,7 +162,7 @@ class CosignerPool(object):
         for item in self.items:
             if self.is_theirs(wallet, item, tx):
                 raw_tx_bytes = bfh(str(tx))
-                public_key = ecc.ECPubkey(item.K)
+                public_key = PublicKey.from_bytes(item.K)
                 message = public_key.encrypt_message(raw_tx_bytes).decode('ascii')
                 WaitingDialog(item.window, _('Sending transaction to cosigning pool...'),
                               send_message, on_done=partial(on_done, item.window))
@@ -204,7 +206,7 @@ class CosignerPool(object):
             return
         try:
             k = deserialize_xprv(xprv)[-1]
-            EC = ecc.ECPrivkey(k)
+            EC = PrivateKey(k)
             message = bh2u(EC.decrypt_message(message))
         except Exception as e:
             logger.exception("")
