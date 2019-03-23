@@ -25,11 +25,12 @@
 
 import struct
 
-from bitcoinx import Ops, hash_to_hex_str
+from bitcoinx import (
+    PublicKey, PrivateKey, Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
+)
 
-from . import ecc
 from .address import (
-    PublicKey, Address, Script, ScriptOutput, UnknownAddress
+    PublicKey as PublicKeyA, Address, Script, ScriptOutput, UnknownAddress
 )
 from .bitcoin import (
     to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, op_push,
@@ -285,7 +286,7 @@ def get_address_from_output_script(_bytes):
     # 65 BYTES:... CHECKSIG
     match = [ Ops.OP_PUSHDATA4, Ops.OP_CHECKSIG ]
     if _match_decoded(decoded, match):
-        return TYPE_PUBKEY, PublicKey.from_pubkey(decoded[0][1])
+        return TYPE_PUBKEY, PublicKeyA.from_pubkey(decoded[0][1])
 
     # Pay-by-Bitcoin-address TxOuts look like:
     # DUP HASH160 20 BYTES:... EQUALVERIFY CHECKSIG
@@ -445,8 +446,8 @@ class Transaction:
     def update_signatures(self, signatures):
         """Add new signatures to a transaction
 
-        `signatures` is expected to be a list of sigs with signatures[i]
-        intended for self._inputs[i].
+        `signatures` is expected to be a list of binary sigs with signatures[i]
+        intended for self._inputs[i], without the SIGHASH appended.
         This is used by hardware device code.
         """
         if self.is_complete():
@@ -461,17 +462,21 @@ class Transaction:
             if sig in txin.get('signatures'):
                 continue
             pre_hash = sha256d(bfh(self.serialize_preimage(i)))
-            sig_string = ecc.sig_string_from_der_sig(bfh(sig[:-2]))
+            recoverable_sig = bytearray(der_signature_to_compact(signatures[i]))
+            recoverable_sig.append(0)
             for recid in range(4):
+                recoverable_sig[-1] = recid
                 try:
-                    public_key = ecc.ECPubkey.from_sig_string(sig_string, recid, pre_hash)
-                except ecc.InvalidECPointException:
+                    public_key = PublicKey.from_recoverable_signature(
+                        bytes(recoverable_sig), pre_hash, None)
+                except (InvalidSignatureError, ValueError):
                     # the point might not be on the curve for some recid values
                     continue
-                pubkey_hex = public_key.get_public_key_hex(compressed=True)
+                # public key is compressed
+                pubkey_hex = public_key.to_hex()
                 if pubkey_hex in pubkeys:
                     try:
-                        public_key.verify_message_hash(sig_string, pre_hash)
+                        public_key.verify_signature(recoverable_sig, pre_hash, None)
                     except Exception:
                         logger.exception('')
                         continue
@@ -753,7 +758,7 @@ class Transaction:
                     sec, compressed = keypairs.get(x_pubkey)
                     sig = self.sign_txin(i, sec)
                     txin['signatures'][j] = sig
-                    pubkey = ecc.ECPrivkey(sec).get_public_key_hex(compressed)
+                    pubkey = PrivateKey(sec).public_key.to_hex(compressed=compressed)
                     txin['pubkeys'][j] = pubkey # needed for fd keys
                     self._inputs[i] = txin
         logger.debug("is_complete %s", self.is_complete())
@@ -761,8 +766,8 @@ class Transaction:
 
     def sign_txin(self, txin_index, privkey_bytes):
         pre_hash = sha256d(bfh(self.serialize_preimage(txin_index)))
-        privkey = ecc.ECPrivkey(privkey_bytes)
-        sig = privkey.sign_transaction(pre_hash)
+        privkey = PrivateKey(privkey_bytes)
+        sig = privkey.sign(pre_hash, None)
         sig = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
         return sig
 

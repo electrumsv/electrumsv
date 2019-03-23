@@ -232,12 +232,9 @@ class TestTransaction:
         assert tx.txid() == "b83acf939a92c420d0cb8d45d5d4dfad4e90369ebce0f49a45808dc1b41259b0"
 
     def test_update_signatures(self):
-        tx = transaction.Transaction(unsigned_tx)
-        # FIXME: replace with Tx.from_hex()
-        from io import BytesIO
-        read = BytesIO(bytes.fromhex(signed_tx_3)).read
-        signed_tx = Tx.read(read)
+        signed_tx = Tx.from_hex(signed_tx_3)
         sigs = [next(script_ops(input.script_sig))[:-1] for input in signed_tx.inputs]
+        tx = transaction.Transaction(unsigned_tx)
         tx.update_signatures(sigs)
         assert tx.is_complete()
         assert tx.txid() == "b83acf939a92c420d0cb8d45d5d4dfad4e90369ebce0f49a45808dc1b41259b0"
