@@ -5,6 +5,9 @@ from electrumsv.address import Address
 from electrumsv.keystore import xpubkey_to_address
 from electrumsv.util import bh2u
 
+from bitcoinx import PrivateKey, PublicKey, Tx, script_ops
+
+
 unsigned_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000005701ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300feffffffd8e43201000000000118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700'
 signed_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000006a473044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f46885412103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166feffffff0118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700'
 v2_blob = "0200000001191601a44a81e061502b7bfbc6eaa1cef6d1e6af5308ef96c9342f71dbf4b9b5000000006b483045022100a6d44d0a651790a477e75334adfb8aae94d6612d01187b2c02526e340a7fd6c8022028bdf7a64a54906b13b145cd5dab21a26bd4b85d6044e9b97bceab5be44c2a9201210253e8e0254b0c95776786e40984c1aa32a7d03efa6bdacdea5f421b774917d346feffffff026b20fa04000000001976a914024db2e87dd7cfd0e5f266c5f212e21a31d805a588aca0860100000000001976a91421919b94ae5cefcdf0271191459157cdb41c4cbf88aca6240700"
@@ -177,3 +180,64 @@ class NetworkMock(object):
 
     def synchronous_get(self, _arg):
         return self.unspent
+
+
+# 2 inputs, one for each priv_key below
+unsigned_tx = "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000002401ff2102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff146000000000000f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000002401ff21030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff415901000000000001de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800"
+
+priv_keys = [PrivateKey.from_WIF(WIF) for WIF in (
+    "KzjWgFAozj8EfMFpeCBshWA69QXG7Kj7nMYHjSkkcTM8DM8GF1Hd",
+    "KyY5VaoqPwjSgGpKHT3JJKDcxXMeqYo6umK7u1h3iBt9n9aihiPs",
+)]
+
+
+# First priv key only signed
+signed_tx_1 = "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000002401ff2102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff146000000000000f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000006b483045022100fa8ebdc7cefc407fd1b560fb2e2e5e96e900e94634d96df4fd284126048746a2022028d91ca132a1a386a67df69a2c5ba216218870c256c163d729f1575f7a8824f54121030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff01de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800"
+
+
+# Second priv key only signed
+signed_tx_2 = "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000006b4830450221008dc02fa531a9a704f5c01abdeb58930514651565b42abf94f6ad1565d0ad6785022027b1396f772c696629a4a09b01aed2416861aeaee05d0ff4a2e6fdfde73ec84d412102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000002401ff21030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff415901000000000001de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800"
+
+
+# Both priv keys signed
+signed_tx_3 = "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000006b4830450221008dc02fa531a9a704f5c01abdeb58930514651565b42abf94f6ad1565d0ad6785022027b1396f772c696629a4a09b01aed2416861aeaee05d0ff4a2e6fdfde73ec84d412102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000006b483045022100fa8ebdc7cefc407fd1b560fb2e2e5e96e900e94634d96df4fd284126048746a2022028d91ca132a1a386a67df69a2c5ba216218870c256c163d729f1575f7a8824f54121030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff01de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800"
+
+
+class TestTransaction:
+
+    def sign_tx(self, unsigned_tx_hex, priv_keys):
+        keypairs = {priv_key.public_key.to_hex(): (priv_key.to_bytes(), priv_key.is_compressed())
+                    for priv_key in priv_keys}
+        tx = transaction.Transaction(unsigned_tx_hex)
+        tx.sign(keypairs)
+        return tx
+
+    def test_sign_tx_1(self):
+        # Test signing the first input only
+        tx = self.sign_tx(unsigned_tx, [priv_keys[0]])
+        assert tx.raw == signed_tx_1
+        assert not tx.is_complete()
+
+    def test_sign_tx_2(self):
+        # Test signing the second input only
+        tx = self.sign_tx(unsigned_tx, [priv_keys[1]])
+        assert tx.raw == signed_tx_2
+        assert not tx.is_complete()
+
+    def test_sign_tx_3(self):
+        # Test signing both
+        tx = self.sign_tx(unsigned_tx, priv_keys)
+        assert tx.raw == signed_tx_3
+        assert tx.is_complete()
+        assert tx.txid() == "b83acf939a92c420d0cb8d45d5d4dfad4e90369ebce0f49a45808dc1b41259b0"
+
+    def test_update_signatures(self):
+        tx = transaction.Transaction(unsigned_tx)
+        # FIXME: replace with Tx.from_hex()
+        from io import BytesIO
+        read = BytesIO(bytes.fromhex(signed_tx_3)).read
+        signed_tx = Tx.read(read)
+        sigs = [next(script_ops(input.script_sig))[:-1] for input in signed_tx.inputs]
+        tx.update_signatures(sigs)
+        assert tx.is_complete()
+        assert tx.txid() == "b83acf939a92c420d0cb8d45d5d4dfad4e90369ebce0f49a45808dc1b41259b0"
