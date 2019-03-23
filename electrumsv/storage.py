@@ -34,8 +34,9 @@ import stat
 import threading
 import zlib
 
+from bitcoinx import PrivateKey, PublicKey
+
 from . import bitcoin
-from . import ecc
 from .address import Address
 from .keystore import bip44_derivation
 from .logs import logs
@@ -131,8 +132,7 @@ class WalletStorage:
     @staticmethod
     def get_eckey_from_password(password):
         secret = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), b'', iterations=1024)
-        ec_key = ecc.ECPrivkey.from_arbitrary_size_secret(secret)
-        return ec_key
+        return PrivateKey.from_arbitrary_bytes(secret)
 
     def decrypt(self, password):
         ec_key = self.get_eckey_from_password(password)
@@ -140,7 +140,7 @@ class WalletStorage:
             s = zlib.decompress(ec_key.decrypt_message(self.raw))
         else:
             s = None
-        self.pubkey = ec_key.get_public_key_hex()
+        self.pubkey = ec_key.public_key.to_hex()
         s = s.decode('utf8')
         self.load_data(s)
 
@@ -148,7 +148,7 @@ class WalletStorage:
         self.put('use_encryption', bool(password))
         if encrypt and password:
             ec_key = self.get_eckey_from_password(password)
-            self.pubkey = ec_key.get_public_key_hex()
+            self.pubkey = ec_key.public_key.to_hex()
         else:
             self.pubkey = None
 
@@ -190,12 +190,8 @@ class WalletStorage:
             return
         s = json.dumps(self.data, indent=4, sort_keys=True)
         if self.pubkey:
-            s = bytes(s, 'utf8')
-            c = zlib.compress(s)
-            enc_magic = b'BIE1'
-            public_key = ecc.ECPubkey(bfh(self.pubkey))
-            s = public_key.encrypt_message(c, enc_magic)
-            s = s.decode('utf8')
+            c = zlib.compress(s.encode())
+            s = PublicKey.from_hex(self.pubkey).encrypt_message_to_base64(c)
 
         temp_path = "%s.tmp.%s" % (self.path, os.getpid())
         with open(temp_path, "w", encoding='utf-8') as f:
