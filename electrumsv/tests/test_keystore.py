@@ -1,6 +1,7 @@
 import pytest
 
 from electrumsv.keystore import Imported_KeyStore
+from electrumsv.address import PublicKey as PublicKeyA
 
 
 class TestImported_KeyStore:
@@ -34,3 +35,23 @@ class TestImported_KeyStore:
         d = Imported_KeyStore({})
         with pytest.raises(Exception):
             d.import_privkey(WIF, b'')
+
+    def test_sign_message(self):
+        password = b'password'
+        message = 'BitcoinSV'
+        d = Imported_KeyStore({})
+        pubkey = d.import_privkey("5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ", password)
+        msg_sig = d.sign_message(pubkey, message, password)
+        assert msg_sig.hex() == (
+            '1c26a18cb236e54bbe7e3db56639ef5cbefcf5a2e28850cdd304970832f84031'
+            'fc073bed1a151f0510e5558a22d23f16ed8032a1b74ffcac05227c053e1a1d8af5'
+        )
+
+    def test_decrypt_message(self):
+        password = b'password'
+        enc_msg = ('QklFMQNkonLnVmRMF3dl+P0rHSbM4lvDPmnE2CFcD+98gGsOe6qtKtmVbCg4'
+                   '9bxmT6vfmzl7udrvT81wH1Ri7wZItndtLiNHii6FBNVzoSV/1ZqN3w==')
+        d = Imported_KeyStore({})
+        pubkey = d.import_privkey("5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ", password)
+        dec_msg = d.decrypt_message(pubkey, enc_msg, password)
+        assert dec_msg == b'BitcoinSV'
