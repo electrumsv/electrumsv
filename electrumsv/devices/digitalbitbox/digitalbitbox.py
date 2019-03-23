@@ -14,13 +14,12 @@ import requests
 import struct
 import time
 
-from bitcoinx import PublicKey
+from bitcoinx import PublicKey, compact_signature_to_der
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import TYPE_ADDRESS, push_script, msg_magic, public_key_to_p2pkh
+from electrumsv.bitcoin import TYPE_ADDRESS, push_script, msg_magic
 from electrumsv.crypto import (sha256d, EncodeAES_base64, EncodeAES_bytes, DecodeAES_bytes,
     hmac_oneshot)
-import electrumsv.ecc as ecc
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore

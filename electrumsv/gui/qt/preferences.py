@@ -28,11 +28,11 @@ from functools import partial
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QTabWidget, QGridLayout, QLineEdit, QLabel, QComboBox, QVBoxLayout,
+    QTabWidget, QGridLayout, QLabel, QComboBox, QVBoxLayout,
     QWidget, QSpinBox, QCheckBox, QDialog, QGroupBox
 )
 
-from electrumsv import paymentrequest, qrscanner
+from electrumsv import qrscanner
 from electrumsv.app_state import app_state
 from electrumsv.extensions import label_sync
 from electrumsv.extensions import extensions
@@ -41,7 +41,7 @@ import electrumsv.web as web
 
 from .amountedit import BTCSatsByteEdit
 from .util import (
-    ColorScheme, HelpButton, HelpLabel, Buttons, CloseButton, MessageBox,
+    HelpButton, HelpLabel, Buttons, CloseButton, MessageBox,
 )
 
 

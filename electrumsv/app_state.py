@@ -34,7 +34,6 @@ etc.
 '''
 
 import os
-import threading
 
 from bitcoinx import Headers
 

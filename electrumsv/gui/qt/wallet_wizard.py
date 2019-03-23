@@ -20,9 +20,7 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.app_state import app_state
-from electrumsv import bitcoin
 from electrumsv.i18n import _
-from electrumsv import keystore
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
 from electrumsv import wallet_support

@@ -40,7 +40,7 @@ from . import bitcoin
 from .address import Address
 from .keystore import bip44_derivation
 from .logs import logs
-from .util import profiler, bfh
+from .util import profiler
 
 
 logger = logs.get_logger("storage")
