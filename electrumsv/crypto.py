@@ -141,14 +141,9 @@ def sha256d(x: Union[bytes, str]) -> bytes:
 
 
 def hash_160(x: bytes) -> bytes:
-    try:
-        md = hashlib.new('ripemd160')
-        md.update(sha256(x))
-        return md.digest()
-    except Exception:
-        from . import ripemd
-        md = ripemd.new(sha256(x))
-        return md.digest()
+    md = hashlib.new('ripemd160')
+    md.update(sha256(x))
+    return md.digest()
 
 
 def hmac_oneshot(key: bytes, msg: bytes, digest) -> bytes:
