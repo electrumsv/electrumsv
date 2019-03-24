@@ -65,39 +65,6 @@ def protect_against_invalid_ecpoint(func):
     return func_wrapper
 
 
-# Child private key derivation function (from master private key)
-# k = master private key (32 bytes)
-# c = master chain code (extra entropy for key derivation) (32 bytes)
-# n = the index of the key we want to derive. (only 32 bits will be used)
-# If n is hardened (i.e. the 32nd bit is set), the resulting private key's
-#  corresponding public key can NOT be determined without the master private key.
-# However, if n is not hardened, the resulting private key's corresponding
-#  public key can be determined without the master private key.
-@protect_against_invalid_ecpoint
-def CKD_priv(k, c, n):
-    if n < 0:
-        raise BIP32Error('the bip32 index needs to be non-negative')
-    is_prime = n & BIP32_PRIME
-    return _CKD_priv(k, c, bfh(rev_hex(int_to_hex(n, 4))), is_prime)
-
-
-def _CKD_priv(k, c, s, is_prime):
-    try:
-        keypair = PrivateKey(k)
-    except ValueError:
-        raise BIP32Error('Impossible xprv (not within curve order)')
-    cK = keypair.public_key.to_bytes(compressed=True)
-    data = bytes([0]) + k + s if is_prime else cK + s
-    I_full = hmac_oneshot(c, data, hashlib.sha512)
-    I_left = be_bytes_to_int(I_full[0:32])
-    k_n = (I_left + be_bytes_to_int(k)) % CURVE_ORDER
-    if I_left >= CURVE_ORDER or k_n == 0:
-        raise InvalidECPointException()
-    k_n = int_to_be_bytes(k_n, 32)
-    c_n = I_full[32:]
-    return k_n, c_n
-
-
 # Child public key derivation function (from public key only)
 # K = master public key
 # c = master chain code
@@ -258,30 +225,6 @@ def is_bip32_derivation(x: str) -> bool:
         return True
     except Exception:
         return False
-
-
-def bip32_private_derivation(xprv, branch, sequence):
-    if not sequence.startswith(branch):
-        raise BIP32Error('incompatible branch ({}) and sequence ({})'
-                         .format(branch, sequence))
-    if branch == sequence:
-        return xprv, xpub_from_xprv(xprv)
-    depth, fingerprint, child_number, c, k = deserialize_xprv(xprv)
-    sequence = sequence[len(branch):]
-    for n in sequence.split('/'):
-        if n == '':
-            continue
-        i = int(n[:-1]) + BIP32_PRIME if n[-1] == "'" else int(n)
-        parent_k = k
-        k, c = CKD_priv(k, c, i)
-        depth += 1
-    parent_cK = PrivateKey(parent_k).public_key.to_bytes(compressed=True)
-    fingerprint = hash_160(parent_cK)[0:4]
-    child_number = bfh("%08X" % i)
-    cK = PrivateKey(k).public_key.to_bytes(compressed=True)
-    xpub = serialize_xpub(c, cK, depth, fingerprint, child_number)
-    xprv = serialize_xprv(c, k, depth, fingerprint, child_number)
-    return xprv, xpub
 
 
 def bip32_public_derivation(xpub, branch, sequence):

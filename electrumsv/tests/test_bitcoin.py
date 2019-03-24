@@ -7,7 +7,7 @@ from electrumsv.bitcoin import (
     var_int, op_push, deserialize_privkey, serialize_privkey,
     is_minikey, seed_type, EncodeBase58Check,
     push_script, int_to_hex)
-from electrumsv.bip32 import (bip32_root, bip32_public_derivation, bip32_private_derivation,
+from electrumsv.bip32 import (bip32_root, bip32_public_derivation,
                             xpub_from_xprv, is_xprv, is_bip32_derivation,
                             is_xpub, bip32_path_to_uints)
 from electrumsv.crypto import sha256d
@@ -247,32 +247,6 @@ class Test_xprv_xpub(SequentialTestCase):
         {'xprv': 'xprvA41z7zogVVwxVSgdKUHDy1SKmdb533PjDz7J6N6mV6uS3ze1ai8FHa8kmHScGpWmj4WggLyQjgPie1rFSruoUihUZREPSL39UNdE3BBDu76',
          'xpub': 'xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy'},
     )
-
-    def _do_test_bip32(self, seed, sequence):
-        xprv, xpub = bip32_root(bfh(seed))
-        self.assertEqual("m/", sequence[0:2])
-        path = 'm'
-        sequence = sequence[2:]
-        for n in sequence.split('/'):
-            child_path = path + '/' + n
-            if n[-1] != "'":
-                xpub2 = bip32_public_derivation(xpub, path, child_path)
-            xprv, xpub = bip32_private_derivation(xprv, path, child_path)
-            if n[-1] != "'":
-                self.assertEqual(xpub, xpub2)
-            path = child_path
-
-        return xpub, xprv
-
-    def test_bip32(self):
-        # see https://en.bitcoin.it/wiki/BIP_0032_TestVectors
-        xpub, xprv = self._do_test_bip32("000102030405060708090a0b0c0d0e0f", "m/0'/1/2'/2/1000000000")
-        self.assertEqual("xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy", xpub)
-        self.assertEqual("xprvA41z7zogVVwxVSgdKUHDy1SKmdb533PjDz7J6N6mV6uS3ze1ai8FHa8kmHScGpWmj4WggLyQjgPie1rFSruoUihUZREPSL39UNdE3BBDu76", xprv)
-
-        xpub, xprv = self._do_test_bip32("fffcf9f6f3f0edeae7e4e1dedbd8d5d2cfccc9c6c3c0bdbab7b4b1aeaba8a5a29f9c999693908d8a8784817e7b7875726f6c696663605d5a5754514e4b484542","m/0/2147483647'/1/2147483646'/2")
-        self.assertEqual("xpub6FnCn6nSzZAw5Tw7cgR9bi15UV96gLZhjDstkXXxvCLsUXBGXPdSnLFbdpq8p9HmGsApME5hQTZ3emM2rnY5agb9rXpVGyy3bdW6EEgAtqt", xpub)
-        self.assertEqual("xprvA2nrNbFZABcdryreWet9Ea4LvTJcGsqrMzxHx98MMrotbir7yrKCEXw7nadnHM8Dq38EGfSh6dqA9QWTyefMLEcBYJUuekgW4BYPJcr9E7j", xprv)
 
     def test_xpub_from_xprv(self):
         """We can derive the xpub key from a xprv."""

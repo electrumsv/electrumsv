@@ -26,13 +26,13 @@ from unicodedata import normalize
 
 from bitcoinx import (
     PrivateKey, PublicKey as PublicKeyX, int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
-    bip32_key_from_string, Base58Error
+    bip32_key_from_string, Base58Error, bip32_decompose_chain_string
 )
 
 from .address import Address, PublicKey
 from .app_state import app_state
 from .bip32 import (
-    bip32_public_derivation, bip32_private_derivation, bip32_root,
+    bip32_public_derivation, bip32_root,
     xpub_from_xprv, is_xpub, is_xprv
 )
 from .bitcoin import (
@@ -382,8 +382,10 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
 
     def add_xprv_from_seed(self, bip32_seed, derivation):
         xprv, xpub = bip32_root(bip32_seed)
-        xprv, xpub = bip32_private_derivation(xprv, "m/", derivation)
-        self.add_xprv(xprv)
+        xprv = bip32_key_from_string(xprv)
+        for n in bip32_decompose_chain_string(derivation):
+            xprv = xprv.child_safe(n)
+        self.add_xprv(xprv.extended_key_string())
 
     def get_private_key(self, sequence, password):
         xprv = self.get_master_private_key(password)
@@ -743,7 +745,7 @@ def from_seed(seed, passphrase, is_p2sh):
         keystore.add_seed(seed)
         keystore.passphrase = passphrase
         bip32_seed = Mnemonic.mnemonic_to_seed(seed, passphrase)
-        der = "m/"
+        der = "m"
         keystore.add_xprv_from_seed(bip32_seed, der)
     else:
         raise InvalidSeed()
