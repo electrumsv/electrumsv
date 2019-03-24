@@ -25,7 +25,7 @@
 
 import hashlib
 
-import ecdsa
+from bitcoinx import be_bytes_to_int
 
 from .logs import logs
 from .util import profiler, bh2u
@@ -245,8 +245,8 @@ class X509(object):
             exponent = spk.next_node(modulus)
             rsa_n = spk.get_value_of_type(modulus, 'INTEGER')
             rsa_e = spk.get_value_of_type(exponent, 'INTEGER')
-            self.modulus = ecdsa.util.string_to_number(rsa_n)
-            self.exponent = ecdsa.util.string_to_number(rsa_e)
+            self.modulus = be_bytes_to_int(rsa_n)
+            self.exponent = be_bytes_to_int(rsa_e)
         else:
             subject_public_key = der.next_node(public_key_algo)
             spk = der.get_value_of_type(subject_public_key, 'BIT STRING')
