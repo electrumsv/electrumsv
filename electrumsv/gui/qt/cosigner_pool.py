@@ -27,12 +27,12 @@ from functools import partial
 import time
 from xmlrpc.client import ServerProxy
 
-from bitcoinx import PublicKey, PrivateKey
+from bitcoinx import PublicKey, bip32_key_from_string
+
 
 from electrumsv import util, keystore
 from electrumsv import transaction
 from electrumsv.app_state import app_state
-from electrumsv.bip32 import deserialize_xpub, deserialize_xprv
 from electrumsv.crypto import sha256d
 from electrumsv.extensions import cosigner_pool
 from electrumsv.i18n import _
@@ -120,7 +120,8 @@ class CosignerPool(object):
             items = []
             for key, keystore in wallet.keystores.items():
                 xpub = keystore.get_master_public_key()
-                K = deserialize_xpub(xpub)[-1]
+                pubkey = bip32_key_from_string(xpub)
+                K = pubkey.to_bytes()
                 K_hash = bh2u(sha256d(K))
                 items.append(CosignerItem(window, xpub, K, K_hash, keystore.is_watching_only()))
             # Presumably atomic
@@ -204,10 +205,9 @@ class CosignerPool(object):
         xprv = wallet.keystore.get_master_private_key(password)
         if not xprv:
             return
+        privkey = bip32_key_from_string(xprv)
         try:
-            k = deserialize_xprv(xprv)[-1]
-            EC = PrivateKey(k)
-            message = bh2u(EC.decrypt_message(message))
+            message = bh2u(privkey.decrypt_message(message))
         except Exception as e:
             logger.exception("")
             window.show_error(_('Error decrypting message') + ':\n' + str(e))
