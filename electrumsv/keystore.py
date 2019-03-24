@@ -790,4 +790,4 @@ def from_master_key(text):
 def bip32_root(seed):
     I_full = hmac_oneshot(b"Bitcoin seed", seed, hashlib.sha512)
     derivation = BIP32Derivation(chain_code=I_full[32:], n=0, depth=0, parent_fingerprint=bytes(4))
-    return BIP32PrivateKey(I_full[:32], derivation, Bitcoin).extended_key_string()
+    return BIP32PrivateKey(I_full[:32], derivation, Net.COIN).extended_key_string()
