@@ -35,7 +35,7 @@ import sys
 import threading
 import time
 
-from bitcoinx import PublicKey
+from bitcoinx import PublicKey, be_bytes_to_int
 
 from .logs import logs
 from .startup import package_dir
@@ -232,6 +232,10 @@ def assert_str(*args):
     for x in args:
         assert isinstance(x, str)
 
+
+def random_integer(nbits):
+    nbytes = (nbits + 7) // 8
+    return be_bytes_to_int(os.urandom(nbytes)) % (1 << nbits)
 
 
 def to_string(x, enc):
