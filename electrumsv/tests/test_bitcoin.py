@@ -7,7 +7,7 @@ from electrumsv.bitcoin import (
     var_int, op_push, deserialize_privkey, serialize_privkey,
     is_minikey, seed_type, EncodeBase58Check,
     push_script, int_to_hex)
-from electrumsv.bip32 import (bip32_root, bip32_public_derivation,
+from electrumsv.bip32 import (bip32_root,
                             xpub_from_xprv, is_xprv, is_bip32_derivation,
                             is_xpub, bip32_path_to_uints)
 from electrumsv.crypto import sha256d

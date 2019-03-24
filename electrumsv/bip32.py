@@ -45,54 +45,6 @@ class InvalidMasterKeyVersionBytes(BIP32Error):
     pass
 
 
-class InvalidECPointException(Exception):
-    pass
-
-
-def protect_against_invalid_ecpoint(func):
-    def func_wrapper(*args):
-        n = args[-1]
-        while True:
-            is_prime = n & BIP32_PRIME
-            try:
-                return func(*args[:-1], n=n)
-            except InvalidECPointException:
-                logs.root.warning('bip32 protect_against_invalid_ecpoint: skipping index')
-                n += 1
-                is_prime2 = n & BIP32_PRIME
-                if is_prime != is_prime2:
-                    raise OverflowError()
-    return func_wrapper
-
-
-# Child public key derivation function (from public key only)
-# K = master public key
-# c = master chain code
-# n = index of key we want to derive
-# This function allows us to find the nth public key, as long as n is
-#  not hardened. If n is hardened, we need the master private key to find it.
-@protect_against_invalid_ecpoint
-def CKD_pub(cK, c, n):
-    if n < 0:
-        raise BIP32Error('the bip32 index needs to be non-negative')
-    if n & BIP32_PRIME:
-        raise BIP32Error()
-    return _CKD_pub(cK, c, bfh(rev_hex(int_to_hex(n, 4))))
-
-
-# helper function, callable with arbitrary string.
-# note: 's' does not need to fit into 32 bits here! (c.f. trustedcoin billing)
-def _CKD_pub(cK, c, s):
-    I_full = hmac_oneshot(c, cK + s, hashlib.sha512)
-    try:
-        pubkey = PublicKey.from_bytes(cK).add(I_full[0:32])
-    except ValueError:
-        raise InvalidECPointException()
-    cK_n = pubkey.to_bytes(compressed=True)
-    c_n = I_full[32:]
-    return cK_n, c_n
-
-
 def xprv_header(*, net=None):
     net = net or Net
     return bfh("%08x" % net.XPRV_HEADERS['standard'])
@@ -225,21 +177,3 @@ def is_bip32_derivation(x: str) -> bool:
         return True
     except Exception:
         return False
-
-
-def bip32_public_derivation(xpub, branch, sequence):
-    depth, fingerprint, child_number, c, cK = deserialize_xpub(xpub)
-    if not sequence.startswith(branch):
-        raise BIP32Error('incompatible branch ({}) and sequence ({})'
-                         .format(branch, sequence))
-    sequence = sequence[len(branch):]
-    for n in sequence.split('/'):
-        if n == '':
-            continue
-        i = int(n)
-        parent_cK = cK
-        cK, c = CKD_pub(cK, c, i)
-        depth += 1
-    fingerprint = hash_160(parent_cK)[0:4]
-    child_number = bfh("%08X" % i)
-    return serialize_xpub(c, cK, depth, fingerprint, child_number)

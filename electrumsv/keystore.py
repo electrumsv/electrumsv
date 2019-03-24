@@ -31,10 +31,7 @@ from bitcoinx import (
 
 from .address import Address, PublicKey
 from .app_state import app_state
-from .bip32 import (
-    bip32_public_derivation, bip32_root,
-    xpub_from_xprv, is_xpub, is_xprv
-)
+from .bip32 import bip32_root, xpub_from_xprv, is_xpub, is_xprv
 from .bitcoin import (
     bh2u, bfh, DecodeBase58Check, EncodeBase58Check, is_seed, seed_type,
     rev_hex, script_to_address, int_to_hex, is_private_key
@@ -275,7 +272,8 @@ class Xpub:
     def derive_pubkey(self, for_change, n):
         xpub = self.xpub_change if for_change else self.xpub_receive
         if xpub is None:
-            xpub = bip32_public_derivation(self.xpub, "", "/%d"%for_change)
+            xpub = bip32_key_from_string(self.xpub)
+            xpub = xpub.child(1 if for_change else 0).extended_key_string()
             if for_change:
                 self.xpub_change = xpub
             else:
