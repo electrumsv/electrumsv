@@ -8,7 +8,7 @@ from electrumsv.bitcoin import (
     is_minikey, seed_type, EncodeBase58Check,
     push_script, int_to_hex)
 from electrumsv.bip32 import (bip32_root, bip32_public_derivation, bip32_private_derivation,
-                            xpub_from_xprv, xpub_type, is_xprv, is_bip32_derivation,
+                            xpub_from_xprv, is_xprv, is_bip32_derivation,
                             is_xpub, bip32_path_to_uints)
 from electrumsv.crypto import sha256d
 from electrumsv import crypto
@@ -245,12 +245,11 @@ class Test_xprv_xpub(SequentialTestCase):
     xprv_xpub = (
         # Taken from test vectors in https://en.bitcoin.it/wiki/BIP_0032_TestVectors
         {'xprv': 'xprvA41z7zogVVwxVSgdKUHDy1SKmdb533PjDz7J6N6mV6uS3ze1ai8FHa8kmHScGpWmj4WggLyQjgPie1rFSruoUihUZREPSL39UNdE3BBDu76',
-         'xpub': 'xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy',
-         'xtype': 'standard'},
+         'xpub': 'xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy'},
     )
 
     def _do_test_bip32(self, seed, sequence):
-        xprv, xpub = bip32_root(bfh(seed), 'standard')
+        xprv, xpub = bip32_root(bfh(seed))
         self.assertEqual("m/", sequence[0:2])
         path = 'm'
         sequence = sequence[2:]
@@ -287,11 +286,6 @@ class Test_xprv_xpub(SequentialTestCase):
             self.assertTrue(is_xpub(xpub))
         self.assertFalse(is_xpub('xpub1nval1d'))
         self.assertFalse(is_xpub('xpub661MyMwAqRbcFWohJWt7PHsFEJfZAvw9ZxwQoDa4SoMgsDDM1T7WK3u9E4edkC4ugRnZ8E4xDZRpk8Rnts3Nbt97dPwT52WRONGBADWRONG'))
-
-    def test_xpub_type(self):
-        for xprv_details in self.xprv_xpub:
-            xpub = xprv_details['xpub']
-            self.assertEqual(xprv_details['xtype'], xpub_type(xpub))
 
     def test_is_xprv(self):
         for xprv_details in self.xprv_xpub:

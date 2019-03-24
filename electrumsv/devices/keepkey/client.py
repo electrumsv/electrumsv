@@ -113,11 +113,11 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
     def i4b(self, x):
         return pack('>I', x)
 
-    def get_xpub(self, bip32_path, xtype):
+    def get_xpub(self, bip32_path):
         address_n = self.expand_path(bip32_path)
         creating = False
         node = self.get_public_node(address_n, creating).node
-        return serialize_xpub(xtype, node.chain_code, node.public_key, node.depth,
+        return serialize_xpub(node.chain_code, node.public_key, node.depth,
                               self.i4b(node.fingerprint), self.i4b(node.child_num))
 
     def toggle_passphrase(self):

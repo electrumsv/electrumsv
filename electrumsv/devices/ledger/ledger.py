@@ -77,7 +77,7 @@ class Ledger_Client():
         return catch_exception
 
     @test_pin_unlocked
-    def get_xpub(self, bip32_path, xtype):
+    def get_xpub(self, bip32_path):
         self.checkDevice()
         # bip32_path is of the form 44'/0'/1'
         # S-L-O-W - we don't handle the fingerprint directly, so compute
@@ -102,7 +102,7 @@ class Ledger_Client():
         depth = len(splitPath)
         lastChild = splitPath[len(splitPath) - 1].split('\'')
         childnum = int(lastChild[0]) if len(lastChild) == 1 else 0x80000000 | int(lastChild[0])
-        xpub = bip32.serialize_xpub(xtype, nodeData['chainCode'], publicKey, depth,
+        xpub = bip32.serialize_xpub(nodeData['chainCode'], publicKey, depth,
                                     self.i4b(fingerprint), self.i4b(childnum))
         return xpub
 
@@ -510,11 +510,11 @@ class LedgerPlugin(HW_PluginBase):
         # TODO replace by direct derivation once Nano S > 1.1
         client.get_xpub("m/44'/0'", 'standard')
 
-    def get_xpub(self, device_id, derivation, xtype, wizard):
+    def get_xpub(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)
         client.handler = self.create_handler(wizard)
         client.checkDevice()
-        xpub = client.get_xpub(derivation, xtype)
+        xpub = client.get_xpub(derivation)
         return xpub
 
     def get_client(self, keystore, force_pair=True):

@@ -271,9 +271,8 @@ class BaseWizard(object):
                          test=bip32.is_bip32_derivation)
 
     def on_hw_derivation(self, name, device_info, derivation):
-        xtype = 'standard'
         try:
-            xpub = self.plugin.get_xpub(device_info.device.id_, derivation, xtype, self)
+            xpub = self.plugin.get_xpub(device_info.device.id_, derivation, self)
         except Exception as e:
             self.show_error(e)
             return
@@ -332,33 +331,15 @@ class BaseWizard(object):
         self.on_keystore(k)
 
     def on_keystore(self, k):
-        has_xpub = isinstance(k, keystore.Xpub)
-        if has_xpub:
-            t1 = bip32.xpub_type(k.xpub)
         if self.wallet_type == 'standard':
-            if has_xpub and t1 not in ['standard']:
-                self.show_error(_('Wrong key type') + ' %s'%t1)
-                self.run('choose_keystore')
-                return
             self.keystores.append(k)
             self.run('create_wallet')
         elif self.wallet_type == 'multisig':
-            assert has_xpub
-            if t1 not in ['standard']:
-                self.show_error(_('Wrong key type') + ' %s'%t1)
-                self.run('choose_keystore')
-                return
+            assert isinstance(k, keystore.Xpub)
             if k.xpub in [x.xpub for x in self.keystores]:
                 self.show_error(_('Error: duplicate master public key'))
                 self.run('choose_keystore')
                 return
-            if len(self.keystores)>0:
-                t2 = bip32.xpub_type(self.keystores[0].xpub)
-                if t1 != t2:
-                    self.show_error(_('Cannot add this cosigner:') + '\n' +
-                                    "Their key type is '%s', we are '%s'"%(t1, t2))
-                    self.run('choose_keystore')
-                    return
             self.keystores.append(k)
             if len(self.keystores) == 1:
                 xpub = k.get_master_public_key()

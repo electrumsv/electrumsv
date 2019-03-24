@@ -40,7 +40,6 @@ import time
 from aiorpcx import run_in_thread
 from bitcoinx import PrivateKey
 
-from . import bip32
 from . import bitcoin
 from . import coinchooser
 from . import paymentrequest
@@ -1848,11 +1847,7 @@ class Simple_Deterministic_Wallet(Simple_Wallet, Deterministic_Wallet):
 
     def load_keystore(self):
         self.keystore = load_keystore(self.storage, 'keystore')
-        try:
-            xtype = bip32.xpub_type(self.keystore.xpub)
-        except:
-            xtype = 'standard'
-        self.txin_type = 'p2pkh' if xtype == 'standard' else xtype
+        self.txin_type = 'p2pkh'
 
     def get_pubkey(self, c, i):
         return self.derive_pubkeys(c, i)
@@ -1914,8 +1909,7 @@ class Multisig_Wallet(Deterministic_Wallet):
             name = 'x%d/'%(i+1)
             self.keystores[name] = load_keystore(self.storage, name)
         self.keystore = self.keystores['x1/']
-        xtype = bip32.xpub_type(self.keystore.xpub)
-        self.txin_type = 'p2sh' if xtype == 'standard' else xtype
+        self.txin_type = 'p2sh'
 
     def save_keystore(self):
         for name, k in self.keystores.items():

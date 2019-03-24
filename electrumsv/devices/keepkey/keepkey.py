@@ -327,7 +327,7 @@ class KeepKeyPlugin(HW_PluginBase):
                             if is_xpubkey(x_pubkey):
                                 xpub, s = parse_xpubkey(x_pubkey)
                             else:
-                                xpub = xpub_from_pubkey('standard', bfh(x_pubkey))
+                                xpub = xpub_from_pubkey(bfh(x_pubkey))
                                 s = []
                             node = self.ckd_public.deserialize(xpub)
                             return self.types.HDNodePathType(node=node, address_n=s)

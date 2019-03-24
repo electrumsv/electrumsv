@@ -283,7 +283,7 @@ class Xpub:
 
     @classmethod
     def get_pubkey_from_xpub(self, xpub, sequence):
-        _, _, _, _, c, cK = deserialize_xpub(xpub)
+        _, _, _, c, cK = deserialize_xpub(xpub)
         for i in sequence:
             cK, c = CKD_pub(cK, c, i)
         return bh2u(cK)
@@ -357,7 +357,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         except Exception:
             # Password was None but key was encrypted.
             raise InvalidPassword()
-        if deserialize_xprv(xprv)[4] != deserialize_xpub(self.xpub)[4]:
+        if deserialize_xprv(xprv)[3] != deserialize_xpub(self.xpub)[3]:
             raise InvalidPassword()
 
     def update_password(self, old_password, new_password):
@@ -381,14 +381,14 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         self.xprv = xprv
         self.xpub = xpub_from_xprv(xprv)
 
-    def add_xprv_from_seed(self, bip32_seed, xtype, derivation):
-        xprv, xpub = bip32_root(bip32_seed, xtype)
+    def add_xprv_from_seed(self, bip32_seed, derivation):
+        xprv, xpub = bip32_root(bip32_seed)
         xprv, xpub = bip32_private_derivation(xprv, "m/", derivation)
         self.add_xprv(xprv)
 
     def get_private_key(self, sequence, password):
         xprv = self.get_master_private_key(password)
-        _, _, _, _, c, k = deserialize_xprv(xprv)
+        _, _, _, c, k = deserialize_xprv(xprv)
         pk = bip32_private_key(sequence, k, c)
         return pk, True
 
@@ -640,8 +640,7 @@ def bip39_is_checksum_valid(mnemonic):
 def from_bip39_seed(seed, passphrase, derivation):
     k = BIP32_KeyStore({})
     bip32_seed = bip39_to_seed(seed, passphrase)
-    t = 'standard'  # bip43
-    k.add_xprv_from_seed(bip32_seed, t, derivation)
+    k.add_xprv_from_seed(bip32_seed, derivation)
     return k
 
 # extended pubkeys
@@ -745,8 +744,7 @@ def from_seed(seed, passphrase, is_p2sh):
         keystore.passphrase = passphrase
         bip32_seed = Mnemonic.mnemonic_to_seed(seed, passphrase)
         der = "m/"
-        xtype = 'standard'
-        keystore.add_xprv_from_seed(bip32_seed, xtype, der)
+        keystore.add_xprv_from_seed(bip32_seed, der)
     else:
         raise InvalidSeed()
     return keystore

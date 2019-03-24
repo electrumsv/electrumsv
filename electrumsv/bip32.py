@@ -126,33 +126,33 @@ def _CKD_pub(cK, c, s):
     return cK_n, c_n
 
 
-def xprv_header(xtype, *, net=None):
+def xprv_header(*, net=None):
     net = net or Net
-    return bfh("%08x" % net.XPRV_HEADERS[xtype])
+    return bfh("%08x" % net.XPRV_HEADERS['standard'])
 
 
-def xpub_header(xtype, *, net=None):
+def xpub_header(*, net=None):
     net = net or Net
-    return bfh("%08x" % net.XPUB_HEADERS[xtype])
+    return bfh("%08x" % net.XPUB_HEADERS['standard'])
 
 
-def serialize_xprv(xtype, c, k, depth=0, fingerprint=b'\x00'*4,
+def serialize_xprv(c, k, depth=0, fingerprint=b'\x00'*4,
                    child_number=b'\x00'*4, *, net=None):
     if not 0 < be_bytes_to_int(k) < CURVE_ORDER:
         raise BIP32Error('Impossible xprv (not within curve order)')
-    xprv = b''.join((xprv_header(xtype, net=net), bytes([depth]), fingerprint,
+    xprv = b''.join((xprv_header(net=net), bytes([depth]), fingerprint,
                      child_number, c, bytes([0]), k))
     return EncodeBase58Check(xprv)
 
 
-def serialize_xpub(xtype, c, cK, depth=0, fingerprint=b'\x00'*4,
+def serialize_xpub(c, cK, depth=0, fingerprint=b'\x00'*4,
                    child_number=b'\x00'*4, *, net=None):
-    xpub = xpub_header(xtype, net=net) \
+    xpub = xpub_header(net=net) \
            + bytes([depth]) + fingerprint + child_number + c + cK
     return EncodeBase58Check(xpub)
 
 
-def deserialize_xkey(xkey, prv, *, net=None):
+def _deserialize_xkey(xkey, prv, *, net=None):
     net = net or Net
     xkey = DecodeBase58Check(xkey)
     if len(xkey) != 78:
@@ -167,24 +167,19 @@ def deserialize_xkey(xkey, prv, *, net=None):
     if header not in headers.values():
         raise InvalidMasterKeyVersionBytes('Invalid extended key format: {}'
                                            .format(hex(header)))
-    xtype = list(headers.keys())[list(headers.values()).index(header)]
     n = 33 if prv else 32
     K_or_k = xkey[13+n:]
     if prv and not 0 < be_bytes_to_int(K_or_k) < CURVE_ORDER:
         raise BIP32Error('Impossible xprv (not within curve order)')
-    return xtype, depth, fingerprint, child_number, c, K_or_k
+    return depth, fingerprint, child_number, c, K_or_k
 
 
 def deserialize_xpub(xkey, *, net=None):
-    return deserialize_xkey(xkey, False, net=net)
+    return _deserialize_xkey(xkey, False, net=net)
 
 
 def deserialize_xprv(xkey, *, net=None):
-    return deserialize_xkey(xkey, True, net=net)
-
-
-def xpub_type(x):
-    return deserialize_xpub(x)[0]
+    return _deserialize_xkey(xkey, True, net=net)
 
 
 def is_xpub(text):
@@ -204,26 +199,26 @@ def is_xprv(text):
 
 
 def xpub_from_xprv(xprv):
-    xtype, depth, fingerprint, child_number, c, k = deserialize_xprv(xprv)
+    depth, fingerprint, child_number, c, k = deserialize_xprv(xprv)
     cK = PrivateKey(k).public_key.to_bytes(compressed=True)
-    return serialize_xpub(xtype, c, cK, depth, fingerprint, child_number)
+    return serialize_xpub(c, cK, depth, fingerprint, child_number)
 
 
-def bip32_root(seed, xtype):
+def bip32_root(seed):
     I_full = hmac_oneshot(b"Bitcoin seed", seed, hashlib.sha512)
     master_k = I_full[0:32]
     master_c = I_full[32:]
     # create xprv first, as that will check if master_k is within curve order
-    xprv = serialize_xprv(xtype, master_c, master_k)
+    xprv = serialize_xprv(master_c, master_k)
     cK = PrivateKey(master_k).public_key.to_bytes(compressed=True)
-    xpub = serialize_xpub(xtype, master_c, cK)
+    xpub = serialize_xpub(master_c, cK)
     return xprv, xpub
 
 
-def xpub_from_pubkey(xtype, cK):
+def xpub_from_pubkey(cK):
     if cK[0] not in (0x02, 0x03):
         raise BIP32Error('Unexpected first byte: {}'.format(cK[0]))
-    return serialize_xpub(xtype, b'\x00'*32, cK)
+    return serialize_xpub(b'\x00'*32, cK)
 
 
 def bip32_derivation(s: str) -> int:
@@ -271,7 +266,7 @@ def bip32_private_derivation(xprv, branch, sequence):
                          .format(branch, sequence))
     if branch == sequence:
         return xprv, xpub_from_xprv(xprv)
-    xtype, depth, fingerprint, child_number, c, k = deserialize_xprv(xprv)
+    depth, fingerprint, child_number, c, k = deserialize_xprv(xprv)
     sequence = sequence[len(branch):]
     for n in sequence.split('/'):
         if n == '':
@@ -284,13 +279,13 @@ def bip32_private_derivation(xprv, branch, sequence):
     fingerprint = hash_160(parent_cK)[0:4]
     child_number = bfh("%08X" % i)
     cK = PrivateKey(k).public_key.to_bytes(compressed=True)
-    xpub = serialize_xpub(xtype, c, cK, depth, fingerprint, child_number)
-    xprv = serialize_xprv(xtype, c, k, depth, fingerprint, child_number)
+    xpub = serialize_xpub(c, cK, depth, fingerprint, child_number)
+    xprv = serialize_xprv(c, k, depth, fingerprint, child_number)
     return xprv, xpub
 
 
 def bip32_public_derivation(xpub, branch, sequence):
-    xtype, depth, fingerprint, child_number, c, cK = deserialize_xpub(xpub)
+    depth, fingerprint, child_number, c, cK = deserialize_xpub(xpub)
     if not sequence.startswith(branch):
         raise BIP32Error('incompatible branch ({}) and sequence ({})'
                          .format(branch, sequence))
@@ -304,7 +299,7 @@ def bip32_public_derivation(xpub, branch, sequence):
         depth += 1
     fingerprint = hash_160(parent_cK)[0:4]
     child_number = bfh("%08X" % i)
-    return serialize_xpub(xtype, c, cK, depth, fingerprint, child_number)
+    return serialize_xpub(c, cK, depth, fingerprint, child_number)
 
 
 def bip32_private_key(sequence, k, chain):

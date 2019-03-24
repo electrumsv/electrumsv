@@ -121,11 +121,11 @@ class TrezorClientSV:
     def i4b(self, x):
         return pack('>I', x)
 
-    def get_xpub(self, bip32_path, xtype, creating=False):
+    def get_xpub(self, bip32_path, creating=False):
         address_n = bip32_path_to_uints(bip32_path)
         with self.run_flow(creating_wallet=creating):
             node = trezorlib.btc.get_public_node(self.client, address_n).node
-        return serialize_xpub(xtype, node.chain_code, node.public_key, node.depth,
+        return serialize_xpub(node.chain_code, node.public_key, node.depth,
                               self.i4b(node.fingerprint), self.i4b(node.child_num))
 
     def toggle_passphrase(self):
