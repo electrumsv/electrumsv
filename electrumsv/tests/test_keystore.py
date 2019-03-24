@@ -1,7 +1,9 @@
 import pytest
 
 from electrumsv.exceptions import InvalidPassword
-from electrumsv.keystore import Imported_KeyStore, Old_KeyStore, BIP32_KeyStore
+from electrumsv.keystore import (
+    Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed,
+)
 from electrumsv.crypto import pw_encode
 
 
@@ -126,3 +128,11 @@ class TestBIP32_KeyStore:
         if password is not None:
             with pytest.raises(InvalidPassword):
                 keystore.check_password(None)
+
+
+def test_from_bip39_seed():
+    keystore = from_bip39_seed('foo bar baz', '', "m/44'/0'/0'")
+    assert keystore.xprv == ('xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCe'
+                             'gAUNEp1uXXEncSAyro5CaJFwv7wYFcBQrF6MfWYoAXsTw')
+    assert keystore.xpub == ('xpub6BoXuZmXMAUMbiEuHuS3s3L6ienv7u5Npx6GMY3MwQnBj7qM89dojV'
+                             'kXTZtbpEvAzxSKAxnnsVDuwSAAvvXHWVncpX46V3LGj5SaKHtNNnc')
