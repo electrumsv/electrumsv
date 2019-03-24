@@ -34,7 +34,7 @@ from .address import Address
 from .i18n import _
 from .logs import logs
 from .networks import Net
-from .util import format_satoshis_plain, bh2u
+from .util import format_satoshis_plain
 
 
 logger = logs.get_logger("web")

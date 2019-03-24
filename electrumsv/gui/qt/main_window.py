@@ -59,7 +59,7 @@ from electrumsv.networks import Net
 from electrumsv.paymentrequest import PR_PAID
 from electrumsv.transaction import Transaction, SerializationError, tx_from_str
 from electrumsv.util import (
-    format_time, format_satoshis, format_satoshis_plain, bh2u, bfh, format_fee_satoshis,
+    format_time, format_satoshis, format_satoshis_plain, bh2u, format_fee_satoshis,
     get_update_check_dates, get_identified_release_signers
 )
 from electrumsv.version import PACKAGE_VERSION

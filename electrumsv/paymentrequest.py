@@ -33,7 +33,6 @@ import bitcoinx
 import requests
 
 from . import address
-from . import bitcoin
 from . import transaction
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .logs import logs
