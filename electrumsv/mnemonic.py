@@ -28,12 +28,10 @@ import math
 import string
 import unicodedata
 
-import ecdsa
-
 from . import version
 from .bitcoin import is_old_seed, is_new_seed
 from .logs import logs
-from .util import resource_path
+from .util import resource_path, random_integer
 
 logger = logs.get_logger("mnemonic")
 
@@ -168,12 +166,12 @@ class Mnemonic(object):
         # increase num_bits in order to obtain a uniform distibution for the last word
         bpw = math.log(len(self.wordlist), 2)
         # rounding
-        n = int(math.ceil(num_bits/bpw) * bpw)
-        logger.debug("make_seed() prefix='%s' entropy=%d bits", prefix, n)
+        nbits = int(math.ceil(num_bits/bpw) * bpw)
+        logger.debug("make_seed() prefix='%s' entropy=%d bits", prefix, nbits)
         entropy = 1
-        while entropy < pow(2, n - bpw):
+        while entropy < pow(2, nbits - bpw):
             # try again if seed would not contain enough words
-            entropy = ecdsa.util.randrange(pow(2, n))
+            entropy = random_integer(nbits)
         nonce = 0
         while True:
             nonce += 1
