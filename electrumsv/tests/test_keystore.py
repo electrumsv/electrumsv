@@ -130,6 +130,19 @@ class TestBIP32_KeyStore:
                 keystore.check_password(None)
 
 
+class TestXPub:
+
+    @pytest.mark.parametrize("for_change,n,pubkey", (
+        (False, 3, '03b90f6af678c35926a72e27908f1ddcf33e370f1444fbf1e4a85a028ac352a477'),
+        (True, 5, '033177256871768b5ee8e031647f3727e63d1b62c8d776d9b422a367fd8e721bd3'),
+    ))
+    def test_derive_pubkey(self, for_change, n, pubkey):
+        xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
+                'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
+        keystore = BIP32_KeyStore({'xpub': xpub})
+        assert keystore.derive_pubkey(for_change, n) == pubkey
+
+
 def test_from_bip39_seed():
     keystore = from_bip39_seed('foo bar baz', '', "m/44'/0'/0'")
     assert keystore.xprv == ('xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCe'
