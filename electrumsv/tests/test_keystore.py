@@ -1,7 +1,8 @@
 import pytest
 
 from electrumsv.exceptions import InvalidPassword
-from electrumsv.keystore import Imported_KeyStore, Old_KeyStore
+from electrumsv.keystore import Imported_KeyStore, Old_KeyStore, BIP32_KeyStore
+from electrumsv.crypto import pw_encode
 
 
 class TestOld_KeyStore:
@@ -95,3 +96,33 @@ class TestImported_KeyStore:
         pubkey = d.import_privkey("5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ", password)
         dec_msg = d.decrypt_message(pubkey, enc_msg, password)
         assert dec_msg == b'BitcoinSV'
+
+
+class TestBIP32_KeyStore:
+
+    def test_get_private_key(self):
+        xprv = ('xprv9s21ZrQH143K4XLpSd2berkCzJTXDv68rusDQFiQGSqa1ZmVXnYzYpTQ9'
+                'qYiSB7mHvg6kEsrd2ZtnHRJ61sZhSN4jZ2T8wxA4T75BE4QQZ1')
+        password = b'password'
+        xprv = pw_encode(xprv, password)
+        keystore = BIP32_KeyStore({'xprv': xprv})
+        privkey = keystore.get_private_key((1, 2, 3), password)
+        assert privkey == (bytes.fromhex('985e4b09a0b05702c073b5086fcbb4b7dde4625bb98'
+                                         '9ec51ce4c3337a7de2a13'), True)
+
+
+    @pytest.mark.parametrize("password", (b'Password', None))
+    def test_check_password(self, password):
+        xprv = ('xprv9s21ZrQH143K4XLpSd2berkCzJTXDv68rusDQFiQGSqa1ZmVXnYzYpTQ9'
+                'qYiSB7mHvg6kEsrd2ZtnHRJ61sZhSN4jZ2T8wxA4T75BE4QQZ1')
+        xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
+                'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
+        xprv = pw_encode(xprv, password)
+        keystore = BIP32_KeyStore({'xprv': xprv, 'xpub': xpub})
+
+        keystore.check_password(password)
+        with pytest.raises(InvalidPassword):
+            keystore.check_password(b'guess')
+        if password is not None:
+            with pytest.raises(InvalidPassword):
+                keystore.check_password(None)
