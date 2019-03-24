@@ -26,13 +26,14 @@ from unicodedata import normalize
 
 from bitcoinx import (
     PrivateKey, PublicKey as PublicKeyX, int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
+    bip32_key_from_string, Base58Error
 )
 
 from .address import Address, PublicKey
 from .app_state import app_state
 from .bip32 import (
-    bip32_private_key, bip32_public_derivation, bip32_private_derivation, bip32_root,
-    xpub_from_xprv, deserialize_xpub, deserialize_xprv, is_xpub, is_xprv, CKD_pub
+    bip32_public_derivation, bip32_private_derivation, bip32_root,
+    xpub_from_xprv, is_xpub, is_xprv
 )
 from .bitcoin import (
     bh2u, bfh, DecodeBase58Check, EncodeBase58Check, is_seed, seed_type,
@@ -283,10 +284,10 @@ class Xpub:
 
     @classmethod
     def get_pubkey_from_xpub(self, xpub, sequence):
-        _, _, _, c, cK = deserialize_xpub(xpub)
-        for i in sequence:
-            cK, c = CKD_pub(cK, c, i)
-        return bh2u(cK)
+        pubkey = bip32_key_from_string(xpub)
+        for n in sequence:
+            pubkey = pubkey.child_safe(n)
+        return pubkey.to_hex()
 
     def get_xpubkey(self, c, i):
         s = ''.join(int_to_hex(x,2) for x in (c, i))
@@ -353,11 +354,9 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
     def check_password(self, password):
         xprv = pw_decode(self.xprv, password)
         try:
-            assert DecodeBase58Check(xprv) is not None
-        except Exception:
-            # Password was None but key was encrypted.
-            raise InvalidPassword()
-        if deserialize_xprv(xprv)[3] != deserialize_xpub(self.xpub)[3]:
+            assert (bip32_key_from_string(xprv).derivation().chain_code
+                    == bip32_key_from_string(self.xpub).derivation().chain_code)
+        except (ValueError, Base58Error, AssertionError):
             raise InvalidPassword()
 
     def update_password(self, old_password, new_password):
@@ -388,9 +387,10 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
 
     def get_private_key(self, sequence, password):
         xprv = self.get_master_private_key(password)
-        _, _, _, c, k = deserialize_xprv(xprv)
-        pk = bip32_private_key(sequence, k, c)
-        return pk, True
+        privkey = bip32_key_from_string(xprv)
+        for n in sequence:
+            privkey = privkey.child_safe(n)
+        return privkey.to_bytes(), True
 
     def set_wallet_advice(self, addr, advice): #overrides KeyStore.set_wallet_advice
         self.wallet_advice[addr] = advice

@@ -300,9 +300,3 @@ def bip32_public_derivation(xpub, branch, sequence):
     fingerprint = hash_160(parent_cK)[0:4]
     child_number = bfh("%08X" % i)
     return serialize_xpub(c, cK, depth, fingerprint, child_number)
-
-
-def bip32_private_key(sequence, k, chain):
-    for i in sequence:
-        k, chain = CKD_priv(k, chain, i)
-    return k
