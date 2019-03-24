@@ -24,6 +24,7 @@
 # SOFTWARE.
 
 import ast
+import base64
 import os
 import time
 
@@ -36,8 +37,7 @@ from .logs import logs
 from .network import Network
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
-from .util import json_decode, DaemonThread
-from .util import to_string
+from .util import json_decode, DaemonThread, to_string, random_integer
 from .version import PACKAGE_VERSION
 from .wallet import Wallet
 
@@ -107,12 +107,10 @@ def get_rpc_credentials(config):
     rpc_password = config.get('rpcpassword', None)
     if rpc_user is None or rpc_password is None:
         rpc_user = 'user'
-        import ecdsa, base64
-        bits = 128
-        nbytes = bits // 8 + (bits % 8 > 0)
-        pw_int = ecdsa.util.randrange(pow(2, bits))
+        nbits = 128
+        pw_int = random_integer(nbits)
         pw_b64 = base64.b64encode(
-            pw_int.to_bytes(nbytes, 'big'), b'-_')
+            pw_int.to_bytes(nbits // 8, 'big'), b'-_')
         rpc_password = to_string(pw_b64, 'ascii')
         config.set_key('rpcuser', rpc_user)
         config.set_key('rpcpassword', rpc_password, save=True)
