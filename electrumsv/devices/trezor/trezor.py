@@ -1,8 +1,8 @@
 from collections import defaultdict
 
-from bitcoinx import Ops
+from bitcoinx import Ops, bip32_key_from_string, be_bytes_to_int
 
-from electrumsv.bip32 import deserialize_xpub, bip32_path_to_uints as parse_path
+from electrumsv.bip32 import bip32_path_to_uints as parse_path
 from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
 
 from electrumsv.app_state import app_state
@@ -243,13 +243,14 @@ class TrezorPlugin(HW_PluginBase):
             raise RuntimeError("Unsupported recovery method")
 
     def _make_node_path(self, xpub, address_n):
-        _, depth, fingerprint, child_num, chain_code, key = deserialize_xpub(xpub)
+        pubkey = bip32_key_from_string(xpub)
+        derivation = pubkey.derivation()
         node = HDNodeType(
-            depth=depth,
-            fingerprint=int.from_bytes(fingerprint, 'big'),
-            child_num=int.from_bytes(child_num, 'big'),
-            chain_code=chain_code,
-            public_key=key,
+            depth=derivation.depth,
+            fingerprint=be_bytes_to_int(pubkey.fingerprint()),
+            child_num=derivation.n,
+            chain_code=derivation.chain_code,
+            public_key=pubkey.to_bytes(),
         )
         return HDNodePathType(node=node, address_n=address_n)
 
