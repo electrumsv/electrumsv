@@ -85,7 +85,7 @@ class Test_bitcoin(SequentialTestCase):
         self.assertTrue(PublicKey.verify_message_and_address(sig2, msg2, addr2))
 
         self.assertFalse(PublicKey.verify_message_and_address(b'wrong', msg1, addr1))
-        self.assertFalse(PublicKey.message_and_address(sig2, msg1, addr1))
+        self.assertFalse(PublicKey.verify_message_and_address(sig2, msg1, addr1))
 
     @needs_test_with_all_aes_implementations
     def test_decrypt_message(self):
