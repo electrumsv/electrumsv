@@ -39,7 +39,6 @@ class Platform(object):
         'PyQt5': 'PyQt5',
         'SimpleWebSocketServer': 'SimpleWebSocketServer',
         'dateutil': 'python-dateutil',
-        'ecdsa': 'ecdsa',
         'electrumsv_secp256k1': 'electrumsv-secp256k1',
         'jsonrpclib': 'jsonrpclib-pelix',
         'pyaes': 'pyaes',
