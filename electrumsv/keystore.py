@@ -26,17 +26,18 @@ from unicodedata import normalize
 
 from bitcoinx import (
     PrivateKey, PublicKey as PublicKeyX, int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
-    bip32_key_from_string, Base58Error, bip32_decompose_chain_string
+    bip32_key_from_string, Base58Error, bip32_decompose_chain_string,
+    BIP32PrivateKey, BIP32Derivation, Bitcoin
 )
 
 from .address import Address, PublicKey
 from .app_state import app_state
-from .bip32 import bip32_root, xpub_from_xprv, is_xpub, is_xprv
+from .bip32 import xpub_from_xprv, is_xpub, is_xprv
 from .bitcoin import (
     bh2u, bfh, DecodeBase58Check, EncodeBase58Check, is_seed, seed_type,
     rev_hex, script_to_address, int_to_hex, is_private_key
 )
-from .crypto import sha256d, pw_encode, pw_decode
+from .crypto import sha256d, pw_encode, pw_decode, hmac_oneshot
 from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
@@ -379,7 +380,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         self.xpub = xpub_from_xprv(xprv)
 
     def add_xprv_from_seed(self, bip32_seed, derivation):
-        xprv, xpub = bip32_root(bip32_seed)
+        xprv = bip32_root(bip32_seed)
         xprv = bip32_key_from_string(xprv)
         for n in bip32_decompose_chain_string(derivation):
             xprv = xprv.child_safe(n)
@@ -785,3 +786,8 @@ def from_master_key(text):
     else:
         raise Exception('Invalid key')
     return k
+
+def bip32_root(seed):
+    I_full = hmac_oneshot(b"Bitcoin seed", seed, hashlib.sha512)
+    derivation = BIP32Derivation(chain_code=I_full[32:], n=0, depth=0, parent_fingerprint=bytes(4))
+    return BIP32PrivateKey(I_full[:32], derivation, Bitcoin).extended_key_string()

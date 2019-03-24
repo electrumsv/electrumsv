@@ -2,7 +2,7 @@ import pytest
 
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.keystore import (
-    Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed,
+    Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed, bip32_root
 )
 from electrumsv.crypto import pw_encode
 
@@ -149,3 +149,8 @@ def test_from_bip39_seed():
                              'gAUNEp1uXXEncSAyro5CaJFwv7wYFcBQrF6MfWYoAXsTw')
     assert keystore.xpub == ('xpub6BoXuZmXMAUMbiEuHuS3s3L6ienv7u5Npx6GMY3MwQnBj7qM89dojV'
                              'kXTZtbpEvAzxSKAxnnsVDuwSAAvvXHWVncpX46V3LGj5SaKHtNNnc')
+
+
+def test_bip32_root():
+    assert bip32_root(b'BitcoinSV') == ('xprv9s21ZrQH143K48ebsYkLU9UPzgdDVfhT6SMdWFJ8ZXak1bjKVRLu'
+                                        'xdmMCh7HZkwciZd7fga4gK4XW2QZhvWz5os6hJwqLfpZmW9r7pLgn9s')

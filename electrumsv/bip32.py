@@ -22,14 +22,11 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import hashlib
 from typing import List
 
-from bitcoinx import PrivateKey, PublicKey, be_bytes_to_int, int_to_be_bytes, CURVE_ORDER
+from bitcoinx import PrivateKey, be_bytes_to_int, CURVE_ORDER
 
-from .bitcoin import rev_hex, int_to_hex, EncodeBase58Check, DecodeBase58Check
-from .crypto import hash_160, hmac_oneshot
-from .logs import logs
+from .bitcoin import EncodeBase58Check, DecodeBase58Check
 from .networks import Net
 from .util import bfh
 
@@ -53,15 +50,6 @@ def xprv_header(*, net=None):
 def xpub_header(*, net=None):
     net = net or Net
     return bfh("%08x" % net.XPUB_HEADERS['standard'])
-
-
-def serialize_xprv(c, k, depth=0, fingerprint=b'\x00'*4,
-                   child_number=b'\x00'*4, *, net=None):
-    if not 0 < be_bytes_to_int(k) < CURVE_ORDER:
-        raise BIP32Error('Impossible xprv (not within curve order)')
-    xprv = b''.join((xprv_header(net=net), bytes([depth]), fingerprint,
-                     child_number, c, bytes([0]), k))
-    return EncodeBase58Check(xprv)
 
 
 def serialize_xpub(c, cK, depth=0, fingerprint=b'\x00'*4,
@@ -121,17 +109,6 @@ def xpub_from_xprv(xprv):
     depth, fingerprint, child_number, c, k = deserialize_xprv(xprv)
     cK = PrivateKey(k).public_key.to_bytes(compressed=True)
     return serialize_xpub(c, cK, depth, fingerprint, child_number)
-
-
-def bip32_root(seed):
-    I_full = hmac_oneshot(b"Bitcoin seed", seed, hashlib.sha512)
-    master_k = I_full[0:32]
-    master_c = I_full[32:]
-    # create xprv first, as that will check if master_k is within curve order
-    xprv = serialize_xprv(master_c, master_k)
-    cK = PrivateKey(master_k).public_key.to_bytes(compressed=True)
-    xpub = serialize_xpub(master_c, cK)
-    return xprv, xpub
 
 
 def xpub_from_pubkey(cK):
