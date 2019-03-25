@@ -36,6 +36,7 @@ import os
 import random
 import threading
 import time
+from typing import Optional, Union, Tuple
 
 from aiorpcx import run_in_thread
 from bitcoinx import PrivateKey
@@ -334,17 +335,17 @@ class Abstract_Wallet:
             if write:
                 self.storage.write()
 
-    def basename(self):
+    def basename(self) -> str:
         return os.path.basename(self.storage.path)
 
-    def save_addresses(self):
+    def save_addresses(self) -> None:
         addr_dict = {
             'receiving': [addr.to_string() for addr in self.receiving_addresses],
             'change': [addr.to_string() for addr in self.change_addresses],
         }
         self.storage.put('addresses', addr_dict)
 
-    def load_addresses(self):
+    def load_addresses(self) -> None:
         d = self.storage.get('addresses', {})
         if not isinstance(d, dict):
             d = {}
@@ -354,10 +355,10 @@ class Abstract_Wallet:
     def is_deterministic(self):
         return self.keystore.is_deterministic()
 
-    def is_hardware_wallet(self):
+    def is_hardware_wallet(self) -> bool:
         return any([ isinstance(k, Hardware_KeyStore) for k in self.get_keystores() ])
 
-    def set_label(self, name, text = None):
+    def set_label(self, name: Union[str, Address], text: Optional[str] = None) -> bool:
         if isinstance(name, Address):
             name = name.to_string()
         changed = False
@@ -378,15 +379,15 @@ class Abstract_Wallet:
 
         return changed
 
-    def is_mine(self, address):
+    def is_mine(self, address) -> bool:
         assert not isinstance(address, str)
         return address in self.get_addresses()
 
-    def is_change(self, address):
+    def is_change(self, address) -> bool:
         assert not isinstance(address, str)
         return address in self.change_addresses
 
-    def get_address_index(self, address):
+    def get_address_index(self, address) -> Tuple[bool, int]:
         try:
             return False, self.receiving_addresses.index(address)
         except ValueError:
@@ -671,7 +672,7 @@ class Abstract_Wallet:
     def get_addresses(self):
         return self.get_receiving_addresses() + self.get_change_addresses()
 
-    def get_frozen_balance(self):
+    def get_frozen_balance(self) -> Tuple[int, int, int]:
         if not self.frozen_coins:
             # performance short-cut -- get the balance of the frozen
             # address set only IFF we don't have any frozen coins
@@ -683,7 +684,8 @@ class Abstract_Wallet:
                                                   exclude_frozen_addresses=False)
         return (cc_all-cc_no_f), (uu_all-uu_no_f), (xx_all-xx_no_f)
 
-    def get_balance(self, domain=None, exclude_frozen_coins=False, exclude_frozen_addresses=False):
+    def get_balance(self, domain=None, exclude_frozen_coins: bool=False,
+                    exclude_frozen_addresses: bool=False) -> Tuple[int, int, int]:
         if domain is None:
             domain = self.get_addresses()
         if exclude_frozen_addresses:
@@ -696,11 +698,11 @@ class Abstract_Wallet:
             xx += x
         return cc, uu, xx
 
-    def get_address_history(self, address):
+    def get_address_history(self, address: Address):
         assert isinstance(address, Address)
         return self._history.get(address, [])
 
-    def add_transaction(self, tx_hash, tx):
+    def add_transaction(self, tx_hash: str, tx: Transaction) -> None:
         '''Return True if tx_hash is verified.'''
         is_coinbase = tx.inputs()[0]['type'] == 'coinbase'
         with self.transaction_lock:
@@ -744,7 +746,7 @@ class Abstract_Wallet:
             # save
             self.transactions[tx_hash] = tx
 
-    def remove_transaction(self, tx_hash):
+    def remove_transaction(self, tx_hash: str) -> None:
         with self.transaction_lock:
             self.logger.debug("removing tx from history %s", tx_hash)
             for ser, hh in list(self.pruned_txo.items()):
@@ -915,7 +917,8 @@ class Abstract_Wallet:
     def dust_threshold(self):
         return dust_threshold(self.network)
 
-    def make_unsigned_transaction(self, inputs, outputs, config, fixed_fee=None, change_addr=None):
+    def make_unsigned_transaction(self, inputs, outputs, config, fixed_fee: Optional[int]=None,
+                                  change_addr: Optional[Address]=None) -> Transaction:
         # check outputs
         i_max = None
         for i, o in enumerate(outputs):
@@ -1202,7 +1205,7 @@ class Abstract_Wallet:
         logger.debug(f'add_hw_info: {info}')
         tx.output_info = info
 
-    def sign_transaction(self, tx, password):
+    def sign_transaction(self, tx: Transaction, password: str) -> None:
         if self.is_watching_only():
             return
         # add input values for signing

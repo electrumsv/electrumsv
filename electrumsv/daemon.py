@@ -25,7 +25,7 @@
 
 import ast
 import base64
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 import os
 import time
 
@@ -40,21 +40,21 @@ from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .util import json_decode, DaemonThread, to_string, random_integer
 from .version import PACKAGE_VERSION
-from .wallet import Wallet
+from .wallet import Wallet, Abstract_Wallet
 
 
 logger = logs.get_logger("daemon")
 
 
-def get_lockfile(config):
+def get_lockfile(config: SimpleConfig) -> str:
     return os.path.join(config.path, 'daemon')
 
 
-def remove_lockfile(lockfile):
+def remove_lockfile(lockfile: str) -> None:
     os.unlink(lockfile)
 
 
-def get_fd_or_server(config) -> Tuple[Optional[int], Optional[jsonrpclib.Server]]:
+def get_fd_or_server(config: SimpleConfig) -> Tuple[Optional[int], Optional[jsonrpclib.Server]]:
     '''Tries to create the lockfile, using O_EXCL to
     prevent races.  If it succeeds it returns the FD.
     Otherwise try and connect to the server specified in the lockfile.
@@ -73,7 +73,7 @@ def get_fd_or_server(config) -> Tuple[Optional[int], Optional[jsonrpclib.Server]
         remove_lockfile(lockfile)
 
 
-def get_server(config) -> Optional[jsonrpclib.Server]:
+def get_server(config: SimpleConfig) -> Optional[jsonrpclib.Server]:
     lockfile = get_lockfile(config)
     while True:
         create_time = None
@@ -103,7 +103,7 @@ def get_server(config) -> Optional[jsonrpclib.Server]:
         time.sleep(1.0)
 
 
-def get_rpc_credentials(config):
+def get_rpc_credentials(config: SimpleConfig) -> Tuple[Optional[str], Optional[str]]:
     rpc_user = config.get('rpcuser', None)
     rpc_password = config.get('rpcpassword', None)
     if rpc_user is None or rpc_password is None:
@@ -122,7 +122,7 @@ def get_rpc_credentials(config):
 
 class Daemon(DaemonThread):
 
-    def __init__(self, fd, is_gui):
+    def __init__(self, fd, is_gui: bool) -> None:
         super().__init__('daemon')
         app_state.daemon = self
         config = app_state.config
@@ -135,7 +135,7 @@ class Daemon(DaemonThread):
         # Setup JSONRPC server
         self.init_server(config, fd, is_gui)
 
-    def init_server(self, config, fd, is_gui):
+    def init_server(self, config: SimpleConfig, fd, is_gui: bool) -> None:
         host = config.get('rpchost', '127.0.0.1')
         port = config.get('rpcport', 0)
 
@@ -160,10 +160,10 @@ class Daemon(DaemonThread):
             server.register_function(getattr(self.cmd_runner, cmdname), cmdname)
         server.register_function(self.run_cmdline, 'run_cmdline')
 
-    def ping(self):
+    def ping(self) -> bool:
         return True
 
-    def run_daemon(self, config_options):
+    def run_daemon(self, config_options: dict) -> Any:
         config = SimpleConfig(config_options)
         sub = config.get('subcommand')
         assert sub in [None, 'start', 'stop', 'status', 'load_wallet', 'close_wallet']
@@ -197,7 +197,7 @@ class Daemon(DaemonThread):
             response = "Daemon stopped"
         return response
 
-    def run_gui(self, config_options):
+    def run_gui(self, config_options: dict) -> str:
         config = SimpleConfig(config_options)
         if hasattr(app_state, 'windows'):
             config.open_last_wallet()
@@ -207,7 +207,7 @@ class Daemon(DaemonThread):
 
         return "error: ElectrumSV is running in daemon mode; stop the daemon first."
 
-    def load_wallet(self, path, password):
+    def load_wallet(self, path: str, password: Optional[str]) -> Abstract_Wallet:
         # wizard will be launched if we return
         if path in self.wallets:
             wallet = self.wallets[path]
@@ -229,20 +229,20 @@ class Daemon(DaemonThread):
         self.start_wallet(wallet)
         return wallet
 
-    def get_wallet(self, path):
+    def get_wallet(self, path: str) -> Abstract_Wallet:
         return self.wallets.get(path)
 
-    def start_wallet(self, wallet):
+    def start_wallet(self, wallet: Abstract_Wallet) -> None:
         self.wallets[wallet.storage.path] = wallet
         wallet.start(self.network)
 
-    def stop_wallet_at_path(self, path):
+    def stop_wallet_at_path(self, path: str) -> None:
         # Issue #659 wallet may already be stopped.
         if path in self.wallets:
             wallet = self.wallets.pop(path)
             wallet.stop()
 
-    def run_cmdline(self, config_options):
+    def run_cmdline(self, config_options: dict) -> Any:
         password = config_options.get('password')
         new_password = config_options.get('new_password')
         config = SimpleConfig(config_options)
@@ -270,14 +270,14 @@ class Daemon(DaemonThread):
         result = func(*args, **kwargs)
         return result
 
-    def run(self):
+    def run(self) -> None:
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)
         if self.network:
             self.network.shutdown()
         self.on_stop()
 
-    def stop(self):
+    def stop(self) -> None:
         logger.debug("stopping, removing lockfile")
         remove_lockfile(get_lockfile(self.config))
         DaemonThread.stop(self)

@@ -49,7 +49,8 @@ class AppStateProxy(object):
     base_units = ['BSV', 'mBSV', 'bits', 'sats']    # large to small
     decimal_points = [8, 5, 2, 0]
 
-    def __init__(self, config, gui_kind):
+    # Avoid wider dependencies by not using a reference to the config type.
+    def __init__(self, config: 'SimpleConfig', gui_kind: str) -> None:
         from electrumsv.device import DeviceMgr
         self.config = config
         self.gui_kind = gui_kind
@@ -62,19 +63,19 @@ class AppStateProxy(object):
         self.decimal_point = config.get('decimal_point', 8)
         self.num_zeros = config.get('num_zeros', 0)
 
-    def headers_filename(self):
+    def headers_filename(self) -> str:
         return os.path.join(self.config.path, 'headers')
 
-    def read_headers(self):
+    def read_headers(self) -> None:
         self.headers = Headers.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
         for n, chain in enumerate(self.headers.chains(), start=1):
             logger.info(f'chain #{n}: {chain.desc()}')
 
-    def base_unit(self):
+    def base_unit(self) -> str:
         index = self.decimal_points.index(self.decimal_point)
         return self.base_units[index]
 
-    def set_base_unit(self, base_unit):
+    def set_base_unit(self, base_unit: str) -> bool:
         prior = self.decimal_point
         index = self.base_units.index(base_unit)
         self.decimal_point = self.decimal_points[index]

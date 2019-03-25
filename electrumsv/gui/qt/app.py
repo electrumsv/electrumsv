@@ -28,6 +28,7 @@ from functools import partial
 import signal
 import sys
 import threading
+from typing import Optional
 
 from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
@@ -39,6 +40,7 @@ from electrumsv.app_state import app_state
 from electrumsv.exceptions import UserCancelled, UserQuit
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
+from electrumsv.wallet import Abstract_Wallet
 
 from . import dialogs
 from .cosigner_pool import CosignerPool
@@ -227,7 +229,7 @@ class SVApplication(QApplication):
                     logger.exception("")
                 self.quit()
 
-    def _create_window_for_wallet(self, wallet):
+    def _create_window_for_wallet(self, wallet: Abstract_Wallet):
         if wallet.is_hardware_wallet():
             dialogs.show_named('hardware-wallet-quality')
 
@@ -237,7 +239,7 @@ class SVApplication(QApplication):
         self.window_opened_signal.emit(w)
         return w
 
-    def get_wallet_window(self, path):
+    def get_wallet_window(self, path: str) -> Optional[ElectrumWindow]:
         for w in self.windows:
             if w.wallet.storage.path == path:
                 return w
@@ -289,7 +291,7 @@ class SVApplication(QApplication):
         w.activateWindow()
         return w
 
-    def update_check(self):
+    def update_check(self) -> None:
         if (not app_state.config.get('check_updates', True) or
                 app_state.config.get("offline", False)):
             return
@@ -309,14 +311,14 @@ class SVApplication(QApplication):
         t.setDaemon(True)
         t.start()
 
-    def _on_update_check(self, success, result):
+    def _on_update_check(self, success: bool, result: dict) -> None:
         if success:
             when_checked = datetime.datetime.now().astimezone().isoformat()
             app_state.config.set_key('last_update_check', result)
             app_state.config.set_key('last_update_check_time', when_checked, True)
         self.update_check_signal.emit(success, result)
 
-    def initial_dialogs(self):
+    def initial_dialogs(self) -> None:
         '''Suppressible dialogs that are shown when first opening the app.'''
         dialogs.show_named('welcome-ESV-1.2.0')
         # This needs to be reworked or removed, as non-advanced users aren't sure whether
@@ -342,7 +344,7 @@ class SVApplication(QApplication):
         #             logger.exception('deleting obsolete files')
         #             dialogs.error_dialog(_('Error deleting files:'), info_text=str(e))
 
-    def event_loop_started(self):
+    def event_loop_started(self) -> None:
         self.cosigner_pool = CosignerPool()
         self.label_sync = LabelSync()
         if app_state.config.get("show_crash_reporter", default=True):
@@ -356,7 +358,7 @@ class SVApplication(QApplication):
         if not self.start_new_window(path, app_state.config.get('url'), is_startup=True):
             self.quit()
 
-    def run_gui(self):
+    def run_gui(self) -> None:
         when_started = datetime.datetime.now().astimezone().isoformat()
         app_state.config.set_key('previous_start_time', app_state.config.get("start_time"))
         app_state.config.set_key('start_time', when_started, True)

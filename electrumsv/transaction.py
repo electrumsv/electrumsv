@@ -492,7 +492,7 @@ class Transaction:
         txin['scriptSig'] = None  # force re-serialization
         self.raw = None
 
-    def deserialize(self):
+    def deserialize(self) -> dict:
         if self.raw is None:
             return
         if self._inputs is not None:
