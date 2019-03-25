@@ -25,7 +25,8 @@
 
 import os
 
-from . import bip32
+from bitcoinx import bip32_is_valid_chain_string
+
 from . import bitcoin
 from . import keystore
 from .app_state import app_state
@@ -268,7 +269,7 @@ class BaseWizard(object):
         self.line_dialog(run_next=f,
                          title=_('Derivation for {} wallet').format(self.wallet_type),
                          message=message, default=default_derivation,
-                         test=bip32.is_bip32_derivation)
+                         test=bip32_is_valid_chain_string)
 
     def on_hw_derivation(self, name, device_info, derivation):
         try:

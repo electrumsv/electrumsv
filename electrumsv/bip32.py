@@ -27,13 +27,6 @@ from .networks import Net
 from .util import bfh
 
 
-BIP32_PRIME = 0x80000000
-
-
-class BIP32Error(Exception):
-    pass
-
-
 def xpub_header(*, net=None):
     net = net or Net
     return bfh("%08x" % net.XPUB_HEADERS['standard'])
@@ -44,22 +37,3 @@ def serialize_xpub(c, cK, depth=0, fingerprint=b'\x00'*4,
     xpub = xpub_header(net=net) \
            + bytes([depth]) + fingerprint + child_number + c + cK
     return EncodeBase58Check(xpub)
-
-
-def bip32_derivation(s: str) -> int:
-    if not s.startswith('m/'):
-        raise BIP32Error('invalid bip32 derivation path: {}'.format(s))
-    s = s[2:]
-    for n in s.split('/'):
-        if n == '':
-            continue
-        i = int(n[:-1]) + BIP32_PRIME if n[-1] == "'" else int(n)
-        yield i
-
-
-def is_bip32_derivation(x: str) -> bool:
-    try:
-        list(bip32_derivation(x))
-        return True
-    except Exception:
-        return False
