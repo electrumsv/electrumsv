@@ -508,7 +508,7 @@ class LedgerPlugin(HW_PluginBase):
                             _('Make sure it is in the correct state.'))
         client.handler = self.create_handler(wizard)
         # TODO replace by direct derivation once Nano S > 1.1
-        client.get_xpub("m/44'/0'", 'standard')
+        client.get_xpub("m/44'/0'")
 
     def get_xpub(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)

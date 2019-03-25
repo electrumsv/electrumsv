@@ -276,7 +276,7 @@ class KeepKeyPlugin(HW_PluginBase):
         client.handler = self.create_handler(wizard)
         if not device_info.initialized:
             self.initialize_device(device_id, wizard, client.handler)
-        client.get_xpub('m', 'standard')
+        client.get_xpub('m')
         client.used()
 
     def get_xpub(self, device_id, derivation, wizard):
