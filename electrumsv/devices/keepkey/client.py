@@ -25,6 +25,8 @@
 from struct import pack
 import time
 
+from bitcoinx import bip32_decompose_chain_string
+
 from keepkeylib.client import proto, BaseClient, ProtocolMixin
 
 from electrumsv.bip32 import serialize_xpub
@@ -88,24 +90,6 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
             logger.error("timed out")
             self.clear_session()
 
-    @staticmethod
-    def expand_path(n):
-        '''Convert bip32 path to list of uint32 integers with prime flags
-        0/-1/1' -> [0, 0x80000001, 0x80000001]'''
-        # This code is similar to code in trezorlib where it unforunately
-        # is not declared as a staticmethod.  Our n has an extra element.
-        PRIME_DERIVATION_FLAG = 0x80000000
-        path = []
-        for x in n.split('/')[1:]:
-            prime = 0
-            if x.endswith("'"):
-                x = x.replace('\'', '')
-                prime = PRIME_DERIVATION_FLAG
-            if x.startswith('-'):
-                prime = PRIME_DERIVATION_FLAG
-            path.append(abs(int(x)) | prime)
-        return path
-
     def cancel(self):
         '''Provided here as in keepkeylib but not trezorlib.'''
         self.transport.write(self.proto.Cancel())
@@ -114,7 +98,7 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         return pack('>I', x)
 
     def get_xpub(self, bip32_path):
-        address_n = self.expand_path(bip32_path)
+        address_n = bip32_decompose_chain_string(bip32_path)
         creating = False
         node = self.get_public_node(address_n, creating).node
         return serialize_xpub(node.chain_code, node.public_key, node.depth,

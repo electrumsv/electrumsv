@@ -24,7 +24,7 @@
 
 import threading
 
-from bitcoinx import BIP32PublicKey, BIP32Derivation
+from bitcoinx import BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
@@ -61,7 +61,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
     def sign_message(self, sequence, message, password):
         client = self.get_client()
         address_path = self.get_derivation() + "/%d/%d"%sequence
-        address_n = client.expand_path(address_path)
+        address_n = bip32_decompose_chain_string(address_path)
         msg_sig = client.sign_message(self.plugin.get_coin_name(client), address_n, message)
         return msg_sig.signature
 
@@ -303,7 +303,7 @@ class KeepKeyPlugin(HW_PluginBase):
         change, index = wallet.get_address_index(address)
         derivation = keystore.derivation
         address_path = "%s/%d/%d"%(derivation, change, index)
-        address_n = client.expand_path(address_path)
+        address_n = bip32_decompose_chain_string(address_path)
         script_type = self.types.SPENDADDRESS
         client.get_address(Net.KEEPKEY_DISPLAY_COIN_NAME, address_n,
                            True, script_type=script_type)
@@ -321,7 +321,7 @@ class KeepKeyPlugin(HW_PluginBase):
                     if len(x_pubkeys) == 1:
                         x_pubkey = x_pubkeys[0]
                         xpub, s = parse_xpubkey(x_pubkey)
-                        xpub_n = self.client_class.expand_path(self.xpub_path[xpub])
+                        xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
                         txinputtype.address_n.extend(xpub_n + s)
                         txinputtype.script_type = self.types.SPENDADDRESS
                     else:
@@ -350,7 +350,7 @@ class KeepKeyPlugin(HW_PluginBase):
                             if is_xpubkey(x_pubkey):
                                 xpub, s = parse_xpubkey(x_pubkey)
                                 if xpub in self.xpub_path:
-                                    xpub_n = self.client_class.expand_path(self.xpub_path[xpub])
+                                    xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
                                     txinputtype.address_n.extend(xpub_n + s)
                                     break
 
@@ -383,7 +383,7 @@ class KeepKeyPlugin(HW_PluginBase):
                 index, xpubs, m = info
                 if len(xpubs) == 1:
                     script_type = self.types.PAYTOADDRESS
-                    address_n = self.client_class.expand_path(derivation + "/%d/%d"%index)
+                    address_n = bip32_decompose_chain_string(derivation + "/%d/%d"%index)
                     txoutputtype = self.types.TxOutputType(
                         amount = amount,
                         script_type = script_type,
@@ -391,7 +391,7 @@ class KeepKeyPlugin(HW_PluginBase):
                     )
                 else:
                     script_type = self.types.PAYTOMULTISIG
-                    address_n = self.client_class.expand_path("/%d/%d"%index)
+                    address_n = bip32_decompose_chain_string("/%d/%d"%index)
                     nodes = [self.ckd_public.deserialize(xpub) for xpub in xpubs]
                     pubkeys = [self.types.HDNodePathType(node=node, address_n=address_n)
                                for node in nodes]
@@ -402,7 +402,7 @@ class KeepKeyPlugin(HW_PluginBase):
                     txoutputtype = self.types.TxOutputType(
                         multisig = multisig,
                         amount = amount,
-                        address_n = self.client_class.expand_path(derivation + "/%d/%d"%index),
+                        address_n = bip32_decompose_chain_string(derivation + "/%d/%d"%index),
                         script_type = script_type)
             else:
                 txoutputtype = self.types.TxOutputType()
