@@ -7,9 +7,9 @@ from electrumsv.bitcoin import (
     var_int, op_push, deserialize_privkey, serialize_privkey,
     is_minikey, seed_type, EncodeBase58Check,
     push_script, int_to_hex)
-from electrumsv.bip32 import (is_xprv, is_bip32_derivation,
-                            is_xpub, bip32_path_to_uints)
+from electrumsv.bip32 import is_bip32_derivation, bip32_path_to_uints
 from electrumsv.crypto import sha256d
+from electrumsv.keystore import is_xpub, is_xprv
 from electrumsv import crypto
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.networks import Net

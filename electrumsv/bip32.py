@@ -24,9 +24,7 @@
 
 from typing import List
 
-from bitcoinx import PrivateKey, be_bytes_to_int, CURVE_ORDER
-
-from .bitcoin import EncodeBase58Check, DecodeBase58Check
+from .bitcoin import EncodeBase58Check
 from .networks import Net
 from .util import bfh
 
@@ -57,52 +55,6 @@ def serialize_xpub(c, cK, depth=0, fingerprint=b'\x00'*4,
     xpub = xpub_header(net=net) \
            + bytes([depth]) + fingerprint + child_number + c + cK
     return EncodeBase58Check(xpub)
-
-
-def _deserialize_xkey(xkey, prv, *, net=None):
-    net = net or Net
-    xkey = DecodeBase58Check(xkey)
-    if len(xkey) != 78:
-        raise BIP32Error('Invalid length for extended key: {}'
-                               .format(len(xkey)))
-    depth = xkey[4]
-    fingerprint = xkey[5:9]
-    child_number = xkey[9:13]
-    c = xkey[13:13+32]
-    header = int.from_bytes(xkey[0:4], byteorder='big')
-    headers = net.XPRV_HEADERS if prv else net.XPUB_HEADERS
-    if header not in headers.values():
-        raise InvalidMasterKeyVersionBytes('Invalid extended key format: {}'
-                                           .format(hex(header)))
-    n = 33 if prv else 32
-    K_or_k = xkey[13+n:]
-    if prv and not 0 < be_bytes_to_int(K_or_k) < CURVE_ORDER:
-        raise BIP32Error('Impossible xprv (not within curve order)')
-    return depth, fingerprint, child_number, c, K_or_k
-
-
-def deserialize_xpub(xkey, *, net=None):
-    return _deserialize_xkey(xkey, False, net=net)
-
-
-def deserialize_xprv(xkey, *, net=None):
-    return _deserialize_xkey(xkey, True, net=net)
-
-
-def is_xpub(text):
-    try:
-        deserialize_xpub(text)
-        return True
-    except Exception:
-        return False
-
-
-def is_xprv(text):
-    try:
-        deserialize_xprv(text)
-        return True
-    except Exception:
-        return False
 
 
 def xpub_from_pubkey(cK):

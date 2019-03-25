@@ -27,12 +27,11 @@ from unicodedata import normalize
 from bitcoinx import (
     PrivateKey, PublicKey as PublicKeyX, int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
     bip32_key_from_string, Base58Error, bip32_decompose_chain_string,
-    BIP32PrivateKey, BIP32Derivation, Bitcoin
+    BIP32PrivateKey, BIP32PublicKey, BIP32Derivation
 )
 
 from .address import Address, PublicKey
 from .app_state import app_state
-from .bip32 import is_xpub, is_xprv
 from .bitcoin import (
     bh2u, bfh, DecodeBase58Check, EncodeBase58Check, is_seed, seed_type,
     rev_hex, script_to_address, int_to_hex, is_private_key
@@ -785,3 +784,19 @@ def bip32_root(seed):
     I_full = hmac_oneshot(b"Bitcoin seed", seed, hashlib.sha512)
     derivation = BIP32Derivation(chain_code=I_full[32:], n=0, depth=0, parent_fingerprint=bytes(4))
     return BIP32PrivateKey(I_full[:32], derivation, Net.COIN).extended_key_string()
+
+
+def is_xpub(text):
+    try:
+        key = bip32_key_from_string(text)
+        return isinstance(key, BIP32PublicKey)
+    except Exception:
+        return False
+
+
+def is_xprv(text):
+    try:
+        key = bip32_key_from_string(text)
+        return isinstance(key, BIP32PrivateKey)
+    except Exception:
+        return False

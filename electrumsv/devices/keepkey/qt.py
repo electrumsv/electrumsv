@@ -37,7 +37,7 @@ from .keepkey import KeepKeyPlugin, TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 
 from electrumsv.app_state import app_state
-from electrumsv.bip32 import is_xprv
+from electrumsv.keystore import is_xprv
 from electrumsv.i18n import _
 from electrumsv.util import bh2u
 
