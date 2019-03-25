@@ -5,6 +5,7 @@ from electrumsv.keystore import (
     Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed, bip32_root
 )
 from electrumsv.crypto import pw_encode
+from electrumsv.networks import Net, SVMainnet, SVTestnet
 
 
 class TestOld_KeyStore:
@@ -152,5 +153,10 @@ def test_from_bip39_seed():
 
 
 def test_bip32_root():
+    Net.set_to(SVMainnet)
     assert bip32_root(b'BitcoinSV') == ('xprv9s21ZrQH143K48ebsYkLU9UPzgdDVfhT6SMdWFJ8ZXak1bjKVRLu'
                                         'xdmMCh7HZkwciZd7fga4gK4XW2QZhvWz5os6hJwqLfpZmW9r7pLgn9s')
+    Net.set_to(SVTestnet)
+    assert bip32_root(b'BitcoinSV') == ('tprv8ZgxMBicQKsPewt8Y7bqdo6PJp3RjBjTRzGkNfib3W5DoCUQUng'
+                                        'fUP8o7sGwa8Kw619tfnBpqfeKxsxJq8rvts8hDxA912YcgbuGZX3AZDd')
+    Net.set_to(SVMainnet)
