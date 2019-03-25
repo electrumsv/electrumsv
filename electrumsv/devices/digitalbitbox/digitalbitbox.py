@@ -465,7 +465,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             dbb_client = self.plugin.get_client(self)
 
             if not dbb_client.is_paired():
-                raise Exception(_("Could not sign message."))
+                raise Exception(_("Bitbox does not appear to be connected."))
 
             reply = dbb_client.hid_send_encrypt(msg)
             self.handler.show_message(
@@ -481,7 +481,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 raise Exception(reply['error']['message'])
 
             if 'sign' not in reply:
-                raise Exception(_("Could not sign message."))
+                raise Exception(_("Bitbox did not sign the message."))
 
             siginfo = reply['sign'][0]
             compact_sig = bytes.fromhex(siginfo['sig'])
@@ -493,12 +493,13 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 # firmware > v2.1.1
                 message_sig = bytes([recid + 27]) + compact_sig
                 try:
-                    pubkey = PublicKey.from_signed_message(message_sig, msg_hash, None)
+                    pubkey = PublicKey.from_signed_message(message_sig, message)
                 except Exception:
+                    logger.exception(f"If Digital Bitbox signing failed, this may be why")
                     continue
                 if pubkey.verify_message(message_sig, message):
                     return message_sig
-            raise RuntimeError(_("Could not sign message"))
+            raise RuntimeError(_("Unable to sign as Bitbox failed to provide a valid signature"))
         except Exception as e:
             self.give_error(e)
         return sig
