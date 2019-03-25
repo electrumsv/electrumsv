@@ -24,8 +24,9 @@
 
 import threading
 
+from bitcoinx import BIP32PublicKey, BIP32Derivation
+
 from electrumsv.app_state import app_state
-from electrumsv.bip32 import xpub_from_pubkey
 from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
@@ -40,6 +41,7 @@ from ..hw_wallet import HW_PluginBase
 # TREZOR initialization methods
 TIM_NEW, TIM_RECOVER, TIM_MNEMONIC, TIM_PRIVKEY = range(0, 4)
 KEEPKEY_PRODUCT_KEY = 'KeepKey'
+NULL_DERIVATION = BIP32Derivation(chain_code=bytes(32), n=0, depth=0, parent_fingerprint=bytes(4))
 
 
 class KeepKey_KeyStore(Hardware_KeyStore):
@@ -311,7 +313,7 @@ class KeepKeyPlugin(HW_PluginBase):
         for txin in tx.inputs():
             txinputtype = self.types.TxInputType()
             if txin['type'] == 'coinbase':
-                prev_hash = "\0"*32
+                prev_hash = bytes(32)
                 prev_index = 0xffffffff  # signed int -1
             else:
                 if for_sig:
@@ -327,7 +329,8 @@ class KeepKeyPlugin(HW_PluginBase):
                             if is_xpubkey(x_pubkey):
                                 xpub, s = parse_xpubkey(x_pubkey)
                             else:
-                                xpub = xpub_from_pubkey(bfh(x_pubkey))
+                                xpub = BIP32PublicKey(bfh(x_pubkey), NULL_DERIVATION, Net.COIN)
+                                xpub = xpub.extended_key_string()
                                 s = []
                             node = self.ckd_public.deserialize(xpub)
                             return self.types.HDNodePathType(node=node, address_n=s)

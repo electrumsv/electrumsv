@@ -36,15 +36,6 @@ class BIP32Error(Exception):
     pass
 
 
-class InvalidMasterKeyVersionBytes(BIP32Error):
-    pass
-
-
-def xprv_header(*, net=None):
-    net = net or Net
-    return bfh("%08x" % net.XPRV_HEADERS['standard'])
-
-
 def xpub_header(*, net=None):
     net = net or Net
     return bfh("%08x" % net.XPUB_HEADERS['standard'])
@@ -55,12 +46,6 @@ def serialize_xpub(c, cK, depth=0, fingerprint=b'\x00'*4,
     xpub = xpub_header(net=net) \
            + bytes([depth]) + fingerprint + child_number + c + cK
     return EncodeBase58Check(xpub)
-
-
-def xpub_from_pubkey(cK):
-    if cK[0] not in (0x02, 0x03):
-        raise BIP32Error('Unexpected first byte: {}'.format(cK[0]))
-    return serialize_xpub(b'\x00'*32, cK)
 
 
 def bip32_derivation(s: str) -> int:
