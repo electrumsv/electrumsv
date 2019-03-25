@@ -7,7 +7,7 @@ from electrumsv.bitcoin import (
     var_int, op_push, deserialize_privkey, serialize_privkey,
     is_minikey, seed_type, EncodeBase58Check,
     push_script, int_to_hex)
-from electrumsv.bip32 import is_bip32_derivation, bip32_path_to_uints
+from electrumsv.bip32 import is_bip32_derivation
 from electrumsv.crypto import sha256d
 from electrumsv.keystore import is_xpub, is_xprv
 from electrumsv import crypto
@@ -277,11 +277,6 @@ class Test_xprv_xpub(SequentialTestCase):
         self.assertFalse(is_bip32_derivation("n/"))
         self.assertFalse(is_bip32_derivation(""))
         self.assertFalse(is_bip32_derivation("m/q8462"))
-
-    def test_convert_bip32_path_to_uints(self):
-        self.assertEqual([0, 0x80000001, 0x80000001], bip32_path_to_uints("m/0/-1/1'"))
-        self.assertEqual([], bip32_path_to_uints("m/"))
-        self.assertEqual([2147483692, 2147488889, 221], bip32_path_to_uints("m/44'/5241'/221"))
 
     def test_version_bytes(self):
         xprv_headers_b58 = {

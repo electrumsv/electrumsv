@@ -1,8 +1,8 @@
 from collections import defaultdict
 
-from bitcoinx import Ops, bip32_key_from_string, be_bytes_to_int
+from bitcoinx import Ops, bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string
 
-from electrumsv.bip32 import bip32_path_to_uints as parse_path
+
 from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
 
 from electrumsv.app_state import app_state
@@ -333,7 +333,7 @@ class TrezorPlugin(HW_PluginBase):
                     # find which key is mine
                     for xpub, deriv in xpubs:
                         if xpub in xpub_path:
-                            xpub_n = parse_path(xpub_path[xpub])
+                            xpub_n = bip32_decompose_chain_string(xpub_path[xpub])
                             txinputtype.address_n = xpub_n + deriv
                             break
 
@@ -375,7 +375,7 @@ class TrezorPlugin(HW_PluginBase):
     def tx_outputs(self, derivation, tx):
 
         def create_output_by_derivation():
-            deriv = parse_path("/%d/%d" % index)
+            deriv = bip32_decompose_chain_string("/%d/%d" % index)
             multisig = self._make_multisig(m, [(xpub, deriv) for xpub in xpubs])
             if multisig is None:
                 script_type = OutputScriptType.PAYTOADDRESS
@@ -384,7 +384,7 @@ class TrezorPlugin(HW_PluginBase):
             return TxOutputType(
                 multisig=multisig,
                 amount=amount,
-                address_n=parse_path(derivation + "/%d/%d" % index),
+                address_n=bip32_decompose_chain_string(derivation + "/%d/%d" % index),
                 script_type=script_type
             )
 

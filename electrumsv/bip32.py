@@ -22,8 +22,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import List
-
 from .bitcoin import EncodeBase58Check
 from .networks import Net
 from .util import bfh
@@ -57,26 +55,6 @@ def bip32_derivation(s: str) -> int:
             continue
         i = int(n[:-1]) + BIP32_PRIME if n[-1] == "'" else int(n)
         yield i
-
-
-def bip32_path_to_uints(n: str) -> List[int]:
-    """Convert bip32 path to list of uint32 integers with prime flags
-    m/0/-1/1' -> [0, 0x80000001, 0x80000001]
-
-    based on code in trezorlib
-    """
-    path = []
-    for x in n.split('/')[1:]:
-        if x == '':
-            continue
-        prime = 0
-        if x.endswith("'"):
-            x = x.replace('\'', '')
-            prime = BIP32_PRIME
-        if x.startswith('-'):
-            prime = BIP32_PRIME
-        path.append(abs(int(x)) | prime)
-    return path
 
 
 def is_bip32_derivation(x: str) -> bool:
