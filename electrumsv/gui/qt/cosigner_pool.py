@@ -164,7 +164,7 @@ class CosignerPool(object):
             if self.is_theirs(wallet, item, tx):
                 raw_tx_bytes = bfh(str(tx))
                 public_key = PublicKey.from_bytes(item.K)
-                message = public_key.encrypt_message(raw_tx_bytes).decode('ascii')
+                message = public_key.encrypt_message_to_base64(raw_tx_bytes)
                 WaitingDialog(item.window, _('Sending transaction to cosigning pool...'),
                               send_message, on_done=partial(on_done, item.window))
 
