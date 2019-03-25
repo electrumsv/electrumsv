@@ -2252,12 +2252,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.logger.exception("")
             self.show_message(str(e))
             return
-        xtype = bitcoin.deserialize_privkey(pk)[0]
         d = WindowModalDialog(self, _("Private key"))
         d.setMinimumSize(600, 150)
         vbox = QVBoxLayout()
         vbox.addWidget(QLabel('{}: {}'.format(_("Address"), address)))
-        vbox.addWidget(QLabel(_("Script type") + ': ' + xtype))
         vbox.addWidget(QLabel(_("Private key") + ':'))
         keys_e = ShowQRTextEdit(text=pk)
         keys_e.addCopyButton(self.app)

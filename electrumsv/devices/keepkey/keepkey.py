@@ -279,10 +279,10 @@ class KeepKeyPlugin(HW_PluginBase):
         client.get_xpub('m', 'standard')
         client.used()
 
-    def get_xpub(self, device_id, derivation, xtype, wizard):
+    def get_xpub(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)
         client.handler = self.create_handler(wizard)
-        xpub = client.get_xpub(derivation, xtype)
+        xpub = client.get_xpub(derivation)
         client.used()
         return xpub
 
