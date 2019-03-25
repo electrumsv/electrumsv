@@ -35,7 +35,7 @@ import sys
 import threading
 import time
 
-from bitcoinx import PublicKey, be_bytes_to_int
+from bitcoinx import PublicKey, be_bytes_to_int, Bitcoin
 
 from .logs import logs
 from .startup import package_dir
@@ -544,7 +544,9 @@ def get_identified_release_signers(entry):
     for signature in release_signatures:
         for signer_name, signer_address in signature_addresses:
             if signer_name not in signed_names:
-                if PublicKey.verify_message_and_address(signature, message, signer_address):
+                # They are mainnet addresses
+                if PublicKey.verify_message_and_address(signature, message, signer_address,
+                                                        coin=Bitcoin):
                     signed_names.add(signer_name)
                     break
     return signed_names

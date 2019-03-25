@@ -49,7 +49,7 @@ import electrumsv
 from electrumsv import bitcoin, commands, keystore, paymentrequest, qrscanner, util
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
+from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT, verify_message_and_address
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -2319,7 +2319,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         try:
             # This can throw on invalid base64
             sig = base64.b64decode(signature.toPlainText())
-            verified = PublicKey.verify_message_and_address(sig, message, address)
+            verified = verify_message_and_address(sig, message, address)
         except:
             verified = False
 

@@ -25,7 +25,7 @@
 
 import hashlib
 
-from bitcoinx import Ops
+from bitcoinx import Ops, PublicKey
 
 from .crypto import hash_160, sha256d, hmac_oneshot, sha256
 from .networks import Net
@@ -264,6 +264,10 @@ SCRIPT_TYPES = {
     'p2pkh':0,
     'p2sh':5,
 }
+
+
+def verify_message_and_address(signature, message, address):
+    return PublicKey.verify_message_and_address(signature, message, address, coin=Net.COIN)
 
 
 def serialize_privkey(secret, compressed, txin_type):

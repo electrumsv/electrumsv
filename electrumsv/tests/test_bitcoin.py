@@ -1,9 +1,9 @@
 import base64
-from bitcoinx import Ops, PrivateKey, PublicKey
+from bitcoinx import Ops, PrivateKey
 
 from electrumsv.address import Address
 from electrumsv.bitcoin import (
-    is_private_key, is_new_seed, is_old_seed,
+    is_private_key, is_new_seed, is_old_seed, verify_message_and_address,
     var_int, op_push, deserialize_privkey, serialize_privkey,
     is_minikey, seed_type, EncodeBase58Check,
     push_script, int_to_hex)
@@ -12,7 +12,7 @@ from electrumsv.crypto import sha256d
 from electrumsv.keystore import is_xpub, is_xprv
 from electrumsv import crypto
 from electrumsv.exceptions import InvalidPassword
-from electrumsv.networks import Net
+from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.util import bfh, bh2u
 from electrumsv.storage import WalletStorage
 
@@ -80,11 +80,18 @@ class Test_bitcoin(SequentialTestCase):
         self.assertEqual(sig1_b64, b'H/9jMOnj4MFbH3d7t4yCQ9i7DgZU/VZ278w3+ySv2F4yIsdqjsc5ng3kmN8OZAThgyfCZOQxZCWza9V5XzlVY0Y=')
         self.assertEqual(sig2_b64, b'G84dmJ8TKIDKMT9qBRhpX2sNmR0y5t+POcYnFFJCs66lJmAs3T8A6Sbpx7KA6yTQ9djQMabwQXRrDomOkIKGn18=')
 
-        self.assertTrue(PublicKey.verify_message_and_address(sig1, msg1, addr1))
-        self.assertTrue(PublicKey.verify_message_and_address(sig2, msg2, addr2))
+        Net.set_to(SVMainnet)
 
-        self.assertFalse(PublicKey.verify_message_and_address(b'wrong', msg1, addr1))
-        self.assertFalse(PublicKey.verify_message_and_address(sig2, msg1, addr1))
+        self.assertTrue(verify_message_and_address(sig1, msg1, addr1))
+        self.assertTrue(verify_message_and_address(sig2, msg2, addr2))
+
+        self.assertFalse(verify_message_and_address(b'wrong', msg1, addr1))
+        self.assertFalse(verify_message_and_address(sig2, msg1, addr1))
+
+        Net.set_to(SVTestnet)
+
+        self.assertFalse(verify_message_and_address(sig1, msg1, addr1))
+        self.assertFalse(verify_message_and_address(sig2, msg2, addr2))
 
     @needs_test_with_all_aes_implementations
     def test_decrypt_message(self):

@@ -454,7 +454,7 @@ class Commands:
     @command('')
     def verifymessage(self, address, signature, message):
         """Verify a signature."""
-        return PublicKey.verify_message_and_address(signature, message, address)
+        return bitcoin.verify_message_and_address(signature, message, address)
 
     def _mktx(self, outputs, fee=None, change_addr=None, domain=None, nocheck=False,
               unsigned=False, password=None, locktime=None):
