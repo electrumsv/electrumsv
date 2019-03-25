@@ -2,7 +2,8 @@ import pytest
 
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.keystore import (
-    Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed, bip32_root
+    Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed, bip32_root,
+    from_master_key
 )
 from electrumsv.crypto import pw_encode
 from electrumsv.networks import Net, SVMainnet, SVTestnet
@@ -160,3 +161,12 @@ def test_bip32_root():
     assert bip32_root(b'BitcoinSV') == ('tprv8ZgxMBicQKsPewt8Y7bqdo6PJp3RjBjTRzGkNfib3W5DoCUQUng'
                                         'fUP8o7sGwa8Kw619tfnBpqfeKxsxJq8rvts8hDxA912YcgbuGZX3AZDd')
     Net.set_to(SVMainnet)
+
+
+def test_from_master_key():
+    keystore = from_master_key('xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCe'
+                               'gAUNEp1uXXEncSAyro5CaJFwv7wYFcBQrF6MfWYoAXsTw')
+    assert keystore.xprv == ('xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCe'
+                             'gAUNEp1uXXEncSAyro5CaJFwv7wYFcBQrF6MfWYoAXsTw')
+    assert keystore.xpub == ('xpub6BoXuZmXMAUMbiEuHuS3s3L6ienv7u5Npx6GMY3MwQnBj7qM89dojV'
+                             'kXTZtbpEvAzxSKAxnnsVDuwSAAvvXHWVncpX46V3LGj5SaKHtNNnc')
