@@ -491,13 +491,13 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 recids = range(4)
             for recid in recids:
                 # firmware > v2.1.1
-                recoverable_sig = compact_sig + bytes([recid])
+                message_sig = bytes([recid + 27]) + compact_sig
                 try:
-                    pubkey = PublicKey.from_recoverable_signature(recoverable_sig, msg_hash, None)
+                    pubkey = PublicKey.from_signed_message(message_sig, msg_hash, None)
                 except Exception:
                     continue
-                if pubkey.verify_message(recoverable_sig, message):
-                    return recoverable_sig
+                if pubkey.verify_message(message_sig, message):
+                    return message_sig
             raise RuntimeError(_("Could not sign message"))
         except Exception as e:
             self.give_error(e)
