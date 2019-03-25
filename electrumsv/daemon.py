@@ -25,6 +25,7 @@
 
 import ast
 import base64
+from typing import Optional, Tuple
 import os
 import time
 
@@ -53,7 +54,7 @@ def remove_lockfile(lockfile):
     os.unlink(lockfile)
 
 
-def get_fd_or_server(config):
+def get_fd_or_server(config) -> Tuple[Optional[int], Optional[jsonrpclib.Server]]:
     '''Tries to create the lockfile, using O_EXCL to
     prevent races.  If it succeeds it returns the FD.
     Otherwise try and connect to the server specified in the lockfile.
@@ -72,7 +73,7 @@ def get_fd_or_server(config):
         remove_lockfile(lockfile)
 
 
-def get_server(config):
+def get_server(config) -> Optional[jsonrpclib.Server]:
     lockfile = get_lockfile(config)
     while True:
         create_time = None
