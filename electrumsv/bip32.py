@@ -105,12 +105,6 @@ def is_xprv(text):
         return False
 
 
-def xpub_from_xprv(xprv):
-    depth, fingerprint, child_number, c, k = deserialize_xprv(xprv)
-    cK = PrivateKey(k).public_key.to_bytes(compressed=True)
-    return serialize_xpub(c, cK, depth, fingerprint, child_number)
-
-
 def xpub_from_pubkey(cK):
     if cK[0] not in (0x02, 0x03):
         raise BIP32Error('Unexpected first byte: {}'.format(cK[0]))

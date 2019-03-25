@@ -32,7 +32,7 @@ from bitcoinx import (
 
 from .address import Address, PublicKey
 from .app_state import app_state
-from .bip32 import xpub_from_xprv, is_xpub, is_xprv
+from .bip32 import is_xpub, is_xprv
 from .bitcoin import (
     bh2u, bfh, DecodeBase58Check, EncodeBase58Check, is_seed, seed_type,
     rev_hex, script_to_address, int_to_hex, is_private_key
@@ -375,16 +375,16 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
     def is_watching_only(self):
         return self.xprv is None
 
-    def add_xprv(self, xprv):
-        self.xprv = xprv
-        self.xpub = xpub_from_xprv(xprv)
+    def add_xprv(self, xprv: BIP32PrivateKey):
+        self.xprv = xprv.extended_key_string()
+        self.xpub = xprv.public_key.extended_key_string()
 
     def add_xprv_from_seed(self, bip32_seed, derivation):
         xprv = bip32_root(bip32_seed)
         xprv = bip32_key_from_string(xprv)
         for n in bip32_decompose_chain_string(derivation):
             xprv = xprv.child_safe(n)
-        self.add_xprv(xprv.extended_key_string())
+        self.add_xprv(xprv)
 
     def get_private_key(self, sequence, password):
         xprv = self.get_master_private_key(password)
@@ -769,16 +769,10 @@ def from_xpub(xpub):
     k.xpub = xpub
     return k
 
-def from_xprv(xprv):
-    xpub = xpub_from_xprv(xprv)
-    k = BIP32_KeyStore({})
-    k.xprv = xprv
-    k.xpub = xpub
-    return k
-
 def from_master_key(text):
     if is_xprv(text):
-        k = from_xprv(text)
+        k = BIP32_KeyStore({})
+        k.add_xprv(bip32_key_from_string(text))
     elif is_old_mpk(text):
         k = from_old_mpk(text)
     elif is_xpub(text):

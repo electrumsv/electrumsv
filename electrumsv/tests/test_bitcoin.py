@@ -7,7 +7,7 @@ from electrumsv.bitcoin import (
     var_int, op_push, deserialize_privkey, serialize_privkey,
     is_minikey, seed_type, EncodeBase58Check,
     push_script, int_to_hex)
-from electrumsv.bip32 import (xpub_from_xprv, is_xprv, is_bip32_derivation,
+from electrumsv.bip32 import (is_xprv, is_bip32_derivation,
                             is_xpub, bip32_path_to_uints)
 from electrumsv.crypto import sha256d
 from electrumsv import crypto
@@ -246,12 +246,6 @@ class Test_xprv_xpub(SequentialTestCase):
         {'xprv': 'xprvA41z7zogVVwxVSgdKUHDy1SKmdb533PjDz7J6N6mV6uS3ze1ai8FHa8kmHScGpWmj4WggLyQjgPie1rFSruoUihUZREPSL39UNdE3BBDu76',
          'xpub': 'xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy'},
     )
-
-    def test_xpub_from_xprv(self):
-        """We can derive the xpub key from a xprv."""
-        for xprv_details in self.xprv_xpub:
-            result = xpub_from_xprv(xprv_details['xprv'])
-            self.assertEqual(result, xprv_details['xpub'])
 
     def test_is_xpub(self):
         for xprv_details in self.xprv_xpub:
