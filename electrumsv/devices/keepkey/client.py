@@ -25,15 +25,18 @@
 from struct import pack
 import time
 
-from bitcoinx import bip32_decompose_chain_string
+from bitcoinx import (
+    bip32_decompose_chain_string, BIP32Derivation, BIP32PublicKey, PublicKey,
+    pack_be_uint32,
+)
 
 from keepkeylib.client import proto, BaseClient, ProtocolMixin
 
-from electrumsv.bip32 import serialize_xpub
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.logs import logs
+from electrumsv.networks import Net
 
 logger = logs.get_logger("keepkey.client")
 
@@ -94,15 +97,15 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         '''Provided here as in keepkeylib but not trezorlib.'''
         self.transport.write(self.proto.Cancel())
 
-    def i4b(self, x):
-        return pack('>I', x)
-
     def get_xpub(self, bip32_path):
         address_n = bip32_decompose_chain_string(bip32_path)
         creating = False
         node = self.get_public_node(address_n, creating).node
-        return serialize_xpub(node.chain_code, node.public_key, node.depth,
-                              self.i4b(node.fingerprint), self.i4b(node.child_num))
+        derivation = BIP32Derivation(chain_code=node.chain_code, depth=node.depth,
+                                     parent_fingerprint=pack_be_uint32(node.fingerprint),
+                                     n=node.child_num)
+        key = BIP32PublicKey(PublicKey.from_bytes(node.public_key), derivation, Net.COIN)
+        return key.extended_key_string()
 
     def toggle_passphrase(self):
         if self.features.passphrase_protection:
