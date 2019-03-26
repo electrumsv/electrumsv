@@ -270,13 +270,6 @@ def verify_message_and_address(signature, message, address):
     return PublicKey.verify_message_and_address(signature, message, address, coin=Net.COIN)
 
 
-def serialize_privkey(secret, compressed, txin_type):
-    prefix = bytes([(SCRIPT_TYPES[txin_type] + Net.WIF_PREFIX) & 255])
-    suffix = b'\01' if compressed else b''
-    vchIn = prefix + secret + suffix
-    return EncodeBase58Check(vchIn)
-
-
 def deserialize_privkey(key):
     # whether the pubkey is compressed should be visible from the keystore
     if is_minikey(key):

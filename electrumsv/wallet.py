@@ -55,6 +55,7 @@ from .keystore import (
     load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore, xpubkey_to_address
 )
 from .logs import logs
+from .networks import Net
 from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type
@@ -404,8 +405,8 @@ class Abstract_Wallet:
         if self.is_watching_only():
             return []
         index = self.get_address_index(address)
-        pk, compressed = self.keystore.get_private_key(index, password)
-        return bitcoin.serialize_privkey(pk, compressed, self.txin_type)
+        secret, compressed = self.keystore.get_private_key(index, password)
+        return PrivateKey(secret).to_WIF(compressed=compressed, coin=Net.COIN)
 
     def get_public_keys(self, address):
         sequence = self.get_address_index(address)

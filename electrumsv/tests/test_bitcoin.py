@@ -4,7 +4,7 @@ from bitcoinx import Ops, PrivateKey
 from electrumsv.address import Address
 from electrumsv.bitcoin import (
     is_private_key, is_new_seed, is_old_seed, verify_message_and_address,
-    var_int, op_push, deserialize_privkey, serialize_privkey,
+    var_int, op_push, deserialize_privkey,
     is_minikey, seed_type, EncodeBase58Check,
     push_script, int_to_hex)
 from electrumsv.crypto import sha256d
@@ -402,12 +402,6 @@ class Test_keyImport(SequentialTestCase):
             self.assertFalse(is_private_key(priv_details['pub']))
             self.assertFalse(is_private_key(priv_details['address']))
         self.assertFalse(is_private_key("not a privkey"))
-
-    def test_serialize_privkey(self):
-        for priv_details in self.priv_pub_addr:
-            txin_type, privkey, compressed = deserialize_privkey(priv_details['priv'])
-            priv2 = serialize_privkey(privkey, compressed, txin_type)
-            self.assertEqual(priv_details['exported_privkey'], priv2)
 
     def test_address_to_scripthash(self):
         for priv_details in self.priv_pub_addr:
