@@ -72,7 +72,7 @@ class ASync(object):
 
     async def _wait_until_stopped(self):
         await self.stop_event.wait()
-        for future in self.futures:
+        for future in list(self.futures):
             future.cancel()
 
     def _main(self):
