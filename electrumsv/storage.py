@@ -76,7 +76,7 @@ class WalletStorage:
         self.lock = threading.RLock()
         self.data = {}
         self.path = path
-        self._file_exists = self.path and os.path.exists(self.path)
+        self._file_exists = self.path and os.path.exists(self.path) and os.path.isfile(self.path)
         self.modified = False
         self.pubkey = None
         if self.file_exists():

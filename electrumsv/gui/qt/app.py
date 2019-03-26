@@ -229,6 +229,9 @@ class SVApplication(QApplication):
                     logger.exception("")
                 self.quit()
 
+    def on_label_change(self, wallet: Abstract_Wallet, name: str, text: str) -> None:
+        self.label_sync.set_label(wallet, name, text)
+
     def _create_window_for_wallet(self, wallet: Abstract_Wallet):
         if wallet.is_hardware_wallet():
             dialogs.show_named('hardware-wallet-quality')

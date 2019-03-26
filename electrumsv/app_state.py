@@ -45,7 +45,7 @@ logger = logs.get_logger("app_state")
 
 
 class AppStateProxy(object):
-
+    app = None
     base_units = ['BSV', 'mBSV', 'bits', 'sats']    # large to small
     decimal_points = [8, 5, 2, 0]
 
@@ -64,7 +64,7 @@ class AppStateProxy(object):
         self.num_zeros = config.get('num_zeros', 0)
 
     def has_app(self):
-        return False
+        return self.app is not None
 
     def headers_filename(self) -> str:
         return os.path.join(self.config.path, 'headers')
