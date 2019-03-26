@@ -67,6 +67,7 @@ class Output:
     def __init__(self, script_hex: str, amount: Optional[int]=None,
                  description: Optional[str]=None):
         self.script_hex = script_hex
+        # TODO: Must not have a JSON string length of 100 bytes.
         self.description = description
         self.amount = amount
 
@@ -130,6 +131,8 @@ class Output:
 
 
 class PaymentRequest:
+    MAXIMUM_JSON_LENGTH = 10 * 1024 * 1024
+
     def __init__(self, outputs, creation_timestamp=None, expiration_timestamp=None, memo=None,
                  payment_url=None, merchant_data=None):
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
@@ -173,7 +176,7 @@ class PaymentRequest:
 
     @classmethod
     def from_json(klass, s: str) -> 'PaymentRequest':
-        if len(s) > 10 * 1024 * 1024:
+        if len(s) > klass.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(f"Invalid payment request, too large")
 
         d = json.loads(s)
@@ -329,6 +332,8 @@ class PaymentRequest:
 
 
 class Payment:
+    MAXIMUM_JSON_LENGTH = 10 * 1024 * 1024
+
     def __init__(self, merchant_data: Any, transaction_hex: str, refund_outputs: List[Output],
                  memo: Optional[str]=None):
         self.merchant_data = merchant_data
@@ -372,7 +377,9 @@ class Payment:
         return data
 
     @classmethod
-    def from_json(klass, s: str) -> 'Output':
+    def from_json(klass, s: str) -> 'Payment':
+        if len(s) > klass.MAXIMUM_JSON_LENGTH:
+            raise Bip270Exception(f"Invalid payment, too large")
         data = json.loads(s)
         return klass.from_dict(data)
 
@@ -381,6 +388,8 @@ class Payment:
 
 
 class PaymentACK:
+    MAXIMUM_JSON_LENGTH = 11 * 1024 * 1024
+
     def __init__(self, payment: Payment, memo: Optional[str]=None):
         self.payment = payment
         self.memo = memo
@@ -411,6 +420,8 @@ class PaymentACK:
 
     @classmethod
     def from_json(klass, s: str) -> 'PaymentACK':
+        if len(s) > klass.MAXIMUM_JSON_LENGTH:
+            raise Bip270Exception(f"Invalid payment ACK, too large")
         data = json.loads(s)
         return klass.from_dict(data)
 
