@@ -1,13 +1,15 @@
-from struct import pack
 import time
 
-from bitcoinx import bip32_decompose_chain_string
+from bitcoinx import (
+    bip32_decompose_chain_string, BIP32Derivation, BIP32PublicKey, PublicKey,
+    pack_be_uint32,
+)
 
-from electrumsv.bip32 import serialize_xpub
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.logs import logs
+from electrumsv.networks import Net
 
 from trezorlib.client import TrezorClient
 from trezorlib.exceptions import TrezorFailure, Cancelled, OutdatedFirmwareError
@@ -120,15 +122,15 @@ class TrezorClientSV:
             logger.error("timed out")
             self.clear_session()
 
-    def i4b(self, x):
-        return pack('>I', x)
-
     def get_xpub(self, bip32_path, creating=False):
         address_n = bip32_decompose_chain_string(bip32_path)
         with self.run_flow(creating_wallet=creating):
             node = trezorlib.btc.get_public_node(self.client, address_n).node
-        return serialize_xpub(node.chain_code, node.public_key, node.depth,
-                              self.i4b(node.fingerprint), self.i4b(node.child_num))
+        derivation = BIP32Derivation(chain_code=node.chain_code, depth=node.depth,
+                                     parent_fingerprint=pack_be_uint32(node.fingerprint),
+                                     n=node.child_num)
+        key = BIP32PublicKey(PublicKey.from_bytes(node.public_key), derivation, Net.COIN)
+        return key.extended_key_string()
 
     def toggle_passphrase(self):
         if self.features.passphrase_protection:
