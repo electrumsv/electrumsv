@@ -898,6 +898,8 @@ def get_parser():
     parser_daemon = subparsers.add_parser('daemon', help="Run Daemon")
     parser_daemon.add_argument("subcommand", choices=['start', 'status', 'stop',
                                                       'load_wallet', 'close_wallet'], nargs='?')
+    parser_daemon.add_argument("-dapp", "--daemon-app-module", dest="daemon_app_module",
+        help="Run the daemon control app from the given module")
     #parser_daemon.set_defaults(func=run_daemon)
     add_network_options(parser_daemon)
     add_global_options(parser_daemon)

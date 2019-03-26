@@ -241,6 +241,43 @@ def run_offline_command(config, config_options):
     return result
 
 
+def load_app_module(module_name, config):
+    from importlib import import_module
+    try:
+        module = import_module(module_name)
+    except Exception as e:
+        print(f"Module '{module_name}' cannot be imported: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    for memberValue in module.__dict__.values():
+        if (memberValue is not AppStateProxy and type(memberValue) is type(AppStateProxy) and
+            issubclass(memberValue, AppStateProxy)):
+            memberValue(config, 'daemon-app')
+            if not app_state.has_app():
+                print(f'Daemon app {module_name} has_app() is False', file=sys.stderr)
+                sys.exit(1)
+            return
+
+    print(f'Module {module_name} does not appear to be a daemon app', file=sys.stderr)
+    sys.exit(1)
+
+
+def run_app_with_daemon(fd, is_gui, config_options):
+    with app_state.async_ as async_:
+        d = daemon.Daemon(fd, is_gui)
+        d.start()
+        try:
+            if not app_state.config.get('offline'):
+                app_state.fx = FxTask(app_state.config, d.network)
+                app_state.async_.spawn(app_state.fx.refresh_loop)
+            app_state.app.run_app()
+        finally:
+            # Shut down the daemon before exiting the async loop
+            d.stop()
+            d.join()
+    sys.exit(0)
+
+
 def enforce_requirements():
     # Are we running from source, and do we have the requirements?  If not we do not apply.
     requirement_path = os.path.join(
@@ -353,6 +390,8 @@ def main():
         except ImportError as e:
             platform.missing_import(e)
         QtAppStateProxy(config, 'qt')
+    elif cmdname == 'daemon' and 'daemon_app_module' in config_options:
+        load_app_module(config_options['daemon_app_module'], config)
     else:
         AppStateProxy(config, 'cmdline')
 
@@ -364,19 +403,7 @@ def main():
     if cmdname == 'gui':
         fd, server = daemon.get_fd_or_server(config)
         if fd is not None:
-            with app_state.async_ as async_:
-                d = daemon.Daemon(fd, True)
-                d.start()
-                try:
-                    if not config.get('offline'):
-                        app_state.fx = FxTask(config, d.network)
-                        async_.spawn(app_state.fx.refresh_loop)
-                    app_state.app.run_gui()
-                finally:
-                    # Shut down the daemon before exiting the async loop
-                    d.stop()
-                    d.join()
-            sys.exit(0)
+            run_app_with_daemon(fd, True, config_options)
         else:
             result = server.gui(config_options)
 
@@ -393,16 +420,13 @@ def main():
                     if pid:
                         print("starting daemon (PID %d)" % pid, file=sys.stderr)
                         sys.exit(0)
-                d = daemon.Daemon(fd, False)
-                d.start()
-                if config.get('requests_dir'):
-                    path = os.path.join(config.get('requests_dir'), 'index.html')
-                    if not os.path.exists(path):
-                        print("Requests directory not configured.")
-                        print("You can configure it using "
-                              "https://github.com/spesmilo/electrum-merchant")
-                        sys.exit(1)
-                d.join()
+
+                if 'daemon_app_module' in config_options:
+                    run_app_with_daemon(fd, False, config_options)
+                else:
+                    d = daemon.Daemon(fd, False)
+                    d.start()
+                    d.join()
                 sys.exit(0)
             else:
                 result = server.daemon(config_options)

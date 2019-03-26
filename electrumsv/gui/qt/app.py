@@ -358,7 +358,7 @@ class SVApplication(QApplication):
         if not self.start_new_window(path, app_state.config.get('url'), is_startup=True):
             self.quit()
 
-    def run_gui(self) -> None:
+    def run_app(self) -> None:
         when_started = datetime.datetime.now().astimezone().isoformat()
         app_state.config.set_key('previous_start_time', app_state.config.get("start_time"))
         app_state.config.set_key('start_time', when_started, True)

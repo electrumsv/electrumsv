@@ -39,6 +39,9 @@ class QtAppStateProxy(AppStateProxy):
         self.async_ = ASync()
         self.app = SVApplication(sys.argv)
 
+    def has_app(self):
+        return True
+
     def set_base_unit(self, base_unit):
         if super().set_base_unit(base_unit):
             self.app.base_unit_changed.emit()

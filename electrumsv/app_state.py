@@ -63,6 +63,9 @@ class AppStateProxy(object):
         self.decimal_point = config.get('decimal_point', 8)
         self.num_zeros = config.get('num_zeros', 0)
 
+    def has_app(self):
+        return False
+
     def headers_filename(self) -> str:
         return os.path.join(self.config.path, 'headers')
 
