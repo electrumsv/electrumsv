@@ -421,7 +421,7 @@ def main():
                         print("starting daemon (PID %d)" % pid, file=sys.stderr)
                         sys.exit(0)
 
-                if 'daemon_app_module' in config_options:
+                if app_state.has_app():
                     run_app_with_daemon(fd, False, config_options)
                 else:
                     d = daemon.Daemon(fd, False)
