@@ -68,6 +68,10 @@ class Output:
                  description: Optional[str]=None):
         self.script_hex = script_hex
         # TODO: Must not have a JSON string length of 100 bytes.
+        if description is not None:
+            description_json = json.dumps(description)
+            if len(description_json) > 100:
+                raise Bip270Exception("Output description too long")
         self.description = description
         self.amount = amount
 
@@ -131,7 +135,7 @@ class Output:
 
 
 class PaymentRequest:
-    MAXIMUM_JSON_LENGTH = 10 * 1024 * 1024
+    MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
     def __init__(self, outputs, creation_timestamp=None, expiration_timestamp=None, memo=None,
                  payment_url=None, merchant_data=None):
@@ -332,7 +336,7 @@ class PaymentRequest:
 
 
 class Payment:
-    MAXIMUM_JSON_LENGTH = 10 * 1024 * 1024
+    MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
     def __init__(self, merchant_data: Any, transaction_hex: str, refund_outputs: List[Output],
                  memo: Optional[str]=None):
@@ -388,7 +392,7 @@ class Payment:
 
 
 class PaymentACK:
-    MAXIMUM_JSON_LENGTH = 11 * 1024 * 1024
+    MAXIMUM_JSON_LENGTH = 11 * 1000 * 1000
 
     def __init__(self, payment: Payment, memo: Optional[str]=None):
         self.payment = payment
