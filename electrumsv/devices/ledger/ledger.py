@@ -1,16 +1,21 @@
 import hashlib
 from struct import pack, unpack
 
-from electrumsv import bip32
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import TYPE_ADDRESS, int_to_hex, var_int
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
+from electrumsv.networks import Net
 from electrumsv.transaction import Transaction
 from electrumsv.util import bfh, bh2u, versiontuple
 
 from ..hw_wallet import HW_PluginBase
+
+from bitcoinx import (
+    BIP32Derivation, BIP32PublicKey, PublicKey,
+    pack_be_uint32,
+)
 
 try:
     import hid
@@ -102,9 +107,12 @@ class Ledger_Client():
         depth = len(splitPath)
         lastChild = splitPath[len(splitPath) - 1].split('\'')
         childnum = int(lastChild[0]) if len(lastChild) == 1 else 0x80000000 | int(lastChild[0])
-        xpub = bip32.serialize_xpub(nodeData['chainCode'], publicKey, depth,
-                                    self.i4b(fingerprint), self.i4b(childnum))
-        return xpub
+
+        derivation = BIP32Derivation(chain_code=nodeData['chainCode'], depth=depth,
+                                     parent_fingerprint=pack_be_uint32(fingerprint),
+                                     n=childnum)
+        key = BIP32PublicKey(PublicKey.from_bytes(publicKey), derivation, Net.COIN)
+        return key.extended_key_string()
 
     def has_detached_pin_support(self, client):
         try:
