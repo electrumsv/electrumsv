@@ -64,23 +64,26 @@ PR_PAID    = 3     # send and propagated
 
 
 class Output:
-    def __init__(self, script_asm: str, amount: Optional[int]=None,
+    def __init__(self, script_hex: str, amount: Optional[int]=None,
                  description: Optional[str]=None):
-        self.script_asm = script_asm
+        self.script_hex = script_hex
         self.description = description
         self.amount = amount
 
     def to_ui_dict(self) -> dict:
         return {
             'amount': self.amount,
-            'address': self._get_address_from_script_asm(self.script_asm)
+            'address': self._get_address_from_script_hex(self.script_hex)
         }
 
     def get_address_string(self):
-        address_ = self._get_address_from_script_asm(self.script_asm)
+        address_ = self._get_address_from_script_hex(self.script_hex)
         return address_.to_string()
 
-    def _get_address_from_script_asm(self, script_asm):
+    def _get_address_from_script_hex(self, script_hex):
+        # NOTE: In theory we could verify the bytes and extract the variable P2PKH hash.
+        script_bytes = bytes.fromhex(script_hex)
+        script_asm = bitcoinx.Script(script_bytes).to_asm()
         tokens = script_asm.split(" ")
         assert len(tokens) == 5
         assert tokens[0] == "OP_DUP"
@@ -94,7 +97,7 @@ class Output:
     def from_dict(klass, data: dict) -> 'Output':
         if 'script' not in data:
             raise Bip270Exception("Missing required 'script' field")
-        script_asm = data['script']
+        script_hex = data['script']
 
         amount = data.get('amount')
         if amount is not None and type(amount) is not int:
@@ -104,11 +107,11 @@ class Output:
         if description is not None and type(description) is not str:
             raise Bip270Exception("Invalid 'description' field")
 
-        return klass(script_asm, amount, description)
+        return klass(script_hex, amount, description)
 
     def to_dict(self) -> dict:
         data = {
-            'script': self.script_asm,
+            'script': self.script_hex,
         }
         if self.amount and type(self.amount) is int:
             data['amount'] = self.amount
@@ -163,9 +166,9 @@ class PaymentRequest:
         if creation_timestamp is not None and expiration_seconds is not None:
             expiration_timestamp = creation_timestamp + expiration_seconds
 
-        script_asm = bitcoinx.Script.P2PKH_script(address_.hash160).to_asm()
+        script_hex = bitcoinx.Script.P2PKH_script(address_.hash160).to_bytes().hex()
 
-        outputs = [ Output(script_asm, amount) ]
+        outputs = [ Output(script_hex, amount) ]
         return klass(outputs, creation_timestamp, expiration_timestamp, memo)
 
     @classmethod
@@ -276,8 +279,8 @@ class PaymentRequest:
 
         payment_memo = "Paid using ElectrumSV"
         payment = Payment(self.merchant_data, transaction_hex, [], payment_memo)
-        refund_script_asm = bitcoinx.Script.P2PKH_script(refund_address_hash160).to_asm()
-        payment.refund_outputs.append(Output(refund_script_asm))
+        refund_script_hex = bitcoinx.Script.P2PKH_script(refund_address_hash160).to_bytes().hex()
+        payment.refund_outputs.append(Output(refund_script_hex))
 
         parsed_url = urllib.parse.urlparse(self.payment_url)
         response = self._make_request(parsed_url.geturl(), payment.to_json())
@@ -463,10 +466,9 @@ def make_unsigned_request(req: dict) -> PaymentRequest:
         amount = 0
     memo = req['memo']
 
-    script_bytes = bfh(transaction.Transaction.pay_script(address))
-    script_asm = bitcoinx.Script(script_bytes).to_asm()
+    script_hex = transaction.Transaction.pay_script(address)
 
-    pr = PaymentRequest([ Output(script_asm, amount=amount) ])
+    pr = PaymentRequest([ Output(script_hex, amount=amount) ])
     pr.creation_timestamp = creation_timestamp
     if expiration_seconds is not None:
         pr.expiration_timestamp = creation_timestamp + expiration_seconds
