@@ -848,6 +848,7 @@ class Network:
             os.chmod(dir_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
         self.task = app_state.async_.spawn(self._main_task)
+        self.connections_task = None
 
     async def _main_task(self):
         try:
@@ -872,14 +873,10 @@ class Network:
                 self.main_server, self.proxy = self._read_config()
 
             logger.debug('starting...')
-            task = await group.spawn(self._maintain_connections)
+            self.connections_task = await group.spawn(self._maintain_connections)
             await self.stop_network_event.wait()
             self.stop_network_event.clear()
-            task.cancel()
-            with suppress(CancelledError):
-                await task
-            assert not self.sessions
-            logger.debug('stopped')
+            await self.shutdown_wait()
 
     async def _maintain_connections(self):
         count = 1 if app_state.config.get('oneserver') else 10
@@ -1173,6 +1170,14 @@ class Network:
 
     def shutdown(self):
         self.task.cancel()
+
+    async def shutdown_wait(self):
+        if self.connections_task:
+            self.connections_task.cancel()
+            with suppress(CancelledError):
+                await self.connections_task
+            assert not self.sessions
+            logger.debug('stopped')
 
     def auto_connect(self):
         return app_state.config.get('auto_connect', True)

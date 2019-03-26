@@ -275,6 +275,7 @@ class Daemon(DaemonThread):
             self.server.handle_request() if self.server else time.sleep(0.1)
         if self.network:
             self.network.shutdown()
+            app_state.async_.spawn_and_wait(self.network.shutdown_wait)
         self.on_stop()
 
     def stop(self) -> None:
