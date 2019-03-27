@@ -399,8 +399,8 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
 class Old_KeyStore(Deterministic_KeyStore):
 
     def __init__(self, d):
-        Deterministic_KeyStore.__init__(self, d)
-        self.mpk = d.get('mpk')
+        super().__init__(d)
+        self.mpk = d['mpk']
 
     def _get_hex_seed_bytes(self, password):
         return pw_decode(self.seed, password).encode('utf8')
@@ -413,7 +413,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         if seed:
             try:
                 bfh(seed)
-                return str(seed)
+                return seed
             except Exception:
                 pass
         words = seed.split()
@@ -443,7 +443,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         return cls({'mpk': mpk})
 
     @classmethod
-    def is_mpk(cls, text):
+    def is_hex_mpk(cls, text):
         try:
             cls._mpk_to_PublicKey(text)
             return True
@@ -727,9 +727,9 @@ def is_private_key_list(text):
     return bool(get_private_keys(text))
 
 
-is_mpk = lambda x: Old_KeyStore.is_mpk(x) or is_xpub(x)
+is_mpk = lambda x: Old_KeyStore.is_hex_mpk(x) or is_xpub(x)
 is_private = lambda x: is_seed(x) or is_xprv(x) or is_private_key_list(x)
-is_master_key = lambda x: Old_KeyStore.is_mpk(x) or is_xprv(x) or is_xpub(x)
+is_master_key = lambda x: Old_KeyStore.is_hex_mpk(x) or is_xprv(x) or is_xpub(x)
 is_bip32_key = lambda x: is_xprv(x) or is_xpub(x)
 
 
@@ -772,7 +772,7 @@ def from_master_key(text):
     if is_xprv(text):
         k = BIP32_KeyStore({})
         k.add_xprv(bip32_key_from_string(text))
-    elif Old_KeyStore.is_mpk(text):
+    elif Old_KeyStore.is_hex_mpk(text):
         k = Old_KeyStore.from_mpk(text)
     elif is_xpub(text):
         k = from_xpub(text)
