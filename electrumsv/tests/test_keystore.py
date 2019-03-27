@@ -3,13 +3,26 @@ import pytest
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.keystore import (
     Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed, bip32_root,
-    from_master_key
+    from_master_key, from_seed
 )
 from electrumsv.crypto import pw_encode
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 
 
 class TestOld_KeyStore:
+
+    # Seed can be given in hex and as an old-style mnemonic
+    @pytest.mark.parametrize("seed_text", (
+        'powerful random nobody notice nothing important anyway look away hidden message over',
+        'acb740e454c3134901d7c8f16497cc1c',
+    ))
+    def test_from_seed(self, seed_text):
+        hex_seed = 'acb740e454c3134901d7c8f16497cc1c'
+        keystore = from_seed(seed_text, None, False)
+        assert isinstance(keystore, Old_KeyStore)
+        assert keystore.seed == hex_seed
+        assert keystore.mpk == ('e9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df9'
+                                'c09d5a3e271dc814a29981f81b3faaf2737b551ef5dcc6189cf0f8252c442b3')
 
     @pytest.mark.parametrize("seed,mpk", (
         (b'BitcoinSV', '85c9c0adba51e6f9eaf3d8314a036a0e6292ef2ff23c55854aa9354b4b2b113f'
