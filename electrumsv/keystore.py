@@ -430,6 +430,10 @@ class Old_KeyStore(Deterministic_KeyStore):
         return bh2u(master_public_key)
 
     @classmethod
+    def _mpk_to_PublicKey(cls, mpk):
+        return PublicKeyX.from_hex('04' + mpk)
+
+    @classmethod
     def from_seed(cls, seed):
         hex_seed = cls._seed_to_hex(seed)
         return cls({'seed': hex_seed, 'mpk': cls._mpk_from_hex_seed(hex_seed)})
@@ -437,6 +441,14 @@ class Old_KeyStore(Deterministic_KeyStore):
     @classmethod
     def from_mpk(cls, mpk):
         return cls({'mpk': mpk})
+
+    @classmethod
+    def is_mpk(cls, text):
+        try:
+            cls._mpk_to_PublicKey(text)
+            return True
+        except:
+            return False
 
     def dump(self):
         d = Deterministic_KeyStore.dump(self)
@@ -457,13 +469,13 @@ class Old_KeyStore(Deterministic_KeyStore):
         return be_bytes_to_int(x)
 
     @classmethod
-    def get_sequence(self, mpk, for_change, n):
+    def get_sequence(cls, mpk, for_change, n):
         return be_bytes_to_int(sha256d(("%d:%d:"%(n, for_change)).encode('ascii') + bfh(mpk)))
 
     @classmethod
-    def get_pubkey_from_mpk(self, mpk, for_change, n):
-        z = self.get_sequence(mpk, for_change, n)
-        master_public_key = PublicKeyX.from_hex('04' + mpk)
+    def get_pubkey_from_mpk(cls, mpk, for_change, n):
+        z = cls.get_sequence(mpk, for_change, n)
+        master_public_key = cls._mpk_to_PublicKey(mpk)
         public_key2 = master_public_key.add(int_to_be_bytes(z, 32))
         return public_key2.to_hex(compressed=False)
 
@@ -698,14 +710,6 @@ def load_keystore(storage, name):
     return k
 
 
-def is_old_mpk(mpk):
-    try:
-        int(mpk, 16)
-    except:
-        return False
-    return len(mpk) == 128
-
-
 def is_address_list(text):
     parts = text.split()
     return parts and all(Address.is_valid(x) for x in parts)
@@ -723,9 +727,9 @@ def is_private_key_list(text):
     return bool(get_private_keys(text))
 
 
-is_mpk = lambda x: is_old_mpk(x) or is_xpub(x)
+is_mpk = lambda x: Old_KeyStore.is_mpk(x) or is_xpub(x)
 is_private = lambda x: is_seed(x) or is_xprv(x) or is_private_key_list(x)
-is_master_key = lambda x: is_old_mpk(x) or is_xprv(x) or is_xpub(x)
+is_master_key = lambda x: Old_KeyStore.is_mpk(x) or is_xprv(x) or is_xpub(x)
 is_bip32_key = lambda x: is_xprv(x) or is_xpub(x)
 
 
@@ -768,7 +772,7 @@ def from_master_key(text):
     if is_xprv(text):
         k = BIP32_KeyStore({})
         k.add_xprv(bip32_key_from_string(text))
-    elif is_old_mpk(text):
+    elif Old_KeyStore.is_mpk(text):
         k = Old_KeyStore.from_mpk(text)
     elif is_xpub(text):
         k = from_xpub(text)
