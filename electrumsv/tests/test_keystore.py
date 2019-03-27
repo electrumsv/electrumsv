@@ -33,6 +33,26 @@ class TestOld_KeyStore:
     def test_get_pubkey_from_mpk(self, args, pubkey):
         assert Old_KeyStore.get_pubkey_from_mpk(*args) == pubkey
 
+    def test_get_seed(self):
+        seed = 'ee6ea9eceaf649640051a4c305ac5c59'
+        keystore = Old_KeyStore({})
+        keystore.add_seed(seed)
+        password = 'password'
+        keystore.update_password(None, password)
+        assert keystore.get_seed(password) == ('duck pattern possibly awaken utter roam sail '
+                                               'couple curve travel treat lord')
+        keystore.update_password(password, '')
+        assert keystore.get_seed(None) == ('duck pattern possibly awaken utter roam sail '
+                                           'couple curve travel treat lord')
+
+    def test_get_private_key(self):
+        seed = 'ee6ea9eceaf649640051a4c305ac5c59'
+        keystore = Old_KeyStore({})
+        keystore.add_seed(seed)
+        result = keystore.get_private_key((False, 10), None)
+        assert result == (bytes.fromhex(
+            '81279e4fe405363eb56e686726d450fe4a76a1d83b64311d7618b845683aab4a'), False)
+
     def test_check_seed(self):
         seed = b'Satoshi'
         mpk = Old_KeyStore.mpk_from_seed(seed)
@@ -40,6 +60,42 @@ class TestOld_KeyStore:
         keystore.check_seed(seed)
         with pytest.raises(InvalidPassword):
             keystore.check_seed(b'foo')
+
+    def test_hex_master_public_key(self):
+        # An uncompressed public key in hex form without the 04 prefix
+        mpk_hex = ("08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a688"
+                   "63b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d0")
+        keystore = from_master_key(mpk_hex)
+        assert isinstance(keystore, Old_KeyStore)
+        assert keystore.get_master_public_key() == mpk_hex
+        assert keystore.dump() == {'mpk': mpk_hex, 'type': 'old'}
+        assert keystore.is_watching_only()
+        assert keystore.get_xpubkey(False, 4) == (
+            'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68'
+            '863b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d000000400'
+        )
+        assert keystore.get_xpubkey(True, 259) == (
+            'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
+            'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
+        )
+
+    def test_get_pubkey_derivation(self):
+        mpk_hex = ("08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a688"
+                   "63b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d0")
+        keystore = from_master_key(mpk_hex)
+        assert keystore.get_pubkey_derivation(
+            'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68'
+            '863b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d000000400'
+        ) == [0, 4]
+        assert keystore.get_pubkey_derivation(
+            'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
+            'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
+        ) == [1, 259]
+        assert keystore.get_pubkey_derivation(
+            'fe18863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
+            'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
+        ) is None
+        assert keystore.get_pubkey_derivation("ff") is None
 
     def test_get_private_key_from_stretched_exponent(self):
         seed = b'Satoshi'
@@ -82,7 +138,7 @@ class TestImported_KeyStore:
             d.import_privkey(WIF, b'')
 
     def test_sign_message(self):
-        password = b'password'
+        password = 'password'
         message = 'BitcoinSV'
         d = Imported_KeyStore({})
         pubkey = d.import_privkey("5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ", password)
@@ -93,7 +149,7 @@ class TestImported_KeyStore:
         )
 
     def test_decrypt_message(self):
-        password = b'password'
+        password = 'password'
         enc_msg = ('QklFMQNkonLnVmRMF3dl+P0rHSbM4lvDPmnE2CFcD+98gGsOe6qtKtmVbCg4'
                    '9bxmT6vfmzl7udrvT81wH1Ri7wZItndtLiNHii6FBNVzoSV/1ZqN3w==')
         d = Imported_KeyStore({})
@@ -107,7 +163,7 @@ class TestBIP32_KeyStore:
     def test_get_private_key(self):
         xprv = ('xprv9s21ZrQH143K4XLpSd2berkCzJTXDv68rusDQFiQGSqa1ZmVXnYzYpTQ9'
                 'qYiSB7mHvg6kEsrd2ZtnHRJ61sZhSN4jZ2T8wxA4T75BE4QQZ1')
-        password = b'password'
+        password = 'password'
         xprv = pw_encode(xprv, password)
         keystore = BIP32_KeyStore({'xprv': xprv})
         privkey = keystore.get_private_key((1, 2, 3), password)
@@ -115,7 +171,7 @@ class TestBIP32_KeyStore:
                                          '9ec51ce4c3337a7de2a13'), True)
 
 
-    @pytest.mark.parametrize("password", (b'Password', None))
+    @pytest.mark.parametrize("password", ('Password', None))
     def test_check_password(self, password):
         xprv = ('xprv9s21ZrQH143K4XLpSd2berkCzJTXDv68rusDQFiQGSqa1ZmVXnYzYpTQ9'
                 'qYiSB7mHvg6kEsrd2ZtnHRJ61sZhSN4jZ2T8wxA4T75BE4QQZ1')
@@ -126,7 +182,7 @@ class TestBIP32_KeyStore:
 
         keystore.check_password(password)
         with pytest.raises(InvalidPassword):
-            keystore.check_password(b'guess')
+            keystore.check_password('guess')
         if password is not None:
             with pytest.raises(InvalidPassword):
                 keystore.check_password(None)
