@@ -402,7 +402,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         Deterministic_KeyStore.__init__(self, d)
         self.mpk = d.get('mpk')
 
-    def get_hex_seed(self, password):
+    def _get_hex_seed_bytes(self, password):
         return pw_decode(self.seed, password).encode('utf8')
 
     @classmethod
@@ -434,18 +434,19 @@ class Old_KeyStore(Deterministic_KeyStore):
         hex_seed = cls._seed_to_hex(seed)
         return cls({'seed': hex_seed, 'mpk': cls._mpk_from_hex_seed(hex_seed)})
 
+    @classmethod
+    def from_mpk(cls, mpk):
+        return cls({'mpk': mpk})
+
     def dump(self):
         d = Deterministic_KeyStore.dump(self)
         d['mpk'] = self.mpk
         d['type'] = 'old'
         return d
 
-    def add_master_public_key(self, mpk):
-        self.mpk = mpk
-
     def get_seed(self, password):
         from . import old_mnemonic
-        s = self.get_hex_seed(password)
+        s = self._get_hex_seed_bytes(password)
         return ' '.join(old_mnemonic.mn_encode(s))
 
     @classmethod
@@ -474,7 +475,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         return int_to_be_bytes(secexp, 32)
 
     def get_private_key(self, sequence, password):
-        seed = self.get_hex_seed(password)
+        seed = self._get_hex_seed_bytes(password)
         self.check_seed(seed)
         for_change, n = sequence
         secexp = self.stretch_key(seed)
@@ -490,7 +491,7 @@ class Old_KeyStore(Deterministic_KeyStore):
             raise InvalidPassword()
 
     def check_password(self, password):
-        seed = self.get_hex_seed(password)
+        seed = self._get_hex_seed_bytes(password)
         self.check_seed(seed)
 
     def get_master_public_key(self):
@@ -758,11 +759,6 @@ def from_private_key_list(text):
         keystore.import_key(x, None)
     return keystore
 
-def from_old_mpk(mpk):
-    keystore = Old_KeyStore({})
-    keystore.add_master_public_key(mpk)
-    return keystore
-
 def from_xpub(xpub):
     k = BIP32_KeyStore({})
     k.xpub = xpub
@@ -773,7 +769,7 @@ def from_master_key(text):
         k = BIP32_KeyStore({})
         k.add_xprv(bip32_key_from_string(text))
     elif is_old_mpk(text):
-        k = from_old_mpk(text)
+        k = Old_KeyStore.from_mpk(text)
     elif is_xpub(text):
         k = from_xpub(text)
     else:
