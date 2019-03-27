@@ -24,15 +24,6 @@ class TestOld_KeyStore:
         assert keystore.mpk == ('e9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df9'
                                 'c09d5a3e271dc814a29981f81b3faaf2737b551ef5dcc6189cf0f8252c442b3')
 
-    @pytest.mark.parametrize("seed,mpk", (
-        (b'BitcoinSV', '85c9c0adba51e6f9eaf3d8314a036a0e6292ef2ff23c55854aa9354b4b2b113f'
-         'faf92a7ba053e5b6a6c2a8c60e8579264ee8fc2b69624721a5736e01f9f64b55'),
-        (b'seed', '05c9d09c9d0cbfef6b0e5e986228d600b42999b9eecc7e91204b45815bcc911b0a9be'
-         '06eaed983fbceb3a640464c3ad8f6b80a5e0dffceab4ec3328c1801e0bb'),
-    ))
-    def test_mpk_from_seed(self, seed, mpk):
-        assert Old_KeyStore.mpk_from_seed(seed) == mpk
-
     @pytest.mark.parametrize("args,pubkey", (
         (('105a142ad6090e5a1cc29895f0a30289556cfe68731972bd70138f4f01865351c9a17269147fe'
           '551b5ad899f46f7f245d495bc1394409c49b364bbc31d01e849', False, 2),
@@ -48,8 +39,7 @@ class TestOld_KeyStore:
 
     def test_get_seed(self):
         seed = 'ee6ea9eceaf649640051a4c305ac5c59'
-        keystore = Old_KeyStore({})
-        keystore.add_seed(seed)
+        keystore = Old_KeyStore.from_seed(seed)
         password = 'password'
         keystore.update_password(None, password)
         assert keystore.get_seed(password) == ('duck pattern possibly awaken utter roam sail '
@@ -60,17 +50,15 @@ class TestOld_KeyStore:
 
     def test_get_private_key(self):
         seed = 'ee6ea9eceaf649640051a4c305ac5c59'
-        keystore = Old_KeyStore({})
-        keystore.add_seed(seed)
+        keystore = Old_KeyStore.from_seed(seed)
         result = keystore.get_private_key((False, 10), None)
         assert result == (bytes.fromhex(
             '81279e4fe405363eb56e686726d450fe4a76a1d83b64311d7618b845683aab4a'), False)
 
     def test_check_seed(self):
-        seed = b'Satoshi'
-        mpk = Old_KeyStore.mpk_from_seed(seed)
-        keystore = Old_KeyStore({'mpk': mpk})
-        keystore.check_seed(seed)
+        seed = 'ee6ea9eceaf649640051a4c305ac5c59'
+        keystore = Old_KeyStore.from_seed(seed)
+        keystore.check_seed(seed.encode())
         with pytest.raises(InvalidPassword):
             keystore.check_seed(b'foo')
 
@@ -109,13 +97,6 @@ class TestOld_KeyStore:
             'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
         ) is None
         assert keystore.get_pubkey_derivation("ff") is None
-
-    def test_get_private_key_from_stretched_exponent(self):
-        seed = b'Satoshi'
-        mpk = Old_KeyStore.mpk_from_seed(seed)
-        keystore = Old_KeyStore({'mpk': mpk})
-        privkey = keystore.get_private_key_from_stretched_exponent(False, 10, 1234567)
-        assert privkey.hex() == 'ad4109aa9abba7402c3077692bc877a297c0a30fd6bba822796e945f04631f44'
 
 
 class TestImported_KeyStore:

@@ -405,21 +405,8 @@ class Old_KeyStore(Deterministic_KeyStore):
     def get_hex_seed(self, password):
         return pw_decode(self.seed, password).encode('utf8')
 
-    def dump(self):
-        d = Deterministic_KeyStore.dump(self)
-        d['mpk'] = self.mpk
-        d['type'] = 'old'
-        return d
-
-    def add_seed(self, seed):
-        Deterministic_KeyStore.add_seed(self, seed)
-        s = self.get_hex_seed(None)
-        self.mpk = self.mpk_from_seed(s)
-
-    def add_master_public_key(self, mpk):
-        self.mpk = mpk
-
-    def format_seed(self, seed):
+    @classmethod
+    def _seed_to_hex(cls, seed):
         from . import old_mnemonic, mnemonic
         seed = mnemonic.normalize_text(seed)
         # see if seed was entered as hex
@@ -435,17 +422,31 @@ class Old_KeyStore(Deterministic_KeyStore):
             raise Exception("Invalid seed")
         return seed
 
+    @classmethod
+    def _mpk_from_hex_seed(cls, hex_seed):
+        secexp = cls.stretch_key(hex_seed.encode())
+        master_private_key = PrivateKey(int_to_be_bytes(secexp, 32))
+        master_public_key = master_private_key.public_key.to_bytes(compressed=False)[1:]
+        return bh2u(master_public_key)
+
+    @classmethod
+    def from_seed(cls, seed):
+        hex_seed = cls._seed_to_hex(seed)
+        return cls({'seed': hex_seed, 'mpk': cls._mpk_from_hex_seed(hex_seed)})
+
+    def dump(self):
+        d = Deterministic_KeyStore.dump(self)
+        d['mpk'] = self.mpk
+        d['type'] = 'old'
+        return d
+
+    def add_master_public_key(self, mpk):
+        self.mpk = mpk
+
     def get_seed(self, password):
         from . import old_mnemonic
         s = self.get_hex_seed(password)
         return ' '.join(old_mnemonic.mn_encode(s))
-
-    @classmethod
-    def mpk_from_seed(klass, seed):
-        secexp = klass.stretch_key(seed)
-        master_private_key = PrivateKey(int_to_be_bytes(secexp, 32))
-        master_public_key = master_private_key.public_key.to_bytes(compressed=False)[1:]
-        return bh2u(master_public_key)
 
     @classmethod
     def stretch_key(self, seed):
@@ -736,8 +737,7 @@ def bip44_derivation_cointype(cointype, account_id):
 def from_seed(seed, passphrase, is_p2sh):
     t = seed_type(seed)
     if t == 'old':
-        keystore = Old_KeyStore({})
-        keystore.add_seed(seed)
+        keystore = Old_KeyStore.from_seed(seed)
     elif t in ['standard']:
         keystore = BIP32_KeyStore({})
         keystore.add_seed(seed)
