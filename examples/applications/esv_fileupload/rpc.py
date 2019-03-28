@@ -1,7 +1,7 @@
 import base64
 import enum
 import os
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 from electrumsv.app_state import app_state
 from electrumsv.address import ScriptOutput
@@ -47,13 +47,6 @@ class LocalRPCFunctions:
             raise RPCError("wallet_name not loaded")
         return wallet
 
-    def _make_signed_transaction(self, wallet, password, outputs):
-        domain = None
-        coins = wallet.get_spendable_coins(domain, app_state.config)
-        tx = wallet.make_unsigned_transaction(coins, outputs, app_state.config)
-        wallet.sign_transaction(tx, password)
-        return tx
-
     def load_wallet(self, wallet_name: Optional[str]=None, password: Optional[str]=None) -> None:
         wallet_path = self._get_wallet_path(wallet_name)
         wallet = app_state.daemon.load_wallet(wallet_path, password)
@@ -70,85 +63,25 @@ class LocalRPCFunctions:
             raise RPCError(str(e))
         return wallet.get_balance()
 
-    def create_file_transactions(self, b64message: Optional[str]=None,
-            wallet_name: Optional[str]=None, password: Optional[str]=None,
-            protocol: Optional[int]=FileProtocol.B, media_type: Optional[str]=None,
-            encoding: Optional[str]=None, file_name: Optional[str]=None) -> str:
+    def make_signed_opreturn_transaction(self, wallet_name: Optional[str]=None,
+            password: Optional[str]=None, pushdatas_b64: Optional[List[str]]=None) -> dict:
         wallet = self._get_wallet(wallet_name)
 
-        try:
-            FileProtocol(protocol)
-        except ValueError:
-            raise RPCError("Unknown protocol")
+        pushdatas = []
+        for pushdata_b64 in pushdatas_b64:
+            pushdata_bytes = base64.b64decode(pushdata_b64)
+            pushdatas.append(pushdata_bytes)
 
-        message_bytes = base64.b64decode(b64message)
-
-        if len(message_bytes) > 99000:
-            if protocol == FileProtocol.B:
-                raise RPCError("message too large for B protocol")
-        else:
-            if protocol == FileProtocol.Bcat:
-                raise RPCError("message too small for Bcat protocol")
-
-        transactions = []
-
-        if protocol == FileProtocol.B:
-            push_values = [
-                b"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut",
-                message_bytes,
-                bytes(media_type, "utf-8"),
-            ]
-            if encoding:
-                push_values.append(bytes(encoding, "utf-8"))
-            if file_name:
-                if not encoding:
-                    raise RPCError("must provide encoding with filename")
-                push_values.append(bytes(file_name, "utf-8"))
-            outputs = [ (TYPE_SCRIPT, ScriptOutput.as_op_return(push_values), 0) ]
-            tx = self._make_signed_transaction(wallet, password, outputs)
-            transactions.append(tx)
-        elif protocol == FileProtocol.Bcat:
-            index = 0
-            message_view = memoryview(message_bytes)
-            while index < len(message_view):
-                segment_bytes = bytes(message_view[index:index+99000])
-
-                push_values = [
-                    b"1ChDHzdd1H4wSjgGMHyndZm6qxEDGjqpJL",
-                    segment_bytes
-                ]
-                outputs = [ (TYPE_SCRIPT, ScriptOutput.as_op_return(push_values), 0) ]
-                tx = self._make_signed_transaction(wallet, password, outputs)
-                transactions.append(tx)
-
-                index += 99000
-
-            push_values = [
-                b"15DHFxWZJT58f9nhyGnsRBqrgwK4W6h4Up",
-                b"ElectrumSV",
-                bytes(media_type, "utf-8"),
-                bytes(encoding, "utf-8") if encoding is not None else b"",
-                bytes(file_name, "utf-8") if file_name is not None else b"",
-                b"",
-            ]
-            for message_tx in transactions:
-                message_tx_hex = message_tx.serialize()
-                tx_bytes = bytes.fromhex(message_tx_hex)
-                txid_bytes = sha256d(tx_bytes)
-                push_values.append(txid_bytes)
-
-            outputs = [ (TYPE_SCRIPT, ScriptOutput.as_op_return(push_values), 0) ]
-            tx = self._make_signed_transaction(wallet, password, outputs)
-            transactions.append(tx)
-
-        results = []
-        for tx in transactions:
-            results.append({
-                "tx_id": tx.txid(),
-                "tx_hex": str(tx),
-                "fee": tx.get_fee(),
-            })
-        return results
+        domain = None
+        coins = wallet.get_spendable_coins(domain, app_state.config)
+        outputs = [ (TYPE_SCRIPT, ScriptOutput.as_op_return(pushdatas), 0) ]
+        tx = wallet.make_unsigned_transaction(coins, outputs, app_state.config)
+        wallet.sign_transaction(tx, password)
+        return {
+            "tx_id": tx.txid(),
+            "tx_hex": str(tx),
+            "fee": tx.get_fee(),
+        }
 
     def broadcast_transaction(self, tx_hex: Optional[str]=None, wallet_name: Optional[str]=None,
                               wallet_memo: Optional[str]=None) -> str:
@@ -162,3 +95,7 @@ class LocalRPCFunctions:
             wallet.set_label(tx_id, wallet_memo)
         return tx_id
 
+    def check_transaction_in_wallet(self, tx_id: Optional[str]=None,
+            wallet_name: Optional[str]=None) -> bool:
+        wallet = self._get_wallet(wallet_name)
+        return tx_id in wallet.transactions
