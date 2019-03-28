@@ -155,7 +155,7 @@ class BroadcastSession:
 
         self._logger = logging.getLogger("wallet-session")
 
-    def broadcast_file(self, file_path: str, media_type: str):
+    def broadcast_file(self, file_path: str, media_type: str, protocol: FileProtocol):
         with open(file_path, "rb") as f:
             message_bytes = f.read()
         file_name = os.path.basename(file_path)
@@ -165,7 +165,8 @@ class BroadcastSession:
         # These should be deterministically generated from the given file.
         initial_push_groups = self._create_initial_push_groups(
             message_bytes=message_bytes,
-            media_type=media_type)
+            media_type=media_type,
+            protocol=protocol)
 
         self._load_state(file_name, message_bytes, initial_push_groups)
 
@@ -326,8 +327,14 @@ class BroadcastSession:
         return all_push_groups
 
 
+def check_file_for_protocol(filepath: str, protocol: FileProtocol) -> bool:
+    if os.path.getsize(filepath) > 99000:
+        return protocol != FileProtocol.B
+    else:
+        return protocol != FileProtocol.Bcat
 
-def main():
+
+def main() -> None:
     logging.basicConfig()
 
     parser = argparse.ArgumentParser()
@@ -341,6 +348,8 @@ def main():
     parser.add_argument("-p", "--rpc-password", required=True)
     parser.add_argument("-wn", "--wallet-name", required=True)
     parser.add_argument("-wp", "--wallet-password", required=True)
+    parser.add_argument("-pr", "--protocol", action="store", default='B',
+        choices = ('B', 'Bcat'), help="Specify file protocol")
     parser.add_argument("-v", "--verbose", action="store_true", default=False)
     result = parser.parse_args(sys.argv[1:])
 
@@ -367,6 +376,12 @@ def main():
         print(f"{filepath}: unable to guess media type")
         sys.exit(1)
 
+    # The arg parser guards against the user choosing a non-existent protocol.
+    protocol = FileProtocol[result.protocol]
+    if not check_file_for_protocol(filepath, protocol):
+        print(f"{filepath}: incompatible with protocol (too large? too small?)")
+        sys.exit(1)
+
     electrum_host = result.electrum_host
     if result.electrum_host is None:
         electrum_host = "127.0.0.1"
@@ -374,7 +389,7 @@ def main():
     wallet = WalletClient(electrum_host, result.electrum_port, result.rpc_username,
         result.rpc_password, result.wallet_name, result.wallet_password)
     with wallet as session:
-        session.broadcast_file(filepath, media_type)
+        session.broadcast_file(filepath, media_type, protocol)
 
         result = session.get_summary()
         print(f"Number of transactions:      {result['count']}")
