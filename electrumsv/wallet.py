@@ -1099,6 +1099,7 @@ class Abstract_Wallet:
             network.add_wallet(self)
 
     def stop(self):
+        self.logger.debug(f'stopping wallet {self}')
         if self.network:
             self.network.remove_wallet(self)
             self.storage.put('stored_height', self.get_local_height())
