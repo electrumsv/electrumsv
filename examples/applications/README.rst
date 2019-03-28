@@ -23,12 +23,19 @@ based on file size.
 
 Add the 'examples/applications' directory to your 'PYTHONPATH'.
 
-Then start it by::
+Then start it the ElectrumSV daemon by::
 
     electrum-sv daemon -dapp esv_fileupload
 
+Set your RPC username and password::
+
+    electrum-sv setconfig rpcuser my_rpc_username
+    electrum-sv setconfig rpcpassword my_rpc_password
+
 This runs ElectrumSV as a daemon providing an extended JSON-RPC API. Then you can make use of
 the 'fileupload.py' script, to upload files.
+
+Run the script::
 
     examples/applications/fileupload.py -f my-cool-picture.jpg -eh 127.0.0.1 -ep 8888
     -u my_rpc_username -p my_rpc_password -wn spending_wallet -wp my_password
