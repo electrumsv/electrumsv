@@ -64,12 +64,6 @@ class SVMainnet(object):
         "2eb4a1d21caa056385dbedd7743878e481d26052092aba97b319a6459ff6fa1b"
     )
 
-    XPRV_HEADERS = {
-        'standard':    0x0488ade4,  # xprv
-    }
-    XPUB_HEADERS = {
-        'standard':    0x0488b21e,  # xpub
-    }
     BIP44_COIN_TYPE = 0
 
     BLOCK_EXPLORERS = {
@@ -140,12 +134,6 @@ class SVTestnet(object):
         "2fde3bf6de5266bd7a2c65b6e6971f8aa5e7b839ee18523994309ab42a18a70c"
     )
 
-    XPRV_HEADERS = {
-        'standard':    0x04358394,  # tprv
-    }
-    XPUB_HEADERS = {
-        'standard':    0x043587cf,  # tpub
-    }
     BIP44_COIN_TYPE = 1
 
     BLOCK_EXPLORERS = {

@@ -1,5 +1,5 @@
 import base64
-from bitcoinx import Ops, PrivateKey
+from bitcoinx import Ops, PrivateKey, Bitcoin, BitcoinTestnet
 
 from electrumsv.address import Address
 from electrumsv.bitcoin import (
@@ -268,61 +268,47 @@ class Test_xprv_xpub(SequentialTestCase):
         self.assertFalse(is_xprv('xprv661MyMwAqRbcFWohJWt7PHsFEJfZAvw9ZxwQoDa4SoMgsDDM1T7WK3u9E4edkC4ugRnZ8E4xDZRpk8Rnts3Nbt97dPwT52WRONGBADWRONG'))
 
     def test_version_bytes(self):
-        xprv_headers_b58 = {
-            'standard':    'xprv',
-        }
-        xpub_headers_b58 = {
-            'standard':    'xpub',
-        }
-        for xtype, xkey_header_bytes in Net.XPRV_HEADERS.items():
-            xkey_header_bytes = bfh("%08x" % xkey_header_bytes)
-            xkey_bytes = xkey_header_bytes + bytes([0] * 74)
-            xkey_b58 = EncodeBase58Check(xkey_bytes)
-            self.assertTrue(xkey_b58.startswith(xprv_headers_b58[xtype]))
+        xprv_headers_b58 = 'xprv'
+        xpub_headers_b58 = 'xpub'
 
-            xkey_bytes = xkey_header_bytes + bytes([255] * 74)
-            xkey_b58 = EncodeBase58Check(xkey_bytes)
-            self.assertTrue(xkey_b58.startswith(xprv_headers_b58[xtype]))
+        xkey_bytes = Bitcoin.xprv_verbytes + bytes([0] * 74)
+        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        self.assertTrue(xkey_b58.startswith(xprv_headers_b58))
 
-        for xtype, xkey_header_bytes in Net.XPUB_HEADERS.items():
-            xkey_header_bytes = bfh("%08x" % xkey_header_bytes)
-            xkey_bytes = xkey_header_bytes + bytes([0] * 74)
-            xkey_b58 = EncodeBase58Check(xkey_bytes)
-            self.assertTrue(xkey_b58.startswith(xpub_headers_b58[xtype]))
+        xkey_bytes = Bitcoin.xprv_verbytes + bytes([255] * 74)
+        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        self.assertTrue(xkey_b58.startswith(xprv_headers_b58))
 
-            xkey_bytes = xkey_header_bytes + bytes([255] * 74)
-            xkey_b58 = EncodeBase58Check(xkey_bytes)
-            self.assertTrue(xkey_b58.startswith(xpub_headers_b58[xtype]))
+        xkey_bytes = Bitcoin.xpub_verbytes + bytes([0] * 74)
+        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        self.assertTrue(xkey_b58.startswith(xpub_headers_b58))
+
+        xkey_bytes = Bitcoin.xpub_verbytes + bytes([255] * 74)
+        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        self.assertTrue(xkey_b58.startswith(xpub_headers_b58))
 
 
 class Test_xprv_xpub_testnet(TestCaseForTestnet):
 
     def test_version_bytes(self):
-        xprv_headers_b58 = {
-            'standard':    'tprv',
-        }
-        xpub_headers_b58 = {
-            'standard':    'tpub',
-        }
-        for xtype, xkey_header_bytes in Net.XPRV_HEADERS.items():
-            xkey_header_bytes = bfh("%08x" % xkey_header_bytes)
-            xkey_bytes = xkey_header_bytes + bytes([0] * 74)
-            xkey_b58 = EncodeBase58Check(xkey_bytes)
-            self.assertTrue(xkey_b58.startswith(xprv_headers_b58[xtype]))
+        xprv_headers_b58 = 'tprv'
+        xpub_headers_b58 = 'tpub'
 
-            xkey_bytes = xkey_header_bytes + bytes([255] * 74)
-            xkey_b58 = EncodeBase58Check(xkey_bytes)
-            self.assertTrue(xkey_b58.startswith(xprv_headers_b58[xtype]))
+        xkey_bytes = BitcoinTestnet.xprv_verbytes + bytes([0] * 74)
+        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        self.assertTrue(xkey_b58.startswith(xprv_headers_b58))
 
-        for xtype, xkey_header_bytes in Net.XPUB_HEADERS.items():
-            xkey_header_bytes = bfh("%08x" % xkey_header_bytes)
-            xkey_bytes = xkey_header_bytes + bytes([0] * 74)
-            xkey_b58 = EncodeBase58Check(xkey_bytes)
-            self.assertTrue(xkey_b58.startswith(xpub_headers_b58[xtype]))
+        xkey_bytes = BitcoinTestnet.xprv_verbytes + bytes([255] * 74)
+        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        self.assertTrue(xkey_b58.startswith(xprv_headers_b58))
 
-            xkey_bytes = xkey_header_bytes + bytes([255] * 74)
-            xkey_b58 = EncodeBase58Check(xkey_bytes)
-            self.assertTrue(xkey_b58.startswith(xpub_headers_b58[xtype]))
+        xkey_bytes = BitcoinTestnet.xpub_verbytes + bytes([0] * 74)
+        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        self.assertTrue(xkey_b58.startswith(xpub_headers_b58))
+
+        xkey_bytes = BitcoinTestnet.xpub_verbytes + bytes([255] * 74)
+        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        self.assertTrue(xkey_b58.startswith(xpub_headers_b58))
 
 
 class Test_keyImport(SequentialTestCase):
