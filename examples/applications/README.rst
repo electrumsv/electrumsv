@@ -14,6 +14,25 @@ However, we may provide useful skeletons. These will be updated as ElectrumSV ev
 you derive from these, it is with the expectation you will be willing to migrate your code
 following the changes made to them.
 
+File Upload
+-----------
+
+Two ways to upload files are 'b://' and 'Bcat'. This application extends ElectrumSV to provide
+a way for users to upload files to the blockchain using either of these two different protocols
+based on file size.
+
+Add the 'examples/applications' directory to your 'PYTHONPATH'.
+
+Then start it by::
+
+    electrum-sv daemon -dapp esv_fileupload
+
+This runs ElectrumSV as a daemon providing an extended JSON-RPC API. Then you can make use of
+the 'fileupload.py' script, to upload files.
+
+    examples/applications/fileupload.py -f my-cool-picture.jpg -eh 127.0.0.1 -ep 8888
+    -u my_rpc_username -p my_rpc_password -wn spending_wallet -wp my_password
+
 Merchant Server
 ---------------
 
@@ -28,5 +47,5 @@ Add the 'examples/applications' directory to your 'PYTHONPATH'.
 
 Then start it by::
 
-    electrum-sv daemon -dapp=esv_merchant_server
+    electrum-sv daemon -dapp esv_merchant_server
 
