@@ -1776,6 +1776,9 @@ class Deterministic_Wallet(Abstract_Wallet):
         address, = app_state.async_.spawn_and_wait(self._create_new_addresses, for_change, 1)
         return address
 
+    def create_new_addresses(self, for_change=False, count=1):
+        return app_state.async_.spawn_and_wait(self._create_new_addresses, for_change, count)
+
     async def _create_new_addresses(self, for_change, count):
         if count <= 0:
             return []

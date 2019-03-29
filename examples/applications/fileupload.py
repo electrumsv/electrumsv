@@ -101,12 +101,19 @@ class WalletClient:
             return result['error']
         return result
 
-    def check_transaction_in_wallet(self, tx_id: str) -> bool:
+    def get_transaction_state(self, tx_id: str) -> bool:
         params = {
             'tx_id': tx_id,
             'wallet_name': self._wallet_name,
         }
-        return self._send_request('check_transaction_in_wallet', **params)
+        return self._send_request('get_transaction_state', **params)
+
+    def split_coins(self):
+        params = {
+            'wallet_name': self._wallet_name,
+            'password': self._wallet_password,
+        }
+        return self._send_request('split_coins', **params)
 
     def _send_request(self, method, *args, **kwargs):
         # JSON-RPC 2.0 allows either a list of arguments or a dictionary of named arguments,
@@ -132,11 +139,23 @@ class WalletClient:
         self._logger.debug("_send_request(%s, *%s, **%s) -> %s", method, args, kwargs, response)
         if 'error' in response:
             error_message = response['error'].get('message', 'Server did not give reason')
+            if error_message == "too-long-mempool-chain":
+                raise BitcoinNoValidUTXOsError()
+            elif error_message == "confirmed-coins-exist":
+                raise BitcoinSplitNotNecessary()
             raise SessionError(error_message)
         return response['result']
 
 
 class SessionError(Exception):
+    pass
+
+
+class BitcoinNoValidUTXOsError(SessionError):
+    pass
+
+
+class BitcoinSplitNotNecessary(SessionError):
     pass
 
 
@@ -169,6 +188,7 @@ class BroadcastSession:
             protocol=protocol)
 
         self._load_state(file_name, message_bytes, initial_push_groups)
+        self._wait_for_utxo_split()
 
         # Broadcast and confirm in mempool for each initial transaction.
         self._process_push_groups(initial_push_groups, self._state['initial_group_state'])
@@ -192,12 +212,14 @@ class BroadcastSession:
             'fees': sum(v['tx_fee'] for v in initial_push_groups),
             'count': len(initial_push_groups),
             'size': sum(v['tx_size'] for v in initial_push_groups),
+            'initial_tx_ids': list(v['tx_id'] for v in initial_push_groups),
         }
         if final_push_groups is not None and len(final_push_groups):
             result['last_timestamp'] = final_push_groups[-1]['when_broadcast']
             result['fees'] += sum(v['tx_fee'] for v in final_push_groups)
             result['size'] += sum(v['tx_size'] for v in final_push_groups)
             result['count'] += len(final_push_groups)
+            result['final_tx_ids'] = list(v['tx_id'] for v in final_push_groups)
         return result
 
     def _process_push_groups(self, push_groups, push_groups_state):
@@ -214,7 +236,14 @@ class BroadcastSession:
                 state['tx_size'] = len(sign_result['tx_hex']) // 2
 
                 print(f"Broadcasting transaction {i+1}/{len(push_groups)}")
-                tx_id = self._wallet.broadcast_transaction(sign_result['tx_hex'])
+                try:
+                    tx_id = self._wallet.broadcast_transaction(sign_result['tx_hex'])
+                except BitcoinNoValidUTXOsError:
+                    # Ensure the next attempt will rebuild and rebroadcast the transaction.
+                    del state['tx_id']
+                    # Block until we are ready for that.
+                    self._wait_for_utxo_split()
+                    continue
                 if tx_id != state['tx_id']:
                     raise SessionError(
                         f"Inconsistent tx_id, got '{tx_id}' expected '{state['tx_id']}'")
@@ -225,14 +254,42 @@ class BroadcastSession:
                 attempts = 0
                 tx_id = state['tx_id']
                 while attempts < 10:
-                    if self._wallet.check_transaction_in_wallet(tx_id):
+                    if self._wallet.get_transaction_state(tx_id) is not None:
                         break
                     time.sleep(2.0)
                     attempts += 1
                 if attempts == 10:
+                    print("Cleared broadcast state for transaction {i+1}/{len(push_groups)}")
+                    del state['tx_id']
                     raise SessionError(f"Failed to find transaction in mempool '{tx_id}'")
 
                 state['in_mempool'] = True
+
+    def _wait_for_utxo_split(self):
+        split_tx_id = self._state.get("split_tx_id")
+        if split_tx_id is None:
+            try:
+                split_tx_result = self._wallet.split_coins()
+                print("Creating a UTXO split transaction (may take time)")
+                while split_tx_result is None:
+                    time.sleep(20.0)
+                    split_tx_result = self._wallet.split_coins()
+            except BitcoinSplitNotNecessary:
+                return
+
+            print("Broadcasting the created UTXO split transaction")
+            self._wallet.broadcast_transaction(split_tx_result['tx_hex'])
+            split_tx_id = split_tx_result['tx_id']
+            self._state["split_tx_id"] = split_tx_id
+
+        print("Waiting for UTXO split transaction to confirm (may take time)")
+
+        split_state = self._wallet.get_transaction_state(split_tx_id)
+        while split_state is None or split_state[1] <= 0:
+            time.sleep(20.0)
+            split_state = self._wallet.get_transaction_state(split_tx_id)
+
+        del self._state['split_tx_id']
 
     def _save_state(self):
         if self._state_path is not None and self._state is not None:
@@ -392,11 +449,19 @@ def main() -> None:
         session.broadcast_file(filepath, media_type, protocol)
 
         result = session.get_summary()
+        if 'final_tx_ids' in result:
+            # Should be the sole Bcat index transaction.
+            key_tx_id = result['final_tx_ids'][0]
+        else:
+            # Should be the sole B transaction.
+            key_tx_id = result['initial_tx_ids'][0]
+
         print(f"Number of transactions:      {result['count']}")
         print(f"Fees paid (per/KiB):         {result['fees']/result['size']:0.3f} satoshis")
         print(f"Fees paid (total):           {result['fees']} satoshis")
         print(f"First transaction broadcast: {result['first_timestamp']}")
         print(f"Last transaction broadcast:  {result['last_timestamp']}")
+        print(f"Key transaction id:          {key_tx_id}")
 
 
 if __name__ == "__main__":
