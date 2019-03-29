@@ -21,6 +21,17 @@ Two ways to upload files are 'b://' and 'Bcat'. This application extends Electru
 a way for users to upload files to the blockchain using either of these two different protocols
 based on file size.
 
+WARNING: Electrum historically stores wallet data in one encrypted json file that is decrypted
+when loaded, and encrypted when saved. As you accrue more transactions within it which contain
+file contents, it will become slower and slower to load. ElectrumSV retains this wallet
+structure at this time, and is therefore unsuited to image upload.
+
+WARNING: The Bcat specification is not entirely clear, and the errors displayed on failure when
+you view the data on bico.media are unhelpful at best. If you do use this script to upload
+files, do so at your own risk as you may end up having uploaded something broken.
+
+WARNING: Use this moderately untested tool at your own risk.
+
 Add the 'examples/applications' directory to your 'PYTHONPATH'.
 
 Then start it the ElectrumSV daemon by::

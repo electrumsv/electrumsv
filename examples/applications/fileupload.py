@@ -195,7 +195,7 @@ class BroadcastSession:
 
         # Now that the initial transactions are confirmed to be 0-conf on-chain, create any
         # final transactions which likely need to refer to them.
-        final_push_groups = self._create_final_push_groups(media_type)
+        final_push_groups = self._create_final_push_groups(media_type, protocol)
         if self._state['final_group_state'] is None:
             self._state['final_group_state'] = [ {} for i in range(len(final_push_groups))]
 
@@ -370,9 +370,11 @@ class BroadcastSession:
                 b"15DHFxWZJT58f9nhyGnsRBqrgwK4W6h4Up",
                 b"ElectrumSV",
                 bytes(media_type, "utf-8"),
-                bytes(encoding, "utf-8") if encoding is not None else b"",
-                bytes(file_name, "utf-8") if file_name is not None else b"",
-                b"",
+                # Contrary to what the Bcat spec says, it will error ambiguously on empty strings
+                # and seems to expect a string with a space instead.
+                bytes(encoding, "utf-8") if encoding is not None else b"\x20",
+                bytes(file_name, "utf-8") if file_name is not None else b"\x20",
+                b"\x20",
             ]
             for group_state in self._state['initial_group_state']:
                 tx_id_hex = group_state['tx_id']
