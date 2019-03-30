@@ -1,9 +1,12 @@
 import pytest
 
+from bitcoinx import PrivateKey
+
+from electrumsv.address import Address
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.keystore import (
     Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed,
-    from_master_key, from_seed
+    from_master_key, from_seed, xpubkey_to_address
 )
 from electrumsv.crypto import pw_encode
 from electrumsv.networks import Net, SVMainnet, SVTestnet
@@ -216,6 +219,12 @@ def test_bip32_root():
                       'fUP8o7sGwa8Kw619tfnBpqfeKxsxJq8rvts8hDxA912YcgbuGZX3AZDd')
     Net.set_to(SVMainnet)
 
+
+def test_xpubkey_to_address():
+    privkey = PrivateKey.from_random()
+    public_key = privkey.public_key
+    x_pubkey = 'fd' + public_key.P2PKH_script().to_hex()
+    assert xpubkey_to_address(x_pubkey) == (x_pubkey, Address.from_string(public_key.to_address()))
 
 def test_from_master_key():
     keystore = from_master_key('xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCe'
