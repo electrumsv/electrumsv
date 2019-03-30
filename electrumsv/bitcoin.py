@@ -284,10 +284,6 @@ def deserialize_privkey(key):
         raise Exception("cannot deserialize", key)
 
 
-def is_compressed(sec):
-    return deserialize_privkey(sec)[2]
-
-
 def is_private_key(key):
     try:
         k = deserialize_privkey(key)
