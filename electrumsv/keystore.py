@@ -27,14 +27,14 @@ from unicodedata import normalize
 from bitcoinx import (
     PrivateKey, PublicKey as PublicKeyX, BIP32PrivateKey, BIP32PublicKey,
     int_to_be_bytes, be_bytes_to_int, CURVE_ORDER, unpack_le_uint16,
-    bip32_key_from_string, Base58Error, bip32_decompose_chain_string, base58_encode_check
+    bip32_key_from_string, Base58Error, bip32_decompose_chain_string,
+    base58_encode_check, base58_decode_check
 )
 
 from .address import Address, PublicKey
 from .app_state import app_state
 from .bitcoin import (
-    bh2u, bfh, DecodeBase58Check, is_seed, seed_type,
-    rev_hex, script_to_address, int_to_hex, is_private_key
+    bfh, is_seed, seed_type, rev_hex, script_to_address, int_to_hex, is_private_key
 )
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword
@@ -289,7 +289,7 @@ class Xpub:
 
     def get_xpubkey(self, c, i):
         s = ''.join(int_to_hex(x,2) for x in (c, i))
-        return 'ff' + bh2u(DecodeBase58Check(self.xpub)) + s
+        return 'ff' + base58_decode_check(self.xpub).hex() + s
 
     @classmethod
     def parse_xpubkey(self, pubkey):
@@ -418,8 +418,7 @@ class Old_KeyStore(Deterministic_KeyStore):
     def _mpk_from_hex_seed(cls, hex_seed):
         secexp = cls.stretch_key(hex_seed.encode())
         master_private_key = PrivateKey(int_to_be_bytes(secexp, 32))
-        master_public_key = master_private_key.public_key.to_bytes(compressed=False)[1:]
-        return bh2u(master_public_key)
+        return master_private_key.public_key.to_hex(compressed=False)[2:]
 
     @classmethod
     def _mpk_to_PublicKey(cls, mpk):
@@ -491,7 +490,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         master_private_key = PrivateKey(int_to_be_bytes(secexp, 32))
         master_public_key = master_private_key.public_key.to_bytes(compressed=False)[1:]
         if master_public_key != bfh(self.mpk):
-            logger.error('invalid password (mpk) %s %s', self.mpk, bh2u(master_public_key))
+            logger.error('invalid password (mpk) %s %s', self.mpk, master_public_key.hex())
             raise InvalidPassword()
 
     def check_password(self, password):

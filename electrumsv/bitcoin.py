@@ -25,7 +25,7 @@
 
 import hashlib
 
-from bitcoinx import Ops, PublicKey
+from bitcoinx import Ops, PublicKey, base58_decode_check
 
 from .crypto import hash_160, sha256d, hmac_oneshot, sha256
 from .networks import Net
@@ -242,19 +242,6 @@ def base_decode(v, length, base):
     return bytes(result)
 
 
-def DecodeBase58Check(psz):
-    vchRet = base_decode(psz, None, base=58)
-    key = vchRet[0:-4]
-    csum = vchRet[-4:]
-    hash_ = sha256d(key)
-    cs32 = hash_[0:4]
-    if cs32 != csum:
-        return None
-    else:
-        return key
-
-
-
 SCRIPT_TYPES = {
     'p2pkh':0,
     'p2sh':5,
@@ -269,7 +256,7 @@ def deserialize_privkey(key):
     # whether the pubkey is compressed should be visible from the keystore
     if is_minikey(key):
         return 'p2pkh', minikey_to_private_key(key), False
-    vch = DecodeBase58Check(key)
+    vch = base58_decode_check(key)
     if vch:
         txin_type = inv_dict(SCRIPT_TYPES)[vch[0] - Net.WIF_PREFIX]
         assert len(vch) in [33, 34]
