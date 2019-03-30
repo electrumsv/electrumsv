@@ -1,11 +1,11 @@
 import base64
-from bitcoinx import Ops, PrivateKey, Bitcoin, BitcoinTestnet
+from bitcoinx import Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check
 
 from electrumsv.address import Address
 from electrumsv.bitcoin import (
     is_private_key, is_new_seed, is_old_seed, verify_message_and_address,
     var_int, op_push, deserialize_privkey,
-    is_minikey, seed_type, EncodeBase58Check,
+    is_minikey, seed_type,
     push_script, int_to_hex)
 from electrumsv.crypto import sha256d
 from electrumsv.keystore import is_xpub, is_xprv
@@ -272,19 +272,19 @@ class Test_xprv_xpub(SequentialTestCase):
         xpub_headers_b58 = 'xpub'
 
         xkey_bytes = Bitcoin.xprv_verbytes + bytes([0] * 74)
-        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        xkey_b58 = base58_encode_check(xkey_bytes)
         self.assertTrue(xkey_b58.startswith(xprv_headers_b58))
 
         xkey_bytes = Bitcoin.xprv_verbytes + bytes([255] * 74)
-        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        xkey_b58 = base58_encode_check(xkey_bytes)
         self.assertTrue(xkey_b58.startswith(xprv_headers_b58))
 
         xkey_bytes = Bitcoin.xpub_verbytes + bytes([0] * 74)
-        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        xkey_b58 = base58_encode_check(xkey_bytes)
         self.assertTrue(xkey_b58.startswith(xpub_headers_b58))
 
         xkey_bytes = Bitcoin.xpub_verbytes + bytes([255] * 74)
-        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        xkey_b58 = base58_encode_check(xkey_bytes)
         self.assertTrue(xkey_b58.startswith(xpub_headers_b58))
 
 
@@ -295,19 +295,19 @@ class Test_xprv_xpub_testnet(TestCaseForTestnet):
         xpub_headers_b58 = 'tpub'
 
         xkey_bytes = BitcoinTestnet.xprv_verbytes + bytes([0] * 74)
-        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        xkey_b58 = base58_encode_check(xkey_bytes)
         self.assertTrue(xkey_b58.startswith(xprv_headers_b58))
 
         xkey_bytes = BitcoinTestnet.xprv_verbytes + bytes([255] * 74)
-        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        xkey_b58 = base58_encode_check(xkey_bytes)
         self.assertTrue(xkey_b58.startswith(xprv_headers_b58))
 
         xkey_bytes = BitcoinTestnet.xpub_verbytes + bytes([0] * 74)
-        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        xkey_b58 = base58_encode_check(xkey_bytes)
         self.assertTrue(xkey_b58.startswith(xpub_headers_b58))
 
         xkey_bytes = BitcoinTestnet.xpub_verbytes + bytes([255] * 74)
-        xkey_b58 = EncodeBase58Check(xkey_bytes)
+        xkey_b58 = base58_encode_check(xkey_bytes)
         self.assertTrue(xkey_b58.startswith(xpub_headers_b58))
 
 

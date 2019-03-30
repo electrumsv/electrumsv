@@ -242,11 +242,6 @@ def base_decode(v, length, base):
     return bytes(result)
 
 
-def EncodeBase58Check(vchIn):
-    hash_ = sha256d(vchIn)
-    return base_encode(vchIn + hash_[0:4], base=58)
-
-
 def DecodeBase58Check(psz):
     vchRet = base_decode(psz, None, base=58)
     key = vchRet[0:-4]

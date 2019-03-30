@@ -25,15 +25,15 @@ import hashlib
 from unicodedata import normalize
 
 from bitcoinx import (
-    PrivateKey, PublicKey as PublicKeyX, int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
-    bip32_key_from_string, Base58Error, bip32_decompose_chain_string,
-    BIP32PrivateKey, BIP32PublicKey
+    PrivateKey, PublicKey as PublicKeyX, BIP32PrivateKey, BIP32PublicKey,
+    int_to_be_bytes, be_bytes_to_int, CURVE_ORDER, unpack_le_uint16,
+    bip32_key_from_string, Base58Error, bip32_decompose_chain_string, base58_encode_check
 )
 
 from .address import Address, PublicKey
 from .app_state import app_state
 from .bitcoin import (
-    bh2u, bfh, DecodeBase58Check, EncodeBase58Check, is_seed, seed_type,
+    bh2u, bfh, DecodeBase58Check, is_seed, seed_type,
     rev_hex, script_to_address, int_to_hex, is_private_key
 )
 from .crypto import sha256d, pw_encode, pw_decode
@@ -294,17 +294,10 @@ class Xpub:
     @classmethod
     def parse_xpubkey(self, pubkey):
         assert pubkey[0:2] == 'ff'
-        pk = bfh(pubkey)
-        pk = pk[1:]
-        xkey = EncodeBase58Check(pk[0:78])
-        dd = pk[78:]
-        s = []
-        while dd:
-            n = int(rev_hex(bh2u(dd[0:2])), 16)
-            dd = dd[2:]
-            s.append(n)
-        assert len(s) == 2
-        return xkey, s
+        assert len(pubkey) == 166
+        pk = bytes.fromhex(pubkey)
+        xkey = base58_encode_check(pk[1:79])
+        return xkey, [unpack_le_uint16(pk[n: n+2])[0] for n in (79, 81)]
 
     def get_pubkey_derivation_based_on_wallet_advice(self, x_pubkey):
         _, addr = xpubkey_to_address(x_pubkey)
