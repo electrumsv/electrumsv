@@ -197,6 +197,30 @@ class TestXPub:
         keystore = BIP32_KeyStore({'xpub': xpub})
         assert keystore.derive_pubkey(for_change, n) == pubkey
 
+    def test_xpubkey(self):
+        xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
+                'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
+        keystore = BIP32_KeyStore({'xpub': xpub})
+        assert keystore.get_xpubkey(True, 10) == (
+            'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdb'
+            'b213d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1201000a00'
+        )
+        assert keystore.get_xpubkey(False, 25) == (
+            'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdbb2'
+            '13d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1200001900'
+        )
+
+    def test_parse_xpubkey(self):
+        xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
+                'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
+        assert BIP32_KeyStore.parse_xpubkey(
+            'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdb'
+            'b213d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1201000a00'
+        ) == (xpub, [1, 10])
+        assert BIP32_KeyStore.parse_xpubkey(
+            'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdbb2'
+            '13d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1200001900'
+        ) == (xpub, [0, 25])
 
 def test_from_bip39_seed():
     keystore = from_bip39_seed('foo bar baz', '', "m/44'/0'/0'")
