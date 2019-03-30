@@ -27,7 +27,7 @@ from unicodedata import normalize
 from bitcoinx import (
     PrivateKey, PublicKey as PublicKeyX, int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
     bip32_key_from_string, Base58Error, bip32_decompose_chain_string,
-    BIP32PrivateKey, BIP32PublicKey, BIP32Derivation
+    BIP32PrivateKey, BIP32PublicKey
 )
 
 from .address import Address, PublicKey
@@ -36,7 +36,7 @@ from .bitcoin import (
     bh2u, bfh, DecodeBase58Check, EncodeBase58Check, is_seed, seed_type,
     rev_hex, script_to_address, int_to_hex, is_private_key
 )
-from .crypto import sha256d, pw_encode, pw_decode, hmac_oneshot
+from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
