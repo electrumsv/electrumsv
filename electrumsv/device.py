@@ -135,11 +135,11 @@ class DeviceMgr:
             client.handler = handler
             # This will trigger a PIN/passphrase entry request
             try:
-                client_xpub = client.get_xpub(derivation)
+                client_mpk = client.get_master_public_key(derivation)
             except (UserCancelled, RuntimeError):
                 # Bad / cancelled PIN / passphrase
-                client_xpub = None
-            if client_xpub == xpub:
+                client_mpk = None
+            if client_mpk.to_extended_key_string() == xpub:
                 self.pair_xpub(xpub, info.device.id_)
                 return client
 

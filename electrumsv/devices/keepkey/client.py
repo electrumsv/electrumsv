@@ -96,15 +96,15 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         '''Provided here as in keepkeylib but not trezorlib.'''
         self.transport.write(self.proto.Cancel())
 
-    def get_xpub(self, bip32_path):
+    def get_master_public_key(self, bip32_path):
         address_n = bip32_decompose_chain_string(bip32_path)
         creating = False
         node = self.get_public_node(address_n, creating).node
+        self.used()
         derivation = BIP32Derivation(chain_code=node.chain_code, depth=node.depth,
                                      parent_fingerprint=pack_be_uint32(node.fingerprint),
                                      n=node.child_num)
-        key = BIP32PublicKey(PublicKey.from_bytes(node.public_key), derivation, Net.COIN)
-        return key.to_extended_key_string()
+        return BIP32PublicKey(PublicKey.from_bytes(node.public_key), derivation, Net.COIN)
 
     def toggle_passphrase(self):
         if self.features.passphrase_protection:

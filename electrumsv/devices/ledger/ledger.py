@@ -82,7 +82,7 @@ class Ledger_Client():
         return catch_exception
 
     @test_pin_unlocked
-    def get_xpub(self, bip32_path):
+    def get_master_public_key(self, bip32_path):
         self.checkDevice()
         # bip32_path is of the form 44'/0'/1'
         # S-L-O-W - we don't handle the fingerprint directly, so compute
@@ -111,8 +111,7 @@ class Ledger_Client():
         derivation = BIP32Derivation(chain_code=nodeData['chainCode'], depth=depth,
                                      parent_fingerprint=pack_be_uint32(fingerprint),
                                      n=childnum)
-        key = BIP32PublicKey(PublicKey.from_bytes(publicKey), derivation, Net.COIN)
-        return key.to_extended_key_string()
+        return BIP32PublicKey(PublicKey.from_bytes(publicKey), derivation, Net.COIN)
 
     def has_detached_pin_support(self, client):
         try:
@@ -516,14 +515,13 @@ class LedgerPlugin(HW_PluginBase):
                             _('Make sure it is in the correct state.'))
         client.handler = self.create_handler(wizard)
         # TODO replace by direct derivation once Nano S > 1.1
-        client.get_xpub("m/44'/0'")
+        client.get_master_public_key("m/44'/0'")
 
-    def get_xpub(self, device_id, derivation, wizard):
+    def get_master_public_key(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)
         client.handler = self.create_handler(wizard)
         client.checkDevice()
-        xpub = client.get_xpub(derivation)
-        return xpub
+        return client.get_master_public_key(derivation)
 
     def get_client(self, keystore, force_pair=True):
         client = app_state.device_manager.client_for_keystore(self, keystore, force_pair)

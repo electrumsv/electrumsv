@@ -122,15 +122,15 @@ class TrezorClientSV:
             logger.error("timed out")
             self.clear_session()
 
-    def get_xpub(self, bip32_path, creating=False):
+    def get_master_public_key(self, bip32_path, creating=False):
         address_n = bip32_decompose_chain_string(bip32_path)
         with self.run_flow(creating_wallet=creating):
             node = trezorlib.btc.get_public_node(self.client, address_n).node
+        self.used()
         derivation = BIP32Derivation(chain_code=node.chain_code, depth=node.depth,
                                      parent_fingerprint=pack_be_uint32(node.fingerprint),
                                      n=node.child_num)
-        key = BIP32PublicKey(PublicKey.from_bytes(node.public_key), derivation, Net.COIN)
-        return key.to_extended_key_string()
+        return BIP32PublicKey(PublicKey.from_bytes(node.public_key), derivation, Net.COIN)
 
     def toggle_passphrase(self):
         if self.features.passphrase_protection:

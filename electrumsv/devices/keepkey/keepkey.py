@@ -278,15 +278,12 @@ class KeepKeyPlugin(HW_PluginBase):
         client.handler = self.create_handler(wizard)
         if not device_info.initialized:
             self.initialize_device(device_id, wizard, client.handler)
-        client.get_xpub('m')
-        client.used()
+        client.get_master_public_key('m')
 
-    def get_xpub(self, device_id, derivation, wizard):
+    def get_master_public_key(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)
         client.handler = self.create_handler(wizard)
-        xpub = client.get_xpub(derivation)
-        client.used()
-        return xpub
+        return client.get_master_public_key(derivation)
 
     def sign_transaction(self, keystore, tx, xpub_path):
         self.xpub_path = xpub_path

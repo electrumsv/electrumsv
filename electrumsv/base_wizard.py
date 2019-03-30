@@ -273,7 +273,7 @@ class BaseWizard(object):
 
     def on_hw_derivation(self, name, device_info, derivation):
         try:
-            xpub = self.plugin.get_xpub(device_info.device.id_, derivation, self)
+            mpk = self.plugin.get_master_public_key(device_info.device.id_, derivation, self)
         except Exception as e:
             self.show_error(e)
             return
@@ -281,7 +281,7 @@ class BaseWizard(object):
             'type': 'hardware',
             'hw_type': name,
             'derivation': derivation,
-            'xpub': xpub,
+            'xpub': mpk.to_extended_key_string(),
             'label': device_info.label,
         }
         k = app_state.device_manager.create_keystore(d)

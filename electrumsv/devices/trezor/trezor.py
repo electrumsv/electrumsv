@@ -266,15 +266,12 @@ class TrezorPlugin(HW_PluginBase):
         client.handler = self.create_handler(wizard)
         if not device_info.initialized:
             self.initialize_device(device_id, wizard, client.handler)
-        client.get_xpub('m')
-        client.used()
+        client.get_master_public_key('m')
 
-    def get_xpub(self, device_id, derivation, wizard):
+    def get_master_public_key(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)
         client.handler = self.create_handler(wizard)
-        xpub = client.get_xpub(derivation)
-        client.used()
-        return xpub
+        return client.get_master_public_key(derivation)
 
     def get_trezor_input_script_type(self, is_multisig):
         if is_multisig:
@@ -375,7 +372,7 @@ class TrezorPlugin(HW_PluginBase):
     def tx_outputs(self, derivation, tx):
 
         def create_output_by_derivation():
-            deriv = bip32_decompose_chain_string("/%d/%d" % index)
+            deriv = bip32_decompose_chain_string("m/%d/%d" % index)
             multisig = self._make_multisig(m, [(xpub, deriv) for xpub in xpubs])
             if multisig is None:
                 script_type = OutputScriptType.PAYTOADDRESS

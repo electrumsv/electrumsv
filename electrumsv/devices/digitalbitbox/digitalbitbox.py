@@ -14,7 +14,7 @@ import requests
 import struct
 import time
 
-from bitcoinx import PublicKey, compact_signature_to_der
+from bitcoinx import PublicKey, compact_signature_to_der, bip32_key_from_string
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import TYPE_ADDRESS, push_script, msg_magic
@@ -101,11 +101,10 @@ class DigitalBitbox_Client():
             return self.hid_send_encrypt(b'{"xpub": "%s"}' % bip32_path.encode('utf8'))
 
 
-    def get_xpub(self, bip32_path):
+    def get_master_public_key(self, bip32_path):
         reply = self._get_xpub(bip32_path)
         if reply:
-            xpub = reply['xpub']
-            return xpub
+            return bip32_key_from_string(reply['xpub'])
         else:
             raise Exception('no reply')
 
@@ -708,7 +707,7 @@ class DigitalBitboxPlugin(HW_PluginBase):
                             _('Make sure it is in the correct state.'))
         client.handler = self.create_handler(wizard)
         client.setupRunning = True
-        client.get_xpub("m/44'/0'")
+        client.get_master_public_key("m/44'/0'")
 
 
     def is_mobile_paired(self):
@@ -729,12 +728,11 @@ class DigitalBitboxPlugin(HW_PluginBase):
             self.handler.show_error(str(e))
 
 
-    def get_xpub(self, device_id, derivation, wizard):
+    def get_master_public_key(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)
         client.handler = self.create_handler(wizard)
         client.check_device_dialog()
-        xpub = client.get_xpub(derivation)
-        return xpub
+        return client.get_master_public_key(derivation)
 
 
     def get_client(self, keystore, force_pair=True):
