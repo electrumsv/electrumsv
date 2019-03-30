@@ -379,8 +379,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         self.xpub = xprv.public_key.extended_key_string()
 
     def add_xprv_from_seed(self, bip32_seed, derivation):
-        xprv = bip32_root(bip32_seed)
-        xprv = bip32_key_from_string(xprv)
+        xprv = BIP32PrivateKey.from_seed(bip32_seed, coin=Net.COIN)
         for n in bip32_decompose_chain_string(derivation):
             xprv = xprv.child_safe(n)
         self.add_xprv(xprv)
@@ -779,11 +778,6 @@ def from_master_key(text):
     else:
         raise Exception('Invalid key')
     return k
-
-def bip32_root(seed):
-    I_full = hmac_oneshot(b"Bitcoin seed", seed, hashlib.sha512)
-    derivation = BIP32Derivation(chain_code=I_full[32:], n=0, depth=0, parent_fingerprint=bytes(4))
-    return BIP32PrivateKey(I_full[:32], derivation, Net.COIN).extended_key_string()
 
 
 def is_xpub(text):
