@@ -104,7 +104,7 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
                                      parent_fingerprint=pack_be_uint32(node.fingerprint),
                                      n=node.child_num)
         key = BIP32PublicKey(PublicKey.from_bytes(node.public_key), derivation, Net.COIN)
-        return key.extended_key_string()
+        return key.to_extended_key_string()
 
     def toggle_passphrase(self):
         if self.features.passphrase_protection:

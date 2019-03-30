@@ -3,9 +3,9 @@ attrs==19.1.0 \
     --hash=sha256:f0b870f674851ecbfbbbd364d6b5cbdff9dcedbc7f3f5e18a6891057f21fe399
 biplist==1.0.3 \
     --hash=sha256:4c0549764c5fe50b28042ec21aa2e14fe1a2224e239a1dae77d9e7f3932aa4c6
-bitcoinX==0.1.0 \
-    --hash=sha256:9f84b11b5106d1e05b716fdb325eb75cbbdb7f968ba3e0fd7958fb618f72f1bb \
-    --hash=sha256:c1c8eff9dc824dfdf2acb1d73d6d6e1d3c4a7bb210e45387a108af83317ceacc
+bitcoinX==0.1.1 \
+    --hash=sha256:15995422285bd6d313bf17edd951c1fcb26fa6e6879200415cd89c7292554400 \
+    --hash=sha256:3fc7b2d442e8ffdd5dea19f4ecd1b26135842b5889dda4de06e47ef8ca8e4fd2
 cffi==1.12.2 \
     --hash=sha256:00b97afa72c233495560a0793cdc86c2571721b4271c0667addc83c417f3d90f \
     --hash=sha256:0ba1b0c90f2124459f6966a10c03794082a2f3985cd699d7d63c4a8dae113e11 \

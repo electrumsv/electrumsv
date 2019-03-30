@@ -330,7 +330,7 @@ class KeepKeyPlugin(HW_PluginBase):
                                 xpub, s = parse_xpubkey(x_pubkey)
                             else:
                                 xpub = BIP32PublicKey(bfh(x_pubkey), NULL_DERIVATION, Net.COIN)
-                                xpub = xpub.extended_key_string()
+                                xpub = xpub.to_extended_key_string()
                                 s = []
                             node = self.ckd_public.deserialize(xpub)
                             return self.types.HDNodePathType(node=node, address_n=s)

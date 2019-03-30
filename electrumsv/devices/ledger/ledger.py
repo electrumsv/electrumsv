@@ -112,7 +112,7 @@ class Ledger_Client():
                                      parent_fingerprint=pack_be_uint32(fingerprint),
                                      n=childnum)
         key = BIP32PublicKey(PublicKey.from_bytes(publicKey), derivation, Net.COIN)
-        return key.extended_key_string()
+        return key.to_extended_key_string()
 
     def has_detached_pin_support(self, client):
         try:

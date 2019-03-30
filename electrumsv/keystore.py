@@ -273,7 +273,7 @@ class Xpub:
         xpub = self.xpub_change if for_change else self.xpub_receive
         if xpub is None:
             xpub = bip32_key_from_string(self.xpub)
-            xpub = xpub.child(1 if for_change else 0).extended_key_string()
+            xpub = xpub.child(1 if for_change else 0).to_extended_key_string()
             if for_change:
                 self.xpub_change = xpub
             else:
@@ -375,8 +375,8 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         return self.xprv is None
 
     def add_xprv(self, xprv: BIP32PrivateKey):
-        self.xprv = xprv.extended_key_string()
-        self.xpub = xprv.public_key.extended_key_string()
+        self.xprv = xprv.to_extended_key_string()
+        self.xpub = xprv.public_key.to_extended_key_string()
 
     def add_xprv_from_seed(self, bip32_seed, derivation):
         xprv = BIP32PrivateKey.from_seed(bip32_seed, coin=Net.COIN)

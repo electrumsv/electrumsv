@@ -474,7 +474,7 @@ class Transaction:
                 pubkey_hex = public_key.to_hex()
                 if pubkey_hex in pubkeys:
                     try:
-                        public_key.verify_signature(rec_sig, pre_hash, None)
+                        public_key.verify_recoverable_signature(rec_sig, pre_hash, None)
                     except Exception:
                         logger.exception('')
                         continue
