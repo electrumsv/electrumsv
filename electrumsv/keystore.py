@@ -25,13 +25,13 @@ import hashlib
 from unicodedata import normalize
 
 from bitcoinx import (
-    PrivateKey, PublicKey as PublicKeyX, BIP32PrivateKey, BIP32PublicKey,
+    PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey,
     int_to_be_bytes, be_bytes_to_int, CURVE_ORDER, unpack_le_uint16,
-    bip32_key_from_string, Base58Error, bip32_decompose_chain_string,
-    base58_encode_check, base58_decode_check
+    bip32_key_from_string, bip32_decompose_chain_string,
+    base58_encode_check, base58_decode_check, is_minikey
 )
 
-from .address import Address, PublicKey
+from .address import Address
 from .app_state import app_state
 from .bitcoin import (
     bfh, is_seed, seed_type, rev_hex, script_to_address, int_to_hex, is_private_key
@@ -129,7 +129,7 @@ class Imported_KeyStore(Software_KeyStore):
     def __init__(self, d):
         Software_KeyStore.__init__(self)
         keypairs = d.get('keypairs', {})
-        self.keypairs = {PublicKey.from_string(pubkey): enc_privkey
+        self.keypairs = {PublicKey.from_hex(pubkey): enc_privkey
                          for pubkey, enc_privkey in keypairs.items()}
         self._sorted = None
 
@@ -143,7 +143,7 @@ class Imported_KeyStore(Software_KeyStore):
         return None
 
     def dump(self):
-        keypairs = {pubkey.to_string(): enc_privkey
+        keypairs = {pubkey.to_hex(): enc_privkey
                     for pubkey, enc_privkey in self.keypairs.items()}
         return {
             'type': 'imported',
@@ -155,13 +155,13 @@ class Imported_KeyStore(Software_KeyStore):
 
     def get_addresses(self):
         if not self._sorted:
-            addresses = [pubkey.address for pubkey in self.keypairs]
+            addresses = [Address.from_string(pubkey.to_address()) for pubkey in self.keypairs]
             self._sorted = sorted(addresses, key=Address.to_string)
         return self._sorted
 
     def address_to_pubkey(self, address):
         for pubkey in self.keypairs:
-            if pubkey.address == address:
+            if Address.from_string(pubkey.to_address()) == address:
                 return pubkey
         return None
 
@@ -176,9 +176,9 @@ class Imported_KeyStore(Software_KeyStore):
         pubkey = list(self.keypairs.keys())[0]
         self.export_private_key(pubkey, password)
 
-    def import_privkey(self, WIF_privkey, password):
-        pubkey = PublicKey.from_WIF_privkey(WIF_privkey)
-        self.keypairs[pubkey] = pw_encode(WIF_privkey, password)
+    def import_privkey(self, privkey_text, password):
+        pubkey = _public_key_from_private_key_text(privkey_text)
+        self.keypairs[pubkey] = pw_encode(privkey_text, password)
         self._sorted = None
         return pubkey
 
@@ -187,20 +187,21 @@ class Imported_KeyStore(Software_KeyStore):
 
     def export_private_key(self, pubkey, password):
         '''Returns a WIF string'''
-        WIF_privkey = pw_decode(self.keypairs[pubkey], password)
+        privkey_text = pw_decode(self.keypairs[pubkey], password)
         # this checks the password
-        if pubkey != PublicKey.from_WIF_privkey(WIF_privkey):
+        if pubkey != _public_key_from_private_key_text(privkey_text):
             raise InvalidPassword()
-        return WIF_privkey
+        return privkey_text
 
     def get_private_key(self, pubkey, password):
         '''Returns a (32 byte privkey, is_compressed) pair.'''
-        WIF_privkey = self.export_private_key(pubkey, password)
-        return PublicKey.privkey_from_WIF_privkey(WIF_privkey)
+        privkey_text = self.export_private_key(pubkey, password)
+        privkey = PrivateKey.from_text(privkey_text)
+        return privkey.to_bytes(), privkey.is_compressed()
 
     def get_pubkey_derivation(self, x_pubkey):
         if x_pubkey[0:2] in ['02', '03', '04']:
-            pubkey = PublicKey.from_string(x_pubkey)
+            pubkey = PublicKey.from_hex(x_pubkey)
             if pubkey in self.keypairs:
                 return pubkey
         elif x_pubkey[0:2] == 'fd':
@@ -347,7 +348,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         try:
             assert (bip32_key_from_string(xprv).derivation().chain_code
                     == bip32_key_from_string(self.xpub).derivation().chain_code)
-        except (ValueError, Base58Error, AssertionError):
+        except (ValueError, AssertionError):
             raise InvalidPassword()
 
     def update_password(self, old_password, new_password):
@@ -422,7 +423,7 @@ class Old_KeyStore(Deterministic_KeyStore):
 
     @classmethod
     def _mpk_to_PublicKey(cls, mpk):
-        return PublicKeyX.from_hex('04' + mpk)
+        return PublicKey.from_hex('04' + mpk)
 
     @classmethod
     def from_seed(cls, seed):
@@ -786,3 +787,7 @@ def is_xprv(text):
         return isinstance(key, BIP32PrivateKey)
     except Exception:
         return False
+
+
+def _public_key_from_private_key_text(text):
+    return PrivateKey.from_text(text).public_key

@@ -1,8 +1,8 @@
 import pytest
 
-from bitcoinx import PrivateKey
+from bitcoinx import PrivateKey, PublicKey
 
-from electrumsv.address import Address, PublicKey as PublicKeyOld
+from electrumsv.address import Address
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.keystore import (
     Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed,
@@ -131,11 +131,10 @@ class TestImported_KeyStore:
     def test_import_privkey(self, WIF, pk_string):
         d = Imported_KeyStore({})
         pubkey = d.import_privkey(WIF, b'')
-        assert pubkey.to_string() == pk_string
+        assert pubkey.to_hex() == pk_string
 
     @pytest.mark.parametrize("WIF", (
         "5HueCGU8rMjxEXxiPuD5BDku4MkqeZyd4dZ1jvhTVqvbTLvyTJ",
-        "cMzLdeGd5vEqxB8B6VFQoRopQ3sLAAvEzDAoQgvX54xwofSWj1fx",
         "NUTBssxAs7z",
     ))
     def test_import_privkey_bad(self, WIF):
@@ -188,7 +187,7 @@ class TestImported_KeyStore:
     def test_address_to_pubkey(self):
         addr = Address.from_string('1KXf5PUHNaV42jE9NbJFPKhGGN1fSSGJNK')
         pubkey = imported_keystore.address_to_pubkey(addr)
-        assert pubkey.to_string() == (
+        assert pubkey.to_hex() == (
             '04e7dd15b4271f8308ff52ad3d3e472b652e78a2c5bc6ed10250a543d28c0128894ae'
             '863d086488e6773c4589be93a1793f685dd3f1e8a1f1b390b23470f7d1095'
         )
@@ -221,18 +220,18 @@ class TestImported_KeyStore:
             '04e7dd15b4271f8308ff52ad3d3e472b652e78a2c5bc6ed10250a543d28c0128894ae'
             '863d086488e6773c4589be93a1793f685dd3f1e8a1f1b390b23470f7d1095'
         )
-        assert isinstance(pubkey, PublicKeyOld)
+        assert isinstance(pubkey, PublicKey)
         pubkey = imported_keystore.get_pubkey_derivation(
             '02d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645c'
         )
-        assert isinstance(pubkey, PublicKeyOld)
+        assert isinstance(pubkey, PublicKey)
         assert imported_keystore.get_pubkey_derivation(
             '02c113be5c752294f8b0be2727bbf7f1bf71e6bba5c9e9141f611610707bbce4db'
         ) is None
         pubkey = imported_keystore.get_pubkey_derivation(
             'fd76a914d9351dcbad5b8f3b8bfa2f2cdc85c28118ca932688ac'
         )
-        assert isinstance(pubkey, PublicKeyOld)
+        assert isinstance(pubkey, PublicKey)
         pubkey = imported_keystore.get_pubkey_derivation(
             'fd76a914753e5cd1dd15a7028daa03fe5e47389297ac227a88ac'
         )
