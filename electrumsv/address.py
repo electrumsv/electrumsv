@@ -27,11 +27,10 @@
 from collections import namedtuple
 import struct
 
-from bitcoinx import Ops, base58_decode_check, base58_encode_check
+from bitcoinx import Ops, base58_decode_check, base58_encode_check, hash_to_hex_str
 
 from . import cashaddr
-from .bitcoin import is_minikey, minikey_to_private_key
-from .crypto import hash_160, sha256, sha256d
+from .crypto import hash_160, sha256
 from .networks import Net
 from .util import cachedproperty
 
@@ -56,20 +55,6 @@ def to_bytes(x):
         return bytes(x)
     raise TypeError('{} is not bytes ({})'.format(x, type(x)))
 
-def hash_to_hex_str(x):
-    '''Convert a big-endian binary hash to displayed hex string.
-
-    Display form of a binary hash is reversed and converted to hex.
-    '''
-    return bytes(reversed(x)).hex()
-
-def bytes_to_int(be_bytes):
-    '''Interprets a big-endian sequence of bytes as an integer'''
-    return int.from_bytes(be_bytes, 'big')
-
-def int_to_bytes(value):
-    '''Converts an integer to a big-endian sequence of bytes'''
-    return value.to_bytes((value.bit_length() + 7) // 8, 'big')
 
 
 class UnknownAddress(object):

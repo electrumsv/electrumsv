@@ -28,7 +28,7 @@ from bitcoinx import (
     PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey,
     int_to_be_bytes, be_bytes_to_int, CURVE_ORDER, unpack_le_uint16,
     bip32_key_from_string, bip32_decompose_chain_string,
-    base58_encode_check, base58_decode_check, is_minikey
+    base58_encode_check, base58_decode_check
 )
 
 from .address import Address
