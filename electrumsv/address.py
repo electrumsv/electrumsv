@@ -95,31 +95,6 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
         return cls(to_bytes(pubkey))
 
     @classmethod
-    def privkey_from_WIF_privkey(cls, WIF_privkey):
-        '''Given a WIF private key (or minikey), return the private key as
-        binary and a boolean indicating whether it was encoded to
-        indicate a compressed public key or not.
-        '''
-        if is_minikey(WIF_privkey):
-            # The Casascius coins were uncompressed
-            return minikey_to_private_key(WIF_privkey), False
-        raw = Base58.decode_check(WIF_privkey)
-        if not raw or raw[0] != Net.WIF_PREFIX:
-            raise ValueError('private key has invalid WIF prefix')
-        if len(raw) == 34 and raw[-1] == 1:
-            return raw[1:33], True
-        if len(raw) == 33:
-            return raw[1:], False
-        raise ValueError('invalid private key')
-
-    @classmethod
-    def from_WIF_privkey(cls, WIF_privkey):
-        '''Create a compressed or uncompressed public key from a private
-        key.'''
-        privkey, compressed = cls.privkey_from_WIF_privkey(WIF_privkey)
-        return cls.from_pubkey(PrivateKey(privkey).public_key.to_bytes(compressed=compressed))
-
-    @classmethod
     def from_string(cls, string):
         '''Create from a hex string.'''
         return cls.from_pubkey(hex_to_bytes(string))
