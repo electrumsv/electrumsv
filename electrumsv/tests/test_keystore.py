@@ -2,7 +2,7 @@ import pytest
 
 from bitcoinx import PrivateKey
 
-from electrumsv.address import Address
+from electrumsv.address import Address, PublicKey as PublicKeyOld
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.keystore import (
     Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed,
@@ -215,6 +215,29 @@ class TestImported_KeyStore:
         pubkey = list(imported_keystore.keypairs.keys())[index]
         assert imported_keystore.get_private_key(pubkey, 'password') == (
             bytes.fromhex(hex_str), is_compressed)
+
+    def test_get_pubkey_derivation(self):
+        pubkey = imported_keystore.get_pubkey_derivation(
+            '04e7dd15b4271f8308ff52ad3d3e472b652e78a2c5bc6ed10250a543d28c0128894ae'
+            '863d086488e6773c4589be93a1793f685dd3f1e8a1f1b390b23470f7d1095'
+        )
+        assert isinstance(pubkey, PublicKeyOld)
+        pubkey = imported_keystore.get_pubkey_derivation(
+            '02d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645c'
+        )
+        assert isinstance(pubkey, PublicKeyOld)
+        assert imported_keystore.get_pubkey_derivation(
+            '02c113be5c752294f8b0be2727bbf7f1bf71e6bba5c9e9141f611610707bbce4db'
+        ) is None
+        pubkey = imported_keystore.get_pubkey_derivation(
+            'fd76a914d9351dcbad5b8f3b8bfa2f2cdc85c28118ca932688ac'
+        )
+        assert isinstance(pubkey, PublicKeyOld)
+        pubkey = imported_keystore.get_pubkey_derivation(
+            'fd76a914753e5cd1dd15a7028daa03fe5e47389297ac227a88ac'
+        )
+        assert pubkey is None
+
 
     def test_update_password(self):
         keystore = Imported_KeyStore({'keypairs': keypairs_dict})
