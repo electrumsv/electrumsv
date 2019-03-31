@@ -81,14 +81,13 @@ def dust_threshold(network):
     return 546 # hard-coded Bitcoin SV dust threshold. Was changed to this as of Sept. 2018
 
 
-def append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax):
+def _append_utxos_to_inputs(inputs, get_utxos, pubkey, txin_type, imax):
     if txin_type == 'p2pkh':
         address = Address.from_pubkey(pubkey)
     else:
         address = PublicKey.from_pubkey(pubkey)
     sh = address.to_scripthash_hex()
-    u = network.request_and_wait('blockchain.scripthash.listunspent', [sh])
-    for item in u:
+    for item in get_utxos(sh):
         if len(inputs) >= imax:
             break
         item['address'] = address
@@ -101,11 +100,11 @@ def append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax):
         item['num_sig'] = 1
         inputs.append(item)
 
-def sweep_preparations(privkeys, network, imax=100):
+def sweep_preparations(privkeys, get_utxos, imax=100):
 
     def find_utxos_for_privkey(txin_type, privkey, compressed):
         pubkey = PrivateKey(privkey).public_key.to_hex(compressed=compressed)
-        append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax)
+        _append_utxos_to_inputs(inputs, get_utxos, pubkey, txin_type, imax)
         keypairs[pubkey] = privkey, compressed
 
     inputs = []
@@ -128,7 +127,7 @@ def sweep_preparations(privkeys, network, imax=100):
 
 
 def sweep(privkeys, network, config, recipient, fee=None, imax=100):
-    inputs, keypairs = sweep_preparations(privkeys, network, imax)
+    inputs, keypairs = sweep_preparations(privkeys, network.get_utxos, imax)
     total = sum(i.get('value') for i in inputs)
     if fee is None:
         outputs = [(TYPE_ADDRESS, recipient, total)]

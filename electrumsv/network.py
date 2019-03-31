@@ -1275,6 +1275,9 @@ class Network:
 
         return app_state.async_.spawn_and_wait(send_request)
 
+    def get_utxos(self, script_hash):
+        return self.request_and_wait('blockchain.scripthash.listunspent', [script_hash])
+
     def broadcast_transaction_and_wait(self, transaction: Transaction) -> str:
         return self.request_and_wait('blockchain.transaction.broadcast', [str(transaction)])
 

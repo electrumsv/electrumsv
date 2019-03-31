@@ -2758,7 +2758,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         try:
             self.do_clear()
-            coins, keypairs = sweep_preparations(get_priv_keys(), self.network)
+            coins, keypairs = sweep_preparations(get_priv_keys(), self.network.get_utxos)
             self.tx_external_keypairs = keypairs
             self.payto_e.setText(get_address_text())
             self.spend_coins(coins)
