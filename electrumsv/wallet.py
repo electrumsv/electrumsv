@@ -60,6 +60,7 @@ from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type
 from .transaction import Transaction
+from .transaction_store import TransactionStore
 from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
 from .version import PACKAGE_VERSION
 from .web import create_URI
@@ -300,7 +301,9 @@ class Abstract_Wallet:
         self.tx_fees = self.storage.get('tx_fees', {})
         self.pruned_txo = self.storage.get('pruned_txo', {})
         tx_list = self.storage.get('transactions', {})
-        self.transactions = {}
+        from .transaction_store import TransactionStore
+        wallet_tx_ids = set(self.txi) | set(self.txo) | set(self.pruned_txo.values())
+        self.transactions = TransactionStore(wallet_tx_ids)
         for tx_hash, raw in tx_list.items():
             tx = Transaction(raw)
             self.transactions[tx_hash] = tx
@@ -308,14 +311,16 @@ class Abstract_Wallet:
                         in self.pruned_txo.values())):
                 self.logger.debug("removing unreferenced tx %s", tx_hash)
                 self.transactions.pop(tx_hash)
+        self.storage.put('transactions', {})
 
     @profiler
     def save_transactions(self, write=False):
         with self.transaction_lock:
-            tx = {}
-            for k,v in self.transactions.items():
-                tx[k] = str(v)
-            self.storage.put('transactions', tx)
+            if not isinstance(self.transactions, TransactionStore):
+                tx = {}
+                for k,v in self.transactions.items():
+                    tx[k] = str(v)
+                self.storage.put('transactions', tx)
             txi = {tx_hash: self.from_Address_dict(value)
                    for tx_hash, value in self.txi.items()}
             txo = {tx_hash: self.from_Address_dict(value)
