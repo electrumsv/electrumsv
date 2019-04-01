@@ -252,28 +252,6 @@ def verify_message_and_address(signature, message, address):
     return PublicKey.verify_message_and_address(signature, message, address, coin=Net.COIN)
 
 
-def deserialize_privkey(key):
-    # whether the pubkey is compressed should be visible from the keystore
-    if is_minikey(key):
-        return 'p2pkh', minikey_to_private_key(key), False
-    vch = base58_decode_check(key)
-    if vch:
-        txin_type = inv_dict(SCRIPT_TYPES)[vch[0] - Net.WIF_PREFIX]
-        assert len(vch) in [33, 34]
-        compressed = len(vch) == 34
-        return txin_type, vch[1:33], compressed
-    else:
-        raise Exception("cannot deserialize", key)
-
-
-def is_private_key(key):
-    try:
-        k = deserialize_privkey(key)
-        return k is not False
-    except:
-        return False
-
-
 ########### end pywallet functions #######################
 
 def is_minikey(text):
