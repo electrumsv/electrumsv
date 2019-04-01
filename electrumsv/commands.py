@@ -281,7 +281,7 @@ class Commands:
         """Sign a transaction. The wallet keys will be used unless a private key is provided."""
         tx = Transaction(tx)
         if privkey:
-            privkey2 = PrivateKey.from_text(sec)
+            privkey2 = PrivateKey.from_text(privkey)
             txin_type, privkey2, compressed = (
                 'p2pkh', privkey2.to_bytes(), privkey2.is_compressed()
             )

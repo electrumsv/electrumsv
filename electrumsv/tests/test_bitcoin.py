@@ -1,9 +1,11 @@
 import base64
-from bitcoinx import Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check
+from bitcoinx import (
+    Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check, is_minikey,
+)
 
 from electrumsv.address import Address
 from electrumsv.bitcoin import (
-    is_new_seed, is_old_seed, verify_message_and_address, var_int, op_push, is_minikey, seed_type,
+    is_new_seed, is_old_seed, verify_message_and_address, var_int, op_push, seed_type,
     push_script, int_to_hex
 )
 from electrumsv.crypto import sha256d

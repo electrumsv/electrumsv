@@ -25,11 +25,11 @@
 
 import hashlib
 
-from bitcoinx import Ops, PublicKey, base58_decode_check
+from bitcoinx import Ops, PublicKey
 
-from .crypto import hash_160, sha256d, hmac_oneshot, sha256
+from .crypto import hash_160, sha256d, hmac_oneshot
 from .networks import Net
-from .util import bfh, bh2u, assert_bytes, to_bytes, inv_dict
+from .util import bfh, bh2u, assert_bytes, to_bytes
 from . import version
 
 
@@ -242,32 +242,11 @@ def base_decode(v, length, base):
     return bytes(result)
 
 
-SCRIPT_TYPES = {
-    'p2pkh':0,
-    'p2sh':5,
-}
-
-
 def verify_message_and_address(signature, message, address):
     return PublicKey.verify_message_and_address(signature, message, address, coin=Net.COIN)
 
 
 ########### end pywallet functions #######################
-
-def is_minikey(text):
-    # Minikeys are typically 22 or 30 characters, but this routine
-    # permits any length of 20 or more provided the minikey is valid.
-    # A valid minikey must begin with an 'S', be in base58, and when
-    # suffixed with '?' have its SHA256 hash begin with a zero byte.
-    # They are widely used in Casascius physical bitcoins, where the
-    # address corresponded to an uncompressed public key.
-    return (len(text) >= 20 and text[0] == 'S'
-            and all(ord(c) in __b58chars for c in text)
-            and sha256(text + '?')[0] == 0x00)
-
-def minikey_to_private_key(text):
-    return sha256(text)
-
 
 def msg_magic(message):
     length = bfh(var_int(len(message)))

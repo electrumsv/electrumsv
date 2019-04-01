@@ -1,5 +1,7 @@
 import enum
 
+from bitcoinx import is_minikey
+
 from . import bitcoin
 from . import keystore
 
@@ -35,6 +37,6 @@ def find_matching_text_import_types(text):
     seed_word_matches = find_matching_seed_word_types(text)
     if len(seed_word_matches):
         matches.add(TextImportTypes.PRIVATE_KEY_SEED)
-    if bitcoin.is_minikey(text):
+    if is_minikey(text):
         matches.add(TextImportTypes.PRIVATE_KEY_MINIKEY)
     return matches

@@ -39,13 +39,13 @@ import time
 from typing import Optional, Union, Tuple
 
 from aiorpcx import run_in_thread
-from bitcoinx import PrivateKey
+from bitcoinx import PrivateKey, is_minikey
 
 from . import coinchooser
 from . import paymentrequest
 from .address import Address, Script, PublicKey
 from .app_state import app_state
-from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, is_minikey
+from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS
 from .contacts import Contacts
 from .crypto import sha256d
 from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
