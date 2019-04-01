@@ -41,7 +41,6 @@ from typing import Optional, Union, Tuple
 from aiorpcx import run_in_thread
 from bitcoinx import PrivateKey
 
-from . import bitcoin
 from . import coinchooser
 from . import paymentrequest
 from .address import Address, Script, PublicKey
@@ -110,14 +109,15 @@ def sweep_preparations(privkeys, get_utxos, imax=100):
     inputs = []
     keypairs = {}
     for sec in privkeys:
-        txin_type, privkey, compressed = bitcoin.deserialize_privkey(sec)
-        find_utxos_for_privkey(txin_type, privkey, compressed)
+        privkey = PrivateKey.from_text(sec)
+        privkey, compressed = privkey.to_bytes(), privkey.is_compressed()
+        find_utxos_for_privkey('p2pkh', privkey, compressed)
         # do other lookups to increase support coverage
         if is_minikey(sec):
             # minikeys don't have a compressed byte
             # we lookup both compressed and uncompressed pubkeys
-            find_utxos_for_privkey(txin_type, privkey, not compressed)
-        elif txin_type == 'p2pkh':
+            find_utxos_for_privkey('p2pkh', privkey, not compressed)
+        else:
             # WIF serialization does not distinguish p2pkh and p2pk
             # we also search for pay-to-pubkey outputs
             find_utxos_for_privkey('p2pk', privkey, compressed)
