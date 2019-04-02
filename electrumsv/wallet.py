@@ -226,7 +226,8 @@ class Abstract_Wallet:
     def missing_transactions(self):
         '''Returns a set of tx_hashes.'''
         with self.lock:
-            return set(self.hh_map).difference(self.transactions)
+            received_tx_ids = self.tx_store.get_received_ids()
+            return set(self.hh_map).difference(received_tx_ids)
 
     def unverified_transactions(self):
         '''Returns a map of tx_hash to tx_height.'''
@@ -301,26 +302,14 @@ class Abstract_Wallet:
         self.tx_fees = self.storage.get('tx_fees', {})
         self.pruned_txo = self.storage.get('pruned_txo', {})
         tx_list = self.storage.get('transactions', {})
-        from .transaction_store import TransactionStore
-        wallet_tx_ids = set(self.txi) | set(self.txo) | set(self.pruned_txo.values())
-        self.transactions = TransactionStore(wallet_tx_ids)
-        for tx_hash, raw in tx_list.items():
-            tx = Transaction(raw)
-            self.transactions[tx_hash] = tx
-            if not any((tx_hash in self.txi, tx_hash in self.txo, tx_hash
-                        in self.pruned_txo.values())):
-                self.logger.debug("removing unreferenced tx %s", tx_hash)
-                self.transactions.pop(tx_hash)
+        self.tx_store = TransactionStore(self.storage.path)
+        if len(tx_list):
+            self.tx_store.add_many(tx_list)
         self.storage.put('transactions', {})
 
     @profiler
     def save_transactions(self, write=False):
         with self.transaction_lock:
-            if not isinstance(self.transactions, TransactionStore):
-                tx = {}
-                for k,v in self.transactions.items():
-                    tx[k] = str(v)
-                self.storage.put('transactions', tx)
             txi = {tx_hash: self.from_Address_dict(value)
                    for tx_hash, value in self.txi.items()}
             txo = {tx_hash: self.from_Address_dict(value)
@@ -334,7 +323,13 @@ class Abstract_Wallet:
             if write:
                 self.storage.write()
 
-    def save_verified_tx(self, write=False):
+    def get_transaction(self, tx_id: str) -> Transaction:
+        return self.tx_store.get(tx_id)
+
+    def has_received_transaction(self, tx_id: str) -> bool:
+        return self.tx_store.was_received(tx_id)
+
+    def save_verified_tx(self, write: bool=False) -> None:
         with self.lock:
             self.storage.put('verified_tx3', self.verified_tx)
             if write:
@@ -384,15 +379,15 @@ class Abstract_Wallet:
 
         return changed
 
-    def is_mine(self, address) -> bool:
+    def is_mine(self, address: Address) -> bool:
         assert not isinstance(address, str)
         return address in self.get_addresses()
 
-    def is_change(self, address) -> bool:
+    def is_change(self, address: Address) -> bool:
         assert not isinstance(address, str)
         return address in self.change_addresses
 
-    def get_address_index(self, address) -> Tuple[bool, int]:
+    def get_address_index(self, address: Address) -> Tuple[bool, int]:
         try:
             return False, self.receiving_addresses.index(address)
         except ValueError:
@@ -404,7 +399,7 @@ class Abstract_Wallet:
         assert not isinstance(address, str)
         raise Exception("Address {} not found".format(address))
 
-    def export_private_key(self, address, password):
+    def export_private_key(self, address: Address, password: str):
         """ extended WIF format """
         if self.is_watching_only():
             return []
@@ -412,7 +407,7 @@ class Abstract_Wallet:
         secret, compressed = self.keystore.get_private_key(index, password)
         return PrivateKey(secret).to_WIF(compressed=compressed, coin=Net.COIN)
 
-    def get_public_keys(self, address):
+    def get_public_keys(self, address: Address):
         sequence = self.get_address_index(address)
         return self.get_pubkeys(*sequence)
 
@@ -543,7 +538,7 @@ class Abstract_Wallet:
         height = conf = timestamp = None
         tx_hash = tx.txid()
         if tx.is_complete():
-            if tx_hash in self.transactions:
+            if self.has_received_transaction(tx_hash):
                 label = self.get_label(tx_hash)
                 height, conf, timestamp = self.get_tx_height(tx_hash)
                 if height > 0:
@@ -749,7 +744,7 @@ class Abstract_Wallet:
                         dd[addr] = []
                     dd[addr].append((ser, v))
             # save
-            self.transactions[tx_hash] = tx
+            self.tx_store.add(tx_hash, tx)
 
     def remove_transaction(self, tx_hash: str) -> None:
         with self.transaction_lock:
@@ -787,7 +782,7 @@ class Abstract_Wallet:
                 if tx_height <= 0:
                     self.verified_tx.pop(tx_hash, None)
                 # if addr is new, we have to recompute txi and txo
-                tx = self.transactions.get(tx_hash)
+                tx = self.get_transaction(tx_hash)
                 if (tx is not None and
                         self.txi.get(tx_hash, {}).get(addr) is None and
                         self.txo.get(tx_hash, {}).get(addr) is None):
@@ -864,7 +859,7 @@ class Abstract_Wallet:
             item['date'] = date_str
             item['label'] = self.get_label(tx_hash)
             if show_addresses:
-                tx = self.transactions.get(tx_hash)
+                tx = self.get_transaction(tx_hash)
                 tx.deserialize()
                 input_addresses = []
                 output_addresses = []
@@ -903,7 +898,7 @@ class Abstract_Wallet:
 
     def get_tx_status(self, tx_hash, height, conf, timestamp):
         if conf == 0:
-            tx = self.transactions.get(tx_hash)
+            tx = self.get_transaction(tx_hash)
             if not tx:
                 return 3, 'unknown'
             fee = self.tx_fees.get(tx_hash)
@@ -1084,7 +1079,7 @@ class Abstract_Wallet:
                 if (tx_hash in self.txi or tx_hash in self.txo or
                         tx_hash in self.pruned_txo.values()):
                     continue
-                tx = self.transactions.get(tx_hash)
+                tx = self.get_transaction(tx_hash)
                 if tx is not None:
                     self.add_transaction(tx_hash, tx)
 
@@ -1093,9 +1088,9 @@ class Abstract_Wallet:
             if tx_height <= 0 and self.verified_tx.pop(tx_hash, None):
                 self.logger.debug(f'unverifying {tx_hash}')
 
-        for tx_hash in set(self.transactions).difference(self.hh_map):
-            self.logger.debug(f'removing transaction {tx_hash}')
-            self.transactions.pop(tx_hash)
+        received_tx_ids = self.tx_store.get_received_ids()
+        unwanted_tx_ids = received_tx_ids.difference(self.hh_map)
+        self.tx_store.delete_many(unwanted_tx_ids)
 
     def start(self, network):
         self.network = network
@@ -1176,7 +1171,7 @@ class Abstract_Wallet:
         # First look up an input transaction in the wallet where it
         # will likely be.  If co-signing a transaction it may not have
         # all the input txs, in which case we ask the network.
-        tx = self.transactions.get(tx_hash)
+        tx = self.get_transaction(tx_hash)
         if not tx and self.network:
             tx_hex = self.network.request_and_wait('blockchain.transaction.get', [tx_hash])
             tx = Transaction(tx_hex)
@@ -1547,7 +1542,7 @@ class ImportedWalletBase(Simple_Wallet):
                 self.remove_transaction(tx_hash)
                 self.tx_fees.pop(tx_hash, None)
                 self.verified_tx.pop(tx_hash, None)
-                self.transactions.pop(tx_hash, None)
+                self.tx_store.delete(tx_hash)
 
             self.storage.put('verified_tx3', self.verified_tx)
 

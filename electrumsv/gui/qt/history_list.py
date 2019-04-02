@@ -126,7 +126,7 @@ class HistoryList(MyTreeWidget):
             super(HistoryList, self).on_doubleclick(item, column)
         else:
             tx_hash = item.data(0, Qt.UserRole)
-            tx = self.wallet.transactions.get(tx_hash)
+            tx = self.wallet.get_transaction(tx_hash)
             self.parent.show_transaction(tx)
 
     def update_labels(self):
@@ -166,7 +166,7 @@ class HistoryList(MyTreeWidget):
 
         tx_URL = web.BE_URL(self.config, 'tx', tx_hash)
         height, _conf, _timestamp = self.wallet.get_tx_height(tx_hash)
-        tx = self.wallet.transactions.get(tx_hash)
+        tx = self.wallet.get_transaction(tx_hash)
         if not tx: return # this happens sometimes on wallet synch when first starting up.
         # is_relevant, is_mine, v, fee = self.wallet.get_wallet_delta(tx)
         is_unconfirmed = height <= 0

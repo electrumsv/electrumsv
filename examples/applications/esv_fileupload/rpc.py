@@ -145,7 +145,7 @@ class LocalRPCFunctions:
     def get_transaction_state(self, tx_id: Optional[str]=None,
             wallet_name: Optional[str]=None) -> bool:
         wallet = self._get_wallet(wallet_name)
-        if tx_id not in wallet.transactions:
+        if not wallet.has_received_transaction(tx_id):
             return None
         height, conf, timestamp = wallet.get_tx_height(tx_id)
         return height, conf, timestamp

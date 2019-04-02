@@ -111,7 +111,7 @@ class UTXOList(MyTreeWidget):
             # "freeze" status, if any
             txid = list(selected.keys())[0].split(':')[0]
             frozen_flags = list(selected.values())[0]
-            tx = self.wallet.transactions.get(txid)
+            tx = self.wallet.get_transaction(txid)
             menu.addAction(_("Details"), lambda: self.parent.show_transaction(tx))
             needsep = True
             if 'c' in frozen_flags:
