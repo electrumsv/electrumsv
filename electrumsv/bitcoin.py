@@ -25,11 +25,11 @@
 
 import hashlib
 
-from bitcoinx import Ops, PublicKey, base58_decode_check
+from bitcoinx import Ops, PublicKey
 
-from .crypto import hash_160, sha256d, hmac_oneshot, sha256
+from .crypto import hash_160, sha256d, hmac_oneshot
 from .networks import Net
-from .util import bfh, bh2u, assert_bytes, to_bytes, inv_dict
+from .util import bfh, bh2u, assert_bytes, to_bytes
 from . import version
 
 
@@ -114,7 +114,7 @@ def push_script(data: str) -> str:
 def is_new_seed(x, prefix=version.SEED_PREFIX):
     from . import mnemonic
     x = mnemonic.normalize_text(x)
-    s = bh2u(hmac_oneshot(b"Seed version", x.encode('utf8'), hashlib.sha512))
+    s = bh2u(hmac_oneshot(b"Seed version", x.encode('utf8'), 'sha512'))
     return s.startswith(prefix)
 
 
@@ -242,54 +242,11 @@ def base_decode(v, length, base):
     return bytes(result)
 
 
-SCRIPT_TYPES = {
-    'p2pkh':0,
-    'p2sh':5,
-}
-
-
 def verify_message_and_address(signature, message, address):
     return PublicKey.verify_message_and_address(signature, message, address, coin=Net.COIN)
 
 
-def deserialize_privkey(key):
-    # whether the pubkey is compressed should be visible from the keystore
-    if is_minikey(key):
-        return 'p2pkh', minikey_to_private_key(key), False
-    vch = base58_decode_check(key)
-    if vch:
-        txin_type = inv_dict(SCRIPT_TYPES)[vch[0] - Net.WIF_PREFIX]
-        assert len(vch) in [33, 34]
-        compressed = len(vch) == 34
-        return txin_type, vch[1:33], compressed
-    else:
-        raise Exception("cannot deserialize", key)
-
-
-def is_private_key(key):
-    try:
-        k = deserialize_privkey(key)
-        return k is not False
-    except:
-        return False
-
-
 ########### end pywallet functions #######################
-
-def is_minikey(text):
-    # Minikeys are typically 22 or 30 characters, but this routine
-    # permits any length of 20 or more provided the minikey is valid.
-    # A valid minikey must begin with an 'S', be in base58, and when
-    # suffixed with '?' have its SHA256 hash begin with a zero byte.
-    # They are widely used in Casascius physical bitcoins, where the
-    # address corresponded to an uncompressed public key.
-    return (len(text) >= 20 and text[0] == 'S'
-            and all(ord(c) in __b58chars for c in text)
-            and sha256(text + '?')[0] == 0x00)
-
-def minikey_to_private_key(text):
-    return sha256(text)
-
 
 def msg_magic(message):
     length = bfh(var_int(len(message)))

@@ -1,14 +1,15 @@
 import base64
-from bitcoinx import Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check
+from bitcoinx import (
+    Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check, is_minikey,
+)
 
 from electrumsv.address import Address
 from electrumsv.bitcoin import (
-    is_private_key, is_new_seed, is_old_seed, verify_message_and_address,
-    var_int, op_push, deserialize_privkey,
-    is_minikey, seed_type,
-    push_script, int_to_hex)
+    is_new_seed, is_old_seed, verify_message_and_address, var_int, op_push, seed_type,
+    push_script, int_to_hex
+)
 from electrumsv.crypto import sha256d
-from electrumsv.keystore import is_xpub, is_xprv
+from electrumsv.keystore import is_xpub, is_xprv, is_private_key
 from electrumsv import crypto
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.networks import Net, SVMainnet, SVTestnet
@@ -62,8 +63,7 @@ class Test_bitcoin(SequentialTestCase):
         msg2 = b'Electrum'
 
         def sign_message_with_wif_privkey(wif_privkey, msg):
-            txin_type, privkey, compressed = deserialize_privkey(wif_privkey)
-            key = PrivateKey(privkey, compressed)
+            key = PrivateKey.from_WIF(wif_privkey)
             return key.sign_message(msg)
 
         sig1 = sign_message_with_wif_privkey(
@@ -364,11 +364,11 @@ class Test_keyImport(SequentialTestCase):
 
     def test_public_key_from_private_key(self):
         for priv_details in self.priv_pub_addr:
-            txin_type, privkey, compressed = deserialize_privkey(priv_details['priv'])
-            result = PrivateKey(privkey).public_key.to_hex(compressed=compressed)
+            privkey = PrivateKey.from_text(priv_details['priv'])
+            result = privkey.public_key.to_hex()
             self.assertEqual(priv_details['pub'], result)
-            self.assertEqual(priv_details['txin_type'], txin_type)
-            self.assertEqual(priv_details['compressed'], compressed)
+            self.assertEqual(priv_details['txin_type'], 'p2pkh')
+            self.assertEqual(priv_details['compressed'], privkey.is_compressed())
 
     def test_is_valid_address(self):
         for priv_details in self.priv_pub_addr:

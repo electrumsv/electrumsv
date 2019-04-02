@@ -34,7 +34,7 @@ from bitcoinx import (
 from .address import Address
 from .app_state import app_state
 from .bitcoin import (
-    bfh, is_seed, seed_type, rev_hex, script_to_address, int_to_hex, is_private_key
+    bfh, is_seed, seed_type, rev_hex, script_to_address, int_to_hex
 )
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword
@@ -786,6 +786,14 @@ def is_xprv(text):
         key = bip32_key_from_string(text)
         return isinstance(key, BIP32PrivateKey)
     except Exception:
+        return False
+
+
+def is_private_key(text):
+    try:
+        PrivateKey.from_text(text)
+        return True
+    except ValueError:
         return False
 
 

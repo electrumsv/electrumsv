@@ -259,8 +259,11 @@ class Commands:
                 txin['prevout_hash'] = prevout_hash
             sec = txin.get('privkey')
             if sec:
-                txin_type, privkey, compressed = bitcoin.deserialize_privkey(sec)
-                pubkey = PrivateKey(privkey).public_key.to_hex(compressed=compressed)
+                privkey = PrivateKey.from_text(sec)
+                txin_type, privkey, compressed = (
+                    'p2pkh', privkey.to_bytes(), privkey.is_compressed()
+                )
+                pubkey = privkey.public_key.to_hex()
                 keypairs[pubkey] = privkey, compressed
                 txin['type'] = txin_type
                 txin['x_pubkeys'] = [pubkey]
@@ -278,9 +281,11 @@ class Commands:
         """Sign a transaction. The wallet keys will be used unless a private key is provided."""
         tx = Transaction(tx)
         if privkey:
-            txin_type, privkey2, compressed = bitcoin.deserialize_privkey(privkey)
-            pubkey = PrivateKey(privkey2).public_key.to_hex(compressed=compressed)
-            h160 = hash_160(bfh(pubkey))
+            privkey2 = PrivateKey.from_text(privkey)
+            txin_type, privkey2, compressed = (
+                'p2pkh', privkey2.to_bytes(), privkey2.is_compressed()
+            )
+            h160 = hash_160(privkey2.public_key.to_bytes())
             x_pubkey = 'fd' + bh2u(b'\x00' + h160)
             tx.sign({x_pubkey:(privkey2, compressed)})
         else:
