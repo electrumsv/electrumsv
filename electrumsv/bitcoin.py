@@ -114,7 +114,7 @@ def push_script(data: str) -> str:
 def is_new_seed(x, prefix=version.SEED_PREFIX):
     from . import mnemonic
     x = mnemonic.normalize_text(x)
-    s = bh2u(hmac_oneshot(b"Seed version", x.encode('utf8'), hashlib.sha512))
+    s = bh2u(hmac_oneshot(b"Seed version", x.encode('utf8'), 'sha512'))
     return s.startswith(prefix)
 
 
