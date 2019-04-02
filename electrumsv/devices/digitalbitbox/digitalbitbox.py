@@ -393,14 +393,14 @@ class DigitalBitbox_Client():
         try:
             encryption_key, authentication_key = derive_keys(self.password)
             msg = EncodeAES_bytes(encryption_key, msg)
-            hmac_digest = hmac_oneshot(authentication_key, msg, hashlib.sha256)
+            hmac_digest = hmac_oneshot(authentication_key, msg, 'sha256')
             authenticated_msg = base64.b64encode(msg + hmac_digest)
             reply = self.hid_send_plain(authenticated_msg)
             if 'ciphertext' in reply:
                 b64_unencoded = bytes(base64.b64decode(''.join(reply["ciphertext"])))
                 reply_hmac = b64_unencoded[-sha256_byte_len:]
                 hmac_calculated = hmac_oneshot(
-                    authentication_key, b64_unencoded[:-sha256_byte_len], hashlib.sha256)
+                    authentication_key, b64_unencoded[:-sha256_byte_len], 'sha256')
                 if not hmac.compare_digest(reply_hmac, hmac_calculated):
                     raise Exception("Failed to validate HMAC")
                 reply = DecodeAES_bytes(encryption_key, b64_unencoded[:-sha256_byte_len])
