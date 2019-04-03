@@ -30,6 +30,15 @@ class TestTransactionStore(unittest.TestCase):
         # run again, if the database entities already exist.
         self.store._create(self.store._get_db())
 
+    def test_count(self):
+        for i in range(3):
+            self.assertEqual(i, self.store.count())
+            tx_bytes = os.urandom(10)
+            tx_hash_bytes = bitcoinx.double_sha256(tx_bytes)
+            tx_id = bitcoinx.hash_to_hex_str(tx_hash_bytes)
+            self.store.add(tx_id, tx_bytes, is_pending=True) # Add as pending.
+        self.assertEqual(i+1, self.store.count())
+
     def test_has_for_missing_transaction(self):
         self.assertFalse(self.store.has(self.tx_id))
 

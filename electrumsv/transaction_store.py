@@ -43,6 +43,12 @@ class TransactionStore:
         self._state.db.close()
         self._state = None
 
+    def count(self):
+        db = self._get_db()
+        cursor = db.execute("SELECT COUNT(*) FROM Transactions")
+        row = cursor.fetchone()
+        return row[0]
+
     def has(self, tx_id: str) -> bool:
         db = self._get_db()
         cursor = db.execute("SELECT EXISTS(SELECT 1 FROM Transactions WHERE Key=?)", [tx_id])

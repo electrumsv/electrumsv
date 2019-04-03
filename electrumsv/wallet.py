@@ -303,7 +303,9 @@ class Abstract_Wallet:
         self.pruned_txo = self.storage.get('pruned_txo', {})
         tx_list = self.storage.get('transactions', {})
         self.tx_store = TransactionStore(self.storage.path)
-        if len(tx_list):
+        # It is possible for the old transactions to still be stored in the encrypted wallet
+        # storage if something happened and the software did not exit cleanly.
+        if len(tx_list) and self.tx_store.count() == 0:
             self.tx_store.add_many(tx_list)
         self.storage.put('transactions', {})
 
