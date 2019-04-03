@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import QMenu
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.platform import platform
-from electrumsv.util import timestamp_to_datetime, profiler
+from electrumsv.util import timestamp_to_datetime, profiler, format_time
 import electrumsv.web as web
 
 from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon
@@ -50,6 +50,12 @@ TX_ICONS = [
     "clock4.png",
     "clock5.png",
     "confirmed.png",
+]
+
+TX_STATUS = [
+    _('Unconfirmed parent'),
+    _('Unconfirmed'),
+    _('Not Verified'),
 ]
 
 
@@ -90,7 +96,8 @@ class HistoryList(MyTreeWidget):
             fx.history_used_spot = False
         for h_item in h:
             tx_hash, height, conf, timestamp, value, balance = h_item
-            status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)
+            # TODO: This calls `get_transaction` but I am kind of sure it is known that we
+            status, status_str = self.get_tx_status(tx_hash, height, conf, timestamp)
             has_invoice = self.wallet.invoices.paid.get(tx_hash)
             icon = read_QIcon(TX_ICONS[status])
             v_str = self.parent.format_amount(value, True, whitespaces=True)
@@ -102,6 +109,7 @@ class HistoryList(MyTreeWidget):
                 for amount in [value, balance]:
                     text = fx.historical_value_str(amount, date)
                     entry.append(text)
+
             item = SortableTreeWidgetItem(entry)
             item.setIcon(0, icon)
             item.setToolTip(0, str(conf) + " confirmation" + ("s" if conf != 1 else ""))
@@ -126,7 +134,7 @@ class HistoryList(MyTreeWidget):
             super(HistoryList, self).on_doubleclick(item, column)
         else:
             tx_hash = item.data(0, Qt.UserRole)
-            tx = self.wallet.transactions.get(tx_hash)
+            tx = self.wallet.get_transaction(tx_hash)
             self.parent.show_transaction(tx)
 
     def update_labels(self):
@@ -139,7 +147,7 @@ class HistoryList(MyTreeWidget):
             item.setText(3, label)
 
     def update_item(self, tx_hash, height, conf, timestamp):
-        status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)
+        status, status_str = self.get_tx_status(tx_hash, height, conf, timestamp)
         icon = read_QIcon(TX_ICONS[status])
         items = self.findItems(tx_hash, Qt.UserRole|Qt.MatchContains|Qt.MatchRecursive, column=1)
         if items:
@@ -166,7 +174,7 @@ class HistoryList(MyTreeWidget):
 
         tx_URL = web.BE_URL(self.config, 'tx', tx_hash)
         height, _conf, _timestamp = self.wallet.get_tx_height(tx_hash)
-        tx = self.wallet.transactions.get(tx_hash)
+        tx = self.wallet.get_transaction(tx_hash)
         if not tx: return # this happens sometimes on wallet synch when first starting up.
         # is_relevant, is_mine, v, fee = self.wallet.get_wallet_delta(tx)
         is_unconfirmed = height <= 0
@@ -193,3 +201,23 @@ class HistoryList(MyTreeWidget):
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
         menu.exec_(self.viewport().mapToGlobal(position))
+
+    def get_tx_status(self, tx_hash, height, conf, timestamp):
+        if conf == 0:
+            tx = self.wallet.get_transaction(tx_hash)
+            if not tx:
+                return 3, _('unknown')
+            if height < 0:
+                status = 0
+            elif height == 0:
+                status = 1
+            else:
+                status = 2
+        else:
+            status = 3 + min(conf, 6)
+        if status < len(TX_STATUS):
+            status_str = TX_STATUS[status]
+        else:
+            status_str = format_time(timestamp, _("unknown")) if timestamp else _("unknown")
+        return status, status_str
+

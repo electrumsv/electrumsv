@@ -488,8 +488,13 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 return
             self.show()
         if action:
-            # self.wallet is set in run
+            # self.wallet is set in run, unless they go back.
             self.run(action)
+            if action == "new" and self.wallet:
+               # We forceably save new wallets in order to get the initial state synced on disk
+                # that the user can both find it if ESV crashes, and that the externally referenced
+                # and encrypted data has synchronised persisted keys
+                self.wallet.save_storage()
             return self.wallet
 
         self.wallet = Wallet(self.storage)

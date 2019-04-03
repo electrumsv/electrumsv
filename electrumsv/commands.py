@@ -548,7 +548,7 @@ class Commands:
         """
         out = []
         for addr in self.wallet.get_addresses():
-            if frozen and not self.wallet.is_frozen(addr):
+            if frozen and not self.wallet.is_frozen_address(addr):
                 continue
             if receiving and self.wallet.is_change(addr):
                 continue
@@ -571,9 +571,10 @@ class Commands:
     @command('n')
     def gettransaction(self, txid):
         """Retrieve a transaction. """
-        if self.wallet and txid in self.wallet.transactions:
-            tx = self.wallet.transactions[txid]
-        else:
+        tx = None
+        if self.wallet:
+            tx = self.wallet.get_transaction(txid)
+        if tx is None:
             raw = self.network.request_and_wait('blockchain.transaction.get', [txid])
             if raw:
                 tx = Transaction(raw)

@@ -133,7 +133,7 @@ class AddressList(MyTreeWidget):
                 address_item.setFont(0, self.monospace_font)
                 address_item.setData(0, Qt.UserRole, address)
                 address_item.setData(0, Qt.UserRole+1, True) # label can be edited
-                if self.wallet.is_frozen(address):
+                if self.wallet.is_frozen_address(address):
                     address_item.setBackground(0, QColor('lightblue'))
                 if self.wallet.is_beyond_limit(address, is_change):
                     address_item.setBackground(0, QColor('red'))
@@ -201,9 +201,9 @@ class AddressList(MyTreeWidget):
                 menu.addAction(_("Show on {}").format(keystore.plugin.device), show_address)
 
         freeze = self.parent.set_frozen_state
-        if any(self.wallet.is_frozen(addr) for addr in addrs):
+        if any(self.wallet.is_frozen_address(addr) for addr in addrs):
             menu.addAction(_("Unfreeze"), partial(freeze, addrs, False))
-        if not all(self.wallet.is_frozen(addr) for addr in addrs):
+        if not all(self.wallet.is_frozen_address(addr) for addr in addrs):
             menu.addAction(_("Freeze"), partial(freeze, addrs, True))
 
         coins = self.wallet.get_spendable_coins(domain = addrs, config = self.config)

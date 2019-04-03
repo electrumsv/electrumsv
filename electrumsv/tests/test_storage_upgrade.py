@@ -249,7 +249,14 @@ class TestStorageUpgrade(WalletTestCase):
         self._upgrade_storage(wallet_str)
 
     def test_upgrade_from_client_2_9_3_watchaddresses(self):
-        wallet_str = '{"addr_history":{"1DgrwN2JCDZ6uPMSvSz8dPeUtaxLxWM2kf":[],"1H3mPXHFzA8UbvhQVabcDjYw3CPb3djvxs":[],"1HocPduHmQUJerpdaLG8DnmxvnDCVQwWsa":[]},"addresses":["1H3mPXHFzA8UbvhQVabcDjYw3CPb3djvxs","1HocPduHmQUJerpdaLG8DnmxvnDCVQwWsa","1DgrwN2JCDZ6uPMSvSz8dPeUtaxLxWM2kf"],"pruned_txo":{},"seed_version":13,"stored_height":490039,"transactions":{},"tx_fees":{},"txi":{},"txo":{},"verified_tx3":{},"wallet_type":"imported","winpos-qt":[499,386,840,405]}'
+        wallet_str = ('{"addr_history":{"1DgrwN2JCDZ6uPMSvSz8dPeUtaxLxWM2kf":[],'+
+            '"1H3mPXHFzA8UbvhQVabcDjYw3CPb3djvxs":[],"1HocPduHmQUJerpdaLG8DnmxvnDCVQwWsa":[]},'+
+            '"addresses":["1H3mPXHFzA8UbvhQVabcDjYw3CPb3djvxs",'+
+            '"1HocPduHmQUJerpdaLG8DnmxvnDCVQwWsa","1DgrwN2JCDZ6uPMSvSz8dPeUtaxLxWM2kf"],'+
+            '"pruned_txo":{},"seed_version":13,"stored_height":490039,"transactions":{},'+
+            '"tx_fees":{"97001cc2ec5d1e4335bf2248c7d98c8ba08dc5916264488ab056e51043e96b67":140},'+
+            '"txi":{},"txo":{},"verified_tx3":{},"wallet_type":"imported",'+
+            '"winpos-qt":[499,386,840,405]}')
         self._upgrade_storage(wallet_str)
 
     def test_upgrade_from_client_2_9_3_trezor_singleacc(self):

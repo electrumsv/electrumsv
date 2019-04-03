@@ -736,8 +736,7 @@ class SVSession(RPCSession):
 
     async def subscribe_wallet(self, wallet, pairs=None):
         if pairs is None:
-            pairs = [(address, address.to_scripthash_hex())
-                     for address in wallet.get_addresses()]
+            pairs = [(address, address.to_scripthash_hex()) for address in wallet.get_addresses()]
         else:
             # If wallet was unsubscribed in the meantime keep it that way
             if wallet not in self._subs_by_wallet:
@@ -1085,7 +1084,8 @@ class Network:
                 else:
                     if header.merkle_root == proven_root:
                         logger.debug(f'received valid proof for {tx_hash}')
-                        wallet.add_verified_tx(tx_hash, (tx_height, header.timestamp, tx_pos))
+                        wallet.add_verified_tx(tx_hash,
+                            tx_height, header.timestamp, tx_pos, tx_pos, branch)
                     else:
                         hhts = hash_to_hex_str
                         logger.error(f'invalid proof for tx {tx_hash} in block '

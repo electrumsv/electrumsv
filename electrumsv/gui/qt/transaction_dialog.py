@@ -145,7 +145,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.update()
 
     def update_tx_if_in_wallet(self):
-        if self.tx.txid() in self.wallet.transactions:
+        if self.wallet.has_received_transaction(self.tx.txid()):
             self.update()
 
     def do_broadcast(self):

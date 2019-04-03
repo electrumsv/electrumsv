@@ -50,9 +50,12 @@ logger = logs.get_logger("storage")
 
 OLD_SEED_VERSION = 4        # electrum versions < 2.0
 NEW_SEED_VERSION = 11       # electrum versions >= 2.0
-FINAL_SEED_VERSION = 17     # electrum >= 2.7 will set this to prevent
+FINAL_SEED_VERSION = 18     # electrum >= 2.7 will set this to prevent
                             # old versions from overwriting new format
 
+
+class IncompatibleWalletError(Exception):
+    pass
 
 
 def multisig_type(wallet_type):
@@ -88,7 +91,14 @@ class WalletStorage:
             if not self.is_encrypted():
                 self.load_data(self.raw)
         else:
+            # Initialise anything that needs to be in the wallet storage and immediately persisted.
+            # In the case of the aeskey, this is because the wallet saving is not guaranteed and
+            # the writes to the database are not synchronised with it.
+            tx_store_aeskey_hex = os.urandom(32).hex()
+            self.put('tx_store_aeskey', tx_store_aeskey_hex)
+
             # avoid new wallets getting 'upgraded'
+            self.put('wallet_author', 'ESV')
             self.put('seed_version', FINAL_SEED_VERSION)
 
     def load_data(self, s):
@@ -263,7 +273,19 @@ class WalletStorage:
         return result
 
     def requires_upgrade(self):
-        return self.file_exists() and self.get_seed_version() < FINAL_SEED_VERSION
+        if self.file_exists():
+            # The version at which we should retain compatibility with Electrum and Electron Cash
+            # if they upgrade their wallets using this versioning system correctly.
+            if self.get_seed_version() <= 17:
+                return True
+            # Versions above the compatible seed version, which may conflict with versions those
+            # other wallets use.
+            if self.get_seed_version() < FINAL_SEED_VERSION:
+                # We flag our upgraded wallets past seed version 17 with 'wallet_author' = 'ESV'.
+                if self.get('wallet_author') == 'ESV':
+                    return True
+                raise IncompatibleWalletError
+        return False
 
     def upgrade(self):
         logger.debug('upgrading wallet format')
@@ -276,6 +298,7 @@ class WalletStorage:
         self.convert_version_15()
         self.convert_version_16()
         self.convert_version_17()
+        self.convert_version_18()
 
         self.put('seed_version', FINAL_SEED_VERSION)  # just to be sure
         self.write()
@@ -474,6 +497,115 @@ class WalletStorage:
                 self.put('wallet_type', 'imported_privkey')
             else:
                 self.put('wallet_type', 'imported_addr')
+
+        self.put('seed_version', 17)
+
+    def convert_version_18(self):
+        if not self._is_upgrade_method_needed(17, 17):
+            return
+
+        wallet_type = self.get('wallet_type')
+
+        from .wallet_database import (TransactionStore, TransactionInputStore,
+            TransactionOutputStore, TxInput, TxOutput, TxData, TxFlags, WalletData)
+
+        tx_store_aeskey_hex = self.get('tx_store_aeskey')
+        if tx_store_aeskey_hex is None:
+            tx_store_aeskey_hex = os.urandom(32).hex()
+            self.put('tx_store_aeskey', tx_store_aeskey_hex)
+        tx_store_aeskey = bytes.fromhex(tx_store_aeskey_hex)
+
+        db = WalletData(self.path, tx_store_aeskey)
+
+        # Transaction-related data.
+        tx_map_in = self.get('transactions', {})
+        tx_fees = self.get('fees', {})
+        tx_verified = self.get('verified_tx3', {})
+
+        _history = self.get('addr_history',{})
+        hh_map = {tx_hash: tx_height
+                  for addr_history in _history.values()
+                  for tx_hash, tx_height in addr_history}
+
+        to_add = []
+        for tx_id, tx in tx_map_in.items():
+            payload = bytes.fromhex(str(tx))
+            fee = tx_fees.get(tx_id, None)
+            if tx_id in tx_verified:
+                flags = TxFlags.StateCleared
+                height, timestamp, position = tx_verified[tx_id]
+            else:
+                flags = TxFlags.StateSettled
+                timestamp = position = None
+                height = hh_map.get(tx_id)
+            tx_data = TxData(height=height, fee=fee, position=position, timestamp=timestamp)
+            to_add.append((tx_id, tx_data, payload, flags))
+        if len(to_add):
+            db.tx_store.add_many(to_add)
+
+        # Address/utxo related data.
+        txi = self.get('txi', {})
+        to_add = []
+        for tx_hash, address_entry in txi.items():
+            for address_string, output_values in address_entry.items():
+                for prevout_key, amount in output_values:
+                    prevout_tx_hash, prevout_n = prevout_key.split(":")
+                    txin = TxInput(address_string, prevout_tx_hash, int(prevout_n), amount)
+                    to_add.append((tx_hash, txin))
+        if len(to_add):
+            db.txin_store.add_entries(to_add)
+
+        txo = self.get('txo', {})
+        to_add = []
+        for tx_hash, address_entry in txo.items():
+            for address_string, input_values in address_entry.items():
+                for txout_n, amount, is_coinbase in input_values:
+                    txout = TxOutput(address_string, txout_n, amount, is_coinbase)
+                    to_add.append((tx_hash, txout))
+        if len(to_add):
+            db.txout_store.add_entries(to_add)
+
+        addresses = self.get('addresses')
+        if addresses is not None:
+            # Bug in the wallet storage upgrade tests, it turns this into a dict.
+            if wallet_type == "imported_addr" and type(addresses) is dict:
+                addresses = list(addresses.keys())
+            db.misc_store.add('addresses', addresses)
+        db.misc_store.add('addr_history', self.get('addr_history'))
+        db.misc_store.add('frozen_addresses', self.get('frozen_addresses'))
+
+        # Convert from "hash:n" to (hash, n).
+        frozen_coins = self.get('frozen_coins', [])
+        for i, s in enumerate(frozen_coins):
+            hash, n = s.split(":")
+            n = int(n)
+            frozen_coins[i] = (hash, n)
+        db.misc_store.add('frozen_coins', frozen_coins)
+
+        pruned_txo = self.get('pruned_txo', {})
+        new_pruned_txo = {}
+        for k, v in pruned_txo.items():
+            hash, n = k.split(":")
+            n = int(n)
+            new_pruned_txo[(hash, n)] = v
+        db.misc_store.add('pruned_txo', new_pruned_txo)
+
+        # One database connection is shared, so only one is closable.
+        db.tx_store.close()
+
+        self.put('addresses', None)
+        self.put('addr_history', None)
+        self.put('frozen_addresses', None)
+        self.put('frozen_coins', None)
+        self.put('pruned_txo', None)
+        self.put('transactions', None)
+        self.put('txi', None)
+        self.put('txo', None)
+        self.put('tx_fees', None)
+        self.put('verified_tx3', None)
+
+        self.put('wallet_author', 'ESV')
+        self.put('seed_version', 18)
 
     def convert_imported(self):
         if not self._is_upgrade_method_needed(0, 13):

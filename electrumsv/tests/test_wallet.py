@@ -84,9 +84,11 @@ class TestWalletStorage(WalletTestCase):
         storage = WalletStorage(self.wallet_path)
 
         some_dict = {
-            u"a": u"b",
-            u"c": u"d",
-            u"seed_version": FINAL_SEED_VERSION}
+            "a": "b",
+            "c": "d",
+            "seed_version": FINAL_SEED_VERSION,
+            "tx_store_aeskey": storage.get("tx_store_aeskey"),
+            "wallet_author": "ESV"}
 
         for key, value in some_dict.items():
             storage.put(key, value)

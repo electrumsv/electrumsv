@@ -67,8 +67,8 @@ class UTXOList(MyTreeWidget):
             utxo_item.DataRole = Qt.UserRole+100
             for col in (0, 2, 4):
                 utxo_item.setFont(col, self.monospace_font)
-            utxo_item.setData(0, Qt.UserRole, name)
-            a_frozen = self.wallet.is_frozen(address)
+            utxo_item.setData(0, Qt.UserRole, (x.get('prevout_hash'), x.get('prevout_n')))
+            a_frozen = self.wallet.is_frozen_address(address)
             c_frozen = x['is_frozen_coin']
             if a_frozen and not c_frozen:
                 # address is frozen, coin is not frozen
@@ -91,9 +91,8 @@ class UTXOList(MyTreeWidget):
                 utxo_item.setSelected(True) # restore previous selection
 
     def get_selected(self):
-        # dict of "name" -> frozen flags string (eg: "ac")
-        return { x.data(0, Qt.UserRole) : x.data(0, Qt.UserRole+1)
-                for x in self.selectedItems() }
+        # dict of (prevout_hash, prevout_n) -> frozen flags string (eg: "ac")
+        return { x.data(0, Qt.UserRole) : x.data(0, Qt.UserRole+1) for x in self.selectedItems() }
 
     def create_menu(self, position):
         selected = self.get_selected()
@@ -111,7 +110,7 @@ class UTXOList(MyTreeWidget):
             # "freeze" status, if any
             txid = list(selected.keys())[0].split(':')[0]
             frozen_flags = list(selected.values())[0]
-            tx = self.wallet.transactions.get(txid)
+            tx = self.wallet.get_transaction(txid)
             menu.addAction(_("Details"), lambda: self.parent.show_transaction(tx))
             needsep = True
             if 'c' in frozen_flags:

@@ -240,7 +240,19 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     def from_multisig_script(cls, script):
         return cls(hash_160(script), cls.ADDR_P2SH)
 
-    def to_string(self):
+    @classmethod
+    def from_bytes(cls, raw: bytes) -> 'Address':
+        verbyte, hash160_ = raw[0], raw[1:]
+        if verbyte == Net.ADDRTYPE_P2PKH:
+            kind = cls.ADDR_P2PKH
+        elif verbyte == Net.ADDRTYPE_P2SH:
+            kind = cls.ADDR_P2SH
+        else:
+            raise AddressError('unknown version byte: {}'.format(verbyte))
+
+        return cls(hash160_, kind)
+
+    def to_string(self) -> str:
         '''Converts to a string of the given format.'''
         if self.kind == self.ADDR_P2PKH:
             verbyte = Net.ADDRTYPE_P2PKH
@@ -248,6 +260,13 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
             verbyte = Net.ADDRTYPE_P2SH
 
         return base58_encode_check(bytes([verbyte]) + self.hash160)
+
+    def to_bytes(self) -> bytes:
+        if self.kind == self.ADDR_P2PKH:
+            verbyte = Net.ADDRTYPE_P2PKH
+        else:
+            verbyte = Net.ADDRTYPE_P2SH
+        return bytes([ verbyte ]) + self.hash160
 
     def to_script(self):
         '''Return a binary script to pay to the address.'''
