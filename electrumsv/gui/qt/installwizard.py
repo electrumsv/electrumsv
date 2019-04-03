@@ -10,9 +10,11 @@ from PyQt5.QtWidgets import (
     QGridLayout, QDialogButtonBox
 )
 
+from bitcoinx import DecryptionError
+
 from electrumsv.app_state import app_state
 from electrumsv.base_wizard import BaseWizard
-from electrumsv.exceptions import UserCancelled, InvalidPassword
+from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
@@ -329,8 +331,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                     self.storage.decrypt(password)
                     self.pw_e.setText('')
                     break
-                except InvalidPassword as e:
-                    QMessageBox.information(None, _('Error'), str(e))
+                except DecryptionError:
+                    QMessageBox.information(None, _('Error'), _("Incorrect password"))
                     continue
                 except Exception as e:
                     logger.exception("decrypting storage")
