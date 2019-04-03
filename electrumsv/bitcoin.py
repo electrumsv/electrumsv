@@ -23,8 +23,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import hashlib
-
 from bitcoinx import Ops, PublicKey
 
 from .crypto import hash_160, sha256d, hmac_oneshot
