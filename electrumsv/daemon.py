@@ -33,6 +33,7 @@ import jsonrpclib
 
 from .app_state import app_state
 from .commands import known_commands, Commands
+from .exchange_rate import FxTask
 from .jsonrpc import VerifyingJSONRPCServer
 from .logs import logs
 from .network import Network
@@ -129,8 +130,11 @@ class Daemon(DaemonThread):
         self.config = config
         if config.get('offline'):
             self.network = None
+            self.fx_task = None
         else:
             self.network = Network()
+            app_state.fx = FxTask(app_state.config, self.network)
+            self.fx_task = app_state.async_.spawn(app_state.fx.refresh_loop)
         self.wallets = {}
         # Setup JSONRPC server
         self.init_server(config, fd, is_gui)
@@ -275,6 +279,7 @@ class Daemon(DaemonThread):
             self.server.handle_request() if self.server else time.sleep(0.1)
         if self.network:
             self.network.shutdown()
+            self.fx_task.cancel()
             app_state.async_.spawn_and_wait(self.network.shutdown_wait)
         self.on_stop()
 

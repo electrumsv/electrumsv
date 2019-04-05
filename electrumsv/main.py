@@ -35,7 +35,6 @@ from electrumsv import daemon, keystore, web
 from electrumsv.app_state import app_state, AppStateProxy
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
 from electrumsv.exceptions import InvalidPassword
-from electrumsv.exchange_rate import FxTask
 from electrumsv.logs import logs
 from electrumsv.mnemonic import Mnemonic
 from electrumsv.network import Network
@@ -267,9 +266,6 @@ def run_app_with_daemon(fd, is_gui, config_options):
         d = daemon.Daemon(fd, is_gui)
         d.start()
         try:
-            if not app_state.config.get('offline'):
-                app_state.fx = FxTask(app_state.config, d.network)
-                app_state.async_.spawn(app_state.fx.refresh_loop)
             app_state.app.run_app()
         finally:
             # Shut down the daemon before exiting the async loop
