@@ -37,7 +37,7 @@ import time
 import certifi
 from aiorpcx import (
     Connector, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
-    TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
+    Semaphore, TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
     SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth
 )
 from bitcoinx import (
@@ -60,8 +60,10 @@ HEADER_SIZE = 80
 ONE_MINUTE = 60
 ONE_DAY = 24 * 3600
 HEADERS_SUBSCRIBE = 'blockchain.headers.subscribe'
+REQUEST_MERKLE_PROOF = 'blockchain.transaction.get_merkle'
 SCRIPTHASH_HISTORY = 'blockchain.scripthash.get_history'
 SCRIPTHASH_SUBSCRIBE = 'blockchain.scripthash.subscribe'
+EXPENSIVE_METHODS = (SCRIPTHASH_SUBSCRIBE, SCRIPTHASH_HISTORY, REQUEST_MERKLE_PROOF)
 BROADCAST_TX_MSG_LIST = (
     ('dust', _('very small "dust" payments')),
     (('Missing inputs', 'Inputs unavailable', 'bad-txns-inputs-spent'),
@@ -345,6 +347,8 @@ class SVSession(RPCSession):
         super().__init__(*args, **kwargs)
         self._handlers = {}
         self._network = network
+        # For rate-limiting server requests; we aim to have no request time-out
+        self._semaphore = Semaphore(value=100)
         # These attributes are intended to part of the external API
         self.chain = None
         self.logger = logger
@@ -758,10 +762,10 @@ class SVSession(RPCSession):
 
         Raises: RPCError, TaskTimeout
         '''
-        # Histories can be long; consequently give those methods a larger timeout
-        timeout_secs = 30 if method in (SCRIPTHASH_SUBSCRIBE, SCRIPTHASH_HISTORY) else 10
-        async with timeout_after(timeout_secs):
-            return await super().send_request(method, args)
+        async with self._semaphore:
+            timeout_secs = 30 if method in EXPENSIVE_METHODS else 10
+            async with timeout_after(timeout_secs):
+                return await super().send_request(method, args)
 
     async def headers_at_heights(self, heights):
         '''Raises: MissingHeader, DisconnectSessionError, BatchError, TaskTimeout'''
@@ -785,7 +789,7 @@ class SVSession(RPCSession):
 
     async def request_proof(self, *args):
         '''Raises: RPCError, TaskTimeout'''
-        return await self.send_request('blockchain.transaction.get_merkle', args)
+        return await self.send_request(REQUEST_MERKLE_PROOF, args)
 
     async def request_history(self, script_hash):
         '''Raises: RPCError, TaskTimeout'''
@@ -1013,7 +1017,8 @@ class Network:
     async def _request_transactions(self, wallet):
         missing_hashes = wallet.missing_transactions()
         if not missing_hashes:
-            return
+            return False
+        had_timeout = False
         session = await self._main_session()
         session.logger.debug(f'requesting {len(missing_hashes)} missing transactions')
         async with TaskGroup() as group:
@@ -1030,12 +1035,13 @@ class Network:
                     tx.deserialize()
                     session.logger.debug(f'received tx {tx_hash} bytes: {len(tx.raw)}')
                 except CancelledError:
-                    pass
+                    had_timeout = True
                 except Exception as e:
                     logger.error(f'fetching transaction {tx_hash}: {e}')
                 else:
                     wallet.add_transaction(tx_hash, tx)
                     self.trigger_callback('new_transaction', tx, wallet)
+        return had_timeout
 
     def _available_servers(self, protocol):
         now = time.time()
@@ -1057,7 +1063,8 @@ class Network:
     async def _request_proofs(self, wallet):
         wanted_map = wallet.unverified_transactions()
         if not wanted_map:
-            return
+            return False
+        had_timeout = False
         session = await self._main_session()
         session.logger.debug(f'requesting {len(wanted_map)} proofs')
         async with TaskGroup() as group:
@@ -1077,7 +1084,7 @@ class Network:
                     proven_root = _root_from_proof(hex_str_to_hash(tx_hash), branch, tx_pos)
                     header = headers[wanted_map[tx_hash]]
                 except CancelledError:
-                    pass
+                    had_timeout = True
                 except Exception as e:
                     logger.error(f'getting proof for {tx_hash}: {e}')
                 else:
@@ -1089,13 +1096,19 @@ class Network:
                         logger.error(f'invalid proof for tx {tx_hash} in block '
                                      f'{hhts(header.hash)}; got {hhts(proven_root)} expected '
                                      f'{hhts(header.merkle_root)}')
+        return had_timeout
 
     async def _monitor_txs(self, wallet):
         '''Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError'''
         while True:
             async with TaskGroup() as group:
-                await group.spawn(self._request_transactions(wallet))
-                await group.spawn(self._request_proofs(wallet))
+                tasks = (
+                    await group.spawn(self._request_transactions(wallet)),
+                    await group.spawn(self._request_proofs(wallet)),
+                )
+            # Try again if a request timed out
+            if any(task.result() for task in tasks):
+                continue
             await wallet.txs_changed_event.wait()
             wallet.txs_changed_event.clear()
 
