@@ -187,7 +187,7 @@ class SVServer:
     all_servers = {}
 
     def __init__(self, host, port, protocol):
-        if not isinstance(host, str):
+        if not isinstance(host, str) or not len(host):
             raise ValueError(f'bad host: {host}')
         if not isinstance(port, int):
             raise ValueError(f'bad port: {port}')
