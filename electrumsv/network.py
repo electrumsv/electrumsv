@@ -187,7 +187,7 @@ class SVServer:
     all_servers = {}
 
     def __init__(self, host, port, protocol):
-        if not isinstance(host, str) or not len(host):
+        if not isinstance(host, str) or not host:
             raise ValueError(f'bad host: {host}')
         if not isinstance(port, int):
             raise ValueError(f'bad port: {port}')
@@ -1241,7 +1241,7 @@ class Network:
 
     def get_server_height(self):
         main_session = self.main_session()
-        if main_session:
+        if main_session and main_session.tip:
             return main_session.tip.height
         return 0
 
