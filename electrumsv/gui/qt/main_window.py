@@ -2394,9 +2394,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             encrypted = public_key.encrypt_message_to_base64(message)
             encrypted_e.setText(encrypted)
 
-    def encrypt_message(self, address=None):
+    def encrypt_message(self, public_key_str=''):
         d = WindowModalDialog(self, _('Encrypt/decrypt Message'))
-        d.setMinimumSize(610, 490)
+        d.setMinimumSize(630, 490)
 
         layout = QGridLayout(d)
 
@@ -2407,13 +2407,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         layout.setRowStretch(2,3)
 
         pubkey_e = QLineEdit()
-        if address:
-            pubkey = self.wallet.get_public_key(address)
-            if not isinstance(pubkey, str):
-                pubkey = pubkey.to_string()
-            pubkey_e.setText(pubkey)
         layout.addWidget(QLabel(_('Public key')), 2, 0)
         layout.addWidget(pubkey_e, 2, 1)
+        pubkey_e.setText(public_key_str)
 
         encrypted_e = QTextEdit()
         encrypted_e.setAcceptRichText(False)

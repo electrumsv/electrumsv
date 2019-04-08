@@ -187,7 +187,7 @@ class AddressList(MyTreeWidget):
                 menu.addAction(_("Sign/verify message"),
                                lambda: self.parent.sign_verify_message(addr))
                 menu.addAction(_("Encrypt/decrypt message"),
-                               lambda: self.parent.encrypt_message(addr))
+                               lambda: self.encrypt_message(addr))
             if can_delete:
                 menu.addAction(_("Remove from wallet"), lambda: self.parent.remove_address(addr))
             addr_URL = web.BE_URL(self.config, 'addr', addr)
@@ -212,6 +212,10 @@ class AddressList(MyTreeWidget):
                            partial(self.parent.spend_coins, coins))
 
         menu.exec_(self.viewport().mapToGlobal(position))
+
+    def encrypt_message(self, addr):
+        public_key_str = self.wallet.get_public_key(addr).to_hex() or ''
+        self.parent.encrypt_message(public_key_str)
 
     def keyPressEvent(self, event):
         if event.matches(QKeySequence.Copy) and self.currentColumn() == 0:
