@@ -7,10 +7,35 @@ import tempfile
 import unittest
 
 import pytest
+from bitcoinx import PrivateKey, PublicKey
 
-from electrumsv.address import Address, PublicKey
+from electrumsv.address import Address, PublicKey as PublicKeyA
+from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import WalletStorage, FINAL_SEED_VERSION
-from electrumsv.wallet import sweep_preparations
+from electrumsv.wallet import sweep_preparations, ImportedPrivkeyWallet
+
+from .util import setup_async, tear_down_async
+
+
+def setUpModule():
+    setup_async()
+
+
+def tearDownModule():
+    tear_down_async()
+
+
+@pytest.fixture()
+def tmp_storage(tmpdir):
+    return WalletStorage(os.path.join(tmpdir, 'wallet'))
+
+
+@pytest.fixture(params=[SVMainnet, SVTestnet])
+def network(request):
+    network = request.param
+    Net.set_to(network)
+    yield network
+    Net.set_to(SVMainnet)
 
 
 class FakeSynchronizer(object):
@@ -73,6 +98,21 @@ class TestWalletStorage(WalletTestCase):
         self.assertEqual(some_dict, json.loads(contents))
 
 
+class TestImportedPrivkeyWallet:
+
+    def test_pubkeys_to_address(self, tmp_storage, network):
+        coin = network.COIN
+        privkey = PrivateKey.from_random()
+        WIF = privkey.to_WIF(coin=coin)
+        wallet = ImportedPrivkeyWallet.from_text(tmp_storage, WIF, None)
+        public_key = privkey.public_key
+        pubkey_hex = public_key.to_hex()
+        address = public_key.to_address(coin=coin)
+        print(coin.name, address)
+        assert wallet.pubkeys_to_address(pubkey_hex) == Address.from_string(address)
+
+
+
 sweep_utxos = {
     # SZEfg4eYxCJoqzumUqP34g uncompressed, address 1KXf5PUHNaV42jE9NbJFPKhGGN1fSSGJNK
     "6dd52f21a1376a67370452d1edfc811bc9d3f344bc7d973616ee27cebfd1940b": [
@@ -114,7 +154,7 @@ sweep_utxos = {
 
 result_S = ([{'height': 437146, 'value': 45318048, 'tx_hash': '9f2c45a12db0144909b5db269415f7319179105982ac70ed80d76ea79d923ebf', 'tx_pos': 0, 'address': Address.from_string("1KXf5PUHNaV42jE9NbJFPKhGGN1fSSGJNK"), 'type': 'p2pkh', 'prevout_hash': '9f2c45a12db0144909b5db269415f7319179105982ac70ed80d76ea79d923ebf', 'prevout_n': 0, 'pubkeys': ['04e7dd15b4271f8308ff52ad3d3e472b652e78a2c5bc6ed10250a543d28c0128894ae863d086488e6773c4589be93a1793f685dd3f1e8a1f1b390b23470f7d1095'], 'x_pubkeys': ['04e7dd15b4271f8308ff52ad3d3e472b652e78a2c5bc6ed10250a543d28c0128894ae863d086488e6773c4589be93a1793f685dd3f1e8a1f1b390b23470f7d1095'], 'signatures': [None], 'num_sig': 1}], {'04e7dd15b4271f8308ff52ad3d3e472b652e78a2c5bc6ed10250a543d28c0128894ae863d086488e6773c4589be93a1793f685dd3f1e8a1f1b390b23470f7d1095': (b'\x98\xe3\x15\xc3%j\x97\x17\xd4\xdd\xea0\xeb*\n-V\xa1d\x93yN\xb0SSf\xea"\xd8i\xa3 ', False), '03e7dd15b4271f8308ff52ad3d3e472b652e78a2c5bc6ed10250a543d28c012889': (b'\x98\xe3\x15\xc3%j\x97\x17\xd4\xdd\xea0\xeb*\n-V\xa1d\x93yN\xb0SSf\xea"\xd8i\xa3 ', True)})
 result_K = ([{'height': 500000, 'value': 18043706, 'tx_hash': 'bcf7ae875b585e00a61055372c1e99046b20f5fbfcd8659959afb6f428326bfa', 'tx_pos': 1, 'address': Address.from_string("1LoVGDgRs9hTfTNJNuXKSpywcbdvwRXpmK"), 'type': 'p2pkh', 'prevout_hash': 'bcf7ae875b585e00a61055372c1e99046b20f5fbfcd8659959afb6f428326bfa', 'prevout_n': 1, 'pubkeys': ['02d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645c'], 'x_pubkeys': ['02d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645c'], 'signatures': [None], 'num_sig': 1}], {'02d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645c': (b"\x0c(\xfc\xa3\x86\xc7\xa2'`\x0b/\xe5\x0b|\xae\x11\xec\x86\xd3\xbf\x1f\xbeG\x1b\xe8\x98'\xe1\x9dr\xaa\x1d", True)})
-result_5 = ([{'height': 50000, 'value': 1804376, 'tx_hash': '3f5a1badfe1beb42b650f325b20935f09f3ab43a3c473c5be18f58308fc7eff1', 'tx_pos': 3, 'address': PublicKey.from_pubkey("04d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0a"), 'type': 'p2pk', 'prevout_hash': '3f5a1badfe1beb42b650f325b20935f09f3ab43a3c473c5be18f58308fc7eff1', 'prevout_n': 3, 'pubkeys': ['04d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0a'], 'x_pubkeys': ['04d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0a'], 'signatures': [None], 'num_sig': 1}], {'04d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0a': (b"\x0c(\xfc\xa3\x86\xc7\xa2'`\x0b/\xe5\x0b|\xae\x11\xec\x86\xd3\xbf\x1f\xbeG\x1b\xe8\x98'\xe1\x9dr\xaa\x1d", False)})
+result_5 = ([{'height': 50000, 'value': 1804376, 'tx_hash': '3f5a1badfe1beb42b650f325b20935f09f3ab43a3c473c5be18f58308fc7eff1', 'tx_pos': 3, 'address': PublicKeyA.from_pubkey("04d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0a"), 'type': 'p2pk', 'prevout_hash': '3f5a1badfe1beb42b650f325b20935f09f3ab43a3c473c5be18f58308fc7eff1', 'prevout_n': 3, 'pubkeys': ['04d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0a'], 'x_pubkeys': ['04d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0a'], 'signatures': [None], 'num_sig': 1}], {'04d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0a': (b"\x0c(\xfc\xa3\x86\xc7\xa2'`\x0b/\xe5\x0b|\xae\x11\xec\x86\xd3\xbf\x1f\xbeG\x1b\xe8\x98'\xe1\x9dr\xaa\x1d", False)})
 
 @pytest.mark.parametrize("privkey,answer", (
     ("SZEfg4eYxCJoqzumUqP34g", result_S),

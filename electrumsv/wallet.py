@@ -39,11 +39,11 @@ import time
 from typing import Optional, Union, Tuple
 
 from aiorpcx import run_in_thread
-from bitcoinx import PrivateKey, is_minikey
+from bitcoinx import PrivateKey, PublicKey, is_minikey
 
 from . import coinchooser
 from . import paymentrequest
-from .address import Address, Script, PublicKey
+from .address import Address, Script, PublicKey as PublicKeyA
 from .app_state import app_state
 from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS
 from .contacts import Contacts
@@ -84,7 +84,7 @@ def _append_utxos_to_inputs(inputs, get_utxos, pubkey, txin_type, imax):
     if txin_type == 'p2pkh':
         address = Address.from_pubkey(pubkey)
     else:
-        address = PublicKey.from_pubkey(pubkey)
+        address = PublicKeyA.from_pubkey(pubkey)
     sh = address.to_scripthash_hex()
     for item in get_utxos(sh):
         if len(inputs) >= imax:
@@ -1692,8 +1692,9 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         pubkey = self.keystore.import_privkey(sec, pw)
         self.save_keystore()
         self.storage.write()
-        self._add_new_addresses([pubkey.address])
-        return pubkey.address.to_string()
+        address_str = pubkey.to_address()
+        self._add_new_addresses([Address.from_string(address_str)])
+        return address_str
 
     def export_private_key(self, address, password):
         '''Returned in WIF format.'''
@@ -1708,9 +1709,9 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         txin['signatures'] = [None]
 
     def pubkeys_to_address(self, pubkey):
-        pubkey = PublicKey.from_string(pubkey)
+        pubkey = PublicKey.from_hex(pubkey)
         if pubkey in self.keystore.keypairs:
-            return pubkey.address
+            return Address.from_string(pubkey.to_address(coin=Net.COIN))
 
 
 class Deterministic_Wallet(Abstract_Wallet):
