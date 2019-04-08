@@ -30,7 +30,7 @@ from bitcoinx import (
 )
 
 from .address import (
-    PublicKey as PublicKeyA, Address, Script, ScriptOutput, UnknownAddress
+    Address, Script, ScriptOutput, UnknownAddress
 )
 from .bitcoin import (
     to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, op_push,
@@ -286,7 +286,7 @@ def get_address_from_output_script(_bytes):
     # 65 BYTES:... CHECKSIG
     match = [ Ops.OP_PUSHDATA4, Ops.OP_CHECKSIG ]
     if _match_decoded(decoded, match):
-        return TYPE_PUBKEY, PublicKeyA.from_pubkey(decoded[0][1])
+        return TYPE_PUBKEY, PublicKey.from_bytes(bytes(decoded[0][1]))
 
     # Pay-by-Bitcoin-address TxOuts look like:
     # DUP HASH160 20 BYTES:... EQUALVERIFY CHECKSIG
@@ -500,7 +500,7 @@ class Transaction:
         d = deserialize(self.raw)
         self._inputs = d['inputs']
         self._outputs = [(x['type'], x['address'], x['value']) for x in d['outputs']]
-        assert all(isinstance(output[1], (PublicKeyA, Address, ScriptOutput))
+        assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
                    for output in self._outputs)
         self.locktime = d['lockTime']
         self.version = d['version']
@@ -508,7 +508,7 @@ class Transaction:
 
     @classmethod
     def from_io(klass, inputs, outputs, locktime=0):
-        assert all(isinstance(output[1], (PublicKeyA, Address, ScriptOutput))
+        assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
                    for output in outputs)
         self = klass(None)
         self._inputs = inputs
@@ -518,6 +518,8 @@ class Transaction:
 
     @classmethod
     def pay_script(self, output):
+        if isinstance(output, PublicKey):
+            return output.P2PK_script().to_hex()
         return output.to_script().hex()
 
     @classmethod
@@ -701,7 +703,7 @@ class Transaction:
         self.raw = None
 
     def add_outputs(self, outputs):
-        assert all(isinstance(output[1], (PublicKeyA, Address, ScriptOutput))
+        assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
                    for output in outputs)
         self._outputs.extend(outputs)
         self.raw = None

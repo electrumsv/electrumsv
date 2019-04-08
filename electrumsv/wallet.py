@@ -43,9 +43,9 @@ from bitcoinx import PrivateKey, PublicKey, is_minikey
 
 from . import coinchooser
 from . import paymentrequest
-from .address import Address, Script, PublicKey as PublicKeyA
+from .address import Address, Script
 from .app_state import app_state
-from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS
+from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, scripthash_hex
 from .contacts import Contacts
 from .crypto import sha256d
 from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
@@ -83,9 +83,10 @@ def dust_threshold(network):
 def _append_utxos_to_inputs(inputs, get_utxos, pubkey, txin_type, imax):
     if txin_type == 'p2pkh':
         address = Address.from_pubkey(pubkey)
+        sh = address.to_scripthash_hex()
     else:
-        address = PublicKeyA.from_pubkey(pubkey)
-    sh = address.to_scripthash_hex()
+        address = PublicKey.from_hex(pubkey)
+        sh = scripthash_hex(address.P2PK_script())
     for item in get_utxos(sh):
         if len(inputs) >= imax:
             break

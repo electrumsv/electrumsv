@@ -1,11 +1,13 @@
 import unittest
+import pytest
 
 from electrumsv import transaction
 from electrumsv.address import Address
 from electrumsv.keystore import xpubkey_to_address
+from electrumsv.transaction import get_address_from_output_script
 from electrumsv.util import bh2u
 
-from bitcoinx import PrivateKey, Tx, Script
+from bitcoinx import PrivateKey, PublicKey, Tx, Script
 
 
 unsigned_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000005701ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300feffffffd8e43201000000000118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700'
@@ -238,3 +240,20 @@ class TestTransaction2:
         tx.update_signatures(sigs)
         assert tx.is_complete()
         assert tx.txid() == "b83acf939a92c420d0cb8d45d5d4dfad4e90369ebce0f49a45808dc1b41259b0"
+
+
+@pytest.mark.parametrize("script,answer,compressed", (
+    ('2102edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312ac',
+     (1, PublicKey.from_hex(
+         '02edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312')), True),
+    ('4104edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312ecfe4ab1f246e44df8'
+     '5461fd4eb18ad5bd8203334a6586380cca6ed4a92ca232ac',
+     (1, PublicKey.from_hex(
+         '04edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312ecfe4ab1f246e44d'
+         'f85461fd4eb18ad5bd8203334a6586380cca6ed4a92ca232')), False),
+
+))
+def test_get_address_from_output_script_P2PK(script, answer, compressed):
+    result = get_address_from_output_script(bytes.fromhex(script))
+    assert result == answer
+    assert result[1].is_compressed() == compressed
