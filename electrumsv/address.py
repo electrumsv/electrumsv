@@ -27,15 +27,11 @@
 from collections import namedtuple
 import struct
 
-from bitcoinx import Ops, base58_decode_check, base58_encode_check, hash_to_hex_str
+from bitcoinx import Ops, PublicKey, base58_decode_check, base58_encode_check, hash_to_hex_str
 
 from . import cashaddr
 from .crypto import hash_160, sha256
 from .networks import Net
-from .util import cachedproperty
-
-
-hex_to_bytes = bytes.fromhex
 
 
 class AddressError(Exception):
@@ -67,72 +63,6 @@ class UnknownAddress(object):
 
     def __repr__(self):
         return '<UnknownAddress>'
-
-
-class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
-
-    @classmethod
-    def from_pubkey(cls, pubkey):
-        '''Create from a public key expressed as binary bytes.'''
-        if isinstance(pubkey, str):
-            pubkey = hex_to_bytes(pubkey)
-        cls.validate(pubkey)
-        return cls(to_bytes(pubkey))
-
-    @classmethod
-    def from_string(cls, string):
-        '''Create from a hex string.'''
-        return cls.from_pubkey(hex_to_bytes(string))
-
-    @classmethod
-    def validate(cls, pubkey):
-        if not isinstance(pubkey, (bytes, bytearray)):
-            raise TypeError('pubkey must be of bytes type, not {}'
-                            .format(type(pubkey)))
-        if len(pubkey) == 33 and pubkey[0] in (2, 3):
-            return  # Compressed
-        if len(pubkey) == 65 and pubkey[0] == 4:
-            return  # Uncompressed
-        raise AddressError('invalid pubkey {}'.format(pubkey))
-
-    @cachedproperty
-    def address(self):
-        '''Convert to an Address object.'''
-        return Address(hash_160(self.pubkey), Address.ADDR_P2PKH)
-
-    def is_compressed(self):
-        '''Returns True if the pubkey is compressed.'''
-        return len(self.pubkey) == 33
-
-    def to_string(self):
-        '''Convert to a hexadecimal string.'''
-        return self.pubkey.hex()
-
-    def to_script(self):
-        '''Note this returns the P2PK script.'''
-        return Script.P2PK_script(self.pubkey)
-
-    def to_script_hex(self):
-        '''Return a script to pay to the address as a hex string.'''
-        return self.to_script().hex()
-
-    def to_scripthash(self):
-        '''Returns the hash of the script in binary.'''
-        return sha256(self.to_script())
-
-    def to_scripthash_hex(self):
-        '''Like other bitcoin hashes this is reversed when written in hex.'''
-        return hash_to_hex_str(self.to_scripthash())
-
-    def to_P2PKH_script(self):
-        '''Return a P2PKH script.'''
-        return self.address.to_script()
-
-    def __str__(self):
-        return self.to_string()
-
-    def __repr__(self):
-        return '<PubKey {}>'.format(self.__str__())
 
 
 class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
@@ -291,9 +221,10 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         '''Returns a P2PKH address from a public key.  The public key can
         be bytes or a hex string.'''
         if isinstance(pubkey, str):
-            pubkey = hex_to_bytes(pubkey)
-        PublicKey.validate(pubkey)
-        return cls(hash_160(pubkey), cls.ADDR_P2PKH)
+            pubkey = PublicKey.from_hex(pubkey)
+        else:
+            pubkey = PublicKey.from_bytes(pubkey)
+        return cls(hash_160(pubkey.to_bytes()), cls.ADDR_P2PKH)
 
     @classmethod
     def from_P2PKH_hash(cls, hash160value):
@@ -383,7 +314,7 @@ class Script(object):
             raise ScriptError('{:d} of {:d} multisig script not possible'
                               .format(m, n))
         for pubkey in pubkeys:
-            PublicKey.validate(pubkey)   # Can be compressed or not
+            PublicKey.from_bytes(pubkey)   # Can be compressed or not
         # See https://bitcoin.org/en/developer-guide
         # 2 of 3 is: OP_2 pubkey1 pubkey2 pubkey3 OP_3 OP_CHECKMULTISIG
         return (bytes([Ops.OP_1 + m - 1])
