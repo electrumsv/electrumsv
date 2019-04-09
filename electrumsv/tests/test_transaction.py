@@ -235,7 +235,7 @@ class TestTransaction2:
 
     def test_update_signatures(self):
         signed_tx = Tx.from_hex(signed_tx_3)
-        sigs = [next(Script(input.script_sig).ops())[:-1] for input in signed_tx.inputs]
+        sigs = [next(input.script_sig.ops())[:-1] for input in signed_tx.inputs]
         tx = transaction.Transaction(unsigned_tx)
         tx.update_signatures(sigs)
         assert tx.is_complete()

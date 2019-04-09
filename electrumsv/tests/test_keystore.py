@@ -344,7 +344,8 @@ def test_xpubkey_to_address():
     privkey = PrivateKey.from_random()
     public_key = privkey.public_key
     x_pubkey = 'fd' + public_key.P2PKH_script().to_hex()
-    assert xpubkey_to_address(x_pubkey) == (x_pubkey, Address.from_string(public_key.to_address()))
+    assert xpubkey_to_address(x_pubkey) == (
+        x_pubkey, Address.from_string(public_key.to_address().to_string()))
 
 def test_from_master_key():
     keystore = from_master_key('xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCe'

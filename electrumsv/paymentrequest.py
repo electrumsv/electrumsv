@@ -29,7 +29,7 @@ import time
 from typing import Any, List, Optional, Tuple
 import urllib.parse
 
-import bitcoinx
+from bitcoinx import Script, P2PKH_Script
 import requests
 
 from . import address
@@ -88,7 +88,7 @@ class Output:
     def _get_address_from_script_hex(self, script_hex):
         # NOTE: In theory we could verify the bytes and extract the variable P2PKH hash.
         script_bytes = bytes.fromhex(script_hex)
-        script_asm = bitcoinx.Script(script_bytes).to_asm()
+        script_asm = Script(script_bytes).to_asm()
         tokens = script_asm.split(" ")
         assert len(tokens) == 5
         assert tokens[0] == "OP_DUP"
@@ -173,7 +173,7 @@ class PaymentRequest:
         if creation_timestamp is not None and expiration_seconds is not None:
             expiration_timestamp = creation_timestamp + expiration_seconds
 
-        script_hex = bitcoinx.Script.P2PKH_script(address_.hash160).to_bytes().hex()
+        script_hex = P2PKH_Script(address_.hash160).to_hex()
 
         outputs = [ Output(script_hex, amount) ]
         return klass(outputs, creation_timestamp, expiration_timestamp, memo)
@@ -286,7 +286,7 @@ class PaymentRequest:
 
         payment_memo = "Paid using ElectrumSV"
         payment = Payment(self.merchant_data, transaction_hex, [], payment_memo)
-        refund_script_hex = bitcoinx.Script.P2PKH_script(refund_address_hash160).to_bytes().hex()
+        refund_script_hex = P2PKH_Script(refund_address_hash160).to_hex()
         payment.refund_outputs.append(Output(refund_script_hex))
 
         parsed_url = urllib.parse.urlparse(self.payment_url)

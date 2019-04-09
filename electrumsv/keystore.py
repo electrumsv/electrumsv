@@ -155,13 +155,14 @@ class Imported_KeyStore(Software_KeyStore):
 
     def get_addresses(self):
         if not self._sorted:
-            addresses = [Address.from_string(pubkey.to_address()) for pubkey in self.keypairs]
+            addresses = [Address.from_string(pubkey.to_address(coin=Net.COIN).to_string())
+                         for pubkey in self.keypairs]
             self._sorted = sorted(addresses, key=Address.to_string)
         return self._sorted
 
     def address_to_pubkey(self, address):
         for pubkey in self.keypairs:
-            if Address.from_string(pubkey.to_address()) == address:
+            if pubkey.to_address(coin=Net.COIN) == address.to_string():
                 return pubkey
         return None
 

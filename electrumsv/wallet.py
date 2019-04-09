@@ -1693,7 +1693,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         pubkey = self.keystore.import_privkey(sec, pw)
         self.save_keystore()
         self.storage.write()
-        address_str = pubkey.to_address()
+        address_str = pubkey.to_address(coin=Net.COIN).to_string()
         self._add_new_addresses([Address.from_string(address_str)])
         return address_str
 
@@ -1712,7 +1712,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
     def pubkeys_to_address(self, pubkey):
         pubkey = PublicKey.from_hex(pubkey)
         if pubkey in self.keystore.keypairs:
-            return Address.from_string(pubkey.to_address(coin=Net.COIN))
+            return Address.from_string(pubkey.to_address(coin=Net.COIN).to_string())
 
 
 class Deterministic_Wallet(Abstract_Wallet):

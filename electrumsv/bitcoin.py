@@ -240,10 +240,6 @@ def base_decode(v, length, base):
     return bytes(result)
 
 
-def verify_message_and_address(signature, message, address):
-    return PublicKey.verify_message_and_address(signature, message, address, coin=Net.COIN)
-
-
 ########### end pywallet functions #######################
 
 def scripthash_hex(script):

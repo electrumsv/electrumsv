@@ -1,18 +1,17 @@
 import base64
 from bitcoinx import (
-    Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check, is_minikey,
+    PublicKey, Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check, is_minikey,
 )
 
 from electrumsv.address import Address
 from electrumsv.bitcoin import (
-    is_new_seed, is_old_seed, verify_message_and_address, var_int, op_push, seed_type,
+    is_new_seed, is_old_seed, var_int, op_push, seed_type,
     push_script, int_to_hex
 )
 from electrumsv.crypto import sha256d
 from electrumsv.keystore import is_xpub, is_xprv, is_private_key
 from electrumsv import crypto
 from electrumsv.exceptions import InvalidPassword
-from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.util import bfh, bh2u
 from electrumsv.storage import WalletStorage
 
@@ -79,18 +78,11 @@ class Test_bitcoin(SequentialTestCase):
         self.assertEqual(sig1_b64, b'H/9jMOnj4MFbH3d7t4yCQ9i7DgZU/VZ278w3+ySv2F4yIsdqjsc5ng3kmN8OZAThgyfCZOQxZCWza9V5XzlVY0Y=')
         self.assertEqual(sig2_b64, b'G84dmJ8TKIDKMT9qBRhpX2sNmR0y5t+POcYnFFJCs66lJmAs3T8A6Sbpx7KA6yTQ9djQMabwQXRrDomOkIKGn18=')
 
-        Net.set_to(SVMainnet)
+        self.assertTrue(PublicKey.verify_message_and_address(sig1, msg1, addr1))
+        self.assertTrue(PublicKey.verify_message_and_address(sig2, msg2, addr2))
 
-        self.assertTrue(verify_message_and_address(sig1, msg1, addr1))
-        self.assertTrue(verify_message_and_address(sig2, msg2, addr2))
-
-        self.assertFalse(verify_message_and_address(b'wrong', msg1, addr1))
-        self.assertFalse(verify_message_and_address(sig2, msg1, addr1))
-
-        Net.set_to(SVTestnet)
-
-        self.assertFalse(verify_message_and_address(sig1, msg1, addr1))
-        self.assertFalse(verify_message_and_address(sig2, msg2, addr2))
+        self.assertFalse(PublicKey.verify_message_and_address(b'wrong', msg1, addr1))
+        self.assertFalse(PublicKey.verify_message_and_address(sig2, msg1, addr1))
 
     @needs_test_with_all_aes_implementations
     def test_decrypt_message(self):

@@ -545,8 +545,7 @@ def get_identified_release_signers(entry):
         for signer_name, signer_address in signature_addresses:
             if signer_name not in signed_names:
                 # They are mainnet addresses
-                if PublicKey.verify_message_and_address(signature, message, signer_address,
-                                                        coin=Bitcoin):
+                if PublicKey.verify_message_and_address(signature, message, signer_address):
                     signed_names.add(signer_name)
                     break
     return signed_names

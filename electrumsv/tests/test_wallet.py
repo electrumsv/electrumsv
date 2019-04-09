@@ -107,8 +107,7 @@ class TestImportedPrivkeyWallet:
         wallet = ImportedPrivkeyWallet.from_text(tmp_storage, WIF, None)
         public_key = privkey.public_key
         pubkey_hex = public_key.to_hex()
-        address = public_key.to_address(coin=coin)
-        print(coin.name, address)
+        address = public_key.to_address(coin=coin).to_string()
         assert wallet.pubkeys_to_address(pubkey_hex) == Address.from_string(address)
 
 
