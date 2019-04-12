@@ -63,7 +63,6 @@ HEADERS_SUBSCRIBE = 'blockchain.headers.subscribe'
 REQUEST_MERKLE_PROOF = 'blockchain.transaction.get_merkle'
 SCRIPTHASH_HISTORY = 'blockchain.scripthash.get_history'
 SCRIPTHASH_SUBSCRIBE = 'blockchain.scripthash.subscribe'
-EXPENSIVE_METHODS = (SCRIPTHASH_SUBSCRIBE, SCRIPTHASH_HISTORY, REQUEST_MERKLE_PROOF)
 BROADCAST_TX_MSG_LIST = (
     ('dust', _('very small "dust" payments')),
     (('Missing inputs', 'Inputs unavailable', 'bad-txns-inputs-spent'),
@@ -347,8 +346,8 @@ class SVSession(RPCSession):
         super().__init__(*args, **kwargs)
         self._handlers = {}
         self._network = network
-        # For rate-limiting server requests; we aim to have no request time-out
-        self._semaphore = Semaphore(value=100)
+        # For rate-limiting server requests
+        self._semaphore = Semaphore(value=50)
         # These attributes are intended to part of the external API
         self.chain = None
         self.logger = logger
@@ -763,8 +762,7 @@ class SVSession(RPCSession):
         Raises: RPCError, TaskTimeout
         '''
         async with self._semaphore:
-            timeout_secs = 30 if method in EXPENSIVE_METHODS else 10
-            async with timeout_after(timeout_secs):
+            async with timeout_after(60):
                 return await super().send_request(method, args)
 
     async def headers_at_heights(self, heights):
