@@ -26,7 +26,7 @@ from functools import partial
 import queue
 import threading
 
-from aiorpcx import normalize_corofunc
+from aiorpcx import instantiate_coroutine
 
 from .logs import logs
 
@@ -81,7 +81,7 @@ class ASync(object):
         self.loop.close()
 
     def _spawn(self, coro, args):
-        coro = normalize_corofunc(coro, args)
+        coro = instantiate_coroutine(coro, args)
         return run_coroutine_threadsafe(coro, self.loop)
 
     def _collect(self, on_done, future):
