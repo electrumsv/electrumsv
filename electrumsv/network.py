@@ -37,7 +37,7 @@ import time
 import certifi
 from aiorpcx import (
     Connector, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
-    Semaphore, TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
+    Concurrency, TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
     SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth
 )
 from bitcoinx import (
@@ -347,13 +347,25 @@ class SVSession(RPCSession):
         self._handlers = {}
         self._network = network
         # For rate-limiting server requests
-        self._semaphore = Semaphore(value=50)
+        self._concurrency = Concurrency(50)
+        self._req_times = []
         # These attributes are intended to part of the external API
         self.chain = None
         self.logger = logger
         self.server = server
         self.tip = None
         self.version = None
+
+    def _recalc_concurrency(self):
+        avg = sum(self._req_times) / len(self._req_times)
+        self._req_times.clear()
+        current = self._concurrency.max_concurrent
+        cap = min(current + max(3, current * 0.2), 250)
+        floor = max(1, min(current * 0.8, current - 1))
+        target = int(0.5 + max(floor, min(cap, current * 3.0 / avg)))
+        if target != current:
+            self.logger.info(f'changing concurrency to {target} from {current}')
+            self._concurrency.set_target(target)
 
     @classmethod
     def _required_checkpoint_headers(cls):
@@ -761,9 +773,15 @@ class SVSession(RPCSession):
 
         Raises: RPCError, TaskTimeout
         '''
-        async with self._semaphore:
-            async with timeout_after(60):
-                return await super().send_request(method, args)
+        async with self._concurrency:
+            if len(self._req_times) >= 30:
+                self._recalc_concurrency()
+            send_time = time.time()
+            try:
+                async with timeout_after(60):
+                    return await super().send_request(method, args)
+            finally:
+                self._req_times.append(time.time() - send_time)
 
     async def headers_at_heights(self, heights):
         '''Raises: MissingHeader, DisconnectSessionError, BatchError, TaskTimeout'''
