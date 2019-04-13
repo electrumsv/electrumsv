@@ -24,7 +24,7 @@
 
 import json
 
-from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet
+from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet
 
 from .util import resource_path
 
@@ -152,6 +152,55 @@ class SVTestnet(object):
     }
 
     FAUCET_URL = "https://testnet.satoshisvision.network"
+    KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
+    # Note: testnet allegedly supported only by unofficial firmware
+    TREZOR_COIN_NAME = 'Bcash Testnet'
+    # Really we want to put the difficulty logic in this file
+    TWENTY_MINUTE_RULE = True
+
+
+class SVScalingTestnet(object):
+
+    ADDRTYPE_P2PKH = 111
+    ADDRTYPE_P2SH = 196
+    CASHADDR_PREFIX = "bchtest"
+    DEFAULT_PORTS = {'t': '51001', 's': '51002'}
+    DEFAULT_SERVERS = read_json_dict('servers_scalingtestnet.json')
+    GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
+    NAME = 'scalingtestnet'
+    URI_PREFIX = "bitcoin"
+    WIF_PREFIX = 0xef
+
+    # Bitcoin Cash fork block specification
+    # BITCOIN_CASH_FORK_BLOCK_HEIGHT = 1155876
+    # BITCOIN_CASH_FORK_BLOCK_HASH = (
+    #     "00000000000e38fef93ed9582a7df43815d5c2ba9fd37ef70c9a0ea4a285b8f5e"
+    # )
+
+    COIN = BitcoinScalingTestnet
+
+    # A post-split SV checkpoint.
+    CHECKPOINT = CheckPoint(bytes.fromhex(
+        '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
+        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18',
+    ), height=0, prev_work=0)
+
+    VERIFICATION_BLOCK_MERKLE_ROOT = None
+
+    BIP44_COIN_TYPE = 1
+
+    BLOCK_EXPLORERS = {
+        'bitcoinscaling.io': (
+            'https://bigblocks.bitcoinscaling.io',
+            {'tx': 'transaction', 'addr': 'address'},
+        ),
+        'system default': (
+            'blockchain:',
+            {'tx': 'tx', 'addr': 'address'},
+        ),
+    }
+
+    FAUCET_URL = "https://faucet.bitcoinscaling.io/"
     KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
     # Note: testnet allegedly supported only by unofficial firmware
     TREZOR_COIN_NAME = 'Bcash Testnet'

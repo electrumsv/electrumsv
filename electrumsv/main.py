@@ -38,7 +38,7 @@ from electrumsv.exceptions import InvalidPassword
 from electrumsv.logs import logs
 from electrumsv.mnemonic import Mnemonic
 from electrumsv.network import Network
-from electrumsv.networks import Net, SVTestnet
+from electrumsv.networks import Net, SVTestnet, SVScalingTestnet
 from electrumsv.platform import platform
 from electrumsv.simple_config import SimpleConfig
 from electrumsv import startup
@@ -366,6 +366,8 @@ def main():
 
     if config_options.get('testnet'):
         Net.set_to(SVTestnet)
+    elif config_options.get('scalingtestnet'):
+        Net.set_to(SVScalingTestnet)
 
     # check uri
     uri = config_options.get('url')

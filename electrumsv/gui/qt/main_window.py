@@ -502,7 +502,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         wallet_menu = menubar.addMenu(_("&Wallet"))
         wallet_menu.addAction(_("&Information"), self.show_master_public_keys)
-        if Net.NAME == "testnet":
+        if Net.NAME in ("testnet", "scalingtestnet"):
             def temp_func():
                 from importlib import reload
                 from . import wallet_wizard

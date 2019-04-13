@@ -376,12 +376,15 @@ class SVSession(RPCSession):
             headers_obj = app_state.headers
             chain = headers_obj.longest_chain()
             cp_height = headers_obj.checkpoint.height
-            try:
-                for height in range(cp_height - 146, cp_height):
-                    headers_obj.header_at_height(chain, height)
+            if cp_height == 0:
                 cls._need_checkpoint_headers = False
-            except MissingHeader:
-                return height, cp_height - height
+            else:
+                try:
+                    for height in range(cp_height - 146, cp_height):
+                        headers_obj.header_at_height(chain, height)
+                    cls._need_checkpoint_headers = False
+                except MissingHeader:
+                    return height, cp_height - height
         return 0, 0
 
     @classmethod

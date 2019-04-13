@@ -875,6 +875,8 @@ def add_global_options(parser):
                        help="Supply wallet password")
     group.add_argument("--testnet", action="store_true", dest="testnet", default=False,
                        help="Use Testnet")
+    group.add_argument("--scaling-testnet", action="store_true", dest="scalingtestnet",
+                       default=False, help="Use Scaling Testnet")
     group.add_argument("--file-logging", action="store_true", dest="file_logging", default=False,
                        help="Redirect logging to log file")
 
