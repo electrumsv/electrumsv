@@ -35,7 +35,7 @@ import sys
 import threading
 import time
 
-from bitcoinx import PublicKey, be_bytes_to_int, Bitcoin
+from bitcoinx import PublicKey, be_bytes_to_int
 
 from .logs import logs
 from .startup import package_dir

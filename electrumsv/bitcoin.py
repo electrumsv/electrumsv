@@ -23,7 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from bitcoinx import Ops, PublicKey, hash_to_hex_str, sha256
+from bitcoinx import Ops, hash_to_hex_str, sha256
 
 from .crypto import hash_160, sha256d, hmac_oneshot
 from .networks import Net
@@ -244,7 +244,6 @@ def base_decode(v, length, base):
 
 def scripthash_hex(script):
     return hash_to_hex_str(sha256(bytes(script)))
-
 
 def msg_magic(message):
     length = bfh(var_int(len(message)))
