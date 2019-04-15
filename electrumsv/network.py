@@ -757,14 +757,6 @@ class SVSession(RPCSession):
                 pairs = [(address_map[sh], sh) for sh in subs_by_wallet[wallet]]
                 await group.spawn(self.subscribe_wallet, wallet, pairs)
 
-    async def send_request(self, method, args=()):
-        '''Send a request to the server.
-
-        Raises: RPCError, TaskTimeout
-        '''
-        async with timeout_after(60):
-            return await super().send_request(method, args)
-
     async def headers_at_heights(self, heights):
         '''Raises: MissingHeader, DisconnectSessionError, BatchError, TaskTimeout'''
         result = {}
