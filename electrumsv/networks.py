@@ -101,6 +101,10 @@ class SVMainnet(object):
             'https://bsv.btc.com',
             {'tx': '', 'addr': ''},
         ),
+        'satoshi.io': (
+            'https://satoshi.io',
+            {'tx': 'tx', 'addr': 'address'},
+        ),
     }
 
     FAUCET_URL = "https://faucet.satoshisvision.network"
