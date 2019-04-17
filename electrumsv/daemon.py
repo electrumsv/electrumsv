@@ -246,6 +246,10 @@ class Daemon(DaemonThread):
             wallet = self.wallets.pop(path)
             wallet.stop()
 
+    def stop_wallets(self):
+        for path in list(self.wallets.keys()):
+            self.stop_wallet_at_path(path)
+
     def run_cmdline(self, config_options: dict) -> Any:
         password = config_options.get('password')
         new_password = config_options.get('new_password')
@@ -284,6 +288,8 @@ class Daemon(DaemonThread):
         self.on_stop()
 
     def stop(self) -> None:
-        logger.debug("stopping, removing lockfile")
+        logger.debug("stopping")
+        self.stop_wallets()
+        logger.debug("removing lockfile")
         remove_lockfile(get_lockfile(self.config))
         DaemonThread.stop(self)
