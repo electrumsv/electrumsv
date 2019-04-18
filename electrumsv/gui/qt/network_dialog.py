@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
 
 from bitcoinx import hash_to_hex_str
 
+from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.network import SVServer, SVProxy, SVUserAuth
@@ -106,9 +107,11 @@ class NodesListWidget(QTreeWidget):
     def chain_name(self, chain, our_chain):
         if chain is our_chain:
             return f'our_chain'
+
         _chain, common_height = our_chain.common_chain_and_height(chain)
         fork_height = common_height + 1
-        header = self.header_at_height(fork_height)
+        headers_obj = app_state.headers
+        header = headers_obj.header_at_height(fork_height)
         prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
         return f'{prefix}@{fork_height}'
 
