@@ -1,5 +1,6 @@
 electrumsv-secp256k1>=0.9.1
 PyQt5>=5.12
-pycryptodomex
+pycryptodomex==3.7.3
 websocket-client
 dmgbuild
+psutil==5.6.1
