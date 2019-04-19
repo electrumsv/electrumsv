@@ -32,7 +32,8 @@ class Logs(object):
     def __init__(self):
         # by default this show warnings and above.  root is a public attribute.
         self.root = logging.getLogger()
-        self.add_handler(logging.StreamHandler())
+        self.stream_handler = logging.StreamHandler()
+        self.add_handler(self.stream_handler)
 
     def add_handler(self, handler):
         formatter = logging.Formatter('%(asctime)s:' + logging.BASIC_FORMAT)
@@ -44,6 +45,13 @@ class Logs(object):
 
     def add_file_output(self, path):
         self.add_handler(logging.FileHandler(path))
+
+    def set_stream_output(self, stream):
+        # > 3.6
+        # self.stream_handler.setStream(stream)
+        self.remove_handler(self.stream_handler)
+        self.stream_handler = logging.StreamHandler(stream)
+        self.add_handler(self.stream_handler)
 
     def get_logger(self, name):
         return logging.getLogger(name)

@@ -79,7 +79,6 @@ exe_standalone = EXE(
     upx=False,
     icon=home+'electrumsv\\data\\icons\\electrum-sv.ico',
     console=False)
-    # console=True makes an annoying black box pop up, but it does make Electrum output command line commands, with this turned off no output will be given but commands can still be used
 
 exe_portable = EXE(
     pyz,
