@@ -1,4 +1,4 @@
-# Electron Cash - lightweight Bitcoin client
+# Electrum SV - lightweight Bitcoin client
 # Copyright (C) 2019 Axel Gembe <derago@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person
@@ -26,9 +26,9 @@ This module is for to handling console attaching and / or creation in Windows bi
 built for the Windows subsystem and therefore do not automatically allocate a console.
 """
 
-import sys
-import os
 import ctypes
+import os
+import sys
 
 from electrumsv.logs import logs
 
@@ -36,7 +36,7 @@ from electrumsv.logs import logs
 STD_OUTPUT_HANDLE = -11
 FILE_TYPE_DISK = 1
 
-def parent_process_pids() -> int:
+def _parent_process_pids() -> int:
     """
     Returns all parent process PIDs, starting with the closest parent
     """
@@ -50,7 +50,8 @@ def parent_process_pids() -> int:
         # Parent process not found, likely terminated, nothing we can do
         pass
 
-def create_or_attach_console(attach: bool = True, create: bool = False, title: str = None) -> bool:
+
+def _create_or_attach_console(attach: bool=True, create: bool=False, title: str=None) -> bool:
     """
     First this checks if output is redirected to a file and does nothing if it is. Then it tries
     to attach to the console of any parent process and if not successful it optionally creates a
@@ -67,7 +68,7 @@ def create_or_attach_console(attach: bool = True, create: bool = False, title: s
 
     if not has_console and attach:
         # Try to attach to a parent console
-        for pid in parent_process_pids():
+        for pid in _parent_process_pids():
             if ctypes.windll.kernel32.AttachConsole(pid):
                 has_console = True
                 break
@@ -92,3 +93,20 @@ def create_or_attach_console(attach: bool = True, create: bool = False, title: s
     sys.stdin = open('CONIN$', 'r')
 
     return True
+
+
+def setup_windows_console():
+    # On windows, allocate a console if needed. Detect and avoid mingw/msys and cygwin.
+    if not sys.platform.startswith('win') or "MSYSTEM" in os.environ or "CYGWIN" in os.environ:
+        return
+
+    force_console = '-v' in sys.argv or '--verbose' in sys.argv
+    if (not _create_or_attach_console(create=force_console, title='ElectrumSV Console') and
+            force_console):
+        # Force console specified and we couldn't get a console, fail
+        MB_ICONERROR = 0x10
+        MB_OK = 0
+        ctypes.windll.user32.MessageBoxW(0, 'Failed to get a console', 'ElectronSV',
+            MB_OK | MB_ICONERROR)
+        sys.exit(1)
+
