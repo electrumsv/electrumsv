@@ -2,5 +2,5 @@ pyaes>=0.1a1
 requests
 qrcode
 jsonrpclib-pelix
-aiorpcX==0.14.0
+aiorpcX==0.16.1
 python-dateutil>=2.8.0
