@@ -383,6 +383,7 @@ class SVSession(RPCSession):
 
         if height <= checkpoint.height:
             headers_obj.set_one(height, raw_header)
+            headers_obj.flush()
             header = Net.COIN.deserialized_header(raw_header, height)
             return header, headers_obj.longest_chain()
         else:
@@ -411,24 +412,27 @@ class SVSession(RPCSession):
                 headers_obj.set_one(height, raw_header)
                 next_raw_header = raw_header
 
-        # For pre-checkpoint headers with a verified proof, just set the headers after
-        # verifying the prev_hash links
-        if end_height < checkpoint.height:
-            # Set the last proven header
-            last_header = extract_header(end_height - 1)
-            headers_obj.set_one(end_height - 1, last_header)
-            verify_chunk_contiguous_and_set(last_header, end_height - 1)
-            return headers_obj.longest_chain()
+        try:
+            # For pre-checkpoint headers with a verified proof, just set the headers after
+            # verifying the prev_hash links
+            if end_height < checkpoint.height:
+                # Set the last proven header
+                last_header = extract_header(end_height - 1)
+                headers_obj.set_one(end_height - 1, last_header)
+                verify_chunk_contiguous_and_set(last_header, end_height - 1)
+                return headers_obj.longest_chain()
 
-        # For chunks prior to but connecting to the checkpoint, no proof is required
-        verify_chunk_contiguous_and_set(checkpoint.raw_header, checkpoint.height)
+            # For chunks prior to but connecting to the checkpoint, no proof is required
+            verify_chunk_contiguous_and_set(checkpoint.raw_header, checkpoint.height)
 
-        # Process any remaining headers forwards from the checkpoint
-        chain = None
-        for height in range(max(checkpoint.height + 1, start_height), end_height):
-            _header, chain = headers_obj.connect(extract_header(height))
+            # Process any remaining headers forwards from the checkpoint
+            chain = None
+            for height in range(max(checkpoint.height + 1, start_height), end_height):
+                _header, chain = headers_obj.connect(extract_header(height))
 
-        return chain or headers_obj.longest_chain()
+            return chain or headers_obj.longest_chain()
+        finally:
+            headers_obj.flush()
 
     async def _negotiate_protocol(self):
         '''Raises: RPCError, TaskTimeout'''
