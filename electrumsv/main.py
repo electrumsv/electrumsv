@@ -27,7 +27,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import ctypes
 import os
 import sys
 import time
@@ -46,7 +45,7 @@ from electrumsv import startup
 from electrumsv.storage import WalletStorage
 from electrumsv.util import json_encode, json_decode, setup_thread_excepthook
 from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
-from electrumsv.winconsole import create_or_attach_console
+from electrumsv.winconsole import setup_windows_console
 
 
 # get password routine
@@ -303,21 +302,10 @@ def enforce_requirements():
 
 def main():
     enforce_requirements()
+    setup_windows_console()
 
     # The hook will only be used in the Qt GUI right now
     setup_thread_excepthook()
-
-    # On windows, allocate a console if needed
-    if sys.platform.startswith('win'):
-        force_console = '-v' in sys.argv or '--verbose' in sys.argv
-        if (not create_or_attach_console(create=force_console, title='ElectrumSV Console') and
-                force_console):
-            # Force console specified and we couldn't get a console, fail
-            MB_ICONERROR = 0x10
-            MB_OK = 0
-            ctypes.windll.user32.MessageBoxW(0, 'Failed to get a console', 'ElectronSV',
-                MB_OK | MB_ICONERROR)
-            sys.exit(1)
 
     # on osx, delete Process Serial Number arg generated for apps launched in Finder
     sys.argv = [x for x in sys.argv if not x.startswith('-psn')]

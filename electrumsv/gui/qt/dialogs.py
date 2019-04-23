@@ -134,32 +134,13 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
     return box.result(parent, wallet, **kwargs)
 
 raw_release_notes = """
-  * UI: Correctly set the application icon so that it is displayed for all windows. This is possibly
-    irrelevant on some operating systems, but on Windows it ensures that the application icon
-    featured in the top left-hand corner of the window is not blandly undefined but rather the
-    glorious new icon that we have.
-  * Wallet creation/restoration: Switch to cointype 0 (Bitcoin) for BIP44-derivations by default.
-    145 (BCH) and 236 (BSV) might need to be tried when restoring a wallet.
-  * Update checker: The release announcements are now expected to be signed and will only be
-    shown to the user if they are, and the signature is that of kyuupichan or rt121212121.
-  * Hardware wallets: A warning dialog has been added for hardware device usage highlighting
-    the support/quality issues with these devices.
-  * Hardware wallets: Trezor and Keepkey have had various UI-related bugs fixed.
-  * Hardware wallets: KeepKey users should update their device firmware.
-  * Hardware wallets: Digital Bitbox transaction signing now works again and has probably been
-    broken since our first release.
-  * Hardware wallets: Ledger Nano X has been added as a recognised device. It has not been tested
-    as we do not have one, but at least it will now be found.
-  * Exchange rates: BSV fiat values can now be obtained via Coinbase.
-  * Code quality: Rewrite of the networking code to use asynchronous logic. This allows the code to
-    be written in a clearer and more straightforward fashion, and both helps us ensure that it
-    works correctly and reduces the chance of bugs.
-  * Code quality: Rewrite of the SPV support functionality to work with the new asynchronous
-    networking. This includes both the synchronisation of address usage in blockchain transactions
-    and verification that located transactions are real and were included in blocks using merkle
-    proofs.
-  * Code quality: Several cleanups and improvements to internals that increase robustness and
-    stability.
+  * Windows: Previously running the ElectrumSV application on Windows would not allow easy access
+    to the logging information. In the worst case, the user would just get an error about not being
+    able to run the 'electrum-sv' script. With this release it should now be possible to run from
+    the command prompt and provide the '--v=debug' option to see why ElectrumSV could not start up.
+  * Block explorers: An existing feature we have is that users can select a transaction and choose
+    to view it on a block explorer, and can select what block explorer to use in their settings.
+    Now you can also choose the 'satoshi.io' explorer in addition to the ones we already offer.
 """
 raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
 raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
@@ -210,8 +191,8 @@ works if we pretend to be Bitcoin Cash.
 """
 
 all_boxes = [
-    InfoBox('welcome-ESV-1.2.0',
-            _('Welcome to ElectrumSV 1.2.0'),
+    InfoBox('welcome-ESV-1.2.1',
+            _('Welcome to ElectrumSV 1.2.1'),
             _('This release includes the following changes:') +
             '<ul>'+ raw_release_notes +'</ul>'
     ),

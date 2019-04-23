@@ -36,6 +36,15 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.2.1
+  * Windows: Previously running the ElectrumSV application on Windows would not allow easy access
+    to the logging information. In the worst case, the user would just get an error about not being
+    able to run the 'electrum-sv' script. With this release it should now be possible to run from
+    the command prompt and provide the '--v=debug' option to see why ElectrumSV could not start up.
+  * Block explorers: An existing feature we have is that users can select a transaction and choose
+    to view it on a block explorer, and can select what block explorer to use in their settings.
+    Now you can also choose the 'satoshi.io' explorer in addition to the ones we already offer.
+
 # Release 1.2.0
   * UI: Correctly set the application icon so that it is displayed for all windows. This is possibly
     irrelevant on some operating systems, but on Windows it ensures that the application icon
