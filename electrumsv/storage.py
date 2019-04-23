@@ -88,6 +88,12 @@ class WalletStorage:
             if not self.is_encrypted():
                 self.load_data(self.raw)
         else:
+            # check if path is valid and writable
+            try:
+                open(self.path, "w", encoding='utf-8')
+                os.remove(self.path)
+            except OSError as e:
+                raise IOError("Error writing file: "+ str(e))
             # avoid new wallets getting 'upgraded'
             self.put('seed_version', FINAL_SEED_VERSION)
 
