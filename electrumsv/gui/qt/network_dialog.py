@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QLineEdit, QCheckBox, QLabel, QComboBox, QSizePolicy
 )
 
+from aiorpcx import NetAddress
 from bitcoinx import hash_to_hex_str
 
 from electrumsv.app_state import app_state
@@ -399,7 +400,7 @@ class NetworkChoiceLayout(object):
         self.filling_in = True
         self.check_disable_proxy(self.network.proxy is not None)
         self.proxy_cb.setChecked(self.network.proxy is not None)
-        proxy = self.network.proxy or SVProxy(('localhost', 9050), 'SOCKS5', None)
+        proxy = self.network.proxy or SVProxy('localhost:9050', 'SOCKS5', None)
         self.proxy_mode.setCurrentText(proxy.kind())
         self.proxy_host.setText(proxy.host())
         self.proxy_port.setText(str(proxy.port()))
@@ -473,14 +474,14 @@ class NetworkChoiceLayout(object):
         proxy = None
         if self.proxy_cb.isChecked():
             try:
-                address = (self.proxy_host.text(), int(self.proxy_port.text()))
+                address = NetAddress(self.proxy_host.text(), self.proxy_port.text())
                 if self.proxy_username.text():
                     auth = SVUserAuth(self.proxy_username.text(), self.proxy_password.text())
                 else:
                     auth = None
                 proxy = SVProxy(address, self.proxy_mode.currentText(), auth)
             except Exception:
-                pass
+                logger.exception('error setting proxy')
         if not proxy:
             self.tor_cb.setChecked(False)
         self.network.set_proxy(proxy)
