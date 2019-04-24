@@ -298,7 +298,7 @@ class SVProxy(SOCKSProxy):
         super().__init__(address, protocol, auth)
 
     def to_json(self):
-        return (self.address, self.kind(), self.auth)
+        return (str(self.address), self.kind(), self.auth)
 
     @classmethod
     def from_json(cls, obj):
@@ -317,10 +317,10 @@ class SVProxy(SOCKSProxy):
         return 'SOCKS4' if self.protocol is SOCKS4a else 'SOCKS5'
 
     def host(self):
-        return self.address[0]
+        return self.address.host
 
     def port(self):
-        return self.address[1]
+        return self.address.port
 
     def username(self):
         return self.auth.username if self.auth else ''
