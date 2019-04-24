@@ -41,9 +41,17 @@ ElectrumSV
     to the logging information. In the worst case, the user would just get an error about not being
     able to run the 'electrum-sv' script. With this release it should now be possible to run from
     the command prompt and provide the '--v=debug' option to see why ElectrumSV could not start up.
+  * Scaling testnet: We now run a server on the scaling testnet. This will be useful for users who
+    want to test against a network that can at times be simulating heavy use. In order to use this
+    provide the '--scaling-testnet' option when running from the command prompt, in much the same
+    way you provide '--testnet' to operate on the normal testnet.
   * Block explorers: An existing feature we have is that users can select a transaction and choose
     to view it on a block explorer, and can select what block explorer to use in their settings.
     Now you can also choose the 'satoshi.io' explorer in addition to the ones we already offer.
+  * Networking responsiveness: We have modified how we connect to the blockchain servers we use.
+    It is now based on how well the servers are responding, which will mean that in the case of
+    heavier/larger wallets, they should eventually complete their operations, rather than faltering
+    and perhaps not managing to do so.
 
 # Release 1.2.0
   * UI: Correctly set the application icon so that it is displayed for all windows. This is possibly
