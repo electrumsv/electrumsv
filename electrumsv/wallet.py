@@ -1706,7 +1706,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         assert txin['type'] == 'p2pkh'
         pubkey = self.keystore.address_to_pubkey(address)
         txin['num_sig'] = 1
-        txin['x_pubkeys'] = [pubkey.to_string()]
+        txin['x_pubkeys'] = [pubkey.to_hex()]
         txin['signatures'] = [None]
 
     def pubkeys_to_address(self, pubkey):
