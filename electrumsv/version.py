@@ -1,4 +1,4 @@
-PACKAGE_VERSION = '1.2.1'                          # version of the client package
+PACKAGE_VERSION = '1.2.1b2'                        # version of the client package
 PACKAGE_DATE = '2019-04-25T20:00:00.000000+13:00'  # official timestamp for client package
 PROTOCOL_VERSION = '1.4'                           # protocol version requested
 

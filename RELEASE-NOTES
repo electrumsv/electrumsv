@@ -36,7 +36,7 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
-# Release 1.2.1
+# Release 1.2.1b2
   * Windows: Previously running the ElectrumSV application on Windows would not allow easy access
     to the logging information. In the worst case, the user would just get an error about not being
     able to run the 'electrum-sv' script. With this release it should now be possible to run from
