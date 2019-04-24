@@ -171,7 +171,7 @@ class CosignerPool(object):
     def on_receive(self, keyhash, message):
         logger.debug("signal arrived for '%s'", keyhash)
         for item in self.items:
-            if item.hash == keyhash:
+            if item.hash == keyhash and not item.watching_only:
                 window = item.window
                 break
         else:
