@@ -978,6 +978,7 @@ class Network:
             if reason == SwitchReason.user_set:
                 old_main_session.server.retry_delay = 0
             await old_main_session.close()
+        self.trigger_callback('status')
 
     def _read_config(self):
         # Remove obsolete key

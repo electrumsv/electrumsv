@@ -166,7 +166,7 @@ class ServerListWidget(QTreeWidget):
     def set_server(self, server):
         self.parent.server_host.setText(server.host)
         self.parent.server_port.setText(str(server.port))
-        self.parent.set_server(server)
+        self.parent.set_server(server)   # parent is NetworkChoiceLayout
 
     def keyPressEvent(self, event):
         if event.key() in [ Qt.Key_F2, Qt.Key_Return ]:
@@ -464,7 +464,7 @@ class NetworkChoiceLayout(object):
             try:
                 if not server:
                     server = SVServer.unique(*values)
-                    self.network.set_server(server, self.autoconnect_cb.isChecked())
+                self.network.set_server(server, self.autoconnect_cb.isChecked())
             except Exception as e:
                 MessageBox.show_error(str(e))
 
