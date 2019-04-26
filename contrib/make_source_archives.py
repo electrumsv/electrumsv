@@ -7,23 +7,23 @@ from electrumsv import version
 
 
 def get_latest_tag_name() -> str:
-    result = subprocess.Popen('git describe --tags --abbrev=0 --match sv-*',
+    result = subprocess.Popen(['git', 'describe', '--tags', '--abbrev=0', '--match', 'sv-*'],
         stdout=subprocess.PIPE)
     return result.stdout.readline().decode().strip()
 
 
 def get_tagged_commit(tag_name: str) -> str:
-    result = subprocess.Popen(f'git rev-list -n 1 {tag_name}', stdout=subprocess.PIPE)
+    result = subprocess.Popen(['git','rev-list','-n', '1', tag_name], stdout=subprocess.PIPE)
     return result.stdout.readline().decode().strip()
 
 
 def get_latest_commit() -> str:
-    result = subprocess.Popen('git log --format="%H" -n 1', stdout=subprocess.PIPE)
+    result = subprocess.Popen(['git','log','--format=%H','-n','1'], stdout=subprocess.PIPE)
     return result.stdout.readline().decode().strip()
 
 
 def create_git_archive(release_path: str) -> None:
-    subprocess.Popen(f'git archive -o {release_path} HEAD', stdout=subprocess.PIPE)
+    subprocess.Popen(['git','archive','-o',release_path,'HEAD'], stdout=subprocess.PIPE)
 
 
 CONTRIB_PATH = os.path.dirname(os.path.realpath(__file__))
