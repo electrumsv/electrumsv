@@ -26,7 +26,8 @@ from .network_dialog import NetworkChoiceLayout
 from .password_dialog import PasswordLayout, PW_NEW, PasswordLineEdit
 from .seed_dialog import SeedLayout, KeysLayout
 from .util import (
-    MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, icon_path, WindowModalDialog, HelpLabel
+    MessageBoxMixin, Buttons, WWLabel, ChoicesLayout, icon_path, WindowModalDialog, HelpLabel,
+    MessageBox
 )
 
 
@@ -453,10 +454,9 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
     def run_and_get_wallet(self):
         path = self.storage.path
         if self.storage.requires_split():
-            self.hide()
             msg = _("The wallet '{}' contains multiple accounts, which are not supported.\n\n"
                     "Do you want to split your wallet into multiple files?").format(path)
-            if not self.question(msg):
+            if not MessageBox.question(msg):
                 return
             file_list = '\n'.join(self.storage.split_accounts())
             msg = (_('Your accounts have been moved to') + ':\n' + file_list + '\n\n' +
@@ -467,10 +467,9 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             return
 
         if self.storage.requires_upgrade():
-            self.hide()
             msg = _("The format of your wallet '%s' must be upgraded for ElectrumSV. "
-                    "This change will not be backward compatible" % path)
-            if not self.question(msg):
+                    "This change will not be backward compatible.  Proceed?" % path)
+            if not MessageBox.question(msg):
                 return
             self.storage.upgrade()
             self.wallet = Wallet(self.storage)
@@ -478,11 +477,10 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
         action = self.storage.get_action()
         if action and action != 'new':
-            self.hide()
             msg = _("The file '{}' contains an incompletely created wallet.\n"
                     "Do you want to complete its creation now?").format(path)
-            if not self.question(msg):
-                if self.question(_("Do you want to delete '{}'?").format(path)):
+            if not MessageBox.question(msg):
+                if MessageBox.question(_("Do you want to delete '{}'?").format(path)):
                     os.remove(path)
                     self.show_warning(_('The file was removed'))
                 return
