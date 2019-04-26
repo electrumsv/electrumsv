@@ -96,7 +96,6 @@ class HistoryList(MyTreeWidget):
             fx.history_used_spot = False
         for h_item in h:
             tx_hash, height, conf, timestamp, value, balance = h_item
-            # TODO: This calls `get_transaction` but I am kind of sure it is known that we
             status, status_str = self.get_tx_status(tx_hash, height, conf, timestamp)
             has_invoice = self.wallet.invoices.paid.get(tx_hash)
             icon = read_QIcon(TX_ICONS[status])
