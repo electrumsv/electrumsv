@@ -180,17 +180,21 @@ class MessageBoxMixin(object):
         return d.exec_()
 
 
-class MessageBox(object):
+class MessageBox:
+
+    @classmethod
+    def question(cls, msg, parent=None, title=None, icon=None):
+        Yes, No = QMessageBox.Yes, QMessageBox.No
+        return cls.msg_box(icon or QMessageBox.Question, parent, title or '',
+                           msg, buttons=Yes|No, defaultButton=No) == Yes
 
     @classmethod
     def show_warning(cls, msg, parent=None, title=None):
-        return cls.msg_box(QMessageBox.Warning, parent,
-                           title or _('Warning'), msg)
+        return cls.msg_box(QMessageBox.Warning, parent, title or _('Warning'), msg)
 
     @classmethod
     def show_error(cls, msg, parent=None, title=None):
-        return cls.msg_box(QMessageBox.Warning, parent,
-                           title or _('Error'), msg)
+        return cls.msg_box(QMessageBox.Warning, parent, title or _('Error'), msg)
 
     @classmethod
     def msg_box(cls, icon, parent, title, text, buttons=QMessageBox.Ok,
