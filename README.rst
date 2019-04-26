@@ -113,6 +113,17 @@ Running pylint::
     pylint --rcfile=.pylintrc electrumsv
 
 
+Builds
+======
+
+Builds are created automatically for Git commits through the Azure Pipelines CI services which
+Microsoft and Github kindly make available to us.
+
+The easiest way for you to create builds is to fork the project, and to link it to Azure Pipelines
+and they should also happen automatically.  If you wish to look at the specific code that
+handles a given part of the build process, these will be referenced below for the various
+operating systems.  To see how these are engaged, refer to the Azure Pipelines YAML files.
+
 Source Archives
 ---------------
 
@@ -122,7 +133,7 @@ Run the following to create the release archives under `dist/`::
 
 
 Mac OS X / macOS
---------
+----------------
 
 See `contrib/osx/`.
 

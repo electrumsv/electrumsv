@@ -208,7 +208,7 @@ jobs:
     vmImage: 'ubuntu-16.04'
   dependsOn:
     - BuildLinuxBasedWindows
-    - BuildPythonPackages
+    - BuildSourceArchives
     - BuildMacOS10_14
     - Preparation
   variables:
