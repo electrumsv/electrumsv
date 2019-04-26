@@ -481,11 +481,14 @@ class TransactionOutputStore(GenericKeyValueStore):
         super().delete_values([ (tx_id, self._pack_value(txout)) for (tx_id, txout) in entries ])
 
 
-class TxData(namedtuple("TxDataTuple", "height timestamp position fee",
-        defaults=(None, None, None, None))):
+class TxData(namedtuple("TxDataTuple", "height timestamp position fee")):
     def __repr__(self):
         return (f"TxData(height={self.height},timestamp={self.timestamp},"+
             f"position={self.position},fee={self.fee})")
+
+# namedtuple defaults do not get added until 3.7, and are not available in 3.6, so we set them
+# indirectly to be compatible by both.
+TxData.__new__.__defaults__ = (None, None, None, None)
 
 
 class TxProof(namedtuple("TxProofTuple", "position branch")):
