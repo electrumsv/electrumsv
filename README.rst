@@ -18,51 +18,77 @@ ElectrumSV - Lightweight Bitcoin SV client
     :target: https://dev.azure.com/electrumsv/ElectrumSV/_build/latest?definitionId=4&branchName=master
     :alt: Build status on Azure Pipelines
 
-Getting started
-===============
+Getting started on Linux/MacOS
+==============================
 
 ElectrumSV is a pure python application forked from Electrum. If you want to use the
 Qt interface, install the Qt dependencies::
 
     sudo apt-get install python3-pyqt5
 
-If you downloaded the official package (tar.gz), you can run
-ElectrumSV from its root directory (called Electrum), without installing it on your
-system; all the python-only dependencies are included in the 'packages'
-directory.
+If you downloaded the source archive (zip or tar.gz), you can run ElectrumSV from its top-level
+directory, without installing it on your system.
 
-To run ElectrumSV from its root directory, first install the dependencies
-which are not python-only::
+To run ElectrumSV from its top-level directory, first install the core dependencies::
 
-    pip3 install electrumsv-secp256k1
+    pip3 --user -r contrib/requirements/requirements.txt
+    pip3 --user -r contrib/requirements/requirements-binaries.txt
 
-If your platform is not supported with binary builds, you may be required to install the
-`further dependencies <https://github.com/electrumsv/electrumsv-secp256k1>`_ of this dependency.
+If you have a hardware wallet, or want to ensure that the hardware wallet support can work,
+install their specific dependencies::
+
+    pip3 --user -r contrib/requirements/requirements-hw.txt
 
 Then invoke it as so::
 
     ./electrum-sv
 
-You can also install ElectrumSV on your system, by running these commands::
+You can also install ElectrumSV on your system. This will download and install most dependencies
+used by ElectrumSV. This is useful if you with to use the `electrumsv` Python library, perhaps
+for Bitcoin application development using ElectrumSV as a wallet server. And of course it should
+make the `electrum-sv` command accessible for use.
 
+In order to do so, run these commands::
+
+    pip3 --user -r contrib/requirements/requirements-binaries.txt
     pip3 install .
-    pip3 install electrumsv-secp256k1
 
-This will download and install all Python-based dependencies used by
-ElectrumSV, instead of using the 'packages' directory.
+Getting started on Windows
+==========================
 
-If you are on Windows, and plan to use hardware wallets, you will need to obtain the `libusb`
-dlls and put them in the same directory as the `electrum-sv` script. Refer to the Azure Pipelines
-files in order to see where ElectrumSV gets it from, and what SHA256 checksum is expected forked
-the downloaded archive that includes the DLLs.
+The easiest way to run ElectrumSV on Windows, is to obtain an executable for the latest version
+from our website. This Git repository has a `build-hashes.txt` which should contain SHA-256
+hashes for all our downloads. You can confirm that you have downloaded a valid file, by comparing
+it's SHA-256 hash to the hash we provide for the same file name.
 
-If you cloned the git repository, you need to compile extra files
-before you can run ElectrumSV. Read the next section, "Development
-Version".
+You can also run from the Git repository directly, which is useful if you wish to customise
+or help us develop ElectrumSV.
 
+To run ElectrumSV from its top-level directory, first install the core dependencies::
 
-Development version
-===================
+    pip3 --user -r contrib\requirements\requirements.txt
+    pip3 --user -r contrib\requirements\requirements-binaries.txt
+
+If you have a hardware wallet, or want to ensure that the hardware wallet support can work,
+install their specific dependencies::
+
+    pip3 --user -r contrib\requirements\requirements-hw.txt
+
+Then invoke it as so::
+
+    py -3 electrum-sv
+
+You can also install ElectrumSV on your system. This will download and install most dependencies
+used by ElectrumSV. This is useful if you with to use the `electrumsv` Python library, perhaps
+for Bitcoin application development using ElectrumSV as a wallet server.
+
+In order to do so, run these commands::
+
+    pip3 --user -r contrib\requirements\requirements-binaries.txt
+    pip3 install .
+
+Extra development notes
+=======================
 
 Check out the code from Github::
 
@@ -72,45 +98,27 @@ Check out the code from Github::
 Run the pip installs (this should install dependencies)::
 
     pip3 install .
-    pip3 install electrumsv-secp256k1
 
 Create translations (optional)::
 
     sudo apt-get install python-requests gettext
     ./contrib/make_locale
 
-Running unit tests::
+Running unit tests (with the `pytest` package)::
 
-    py -3 -m unittest discover electrumsv/tests
+    pytest electrumsv/tests
 
 Running pylint::
 
     pylint --rcfile=.pylintrc electrumsv
 
 
-Creating Binaries
-=================
+Source Archives
+---------------
 
+Run the following to create the release archives under `dist/`::
 
-To create binaries, create the 'packages/' directory::
-
-    ./contrib/make_packages
-
-This directory contains the python dependencies used by ElectrumSV.
-
-The `make_packages` command may fail with some Ubuntu-packaged versions of
-pip ("can't combine user with prefix."). To solve this, it is necessary to
-upgrade your pip to the official version::
-
-    pip install pip --user
-
-
-Linux (source with packages)
-----------------------------
-
-Run the following to create the release tarball under `dist/`::
-
-    ./setup.py sdist
+    ./contrib/make_source_archives.py
 
 
 Mac OS X / macOS

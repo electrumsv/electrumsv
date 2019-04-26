@@ -144,7 +144,7 @@ jobs:
       targetPath: $(Build.ArtifactStagingDirectory)
   variables:
     imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img@sha256:8274d555237fc569f032006eccb7d76c1e2e4c9d9ca420d98a00efb527cce46e'
-- job: BuildPythonPackages
+- job: BuildSourceArchives
   dependsOn:
   - Preparation
   pool:
@@ -156,10 +156,9 @@ jobs:
       addToPath: true
       architecture: x64
   - script: |
-      sudo pip3 install --upgrade pip setuptools wheel
-      ./contrib/make_packages
-      ./contrib/make_tgz
-    displayName: 'Build Python packages'
+      export PYTHONPATH=.
+      python3 contrib/make_source_archives.py
+    displayName: 'Build source archives'
     enabled: true
     continueOnError: false
     failOnStderr: false
@@ -171,7 +170,7 @@ jobs:
       OverWrite: true
   - task: PublishPipelineArtifact@0
     inputs:
-      artifactName: 'build-files-intermediate-packages'
+      artifactName: 'build-files-intermediate-source'
       targetPath: $(Build.ArtifactStagingDirectory)
 - job: BuildMacOS10_14
   dependsOn:
@@ -228,7 +227,7 @@ jobs:
       targetPath: $(Build.ArtifactStagingDirectory)
   - task: DownloadPipelineArtifact@0
     inputs:
-      artifactName: 'build-files-intermediate-packages'
+      artifactName: 'build-files-intermediate-source'
       targetPath: $(Build.ArtifactStagingDirectory)
   - task: DownloadPipelineArtifact@0
     inputs:
