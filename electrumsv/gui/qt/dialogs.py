@@ -191,8 +191,8 @@ works if we pretend to be Bitcoin Cash.
 """
 
 all_boxes = [
-    InfoBox('welcome-ESV-1.2.1',
-            _('Welcome to ElectrumSV 1.2.1'),
+    InfoBox('welcome-ESV-1.3.0a1',
+            _('Welcome to ElectrumSV 1.3.0a1'),
             _('This release includes the following changes:') +
             '<ul>'+ raw_release_notes +'</ul>'
     ),
