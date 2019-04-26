@@ -134,13 +134,8 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
     return box.result(parent, wallet, **kwargs)
 
 raw_release_notes = """
-  * Windows: Previously running the ElectrumSV application on Windows would not allow easy access
-    to the logging information. In the worst case, the user would just get an error about not being
-    able to run the 'electrum-sv' script. With this release it should now be possible to run from
-    the command prompt and provide the '--v=debug' option to see why ElectrumSV could not start up.
-  * Block explorers: An existing feature we have is that users can select a transaction and choose
-    to view it on a block explorer, and can select what block explorer to use in their settings.
-    Now you can also choose the 'satoshi.io' explorer in addition to the ones we already offer.
+  * Wallets: The wallet format has changed and when you open your wallet it will be backed up
+    and upgraded. This is an alpha level change that will change further before final release.
 """
 raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
 raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")

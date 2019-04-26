@@ -468,7 +468,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
         if self.storage.requires_upgrade():
             msg = _("The format of your wallet '%s' must be upgraded for ElectrumSV. "
-                    "This change will not be backward compatible.  Proceed?" % path)
+                    "This change will not be backward compatible, "+
+                    "and your existing wallet will be backed up. Proceed?") % path
             if not MessageBox.question(msg):
                 return
             self.storage.upgrade()

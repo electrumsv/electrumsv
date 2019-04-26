@@ -1,3 +1,4 @@
+import os
 import shutil
 import tempfile
 
@@ -284,24 +285,29 @@ class TestStorageUpgrade(WalletTestCase):
 
     def _upgrade_storage(self, wallet_json, accounts=1):
         storage = self._load_storage_from_json_string(wallet_json, manual_upgrades=True)
+        storage.write()
 
         if accounts == 1:
             self.assertFalse(storage.requires_split())
             if storage.requires_upgrade():
                 storage.upgrade()
-                self._sanity_check_upgraded_storage(storage)
+                self._sanity_check_upgraded_storage(storage, expect_backup=True)
         else:
             self.assertTrue(storage.requires_split())
             new_paths = storage.split_accounts()
             self.assertEqual(accounts, len(new_paths))
             for new_path in new_paths:
                 new_storage = WalletStorage(new_path, manual_upgrades=False)
-                self._sanity_check_upgraded_storage(new_storage)
+                self._sanity_check_upgraded_storage(new_storage, expect_backup=False)
 
-    def _sanity_check_upgraded_storage(self, storage):
+    def _sanity_check_upgraded_storage(self, storage, expect_backup=False):
         self.assertFalse(storage.requires_split())
         self.assertFalse(storage.requires_upgrade())
         Wallet(storage)
+        if expect_backup and os.path.exists(storage.path):
+            backup_path = storage._wallet_backup_pattern % (storage.path, 1)
+            self.assertTrue(os.path.exists(backup_path),
+                f"backup file '{backup_path}' does not exist")
 
     def _load_storage_from_json_string(self, wallet_json, manual_upgrades=True):
         with open(self.wallet_path, "w") as f:

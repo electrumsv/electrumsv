@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import stat
 import threading
 import zlib
@@ -272,7 +273,7 @@ class WalletStorage:
             raise Exception("This wallet has multiple accounts and must be split")
         return result
 
-    def requires_upgrade(self):
+    def requires_upgrade(self) -> None:
         if self.file_exists():
             # The version at which we should retain compatibility with Electrum and Electron Cash
             # if they upgrade their wallets using this versioning system correctly.
@@ -287,9 +288,10 @@ class WalletStorage:
                 raise IncompatibleWalletError
         return False
 
-    def upgrade(self):
+    def upgrade(self) -> None:
         logger.debug('upgrading wallet format')
 
+        self._backup_wallet()
         self.convert_imported()
         self.convert_wallet_type()
         self.convert_account()
@@ -303,7 +305,23 @@ class WalletStorage:
         self.put('seed_version', FINAL_SEED_VERSION)  # just to be sure
         self.write()
 
-    def convert_wallet_type(self):
+    _wallet_backup_pattern = "%s.backup.%d"
+
+    def _get_wallet_backup_path(self) -> str:
+        attempt = 1
+        while True:
+            new_wallet_path = self._wallet_backup_pattern % (self.path, attempt)
+            if not os.path.exists(new_wallet_path):
+                return new_wallet_path
+            attempt += 1
+
+    def _backup_wallet(self) -> None:
+        if not self.file_exists():
+            return
+        new_wallet_path = self._get_wallet_backup_path()
+        shutil.copyfile(self.path, new_wallet_path)
+
+    def convert_wallet_type(self) -> None:
         if not self._is_upgrade_method_needed(0, 13):
             return
 
