@@ -50,7 +50,7 @@ from .installwizard import InstallWizard, GoBack
 from .label_sync import LabelSync
 from .log_window import SVLogWindow, SVLogHandler
 from .network_dialog import NetworkDialog
-from .util import ColorScheme, read_QIcon
+from .util import ColorScheme, read_QIcon, MessageBox
 
 
 logger = logs.get_logger('app')
@@ -275,14 +275,11 @@ class SVApplication(QApplication):
                     app_state.daemon.start_wallet(wallet)
             except Exception as e:
                 logger.exception("")
-                if '2fa' in str(e):
-                    d = QMessageBox(QMessageBox.Warning, _('Error'),
-                                    '2FA wallets are not unsupported.')
-                    d.exec_()
-                else:
-                    d = QMessageBox(QMessageBox.Warning, _('Error'),
-                                    'Cannot load wallet:\n' + str(e))
-                    d.exec_()
+                error_str = str(e)
+                if '2fa' in error_str:
+                    error_str = _('2FA wallets are not supported')
+                msg = '\n'.join((_('Cannot load wallet "{}"').format(path), error_str))
+                MessageBox.show_error(msg)
                 return
             w = self._create_window_for_wallet(wallet)
         if uri:
