@@ -134,6 +134,11 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
     return box.result(parent, wallet, **kwargs)
 
 raw_release_notes = """
+  * Release notes: Read <a href="https://medium.com/@roger.taylor/electrumsv-1-2-1-b6262361191">the article</a>
+    on Medium, that goes into these in more detail.
+  * Performance: Password protected wallet loading and saving encrypts and decrypts using AES
+    encryption. Users may see faster loading and saving due to use of C functionality rather than
+    the fallback Python functionality, in some circumstances.
   * Windows: Previously running the ElectrumSV application on Windows would not allow easy access
     to the logging information. In the worst case, the user would just get an error about not being
     able to run the 'electrum-sv' script. With this release it should now be possible to run from
@@ -149,6 +154,9 @@ raw_release_notes = """
     It is now based on how well the servers are responding, which will mean that in the case of
     heavier/larger wallets, they should eventually complete their operations, rather than faltering
     and perhaps not managing to do so.
+  * Payment requests: We no longer support BIP70 payment requests as of ESV 1.2.1. If you wish to
+    use BIP70 payment requests, please use ESV 1.2.0 or earlier. Our payment request support is now
+    based on the JSON-based BIP270 and awaits the use of an identity system for signing.
 """
 raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
 raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
