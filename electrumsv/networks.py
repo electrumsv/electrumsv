@@ -87,10 +87,6 @@ class SVMainnet(object):
             'https://www.bitcoinsvexplorer.com',
             {'tx': 'tx', 'addr': 'address'},
         ),
-        'blockchair.com' : (
-            'https://blockchair.com/bitcoin-sv',
-            {'tx': 'transaction', 'addr': 'address'},
-        ),
         'btc.com': (
             'https://bsv.btc.com',
             {'tx': '', 'addr': ''},
