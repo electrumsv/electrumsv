@@ -139,7 +139,7 @@ class DeviceMgr:
             except (UserCancelled, RuntimeError):
                 # Bad / cancelled PIN / passphrase
                 client_mpk = None
-            if client_mpk.to_extended_key_string() == xpub:
+            if client_mpk is not None and client_mpk.to_extended_key_string() == xpub:
                 self.pair_xpub(xpub, info.device.id_)
                 return client
 
