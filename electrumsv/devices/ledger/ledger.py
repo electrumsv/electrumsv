@@ -212,7 +212,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
         # device reconnects
         self.force_watching_only = False
         self.signing = False
-        self.cfg = d.get('cfg', {'mode':0,'pair':''})
+        self.cfg = d.get('cfg', {'mode':0})
 
     def dump(self):
         obj = Hardware_KeyStore.dump(self)
@@ -408,8 +408,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
                 pin = self.handler.get_auth( outputData ) # the authenticate dialog and returns pin
                 if not pin:
                     raise UserWarning()
-                if pin != 'paired':
-                    self.handler.show_message(_("Confirmed. Signing Transaction..."))
+                self.handler.show_message(_("Confirmed. Signing Transaction..."))
             while inputIndex < len(inputs):
                 singleInput = [ chipInputs[inputIndex] ]
                 self.get_client().startUntrustedTransaction(
