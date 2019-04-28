@@ -1,19 +1,10 @@
-from binascii import hexlify, unhexlify
 import copy
-import hashlib
-import json
-import os
-
-# pylint: disable=import-error
-import websocket
 
 from PyQt5.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QLabel
-from PyQt5.QtCore import QThread, pyqtSignal
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QComboBox, QPushButton
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QComboBox
 from btchip.btchip import BTChipException
 
 from electrumsv.gui.qt.password_dialog import PasswordLineEdit
-from electrumsv.gui.qt.qrcodewidget import QRCodeWidget
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 
