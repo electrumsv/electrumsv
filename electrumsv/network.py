@@ -1232,7 +1232,9 @@ class Network:
         return app_state.headers.longest_chain()
 
     def get_local_height(self):
-        return self.chain().height
+        chain = self.chain()
+        # This can be called from network_dialog.py when there is no chain
+        return chain.height if chain else 0
 
     def get_server_height(self):
         main_session = self.main_session()
