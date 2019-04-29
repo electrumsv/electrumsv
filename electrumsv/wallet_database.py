@@ -590,6 +590,10 @@ class TransactionStore(BaseWalletStore):
     def _db_migrate(self, db):
         pass
 
+    # Version 1: Serialised direct values (or dummy random values).
+    # Version 2: Serialised direct values (or dummy random values).
+    #            Exception is height which ranges from -1 and has to be shifted up.
+
     @staticmethod
     def _pack_data(data: TxData, flags: int) -> bytes:
         flags &= ~TxFlags.METADATA_FIELD_MASK
@@ -602,9 +606,10 @@ class TransactionStore(BaseWalletStore):
         if data.timestamp is not None:
             flags |= TxFlags.HasTimestamp
 
-        raw = bitcoinx.pack_varint(1)
         # Why put random dummy values in? Why not?
-        raw += bitcoinx.pack_varint(data.height if flags & TxFlags.HasHeight
+        raw = bitcoinx.pack_varint(2)
+        # Height can range from -1 and above, but varints range from 0 and above.
+        raw += bitcoinx.pack_varint((data.height + 1) if flags & TxFlags.HasHeight
                                     else random.randint(1000, 100000))
         raw += bitcoinx.pack_varint(data.fee if flags & TxFlags.HasFee
                                     else random.randint(100, 2000))
@@ -618,7 +623,7 @@ class TransactionStore(BaseWalletStore):
     def _unpack_data(raw: bytes, flags: int) -> TxData:
         io = BytesIO(raw)
         pack_version = bitcoinx.read_varint(io.read)
-        if pack_version == 1:
+        if pack_version == 1 or pack_version == 2:
             kwargs = {}
             for kw, mask in (
                     ('height', TxFlags.HasHeight),
@@ -626,6 +631,8 @@ class TransactionStore(BaseWalletStore):
                     ('position', TxFlags.HasPosition),
                     ('timestamp', TxFlags.HasTimestamp)):
                 value = bitcoinx.read_varint(io.read)
+                if pack_version == 2 and mask == TxFlags.HasHeight:
+                    value -= 1
                 kwargs[kw] = value if (flags & mask) == mask else None
             return TxData(**kwargs)
         raise DataPackingError(f"Unhandled packing format {pack_version}")

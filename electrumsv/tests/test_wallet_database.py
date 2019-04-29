@@ -318,6 +318,8 @@ class TestTransactionStore(unittest.TestCase):
             TxData(height=1, fee=2, position=None, timestamp=None),
             TxData(height=1, fee=2, position=100, timestamp=None),
             TxData(height=1, fee=2, position=110, timestamp=1101),
+            TxData(height=0, fee=2, position=110, timestamp=1101),
+            TxData(height=-1, fee=2, position=110, timestamp=1101),
         ]
         for data1 in test_cases:
             raw, flags = self.store._pack_data(data1, TxFlags.METADATA_FIELD_MASK)
@@ -328,12 +330,17 @@ class TestTransactionStore(unittest.TestCase):
             self.assertEqual(data1.timestamp, data2.timestamp)
 
     def test_data_unpack_version_1(self):
-        raw = bytes.fromhex("0101020000")
-        data = self.store._unpack_data(raw, TxFlags.HasFee | TxFlags.HasHeight)
-        self.assertEqual(1, data.height)
-        self.assertEqual(2, data.fee)
-        self.assertIsNone(data.position)
-        self.assertIsNone(data.timestamp)
+        for hex, data, flags in [
+            [ "0101020000", TxData(height=1, fee=2), TxFlags.HasFee | TxFlags.HasHeight ],
+            [ "0200026efd4d04", TxData(height=-1, fee=2, position=110, timestamp=1101),
+              TxFlags.HasFee | TxFlags.HasHeight | TxFlags.HasPosition | TxFlags.HasTimestamp ],
+        ]:
+            raw = bytes.fromhex(hex)
+            unpacked_data = self.store._unpack_data(raw, flags)
+            self.assertEqual(data.height, unpacked_data.height)
+            self.assertEqual(data.fee, unpacked_data.fee)
+            self.assertEqual(data.position, unpacked_data.position)
+            self.assertEqual(data.timestamp, unpacked_data.timestamp)
 
     def test_proof_serialization(self):
         proof1 = TxProof(position=10, branch=[ os.urandom(32) for i in range(10) ])
