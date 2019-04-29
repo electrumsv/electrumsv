@@ -1042,7 +1042,7 @@ class Abstract_Wallet:
         a coin to be defined as spendable.
         '''
         for utxo in utxos:
-            assert isinstance(utxo, tuple)
+            assert isinstance(utxo, tuple), f"expected tuple, got {utxo}"
             if freeze:
                 self._frozen_coins |= { utxo }
             else:
