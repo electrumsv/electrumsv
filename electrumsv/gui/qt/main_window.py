@@ -2511,7 +2511,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def do_process_from_txid(self):
         from electrumsv import transaction
-        txid, ok = QInputDialog.getText(self, _('Lookup transaction'), _('Transaction ID') + ':')
+        prompt = _('Enter the transaction ID:') + '\u2001' * 30   # em quad
+        txid, ok = QInputDialog.getText(self, _('Lookup transaction'), prompt)
         if ok and txid:
             txid = str(txid).strip()
             try:
