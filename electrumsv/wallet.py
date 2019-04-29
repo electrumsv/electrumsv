@@ -809,7 +809,10 @@ class Abstract_Wallet:
             for tx_hash, tx_height in hist:
                 tx_fee = tx_fees.get(tx_hash, None)
                 data = TxData(height=tx_height, fee=tx_fee)
-                updates.append((tx_hash, data, None, TxFlags.HasFee | TxFlags.HasHeight))
+                flags = TxFlags.HasHeight
+                if tx_fee is not None:
+                    flags |= TxFlags.HasFee
+                updates.append((tx_hash, data, None, flags))
             self.db.tx.update_or_add(updates)
 
             for tx_id in tx_ids:
