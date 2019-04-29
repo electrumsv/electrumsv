@@ -79,14 +79,6 @@ class SVMainnet(object):
             'https://whatsonchain.com',
             {'tx': 'tx', 'addr': 'address'},
         ),
-        'bsvexplorer.io': (
-            'https://bsvexplorer.io',
-            {'tx': 'tx', 'addr': 'address'},
-        ),
-        'bitcoinsvexplorer.com': (
-            'https://www.bitcoinsvexplorer.com',
-            {'tx': 'tx', 'addr': 'address'},
-        ),
         'btc.com': (
             'https://bsv.btc.com',
             {'tx': '', 'addr': ''},
