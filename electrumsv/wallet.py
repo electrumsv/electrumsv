@@ -340,7 +340,8 @@ class Abstract_Wallet:
         return self.db.tx.get_transaction(tx_id, flags)
 
     def has_received_transaction(self, tx_id: str) -> bool:
-        return (self.db.tx.get_flags(tx_id) & TxFlags.StateSettled) != 0
+        flags = self.db.tx.get_flags(tx_id)
+        return flags is not None and (flags & TxFlags.StateSettled) != 0
 
     def basename(self) -> str:
         return os.path.basename(self.storage.path)
