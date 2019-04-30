@@ -34,6 +34,7 @@ etc.
 '''
 
 import os
+import time
 
 from bitcoinx import Headers
 
@@ -43,6 +44,15 @@ from .networks import Net
 
 
 logger = logs.get_logger("app_state")
+
+
+class DefaultApp(object):
+    def __init__(self):
+        pass
+
+    def run_app(self):
+        while True:
+            time.sleep(0.5)
 
 
 class AppStateProxy(object):
@@ -67,6 +77,9 @@ class AppStateProxy(object):
 
     def has_app(self):
         return self.app is not None
+
+    def set_app(self, app) -> None:
+        self.app = app
 
     def headers_filename(self) -> str:
         return os.path.join(self.config.path, 'headers')
