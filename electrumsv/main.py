@@ -32,7 +32,7 @@ import sys
 import time
 
 from electrumsv import daemon, keystore, web
-from electrumsv.app_state import app_state, AppStateProxy
+from electrumsv.app_state import app_state, AppStateProxy, DefaultApp
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.logs import logs
@@ -268,6 +268,8 @@ def run_app_with_daemon(fd, is_gui, config_options):
         d.start()
         try:
             app_state.app.run_app()
+        except KeyboardInterrupt:
+            pass
         finally:
             # Shut down the daemon before exiting the async loop
             d.stop()
@@ -395,6 +397,7 @@ def main():
         load_app_module(config_options['daemon_app_module'], config)
     else:
         AppStateProxy(config, 'cmdline')
+        app_state.set_app(DefaultApp())
 
     # run non-RPC commands separately
     if cmdname in ['create', 'restore']:
@@ -416,22 +419,20 @@ def main():
         if subcommand in [None, 'start']:
             fd, server = daemon.get_fd_or_server(config)
             if fd is not None:
+                if not app_state.has_app():
+                    print("No application present to run.")
+                    sys.exit(0)
+
                 if subcommand == 'start':
                     if not hasattr(os, "fork"):
                         print(f"Starting the daemon is not supported on {sys.platform}.")
                         sys.exit(0)
                     pid = os.fork()
                     if pid:
-                        print("starting daemon (PID %d)" % pid, file=sys.stderr)
+                        print("Starting daemon (PID %d)" % pid, file=sys.stderr)
                         sys.exit(0)
 
-                if app_state.has_app():
-                    run_app_with_daemon(fd, False, config_options)
-                else:
-                    d = daemon.Daemon(fd, False)
-                    d.start()
-                    d.join()
-                sys.exit(0)
+                run_app_with_daemon(fd, False, config_options)
             else:
                 result = server.daemon(config_options)
         else:
