@@ -128,9 +128,17 @@ class NodesListWidget(QTreeWidget):
                 x.setData(0, Qt.UserRole, None)  # server
             else:
                 x = self
+            # If someone is connected to two nodes on the same server, indicate the difference.
+            host_counts = {}
             for session in sessions:
-                star = ' *' if session.server is network.main_server else ''
-                item = QTreeWidgetItem([session.server.host + star, str(session.tip.height)])
+                host_counts[session.server.host] = host_counts.get(session.server.host, 0) + 1
+            for session in sessions:
+                extra_name = ""
+                if host_counts[session.server.host] > 1:
+                    extra_name = f" (port: {session.server.port})"
+                extra_name += ' (main server)' if session.server is network.main_server else ''
+                item = QTreeWidgetItem([session.server.host + extra_name,
+                    str(session.tip.height)])
                 item.setData(0, Qt.UserRole, session.server)
                 x.addChild(item)
             if len(chains) > 1:
