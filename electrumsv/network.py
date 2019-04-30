@@ -965,6 +965,7 @@ class Network:
 
     async def _set_main_server(self, server, reason):
         '''Set the main server to something new.'''
+        assert isinstance(server, SVServer), f"got invalid server value: {server}"
         logger.info(f'switching main server to {server}: {reason.name}')
         old_main_session = self.main_session()
         self.main_server = server

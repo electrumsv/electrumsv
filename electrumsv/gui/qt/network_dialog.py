@@ -229,7 +229,7 @@ class NetworkChoiceLayout(object):
 
         self.server_host.editingFinished.connect(self.set_server)
         self.server_port.editingFinished.connect(self.set_server)
-        self.autoconnect_cb.clicked.connect(self.set_server)
+        self.autoconnect_cb.clicked.connect(self._on_autoconnect_toggled)
         self.autoconnect_cb.clicked.connect(self.update)
 
         msg = ' '.join([
@@ -453,6 +453,20 @@ class NetworkChoiceLayout(object):
 
     def accept(self):
         pass
+
+    def _get_specified_server(self):
+        values = (self.server_host.text(), self.server_port.text(),
+                self.network.main_server.protocol)
+        return SVServer.unique(*values)
+
+    def _on_autoconnect_toggled(self):
+        server = self.network.main_server
+        try:
+            if not server:
+                server = self._get_specified_server()
+            self.network.set_server(server, self.autoconnect_cb.isChecked())
+        except Exception as e:
+            MessageBox.show_error(str(e))
 
     def set_server(self, server=None):
         # EditingFinished can fire twice in Qt (a bug).  More generally, prevent repeats
