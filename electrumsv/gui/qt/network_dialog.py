@@ -462,30 +462,19 @@ class NetworkChoiceLayout(object):
     def accept(self):
         pass
 
-    def _get_specified_server(self):
-        values = (self.server_host.text(), self.server_port.text(),
-                self.network.main_server.protocol)
-        return SVServer.unique(*values)
-
-    def _on_autoconnect_toggled(self):
-        server = self.network.main_server
-        try:
-            if not server:
-                server = self._get_specified_server()
-            self.network.set_server(server, self.autoconnect_cb.isChecked())
-        except Exception as e:
-            MessageBox.show_error(str(e))
+    def _on_autoconnect_toggled(self, _checked):
+        self.set_server()
 
     def set_server(self, server=None):
         # EditingFinished can fire twice in Qt (a bug).  More generally, prevent repeats
         # on e.g. dialog exit
         values = (self.server_host.text(), self.server_port.text(),
-                  self.network.main_server.protocol)
+                  self.network.main_server.protocol, self.autoconnect_cb.isChecked())
         if values != self.last_values:
             self.last_values = values
             try:
                 if not server:
-                    server = SVServer.unique(*values)
+                    server = SVServer.unique(*values[:3])
                 self.network.set_server(server, self.autoconnect_cb.isChecked())
             except Exception as e:
                 MessageBox.show_error(str(e))
