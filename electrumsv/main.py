@@ -417,6 +417,9 @@ def main():
             fd, server = daemon.get_fd_or_server(config)
             if fd is not None:
                 if subcommand == 'start':
+                    if not hasattr(os, "fork"):
+                        print(f"Starting the daemon is not supported on {sys.platform}.")
+                        sys.exit(0)
                     pid = os.fork()
                     if pid:
                         print("starting daemon (PID %d)" % pid, file=sys.stderr)
