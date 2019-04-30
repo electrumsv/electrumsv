@@ -635,7 +635,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_update_check()
 
         def _on_view_pending_update(checked: bool=False):
-            QDesktopServices.openUrl(QUrl("https://electrumsv.io/download/"))
+            QDesktopServices.openUrl(QUrl("https://electrumsv.io/#downloads"))
 
         menu = QMenu()
         self._update_menu = menu

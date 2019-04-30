@@ -136,7 +136,7 @@ class UpdateCheckDialog(QWidget):
                     this_version = PACKAGE_VERSION,
                     next_version = stable_version,
                     next_version_date = release_date,
-                    download_uri='https://electrumsv.io/download/')
+                    download_uri='https://electrumsv.io/#downloads')
             # Handle the case where the we are newer than the latest stable release.
             elif StrictVersion(stable_version) < StrictVersion(PACKAGE_VERSION):
                 message = _(MSG_BODY_UNRELEASED_AVAILABLE).format(
