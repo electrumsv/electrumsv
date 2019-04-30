@@ -37,6 +37,7 @@ import os
 
 from bitcoinx import Headers
 
+from .async_ import ASync
 from .logs import logs
 from .networks import Net
 
@@ -62,6 +63,7 @@ class AppStateProxy(object):
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get('decimal_point', 8)
         self.num_zeros = config.get('num_zeros', 0)
+        self.async_ = ASync()
 
     def has_app(self):
         return self.app is not None

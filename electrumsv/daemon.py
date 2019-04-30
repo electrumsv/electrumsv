@@ -95,6 +95,12 @@ def get_server(config: SimpleConfig) -> Optional[jsonrpclib.Server]:
             return server
         except ConnectionRefusedError:
             logger.warning("get_server could not connect to the rpc server, is it running?")
+        except SyntaxError:
+            if os.path.getsize(lockfile):
+                logger.exception("RPC server lockfile exists, but is invalid")
+            else:
+                # Our caller 'get_fd_or_server' has created the empty file before we check.
+                logger.warning("get_server could not connect to the rpc server, is it running?")
         except Exception:
             # We do not want the full stacktrace, this will limit it.
             logger.exception("attempt to connect to the RPC server failed")
