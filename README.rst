@@ -66,13 +66,13 @@ or help us develop ElectrumSV.
 
 To run ElectrumSV from its top-level directory, first install the core dependencies::
 
-    pip3 --user -r contrib\requirements\requirements.txt
-    pip3 --user -r contrib\requirements\requirements-binaries.txt
+    pip3 install --user -r contrib\requirements\requirements.txt
+    pip3 install --user -r contrib\requirements\requirements-binaries.txt
 
 If you have a hardware wallet, or want to ensure that the hardware wallet support can work,
 install their specific dependencies::
 
-    pip3 --user -r contrib\requirements\requirements-hw.txt
+    pip3 install --user -r contrib\requirements\requirements-hw.txt
 
 Then invoke it as so::
 
@@ -84,7 +84,7 @@ for Bitcoin application development using ElectrumSV as a wallet server.
 
 In order to do so, run these commands::
 
-    pip3 --user -r contrib\requirements\requirements-binaries.txt
+    pip3 install --user -r contrib\requirements\requirements-binaries.txt
     pip3 install .
 
 Extra development notes
