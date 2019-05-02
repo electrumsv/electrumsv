@@ -410,12 +410,6 @@ class Transaction:
         self.locktime = 0
         self.version = 1
 
-        # Ephemeral meta-data used internally to keep track of interesting things.  This is
-        # written-to by coinchooser to tell UI code about 'dust_to_fee', which is change
-        # that's too small to go to change outputs (below dust threshold) so added to the fee.
-        # Values in this dict are advisory only and may or may not always be there!
-        self.ephemeral = dict()
-
     def update(self, raw):
         self.raw = raw
         self._inputs = None

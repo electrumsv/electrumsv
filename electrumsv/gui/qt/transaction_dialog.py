@@ -263,14 +263,9 @@ class TxDialog(QDialog, MessageBoxMixin):
         else:
             fee_amount = _('unknown')
         fee_str = '{}: {}'.format(_("Fee"), fee_amount)
-        dusty_fee = self.tx.ephemeral.get('dust_to_fee', 0)
         if tx_info_fee is not None:
             fee_str += '  ( {} ) '.format(self.main_window.format_fee_rate(
                 tx_info_fee / size * 1000))
-            if dusty_fee:
-                fee_str += (' <font color=#999999>' +
-                            (_("( %s in dust was added to fee )") % format_amount(dusty_fee)) +
-                            '</font>')
         self.amount_label.setText(amount_str)
         self.fee_label.setText(fee_str)
         self.size_label.setText(size_str)

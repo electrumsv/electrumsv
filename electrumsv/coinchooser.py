@@ -207,7 +207,6 @@ class CoinChooserBase:
         fee = lambda count: fee_estimator(tx_size + count * 34)
         change, dust = self.change_outputs(tx, change_addrs, fee, dust_threshold)
         tx.add_outputs(change)
-        tx.ephemeral['dust_to_fee'] = dust
 
         logger.debug("using %d inputs", len(tx.inputs()))
         logger.debug("using buckets: %s", [bucket.desc for bucket in buckets])
