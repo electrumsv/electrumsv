@@ -429,12 +429,6 @@ class Commands:
             out = "Error: " + str(e)
         return out
 
-    def _resolver(self, x):
-        if x is None:
-            return None
-        out = self.wallet.contacts.resolve(x)
-        return out['address']
-
     @command('n')
     def sweep(self, privkey, destination, fee=None, nocheck=False, imax=100):
         """Sweep private keys. Returns a transaction that spends UTXOs from
@@ -464,11 +458,11 @@ class Commands:
     def _mktx(self, outputs, fee=None, change_addr=None, domain=None, nocheck=False,
               unsigned=False, password=None, locktime=None):
         self.nocheck = nocheck
-        change_addr = self._resolver(change_addr)
-        domain = None if domain is None else [self._resolver(x) for x in domain]
+        change_addr = Address.from_string(change_addr)
+        domain = None if domain is None else [Address.from_string(x) for x in domain]
         final_outputs = []
         for address, amount in outputs:
-            address = self._resolver(address)
+            address = Address.from_string(address)
             amount = satoshis(amount)
             final_outputs.append((TYPE_ADDRESS, address, amount))
 
@@ -520,25 +514,6 @@ class Commands:
         """Assign a label to an item. Item may be a bitcoin address address or a
         transaction ID"""
         self.wallet.set_label(key, label)
-
-    @command('w')
-    def listcontacts(self):
-        """Show your list of contacts"""
-        return self.wallet.contacts
-
-    @command('w')
-    def getalias(self, key):
-        """Retrieve alias. Lookup in your list of contacts."""
-        return self.wallet.contacts.resolve(key)
-
-    @command('w')
-    def searchcontacts(self, query):
-        """Search through contacts, return matching entries. """
-        results = {}
-        for key, value in self.wallet.contacts.items():
-            if query.lower() in key.lower():
-                results[key] = value
-        return results
 
     @command('w')
     def listaddresses(self, receiving=False, change=False, labels=False, frozen=False,

@@ -31,12 +31,13 @@ import os
 import shutil
 import threading
 import time
+from typing import Iterable
 import weakref
 import webbrowser
 
 from bitcoinx import PublicKey
 
-from PyQt5.QtCore import pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl
+from PyQt5.QtCore import (pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl)
 from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices, QPixmap
 from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
@@ -67,6 +68,7 @@ from electrumsv.wallet import Multisig_Wallet, sweep_preparations
 import electrumsv.web as web
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
+from .contact_list import ContactList, edit_contact_dialog
 from .coinsplitting_tab import CoinSplittingTab
 from . import dialogs
 from .preferences import PreferencesDialog
@@ -526,8 +528,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         labels_menu.addAction(_("&Import"), self.do_import_labels)
         labels_menu.addAction(_("&Export"), self.do_export_labels)
         contacts_menu = wallet_menu.addMenu(_("Contacts"))
-        contacts_menu.addAction(_("&New"), self.new_contact_dialog)
-        contacts_menu.addAction(_("Import"), self.contact_list.import_contacts)
+        contacts_menu.addAction(_("&New"), partial(edit_contact_dialog, self, self))
         invoices_menu = wallet_menu.addMenu(_("Invoices"))
         invoices_menu.addAction(_("Import"), self.invoice_list.import_invoices)
         hist_menu = wallet_menu.addMenu(_("&History"))
@@ -811,9 +812,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.need_update.clear()
             self.update_wallet()
 
-        # resolve aliases
-        # FIXME this is a blocking network call that has a timeout of 5 sec
+        # resolve aliases (used to be used for openalias)
         self.payto_e.resolve()
+
         # update fee
         if self.require_fee_update:
             self.do_update_fee()
@@ -1454,13 +1455,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         update_fixed_tree_height(self.from_list)
 
-    def get_contact_payto(self, key):
-        _type, label = self.contacts.get(key)
-        return label + '  <' + key + '>' if _type == 'address' else key
+    def get_contact_payto(self, contact_id):
+        contact = self.contacts.get_contact(contact_id)
+        return contact.label
 
     def update_completions(self):
-        l = [self.get_contact_payto(key) for key in self.contacts.keys()]
-        self.completions.setStringList(l)
+        pass
+        # l = [self.get_contact_payto(entry.contact_id) for entry in self.contacts.get_contacts()]
+        # self.completions.setStringList(l)
 
     def protected(func): # pylint: disable=no-self-argument
         '''Password request wrapper.  The password is passed to the function
@@ -1858,7 +1860,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return self.create_list_tab(l)
 
     def create_contacts_tab(self):
-        from .contact_list import ContactList
         self.contact_list = l = ContactList(self)
         return self.create_list_tab(l)
 
@@ -1893,8 +1894,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         ])
         self.show_message(msg, title=_('Pay to many'))
 
-    def payto_contacts(self, labels):
-        paytos = [self.get_contact_payto(label) for label in labels]
+    def payto_contacts(self, contact_ids: Iterable[int]):
+        paytos = [self.get_contact_payto(contact_id) for contact_id in contact_ids]
         self.show_send_tab()
         if len(paytos) == 1:
             self.payto_e.setText(paytos[0])
@@ -1904,32 +1905,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.payto_e.setText(text)
             self.payto_e.setFocus()
 
-    def set_contact(self, label, address):
-        if not Address.is_valid(address):
-            self.show_error(_('Invalid Address'))
-            self.contact_list.update()  # Displays original unchanged value
-            return False
-        old_entry = self.contacts.get(address, None)
-        self.contacts[address] = ('address', label)
+    def _on_contacts_changed(self) -> None:
         self.contact_list.update()
         self.history_list.update()
         self.history_updated_signal.emit()
-        self.update_completions()
-        return True
-
-    def delete_contacts(self, addresses):
-        if not self.question(_("Remove {} from your list of contacts?")
-                             .format(" + ".join(addresses))):
-            return
-        removed_entries = []
-        for address in addresses:
-            if address in self.contacts.keys():
-                removed_entries.append((address, self.contacts[address]))
-            self.contacts.pop(address)
-
-        self.history_list.update()
-        self.history_updated_signal.emit()
-        self.contact_list.update()
         self.update_completions()
 
     def show_invoice(self, key):
@@ -2143,24 +2122,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tab = self.tabs.currentWidget()
         if hasattr(tab, 'searchable_list'):
             tab.searchable_list.filter(t)
-
-    def new_contact_dialog(self):
-        d = WindowModalDialog(self, _("New Contact"))
-        vbox = QVBoxLayout(d)
-        vbox.addWidget(QLabel(_('New Contact') + ':'))
-        grid = QGridLayout()
-        line1 = QLineEdit()
-        line1.setFixedWidth(280)
-        line2 = QLineEdit()
-        line2.setFixedWidth(280)
-        grid.addWidget(QLabel(_("Address")), 1, 0)
-        grid.addWidget(line1, 1, 1)
-        grid.addWidget(QLabel(_("Name")), 2, 0)
-        grid.addWidget(line2, 2, 1)
-        vbox.addLayout(grid)
-        vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
-        if d.exec_():
-            self.set_contact(line2.text(), line1.text())
 
     def show_master_public_keys(self):
         dialog = QDialog(self)

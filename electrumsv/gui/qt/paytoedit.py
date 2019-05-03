@@ -307,35 +307,3 @@ class PayToEdit(ScanQRTextEdit):
         if key == self.previous_payto:
             return
         self.previous_payto = key
-        if not (('.' in key) and ('<' not in key) and (' ' not in key)):
-            return
-        parts = key.split(sep=',')  # assuming single lie
-        if parts and len(parts) > 0 and Address.is_valid(parts[0]):
-            return
-        try:
-            data = self.win.contacts.resolve(key)
-        except:
-            return
-        if not data:
-            return
-        self.is_alias = True
-
-        address = data.get('address')
-        name = data.get('name')
-        new_url = key + ' <' + address + '>'
-        self.setText(new_url)
-        self.previous_payto = new_url
-
-        #if self.win.config.get('openalias_autoadd') == 'checked':
-        self.win.contacts[key] = ('openalias', name)
-        self.win.contact_list.on_update()
-
-        self.setFrozen(True)
-        if data.get('type') == 'openalias':
-            self.validated = data.get('validated')
-            if self.validated:
-                self.set_validated()
-            else:
-                self.set_expired()
-        else:
-            self.validated = None
