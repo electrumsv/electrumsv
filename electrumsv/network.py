@@ -1185,8 +1185,9 @@ class Network:
             self.connections_task.cancel()
             with suppress(CancelledError):
                 await self.connections_task
+            await sleep(0.005)
             assert not self.sessions
-            logger.debug('stopped')
+            logger.warning('stopped')
 
     def auto_connect(self):
         return app_state.config.get('auto_connect', True)
