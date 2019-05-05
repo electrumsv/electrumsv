@@ -34,7 +34,7 @@ from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import pyqtSignal, QObject, QTimer
 from PyQt5.QtGui import QGuiApplication
-from PyQt5.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon, QMenu, QWidget
+from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget
 
 from electrumsv.app_state import app_state
 from electrumsv.exceptions import UserCancelled, UserQuit
