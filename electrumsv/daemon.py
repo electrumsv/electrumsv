@@ -52,7 +52,11 @@ def get_lockfile(config: SimpleConfig) -> str:
 
 
 def remove_lockfile(lockfile: str) -> None:
-    os.unlink(lockfile)
+    logger.debug("removing lockfile")
+    try:
+        os.unlink(lockfile)
+    except OSError:
+        pass
 
 
 def get_fd_or_server(config: SimpleConfig) -> Tuple[Optional[int], Optional[jsonrpclib.Server]]:
@@ -287,6 +291,7 @@ class Daemon(DaemonThread):
     def run(self) -> None:
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)
+        logger.warning("no longer running")
         if self.network:
             self.network.shutdown()
             self.fx_task.cancel()
@@ -294,8 +299,7 @@ class Daemon(DaemonThread):
         self.on_stop()
 
     def stop(self) -> None:
-        logger.debug("stopping")
+        logger.warning("stopping")
+        super().stop()
         self.stop_wallets()
-        logger.debug("removing lockfile")
         remove_lockfile(get_lockfile(self.config))
-        DaemonThread.stop(self)
