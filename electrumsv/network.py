@@ -1181,13 +1181,11 @@ class Network:
         self.task.cancel()
 
     async def shutdown_wait(self):
-        if self.connections_task:
-            self.connections_task.cancel()
-            with suppress(CancelledError):
-                await self.connections_task
-            await sleep(0.005)
-            assert not self.sessions
-            logger.warning('stopped')
+        self.shutdown()
+        with suppress(CancelledError):
+            await self.task
+        assert not self.sessions
+        logger.warning('stopped')
 
     def auto_connect(self):
         return app_state.config.get('auto_connect', True)

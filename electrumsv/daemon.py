@@ -293,7 +293,6 @@ class Daemon(DaemonThread):
             self.server.handle_request() if self.server else time.sleep(0.1)
         logger.warning("no longer running")
         if self.network:
-            self.network.shutdown()
             self.fx_task.cancel()
             app_state.async_.spawn_and_wait(self.network.shutdown_wait)
         self.on_stop()
