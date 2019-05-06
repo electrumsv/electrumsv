@@ -43,33 +43,26 @@ class UTXOList(MyTreeWidget):
         # force attributes to always be defined, even if None, at construction.
         self.wallet = self.parent.wallet if hasattr(self.parent, 'wallet') else None
         self.monospace_font = QFont(platform.monospace_font)
-        self.utxos = list()
-
-    def get_name(self, x):
-        return x.get('prevout_hash') + ":%d"%x.get('prevout_n')
 
     def on_update(self):
         prev_selection = self.get_selected() # cache previous selection, if any
         self.clear()
         self.wallet = self.parent.wallet
-        self.utxos = self.wallet.get_utxos()
-        for x in self.utxos:
-            address = x['address']
-            address_text = address.to_string()
-            height = x['height']
-            name = self.get_name(x)
-            label = self.wallet.get_label(x['prevout_hash'])
-            amount = self.parent.format_amount(x['value'], whitespaces=True)
+        for utxo in self.wallet.get_utxos():
+            address_text = utxo.address.to_string()
+            prevout_str = utxo.key_str()
+            prevout_str = prevout_str[0:10] + '...' + prevout_str[-2:]
+            label = self.wallet.get_label(utxo.tx_hash)
+            amount = self.parent.format_amount(utxo.value, whitespaces=True)
             utxo_item = SortableTreeWidgetItem([address_text, label, amount,
-                                         str(height),
-                                         name[0:10] + '...' + name[-2:]])
+                                                str(utxo.height), prevout_str])
             # set this here to avoid sorting based on Qt.UserRole+1
             utxo_item.DataRole = Qt.UserRole+100
             for col in (0, 2, 4):
                 utxo_item.setFont(col, self.monospace_font)
-            utxo_item.setData(0, Qt.UserRole, (x.get('prevout_hash'), x.get('prevout_n')))
-            a_frozen = self.wallet.is_frozen_address(address)
-            c_frozen = x['is_frozen_coin']
+            utxo_item.setData(0, Qt.UserRole, utxo)
+            a_frozen = self.wallet.is_frozen_address(utxo.address)
+            c_frozen = self.wallet.is_frozen_utxo(utxo)
             if a_frozen and not c_frozen:
                 # address is frozen, coin is not frozen
                 # emulate the "Look" off the address_list .py's frozen entry
@@ -81,83 +74,67 @@ class UTXOList(MyTreeWidget):
                 # both coin and address are frozen so color-code it to indicate that.
                 utxo_item.setBackground(0, QColor('lightblue'))
                 utxo_item.setForeground(0, QColor('#3399ff'))
-            # save the address-level-frozen and coin-level-frozen flags to the data item
-            # for retrieval later in create_menu() below.
-            utxo_item.setData(0, Qt.UserRole+1, "{}{}".format(("a" if a_frozen else ""),
-                                                              ("c" if c_frozen else "")))
             self.addChild(utxo_item)
-            if name in prev_selection:
+            if utxo in prev_selection:
                 # NB: This needs to be here after the item is added to the widget. See #979.
                 utxo_item.setSelected(True) # restore previous selection
 
     def get_selected(self):
-        # dict of (prevout_hash, prevout_n) -> frozen flags string (eg: "ac")
-        return { x.data(0, Qt.UserRole) : x.data(0, Qt.UserRole+1) for x in self.selectedItems() }
+        return {item.data(0, Qt.UserRole) for item in self.selectedItems()}
 
     def create_menu(self, position):
-        selected = self.get_selected()
-        if not selected:
+        coins = self.get_selected()
+        if not coins:
             return
         menu = QMenu()
-        coins = [coin for coin in self.utxos if self.get_name(coin) in selected]
-        spendable_coins = [coin for coin in coins if not selected.get(self.get_name(coin), '')]
-        # Unconditionally add the "Spend" option but leave it disabled if there are no
-        # spendable_coins
-        action = menu.addAction(_("Spend"), lambda: self.parent.spend_coins(spendable_coins))
-        action.setEnabled(bool(spendable_coins))
-        if len(selected) == 1:
+        menu.addAction(_("Spend"), lambda: self.parent.spend_coins(coins))
+
+        def freeze_addresses():
+            self.freeze_addresses(coins, True)
+        def unfreeze_addresses():
+            self.freeze_addresses(coins, False)
+        def freeze_coins():
+            self.freeze_coins(coins, True)
+        def unfreeze_coins():
+            self.freeze_coins(coins, False)
+
+        any_a_frozen = any(self.wallet.is_frozen_address(coin.address) for coin in coins)
+        all_a_frozen = all(self.wallet.is_frozen_address(coin.address) for coin in coins)
+        any_c_frozen = any(self.wallet.is_frozen_utxo(coin) for coin in coins)
+        all_c_frozen = all(self.wallet.is_frozen_utxo(coin) for coin in coins)
+
+        if len(coins) == 1:
             # single selection, offer them the "Details" option and also coin/address
             # "freeze" status, if any
-            txid = list(selected.keys())[0].split(':')[0]
-            frozen_flags = list(selected.values())[0]
-            tx = self.wallet.get_transaction(txid)
+            coin = list(coins)[0]
+            tx = self.wallet.get_transaction(coin.tx_hash)
             menu.addAction(_("Details"), lambda: self.parent.show_transaction(tx))
             needsep = True
-            if 'c' in frozen_flags:
+            if any_c_frozen:
                 menu.addSeparator()
                 menu.addAction(_("Coin is frozen"), lambda: None).setEnabled(False)
-                menu.addAction(_("Unfreeze Coin"),
-                               lambda: self.set_frozen_coins(list(selected.keys()), False))
+                menu.addAction(_("Unfreeze Coin"), unfreeze_coins)
                 menu.addSeparator()
                 needsep = False
             else:
-                menu.addAction(_("Freeze Coin"),
-                               lambda: self.set_frozen_coins(list(selected.keys()), True))
-            if 'a' in frozen_flags:
+                menu.addAction(_("Freeze Coin"), freeze_coins)
+            if any_a_frozen:
                 if needsep: menu.addSeparator()
                 menu.addAction(_("Address is frozen"), lambda: None).setEnabled(False)
-                menu.addAction(_("Unfreeze Address"),
-                               lambda: self.set_frozen_addresses_for_coins(list(selected.keys()),
-                                                                           False))
+                menu.addAction(_("Unfreeze Address"), unfreeze_addresses)
             else:
-                menu.addAction(_("Freeze Address"),
-                               lambda: self.set_frozen_addresses_for_coins(list(selected.keys()),
-                                                                           True))
+                menu.addAction(_("Freeze Address"), freeze_addresses)
         else:
             # multi-selection
             menu.addSeparator()
-            if any(['c' not in flags for flags in selected.values()]):
-                # they have some coin-level non-frozen in the selection, so add the menu
-                # action "Freeze coins"
-                menu.addAction(_("Freeze Coins"),
-                               lambda: self.set_frozen_coins(list(selected.keys()), True))
-            if any(['c' in flags for flags in selected.values()]):
-                # they have some coin-level frozen in the selection, so add the menu
-                # action "Unfreeze coins"
-                menu.addAction(_("Unfreeze Coins"),
-                               lambda: self.set_frozen_coins(list(selected.keys()), False))
-            if any(['a' not in flags for flags in selected.values()]):
-                # they have some address-level non-frozen in the selection, so add the
-                # menu action "Freeze addresses"
-                menu.addAction(_("Freeze Addresses"),
-                               lambda: self.set_frozen_addresses_for_coins(list(selected.keys()),
-                                                                           True))
-            if any(['a' in flags for flags in selected.values()]):
-                # they have some address-level frozen in the selection, so add the menu
-                # action "Unfreeze addresses"
-                menu.addAction(_("Unfreeze Addresses"),
-                               lambda: self.set_frozen_addresses_for_coins(list(selected.keys()),
-                                                                           False))
+            if not all_c_frozen:
+                menu.addAction(_("Freeze Coins"), freeze_coins)
+            if any_c_frozen:
+                menu.addAction(_("Unfreeze Coins"), unfreeze_coins)
+            if not all_a_frozen:
+                menu.addAction(_("Freeze Addresses"), freeze_addresses)
+            if any_a_frozen:
+                menu.addAction(_("Unfreeze Addresses"), unfreeze_addresses)
 
         menu.exec_(self.viewport().mapToGlobal(position))
 
@@ -165,16 +142,9 @@ class UTXOList(MyTreeWidget):
         # disable editing fields in this tab (labels)
         return False
 
-    def set_frozen_coins(self, coins, b):
-        if self.parent:
-            self.parent.set_frozen_coin_state(coins, b)
+    def freeze_addresses(self, coins, freeze):
+        addrs = {coin.address for coin in coins}
+        self.parent.set_frozen_state(list(addrs), freeze)
 
-    def set_frozen_addresses_for_coins(self, coins, b):
-        if not self.parent: return
-        addrs = set()
-        for utxo in self.utxos:
-            name = self.get_name(utxo)
-            if name in coins:
-                addrs.add(utxo['address'])
-        if addrs:
-            self.parent.set_frozen_state(list(addrs), b)
+    def freeze_coins(self, coins, freeze):
+        self.parent.set_frozen_coin_state(coins, freeze)

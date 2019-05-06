@@ -1444,14 +1444,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.from_label.setHidden(len(self.pay_from) == 0)
         self.from_list.setHidden(len(self.pay_from) == 0)
 
-        def format(x):
-            h = x['prevout_hash']
+        def format_utxo(utxo):
+            h = utxo.tx_hash
             return '{}...{}:{:d}\t{}'.format(h[0:10], h[-10:],
-                                             x['prevout_n'], x['address'])
+                                             utxo.out_index, utxo.address)
 
-        for item in self.pay_from:
+        for utxo in self.pay_from:
             self.from_list.addTopLevelItem(QTreeWidgetItem(
-                [format(item), self.format_amount(item['value']) ]))
+                [format_utxo(utxo), self.format_amount(utxo.value)]))
 
         update_fixed_tree_height(self.from_list)
 
@@ -2411,8 +2411,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tx.deserialize()
         if self.wallet:
             my_coins = self.wallet.get_spendable_coins(None, self.config)
-            my_outpoints = [vin['prevout_hash'] + ':' + str(vin['prevout_n'])
-                            for vin in my_coins]
+            my_outpoints = [coin.key_str() for coin in my_coins]
             for i, txin in enumerate(tx.inputs()):
                 outpoint = txin['prevout_hash'] + ':' + str(txin['prevout_n'])
                 if outpoint in my_outpoints:
