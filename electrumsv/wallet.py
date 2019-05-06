@@ -60,7 +60,7 @@ from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type
 from .transaction import Transaction
-from .wallet_database import WalletData, TxInput, TxOutput, TxFlags, TxData, TxProof
+from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxFlags, TxData, TxProof
 from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
 from .version import PACKAGE_VERSION
 from .web import create_URI
@@ -355,14 +355,14 @@ class Abstract_Wallet:
             if address_data is not None:
                 save_func('addresses', address_data)
 
-    def get_txins(self, tx_id: str, address: Optional[Address]=None) -> List[TxInput]:
+    def get_txins(self, tx_id: str, address: Optional[Address]=None) -> List[DBTxInput]:
         entries = self.db.txin.get_entries(tx_id)
         if address is None:
             return entries
         address_string = address.to_string()
         return [ v for v in entries if v.address_string == address_string ]
 
-    def get_txouts(self, tx_id: str, address: Optional[str]=None) -> List[TxOutput]:
+    def get_txouts(self, tx_id: str, address: Optional[str]=None) -> List[DBTxOutput]:
         entries = self.db.txout.get_entries(tx_id)
         if address is None:
             return entries
@@ -779,7 +779,7 @@ class Abstract_Wallet:
                 match = next((row for row in self.get_txouts(prevout_hash, address)
                      if row.out_tx_n == prevout_n), None)
                 if match is not None:
-                    txin = TxInput(address.to_string(), prevout_hash, prevout_n, match.amount)
+                    txin = DBTxInput(address.to_string(), prevout_hash, prevout_n, match.amount)
                     txins.append((tx_hash, txin))
                 else:
                     self.pruned_txo[(prevout_hash, prevout_n)] = tx_hash
@@ -788,7 +788,7 @@ class Abstract_Wallet:
             for n, txo in enumerate(tx.outputs()):
                 _type, address, value = txo
                 if self.is_mine(address):
-                    txout = TxOutput(address.to_string(), n, value, is_coinbase)
+                    txout = DBTxOutput(address.to_string(), n, value, is_coinbase)
                     txouts.append((tx_hash, txout))
 
                 # give the value to txi that spends me
@@ -796,7 +796,7 @@ class Abstract_Wallet:
                 if next_tx_hash is not None:
                     self.pruned_txo.pop((tx_hash, n))
 
-                    txin = TxInput(address.to_string(), tx_hash, n, value)
+                    txin = DBTxInput(address.to_string(), tx_hash, n, value)
                     txins.append((next_tx_hash, txin))
 
             if len(txins):

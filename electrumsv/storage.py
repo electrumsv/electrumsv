@@ -42,6 +42,7 @@ from .address import Address
 from .keystore import bip44_derivation
 from .logs import logs
 from .util import profiler
+from .wallet_database import DBTxInput, DBTxOutput, TxData, TxFlags, WalletData
 
 
 logger = logs.get_logger("storage")
@@ -524,9 +525,6 @@ class WalletStorage:
 
         wallet_type = self.get('wallet_type')
 
-        from .wallet_database import (TransactionStore, TransactionInputStore,
-            TransactionOutputStore, TxInput, TxOutput, TxData, TxFlags, WalletData)
-
         tx_store_aeskey_hex = self.get('tx_store_aeskey')
         if tx_store_aeskey_hex is None:
             tx_store_aeskey_hex = os.urandom(32).hex()
@@ -568,7 +566,7 @@ class WalletStorage:
             for address_string, output_values in address_entry.items():
                 for prevout_key, amount in output_values:
                     prevout_tx_hash, prevout_n = prevout_key.split(":")
-                    txin = TxInput(address_string, prevout_tx_hash, int(prevout_n), amount)
+                    txin = DBTxInput(address_string, prevout_tx_hash, int(prevout_n), amount)
                     to_add.append((tx_hash, txin))
         if len(to_add):
             db.txin_store.add_entries(to_add)
@@ -578,7 +576,7 @@ class WalletStorage:
         for tx_hash, address_entry in txo.items():
             for address_string, input_values in address_entry.items():
                 for txout_n, amount, is_coinbase in input_values:
-                    txout = TxOutput(address_string, txout_n, amount, is_coinbase)
+                    txout = DBTxOutput(address_string, txout_n, amount, is_coinbase)
                     to_add.append((tx_hash, txout))
         if len(to_add):
             db.txout_store.add_entries(to_add)
