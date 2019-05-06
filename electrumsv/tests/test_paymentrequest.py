@@ -12,7 +12,7 @@ from electrumsv import paymentrequest
 PKH_HEX = "8b2b1e60ccf6c206f1fde862897cd61be5f2a021"
 PKH_BYTES = bytes.fromhex(PKH_HEX)
 PKH_ADDRESS = address.Address.from_P2PKH_hash(PKH_BYTES).to_string()
-P2PKH_SCRIPT_HEX = bitcoinx.P2PKH_Script(PKH_BYTES).to_hex()
+P2PKH_SCRIPT_HEX = bitcoinx.P2PKH_Address(PKH_BYTES).to_script().to_hex()
 
 TRANSACTION_HEX = ("0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c"+
     "912084000000002401ff2102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e473"+
