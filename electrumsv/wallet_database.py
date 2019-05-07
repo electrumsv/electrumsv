@@ -412,7 +412,6 @@ class TransactionInputStore(GenericKeyValueStore, AbstractTransactionXput):
         raise DataPackingError(f"Unhandled packing format {pack_version}")
 
     def add_entries(self, entries: Iterable[Tuple[str, DBTxInput]]) -> None:
-        print(entries)
         super().add_many([ (key, self._pack_value(value)) for (key, value) in entries ])
 
     def get_entries(self, tx_id: str) -> List[DBTxInput]:

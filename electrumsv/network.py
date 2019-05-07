@@ -799,12 +799,18 @@ class SVSession(RPCSession):
         # Take reference so wallet can be unsubscribed asynchronously without conflict
         subs = self._subs_by_wallet[wallet]
         async with TaskGroup() as group:
+            wallet.request_count += len(pairs)
+            wallet.progress_event.set()
             for address, script_hash in pairs:
                 subs.append(script_hash)
                 # Send request even if already subscribed, as our user expects a response
                 # to trigger other actions and won't get one if we swallow it.
                 self._address_map[script_hash] = address
                 await group.spawn(self._subscribe_to_script_hash(script_hash))
+
+            while await group.next_done():
+                wallet.response_count += 1
+                wallet.progress_event.set()
         # A wallet shouldn't be subscribing the same address twice
         assert len(set(subs)) == len(subs)
 
@@ -1013,6 +1019,8 @@ class Network:
         missing_hashes = wallet.missing_transactions()
         if not missing_hashes:
             return False
+        wallet.request_count += len(missing_hashes)
+        wallet.progress_event.set()
         had_timeout = False
         session = await self._main_session()
         session.logger.debug(f'requesting {len(missing_hashes)} missing transactions')
@@ -1023,6 +1031,8 @@ class Network:
 
             while tasks:
                 task = await group.next_done()
+                wallet.response_count += 1
+                wallet.progress_event.set()
                 tx_hash = tasks.pop(task)
                 try:
                     tx = Transaction(task.result())
@@ -1115,7 +1125,8 @@ class Network:
             session = await self._main_session()
             session.logger.info(f'subscribing to {len(addresses):,d} new addresses for {wallet}')
             # Do in reverse to require fewer wallet re-sync loops
-            pairs = reversed([(address, address.to_scripthash_hex()) for address in addresses])
+            pairs = [(address, address.to_scripthash_hex()) for address in addresses]
+            pairs.reverse()
             await session.subscribe_to_pairs(wallet, pairs)
             addresses = await wallet.new_addresses()
 

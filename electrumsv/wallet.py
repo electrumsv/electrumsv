@@ -201,6 +201,9 @@ class Abstract_Wallet:
         self._synchronize_event = app_state.async_.event()
         self._synchronized_event = app_state.async_.event()
         self.txs_changed_event = app_state.async_.event()
+        self.request_count = 0
+        self.response_count = 0
+        self.progress_event = app_state.async_.event()
 
         self.gap_limit_for_change = 6  # constant
         # saved fields

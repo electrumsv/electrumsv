@@ -22,6 +22,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import asyncio
 import base64
 import csv
 from decimal import Decimal
@@ -118,6 +119,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     computing_privkeys_signal = pyqtSignal()
     show_privkeys_signal = pyqtSignal()
     history_updated_signal = pyqtSignal()
+    network_status_signal = pyqtSignal(object)
 
     def __init__(self, wallet):
         QMainWindow.__init__(self)
@@ -211,6 +213,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             QShortcut(QKeySequence("Alt+" + str(i + 1)), self,
                       lambda i=i: wrtabs.setCurrentIndex(i))
 
+        self.network_status_task = app_state.async_.spawn(self.maintain_network_status)
+        self.network_status_signal.connect(self.update_network_status)
         self.payment_request_ok_signal.connect(self.payment_request_ok)
         self.payment_request_error_signal.connect(self.payment_request_error)
         self.notify_transactions_signal.connect(self.notify_transactions)
@@ -876,40 +880,46 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         btc_e.textChanged.connect(partial(edit_changed, btc_e))
         fiat_e.is_last_edited = False
 
-    def update_status(self):
-        if not self.wallet:
-            return
+    async def maintain_network_status(self):
+        while True:
+            await self.wallet.progress_event.wait()
+            self.network_status_signal.emit(self.wallet)
+            # Throttle updates
+            await asyncio.sleep(1.0)
 
-        network_text = _("Connected")
+    def update_network_status(self, wallet):
+        if wallet != self.wallet:
+            return
+        text = _("Offline")
+        if self.network:
+            if wallet.request_count > wallet.response_count:
+                text = _("Synchronizing...")
+                text += f' {wallet.response_count:,d}/{wallet.request_count:,d}'
+            else:
+                wallet.request_count = 0
+                wallet.response_count = 0
+                server_height = self.network.get_server_height()
+                server_lag = self.network.get_local_height() - server_height
+                if server_lag > 1:
+                    text = _("Server {} blocks behind").format(server_lag)
+                else:
+                    text = _("Connected")
+        self.network_label.setText(text)
+
+    def update_status(self):
         balance_status = None
         fiat_status = None
+        if self.network and self.network.is_connected():
+            c, u, x = self.wallet.get_balance()
+            balance_status = self.get_amount_and_units(c)
 
-        if self.network is None:
-            network_text = _("Offline")
-        elif self.network.is_connected():
-            server_height = self.network.get_server_height()
-            server_lag = self.network.get_local_height() - server_height
-            # Server height can be 0 after switching to a new server
-            # until we get a headers subscription request response.
-            # Display the synchronizing message in that case.
-            if not self.wallet.is_synchronized() or server_height == 0:
-                network_text = _("Synchronizing...")
-            elif server_lag > 1:
-                network_text = _("Server {} blocks behind").format(server_lag)
-            else:
-                c, u, x = self.wallet.get_balance()
-                balance_status = self.get_amount_and_units(c)
-
-                # append fiat balance and price
-                if app_state.fx.is_enabled():
-                    fiat_status = app_state.fx.get_fiat_status(c + u + x,
-                        app_state.base_unit(), app_state.decimal_point)
-        else:
-            network_text = _("Not connected")
-
+            # append fiat balance and price
+            if app_state.fx.is_enabled():
+                fiat_status = app_state.fx.get_fiat_status(
+                    c + u + x, app_state.base_unit(), app_state.decimal_point)
         self.set_status_bar_balance(balance_status)
         self.set_status_bar_fiat(fiat_status)
-        self.network_label.setText(network_text)
+        self.update_network_status(self.wallet)
 
     def update_wallet(self):
         self.update_status()
@@ -2835,6 +2845,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if self.tx_notify_timer:
             self.tx_notify_timer.stop()
             self.tx_notify_timer = None
+
+        self.network_status_task.cancel()
 
         # We catch these errors with the understanding that there is no recovery at
         # this point, given user has likely performed an action we cannot recover
