@@ -276,7 +276,10 @@ class Abstract_Wallet:
         self._history = self.to_Address_dict(addr_history) if addr_history is not None else {}
 
         pruned_txo = self.db.misc.get_value('pruned_txo')
-        self.pruned_txo = {} if pruned_txo is None else pruned_txo
+        if pruned_txo is None:
+            self.pruned_txo = {}
+        else:
+            self.pruned_txo = { tuple(k): v for (k, v) in pruned_txo }
 
         # Frozen addresses
         self._frozen_addresses = set([])
@@ -311,7 +314,7 @@ class Abstract_Wallet:
             else:
                 save_func = self.db.misc.update
 
-            save_func('pruned_txo', self.pruned_txo)
+            save_func('pruned_txo', [ [ list(k), v ] for (k, v) in self.pruned_txo.items() ])
             save_func('frozen_addresses',
                 list(addr.to_string() for addr in self._frozen_addresses))
             save_func('frozen_coins', list(self._frozen_coins))
