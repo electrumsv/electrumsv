@@ -227,12 +227,11 @@ class Commands:
     def listunspent(self):
         """List unspent outputs. Returns the list of unspent transaction
         outputs in your wallet."""
-        l = self.wallet.get_utxos(exclude_frozen=False)
-        for i in l:
-            v = i["value"]
-            i["value"] = str(Decimal(v)/COIN) if v is not None else None
-            i["address"] = i["address"].to_string()
-        return l
+        utxos = self.wallet.get_utxos(exclude_frozen=False)
+        tx_inputs = [utxo.to_tx_input() for utxo in utxos]
+        for tx_input in tx_inputs:
+            tx_input['address'] = tx_input['address'].to_string()
+        return tx_inputs
 
     @command('n')
     def getaddressunspent(self, address):

@@ -382,7 +382,7 @@ class AbstractTransactionXput(ABC):
         raise NotImplementedError
 
 
-class TxInput(namedtuple("TxInputTuple", "address_string prevout_tx_hash prevout_n amount")):
+class DBTxInput(namedtuple("DBTxInputTuple", "address_string prevout_tx_hash prevout_n amount")):
     pass
 
 
@@ -391,7 +391,7 @@ class TransactionInputStore(GenericKeyValueStore, AbstractTransactionXput):
         super().__init__("TransactionInputs", wallet_path, aeskey)
 
     @staticmethod
-    def _pack_value(txin: TxInput) -> bytes:
+    def _pack_value(txin: DBTxInput) -> bytes:
         raw = bitcoinx.pack_varint(1)
         raw += bitcoinx.pack_varbytes(txin.address_string.encode())
         raw += bitcoinx.pack_varbytes(txin.prevout_tx_hash.encode())
@@ -400,7 +400,7 @@ class TransactionInputStore(GenericKeyValueStore, AbstractTransactionXput):
         return raw
 
     @staticmethod
-    def _unpack_value(raw: bytes) -> TxInput:
+    def _unpack_value(raw: bytes) -> DBTxInput:
         io = BytesIO(raw)
         pack_version = bitcoinx.read_varint(io.read)
         if pack_version == 1:
@@ -408,31 +408,30 @@ class TransactionInputStore(GenericKeyValueStore, AbstractTransactionXput):
             prevout_tx_hash = bitcoinx.read_varbytes(io.read).decode()
             prevout_n = bitcoinx.read_varint(io.read)
             amount = bitcoinx.read_varint(io.read)
-            return TxInput(address_string, prevout_tx_hash, prevout_n, amount)
+            return DBTxInput(address_string, prevout_tx_hash, prevout_n, amount)
         raise DataPackingError(f"Unhandled packing format {pack_version}")
 
-    def add_entries(self, entries: Iterable[Tuple[str, TxInput]]) -> None:
-        print(entries)
+    def add_entries(self, entries: Iterable[Tuple[str, DBTxInput]]) -> None:
         super().add_many([ (key, self._pack_value(value)) for (key, value) in entries ])
 
-    def get_entries(self, tx_id: str) -> List[TxInput]:
+    def get_entries(self, tx_id: str) -> List[DBTxInput]:
         values = super().get_values(tx_id)
         for i, value in enumerate(values):
             values[i] = self._unpack_value(value)
         return values
 
-    def get_all_entries(self) -> Dict[str, List[TxInput]]:
+    def get_all_entries(self) -> Dict[str, List[DBTxInput]]:
         d = {}
         for key, value in super().get_all():
             l = d.setdefault(key, [])
             l.append(self._unpack_value(value))
         return d
 
-    def delete_entries(self, entries: Iterable[Tuple[str, TxInput]]) -> None:
+    def delete_entries(self, entries: Iterable[Tuple[str, DBTxInput]]) -> None:
         super().delete_values([ (tx_id, self._pack_value(txin)) for (tx_id, txin) in entries ])
 
 
-class TxOutput(namedtuple("TxOutputTuple", "address_string out_tx_n amount is_coinbase")):
+class DBTxOutput(namedtuple("DBTxOutputTuple", "address_string out_tx_n amount is_coinbase")):
     pass
 
 
@@ -441,7 +440,7 @@ class TransactionOutputStore(GenericKeyValueStore):
         super().__init__("TransactionOutputs", wallet_path, aeskey)
 
     @staticmethod
-    def _pack_value(txout: TxOutput) -> bytes:
+    def _pack_value(txout: DBTxOutput) -> bytes:
         raw = bitcoinx.pack_varint(1)
         raw += bitcoinx.pack_varbytes(txout.address_string.encode())
         raw += bitcoinx.pack_varint(txout.out_tx_n)
@@ -450,7 +449,7 @@ class TransactionOutputStore(GenericKeyValueStore):
         return raw
 
     @staticmethod
-    def _unpack_value(raw: bytes) -> TxOutput:
+    def _unpack_value(raw: bytes) -> DBTxOutput:
         io = BytesIO(raw)
         pack_version = bitcoinx.read_varint(io.read)
         if pack_version == 1:
@@ -458,26 +457,26 @@ class TransactionOutputStore(GenericKeyValueStore):
             out_tx_n = bitcoinx.read_varint(io.read)
             amount = bitcoinx.read_varint(io.read)
             is_coinbase = bool(bitcoinx.read_varint(io.read))
-            return TxOutput(address_string, out_tx_n, amount, is_coinbase)
+            return DBTxOutput(address_string, out_tx_n, amount, is_coinbase)
         raise DataPackingError(f"Unhandled packing format {pack_version}")
 
-    def add_entries(self, entries: Iterable[Tuple[str, TxOutput]]) -> None:
+    def add_entries(self, entries: Iterable[Tuple[str, DBTxOutput]]) -> None:
         super().add_many([ (key, self._pack_value(value)) for (key, value) in entries ])
 
-    def get_entries(self, tx_hash: str) -> List[TxOutput]:
+    def get_entries(self, tx_hash: str) -> List[DBTxOutput]:
         values = super().get_values(tx_hash)
         for i, value in enumerate(values):
             values[i] = self._unpack_value(value)
         return values
 
-    def get_all_entries(self) -> Dict[str, List[TxOutput]]:
+    def get_all_entries(self) -> Dict[str, List[DBTxOutput]]:
         d = {}
         for key, value in super().get_all():
             l = d.setdefault(key, [])
             l.append(self._unpack_value(value))
         return d
 
-    def delete_entries(self, entries: Iterable[Tuple[str, TxOutput]]) -> None:
+    def delete_entries(self, entries: Iterable[Tuple[str, DBTxOutput]]) -> None:
         super().delete_values([ (tx_id, self._pack_value(txout)) for (tx_id, txout) in entries ])
 
 
@@ -1311,4 +1310,3 @@ class WalletData:
     @property
     def misc(self) -> ObjectKeyValueStore:
         return self.misc_store
-

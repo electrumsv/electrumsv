@@ -7,7 +7,7 @@ import bitcoinx
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv import wallet_database
-from electrumsv.wallet_database import TxFlags, TxData, TxCache, TxProof
+from electrumsv.wallet_database import TxFlags, TxData, TxCache, TxProof, DBTxInput, DBTxOutput
 
 logs.set_level("debug")
 
@@ -199,7 +199,7 @@ class TestTransactionInputStore(unittest.TestCase):
         prevout_tx_hash = "prevout_tx_hash1"
         prevout_n = 20
         amount = 5555
-        txin1 = wallet_database.TxInput(address_string, prevout_tx_hash, prevout_n, amount)
+        txin1 = DBTxInput(address_string, prevout_tx_hash, prevout_n, amount)
         packed_raw = self.store._pack_value(txin1)
         address_string2, prevout_tx_hash2, prevout_n2, amount2 = self.store._unpack_value(
             packed_raw)
@@ -250,7 +250,7 @@ class TestTransactionOutputStore(unittest.TestCase):
         out_tx_n1 = 20
         amount1 = 5555
         is_coinbase1 = False
-        txout1 = wallet_database.TxOutput(address_string1, out_tx_n1, amount1, is_coinbase1)
+        txout1 = DBTxOutput(address_string1, out_tx_n1, amount1, is_coinbase1)
         packed_raw = self.store._pack_value(txout1)
         txout2 = self.store._unpack_value(packed_raw)
         self.assertEqual(txout1.address_string, txout2.address_string)
@@ -916,8 +916,8 @@ class TestXputCache(unittest.TestCase):
 
     def test_cache_with_preload(self):
         tx_id = os.urandom(10).hex()
-        tx_input = wallet_database.TxInput("address_string", "hash", 10, 10)
-        tx_output = wallet_database.TxOutput("address_string", 10, 10, False)
+        tx_input = DBTxInput("address_string", "hash", 10, 10)
+        tx_output = DBTxOutput("address_string", 10, 10, False)
 
         for tx_xput, tx_store in ((tx_input, self.txin_store), (tx_output, self.txout_store)):
             tx_store.add_entries([ (tx_id, tx_xput) ])
@@ -929,8 +929,8 @@ class TestXputCache(unittest.TestCase):
 
     def test_cache_get_entries(self):
         tx_id = os.urandom(10).hex()
-        tx_input = wallet_database.TxInput("address_string", "hash", 10, 10)
-        tx_output = wallet_database.TxOutput("address_string", 10, 10, False)
+        tx_input = DBTxInput("address_string", "hash", 10, 10)
+        tx_output = DBTxOutput("address_string", 10, 10, False)
 
         for tx_xput, tx_store in ((tx_input, self.txin_store), (tx_output, self.txout_store)):
             tx_store.add_entries([ (tx_id, tx_xput) ])
@@ -942,8 +942,8 @@ class TestXputCache(unittest.TestCase):
 
     def test_cache_add(self):
         tx_id = os.urandom(10).hex()
-        tx_input = wallet_database.TxInput("address_string", "hash", 10, 10)
-        tx_output = wallet_database.TxOutput("address_string", 10, 10, False)
+        tx_input = DBTxInput("address_string", "hash", 10, 10)
+        tx_output = DBTxOutput("address_string", 10, 10, False)
 
         for tx_xput, tx_store in ((tx_input, self.txin_store), (tx_output, self.txout_store)):
             cache = wallet_database.TxXputCache(tx_store)
@@ -961,8 +961,8 @@ class TestXputCache(unittest.TestCase):
 
     def test_cache_delete(self):
         tx_id = os.urandom(10).hex()
-        tx_input = wallet_database.TxInput("address_string", "hash", 10, 10)
-        tx_output = wallet_database.TxOutput("address_string", 10, 10, False)
+        tx_input = DBTxInput("address_string", "hash", 10, 10)
+        tx_output = DBTxOutput("address_string", 10, 10, False)
 
         for tx_xput, tx_store in ((tx_input, self.txin_store), (tx_output, self.txout_store)):
             cache = wallet_database.TxXputCache(tx_store)
@@ -975,4 +975,3 @@ class TestXputCache(unittest.TestCase):
             # Check the store no longer has the entry.
             entries = tx_store.get_entries(tx_id)
             self.assertEqual(0, len(entries))
-

@@ -28,6 +28,7 @@
 #   - Multisig_Wallet: several keystores, P2SH
 
 from collections import defaultdict, namedtuple
+import attr
 import copy
 import errno
 import itertools
@@ -59,7 +60,7 @@ from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type
 from .transaction import Transaction
-from .wallet_database import WalletData, TxInput, TxOutput, TxFlags, TxData, TxProof
+from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxFlags, TxData, TxProof
 from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
 from .version import PACKAGE_VERSION
 from .web import create_URI
@@ -69,6 +70,39 @@ logger = logs.get_logger("wallet")
 
 TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
                     'fee height conf timestamp')
+
+
+@attr.s(slots=True, cmp=False, hash=False)
+class UTXO:
+    value = attr.ib()
+    script_pubkey = attr.ib()
+    # This is currently a hex string
+    tx_hash = attr.ib()
+    out_index = attr.ib()
+    height = attr.ib()
+    address = attr.ib()
+    # To determine if matured and spendable
+    is_coinbase = attr.ib()
+
+    def __eq__(self, other):
+        return isinstance(other, UTXO) and self.key() == other.key()
+
+    def __hash__(self):
+        return hash(self.key())
+
+    def key(self):
+        return (self.tx_hash, self.out_index)
+
+    def key_str(self):
+        return ':'.join((self.tx_hash, str(self.out_index)))
+
+    def to_tx_input(self):
+        return {
+            'address': self.address,
+            'value': self.value,
+            'prevout_n': self.out_index,
+            'prevout_hash': self.tx_hash,
+        }
 
 
 def dust_threshold(network):
@@ -167,6 +201,9 @@ class Abstract_Wallet:
         self._synchronize_event = app_state.async_.event()
         self._synchronized_event = app_state.async_.event()
         self.txs_changed_event = app_state.async_.event()
+        self.request_count = 0
+        self.response_count = 0
+        self.progress_event = app_state.async_.event()
 
         self.gap_limit_for_change = 6  # constant
         # saved fields
@@ -324,14 +361,14 @@ class Abstract_Wallet:
             if address_data is not None:
                 save_func('addresses', address_data)
 
-    def get_txins(self, tx_id: str, address: Optional[Address]=None) -> List[TxInput]:
+    def get_txins(self, tx_id: str, address: Optional[Address]=None) -> List[DBTxInput]:
         entries = self.db.txin.get_entries(tx_id)
         if address is None:
             return entries
         address_string = address.to_string()
         return [ v for v in entries if v.address_string == address_string ]
 
-    def get_txouts(self, tx_id: str, address: Optional[str]=None) -> List[TxOutput]:
+    def get_txouts(self, tx_id: str, address: Optional[str]=None) -> List[DBTxOutput]:
         entries = self.db.txout.get_entries(tx_id)
         if address is None:
             return entries
@@ -589,7 +626,7 @@ class Abstract_Wallet:
         return TxInfo(tx_hash, status, label, can_broadcast, amount, fee,
                       height, conf, timestamp)
 
-    def get_addr_io(self, address):
+    def _get_addr_io(self, address):
         h = self.get_address_history(address)
         received = {}
         for tx_hash, height in h:
@@ -601,27 +638,27 @@ class Abstract_Wallet:
                 sent[(txin.prevout_tx_hash, txin.prevout_n)] = height
         return received, sent
 
-    def get_addr_utxo(self, address):
-        coins, spent = self.get_addr_io(address)
+    def is_frozen_utxo(self, utxo):
+        return utxo.key() in self._frozen_coins
+
+    def _get_addr_utxos(self, address):
+        coins, spent = self._get_addr_io(address)
         for input_key in spent:
             coins.pop(input_key)
-            if input_key in self._frozen_coins:
-                # cleanup/detect if the 'frozen coin' was spent and
-                # remove it from the frozen coin set
-                self._frozen_coins.remove(input_key)
-        out = {}
-        for output_key, (tx_height, amount, is_coinbase) in coins.items():
-            prevout_hash, prevout_n = output_key
-            out[output_key] = {
-                'address':address,
-                'value':amount,
-                'prevout_n':int(prevout_n),
-                'prevout_hash':prevout_hash,
-                'height':tx_height,
-                'coinbase':is_coinbase,
-                'is_frozen_coin':output_key in self._frozen_coins,
-            }
-        return out
+            # cleanup/detect if the 'frozen coin' was spent and
+            # remove it from the frozen coin set
+            self._frozen_coins.discard(input_key)
+
+        address_script = address.to_script()
+        return [UTXO(value=value,
+                     script_pubkey=address_script,
+                     tx_hash=tx_hash,
+                     out_index=out_index,
+                     height=height,
+                     address=address,
+                     is_coinbase=is_coinbase)
+                for (tx_hash, out_index), (height, value, is_coinbase) in coins.items()
+        ]
 
     # return the total amount ever received by an address
     def get_addr_received(self, address):
@@ -635,7 +672,7 @@ class Abstract_Wallet:
     # only checks for coin-level freezing, not address-level.
     def get_addr_balance(self, address, exclude_frozen_coins = False):
         assert isinstance(address, Address)
-        received, sent = self.get_addr_io(address)
+        received, sent = self._get_addr_io(address)
         c = u = x = 0
         for output_key, (tx_height, amount, is_coinbase) in received.items():
             if exclude_frozen_coins and output_key in self._frozen_coins:
@@ -662,24 +699,24 @@ class Abstract_Wallet:
 
     def get_utxos(self, domain=None, exclude_frozen=False, mature=False, confirmed_only=False):
         '''Note exclude_frozen=True checks for BOTH address-level and coin-level frozen status. '''
-        coins = []
         if domain is None:
             domain = self.get_addresses()
         if exclude_frozen:
             domain = set(domain) - self._frozen_addresses
-        for addr in domain:
-            utxos = self.get_addr_utxo(addr)
-            for x in utxos.values():
-                if exclude_frozen and x['is_frozen_coin']:
-                    continue
-                if confirmed_only and x['height'] <= 0:
-                    continue
-                if (mature and x['coinbase'] and
-                        x['height'] + COINBASE_MATURITY > self.get_local_height()):
-                    continue
-                coins.append(x)
-                continue
-        return coins
+
+        mempool_height = self.get_local_height() + 1
+        def is_spendable_utxo(utxo):
+            if exclude_frozen and self.is_frozen_utxo(utxo):
+                return False
+            if confirmed_only and utxo.height <= 0:
+                return False
+            # A coin is spendable at height (utxo.height + COINBASE_MATURITY)
+            if mature and utxo.is_coinbase and mempool_height < utxo.height + COINBASE_MATURITY:
+                return False
+            return True
+
+        return [utxo for addr in domain for utxo in self._get_addr_utxos(addr)
+                if is_spendable_utxo(utxo)]
 
     def dummy_address(self):
         return self.get_receiving_addresses()[0]
@@ -748,7 +785,7 @@ class Abstract_Wallet:
                 match = next((row for row in self.get_txouts(prevout_hash, address)
                      if row.out_tx_n == prevout_n), None)
                 if match is not None:
-                    txin = TxInput(address.to_string(), prevout_hash, prevout_n, match.amount)
+                    txin = DBTxInput(address.to_string(), prevout_hash, prevout_n, match.amount)
                     txins.append((tx_hash, txin))
                 else:
                     self.pruned_txo[(prevout_hash, prevout_n)] = tx_hash
@@ -757,7 +794,7 @@ class Abstract_Wallet:
             for n, txo in enumerate(tx.outputs()):
                 _type, address, value = txo
                 if self.is_mine(address):
-                    txout = TxOutput(address.to_string(), n, value, is_coinbase)
+                    txout = DBTxOutput(address.to_string(), n, value, is_coinbase)
                     txouts.append((tx_hash, txout))
 
                 # give the value to txi that spends me
@@ -765,7 +802,7 @@ class Abstract_Wallet:
                 if next_tx_hash is not None:
                     self.pruned_txo.pop((tx_hash, n))
 
-                    txin = TxInput(address.to_string(), tx_hash, n, value)
+                    txin = DBTxInput(address.to_string(), tx_hash, n, value)
                     txins.append((next_tx_hash, txin))
 
             if len(txins):
@@ -954,8 +991,9 @@ class Abstract_Wallet:
         if fixed_fee is None and config.fee_per_kb() is None:
             raise Exception('Dynamic fee estimates not available')
 
+        inputs = [item.to_tx_input() if isinstance(item, UTXO) else item for item in inputs]
         for item in inputs:
-            self.add_input_info(item)
+            self._add_input_info(item)
 
         # change address
         if change_addr:
@@ -1044,12 +1082,10 @@ class Abstract_Wallet:
         is set/unset independent of address-level freezing, however both must be satisfied for
         a coin to be defined as spendable.
         '''
-        for utxo in utxos:
-            assert isinstance(utxo, tuple), f"expected tuple, got {utxo}"
-            if freeze:
-                self._frozen_coins |= { utxo }
-            else:
-                self._frozen_coins -= { utxo }
+        if freeze:
+            self._frozen_coins.update(utxo.key() for utxo in utxos)
+        else:
+            self._frozen_coins.difference_update(utxo.key() for utxo in utxos)
 
     def _analyze_history(self):
         bad_addrs = [addr for addr in self._history if not self.is_mine(addr)]
@@ -1091,33 +1127,37 @@ class Abstract_Wallet:
 
     def cpfp(self, tx, fee):
         txid = tx.txid()
-        for i, o in enumerate(tx.outputs()):
-            otype, address, value = o
+        for output_index, txout in enumerate(tx.outputs()):
+            otype, address, value = txout
             if otype == TYPE_ADDRESS and self.is_mine(address):
                 break
         else:
             return
-        coins = self.get_addr_utxo(address)
-        item = coins.get((txid, i))
-        if not item:
+        key = (txid, output_index)
+        for utxo in self._get_addr_utxos(address):
+            if utxo.key() == key:
+                break
+        else:
             return
-        self.add_input_info(item)
-        inputs = [item]
+        txin = utxo.to_tx_input()
+        self._add_input_info(txin)
+        inputs = [txin]
         outputs = [(TYPE_ADDRESS, address, value - fee)]
         locktime = self.get_local_height()
         # note: no need to call tx.BIP_LI01_sort() here - single input/output
         return Transaction.from_io(inputs, outputs, locktime=locktime)
 
-    def add_input_info(self, txin):
+    def _add_input_info(self, txin):
         address = txin['address']
         if self.is_mine(address):
             txin['type'] = self.get_txin_type(address)
-            # Bitcoin SV needs value to sign
-            received_amount = 0
-            received, _spent = self.get_addr_io(address)
-            item = received.get((txin['prevout_hash'], txin['prevout_n']))
-            txin['value'] = item[1]
-            self.add_input_sig_info(txin, address)
+            if 'value' not in txin:
+                # Bitcoin SV needs value to sign
+                received_amount = 0
+                received, _spent = self._get_addr_io(address)
+                item = received.get((txin['prevout_hash'], txin['prevout_n']))
+                txin['value'] = item[1]
+            self._add_input_sig_info(txin, address)
 
     def can_sign(self, tx):
         if tx.is_complete():
@@ -1215,7 +1255,7 @@ class Abstract_Wallet:
 
     def get_payment_status(self, address, amount):
         local_height = self.get_local_height()
-        received, _sent = self.get_addr_io(address)
+        received, _sent = self._get_addr_io(address)
         l = []
         for (tx_id, _n), (_h, amount, _is_cb) in received.items():
             tx_height = self.db.tx.get_height(tx_id)
@@ -1587,7 +1627,7 @@ class ImportedAddressWallet(ImportedWalletBase):
         self.addresses.remove(address)
         self._sorted = None
 
-    def add_input_sig_info(self, txin, address):
+    def _add_input_sig_info(self, txin, address):
         x_pubkey = 'fd' + address.to_script_hex()
         txin['x_pubkeys'] = [x_pubkey]
         txin['signatures'] = [None]
@@ -1667,7 +1707,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         pubkey = self.keystore.address_to_pubkey(address)
         return self.keystore.export_private_key(pubkey, password)
 
-    def add_input_sig_info(self, txin, address):
+    def _add_input_sig_info(self, txin, address):
         assert txin['type'] == 'p2pkh'
         pubkey = self.keystore.address_to_pubkey(address)
         txin['num_sig'] = 1
@@ -1826,7 +1866,7 @@ class Simple_Deterministic_Wallet(Simple_Wallet, Deterministic_Wallet):
     def get_public_keys(self, address):
         return [self.get_public_key(address)]
 
-    def add_input_sig_info(self, txin, address):
+    def _add_input_sig_info(self, txin, address):
         derivation = self.get_address_index(address)
         x_pubkey = self.keystore.get_xpubkey(*derivation)
         txin['x_pubkeys'] = [x_pubkey]
@@ -1920,7 +1960,7 @@ class Multisig_Wallet(Deterministic_Wallet):
     def get_fingerprint(self):
         return ''.join(sorted(self.get_master_public_keys()))
 
-    def add_input_sig_info(self, txin, address):
+    def _add_input_sig_info(self, txin, address):
         # x_pubkeys are not sorted here because it would be too slow
         # they are sorted in transaction.get_sorted_pubkeys
         derivation = self.get_address_index(address)
