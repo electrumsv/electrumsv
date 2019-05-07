@@ -53,6 +53,37 @@ In order to do so, run these commands::
     pip3 install --user -r contrib/requirements/requirements-binaries.txt
     pip3 install .
 
+Problem Solving
+---------------
+
+If you choose to use Linux, you introduce complexity and uncertainty into the process. It is not
+possible to know all the unique choices you have made regarding it. The following tips may help
+work around problems you encounter.
+
+Errors relating to "wheels"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you encounter problems referring to wheels, make sure you have installed the wheel package::
+
+    pip3 install --user wheel
+
+Errors relating to "Python.h"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you encounter problems referring to "Python.h", first check your Python version::
+
+    python3 --version
+
+If it says "3.6", then install the following::
+
+    sudo apt install python3.6-dev
+
+If it says "3.7", then install the following::
+
+    sudo apt install python3.7-dev
+
+If it says a later version of Python, you should be able to figure out what to do.
+
 Getting started on Windows
 ==========================
 
