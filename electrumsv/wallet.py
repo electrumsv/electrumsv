@@ -765,7 +765,7 @@ class Abstract_Wallet:
             self.logger.debug("adding tx data %s", tx_hash)
             self.db.tx.add_transaction(tx, TxFlags.StateSettled)
 
-    def update_transaction(self, tx_hash: str, tx: Transaction) -> None:
+    def apply_transactions_xputs(self, tx_hash: str, tx: Transaction) -> None:
         with self.transaction_lock:
             self._update_transaction_xputs(tx_hash, tx)
 
@@ -855,7 +855,7 @@ class Abstract_Wallet:
                 tx = self.get_transaction(tx_id)
                 if (tx is not None and not len(self.get_txins(tx_id, addr)) and
                         not len(self.get_txouts(tx_id, addr))):
-                    self.update_transaction(tx_id, tx)
+                    self.apply_transactions_xputs(tx_id, tx)
 
         self.txs_changed_event.set()
         await self._trigger_synchronization()
@@ -1093,7 +1093,7 @@ class Abstract_Wallet:
                     continue
                 tx = self.get_transaction(tx_hash)
                 if tx is not None:
-                    self.add_transaction(tx_hash, tx)
+                    self.apply_transactions_xputs(tx_hash, tx)
 
     def start(self, network):
         self.network = network
