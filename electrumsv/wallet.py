@@ -760,62 +760,56 @@ class Abstract_Wallet:
             pass
 
     def add_transaction(self, tx_hash: str, tx: Transaction) -> None:
-        self._process_transaction(tx_hash, tx, add=True)
+        with self.transaction_lock:
+            self._update_transaction_xputs(tx_hash, tx)
+            self.logger.debug("adding tx data %s", tx_hash)
+            self.db.tx.add_transaction(tx, TxFlags.StateSettled)
 
     def update_transaction(self, tx_hash: str, tx: Transaction) -> None:
-        self._process_transaction(tx_hash, tx)
-
-    def _process_transaction(self, tx_hash: str, tx: Transaction,
-            add: Optional[bool]=False) -> None:
-        is_coinbase = tx.inputs()[0]['type'] == 'coinbase'
         with self.transaction_lock:
-            # We batch the adding of inputs and outputs as it is a thousand times faster.
-            txins = []
-            txouts = []
+            self._update_transaction_xputs(tx_hash, tx)
 
-            # add inputs
-            for tx_input in tx.inputs():
-                address = tx_input.get('address')
-                if not self.is_mine(address):
-                    continue
-                if tx_input['type'] != 'coinbase':
-                    prevout_hash = tx_input['prevout_hash']
-                    prevout_n = tx_input['prevout_n']
+    def _update_transaction_xputs(self, tx_hash: str, tx: Transaction) -> None:
+        is_coinbase = tx.inputs()[0]['type'] == 'coinbase'
+        # We batch the adding of inputs and outputs as it is a thousand times faster.
+        txins = []
+        txouts = []
+
+        # add inputs
+        for tx_input in tx.inputs():
+            address = tx_input.get('address')
+            if tx_input['type'] != 'coinbase':
+                prevout_hash = tx_input['prevout_hash']
+                prevout_n = tx_input['prevout_n']
+            if self.is_mine(address):
                 # find value from prev output
                 match = next((row for row in self.get_txouts(prevout_hash, address)
-                     if row.out_tx_n == prevout_n), None)
+                    if row.out_tx_n == prevout_n), None)
                 if match is not None:
                     txin = DBTxInput(address.to_string(), prevout_hash, prevout_n, match.amount)
                     txins.append((tx_hash, txin))
                 else:
                     self.pruned_txo[(prevout_hash, prevout_n)] = tx_hash
 
-            # add outputs
-            for n, txo in enumerate(tx.outputs()):
-                _type, address, value = txo
-                if self.is_mine(address):
-                    txout = DBTxOutput(address.to_string(), n, value, is_coinbase)
-                    txouts.append((tx_hash, txout))
+        # add outputs
+        for n, txo in enumerate(tx.outputs()):
+            _type, address, value = txo
+            if self.is_mine(address):
+                txout = DBTxOutput(address.to_string(), n, value, is_coinbase)
+                txouts.append((tx_hash, txout))
 
-                # give the value to txi that spends me
-                next_tx_hash = self.pruned_txo.get((tx_hash, n))
-                if next_tx_hash is not None:
-                    self.pruned_txo.pop((tx_hash, n))
+            # give the value to txi that spends me
+            next_tx_hash = self.pruned_txo.get((tx_hash, n))
+            if next_tx_hash is not None:
+                self.pruned_txo.pop((tx_hash, n))
 
-                    txin = DBTxInput(address.to_string(), tx_hash, n, value)
-                    txins.append((next_tx_hash, txin))
+                txin = DBTxInput(address.to_string(), tx_hash, n, value)
+                txins.append((next_tx_hash, txin))
 
-            if len(txins):
-                self.db.txin.add_entries(txins)
-            if len(txouts):
-                self.db.txout.add_entries(txouts)
-
-            # Save the underlying transaction if we know it should be new and not present.
-            # It is possible we may need to update even in the update cases, but that implies
-            # knowing that uses intend it, and we do not know that at this time.
-            if add:
-                self.logger.debug("updating tx data %s", tx_hash)
-                self.db.tx.add_transaction(tx, TxFlags.StateSettled)
+        if len(txins):
+            self.db.txin.add_entries(txins)
+        if len(txouts):
+            self.db.txout.add_entries(txouts)
 
     # Used by ImportedWalletBase
     def _remove_transaction(self, tx_hash: str) -> None:
@@ -858,10 +852,10 @@ class Abstract_Wallet:
 
             for tx_id in tx_ids:
                 # if addr is new, we have to recompute txi and txo
-                tx = self.get_transaction(tx_hash)
-                if (tx is not None and not len(self.get_txins(tx_hash, addr)) and
-                        not len(self.get_txouts(tx_hash, addr))):
-                    self.update_transaction(tx_hash, tx)
+                tx = self.get_transaction(tx_id)
+                if (tx is not None and not len(self.get_txins(tx_id, addr)) and
+                        not len(self.get_txouts(tx_id, addr))):
+                    self.update_transaction(tx_id, tx)
 
         self.txs_changed_event.set()
         await self._trigger_synchronization()
