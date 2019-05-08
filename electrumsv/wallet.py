@@ -489,7 +489,7 @@ class Abstract_Wallet:
         """ return the height and timestamp of a verified transaction. """
         with self.lock:
             metadata = self.db.tx.get_metadata(tx_hash)
-            assert metadata.height is not None
+            assert metadata.height is not None, f"tx {tx_hash} has no height"
             if metadata.timestamp is not None:
                 conf = max(self.get_local_height() - metadata.height + 1, 0)
                 return metadata.height, conf, metadata.timestamp

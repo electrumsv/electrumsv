@@ -33,6 +33,41 @@ __all__ = [
     "TransactionOutputStore",
 ]
 
+def max_sql_variables():
+    """Get the maximum number of arguments allowed in a query by the current
+    sqlite3 implementation. Based on `this question
+    `_
+
+    Returns
+    -------
+    int
+        inferred SQLITE_MAX_VARIABLE_NUMBER
+    """
+    db = sqlite3.connect(':memory:')
+    cur = db.cursor()
+    cur.execute('CREATE TABLE t (test)')
+    low, high = 0, 100000
+    while (high - 1) > low:
+        guess = (high + low) // 2
+        query = 'INSERT INTO t VALUES ' + ','.join(['(?)' for _ in
+                                                    range(guess)])
+        args = [str(i) for i in range(guess)]
+        try:
+            cur.execute(query, args)
+        except sqlite3.OperationalError as e:
+            if "too many SQL variables" in str(e):
+                high = guess
+            else:
+                raise
+        else:
+            low = guess
+    cur.close()
+    db.close()
+    return low
+
+# https://stackoverflow.com/a/36788489
+MAX_VARS = max_sql_variables()
+
 
 class DataPackingError(Exception):
     pass
@@ -711,21 +746,35 @@ class TransactionStore(BaseWalletStore):
         clause, params = self._flag_clause(flags, mask)
         if clause:
             query += " WHERE "+ clause
+
+        results = []
+        def _collect_results(cursor, results):
+            rows = cursor.fetchall()
+            cursor.close()
+            for row in rows:
+                tx_id = self._decrypt_hex(row[0])
+                bytedata = self._decrypt(row[2]) if row[2] is not None else None
+                data = self._unpack_data(self._decrypt(row[1]), row[3])
+                results.append((tx_id, data, bytedata, row[3]))
+
         if tx_ids is not None and len(tx_ids):
             etx_ids = [ self._encrypt_hex(tx_id) for tx_id in tx_ids ]
             if clause:
                 query += " AND "
             else:
                 query += " WHERE "
-            query += "Key IN ({0})".format(",".join("?" for k in tx_ids))
-            params += etx_ids
-        cursor = db.execute(query, params)
-        results = []
-        for row in cursor.fetchall():
-            tx_id = self._decrypt_hex(row[0])
-            bytedata = self._decrypt(row[2]) if row[2] is not None else None
-            data = self._unpack_data(self._decrypt(row[1]), row[3])
-            results.append((tx_id, data, bytedata, row[3]))
+
+            batch_size = MAX_VARS - len(params)
+            while len(etx_ids):
+                batch_params = params + etx_ids[:batch_size]
+                self._logger.debug(f"ERROR {len(params)} {batch_size} {len(batch_params)}")
+                batch_query = query + "Key IN ({0})".format(",".join("?" for k in batch_params))
+                cursor = db.execute(batch_query, batch_params)
+                _collect_results(cursor, results)
+                etx_ids = etx_ids[batch_size:]
+        else:
+            cursor = db.execute(query, params)
+            _collect_results(cursor, results)
         return results
 
     @tprofiler
@@ -751,20 +800,33 @@ class TransactionStore(BaseWalletStore):
         clause, params = self._flag_clause(flags, mask)
         if clause:
             query += " WHERE "+ clause
+
+        results = []
+        def _collect_results(cursor, results):
+            rows = cursor.fetchall()
+            cursor.close()
+            for row in rows:
+                tx_id = self._decrypt_hex(row[0])
+                data = self._unpack_data(self._decrypt(row[1]), row[2])
+                results.append((tx_id, data, row[2]))
+
         if tx_ids is not None and len(tx_ids):
             etx_ids = [ self._encrypt_hex(tx_id) for tx_id in tx_ids ]
             if clause:
                 query += " AND "
             else:
                 query += " WHERE "
-            query += "Key IN ({0})".format(",".join("?" for k in tx_ids))
-            params += tx_ids
-        cursor = db.execute(query, params)
-        results = []
-        for row in cursor.fetchall():
-            tx_id = self._decrypt_hex(row[0])
-            data = self._unpack_data(self._decrypt(row[1]), row[2])
-            results.append((tx_id, data, row[2]))
+
+            batch_size = MAX_VARS - len(params)
+            while len(etx_ids):
+                batch_params = params + etx_ids[:batch_size]
+                batch_query = query + "Key IN ({0})".format(",".join("?" for k in tx_ids))
+                cursor = db.execute(batch_query, batch_params)
+                _collect_results(cursor, results)
+                etx_ids = etx_ids[batch_size:]
+        else:
+            cursor = db.execute(query, params)
+            _collect_results(cursor, results)
         return results
 
     @tprofiler
