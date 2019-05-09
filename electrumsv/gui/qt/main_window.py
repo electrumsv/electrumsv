@@ -588,17 +588,27 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         toolbar.setIconSize(QSize(icon_size, icon_size))
         toolbar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
 
-        preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
-        preferences_action.triggered.connect(self.preferences_dialog)
-        toolbar.addAction(preferences_action)
+        make_payment_action = QAction(read_QIcon("icons8-initiate-money-transfer-80.png"),
+            _("Make Payment"), self)
+        make_payment_action.triggered.connect(self.new_payment)
+        toolbar.addAction(make_payment_action)
+
+        spacer = QWidget(self)
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        spacer.setVisible(True)
+        toolbar.addWidget(spacer)
+
+        log_action = QAction(read_QIcon("icons8-moleskine-80.png"), _("Log Viewer"), self)
+        log_action.triggered.connect(self.app.show_log_viewer)
+        toolbar.addAction(log_action)
 
         network_action = QAction(read_QIcon("network.png"), _("Network"), self)
         network_action.triggered.connect(lambda: self.app.show_network_dialog(self))
         toolbar.addAction(network_action)
 
-        log_action = QAction(read_QIcon("icons8-moleskine-80.png"), _("Log Viewer"), self)
-        log_action.triggered.connect(self.app.show_log_viewer)
-        toolbar.addAction(log_action)
+        preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
+        preferences_action.triggered.connect(self.preferences_dialog)
+        toolbar.addAction(preferences_action)
 
         self._update_check_state = "default"
         update_action = QAction(
@@ -687,6 +697,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                         read_QIcon("electrum_dark_icon"), 20000)
 
         self._update_check_toolbar_update()
+
+    def new_payment(self):
+        from . import payment
+        from importlib import reload
+        reload(payment)
+        self.w = payment.PaymentWindow(self)
+        self.w.show()
 
     def donate_to_server(self):
         server = self.network.main_server
