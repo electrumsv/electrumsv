@@ -767,7 +767,6 @@ class TransactionStore(BaseWalletStore):
             batch_size = MAX_VARS - len(params)
             while len(etx_ids):
                 batch_params = params + etx_ids[:batch_size]
-                self._logger.debug(f"ERROR {len(params)} {batch_size} {len(batch_params)}")
                 batch_query = query + "Key IN ({0})".format(",".join("?" for k in batch_params))
                 cursor = db.execute(batch_query, batch_params)
                 _collect_results(cursor, results)
@@ -878,8 +877,11 @@ class TransactionStore(BaseWalletStore):
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 [etx_id, emetadata, ebytedata, flags, timestamp, timestamp])
         db.commit()
-        self._logger.debug("add %d transactions: %s", len(entries),
-            [ (a, b, byte_repr(c), d) for (a, b, c, d) in entries ])
+        if len(entries) < 20:
+            self._logger.debug("add %d transactions: %s", len(entries),
+                [ (a, b, byte_repr(c), d) for (a, b, c, d) in entries ])
+        else:
+            self._logger.debug("add %d transactions (too many to show)", len(entries))
 
     def update(self, tx_id: str, metadata: TxData, bytedata: Optional[bytes],
             flags: Optional[int]=TxFlags.Unset) -> None:
@@ -1277,8 +1279,10 @@ class TxCache:
                 if bytedata is not None and not self._validate_transaction_bytes(tx_id, bytedata):
                     raise InvalidDataError(tx_id)
                 cache_additions.append((tx_id, TxCacheEntry(metadata, get_flags, bytedata)))
-            if len(cache_additions):
+            if len(cache_additions) < 20:
                 self.logger.debug("cache_additions: %r", cache_additions)
+            else:
+                self.logger.debug("cache_additions (%d entries)", len(cache_additions))
             self._cache.update(cache_additions)
 
         access_time = time.time()

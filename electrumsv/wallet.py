@@ -375,7 +375,6 @@ class Abstract_Wallet:
         address_string = address.to_string()
         return [ v for v in entries if v.address_string == address_string ]
 
-    @profiler
     def get_transaction(self, tx_id: str, flags: Optional[int]=None) -> Optional[Transaction]:
         return self.db.tx.get_transaction(tx_id, flags)
 
@@ -462,6 +461,7 @@ class Abstract_Wallet:
         if entry is None:
             self.logger.debug("Attempting to clear unsettled tx %s", tx_hash)
             return
+
         # We only update a subset.
         flags = TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition
         data = TxData(height=height, timestamp=timestamp, position=position)
