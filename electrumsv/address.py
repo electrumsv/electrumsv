@@ -27,9 +27,10 @@
 from collections import namedtuple
 import struct
 
-from bitcoinx import Ops, PublicKey, base58_decode_check, base58_encode_check, hash_to_hex_str
+from bitcoinx import (
+    Ops, PublicKey, base58_decode_check, base58_encode_check, hash_to_hex_str, cashaddr
+)
 
-from . import cashaddr
 from .crypto import hash_160, sha256
 from .networks import Net
 

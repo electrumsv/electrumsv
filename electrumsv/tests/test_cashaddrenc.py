@@ -24,7 +24,8 @@
 """Reference tests for cashaddr adresses"""
 
 import random
-from electrumsv import cashaddr
+from bitcoinx import cashaddr
+from bitcoinx.cashaddr import _encode_full as cashaddr_encode_full
 
 import pytest
 
@@ -62,11 +63,11 @@ class TestCashAddrAddress:
 
     def test_encode_bad_inputs(self):
         with pytest.raises(TypeError):
-            cashaddr.encode_full(2, cashaddr.PUBKEY_TYPE, bytes(20))
+            cashaddr_encode_full(2, cashaddr.PUBKEY_TYPE, bytes(20))
         with pytest.raises(TypeError):
-            cashaddr.encode_full(BSV_PREFIX, cashaddr.PUBKEY_TYPE, '0' * 40)
+            cashaddr_encode_full(BSV_PREFIX, cashaddr.PUBKEY_TYPE, '0' * 40)
         with pytest.raises(ValueError):
-            cashaddr.encode_full(BSV_PREFIX, 15, bytes(20))
+            cashaddr_encode_full(BSV_PREFIX, 15, bytes(20))
 
     def test_encode_decode(self):
         """Test whether valid addresses encode and decode properly, for all
@@ -77,7 +78,7 @@ class TestCashAddrAddress:
                 size = bits_size // 8
                 # Convert to a valid number of bytes for a hash
                 hashbytes = bytes(random.randint(0, 255) for i in range(size))
-                addr = cashaddr.encode_full(prefix, cashaddr.PUBKEY_TYPE,
+                addr = cashaddr_encode_full(prefix, cashaddr.PUBKEY_TYPE,
                                             hashbytes)
                 rprefix, kind, addr_hash = cashaddr.decode(addr)
                 assert rprefix == prefix
@@ -93,7 +94,7 @@ class TestCashAddrAddress:
             # Convert to a valid number of bytes for a hash
             hashbytes = bytes(random.randint(0, 255) for i in range(size))
             with pytest.raises(ValueError):
-                cashaddr.encode_full(BSV_PREFIX, cashaddr.PUBKEY_TYPE,
+                cashaddr_encode_full(BSV_PREFIX, cashaddr.PUBKEY_TYPE,
                                      hashbytes)
 
     def test_decode_bad_inputs(self):

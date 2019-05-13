@@ -23,17 +23,18 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import re
+import time
+from decimal import Decimal
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFontMetrics, QTextCursor
 from PyQt5.QtWidgets import QCompleter, QPlainTextEdit
+from bitcoinx import cashaddr
+
 from .qrtextedit import ScanQRTextEdit
 
-import re
-import time
-
-from decimal import Decimal
 from electrumsv import bitcoin
-from electrumsv import cashaddr
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.i18n import _
 from electrumsv.web import is_URI
