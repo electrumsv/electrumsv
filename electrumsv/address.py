@@ -38,9 +38,6 @@ from .networks import Net
 class AddressError(Exception):
     '''Exception used for Address errors.'''
 
-class ScriptError(Exception):
-    '''Exception used for Script errors.'''
-
 
 # Utility functions
 
@@ -246,14 +243,3 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
 
     def __repr__(self):
         return '<Address {}>'.format(self.__str__())
-
-
-def _match_ops(ops, pattern):
-    if len(ops) != len(pattern):
-        return False
-    for op, pop in zip(ops, pattern):
-        if pop != op:
-            # -1 means 'data push', whose op is an (op, data) tuple
-            if pop == -1 and isinstance(op, tuple):
-                continue
-            return False
