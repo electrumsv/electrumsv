@@ -7,7 +7,6 @@ from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QProgressDialog
 )
 
-from electrumsv import bitcoin
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -148,7 +147,7 @@ class CoinSplittingTab(QWidget):
 
         unused_address = window.wallet.get_unused_address()
         outputs = [
-            (bitcoin.TYPE_ADDRESS, unused_address, "!")
+            (unused_address, "!")
         ]
         coins = wallet.get_utxos(None, exclude_frozen=True, mature=True, confirmed_only=False)
         tx = wallet.make_unsigned_transaction(coins, outputs, window.config)

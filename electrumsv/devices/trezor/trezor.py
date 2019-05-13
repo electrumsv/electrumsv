@@ -2,9 +2,7 @@ from collections import defaultdict
 
 from bitcoinx import Ops, bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string
 
-
-from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
-
+from electrumsv.address import Address, ScriptOutput
 from electrumsv.app_state import app_state
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
@@ -47,15 +45,15 @@ TIM_NEW, TIM_RECOVER = range(2)
 TREZOR_PRODUCT_KEY = 'Trezor'
 
 
-def validate_op_return_output_and_get_data(output):
-    if output.type != TYPE_SCRIPT:
-        raise Exception("Unexpected output type: {}".format(output.type))
-    script = bfh(output.address)
+def validate_op_return(output, amount):
+    if not isinstance(output, ScriptOutput):
+        raise ValueError(f'Unexpected output type: {output}')
+    script = bfh(output.to_string())
     if not (script[0] == Ops.OP_RETURN and
             script[1] == len(script) - 2 and script[1] <= 75):
-        raise Exception(_("Only OP_RETURN scripts, with one constant push, are supported."))
-    if output.value != 0:
-        raise Exception(_("Amount for OP_RETURN output must be zero."))
+        raise ValueError(_("Only OP_RETURN scripts, with one constant push, are supported."))
+    if amount:
+        raise ValueError(_("Amount for OP_RETURN output must be zero."))
     return script[2:]
 
 
@@ -388,18 +386,17 @@ class TrezorPlugin(HW_PluginBase):
         def create_output_by_address():
             txoutputtype = TxOutputType()
             txoutputtype.amount = amount
-            if _type == TYPE_SCRIPT:
+            if isinstance(address, ScriptOutput):
                 txoutputtype.script_type = OutputScriptType.PAYTOOPRETURN
-                txoutputtype.op_return_data = validate_op_return_output_and_get_data(o)
-            elif _type == TYPE_ADDRESS:
+                txoutputtype.op_return_data = validate_op_return(address, amount)
+            elif isinstance(address, Address):
                 txoutputtype.script_type = OutputScriptType.PAYTOADDRESS
                 txoutputtype.address = address.to_string()
             return txoutputtype
 
         outputs = []
 
-        for o in tx.outputs():
-            _type, address, amount = o
+        for address, amount in tx.outputs():
             info = tx.output_info.get(address)
             if info:
                 # Send derivations of addresses in our wallet

@@ -51,7 +51,7 @@ import electrumsv
 from electrumsv import bitcoin, commands, keystore, paymentrequest, qrscanner, util
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
+from electrumsv.bitcoin import COIN
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -1394,7 +1394,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         r = self.payto_e.get_recipient()
         if r:
             return r
-        return (TYPE_ADDRESS, self.wallet.dummy_address())
+        return self.wallet.dummy_address()
 
     def get_custom_fee_text(self, fee_rate = None):
         if not self.config.has_custom_fee_rate():
@@ -1416,7 +1416,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 with open(file_path, "rb") as f:
                     data_chunks.append(f.read())
             amount = 0
-            output_tuple = (TYPE_SCRIPT, ScriptOutput.as_op_return(data_chunks), amount)
+            output_tuple = (ScriptOutput.as_op_return(data_chunks), amount)
             return [ output_tuple ]
         return []
 
@@ -1432,8 +1432,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             fee = None
             outputs = self.payto_e.get_outputs(self.is_max)
             if not outputs:
-                _type, addr = self.get_payto_or_dummy()
-                outputs = [(_type, addr, amount)]
+                addr = self.get_payto_or_dummy()
+                outputs = [(addr, amount)]
 
             outputs.extend(self.get_opreturn_outputs(outputs))
             try:
@@ -1541,7 +1541,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_error(_('No outputs'))
             return
 
-        for _type, addr, amount in outputs:
+        for addr, amount in outputs:
             if amount is None:
                 self.show_error(_('Invalid Amount'))
                 return
@@ -1619,7 +1619,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_message(str(e))
             return
 
-        amount = tx.output_value() if self.is_max else sum(x[2] for x in outputs)
+        amount = tx.output_value() if self.is_max else sum(amount for addr, amount in outputs)
         fee = tx.get_fee()
 
         if preview:
@@ -1951,9 +1951,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(QLabel(_("Requestor") + ':'), 0, 0)
         grid.addWidget(QLabel(pr.get_requestor()), 0, 1)
         grid.addWidget(QLabel(_("Amount") + ':'), 1, 0)
-        outputs_str = '\n'.join(self.format_amount(x[2]) + app_state.base_unit() +
-                                ' @ ' + x[1].to_string()
-                                for x in pr.get_outputs())
+        outputs_str = '\n'.join(self.format_amount(amount) + app_state.base_unit() +
+                                ' @ ' + addr.to_string()
+                                for addr, amount in pr.get_outputs())
         grid.addWidget(QLabel(outputs_str), 1, 1)
         expires = pr.get_expiration_date()
         grid.addWidget(QLabel(_("Memo") + ':'), 2, 0)

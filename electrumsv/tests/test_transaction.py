@@ -75,7 +75,6 @@ class TestTransaction(unittest.TestCase):
             'outputs': [{'address': Address.from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK'),
                          'prevout_n': 0,
                          'scriptPubKey': '76a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac',
-                         'type': 0,
                          'value': 20112408}],
             'version': 1}
         tx = transaction.Transaction(unsigned_blob)
@@ -110,7 +109,6 @@ class TestTransaction(unittest.TestCase):
             'outputs': [{'address': Address.from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK'),
                          'prevout_n': 0,
                          'scriptPubKey': '76a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac',
-                         'type': 0,
                          'value': 20112408}],
             'version': 1
         }
@@ -244,16 +242,16 @@ class TestTransaction2:
 
 @pytest.mark.parametrize("script,answer,compressed", (
     ('2102edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312ac',
-     (1, PublicKey.from_hex(
-         '02edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312')), True),
+     PublicKey.from_hex(
+         '02edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312'), True),
     ('4104edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312ecfe4ab1f246e44df8'
      '5461fd4eb18ad5bd8203334a6586380cca6ed4a92ca232ac',
-     (1, PublicKey.from_hex(
+     PublicKey.from_hex(
          '04edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312ecfe4ab1f246e44d'
-         'f85461fd4eb18ad5bd8203334a6586380cca6ed4a92ca232')), False),
+         'f85461fd4eb18ad5bd8203334a6586380cca6ed4a92ca232'), False),
 
 ))
 def test_get_address_from_output_script_P2PK(script, answer, compressed):
     result = get_address_from_output_script(bytes.fromhex(script))
     assert result == answer
-    assert result[1].is_compressed() == compressed
+    assert result.is_compressed() == compressed

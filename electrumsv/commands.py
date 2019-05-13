@@ -37,7 +37,7 @@ from bitcoinx import PrivateKey, PublicKey
 from . import bitcoin
 from .address import Address
 from .app_state import app_state
-from .bitcoin import COIN, TYPE_ADDRESS
+from .bitcoin import COIN
 from .crypto import hash_160
 from .exchange_rate import FxTask
 from .i18n import _
@@ -269,8 +269,7 @@ class Commands:
                 txin['signatures'] = [None]
                 txin['num_sig'] = 1
 
-        outputs = [(TYPE_ADDRESS, Address.from_string(x['address']), int(x['value']))
-                   for x in outputs]
+        outputs = [(Address.from_string(x['address']), int(x['value'])) for x in outputs]
         tx = Transaction.from_io(inputs, outputs, locktime=locktime)
         tx.sign(keypairs)
         return tx.as_dict()
@@ -463,7 +462,7 @@ class Commands:
         for address, amount in outputs:
             address = Address.from_string(address)
             amount = satoshis(amount)
-            final_outputs.append((TYPE_ADDRESS, address, amount))
+            final_outputs.append((address, amount))
 
         coins = self.wallet.get_spendable_coins(domain, self.config)
         tx = self.wallet.make_unsigned_transaction(coins, final_outputs, self.config,

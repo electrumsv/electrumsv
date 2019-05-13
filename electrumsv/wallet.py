@@ -46,7 +46,7 @@ from . import coinchooser
 from . import paymentrequest
 from .address import Address
 from .app_state import app_state
-from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, scripthash_hex
+from .bitcoin import COINBASE_MATURITY, scripthash_hex
 from .contacts import Contacts
 from .crypto import sha256d
 from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
@@ -160,7 +160,7 @@ def sweep(privkeys, network, config, recipient, fee=None, imax=100):
     inputs, keypairs = sweep_preparations(privkeys, network.get_utxos, imax)
     total = sum(i.get('value') for i in inputs)
     if fee is None:
-        outputs = [(TYPE_ADDRESS, recipient, total)]
+        outputs = [(recipient, total)]
         tx = Transaction.from_io(inputs, outputs)
         fee = config.estimate_fee(tx.estimated_size())
     if total - fee < 0:
@@ -171,7 +171,7 @@ def sweep(privkeys, network, config, recipient, fee=None, imax=100):
                         '\nTotal: %d satoshis\nFee: %d\nDust Threshold: %d' %
                         (total, fee, dust_threshold(network)))
 
-    outputs = [(TYPE_ADDRESS, recipient, total - fee)]
+    outputs = [(recipient, total - fee)]
     locktime = network.get_local_height()
 
     tx = Transaction.from_io(inputs, outputs, locktime=locktime)
@@ -793,7 +793,7 @@ class Abstract_Wallet:
 
         # add outputs
         for n, txo in enumerate(tx.outputs()):
-            _type, address, value = txo
+            address, value = txo
             if self.is_mine(address):
                 txout = DBTxOutput(address.to_string(), n, value, is_coinbase)
                 txouts.append((tx_hash, txout))
@@ -971,8 +971,8 @@ class Abstract_Wallet:
                                   change_addr: Optional[Address]=None) -> Transaction:
         # check outputs
         i_max = None
-        for i, o in enumerate(outputs):
-            _type, data, value = o
+        for i, output in enumerate(outputs):
+            addr, value = output
             if value == '!':
                 if i_max is not None:
                     raise Exception("More than one output set to spend max")
@@ -1021,12 +1021,12 @@ class Abstract_Wallet:
                                       fee_estimator, self.dust_threshold())
         else:
             sendable = sum(x['value'] for x in inputs)
-            _type, data, value = outputs[i_max]
-            outputs[i_max] = (_type, data, 0)
+            data, value = outputs[i_max]
+            outputs[i_max] = (data, 0)
             tx = Transaction.from_io(inputs, outputs)
             fee = fee_estimator(tx.estimated_size())
             amount = max(0, sendable - tx.output_value() - fee)
-            outputs[i_max] = (_type, data, amount)
+            outputs[i_max] = (data, amount)
             tx = Transaction.from_io(inputs, outputs)
 
         # If user tries to send too big of a fee (more than 50
@@ -1122,8 +1122,8 @@ class Abstract_Wallet:
     def cpfp(self, tx, fee):
         txid = tx.txid()
         for output_index, txout in enumerate(tx.outputs()):
-            otype, address, value = txout
-            if otype == TYPE_ADDRESS and self.is_mine(address):
+            address, value = txout
+            if isinstance(address, Address) and self.is_mine(address):
                 break
         else:
             return
@@ -1136,7 +1136,7 @@ class Abstract_Wallet:
         txin = utxo.to_tx_input()
         self._add_input_info(txin)
         inputs = [txin]
-        outputs = [(TYPE_ADDRESS, address, value - fee)]
+        outputs = [(address, value - fee)]
         locktime = self.get_local_height()
         # note: no need to call tx.BIP_LI01_sort() here - single input/output
         return Transaction.from_io(inputs, outputs, locktime=locktime)
@@ -1189,7 +1189,7 @@ class Abstract_Wallet:
             if 'value' not in txin:
                 inputtx = self.get_input_tx(txin['prevout_hash'])
                 if inputtx is not None:
-                    out_zero, out_addr, out_val = inputtx.outputs()[txin['prevout_n']]
+                    out_addr, out_val = inputtx.outputs()[txin['prevout_n']]
                     txin['value'] = out_val
                     txin['prev_tx'] = inputtx   # may be needed by hardware wallets
 
@@ -1200,8 +1200,7 @@ class Abstract_Wallet:
         # add output info for hw wallets
         info = {}
         xpubs = self.get_master_public_keys()
-        for txout in tx.outputs():
-            _type, addr, amount = txout
+        for addr, amount in tx.outputs():
             if self.is_mine(addr):
                 index = self.get_address_index(addr)
                 pubkeys = self.get_public_keys(addr)

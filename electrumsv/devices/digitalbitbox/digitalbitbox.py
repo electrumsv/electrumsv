@@ -16,8 +16,9 @@ import time
 
 from bitcoinx import PublicKey, compact_signature_to_der, bip32_key_from_string
 
+from electrumsv.address import Address
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import TYPE_ADDRESS, push_script, msg_magic
+from electrumsv.bitcoin import push_script, msg_magic
 from electrumsv.crypto import (sha256d, EncodeAES_base64, EncodeAES_bytes, DecodeAES_bytes,
     hmac_oneshot)
 from electrumsv.exceptions import UserCancelled
@@ -536,8 +537,8 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     self.give_error("No matching x_key for sign_transaction") # should never happen
 
             # Build pubkeyarray from outputs
-            for _type, address, amount in tx.outputs():
-                assert _type == TYPE_ADDRESS
+            for address, amount in tx.outputs():
+                assert isinstance(address, Address)
                 info = tx.output_info.get(address)
                 if info is not None:
                     index, xpubs, m = info

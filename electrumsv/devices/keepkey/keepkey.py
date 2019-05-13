@@ -27,7 +27,7 @@ import threading
 from bitcoinx import BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import TYPE_ADDRESS, TYPE_SCRIPT
+from electrumsv.address import Address, ScriptOutput
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
@@ -373,7 +373,7 @@ class KeepKeyPlugin(HW_PluginBase):
         outputs = []
         has_change = False
 
-        for _type, address, amount in tx.outputs():
+        for address, amount in tx.outputs():
             info = tx.output_info.get(address)
             if info is not None and not has_change:
                 has_change = True # no more than one change address
@@ -404,10 +404,10 @@ class KeepKeyPlugin(HW_PluginBase):
             else:
                 txoutputtype = self.types.TxOutputType()
                 txoutputtype.amount = amount
-                if _type == TYPE_SCRIPT:
+                if isinstance(address, ScriptOutput):
                     txoutputtype.script_type = self.types.PAYTOOPRETURN
                     txoutputtype.op_return_data = address.to_script()[2:]
-                elif _type == TYPE_ADDRESS:
+                elif isinstance(address, Address):
                     txoutputtype.script_type = self.types.PAYTOADDRESS
                     txoutputtype.address = address.to_string()
 

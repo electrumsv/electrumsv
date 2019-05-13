@@ -25,6 +25,7 @@
 
 from bitcoinx import Ops, hash_to_hex_str, sha256
 
+from .address import Address
 from .crypto import hash_160, sha256d, hmac_oneshot
 from .networks import Net
 from .util import bfh, bh2u, assert_bytes, to_bytes
@@ -37,11 +38,6 @@ MAX_FEE_RATE = 20000
 
 COINBASE_MATURITY = 100
 COIN = 100000000
-
-# supported types of transction outputs
-TYPE_ADDRESS = 0
-TYPE_PUBKEY  = 1
-TYPE_SCRIPT  = 2
 
 
 def rev_hex(s):
@@ -165,8 +161,8 @@ def pubkey_to_address(pubkey):
 
 def script_to_address(script):
     from .transaction import get_address_from_output_script
-    t, addr = get_address_from_output_script(bfh(script))
-    assert t == TYPE_ADDRESS
+    addr = get_address_from_output_script(bfh(script))
+    assert isinstance(addr, Address)
     return addr
 
 def public_key_to_p2pk_script(pubkey):

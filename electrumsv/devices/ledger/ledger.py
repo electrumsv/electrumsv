@@ -1,8 +1,9 @@
 import hashlib
 from struct import pack, unpack
 
+from electrumsv.address import Address
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import TYPE_ADDRESS, int_to_hex, var_int
+from electrumsv.bitcoin import int_to_hex, var_int
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
@@ -370,8 +371,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
 
         # Recognize outputs - only one output and one change is authorized
         if not p2shTransaction:
-            for _type, address, amount in tx.outputs():
-                assert _type == TYPE_ADDRESS
+            for address, amount in tx.outputs():
+                assert isinstance(address, Address)
                 info = tx.output_info.get(address)
                 if (info is not None) and (len(tx.outputs()) != 1):
                     index, xpubs, m = info

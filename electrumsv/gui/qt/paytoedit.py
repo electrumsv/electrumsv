@@ -34,7 +34,6 @@ from bitcoinx import cashaddr
 
 from .qrtextedit import ScanQRTextEdit
 
-from electrumsv import bitcoin
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.i18n import _
 from electrumsv.web import is_URI
@@ -115,17 +114,17 @@ class PayToEdit(ScanQRTextEdit):
 
     def _parse_address_and_amount(self, line):
         x, y = line.split(',')
-        out_type, out = self._parse_output(x)
+        out = self._parse_output(x)
         amount = self._parse_amount(y)
-        return out_type, out, amount
+        return out, amount
 
     def _parse_output(self, x):
         try:
             address = self._parse_address(x)
             self._show_cashaddr_warning(x)
-            return bitcoin.TYPE_ADDRESS, address
+            return address
         except:
-            return bitcoin.TYPE_SCRIPT, ScriptOutput.from_string(x)
+            return ScriptOutput.from_string(x)
 
     def _parse_address_text(self, line):
         '''
@@ -171,12 +170,12 @@ class PayToEdit(ScanQRTextEdit):
         is_max = False
         for i, line in enumerate(lines):
             try:
-                _type, to_address, amount = self._parse_address_and_amount(line)
+                to_address, amount = self._parse_address_and_amount(line)
             except:
                 self.errors.append((i, line.strip()))
                 continue
 
-            outputs.append((_type, to_address, amount))
+            outputs.append((to_address, amount))
             if amount == '!':
                 is_max = True
             else:
@@ -205,8 +204,8 @@ class PayToEdit(ScanQRTextEdit):
             else:
                 amount = self.amount_edit.get_amount()
 
-            _type, addr = self.payto_address
-            self.outputs = [(_type, addr, amount)]
+            addr = self.payto_address
+            self.outputs = [(addr, amount)]
 
         return self.outputs[:]
 

@@ -33,10 +33,7 @@ from bitcoinx import (
 from .address import (
     Address, ScriptOutput, UnknownAddress
 )
-from .bitcoin import (
-    to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, op_push,
-    push_script, public_key_to_p2pk_script, int_to_hex, var_int
-)
+from .bitcoin import to_bytes, push_script, public_key_to_p2pk_script, int_to_hex, var_int
 from .crypto import sha256d, hash_160
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 from .logs import logs
@@ -286,21 +283,21 @@ def get_address_from_output_script(_bytes):
     # 65 BYTES:... CHECKSIG
     match = [ Ops.OP_PUSHDATA4, Ops.OP_CHECKSIG ]
     if _match_decoded(decoded, match):
-        return TYPE_PUBKEY, PublicKey.from_bytes(bytes(decoded[0][1]))
+        return PublicKey.from_bytes(bytes(decoded[0][1]))
 
     # Pay-by-Bitcoin-address TxOuts look like:
     # DUP HASH160 20 BYTES:... EQUALVERIFY CHECKSIG
     match = [ Ops.OP_DUP, Ops.OP_HASH160, Ops.OP_PUSHDATA4,
               Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG ]
     if _match_decoded(decoded, match):
-        return TYPE_ADDRESS, Address.from_P2PKH_hash(decoded[2][1])
+        return Address.from_P2PKH_hash(decoded[2][1])
 
     # p2sh
     match = [ Ops.OP_HASH160, Ops.OP_PUSHDATA4, Ops.OP_EQUAL ]
     if _match_decoded(decoded, match):
-        return TYPE_ADDRESS, Address.from_P2SH_hash(decoded[1][1])
+        return Address.from_P2SH_hash(decoded[1][1])
 
-    return TYPE_SCRIPT, ScriptOutput(bytes(_bytes))
+    return ScriptOutput(bytes(_bytes))
 
 
 def _parse_input(vds):
@@ -335,7 +332,7 @@ def parse_output(vds, i):
     d = {}
     d['value'] = vds.read_int64()
     scriptPubKey = vds.read_bytes(vds.read_compact_size())
-    d['type'], d['address'] = get_address_from_output_script(scriptPubKey)
+    d['address'] = get_address_from_output_script(scriptPubKey)
     d['scriptPubKey'] = bh2u(scriptPubKey)
     d['prevout_n'] = i
     return d
@@ -498,17 +495,17 @@ class Transaction:
             return
         d = deserialize(self.raw)
         self._inputs = d['inputs']
-        self._outputs = [(x['type'], x['address'], x['value']) for x in d['outputs']]
-        assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
-                   for output in self._outputs)
+        self._outputs = [(x['address'], x['value']) for x in d['outputs']]
+        assert all(isinstance(addr, (PublicKey, Address, ScriptOutput))
+                   for addr, value in self._outputs)
         self.locktime = d['lockTime']
         self.version = d['version']
         return d
 
     @classmethod
     def from_io(klass, inputs, outputs, locktime=0):
-        assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
-                   for output in outputs)
+        assert all(isinstance(addr, (PublicKey, Address, ScriptOutput))
+                   for addr, value in outputs)
         self = klass(None)
         self._inputs = inputs
         self._outputs = outputs.copy()
@@ -636,10 +633,10 @@ class Transaction:
     def BIP_LI01_sort(self):
         # See https://github.com/kristovatlas/rfc/blob/master/bips/bip-li01.mediawiki
         self._inputs.sort(key = lambda i: (i['prevout_hash'], i['prevout_n']))
-        self._outputs.sort(key = lambda o: (o[2], self.pay_script(o[1])))
+        self._outputs.sort(key = lambda output: (output[1], self.pay_script(output[0])))
 
     def serialize_output(self, output):
-        output_type, addr, amount = output
+        addr, amount = output
         s = int_to_hex(amount, 8)
         script = self.pay_script(addr)
         s += var_int(len(script)//2)
@@ -702,8 +699,8 @@ class Transaction:
         self.raw = None
 
     def add_outputs(self, outputs):
-        assert all(isinstance(output[1], (PublicKey, Address, ScriptOutput))
-                   for output in outputs)
+        assert all(isinstance(addr, (PublicKey, Address, ScriptOutput))
+                   for addr, value in outputs)
         self._outputs.extend(outputs)
         self.raw = None
 
@@ -711,7 +708,7 @@ class Transaction:
         return sum(x['value'] for x in self.inputs())
 
     def output_value(self):
-        return sum(val for tp, addr, val in self.outputs())
+        return sum(val for addr, val in self.outputs())
 
     def get_fee(self):
         return self.input_value() - self.output_value()
@@ -773,7 +770,7 @@ class Transaction:
     def get_outputs(self):
         """convert pubkeys to addresses"""
         o = []
-        for type, addr, v in self.outputs():
+        for addr, v in self.outputs():
             o.append((addr,v))      # consider using yield (addr, v)
         return o
 
