@@ -362,7 +362,8 @@ def multisig_script(public_keys, threshold):
     '''public_keys should be sorted hex strings.  P2MultiSig_Ouput is not used as they may be
     derivation rules and not valid public keys.
     '''
-    assert sorted(public_keys) == public_keys
+    if sorted(public_keys) != public_keys:
+        logger.warning('public keys are not sorted')
     assert 1 <= threshold <= len(public_keys)
     parts = [push_int(threshold)]
     parts.extend(push_item(bytes.fromhex(public_key)) for public_key in public_keys)
