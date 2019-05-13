@@ -27,10 +27,11 @@ import struct
 
 from bitcoinx import (
     PublicKey, PrivateKey, Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
+    P2MultiSig_Output, push_int, push_item, pack_byte
 )
 
 from .address import (
-    Address, Script, ScriptOutput, UnknownAddress
+    Address, ScriptOutput, UnknownAddress
 )
 from .bitcoin import (
     to_bytes, TYPE_PUBKEY, TYPE_ADDRESS, TYPE_SCRIPT, op_push,
@@ -275,8 +276,7 @@ def _parse_redeemScript(s):
         return
     x_pubkeys = [bh2u(x[1]) for x in dec2[1:-2]]
     pubkeys = [_safe_parse_pubkey(x) for x in x_pubkeys]
-    redeemScript = Script.multisig_script(m, [bytes.fromhex(p)
-                                              for p in pubkeys])
+    redeemScript = P2MultiSig_Output(pubkeys, m).to_script_bytes()
     return m, n, x_pubkeys, pubkeys, redeemScript
 
 def get_address_from_output_script(_bytes):
@@ -358,14 +358,18 @@ def deserialize(raw):
 
 # pay & redeem scripts
 
-def multisig_script(public_keys, m):
-    n = len(public_keys)
-    assert n <= 15
-    assert m <= n
-    op_m = format(Ops.OP_1 + m - 1, 'x')
-    op_n = format(Ops.OP_1 + n - 1, 'x')
-    keylist = [op_push(len(k)//2) + k for k in public_keys]
-    return op_m + ''.join(keylist) + op_n + 'ae'
+def multisig_script(public_keys, threshold):
+    '''public_keys should be sorted hex strings.  P2MultiSig_Ouput is not used as they may be
+    derivation rules and not valid public keys.
+    '''
+    assert sorted(public_keys) == public_keys
+    assert 1 <= threshold <= len(public_keys)
+    parts = [push_int(threshold)]
+    parts.extend(push_item(bytes.fromhex(public_key)) for public_key in public_keys)
+    parts.append(push_int(len(public_keys)))
+    parts.append(pack_byte(Ops.OP_CHECKMULTISIG))
+    return b''.join(parts).hex()
+
 
 def tx_from_str(txt):
     "json or raw hexadecimal"

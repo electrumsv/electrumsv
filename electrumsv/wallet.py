@@ -40,11 +40,11 @@ import time
 from typing import Optional, Union, Tuple, List, Any
 
 from aiorpcx import run_in_thread
-from bitcoinx import PrivateKey, PublicKey, is_minikey
+from bitcoinx import PrivateKey, PublicKey, is_minikey, P2MultiSig_Output
 
 from . import coinchooser
 from . import paymentrequest
-from .address import Address, Script
+from .address import Address
 from .app_state import app_state
 from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, scripthash_hex
 from .contacts import Contacts
@@ -1898,12 +1898,12 @@ class Multisig_Wallet(Deterministic_Wallet):
         return self.derive_pubkeys(c, i)
 
     def pubkeys_to_address(self, pubkeys):
-        pubkeys = [bytes.fromhex(pubkey) for pubkey in pubkeys]
         redeem_script = self.pubkeys_to_redeem_script(pubkeys)
         return Address.from_multisig_script(redeem_script)
 
     def pubkeys_to_redeem_script(self, pubkeys):
-        return Script.multisig_script(self.m, sorted(pubkeys))
+        assert all(isinstance(pubkey, str) for pubkey in pubkeys)
+        return P2MultiSig_Output(sorted(pubkeys), self.m).to_script_bytes()
 
     def derive_pubkeys(self, c, i):
         return [k.derive_pubkey(c, i) for k in self.get_keystores()]

@@ -326,21 +326,6 @@ class Script(object):
         return cls.push_data(pubkey) + bytes([Ops.OP_CHECKSIG])
 
     @classmethod
-    def multisig_script(cls, m, pubkeys):
-        '''Returns the script for a pay-to-multisig transaction.'''
-        n = len(pubkeys)
-        if not 1 <= m <= n <= 15:
-            raise ScriptError('{:d} of {:d} multisig script not possible'
-                              .format(m, n))
-        for pubkey in pubkeys:
-            PublicKey.from_bytes(pubkey)   # Can be compressed or not
-        # See https://bitcoin.org/en/developer-guide
-        # 2 of 3 is: OP_2 pubkey1 pubkey2 pubkey3 OP_3 OP_CHECKMULTISIG
-        return (bytes([Ops.OP_1 + m - 1])
-                + b''.join(cls.push_data(pubkey) for pubkey in pubkeys)
-                + bytes([Ops.OP_1 + n - 1, Ops.OP_CHECKMULTISIG]))
-
-    @classmethod
     def push_data(cls, data):
         '''Returns the Ops to push the data on the stack.'''
         assert isinstance(data, (bytes, bytearray))
