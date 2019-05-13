@@ -36,7 +36,7 @@ import time
 
 import certifi
 from aiorpcx import (
-    Connector, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
+    connect_rs, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
     TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
     SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth
 )
@@ -219,7 +219,8 @@ class SVServer:
         return ssl.SSLContext(ssl.PROTOCOL_TLS)
 
     def _connector(self, session_factory, proxy):
-        return Connector(session_factory, self.host, self.port, ssl=self._sslc(), proxy=proxy)
+        return connect_rs(self.host, self.port, proxy=proxy, session_factory=session_factory,
+                          ssl=self._sslc())
 
     def _logger(self, n):
         logger_name = f'[{self.host}:{self.port} {self.protocol_text()} #{n}]'
@@ -346,6 +347,7 @@ class SVSession(RPCSession):
         super().__init__(*args, **kwargs)
         self._handlers = {}
         self._network = network
+        self._closed_event = app_state.async_.event()
         # These attributes are intended to part of the external API
         self.chain = None
         self.logger = logger
@@ -694,6 +696,10 @@ class SVSession(RPCSession):
         coro = handler_invocation(handler, request)()
         return await coro
 
+    async def connection_lost(self):
+        await super().connection_lost()
+        self._closed_event.set()
+
     #
     # API exposed to the rest of this file
     #
@@ -729,7 +735,7 @@ class SVSession(RPCSession):
                     await group.spawn(self.subscribe_wallets)
                     await group.spawn(self._main_server_batch)
                 await group.spawn(self._ping_loop)
-                await self.closed_event.wait()
+                await self._closed_event.wait()
                 await group.cancel_remaining()
         finally:
             await self._network.session_closed(self)
