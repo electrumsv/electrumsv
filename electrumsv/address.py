@@ -25,10 +25,10 @@
 # Many of the functions in this file are copied from ElectrumX
 
 from collections import namedtuple
-import struct
 
 from bitcoinx import (
-    Ops, PublicKey, base58_decode_check, base58_encode_check, hash_to_hex_str, cashaddr
+    Ops, PublicKey, base58_decode_check, base58_encode_check, hash_to_hex_str, cashaddr,
+    push_item, Script, P2PKH_Address, P2SH_Address
 )
 
 from .crypto import hash_160, sha256
@@ -71,60 +71,13 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
     @classmethod
     def from_string(self, string):
         '''Instantiate from a mixture of opcodes and raw data.'''
-        script = bytearray()
-        for word in string.split():
-            if word.startswith('OP_'):
-                try:
-                    opcode = Ops[word]
-                except KeyError:
-                    raise AddressError(f'unknown opcode "{word}"') from None
-                script.append(opcode)
-            else:
-                script.extend(Script.push_data(bytes.fromhex(word)))
-        return ScriptOutput(bytes(script))
+        return Script.from_asm(string)
 
     def to_string(self):
         '''Convert to user-readable OP-codes (plus pushdata as text if possible)
         eg OP_RETURN (12) "Hello there!"
         '''
-        try:
-            ops = Script.get_ops(self.script)
-        except ScriptError:
-            # Truncated script -- so just default to hex string.
-            return self.script.hex()
-
-        def lookup(n):
-            try:
-                return Ops(n).name
-            except ValueError:
-                return f'({n})'
-
-        parts = []
-        for op in ops:
-            if isinstance(op, tuple):
-                op, data = op
-                if data is None:
-                    data = b''
-
-                # Attempt to make a friendly string, or fail to hex
-                try:
-                    astext = data.decode('utf8')
-
-                    friendlystring = repr(astext)
-
-                    # if too many escaped characters, it's too ugly!
-                    if friendlystring.count('\\')*3 > len(astext):
-                        friendlystring = None
-                except Exception:
-                    friendlystring = None
-
-                if not friendlystring:
-                    friendlystring = data.hex()
-
-                parts.append(lookup(op) + " " + friendlystring)
-            else:
-                parts.append(lookup(op))
-        return ', '.join(parts)
+        return Script(self.script).to_asm()
 
     def to_script(self):
         return self.script
@@ -140,7 +93,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
         script = bytearray()
         script.append(Ops.OP_RETURN)
         for data_bytes in data_chunks:
-            script.extend(Script.push_data(data_bytes))
+            script.extend(push_item(data_bytes))
         return ScriptOutput(bytes(script))
 
 
@@ -272,9 +225,9 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     def to_script(self):
         '''Return a binary script to pay to the address.'''
         if self.kind == self.ADDR_P2PKH:
-            return Script.P2PKH_script(self.hash160)
+            return P2PKH_Address(self.hash160).to_script_bytes()
         else:
-            return Script.P2SH_script(self.hash160)
+            return P2SH_Address(self.hash160).to_script_bytes()
 
     def to_script_hex(self):
         '''Return a script to pay to the address as a hex string.'''
@@ -304,75 +257,3 @@ def _match_ops(ops, pattern):
             if pop == -1 and isinstance(op, tuple):
                 continue
             return False
-
-    return True
-
-
-class Script(object):
-
-    @classmethod
-    def P2SH_script(cls, hash160value):
-        return (bytes([Ops.OP_HASH160])
-                + cls.push_data(hash160value)
-                + bytes([Ops.OP_EQUAL]))
-
-    @classmethod
-    def P2PKH_script(cls, hash160value):
-        return (bytes([Ops.OP_DUP, Ops.OP_HASH160])
-                + cls.push_data(hash160value)
-                + bytes([Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG]))
-
-    @classmethod
-    def P2PK_script(cls, pubkey):
-        return cls.push_data(pubkey) + bytes([Ops.OP_CHECKSIG])
-
-    @classmethod
-    def push_data(cls, data):
-        '''Returns the Ops to push the data on the stack.'''
-        assert isinstance(data, (bytes, bytearray))
-
-        n = len(data)
-        if n < Ops.OP_PUSHDATA1:
-            return bytes([n]) + data
-        if n < 256:
-            return bytes([Ops.OP_PUSHDATA1, n]) + data
-        if n < 65536:
-            return bytes([Ops.OP_PUSHDATA2]) + struct.pack('<H', n) + data
-        return bytes([Ops.OP_PUSHDATA4]) + struct.pack('<I', n) + data
-
-    @classmethod
-    def get_ops(cls, script):
-        ops = []
-
-        # The unpacks or script[n] below throw on truncated scripts
-        try:
-            n = 0
-            while n < len(script):
-                op = script[n]
-                n += 1
-
-                if op <= Ops.OP_PUSHDATA4:
-                    # Raw bytes follow
-                    if op < Ops.OP_PUSHDATA1:
-                        dlen = op
-                    elif op == Ops.OP_PUSHDATA1:
-                        dlen = script[n]
-                        n += 1
-                    elif op == Ops.OP_PUSHDATA2:
-                        dlen, = struct.unpack('<H', script[n: n + 2])
-                        n += 2
-                    else:
-                        dlen, = struct.unpack('<I', script[n: n + 4])
-                        n += 4
-                    if n + dlen > len(script):
-                        raise IndexError
-                    op = (op, script[n:n + dlen])
-                    n += dlen
-
-                ops.append(op)
-        except Exception:
-            # Truncated script; e.g. tx_hash
-            # ebc9fa1196a59e192352d76c0f6e73167046b9d37b8302b6bb6968dfd279b767
-            raise ScriptError('truncated script')
-
-        return ops
