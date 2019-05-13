@@ -24,10 +24,10 @@
 
 import threading
 
-from bitcoinx import BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string
+from bitcoinx import BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, Script
 
 from electrumsv.app_state import app_state
-from electrumsv.address import Address, ScriptOutput
+from electrumsv.address import Address
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
@@ -404,9 +404,9 @@ class KeepKeyPlugin(HW_PluginBase):
             else:
                 txoutputtype = self.types.TxOutputType()
                 txoutputtype.amount = amount
-                if isinstance(address, ScriptOutput):
+                if isinstance(address, Script):
                     txoutputtype.script_type = self.types.PAYTOOPRETURN
-                    txoutputtype.op_return_data = address.to_script()[2:]
+                    txoutputtype.op_return_data = address.to_bytes()[2:]
                 elif isinstance(address, Address):
                     txoutputtype.script_type = self.types.PAYTOADDRESS
                     txoutputtype.address = address.to_string()

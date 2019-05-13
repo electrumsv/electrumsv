@@ -5,9 +5,9 @@ import os
 from typing import Optional, Tuple, List
 
 import aiorpcx
+from bitcoinx import Script
 
 from electrumsv.app_state import app_state
-from electrumsv.address import ScriptOutput
 from electrumsv.crypto import sha256d
 from electrumsv.logs import logs
 from electrumsv.transaction import Transaction
@@ -113,7 +113,8 @@ class LocalRPCFunctions:
 
         domain = None
         confirmed_coins = wallet.get_spendable_coins(None, {'confirmed_only': True})
-        outputs = [ (ScriptOutput.as_op_return(pushdatas), 0) ]
+        script = (Script() << OP_RETURN).push_many(pushdatas)
+        outputs = [ (script, 0) ]
         tx = wallet.make_unsigned_transaction(confirmed_coins, outputs, app_state.config)
         wallet.sign_transaction(tx, password)
         return {

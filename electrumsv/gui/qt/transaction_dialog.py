@@ -32,7 +32,9 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit
 )
 
-from electrumsv.address import Address, PublicKey
+from bitcoinx import PublicKey, Script
+
+from electrumsv.address import Address
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import base_encode
 from electrumsv.i18n import _
@@ -337,6 +339,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         for addr, v in self.tx.get_outputs():
             if isinstance(addr, PublicKey):
                 addrstr = addr.to_hex()
+            elif isinstance(addr, Script):
+                addrstr = addr.to_asm()
             else:
                 addrstr = addr.to_string()
             cursor.insertText(addrstr, text_format(addr))

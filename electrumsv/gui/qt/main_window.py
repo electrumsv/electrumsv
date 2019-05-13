@@ -36,7 +36,7 @@ from typing import Iterable
 import weakref
 import webbrowser
 
-from bitcoinx import PublicKey
+from bitcoinx import PublicKey, Script, OP_RETURN
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl)
 from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices, QPixmap
@@ -49,7 +49,7 @@ from PyQt5.QtWidgets import (
 
 import electrumsv
 from electrumsv import bitcoin, commands, keystore, paymentrequest, qrscanner, util
-from electrumsv.address import Address, ScriptOutput
+from electrumsv.address import Address
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
@@ -1416,7 +1416,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 with open(file_path, "rb") as f:
                     data_chunks.append(f.read())
             amount = 0
-            output_tuple = (ScriptOutput.as_op_return(data_chunks), amount)
+            script = (Script() << OP_RETURN).push_many(data_chunks)
+            output_tuple = (script, amount)
             return [ output_tuple ]
         return []
 

@@ -27,11 +27,11 @@ import struct
 
 from bitcoinx import (
     PublicKey, PrivateKey, Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
-    P2MultiSig_Output, push_int, push_item, pack_byte
+    P2MultiSig_Output, push_int, push_item, pack_byte, Script
 )
 
 from .address import (
-    Address, ScriptOutput, UnknownAddress
+    Address, UnknownAddress
 )
 from .bitcoin import to_bytes, push_script, public_key_to_p2pk_script, int_to_hex, var_int
 from .crypto import sha256d, hash_160
@@ -297,7 +297,7 @@ def get_address_from_output_script(_bytes):
     if _match_decoded(decoded, match):
         return Address.from_P2SH_hash(decoded[1][1])
 
-    return ScriptOutput(bytes(_bytes))
+    return Script(bytes(_bytes))
 
 
 def _parse_input(vds):
@@ -496,7 +496,7 @@ class Transaction:
         d = deserialize(self.raw)
         self._inputs = d['inputs']
         self._outputs = [(x['address'], x['value']) for x in d['outputs']]
-        assert all(isinstance(addr, (PublicKey, Address, ScriptOutput))
+        assert all(isinstance(addr, (PublicKey, Address, Script))
                    for addr, value in self._outputs)
         self.locktime = d['lockTime']
         self.version = d['version']
@@ -504,7 +504,7 @@ class Transaction:
 
     @classmethod
     def from_io(klass, inputs, outputs, locktime=0):
-        assert all(isinstance(addr, (PublicKey, Address, ScriptOutput))
+        assert all(isinstance(addr, (PublicKey, Address, Script))
                    for addr, value in outputs)
         self = klass(None)
         self._inputs = inputs
@@ -516,7 +516,9 @@ class Transaction:
     def pay_script(self, output):
         if isinstance(output, PublicKey):
             return output.P2PK_script().to_hex()
-        return output.to_script().hex()
+        if isinstance(output, Address):
+            return output.to_script().hex()
+        return output.to_hex()
 
     @classmethod
     def estimate_pubkey_size_from_x_pubkey(cls, x_pubkey):
@@ -699,7 +701,7 @@ class Transaction:
         self.raw = None
 
     def add_outputs(self, outputs):
-        assert all(isinstance(addr, (PublicKey, Address, ScriptOutput))
+        assert all(isinstance(addr, (PublicKey, Address, Script))
                    for addr, value in outputs)
         self._outputs.extend(outputs)
         self.raw = None

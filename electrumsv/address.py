@@ -27,8 +27,8 @@
 from collections import namedtuple
 
 from bitcoinx import (
-    Ops, PublicKey, base58_decode_check, base58_encode_check, hash_to_hex_str, cashaddr,
-    push_item, Script, P2PKH_Address, P2SH_Address
+    PublicKey, base58_decode_check, base58_encode_check, hash_to_hex_str, cashaddr,
+    P2PKH_Address, P2SH_Address
 )
 
 from .crypto import hash_160, sha256
@@ -61,37 +61,6 @@ class UnknownAddress(object):
 
     def __repr__(self):
         return '<UnknownAddress>'
-
-
-class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
-
-    @classmethod
-    def from_string(self, string):
-        '''Instantiate from a mixture of opcodes and raw data.'''
-        return Script.from_asm(string)
-
-    def to_string(self):
-        '''Convert to user-readable OP-codes (plus pushdata as text if possible)
-        eg OP_RETURN (12) "Hello there!"
-        '''
-        return Script(self.script).to_asm()
-
-    def to_script(self):
-        return self.script
-
-    def __str__(self):
-        return self.to_string()
-
-    def __repr__(self):
-        return '<ScriptOutput {}>'.format(self.__str__())
-
-    @classmethod
-    def as_op_return(self, data_chunks):
-        script = bytearray()
-        script.append(Ops.OP_RETURN)
-        for data_bytes in data_chunks:
-            script.extend(push_item(data_bytes))
-        return ScriptOutput(bytes(script))
 
 
 # A namedtuple for easy comparison and unique hashing

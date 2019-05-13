@@ -30,11 +30,11 @@ from decimal import Decimal
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFontMetrics, QTextCursor
 from PyQt5.QtWidgets import QCompleter, QPlainTextEdit
-from bitcoinx import cashaddr
+from bitcoinx import cashaddr, Script
 
 from .qrtextedit import ScanQRTextEdit
 
-from electrumsv.address import Address, ScriptOutput
+from electrumsv.address import Address
 from electrumsv.i18n import _
 from electrumsv.web import is_URI
 
@@ -124,7 +124,7 @@ class PayToEdit(ScanQRTextEdit):
             self._show_cashaddr_warning(x)
             return address
         except:
-            return ScriptOutput.from_string(x)
+            return Script.from_asm(x)
 
     def _parse_address_text(self, line):
         '''

@@ -1,8 +1,10 @@
 from collections import defaultdict
 
-from bitcoinx import Ops, bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string
+from bitcoinx import (
+    Script, Ops, bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string,
+)
 
-from electrumsv.address import Address, ScriptOutput
+from electrumsv.address import Address
 from electrumsv.app_state import app_state
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
@@ -46,9 +48,9 @@ TREZOR_PRODUCT_KEY = 'Trezor'
 
 
 def validate_op_return(output, amount):
-    if not isinstance(output, ScriptOutput):
+    if not isinstance(output, Script):
         raise ValueError(f'Unexpected output type: {output}')
-    script = bfh(output.to_string())
+    script = bytes(output)
     if not (script[0] == Ops.OP_RETURN and
             script[1] == len(script) - 2 and script[1] <= 75):
         raise ValueError(_("Only OP_RETURN scripts, with one constant push, are supported."))
@@ -386,7 +388,7 @@ class TrezorPlugin(HW_PluginBase):
         def create_output_by_address():
             txoutputtype = TxOutputType()
             txoutputtype.amount = amount
-            if isinstance(address, ScriptOutput):
+            if isinstance(address, Script):
                 txoutputtype.script_type = OutputScriptType.PAYTOOPRETURN
                 txoutputtype.op_return_data = validate_op_return(address, amount)
             elif isinstance(address, Address):
