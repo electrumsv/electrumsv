@@ -83,12 +83,6 @@ class TestTransaction(unittest.TestCase):
 
         self.assertEqual(tx.as_dict(), {'hex': unsigned_blob, 'complete': False, 'final': True})
         self.assertEqual(tx.outputs(), [(Address.from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK'), 20112408)])
-        self.assertEqual(tx.get_output_addresses(), [Address.from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK')])
-
-        self.assertTrue(tx.has_address(Address.from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK')))
-        self.assertTrue(tx.has_address(Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN')))
-        self.assertFalse(tx.has_address(Address.from_string('1CQj15y1N7LDHp7wTt28eoD1QhHgFgxECH')))
-
         self.assertEqual(tx.serialize(), unsigned_blob)
 
 

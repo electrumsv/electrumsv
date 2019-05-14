@@ -782,18 +782,9 @@ class Transaction:
         sig = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
         return sig
 
-    def get_output_addresses(self):
-        return [addr for addr, val in self.outputs()]
-
-
-    def has_address(self, addr):
-        return (addr in self.get_output_addresses() or
-                addr in (tx.get("address") for tx in self.inputs()))
-
     def is_final(self):
         return not any([x.get('sequence', 0xffffffff - 1) < 0xffffffff - 1
                         for x in self.inputs()])
-
 
     def as_dict(self):
         if self.raw is None:
