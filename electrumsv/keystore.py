@@ -25,16 +25,14 @@ import hashlib
 from unicodedata import normalize
 
 from bitcoinx import (
-    PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey,
+    PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey, Address, Script,
     int_to_be_bytes, be_bytes_to_int, CURVE_ORDER, unpack_le_uint16,
     bip32_key_from_string, bip32_decompose_chain_string,
-    base58_encode_check, base58_decode_check, Address
+    base58_encode_check, base58_decode_check, Address, classify_output_script
 )
 
 from .app_state import app_state
-from .bitcoin import (
-    bfh, is_seed, seed_type, rev_hex, script_to_address, int_to_hex, is_address_valid
-)
+from .bitcoin import bfh, is_seed, seed_type, rev_hex, int_to_hex, is_address_valid
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword
 from .logs import logs
@@ -43,6 +41,12 @@ from .networks import Net
 
 
 logger = logs.get_logger("keystore")
+
+
+def _script_to_address(script_hex):
+    result = classify_output_script(Script.from_hex(script_hex))
+    assert isinstance(result, Address)
+    return result
 
 
 class KeyStore:
@@ -204,7 +208,7 @@ class Imported_KeyStore(Software_KeyStore):
             if pubkey in self.keypairs:
                 return pubkey
         elif x_pubkey[0:2] == 'fd':
-            addr = script_to_address(x_pubkey[2:])
+            addr = _script_to_address(x_pubkey[2:])
             return self.address_to_pubkey(addr)
 
     def update_password(self, old_password, new_password):
@@ -661,7 +665,7 @@ def parse_xpubkey(x_pubkey):
 
 def xpubkey_to_address(x_pubkey):
     if x_pubkey[0:2] == 'fd':
-        address = script_to_address(x_pubkey[2:])
+        address = _script_to_address(x_pubkey[2:])
         return x_pubkey, address
     if x_pubkey[0:2] in ['02', '03', '04']:
         pubkey = x_pubkey

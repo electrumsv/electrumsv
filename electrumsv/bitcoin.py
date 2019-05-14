@@ -158,12 +158,6 @@ def public_key_to_p2pkh(public_key):
 def pubkey_to_address(pubkey):
     return public_key_to_p2pkh(bfh(pubkey))
 
-def script_to_address(script):
-    from .transaction import get_address_from_output_script
-    addr = get_address_from_output_script(bfh(script))
-    assert isinstance(addr, Address)
-    return addr
-
 def public_key_to_p2pk_script(pubkey):
     script = push_script(pubkey)
     script += 'ac'                                           # op_checksig
