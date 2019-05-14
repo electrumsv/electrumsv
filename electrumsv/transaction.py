@@ -28,10 +28,10 @@ import struct
 from bitcoinx import (
     PublicKey, PrivateKey, Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
     P2MultiSig_Output, push_int, push_item, pack_byte, Script,
-    Address, P2SH_Address, P2PKH_Address
+    Address, P2SH_Address, P2PKH_Address, P2PK_Output,
 )
 
-from .bitcoin import to_bytes, push_script, public_key_to_p2pk_script, int_to_hex, var_int
+from .bitcoin import to_bytes, push_script, int_to_hex, var_int
 from .crypto import sha256d, hash_160
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 from .logs import logs
@@ -615,8 +615,8 @@ class Transaction:
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
             return multisig_script(pubkeys, txin['num_sig'])
         elif _type == 'p2pk':
-            pubkey = txin['pubkeys'][0]
-            return public_key_to_p2pk_script(pubkey)
+            output = P2PK_Output(PublicKey.from_hex(txin['pubkeys'][0]))
+            return output.to_script_bytes().hex()
         elif _type == 'unknown':
             # this approach enables most P2SH smart contracts
             # (but take care if using OP_CODESEPARATOR)

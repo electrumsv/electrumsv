@@ -158,11 +158,6 @@ def public_key_to_p2pkh(public_key):
 def pubkey_to_address(pubkey):
     return public_key_to_p2pkh(bfh(pubkey))
 
-def public_key_to_p2pk_script(pubkey):
-    script = push_script(pubkey)
-    script += 'ac'                                           # op_checksig
-    return script
-
 __b58chars = b'123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 assert len(__b58chars) == 58
 
