@@ -29,9 +29,9 @@ import webbrowser
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor, QKeySequence
 from PyQt5.QtWidgets import QTreeWidgetItem, QAbstractItemView, QMenu
+from bitcoinx import Address
 
 from electrumsv.i18n import _
-from electrumsv.address import Address
 from electrumsv.app_state import app_state
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.platform import platform

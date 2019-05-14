@@ -30,11 +30,10 @@ from decimal import Decimal
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFontMetrics, QTextCursor
 from PyQt5.QtWidgets import QCompleter, QPlainTextEdit
-from bitcoinx import cashaddr, Script
+from bitcoinx import cashaddr, Script, Address
 
 from .qrtextedit import ScanQRTextEdit
 
-from electrumsv.address import Address
 from electrumsv.i18n import _
 from electrumsv.web import is_URI
 

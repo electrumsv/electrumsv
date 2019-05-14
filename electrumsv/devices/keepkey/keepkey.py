@@ -24,10 +24,11 @@
 
 import threading
 
-from bitcoinx import BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, Script
+from bitcoinx import (
+    BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, Script, Address,
+)
 
 from electrumsv.app_state import app_state
-from electrumsv.address import Address
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _

@@ -28,13 +28,12 @@ from bitcoinx import (
     PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey,
     int_to_be_bytes, be_bytes_to_int, CURVE_ORDER, unpack_le_uint16,
     bip32_key_from_string, bip32_decompose_chain_string,
-    base58_encode_check, base58_decode_check
+    base58_encode_check, base58_decode_check, Address
 )
 
-from .address import Address
 from .app_state import app_state
 from .bitcoin import (
-    bfh, is_seed, seed_type, rev_hex, script_to_address, int_to_hex
+    bfh, is_seed, seed_type, rev_hex, script_to_address, int_to_hex, is_address_valid
 )
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword
@@ -155,9 +154,8 @@ class Imported_KeyStore(Software_KeyStore):
 
     def get_addresses(self):
         if not self._sorted:
-            addresses = [Address.from_string(pubkey.to_address(coin=Net.COIN).to_string())
-                         for pubkey in self.keypairs]
-            self._sorted = sorted(addresses, key=Address.to_string)
+            addresses = [pubkey.to_address(coin=Net.COIN) for pubkey in self.keypairs]
+            self._sorted = sorted(addresses, key=lambda addr: addr.to_string())
         return self._sorted
 
     def address_to_pubkey(self, address):
@@ -676,7 +674,7 @@ def xpubkey_to_address(x_pubkey):
     else:
         raise Exception("Cannot parse pubkey")
     if pubkey:
-        address = Address.from_pubkey(pubkey)
+        address = PublicKey.from_hex(pubkey).to_address(coin=Net.COIN)
     return pubkey, address
 
 def xpubkey_to_pubkey(x_pubkey):
@@ -705,7 +703,7 @@ def load_keystore(storage, name):
 
 def is_address_list(text):
     parts = text.split()
-    return parts and all(Address.is_valid(x) for x in parts)
+    return parts and all(is_address_valid(x) for x in parts)
 
 
 def get_private_keys(text):

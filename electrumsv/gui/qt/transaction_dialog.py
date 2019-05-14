@@ -32,9 +32,8 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit
 )
 
-from bitcoinx import PublicKey, Script
+from bitcoinx import PublicKey, Script, Address
 
-from electrumsv.address import Address
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import base_encode
 from electrumsv.i18n import _

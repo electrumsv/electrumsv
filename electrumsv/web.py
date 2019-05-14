@@ -29,8 +29,9 @@ import threading
 import urllib
 import urllib.parse
 
-from . import bitcoin
-from .address import Address
+from bitcoinx import Address
+
+from .bitcoin import COIN, is_address_valid
 from .i18n import _
 from .logs import logs
 from .networks import Net
@@ -90,7 +91,7 @@ class URIError(Exception):
 
 
 def parse_URI(uri, on_pr=None):
-    if Address.is_valid(uri):
+    if is_address_valid(uri):
         return {'address': uri}
 
     u = urllib.parse.urlparse(uri)
@@ -106,7 +107,7 @@ def parse_URI(uri, on_pr=None):
 
     out = {k: v[0] for k, v in pq.items()}
 
-    if Address.is_valid(u.path):
+    if is_address_valid(u.path):
         out['address'] = u.path
 
     if 'amount' in out:
@@ -116,7 +117,7 @@ def parse_URI(uri, on_pr=None):
             k = int(m.group(2)) - 8
             amount = Decimal(m.group(1)) * pow(10, k)
         else:
-            amount = Decimal(am) * bitcoin.COIN
+            amount = Decimal(am) * COIN
         out['amount'] = int(amount)
     if 'message' in out:
         out['message'] = out['message']

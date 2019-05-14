@@ -36,7 +36,7 @@ from typing import Iterable
 import weakref
 import webbrowser
 
-from bitcoinx import PublicKey, Script, OP_RETURN
+from bitcoinx import PublicKey, Script, OP_RETURN, Address, P2PKH_Address
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl)
 from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices, QPixmap
@@ -49,9 +49,8 @@ from PyQt5.QtWidgets import (
 
 import electrumsv
 from electrumsv import bitcoin, commands, keystore, paymentrequest, qrscanner, util
-from electrumsv.address import Address
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import COIN
+from electrumsv.bitcoin import COIN, is_address_valid
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -712,7 +711,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def donate_to_server(self):
         server = self.network.main_server
         addr = server.state.donation_address
-        if Address.is_valid(addr):
+        if is_address_valid(addr):
             addr = Address.from_string(addr)
             self.pay_to_URI(web.create_URI(addr, 0, _('Donation for {}').format(server.host)))
         else:
@@ -2250,7 +2249,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         keys_e.addCopyButton(self.app)
         vbox.addWidget(keys_e)
         vbox.addWidget(QLabel(_("Redeem Script") + ':'))
-        rds_e = ShowQRTextEdit(text=address.to_script().hex())
+        rds_e = ShowQRTextEdit(text=address.to_script_bytes().hex())
         rds_e.addCopyButton(self.app)
         vbox.addWidget(rds_e)
         vbox.addLayout(Buttons(CloseButton(d)))
@@ -2272,7 +2271,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         except:
             self.show_message(_('Invalid Bitcoin SV address.'))
             return
-        if addr.kind != addr.ADDR_P2PKH:
+        if not isinstance(addr, P2PKH_Address):
             self.show_message(_('Cannot sign messages with this type of address.') + '\n\n' +
                               self.msg_sign)
         if self.wallet.is_watching_only():

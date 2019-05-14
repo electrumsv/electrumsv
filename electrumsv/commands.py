@@ -32,12 +32,10 @@ from functools import wraps
 import json
 import sys
 
-from bitcoinx import PrivateKey, PublicKey
+from bitcoinx import PrivateKey, PublicKey, Address
 
-from . import bitcoin
-from .address import Address
 from .app_state import app_state
-from .bitcoin import COIN
+from .bitcoin import COIN, scripthash_hex, is_address_valid, hash160_to_p2sh
 from .crypto import hash_160
 from .exchange_rate import FxTask
 from .i18n import _
@@ -220,7 +218,7 @@ class Commands:
         """Return the transaction history of any address. Note: This is a
         walletless server query, results are not checked by SPV.
         """
-        sh = Address.from_string(address).to_scripthash_hex()
+        sh = scripthash_hex(Address.from_string(address))
         return self.network.request_and_wait('blockchain.scripthash.get_history', [sh])
 
     @command('w')
@@ -238,7 +236,7 @@ class Commands:
         """Returns the UTXO list of any address. Note: This
         is a walletless server query, results are not checked by SPV.
         """
-        sh = Address.from_string(address).to_scripthash_hex()
+        sh = scripthash_hex(Address.from_string(address))
         return self.network.request_and_wait('blockchain.scripthash.listunspent', [sh])
 
     @command('')
@@ -307,7 +305,7 @@ class Commands:
         """Create multisig address"""
         assert isinstance(pubkeys, list), (type(num), type(pubkeys))
         redeem_script = multisig_script(pubkeys, num)
-        address = bitcoin.hash160_to_p2sh(hash_160(bfh(redeem_script)))
+        address = hash160_to_p2sh(hash_160(bfh(redeem_script)))
         return {'address':address, 'redeemScript':redeem_script}
 
     @command('w')
@@ -350,7 +348,7 @@ class Commands:
     @command('')
     def validateaddress(self, address):
         """Check that an address is valid. """
-        return Address.is_valid(address)
+        return is_address_valid(address)
 
     @command('w')
     def getpubkeys(self, address):
@@ -374,7 +372,7 @@ class Commands:
         """Return the balance of any address. Note: This is a walletless
         server query, results are not checked by SPV.
         """
-        sh = Address.from_string(address).to_scripthash_hex()
+        sh = scripthash_hex(Address.from_string(address))
         out = self.network.request_and_wait('blockchain.scripthash.get_balance', [sh])
         out["confirmed"] =  str(Decimal(out["confirmed"])/COIN)
         out["unconfirmed"] =  str(Decimal(out["unconfirmed"])/COIN)
@@ -665,7 +663,7 @@ class Commands:
                 logger.debug('Got Response for %s', address)
             except Exception as e:
                 logger.error("exception processing response %s", e)
-        h = Address.from_string(address).to_scripthash_hex()
+        h = scripthash_hex(Address.from_string(address))
         self.network.send([('blockchain.scripthash.subscribe', [h])], callback)
         return True
 

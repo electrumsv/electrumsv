@@ -1,8 +1,7 @@
 import pytest
 
-from bitcoinx import PrivateKey, PublicKey
+from bitcoinx import PrivateKey, PublicKey, Address
 
-from electrumsv.address import Address
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.keystore import (
     Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed,

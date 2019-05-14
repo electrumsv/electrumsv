@@ -40,11 +40,12 @@ import time
 from typing import Optional, Union, Tuple, List, Any
 
 from aiorpcx import run_in_thread
-from bitcoinx import PrivateKey, PublicKey, is_minikey, P2MultiSig_Output
+from bitcoinx import (
+    PrivateKey, PublicKey, is_minikey, P2MultiSig_Output, Address, hash160, P2SH_Address,
+)
 
 from . import coinchooser
 from . import paymentrequest
-from .address import Address
 from .app_state import app_state
 from .bitcoin import COINBASE_MATURITY, scripthash_hex
 from .contacts import Contacts
@@ -110,11 +111,12 @@ def dust_threshold(network):
 
 
 def _append_utxos_to_inputs(inputs, get_utxos, pubkey, txin_type, imax):
+    public_key = PublicKey.from_hex(pubkey)
     if txin_type == 'p2pkh':
-        address = Address.from_pubkey(pubkey)
-        sh = address.to_scripthash_hex()
+        address = public_key.to_address(coin=Net.COIN)
+        sh = scripthash_hex(address)
     else:
-        address = PublicKey.from_hex(pubkey)
+        address = public_key
         sh = scripthash_hex(address.P2PK_script())
     for item in get_utxos(sh):
         if len(inputs) >= imax:
@@ -394,8 +396,10 @@ class Abstract_Wallet:
     def load_addresses(self, data: dict) -> None:
         if data is None:
             data = {}
-        self.receiving_addresses = Address.from_strings(data.get('receiving', []))
-        self.change_addresses = Address.from_strings(data.get('change', []))
+        self.receiving_addresses = [Address.from_string(addr)
+                                    for addr in data.get('receiving', [])]
+        self.change_addresses = [Address.from_string(addr)
+                                 for addr in data.get('change', [])]
 
     def is_deterministic(self):
         return self.keystore.is_deterministic()
@@ -649,9 +653,8 @@ class Abstract_Wallet:
             # remove it from the frozen coin set
             self._frozen_coins.discard(input_key)
 
-        address_script = address.to_script()
         return [UTXO(value=value,
-                     script_pubkey=address_script,
+                     script_pubkey=address.to_script(),
                      tx_hash=tx_hash,
                      out_index=out_index,
                      height=height,
@@ -1604,7 +1607,7 @@ class ImportedAddressWallet(ImportedWalletBase):
 
     def get_addresses(self, include_change=False):
         if not self._sorted:
-            self._sorted = sorted(self.addresses, key=Address.to_string)
+            self._sorted = sorted(self.addresses, key=lambda addr: addr.to_string())
         return self._sorted
 
     def import_address(self, address):
@@ -1621,7 +1624,7 @@ class ImportedAddressWallet(ImportedWalletBase):
         self._sorted = None
 
     def _add_input_sig_info(self, txin, address):
-        x_pubkey = 'fd' + address.to_script_hex()
+        x_pubkey = 'fd' + address.to_script_bytes().hex()
         txin['x_pubkeys'] = [x_pubkey]
         txin['signatures'] = [None]
 
@@ -1881,7 +1884,7 @@ class Standard_Wallet(Simple_Deterministic_Wallet):
     wallet_type = 'standard'
 
     def pubkeys_to_address(self, pubkey):
-        return Address.from_pubkey(pubkey)
+        return PublicKey.from_hex(pubkey).to_address(coin=Net.COIN)
 
 
 class Multisig_Wallet(Deterministic_Wallet):
@@ -1898,7 +1901,7 @@ class Multisig_Wallet(Deterministic_Wallet):
 
     def pubkeys_to_address(self, pubkeys):
         redeem_script = self.pubkeys_to_redeem_script(pubkeys)
-        return Address.from_multisig_script(redeem_script)
+        return P2SH_Address(hash160(redeem_script))
 
     def pubkeys_to_redeem_script(self, pubkeys):
         assert all(isinstance(pubkey, str) for pubkey in pubkeys)

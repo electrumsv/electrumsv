@@ -46,6 +46,7 @@ from bitcoinx import (
 )
 
 from .app_state import app_state
+from .bitcoin import scripthash_hex
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
@@ -742,7 +743,7 @@ class SVSession(RPCSession):
 
     async def subscribe_wallet(self, wallet, pairs=None):
         if pairs is None:
-            pairs = [(address, address.to_scripthash_hex()) for address in wallet.get_addresses()]
+            pairs = [(address, scripthash_hex(address)) for address in wallet.get_addresses()]
         else:
             # If wallet was unsubscribed in the meantime keep it that way
             if wallet not in self._subs_by_wallet:
@@ -1131,7 +1132,7 @@ class Network:
             session = await self._main_session()
             session.logger.info(f'subscribing to {len(addresses):,d} new addresses for {wallet}')
             # Do in reverse to require fewer wallet re-sync loops
-            pairs = [(address, address.to_scripthash_hex()) for address in addresses]
+            pairs = [(address, scripthash_hex(address)) for address in addresses]
             pairs.reverse()
             await session.subscribe_to_pairs(wallet, pairs)
             addresses = await wallet.new_addresses()

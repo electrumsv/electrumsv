@@ -2,7 +2,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from electrumsv.address import Address
+from bitcoinx import Address
+
 from electrumsv import bitcoin
 from electrumsv import keystore
 from electrumsv import storage

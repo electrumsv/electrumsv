@@ -24,9 +24,9 @@
 # SOFTWARE.
 
 from electrumsv.i18n import _
-from electrumsv.address import Address
 
 from PyQt5.QtWidgets import QVBoxLayout, QLabel
+from bitcoinx import Address
 
 from .util import WindowModalDialog, ButtonsLineEdit, ColorScheme, Buttons, CloseButton
 from .history_list import HistoryList

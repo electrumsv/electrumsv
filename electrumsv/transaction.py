@@ -27,12 +27,10 @@ import struct
 
 from bitcoinx import (
     PublicKey, PrivateKey, Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
-    P2MultiSig_Output, push_int, push_item, pack_byte, Script
+    P2MultiSig_Output, push_int, push_item, pack_byte, Script,
+    Address, P2SH_Address, P2PKH_Address
 )
 
-from .address import (
-    Address, UnknownAddress
-)
 from .bitcoin import to_bytes, push_script, public_key_to_p2pk_script, int_to_hex, var_int
 from .crypto import sha256d, hash_160
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
@@ -43,6 +41,18 @@ from .util import profiler, bfh, bh2u
 NO_SIGNATURE = 'ff'
 
 logger = logs.get_logger("transaction")
+
+
+class UnknownAddress(object):
+
+    def to_string(self):
+        return '<UnknownAddress>'
+
+    def __str__(self):
+        return self.to_string()
+
+    def __repr__(self):
+        return '<UnknownAddress>'
 
 
 class SerializationError(Exception):
@@ -258,7 +268,7 @@ def _parse_scriptSig(d, _bytes):
     d['x_pubkeys'] = x_pubkeys
     d['pubkeys'] = pubkeys
     d['redeemScript'] = redeemScript
-    d['address'] = Address.from_P2SH_hash(hash_160(redeemScript))
+    d['address'] = P2SH_Address(hash_160(redeemScript))
 
 
 def _parse_redeemScript(s):
@@ -290,12 +300,12 @@ def get_address_from_output_script(_bytes):
     match = [ Ops.OP_DUP, Ops.OP_HASH160, Ops.OP_PUSHDATA4,
               Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG ]
     if _match_decoded(decoded, match):
-        return Address.from_P2PKH_hash(decoded[2][1])
+        return P2PKH_Address(bytes(decoded[2][1]))
 
     # p2sh
     match = [ Ops.OP_HASH160, Ops.OP_PUSHDATA4, Ops.OP_EQUAL ]
     if _match_decoded(decoded, match):
-        return Address.from_P2SH_hash(decoded[1][1])
+        return P2SH_Address(bytes(decoded[1][1]))
 
     return Script(bytes(_bytes))
 
@@ -517,7 +527,7 @@ class Transaction:
         if isinstance(output, PublicKey):
             return output.P2PK_script().to_hex()
         if isinstance(output, Address):
-            return output.to_script().hex()
+            return output.to_script_bytes().hex()
         return output.to_hex()
 
     @classmethod
@@ -600,7 +610,7 @@ class Transaction:
     def get_preimage_script(self, txin):
         _type = txin['type']
         if _type == 'p2pkh':
-            return txin['address'].to_script().hex()
+            return txin['address'].to_script_bytes().hex()
         elif _type == 'p2sh':
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
             return multisig_script(pubkeys, txin['num_sig'])

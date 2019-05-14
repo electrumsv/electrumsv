@@ -1,7 +1,11 @@
 import hashlib
 from struct import pack, unpack
 
-from electrumsv.address import Address
+from bitcoinx import (
+    BIP32Derivation, BIP32PublicKey, PublicKey,
+    pack_be_uint32, Address
+)
+
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import int_to_hex, var_int
 from electrumsv.i18n import _
@@ -12,11 +16,6 @@ from electrumsv.transaction import Transaction
 from electrumsv.util import bfh, bh2u, versiontuple
 
 from ..hw_wallet import HW_PluginBase
-
-from bitcoinx import (
-    BIP32Derivation, BIP32PublicKey, PublicKey,
-    pack_be_uint32,
-)
 
 try:
     import hid

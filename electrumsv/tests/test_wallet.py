@@ -7,9 +7,8 @@ import tempfile
 import unittest
 
 import pytest
-from bitcoinx import PrivateKey, PublicKey
+from bitcoinx import PrivateKey, PublicKey, Address
 
-from electrumsv.address import Address
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import WalletStorage, FINAL_SEED_VERSION
 from electrumsv.wallet import sweep_preparations, ImportedPrivkeyWallet

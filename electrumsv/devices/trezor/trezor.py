@@ -1,10 +1,9 @@
 from collections import defaultdict
 
 from bitcoinx import (
-    Script, Ops, bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string,
+    Script, Ops, bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string, Address,
 )
 
-from electrumsv.address import Address
 from electrumsv.app_state import app_state
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled

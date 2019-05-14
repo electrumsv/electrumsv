@@ -14,9 +14,8 @@ import requests
 import struct
 import time
 
-from bitcoinx import PublicKey, compact_signature_to_der, bip32_key_from_string
+from bitcoinx import PublicKey, compact_signature_to_der, bip32_key_from_string, Address
 
-from electrumsv.address import Address
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import push_script, msg_magic
 from electrumsv.crypto import (sha256d, EncodeAES_base64, EncodeAES_bytes, DecodeAES_bytes,

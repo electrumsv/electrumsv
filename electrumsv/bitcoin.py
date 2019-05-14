@@ -23,9 +23,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from bitcoinx import Ops, hash_to_hex_str, sha256
+from bitcoinx import Ops, hash_to_hex_str, sha256, Address
 
-from .address import Address
 from .crypto import hash_160, sha256d, hmac_oneshot
 from .networks import Net
 from .util import bfh, bh2u, assert_bytes, to_bytes
@@ -238,9 +237,18 @@ def base_decode(v, length, base):
 
 ########### end pywallet functions #######################
 
-def scripthash_hex(script):
-    return hash_to_hex_str(sha256(bytes(script)))
+def scripthash_hex(item):
+    if isinstance(item, Address):
+        item = item.to_script_bytes()
+    return hash_to_hex_str(sha256(bytes(item)))
 
 def msg_magic(message):
     length = bfh(var_int(len(message)))
     return b"\x18Bitcoin Signed Message:\n" + length + message
+
+def is_address_valid(address):
+    try:
+        Address.from_string(address)
+        return True
+    except ValueError:
+        return False

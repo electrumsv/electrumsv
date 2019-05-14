@@ -29,10 +29,9 @@ import time
 from typing import Any, List, Optional, Tuple
 import urllib.parse
 
-from bitcoinx import Script, P2PKH_Address
+from bitcoinx import Script, P2PKH_Address, Address
 import requests
 
-from . import address
 from . import transaction
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .logs import logs
@@ -96,7 +95,7 @@ class Output:
         assert tokens[3] == "OP_EQUALVERIFY"
         assert tokens[4] == "OP_CHECKSIG"
         pkh_hex = tokens[2]
-        return address.Address.from_P2PKH_hash(bytes.fromhex(pkh_hex))
+        return P2PKH_Address(bytes.fromhex(pkh_hex))
 
     @classmethod
     def from_dict(klass, data: dict) -> 'Output':
@@ -173,7 +172,7 @@ class PaymentRequest:
         if creation_timestamp is not None and expiration_seconds is not None:
             expiration_timestamp = creation_timestamp + expiration_seconds
 
-        script_hex = P2PKH_Address(address_.hash160).to_script().to_hex()
+        script_hex = address.to_script_bytes().hex()
 
         outputs = [ Output(script_hex, amount) ]
         return klass(outputs, creation_timestamp, expiration_timestamp, memo)
@@ -278,15 +277,13 @@ class PaymentRequest:
     def get_outputs(self) -> List[Output]:
         return self.outputs[:]
 
-    def send_payment(self, transaction_hex, refund_address) -> Tuple[bool, str]:
+    def send_payment(self, transaction_hex: str, refund_address: Address) -> Tuple[bool, str]:
         if not self.payment_url:
             return False, "no url"
 
-        refund_address_hash160 = address.Address.from_string(refund_address).hash160
-
         payment_memo = "Paid using ElectrumSV"
         payment = Payment(self.merchant_data, transaction_hex, [], payment_memo)
-        refund_script_hex = P2PKH_Address(refund_address_hash160).to_script().to_hex()
+        refund_script_hex = refund_address.to_script_bytes().hex()
         payment.refund_outputs.append(Output(refund_script_hex))
 
         parsed_url = urllib.parse.urlparse(self.payment_url)

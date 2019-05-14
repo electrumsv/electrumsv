@@ -3,16 +3,14 @@ import os
 import time
 import unittest
 
-import bitcoinx
+from bitcoinx import P2PKH_Address
 
-from electrumsv import address
 from electrumsv import paymentrequest
 
 
 PKH_HEX = "8b2b1e60ccf6c206f1fde862897cd61be5f2a021"
-PKH_BYTES = bytes.fromhex(PKH_HEX)
-PKH_ADDRESS = address.Address.from_P2PKH_hash(PKH_BYTES).to_string()
-P2PKH_SCRIPT_HEX = bitcoinx.P2PKH_Address(PKH_BYTES).to_script().to_hex()
+PKH_ADDRESS = P2PKH_Address(bytes.fromhex(PKH_HEX))
+P2PKH_SCRIPT_HEX = PKH_ADDRESS.to_script_bytes().hex()
 
 TRANSACTION_HEX = ("0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c"+
     "912084000000002401ff2102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e473"+
@@ -25,14 +23,14 @@ TRANSACTION_HEX = ("0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb98
 
 def _generate_address():
     pkh_bytes = os.urandom(20)
-    return address.Address.from_P2PKH_hash(pkh_bytes).to_string()
+    return P2PKH_Address(pkh_bytes)
 
 
 
 class TestOutput(unittest.TestCase):
     def test_get_address_string(self):
         output = paymentrequest.Output(P2PKH_SCRIPT_HEX)
-        self.assertEqual(PKH_ADDRESS, output.get_address_string())
+        self.assertEqual(PKH_ADDRESS.to_string(), output.get_address_string())
 
     def test_dict_optional_fields_unused(self):
         output = paymentrequest.Output(P2PKH_SCRIPT_HEX)

@@ -1,12 +1,12 @@
 import base64
 from bitcoinx import (
     PublicKey, Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check, is_minikey,
+    Address
 )
 
-from electrumsv.address import Address
 from electrumsv.bitcoin import (
     is_new_seed, is_old_seed, var_int, op_push, seed_type,
-    push_script, int_to_hex
+    push_script, int_to_hex, is_address_valid, scripthash_hex
 )
 from electrumsv.crypto import sha256d
 from electrumsv.keystore import is_xpub, is_xprv, is_private_key
@@ -22,7 +22,7 @@ from . import FAST_TESTS
 
 
 def address_to_script(addr):
-    return Address.from_string(addr).to_script_hex()
+    return Address.from_string(addr).to_script_bytes().hex()
 
 
 def needs_test_with_all_aes_implementations(func):
@@ -366,11 +366,11 @@ class Test_keyImport(SequentialTestCase):
         for priv_details in self.priv_pub_addr:
             addr = priv_details['address']
             print(addr)
-            self.assertFalse(Address.is_valid(priv_details['priv']))
-            self.assertFalse(Address.is_valid(priv_details['pub']))
-            self.assertTrue(Address.is_valid(addr))
+            self.assertFalse(is_address_valid(priv_details['priv']))
+            self.assertFalse(is_address_valid(priv_details['pub']))
+            self.assertTrue(is_address_valid(addr))
 
-        self.assertFalse(Address.is_valid("not an address"))
+        self.assertFalse(is_address_valid("not an address"))
 
     def test_is_private_key(self):
         for priv_details in self.priv_pub_addr:
@@ -383,7 +383,7 @@ class Test_keyImport(SequentialTestCase):
 
     def test_address_to_scripthash(self):
         for priv_details in self.priv_pub_addr:
-            sh = Address.from_string(priv_details['address']).to_scripthash_hex()
+            sh = scripthash_hex(Address.from_string(priv_details['address']))
             self.assertEqual(priv_details['scripthash'], sh)
 
     def test_is_minikey(self):
