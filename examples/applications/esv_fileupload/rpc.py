@@ -5,7 +5,7 @@ import os
 from typing import Optional, Tuple, List
 
 import aiorpcx
-from bitcoinx import Script
+from bitcoinx import Script, TxOutput
 
 from electrumsv.app_state import app_state
 from electrumsv.crypto import sha256d
@@ -91,7 +91,8 @@ class LocalRPCFunctions:
             dispersal_value = to_split_coin['value'] - 2000
             outputs = []
             for i in range(additional_count):
-                outputs.append((unused_addresses[i], dispersal_value // additional_count))
+                outputs.append(TxOutput(dispersal_value // additional_count,
+                                        unused_addresses[i].to_script()))
             if sum(v[2] for v in outputs) > dispersal_value - (2 * len(outputs)):
                 tx = wallet.make_unsigned_transaction([ to_split_coin ], outputs, app_state.config)
                 wallet.sign_transaction(tx, password)
@@ -114,7 +115,7 @@ class LocalRPCFunctions:
         domain = None
         confirmed_coins = wallet.get_spendable_coins(None, {'confirmed_only': True})
         script = (Script() << OP_RETURN).push_many(pushdatas)
-        outputs = [ (script, 0) ]
+        outputs = [TxOutput(0, script)]
         tx = wallet.make_unsigned_transaction(confirmed_coins, outputs, app_state.config)
         wallet.sign_transaction(tx, password)
         return {

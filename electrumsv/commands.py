@@ -32,7 +32,9 @@ from functools import wraps
 import json
 import sys
 
-from bitcoinx import PrivateKey, PublicKey, Address, P2MultiSig_Output, P2SH_Address, hash160
+from bitcoinx import (
+    PrivateKey, PublicKey, Address, P2MultiSig_Output, P2SH_Address, hash160, TxOutput,
+)
 
 from .app_state import app_state
 from .bitcoin import COIN, scripthash_hex, is_address_valid
@@ -267,7 +269,8 @@ class Commands:
                 txin['signatures'] = [None]
                 txin['num_sig'] = 1
 
-        outputs = [(Address.from_string(x['address']), int(x['value'])) for x in outputs]
+        outputs = [TxOutput(output['value'], Address.from_string(output['address']).to_script())
+                   for output in outputs]
         tx = Transaction.from_io(inputs, outputs, locktime=locktime)
         tx.sign(keypairs)
         return tx.as_dict()

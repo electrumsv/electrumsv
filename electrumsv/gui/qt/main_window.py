@@ -36,7 +36,7 @@ from typing import Iterable
 import weakref
 import webbrowser
 
-from bitcoinx import PublicKey, Script, OP_RETURN, Address, P2PKH_Address
+from bitcoinx import PublicKey, Script, OP_RETURN, Address, P2PKH_Address, TxOutput
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl)
 from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices, QPixmap
@@ -58,7 +58,9 @@ from electrumsv.logs import logs
 from electrumsv.network import broadcast_failure_reason
 from electrumsv.networks import Net
 from electrumsv.paymentrequest import PR_PAID
-from electrumsv.transaction import Transaction, SerializationError, tx_from_str
+from electrumsv.transaction import (
+    Transaction, SerializationError, tx_from_str, tx_output_to_display_text,
+)
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, format_fee_satoshis,
     get_update_check_dates, get_identified_release_signers
@@ -1414,17 +1416,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             for file_path in file_paths:
                 with open(file_path, "rb") as f:
                     data_chunks.append(f.read())
-            amount = 0
             script = (Script() << OP_RETURN).push_many(data_chunks)
-            output_tuple = (script, amount)
-            return [ output_tuple ]
+            return [TxOutput(0, script)]
         return []
 
     def do_update_fee(self):
         '''Recalculate the fee.  If the fee was manually input, retain it, but
         still build the TX to see if there are enough funds.
         '''
-        amount = '!' if self.is_max else self.amount_e.get_amount()
+        amount = all if self.is_max else self.amount_e.get_amount()
         if amount is None:
             self.not_enough_funds = False
             self.statusBar().showMessage('')
@@ -1433,7 +1433,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             outputs = self.payto_e.get_outputs(self.is_max)
             if not outputs:
                 addr = self.get_payto_or_dummy()
-                outputs = [(addr, amount)]
+                outputs = [TxOutput(amount, addr.to_script())]
 
             outputs.extend(self.get_opreturn_outputs(outputs))
             try:
@@ -1541,10 +1541,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_error(_('No outputs'))
             return
 
-        for addr, amount in outputs:
-            if amount is None:
-                self.show_error(_('Invalid Amount'))
-                return
+        if any(output.value is None for output in outputs):
+            self.show_error(_('Invalid Amount'))
+            return
         fee = None
         coins = self.get_coins(isInvoice)
         return outputs, fee, label, coins
@@ -1619,7 +1618,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_message(str(e))
             return
 
-        amount = tx.output_value() if self.is_max else sum(amount for addr, amount in outputs)
+        amount = tx.output_value() if self.is_max else sum(output.value for output in outputs)
         fee = tx.get_fee()
 
         if preview:
@@ -1951,9 +1950,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(QLabel(_("Requestor") + ':'), 0, 0)
         grid.addWidget(QLabel(pr.get_requestor()), 0, 1)
         grid.addWidget(QLabel(_("Amount") + ':'), 1, 0)
-        outputs_str = '\n'.join(self.format_amount(amount) + app_state.base_unit() +
-                                ' @ ' + addr.to_string()
-                                for addr, amount in pr.get_outputs())
+        outputs_str = '\n'.join(self.format_amount(tx_output.value) + app_state.base_unit() +
+                                ' @ ' + tx_output_to_display_text(tx_output)[0]
+                                for tx_output in pr.get_outputs())
         grid.addWidget(QLabel(outputs_str), 1, 1)
         expires = pr.get_expiration_date()
         grid.addWidget(QLabel(_("Memo") + ':'), 2, 0)

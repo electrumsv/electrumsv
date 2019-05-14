@@ -25,7 +25,7 @@
 import threading
 
 from bitcoinx import (
-    BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, Script, Address,
+    BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, Address, OP_RETURN_Output,
 )
 
 from electrumsv.app_state import app_state
@@ -35,6 +35,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 from electrumsv.logs import logs
 from electrumsv.networks import Net
+from electrumsv.transaction import classify_tx_output
 from electrumsv.util import bfh
 
 from ..hw_wallet import HW_PluginBase
@@ -374,8 +375,7 @@ class KeepKeyPlugin(HW_PluginBase):
         outputs = []
         has_change = False
 
-        for address, amount in tx.outputs():
-            info = tx.output_info.get(address)
+        for tx_output, info in zip(tx.outputs(), tx.output_info):
             if info is not None and not has_change:
                 has_change = True # no more than one change address
                 index, xpubs, m = info
@@ -383,7 +383,7 @@ class KeepKeyPlugin(HW_PluginBase):
                     script_type = self.types.PAYTOADDRESS
                     address_n = bip32_decompose_chain_string(derivation + "/%d/%d"%index)
                     txoutputtype = self.types.TxOutputType(
-                        amount = amount,
+                        amount = tx_output.value,
                         script_type = script_type,
                         address_n = address_n,
                     )
@@ -399,18 +399,19 @@ class KeepKeyPlugin(HW_PluginBase):
                         m = m)
                     txoutputtype = self.types.TxOutputType(
                         multisig = multisig,
-                        amount = amount,
+                        amount = tx_output.value,
                         address_n = bip32_decompose_chain_string(derivation + "/%d/%d"%index),
                         script_type = script_type)
             else:
                 txoutputtype = self.types.TxOutputType()
-                txoutputtype.amount = amount
-                if isinstance(address, Script):
-                    txoutputtype.script_type = self.types.PAYTOOPRETURN
-                    txoutputtype.op_return_data = address.to_bytes()[2:]
-                elif isinstance(address, Address):
+                txoutputtype.amount = tx_output.value
+                address = classify_tx_output(tx_output)
+                if isinstance(address, Address):
                     txoutputtype.script_type = self.types.PAYTOADDRESS
-                    txoutputtype.address = address.to_string()
+                    txoutputtype.address = address.to_string(coin=Net.COIN)
+                elif isinstance(address, OP_RETURN_Output):
+                    txoutputtype.script_type = self.types.PAYTOOPRETURN
+                    txoutputtype.op_return_data = bytes(tx_output.script_pubkey)[2:]
 
             outputs.append(txoutputtype)
 

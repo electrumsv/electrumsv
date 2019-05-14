@@ -30,7 +30,7 @@ from decimal import Decimal
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFontMetrics, QTextCursor
 from PyQt5.QtWidgets import QCompleter, QPlainTextEdit
-from bitcoinx import cashaddr, Script, Address
+from bitcoinx import cashaddr, Script, Address, TxOutput
 
 from .qrtextedit import ScanQRTextEdit
 
@@ -111,11 +111,13 @@ class PayToEdit(ScanQRTextEdit):
                 )
             util.MessageBox.show_warning(message, title=_("Cash address warning"))
 
-    def _parse_address_and_amount(self, line):
+    def _parse_tx_output(self, line):
         x, y = line.split(',')
-        out = self._parse_output(x)
+        script = self._parse_output(x)
+        if not isinstance(script, Script):  # An Address object
+            script = script.to_script()
         amount = self._parse_amount(y)
-        return out, amount
+        return TxOutput(amount, script)
 
     def _parse_output(self, x):
         try:
@@ -140,7 +142,7 @@ class PayToEdit(ScanQRTextEdit):
 
     def _parse_amount(self, x):
         if x.strip() == '!':
-            return '!'
+            return all
         p = pow(10, self.amount_edit.decimal_point())
         return int(p * Decimal(x.strip()))
 
@@ -169,16 +171,16 @@ class PayToEdit(ScanQRTextEdit):
         is_max = False
         for i, line in enumerate(lines):
             try:
-                to_address, amount = self._parse_address_and_amount(line)
+                tx_output = self._parse_tx_output(line)
             except:
                 self.errors.append((i, line.strip()))
                 continue
 
-            outputs.append((to_address, amount))
-            if amount == '!':
+            outputs.append(tx_output)
+            if tx_output.value is all:
                 is_max = True
             else:
-                total += amount
+                total += tx_output.value
 
         self.win.is_max = is_max
         self.outputs = outputs
@@ -199,12 +201,12 @@ class PayToEdit(ScanQRTextEdit):
     def get_outputs(self, is_max):
         if self.payto_address:
             if is_max:
-                amount = '!'
+                amount = all
             else:
                 amount = self.amount_edit.get_amount()
 
             addr = self.payto_address
-            self.outputs = [(addr, amount)]
+            self.outputs = [TxOutput(amount, addr.to_script())]
 
         return self.outputs[:]
 

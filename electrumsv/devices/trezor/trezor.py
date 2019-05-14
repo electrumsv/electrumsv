@@ -1,7 +1,8 @@
 from collections import defaultdict
 
 from bitcoinx import (
-    Script, Ops, bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string, Address,
+    Ops, bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string, Address,
+    OP_RETURN_Output,
 )
 
 from electrumsv.app_state import app_state
@@ -11,6 +12,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
 from electrumsv.logs import logs
 from electrumsv.networks import Net
+from electrumsv.transaction import classify_tx_output
 from electrumsv.util import bfh
 
 from ..hw_wallet import HW_PluginBase
@@ -46,14 +48,12 @@ TIM_NEW, TIM_RECOVER = range(2)
 TREZOR_PRODUCT_KEY = 'Trezor'
 
 
-def validate_op_return(output, amount):
-    if not isinstance(output, Script):
-        raise ValueError(f'Unexpected output type: {output}')
-    script = bytes(output)
+def validate_op_return(tx_output):
+    script = bytes(tx_output.script_pubkey)
     if not (script[0] == Ops.OP_RETURN and
             script[1] == len(script) - 2 and script[1] <= 75):
         raise ValueError(_("Only OP_RETURN scripts, with one constant push, are supported."))
-    if amount:
+    if tx_output.value:
         raise ValueError(_("Amount for OP_RETURN output must be zero."))
     return script[2:]
 
@@ -379,26 +379,26 @@ class TrezorPlugin(HW_PluginBase):
                 script_type = OutputScriptType.PAYTOMULTISIG
             return TxOutputType(
                 multisig=multisig,
-                amount=amount,
+                amount=tx_output.value,
                 address_n=bip32_decompose_chain_string(derivation + "/%d/%d" % index),
                 script_type=script_type
             )
 
         def create_output_by_address():
             txoutputtype = TxOutputType()
-            txoutputtype.amount = amount
-            if isinstance(address, Script):
-                txoutputtype.script_type = OutputScriptType.PAYTOOPRETURN
-                txoutputtype.op_return_data = validate_op_return(address, amount)
-            elif isinstance(address, Address):
-                txoutputtype.script_type = OutputScriptType.PAYTOADDRESS
-                txoutputtype.address = address.to_string()
+            txoutputtype.amount = tx_output.value
+            address = classify_tx_output(tx_output)
+            if isinstance(address, Address):
+                txoutputtype.script_type = self.types.PAYTOADDRESS
+                txoutputtype.address = address.to_string(coin=Net.COIN)
+            elif isinstance(address, OP_RETURN_Output):
+                txoutputtype.script_type = self.types.PAYTOOPRETURN
+                txoutputtype.op_return_data = validate_op_return(tx_output)
             return txoutputtype
 
         outputs = []
 
-        for address, amount in tx.outputs():
-            info = tx.output_info.get(address)
+        for tx_output, info in zip(tx.outputs(), tx.output_info):
             if info:
                 # Send derivations of addresses in our wallet
                 index, xpubs, m = info

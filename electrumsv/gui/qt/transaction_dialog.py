@@ -32,13 +32,14 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit
 )
 
-from bitcoinx import PublicKey, Script, Address
+from bitcoinx import PublicKey, Address
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import base_encode
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.platform import platform
+from electrumsv.transaction import tx_output_to_display_text
 from electrumsv.util import bfh
 from .util import MessageBoxMixin, ButtonsLineEdit, Buttons, ColorScheme, read_QIcon
 
@@ -335,20 +336,15 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         o_text.clear()
         cursor = o_text.textCursor()
-        for addr, v in self.tx.outputs():
-            if isinstance(addr, PublicKey):
-                addrstr = addr.to_hex()
-            elif isinstance(addr, Script):
-                addrstr = addr.to_asm()
-            else:
-                addrstr = addr.to_string()
-            cursor.insertText(addrstr, text_format(addr))
-            if v is not None:
-                if len(addrstr) > 42: # for long outputs, make a linebreak.
-                    cursor.insertBlock()
-                    addrstr = '\u21b3'
-                    cursor.insertText(addrstr, ext)
-                # insert enough spaces until column 43, to line up amounts
-                cursor.insertText(' '*(43 - len(addrstr)), ext)
-                cursor.insertText(format_amount(v), ext)
+        for tx_output in self.tx.outputs():
+            text, kind = tx_output_to_display_text(tx_output)
+            cursor.insertText(text, text_format(kind))
+
+            if len(text) > 42: # for long outputs, make a linebreak.
+                cursor.insertBlock()
+                text = '\u21b3'
+                cursor.insertText(text, ext)
+            # insert enough spaces until column 43, to line up amounts
+            cursor.insertText(' '*(43 - len(text)), ext)
+            cursor.insertText(format_amount(tx_output.value), ext)
             cursor.insertBlock()

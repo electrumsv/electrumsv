@@ -6,6 +6,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QProgressDialog
 )
+from bitcoinx import TxOutput
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
@@ -147,7 +148,7 @@ class CoinSplittingTab(QWidget):
 
         unused_address = window.wallet.get_unused_address()
         outputs = [
-            (unused_address, "!")
+            TxOutput(all, unused_address.to_script())
         ]
         coins = wallet.get_utxos(None, exclude_frozen=True, mature=True, confirmed_only=False)
         tx = wallet.make_unsigned_transaction(coins, outputs, window.config)
@@ -204,9 +205,9 @@ class CoinSplittingTab(QWidget):
         if event == 'new_transaction':
             tx, wallet = args
             if wallet == window.wallet: # filter out tx's not for this wallet
-                our_string = self.receiving_address.to_string()
+                our_script = self.receiving_address.to_script_bytes()
                 for tx_output in tx.outputs():
-                    if tx_output[1].to_string() == our_string:
+                    if tx_output.script_pubkey == our_script:
                         extra_text = _("Dust from BSV faucet")
                         wallet.set_label(tx.txid(), f"{TX_DESC_PREFIX}: {extra_text}")
                         break

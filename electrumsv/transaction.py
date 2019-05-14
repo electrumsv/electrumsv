@@ -28,12 +28,13 @@ import struct
 from bitcoinx import (
     PublicKey, PrivateKey, Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
     P2MultiSig_Output, push_int, push_item, pack_byte, Script,
-    Address, P2SH_Address, P2PKH_Address, P2PK_Output,
+    Address, P2SH_Address, P2PK_Output, TxOutput, read_list, classify_output_script
 )
 
 from .bitcoin import to_bytes, push_script, int_to_hex, var_int
 from .crypto import sha256d, hash_160
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
+from .networks import Net
 from .logs import logs
 from .util import profiler, bfh, bh2u
 
@@ -41,6 +42,29 @@ from .util import profiler, bfh, bh2u
 NO_SIGNATURE = 'ff'
 
 logger = logs.get_logger("transaction")
+
+
+def classify_tx_output(tx_output: TxOutput):
+    # This returns a P2PKH_Address, P2SH_Address, P2PK_Output, OP_RETURN_Output,
+    # P2MultiSig_Output or Unknown_Output
+    return classify_output_script(tx_output.script_pubkey)
+
+
+def tx_output_to_display_text(tx_output: TxOutput):
+    kind = classify_tx_output(tx_output)
+    if isinstance(kind, Address):
+        text = kind.to_string(coin=Net.COIN)
+    elif isinstance(kind, P2PK_Output):
+        text = kind.public_key.hex()
+    else:
+        text = tx_output.script_pubkey.to_asm()
+    return text, kind
+
+
+def _validate_outputs(outputs):
+    assert all(isinstance(output, TxOutput) for output in outputs)
+    assert all(isinstance(output.script_pubkey, Script) for output in outputs)
+    assert all(isinstance(output.value, int) for output in outputs)
 
 
 class UnknownAddress(object):
@@ -286,29 +310,6 @@ def _parse_redeemScript(s):
     redeemScript = P2MultiSig_Output(pubkeys, m).to_script_bytes()
     return m, n, x_pubkeys, pubkeys, redeemScript
 
-def get_address_from_output_script(_bytes):
-    decoded = [x for x in _script_GetOp(_bytes)]
-
-    # The Genesis Block, self-payments, and pay-by-IP-address payments look like:
-    # 65 BYTES:... CHECKSIG
-    match = [ Ops.OP_PUSHDATA4, Ops.OP_CHECKSIG ]
-    if _match_decoded(decoded, match):
-        return PublicKey.from_bytes(bytes(decoded[0][1]))
-
-    # Pay-by-Bitcoin-address TxOuts look like:
-    # DUP HASH160 20 BYTES:... EQUALVERIFY CHECKSIG
-    match = [ Ops.OP_DUP, Ops.OP_HASH160, Ops.OP_PUSHDATA4,
-              Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG ]
-    if _match_decoded(decoded, match):
-        return P2PKH_Address(bytes(decoded[2][1]))
-
-    # p2sh
-    match = [ Ops.OP_HASH160, Ops.OP_PUSHDATA4, Ops.OP_EQUAL ]
-    if _match_decoded(decoded, match):
-        return P2SH_Address(bytes(decoded[1][1]))
-
-    return Script(bytes(_bytes))
-
 
 def _parse_input(vds):
     d = {}
@@ -338,16 +339,6 @@ def _parse_input(vds):
     return d
 
 
-def parse_output(vds, i):
-    d = {}
-    d['value'] = vds.read_int64()
-    scriptPubKey = vds.read_bytes(vds.read_compact_size())
-    d['address'] = get_address_from_output_script(scriptPubKey)
-    d['scriptPubKey'] = bh2u(scriptPubKey)
-    d['prevout_n'] = i
-    return d
-
-
 def deserialize(raw):
     vds = _BCDataStream()
     vds.write(bfh(raw))
@@ -357,8 +348,7 @@ def deserialize(raw):
     n_vin = vds.read_compact_size()
     assert n_vin != 0
     d['inputs'] = [_parse_input(vds) for i in range(n_vin)]
-    n_vout = vds.read_compact_size()
-    d['outputs'] = [parse_output(vds, i) for i in range(n_vout)]
+    d['outputs'] = read_list(vds.read_bytes, TxOutput.read)
     d['lockTime'] = vds.read_uint32()
     return d
 
@@ -505,18 +495,16 @@ class Transaction:
             return
         d = deserialize(self.raw)
         self._inputs = d['inputs']
-        self._outputs = [(x['address'], x['value']) for x in d['outputs']]
-        assert all(isinstance(addr, (PublicKey, Address, Script))
-                   for addr, value in self._outputs)
+        self._outputs = d['outputs']
+        _validate_outputs(self._outputs)
         self.locktime = d['lockTime']
         self.version = d['version']
         return d
 
     @classmethod
-    def from_io(klass, inputs, outputs, locktime=0):
-        assert all(isinstance(addr, (PublicKey, Address, Script))
-                   for addr, value in outputs)
-        self = klass(None)
+    def from_io(cls, inputs, outputs, locktime=0):
+        _validate_outputs(outputs)
+        self = cls(None)
         self._inputs = inputs
         self._outputs = outputs.copy()
         self.locktime = locktime
@@ -645,15 +633,7 @@ class Transaction:
     def BIP_LI01_sort(self):
         # See https://github.com/kristovatlas/rfc/blob/master/bips/bip-li01.mediawiki
         self._inputs.sort(key = lambda i: (i['prevout_hash'], i['prevout_n']))
-        self._outputs.sort(key = lambda output: (output[1], self.pay_script(output[0])))
-
-    def serialize_output(self, output):
-        addr, amount = output
-        s = int_to_hex(amount, 8)
-        script = self.pay_script(addr)
-        s += var_int(len(script)//2)
-        s += script
-        return s
+        self._outputs.sort(key = lambda output: (output.value, output.script_pubkey))
 
     @classmethod
     def nHashType(cls):
@@ -674,7 +654,7 @@ class Transaction:
         hashPrevouts = bh2u(sha256d(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
         hashSequence = bh2u(sha256d(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
                                              for txin in inputs))))
-        hashOutputs = bh2u(sha256d(bfh(''.join(self.serialize_output(o) for o in outputs))))
+        hashOutputs = bh2u(sha256d(b''.join(output.to_bytes() for output in outputs)))
         outpoint = self.serialize_outpoint(txin)
         preimage_script = self.get_preimage_script(txin)
         scriptCode = var_int(len(preimage_script) // 2) + preimage_script
@@ -696,7 +676,7 @@ class Transaction:
             self.serialize_input(txin, self.input_script(txin, estimate_size), estimate_size)
             for txin in inputs
         )
-        txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
+        txouts = var_int(len(outputs)) + b''.join(output.to_bytes() for output in outputs).hex()
         return nVersion + txins + txouts + nLocktime
 
     def hash(self):
@@ -714,8 +694,7 @@ class Transaction:
         self.raw = None
 
     def add_outputs(self, outputs):
-        assert all(isinstance(addr, (PublicKey, Address, Script))
-                   for addr, value in outputs)
+        _validate_outputs(outputs)
         self._outputs.extend(outputs)
         self.raw = None
 
@@ -723,7 +702,7 @@ class Transaction:
         return sum(x['value'] for x in self.inputs())
 
     def output_value(self):
-        return sum(val for addr, val in self.outputs())
+        return sum(output.value for output in self.outputs())
 
     def get_fee(self):
         return self.input_value() - self.output_value()

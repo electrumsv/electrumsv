@@ -26,6 +26,8 @@
 from collections import defaultdict, namedtuple
 from math import floor, log10
 
+from bitcoinx import TxOutput
+
 from .bitcoin import COIN
 from .crypto import sha256
 from .logs import logs
@@ -110,7 +112,7 @@ class CoinChooserBase:
 
     def change_amounts(self, tx, count, fee_estimator, _dust_threshold):
         # Break change up if bigger than max_change
-        output_amounts = [o[1] for o in tx.outputs()]
+        output_amounts = [output.value for output in tx.outputs()]
         # Don't split change of less than 0.02 BTC
         max_change = max(max(output_amounts) * 1.25, 0.02 * COIN)
 
@@ -163,7 +165,8 @@ class CoinChooserBase:
         # size of the change output, add it to the transaction.
         dust = sum(amount for amount in amounts if amount < dust_threshold)
         amounts = [amount for amount in amounts if amount >= dust_threshold]
-        change = [(addr, amount) for addr, amount in zip(change_addrs, amounts)]
+        change = [TxOutput(amount, addr.to_script())
+                  for addr, amount in zip(change_addrs, amounts)]
         logger.debug('change %s', change)
         if dust:
             logger.debug('not keeping dust %s', dust)
@@ -267,9 +270,10 @@ class CoinChooserPrivacy(CoinChooserRandom):
         return [coin['address'] for coin in coins]
 
     def penalty_func(self, tx):
-        min_change = min(o[1] for o in tx.outputs()) * 0.75
-        max_change = max(o[1] for o in tx.outputs()) * 1.33
-        spent_amount = sum(o[1] for o in tx.outputs())
+        out_values = [output.value for output in tx.outputs()]
+        min_change = min(out_values) * 0.75
+        max_change = max(out_values) * 1.33
+        spent_amount = sum(out_values)
 
         def penalty(buckets):
             badness = len(buckets) - 1

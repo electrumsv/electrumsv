@@ -29,7 +29,7 @@ import time
 from typing import Any, List, Optional, Tuple
 import urllib.parse
 
-from bitcoinx import Script, P2PKH_Address, Address
+from bitcoinx import TxOutput, Script, P2PKH_Address, Address
 import requests
 
 from . import transaction
@@ -63,6 +63,9 @@ PR_PAID    = 3     # send and propagated
 
 
 class Output:
+    # FIXME: this should either be removed in favour of TxOutput, or be a lighter wrapper
+    # around it.
+
     def __init__(self, script_hex: str, amount: Optional[int]=None,
                  description: Optional[str]=None):
         self.script_hex = script_hex
@@ -73,6 +76,9 @@ class Output:
                 raise Bip270Exception("Output description too long")
         self.description = description
         self.amount = amount
+
+    def to_tx_output(self):
+        return TxOutput(self.amount, Script.from_hex(self.script_hex))
 
     def to_ui_dict(self) -> dict:
         return {
@@ -274,8 +280,8 @@ class PaymentRequest:
     def get_id(self):
         return self.id if self.requestor else self.get_address()
 
-    def get_outputs(self) -> List[Output]:
-        return self.outputs[:]
+    def get_outputs(self) -> List[TxOutput]:
+        return [output.to_tx_output() for output in self.outputs]
 
     def send_payment(self, transaction_hex: str, refund_address: Address) -> Tuple[bool, str]:
         if not self.payment_url:

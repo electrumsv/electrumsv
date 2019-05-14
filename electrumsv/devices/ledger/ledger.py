@@ -2,17 +2,16 @@ import hashlib
 from struct import pack, unpack
 
 from bitcoinx import (
-    BIP32Derivation, BIP32PublicKey, PublicKey,
-    pack_be_uint32, Address
+    BIP32Derivation, BIP32PublicKey, PublicKey, TxOutput, pack_be_uint32, pack_list
 )
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import int_to_hex, var_int
+from electrumsv.bitcoin import int_to_hex
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import Transaction
+from electrumsv.transaction import Transaction, classify_tx_output
 from electrumsv.util import bfh, bh2u, versiontuple
 
 from ..hw_wallet import HW_PluginBase
@@ -359,27 +358,19 @@ class Ledger_KeyStore(Hardware_KeyStore):
                     self.give_error(
                         "P2SH / regular input mixed in same transaction not supported")
 
-        txOutput = var_int(len(tx.outputs()))
-        for txout in tx.outputs():
-            output_type, addr, amount = txout
-            txOutput += int_to_hex(amount, 8)
-            script = tx.pay_script(addr)
-            txOutput += var_int(len(script)//2)
-            txOutput += script
-        txOutput = bfh(txOutput)
+        # Concatenate all the tx outputs as binary
+        txOutput = pack_list(tx.outputs(), TxOutput.to_bytes)
 
         # Recognize outputs - only one output and one change is authorized
         if not p2shTransaction:
-            for address, amount in tx.outputs():
-                assert isinstance(address, Address)
-                info = tx.output_info.get(address)
-                if (info is not None) and (len(tx.outputs()) != 1):
+            for tx_output, info in zip(tx.outputs(), tx.output_info):
+                if (info is not None) and len(tx.outputs()) != 1:
                     index, xpubs, m = info
                     changePath = self.get_derivation()[2:] + "/{:d}/{:d}".format(*index)
-                    changeAmount = amount
+                    changeAmount = tx_output.value
                 else:
-                    output = address
-                    outputAmount = amount
+                    output = classify_tx_output(tx_output)
+                    outputAmount = tx_output.value
 
         self.handler.show_message(_("Confirm Transaction on your Ledger device..."))
         try:
@@ -403,7 +394,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             outputData['outputData'] = txOutput
             transactionOutput = outputData['outputData']
             if outputData['confirmationNeeded']:
-                outputData['address'] = output
+                outputData['address'] = output.to_string(coin=Net.COIN)
                 self.handler.finished()
                 pin = self.handler.get_auth( outputData ) # the authenticate dialog and returns pin
                 if not pin:
