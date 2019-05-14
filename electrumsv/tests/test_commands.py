@@ -1,3 +1,4 @@
+import json
 import unittest
 from decimal import Decimal
 
@@ -49,3 +50,19 @@ class TestCommands(unittest.TestCase):
         signature = privkey.sign_message_to_base64(message)
         address = privkey.public_key.to_address()
         assert c.verifymessage(address, signature, message)
+
+    def test_createmultisig(self):
+        c = Commands(None, None, None)
+        pubkeys = ["03b25918969e43702abeb6a60942e72e3a3c603dfd272de59e7679a52f35527ccf",
+                   "0383cf538b41dbba7b7ee57a53bc673fef8a6896734ae587032f755ac0cba86cc2"]
+
+        result = c.createmultisig(2, pubkeys)
+        result_rev = c.createmultisig(2, list(reversed(pubkeys)))
+        assert result == result_rev
+        assert result == {
+            "address": "3AiUfSRMbvXzyAHhFoFAtVFibWPdkNV9DW",
+            "redeemScript": (
+                "52210383cf538b41dbba7b7ee57a53bc673fef8a6896734ae587032f755ac0cba86c"
+                "c22103b25918969e43702abeb6a60942e72e3a3c603dfd272de59e7679a52f35527ccf52ae"
+            )
+        }

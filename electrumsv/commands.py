@@ -32,16 +32,16 @@ from functools import wraps
 import json
 import sys
 
-from bitcoinx import PrivateKey, PublicKey, Address
+from bitcoinx import PrivateKey, PublicKey, Address, P2MultiSig_Output, P2SH_Address, hash160
 
 from .app_state import app_state
-from .bitcoin import COIN, scripthash_hex, is_address_valid, hash160_to_p2sh
+from .bitcoin import COIN, scripthash_hex, is_address_valid
 from .crypto import hash_160
 from .exchange_rate import FxTask
 from .i18n import _
 from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
-from .transaction import Transaction, multisig_script
+from .transaction import Transaction
 from .util import bfh, bh2u, format_satoshis, json_decode, to_bytes
 
 
@@ -301,12 +301,14 @@ class Commands:
         return self.network.broadcast_transaction_and_wait(tx)
 
     @command('')
-    def createmultisig(self, num, pubkeys):
+    def createmultisig(self, threshold, pubkeys):
         """Create multisig address"""
-        assert isinstance(pubkeys, list), (type(num), type(pubkeys))
-        redeem_script = multisig_script(pubkeys, num)
-        address = hash160_to_p2sh(hash_160(bfh(redeem_script)))
-        return {'address':address, 'redeemScript':redeem_script}
+        assert isinstance(pubkeys, list), (type(threshold), type(pubkeys))
+        public_keys = [PublicKey.from_hex(pubkey) for pubkey in sorted(pubkeys)]
+        output = P2MultiSig_Output(public_keys, threshold)
+        redeem_script = output.to_script_bytes()
+        address = P2SH_Address(hash160(redeem_script)).to_string()
+        return {'address':address, 'redeemScript':redeem_script.hex()}
 
     @command('w')
     def freeze(self, address):
