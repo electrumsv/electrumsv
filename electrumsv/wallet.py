@@ -562,7 +562,7 @@ class Abstract_Wallet:
                 is_partial = True
         if not is_mine:
             is_partial = False
-        for addr, value in tx.get_outputs():
+        for addr, value in tx.outputs():
             v_out += value
             if addr in addresses:
                 v_out_mine += value
@@ -940,7 +940,7 @@ class Abstract_Wallet:
                     addr = x.get('address')
                     if addr is None: continue
                     input_addresses.append(addr.to_string())
-                for addr, v in tx.get_outputs():
+                for addr, v in tx.outputs():
                     output_addresses.append(addr.to_string())
                 item['input_addresses'] = input_addresses
                 item['output_addresses'] = output_addresses

@@ -782,15 +782,8 @@ class Transaction:
         sig = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
         return sig
 
-    def get_outputs(self):
-        """convert pubkeys to addresses"""
-        o = []
-        for addr, v in self.outputs():
-            o.append((addr,v))      # consider using yield (addr, v)
-        return o
-
     def get_output_addresses(self):
-        return [addr for addr, val in self.get_outputs()]
+        return [addr for addr, val in self.outputs()]
 
 
     def has_address(self, addr):

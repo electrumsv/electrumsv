@@ -335,7 +335,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         o_text.clear()
         cursor = o_text.textCursor()
-        for addr, v in self.tx.get_outputs():
+        for addr, v in self.tx.outputs():
             if isinstance(addr, PublicKey):
                 addrstr = addr.to_hex()
             elif isinstance(addr, Script):
