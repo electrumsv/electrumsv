@@ -25,8 +25,7 @@
 
 from bitcoinx import Ops, hash_to_hex_str, sha256, Address
 
-from .crypto import hash_160, sha256d, hmac_oneshot
-from .networks import Net
+from .crypto import hmac_oneshot
 from .util import bfh, bh2u, assert_bytes, to_bytes
 from . import version
 
@@ -140,25 +139,6 @@ is_seed = lambda x: bool(seed_type(x))
 
 ############ functions from pywallet #####################
 
-def hash160_to_b58_address(h160, addrtype):
-    s = bytes([addrtype])
-    s += h160
-    return base_encode(s + sha256d(s)[0:4], base=58)
-
-
-def hash160_to_p2pkh(h160):
-    return hash160_to_b58_address(h160, Net.ADDRTYPE_P2PKH)
-
-def hash160_to_p2sh(h160):
-    return hash160_to_b58_address(h160, Net.ADDRTYPE_P2SH)
-
-def public_key_to_p2pkh(public_key):
-    return hash160_to_p2pkh(hash_160(public_key))
-
-
-__b58chars = b'123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-assert len(__b58chars) == 58
-
 __b43chars = b'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$*+-./:'
 assert len(__b43chars) == 43
 
@@ -166,10 +146,8 @@ assert len(__b43chars) == 43
 def base_encode(v, base):
     """ encode v, which is a string of bytes, to base58."""
     assert_bytes(v)
-    assert base in (58, 43)
-    chars = __b58chars
-    if base == 43:
-        chars = __b43chars
+    assert base == 43
+    chars = __b43chars
     long_value = 0
     for (i, c) in enumerate(v[::-1]):
         long_value += (256**i) * c
@@ -196,10 +174,8 @@ def base_decode(v, length, base):
     """ decode v into a string of len bytes."""
     # assert_bytes(v)
     v = to_bytes(v, 'ascii')
-    assert base in (58, 43)
-    chars = __b58chars
-    if base == 43:
-        chars = __b43chars
+    assert base == 43
+    chars = __b43chars
     long_value = 0
     for (i, c) in enumerate(v[::-1]):
         long_value += chars.find(bytes([c])) * (base**i)

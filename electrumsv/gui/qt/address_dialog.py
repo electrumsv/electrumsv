@@ -78,11 +78,11 @@ class AddressDialog(WindowModalDialog):
 
         try:
             redeem_script = self.wallet.pubkeys_to_redeem_script(pubkeys)
-        except Exception:
-            redeem_script = None
-        if redeem_script:
+        except AttributeError as e:
+            pass
+        else:
             vbox.addWidget(QLabel(_("Redeem Script") + ':'))
-            redeem_e = ShowQRTextEdit(text=redeem_script)
+            redeem_e = ShowQRTextEdit(text=redeem_script.hex())
             redeem_e.addCopyButton(self.app)
             vbox.addWidget(redeem_e)
 

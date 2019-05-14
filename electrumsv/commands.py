@@ -42,7 +42,7 @@ from .i18n import _
 from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .transaction import Transaction
-from .util import bfh, bh2u, format_satoshis, json_decode, to_bytes
+from .util import bh2u, format_satoshis, json_decode, to_bytes
 
 
 logger = logs.get_logger("commands")

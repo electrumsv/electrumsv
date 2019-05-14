@@ -172,7 +172,7 @@ class PaymentRequest:
         if creation_timestamp is not None and expiration_seconds is not None:
             expiration_timestamp = creation_timestamp + expiration_seconds
 
-        script_hex = address.to_script_bytes().hex()
+        script_hex = address_.to_script_bytes().hex()
 
         outputs = [ Output(script_hex, amount) ]
         return klass(outputs, creation_timestamp, expiration_timestamp, memo)
