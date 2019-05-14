@@ -87,7 +87,7 @@ class ContactList(MyTreeWidget):
 
         for entry in sorted(self.parent.contacts.get_contacts(), key=lambda e: e.label):
             for identity in entry.identities:
-                contact_key = (entry.contact_id, identity.system_id)
+                contact_key = (entry.contact_id, identity.identity_id)
                 system_name = IDENTITY_SYSTEM_NAMES[identity.system_id]
                 item = QTreeWidgetItem([
                     entry.label,
@@ -223,8 +223,8 @@ def edit_contact_dialog(parent, main_window, contact_key=None):
         identity_line.setFocus()
     else:
         entry = main_window.contacts.get_contact(contact_key[0])
-        identity = [ ci for ci in entry.identities if ci.system_id == contact_key[1] ][0]
-        combo1.lineEdit().setText(IDENTITY_SYSTEM_NAMES[contact_key[1]])
+        identity = [ ci for ci in entry.identities if ci.identity_id == contact_key[1] ][0]
+        combo1.lineEdit().setText(IDENTITY_SYSTEM_NAMES[identity.system_id])
         identity_line.setText(identity.system_data)
         name_line.setText(entry.label)
         name_line.setFocus()
@@ -235,7 +235,8 @@ def edit_contact_dialog(parent, main_window, contact_key=None):
         system_id = get_system_id(combo1.currentText())
         if contact_key is not None:
             contact = main_window.contacts.get_contact(contact_key[0])
-            if contact_key[1] != system_id:
+            identity = [ ci for ci in contact.identities if ci.identity_id == contact_key[1] ][0]
+            if contact_key[1] != identity.identity_id:
                 main_window.contacts.remove_identity(contact_key[0], contact_key[1])
                 main_window.contacts.add_identity(contact_key[0], system_id, identity_text)
             if contact.label != name_text:

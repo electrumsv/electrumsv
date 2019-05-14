@@ -1,4 +1,6 @@
-from typing import Optional
+from decimal import Decimal
+from functools import partial
+from typing import Optional, Any
 
 from PyQt5.QtCore import (QAbstractItemModel, Qt, QSize, QSortFilterProxyModel, QVariant,
     QModelIndex, pyqtSignal, QEvent, QObject)
@@ -9,6 +11,7 @@ from PyQt5.QtWidgets import (QAction, QComboBox, QCompleter, QDialog, QDialogBut
     QStyleOptionViewItem, QStyle, QStyleOption, QTableView, QAbstractItemView)
 
 from electrumsv.app_state import app_state
+from electrumsv.contacts import ContactEntry, ContactIdentity, IDENTITY_SYSTEM_NAMES
 from electrumsv.i18n import _
 
 from .util import icon_path, read_QIcon
@@ -16,7 +19,11 @@ from .util import icon_path, read_QIcon
 
 # TODO: Handle case where there are no contacts.
 #       - ...
-# TODO: XXX
+# TODO: Receive and handle events.
+#       - Fiat currency change (include from nothing and to nothing).
+#       - Fiat value change.
+#       - Contact deletion.
+#       - Contact identity deletion.
 
 
 payee_badge_css = """
@@ -64,10 +71,68 @@ payee_badge_css = """
 """
 
 
+class _FormContext(QObject):
+    set_payment_amount = pyqtSignal(object)
+    clear_selected_payee = pyqtSignal()
+
+    def __init__(self, wallet_window, payment_window) -> None:
+        self.wallet_window = wallet_window
+        self.payment_window = payment_window
+        super().__init__(payment_window)
+
+        self.wallet_api = _WalletAPI(wallet_window)
+
+
+# This will eventually become the wallet API.
+class _WalletAPI(QObject):
+    # TODO: ...
+    fiat_rate_changed = pyqtSignal(Decimal)
+    # TODO: ...
+    fiat_currency_changed = pyqtSignal(str)
+
+    contact_changed = pyqtSignal(bool, object, object)
+
+    def __init__(self, wallet_window) -> None:
+        self.wallet_window = wallet_window
+        super().__init__(wallet_window)
+
+        app_state.app.identity_added_signal.connect(partial(self._on_contact_change, True))
+        app_state.app.identity_removed_signal.connect(partial(self._on_contact_change, False))
+        app_state.app.contact_added_signal.connect(partial(self._on_contact_change, True))
+        app_state.app.contact_removed_signal.connect(partial(self._on_contact_change, False))
+
+    def get_identities(self):
+        return self.wallet_window.contacts.get_contact_identities()
+
+    def get_balance(self, account_id=None) -> int:
+        c, u, x = self.wallet_window.wallet.get_balance()
+        return c + u
+
+    def get_fiat_unit(self) -> Optional[str]:
+        fx = app_state.fx
+        if fx and fx.is_enabled():
+            return fx.get_currency()
+
+    def get_fiat_amount(self, sv_value: int) -> Optional[str]:
+        fx = app_state.fx
+        if fx and fx.is_enabled():
+            return fx.format_amount(sv_value)
+
+    def get_base_unit(self) -> str:
+        return app_state.base_unit()
+
+    def get_base_amount(self, sv_value: int) -> str:
+        return self.wallet_window.format_amount(sv_value)
+
+    def _on_contact_change(self, added: bool, contact: ContactEntry,
+            identity: Optional[ContactIdentity]=None) -> None:
+        self.contact_changed.emit(added, contact, identity)
+
+
 class PaymentAmountWidget(QWidget):
-    def __init__(self, local_api, parent=None):
+    def __init__(self, form_context, parent=None):
         super().__init__(parent)
-        self._local_api = local_api
+        self._form_context = form_context
 
         self.setObjectName("PaymentAmount")
 
@@ -89,9 +154,9 @@ class PaymentAmountWidget(QWidget):
         # selected fiat currency.
 
         options = []
-        base_unit = local_api.get_base_unit()
+        base_unit = form_context.wallet_api.get_base_unit()
         options.append(base_unit)
-        fiat_unit = local_api.get_fiat_unit()
+        fiat_unit = form_context.wallet_api.get_fiat_unit()
         if fiat_unit is not None:
             options.append(fiat_unit)
 
@@ -107,7 +172,7 @@ class PaymentAmountWidget(QWidget):
         self._currency_combo_options = options
         self._currency_combo = currency_combo
         self._amount_widget = amount_widget
-        self._local_api.set_payment_amount.connect(self._set_payment_amount)
+        self._form_context.set_payment_amount.connect(self._set_payment_amount)
 
     def _set_payment_amount(self, balance_widget) -> None:
         currency = balance_widget.balance_currency
@@ -119,14 +184,14 @@ class PaymentAmountWidget(QWidget):
 
 
 class FundsSelectionWidget(QWidget):
-    def __init__(self, local_api, parent=None):
+    def __init__(self, form_context, parent=None):
         super().__init__(parent)
-        self._local_api = local_api
+        self._form_context = form_context
 
         self.setObjectName("FundsSelector")
 
-        balance = local_api.get_balance()
-        sv_text, fiat_text = local_api.wallet_window.get_amount_and_units(balance)
+        balance = form_context.wallet_api.get_balance()
+        sv_text, fiat_text = form_context.wallet_window.get_amount_and_units(balance)
 
         if fiat_text:
             column_count = 3
@@ -157,6 +222,7 @@ class FundsSelectionWidget(QWidget):
         tableView.setRowHeight(0, 20)
 
         combo = QComboBox()
+        combo.setObjectName("FundsSelectorCombo")
         combo.setModel(model)
         combo.setView(tableView)
         combo.setMinimumWidth(300)
@@ -184,17 +250,21 @@ class FundsSelectionWidget(QWidget):
         hlayout2.addWidget(balance_icon_label)
         hlayout2.addSpacing(4)
         sv_balance = QLineEdit(sv_text)
-        sv_balance.balance_currency = local_api.get_base_unit()
-        sv_balance.balance_amount = local_api.get_base_amount(balance)
+        sv_balance.balance_currency = form_context.wallet_api.get_base_unit()
+        sv_balance.balance_amount = form_context.wallet_api.get_base_amount(balance)
         sv_balance.setAlignment(Qt.AlignHCenter)
         sv_balance.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         sv_balance.setReadOnly(True)
         hlayout2.addWidget(sv_balance)
         if fiat_text:
-            hlayout2.addSpacing(4)
+            hlayout2.addSpacing(2)
+            balance_equals_label = QLabel("")
+            balance_equals_label.setPixmap(QPixmap(icon_path("sb_approximate")))
+            hlayout2.addWidget(balance_equals_label)
+            hlayout2.addSpacing(2)
             fiat_balance = QLineEdit(fiat_text)
-            fiat_balance.balance_currency = local_api.get_fiat_unit()
-            fiat_balance.balance_amount = local_api.get_fiat_amount(balance)
+            fiat_balance.balance_currency = form_context.wallet_api.get_fiat_unit()
+            fiat_balance.balance_amount = form_context.wallet_api.get_fiat_amount(balance)
             fiat_balance.setAlignment(Qt.AlignHCenter)
             fiat_balance.setReadOnly(True)
             hlayout2.addWidget(fiat_balance)
@@ -212,6 +282,7 @@ class FundsSelectionWidget(QWidget):
         sv_balance.installEventFilter(self)
         fiat_balance.installEventFilter(self)
 
+    # QWidget styles do not render. Found this somewhere on the qt5 doc site.
     def paintEvent(self, event):
         opt = QStyleOption()
         opt.initFrom(self)
@@ -222,7 +293,7 @@ class FundsSelectionWidget(QWidget):
         # Clicking a balance field sets the amount currency and the amount.
         if obj is self._sv_balance or obj is self._fiat_balance:
             if self._checkLineEditEvent(evt):
-                self._local_api.set_payment_amount.emit(obj)
+                self._form_context.set_payment_amount.emit(obj)
         return False
 
     def _checkLineEditEvent(self, evt: QEvent) -> bool:
@@ -235,8 +306,13 @@ class FundsSelectionWidget(QWidget):
 
 
 class PayeeBadge(QWidget):
-    def __init__(self, contact, parent=None, is_interactive: bool=True) -> None:
+    def __init__(self, form_context: _FormContext, contact: ContactEntry, identity: ContactIdentity,
+            parent: Optional[Any]=None, is_interactive: Optional[bool]=True) -> None:
         super().__init__(parent)
+
+        self._form_context = form_context
+        self.contact = contact
+        self.identity = identity
 
         # A QWidget has no display itself, it cannot be styled, only it's children can.
 
@@ -257,14 +333,15 @@ class PayeeBadge(QWidget):
             clear_action.setShortcut(Qt.Key_Delete)
             clear_action.setShortcutVisibleInContextMenu(True)
             self.clear_action = clear_action
-            # clear_action.triggered.connect(self._action_clear)
+            clear_action.triggered.connect(self._action_clear)
 
             name_menu = QMenu()
             name_menu.addAction(view_action)
             name_menu.addAction(clear_action)
             name_button.setMenu(name_menu)
 
-        self.system_button = system_button = QPushButton("ChainPay")
+        identity_label = IDENTITY_SYSTEM_NAMES[identity.system_id]
+        self.system_button = system_button = QPushButton(identity_label)
         system_button.setObjectName("PayeeBadgeSystem")
         system_button.setAutoDefault(False)
 
@@ -282,7 +359,7 @@ class PayeeBadge(QWidget):
         print("view action triggered")
 
     def _action_clear(self, checked: Optional[bool]=False) -> None:
-        print("clear action triggered")
+        self._form_context.clear_selected_payee.emit()
 
     def _on_system_button_clicked(self, checked: Optional[bool]=False) -> None:
         pass
@@ -295,16 +372,16 @@ class PayeeBadge(QWidget):
 
 
 class PayeeSearchModel(QAbstractItemModel):
-    def __init__(self, contacts, parent=None) -> None:
+    def __init__(self, identities, parent=None) -> None:
         super().__init__(parent)
 
-        self._contacts = contacts
+        self._identities = identities
 
     def parent(self, model_index: QModelIndex) -> QModelIndex:
         return QModelIndex()
 
     def rowCount(self, model_index: QModelIndex) -> int:
-        return len(self._contacts)
+        return len(self._identities)
 
     def columnCount(self, model_index: QModelIndex) -> int:
         return 1
@@ -317,16 +394,16 @@ class PayeeSearchModel(QAbstractItemModel):
     def data(self, index: QModelIndex, role: int) -> QVariant:
         if role == Qt.EditRole:
             if index.isValid():
-                return self._contacts[index.row()].label
+                return self._identities[index.row()][0].label
             return None
         elif role == Qt.DisplayRole:
             if index.isValid():
-                return self._contacts[index.row()].label
+                return self._identities[index.row()][0].label
             return None
         return None
 
-    def _get_contact(self, row_index: int):
-        return self._contacts[row_index]
+    def _get_identity(self, row_index: int):
+        return self._identities[row_index]
 
 
 def get_source_index(model_index: QModelIndex):
@@ -339,14 +416,19 @@ class PayeeBadgeDelegate(QStyledItemDelegate):
     margin_x = 0
     margin_y = 0
 
+    def __init__(self, form_context: _FormContext, parent: Optional[Any]=None) -> None:
+        super().__init__(parent)
+
+        self._form_context = form_context
+
     def paint(self, painter: QPainter, option: QStyleOptionViewItem,
             model_index: QModelIndex) -> None:
         # calculate render anchor point
         point = option.rect.topLeft()
 
         source_index = get_source_index(model_index)
-        contact = source_index.model()._get_contact(source_index.row())
-        widget = self._create_payee_badge(self.parent(), contact)
+        contact, identity = source_index.model()._get_identity(source_index.row())
+        widget = self._create_payee_badge(self.parent(), self._form_context, contact, identity)
         if option.state & QStyle.State_Selected:
             p = option.palette
             p.setColor(QPalette.Background, p.color(QPalette.Active, QPalette.Highlight))
@@ -360,28 +442,29 @@ class PayeeBadgeDelegate(QStyledItemDelegate):
     def sizeHint(self, option: QStyleOptionViewItem, model_index: QModelIndex):
         # TODO: This appears to calculate an incorrect size.
         # source_index = get_source_index(model_index)
-        # contact = source_index.model()._get_contact(source_index.row())
-        # widget = self._create_payee_badge(self.parent(), contact)
+        # contact, identity = source_index.model()._get_identity(source_index.row())
+        # widget = self._create_payee_badge(self.parent(), self._form_context, contact, identity)
         # size = widget.sizeHint()
         # dummyWidget = QWidget()
         # widget.setParent(dummyWidget)
         return QSize(150, 25)
 
-    def _create_payee_badge(self, parent, contact):
-        badge = PayeeBadge(contact, parent)
+    def _create_payee_badge(self, parent: Any, form_context: _FormContext, contact: ContactEntry,
+            identity: ContactIdentity):
+        badge = PayeeBadge(form_context, contact, identity, parent)
         return badge
 
 
 class PayeeSearchWidget(QWidget):
-    def __init__(self, local_api, parent=None) -> None:
+    def __init__(self, form_context, parent=None) -> None:
         super().__init__(parent)
 
-        self._local_api = local_api
+        self._form_context = form_context
 
         self.setObjectName("PayeeSearchWidget")
 
-        contacts = local_api.get_contacts()
-        self.model = PayeeSearchModel(contacts)
+        identities = form_context.wallet_api.get_identities()
+        model = PayeeSearchModel(identities)
 
         edit_field = QLineEdit()
         edit_field.setMinimumWidth(200)
@@ -389,7 +472,7 @@ class PayeeSearchWidget(QWidget):
 
         filter_model = QSortFilterProxyModel(edit_field)
         filter_model.setFilterCaseSensitivity(Qt.CaseInsensitive)
-        filter_model.setSourceModel(self.model)
+        filter_model.setSourceModel(model)
 
         contact_completer = QCompleter(filter_model, edit_field)
         contact_completer.setCompletionMode(QCompleter.PopupCompletion)
@@ -400,7 +483,7 @@ class PayeeSearchWidget(QWidget):
 
         popup = contact_completer.popup()
         popup.setUniformItemSizes(True)
-        popup.setItemDelegate(PayeeBadgeDelegate(edit_field))
+        popup.setItemDelegate(PayeeBadgeDelegate(form_context, edit_field))
         popup.setSpacing(0)
         popup.setStyleSheet("""
             .QListView {
@@ -415,6 +498,11 @@ class PayeeSearchWidget(QWidget):
         layout.addWidget(edit_field)
         self.setLayout(layout)
 
+        self._form_context.wallet_api.contact_changed.connect(self._on_contact_change)
+
+        self._filter_model = filter_model
+        self.focus_widget = edit_field
+
     def paintEvent(self, event) -> None:
         opt = QStyleOption()
         opt.initFrom(self)
@@ -423,20 +511,26 @@ class PayeeSearchWidget(QWidget):
 
     def _on_entry_selected(self, model_index: QModelIndex) -> None:
         source_index = get_source_index(model_index)
-        contact = source_index.model()._get_contact(source_index.row())
-        self.parent().set_selected_contact(contact)
+        contact, identity = source_index.model()._get_identity(source_index.row())
+        self.parent().set_selected_contact(contact, identity)
 
+    def _on_contact_change(self, added: bool, contact: ContactEntry,
+            identity: ContactIdentity) -> None:
+        identities = self._form_context.wallet_api.get_identities()
+        model = PayeeSearchModel(identities)
+        self._filter_model.setSourceModel(model)
 
 
 class PayeeWidget(QWidget):
     MODE_SEARCH = 1
     MODE_SELECTED = 2
 
-    def __init__(self, local_api, parent=None) -> None:
+    def __init__(self, form_context: _FormContext, parent: Optional[Any]=None) -> None:
         super().__init__(parent)
-        self._local_api = local_api
+        self._form_context = form_context
 
-        self.search_widget = PayeeSearchWidget(local_api)
+        self.badge_widget = None
+        self.search_widget = PayeeSearchWidget(form_context)
         self._mode = self.MODE_SEARCH
 
         layout = QHBoxLayout()
@@ -445,8 +539,39 @@ class PayeeWidget(QWidget):
         layout.addWidget(self.search_widget)
         self.setLayout(layout)
 
-    def set_selected_contact(self, contact):
-        self.badge_widget = PayeeBadge(contact, self)
+        self._form_context.wallet_api.contact_changed.connect(self._on_contact_change)
+        self._form_context.clear_selected_payee.connect(self._clear_selected_contact)
+
+    def _on_contact_change(self, added: bool, contact: ContactEntry,
+            identity: ContactIdentity) -> None:
+        # If the selected identity is removed, then clear the contact.
+        if not added and self.badge_widget is not None:
+            if contact.contact_id == self.badge_widget.contact.contact_id:
+                current_identity_id = self.badge_widget.identity.identity_id
+                if identity is None or identity.identity_id == current_identity_id:
+                    self._clear_selected_contact()
+
+    def _clear_selected_contact(self) -> None:
+        self._mode = self.MODE_SEARCH
+
+        self.search_widget = PayeeSearchWidget(self._form_context, self)
+
+        layout = self.layout()
+        layout.addWidget(self.search_widget)
+        layout.removeWidget(self.badge_widget)
+
+        # Just removing the old widget from the layout doesn't remove it.
+        dummy_widget = QWidget()
+        self.badge_widget.setParent(dummy_widget)
+        self.badge_widget = None
+
+        # In theory we should be able to set the focus widget (or line edit) as the setFocusProxy()
+        # target of the search widget, but it doesn't work.
+        self.setTabOrder(self._form_context.payment_window.tabs.tabBar(),
+            self.search_widget.focus_widget)
+
+    def set_selected_contact(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        self.badge_widget = PayeeBadge(self._form_context, contact, identity, self)
         self._mode = self.MODE_SELECTED
 
         layout = self.layout()
@@ -457,7 +582,7 @@ class PayeeWidget(QWidget):
         dummy_widget = QWidget()
         self.search_widget.setParent(dummy_widget)
 
-        self.setTabOrder(self._local_api.payment_window.tabs.tabBar(),
+        self.setTabOrder(self._form_context.payment_window.tabs.tabBar(),
             self.badge_widget.name_button)
         self.setTabOrder(self.badge_widget.name_button, self.badge_widget.system_button)
 
@@ -528,24 +653,24 @@ class PaymentSectionWidget(QWidget):
 
 
 class PaymentPayeeWidget(PaymentSectionWidget):
-    def __init__(self, local_api, parent=None) -> None:
+    def __init__(self, form_context, parent=None) -> None:
         super().__init__(parent)
 
         self.setObjectName("PaymentPayeeWidget")
 
-        widget = PayeeWidget(local_api)
+        widget = PayeeWidget(form_context)
 
         self.add_title(_("Payee details"))
         self.add_row(_("Pay to"), widget)
 
 
 class PaymentFundingWidget(PaymentSectionWidget):
-    def __init__(self, local_api, parent=None) -> None:
+    def __init__(self, form_context, parent=None) -> None:
         super().__init__(parent)
-        self._local_api = local_api
+        self._form_context = form_context
 
-        from_widget = FundsSelectionWidget(local_api)
-        amount_widget = PaymentAmountWidget(local_api)
+        from_widget = FundsSelectionWidget(form_context)
+        amount_widget = PaymentAmountWidget(form_context)
 
         self.add_title(_("Payment details"))
         self.add_row(_("Pay from"), from_widget)
@@ -566,19 +691,19 @@ class PaymentNoteWidget(PaymentSectionWidget):
 
 
 class PaymentDetailsFormWidget(QWidget):
-    def __init__(self, local_api, parent=None) -> None:
+    def __init__(self, form_context, parent=None) -> None:
         super().__init__(parent)
 
-        payee_widget = PaymentPayeeWidget(local_api)
+        payee_widget = PaymentPayeeWidget(form_context)
 
-        funding_widget = PaymentFundingWidget(local_api)
+        funding_widget = PaymentFundingWidget(form_context)
 
         note_widget = PaymentNoteWidget()
         self.notes = note_widget
 
         def _on_next_tab(checked=False):
-            current_index = local_api.payment_window.tabs.currentIndex()
-            local_api.payment_window.tabs.setCurrentIndex(current_index+1)
+            current_index = form_context.payment_window.tabs.currentIndex()
+            form_context.payment_window.tabs.setCurrentIndex(current_index+1)
 
         confirm_button = QPushButton(_("Next >>"))
         confirm_button.setAutoDefault(False)
@@ -600,7 +725,7 @@ class PaymentDetailsFormWidget(QWidget):
 
 
 class ConfirmPaymentFormWidget(QWidget):
-    def __init__(self, local_api, parent=None) -> None:
+    def __init__(self, form_context, parent=None) -> None:
         super().__init__(parent)
 
         vlayout = QVBoxLayout()
@@ -611,7 +736,7 @@ class PaymentWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        _local_api = _LocalApi(parent, self)
+        form_context = _FormContext(parent, self)
 
         self.setWindowTitle("Payment")
 
@@ -655,8 +780,8 @@ class PaymentWindow(QDialog):
         # green for badge: 4AC41C
         # red for badge: D8634C
 
-        enter_details_widget = PaymentDetailsFormWidget(_local_api)
-        confirm_details_widget = ConfirmPaymentFormWidget(_local_api)
+        enter_details_widget = PaymentDetailsFormWidget(form_context)
+        confirm_details_widget = ConfirmPaymentFormWidget(form_context)
 
         # Does not look good on MacOS, due to shifted alignment.
         # corner_text = _("Make a payment")
@@ -682,36 +807,4 @@ class PaymentWindow(QDialog):
         vlayout.addWidget(tabs)
         vlayout.addWidget(bbox)
         self.setLayout(vlayout)
-
-
-class _LocalApi(QObject):
-    set_payment_amount = pyqtSignal(object)
-
-    def __init__(self, wallet_window, payment_window) -> None:
-        self.wallet_window = wallet_window
-        self.payment_window = payment_window
-        super().__init__(payment_window)
-
-    def get_contacts(self):
-        return list(self.wallet_window.contacts.get_contacts())
-
-    def get_balance(self, account_id=None) -> int:
-        c, u, x = self.wallet_window.wallet.get_balance()
-        return c + u
-
-    def get_fiat_unit(self) -> Optional[str]:
-        fx = app_state.fx
-        if fx and fx.is_enabled():
-            return fx.get_currency()
-
-    def get_fiat_amount(self, sv_value: int) -> Optional[str]:
-        fx = app_state.fx
-        if fx and fx.is_enabled():
-            return fx.format_amount(sv_value)
-
-    def get_base_unit(self) -> str:
-        return app_state.base_unit()
-
-    def get_base_amount(self, sv_value: int) -> str:
-        return self.wallet_window.format_amount(sv_value)
 
