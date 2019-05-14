@@ -37,9 +37,10 @@ import zlib
 
 from bitcoinx import PrivateKey, PublicKey
 
-from .bitcoin import is_address_valid, pubkey_to_address
+from .bitcoin import is_address_valid
 from .keystore import bip44_derivation
 from .logs import logs
+from .networks import Net
 from .util import profiler
 from .wallet_database import DBTxInput, DBTxOutput, TxData, TxFlags, WalletData
 
@@ -421,7 +422,7 @@ class WalletStorage:
                 d = {'change': []}
                 receiving_addresses = []
                 for pubkey in pubkeys:
-                    addr = pubkey_to_address(pubkey)
+                    addr = PublicKey.from_hex(pubkey).to_address(coin=Net.COIN).to_string()
                     receiving_addresses.append(addr)
                 d['receiving'] = receiving_addresses
                 self.put('addresses', d)
@@ -446,7 +447,7 @@ class WalletStorage:
                 assert len(addresses) == len(pubkeys)
                 d = {}
                 for pubkey in pubkeys:
-                    addr = pubkey_to_address(pubkey)
+                    addr = PublicKey.from_hex(pubkey).to_address(coin=Net.COIN).to_string()
                     assert addr in addresses
                     d[addr] = {
                         'pubkey': pubkey,

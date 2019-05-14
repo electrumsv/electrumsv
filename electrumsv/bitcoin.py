@@ -155,8 +155,6 @@ def hash160_to_p2sh(h160):
 def public_key_to_p2pkh(public_key):
     return hash160_to_p2pkh(hash_160(public_key))
 
-def pubkey_to_address(pubkey):
-    return public_key_to_p2pkh(bfh(pubkey))
 
 __b58chars = b'123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 assert len(__b58chars) == 58
