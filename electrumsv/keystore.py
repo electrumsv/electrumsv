@@ -64,18 +64,30 @@ class KeyStore:
 
     def get_tx_derivations(self, tx):
         keypairs = {}
-        for txin in tx.inputs():
-            num_sig = txin.get('num_sig')
-            if num_sig is None:
-                continue
-            x_signatures = txin['signatures']
-            signatures = [sig for sig in x_signatures if sig]
-            if len(signatures) == num_sig:
-                # input is complete
-                continue
-            for k, x_pubkey in enumerate(txin['x_pubkeys']):
-                if x_signatures[k] is not None:
-                    # this pubkey already signed
+        for txin_index, txin in enumerate(tx.inputs()):
+            sigs = txin['signatures']
+            x_pubkeys = txin['x_pubkeys']
+
+            # Remove pubkeys that have already signed
+            used = set()
+            sig_idx = len(sigs) - 1
+            pub_idx = len(x_pubkeys) - 1
+            pre_hash = tx.preimage_hash(txin_index)
+            while sig_idx >= 0:
+                sig = sigs[sig_idx]
+                sig_idx -= 1
+                if sig is not None:
+                    sig = bytes.fromhex(sig)[:-1]
+                    while pub_idx >= 0:
+                        x_pubkey = x_pubkeys[pub_idx]
+                        public_key = PublicKey.from_hex(xpubkey_to_pubkey(x_pubkey))
+                        used.add(x_pubkey)
+                        if public_key.verify_der_signature(sig, pre_hash, None):
+                            break
+                        pub_idx -= 1
+                pub_idx -= 1
+            for x_pubkey in x_pubkeys:
+                if x_pubkey in used:
                     continue
                 derivation = self.get_pubkey_derivation(x_pubkey)
                 if not derivation:

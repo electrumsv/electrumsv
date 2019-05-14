@@ -2443,7 +2443,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 outpoint = txin['prevout_hash'] + ':' + str(txin['prevout_n'])
                 if outpoint in my_outpoints:
                     my_index = my_outpoints.index(outpoint)
-                    tx._inputs[i]['value'] = my_coins[my_index]['value']
+                    tx._inputs[i]['value'] = my_coins[my_index].value
         return tx
 
     def read_tx_from_qrcode(self):

@@ -467,7 +467,7 @@ class Transaction:
             logger.warning(f'Signature {i}: {sig}')
             if sig in txin.get('signatures'):
                 continue
-            pre_hash = sha256d(bfh(self.serialize_preimage(i)))
+            pre_hash = self.preimage_hash(i)
             rec_sig_base = der_signature_to_compact(signatures[i])
             for recid in range(4):
                 rec_sig = rec_sig_base + bytes([recid])
@@ -660,6 +660,9 @@ class Transaction:
         '''Hash type in hex.'''
         return 0x01 | (cls.SIGHASH_FORKID + (cls.FORKID << 8))
 
+    def preimage_hash(self, txin_index):
+        return sha256d(bfh(self.serialize_preimage(txin_index)))
+
     def serialize_preimage(self, i):
         nVersion = int_to_hex(self.version, 4)
         nHashType = int_to_hex(self.nHashType(), 4)
@@ -773,7 +776,7 @@ class Transaction:
         self.raw = self.serialize()
 
     def sign_txin(self, txin_index, privkey_bytes):
-        pre_hash = sha256d(bfh(self.serialize_preimage(txin_index)))
+        pre_hash = self.preimage_hash(txin_index)
         privkey = PrivateKey(privkey_bytes)
         sig = privkey.sign(pre_hash, None)
         sig = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
