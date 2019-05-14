@@ -16,7 +16,7 @@ class TestContactExtras(unittest.TestCase):
     def test_contact_identity_persistence(self):
         for system_id in contacts.IdentitySystem:
             # We call 'astimezone' pre-emptively so that the comparison works.
-            identity = contacts.ContactIdentity(system_id, "test",
+            identity = contacts.ContactIdentity(22, system_id, "test",
                 datetime.datetime.now().astimezone())
             data = identity.to_list()
             new_identity = contacts.ContactIdentity.from_list(data)
@@ -24,7 +24,7 @@ class TestContactExtras(unittest.TestCase):
 
     def test_contact_entry_persistence(self):
         entry = contacts.ContactEntry(1, "zzz", [
-            contacts.ContactIdentity(contacts.IdentitySystem.OnChain, "...", None)
+            contacts.ContactIdentity(22, contacts.IdentitySystem.OnChain, "...", None)
         ])
         data = entry.to_list()
         new_entry = contacts.ContactEntry.from_list(data)
@@ -231,11 +231,12 @@ class TestContacts(unittest.TestCase):
         storage = MockStorage()
         contacts1 = contacts.Contacts(storage)
         contact1_1 = contacts1.add_contact(contacts.IdentitySystem.OnChain, "name1", pk_hex_1)
-        contacts1.add_identity(contact1_1.contact_id, contacts.IdentitySystem.RyanPay, "xxx")
+        identity1 = contact1_1.identities[0]
+        identity2 = contacts1.add_identity(contact1_1.contact_id, contacts.IdentitySystem.RyanPay, "xxx")
         self.assertEqual(2, len(contact1_1.identities))
 
         contact1_2 = contacts1.get_contact(contact1_1.contact_id)
-        contacts1.remove_identity(contact1_2.contact_id, contacts.IdentitySystem.OnChain)
+        contacts1.remove_identity(contact1_2.contact_id, identity1.identity_id)
         self.assertEqual(1, len(contact1_2.identities))
 
         system_ids = set([ v.system_id for v in contact1_2.identities ])

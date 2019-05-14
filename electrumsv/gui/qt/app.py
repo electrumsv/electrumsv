@@ -37,6 +37,7 @@ from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget
 
 from electrumsv.app_state import app_state
+from electrumsv.contacts import ContactEntry, ContactIdentity
 from electrumsv.exceptions import UserCancelled, UserQuit
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
@@ -91,6 +92,11 @@ class SVApplication(QApplication):
     fiat_history_changed = pyqtSignal()
     fiat_balance_changed = pyqtSignal()
     update_check_signal = pyqtSignal(bool, object)
+    # Contact events
+    contact_added_signal = pyqtSignal(object, object)
+    contact_removed_signal = pyqtSignal(object)
+    identity_added_signal = pyqtSignal(object, object)
+    identity_removed_signal = pyqtSignal(object, object)
 
     def __init__(self, argv):
         super().__init__(argv)
@@ -239,8 +245,27 @@ class SVApplication(QApplication):
         w = ElectrumWindow(wallet)
         self.windows.append(w)
         self._build_tray_menu()
+        self._register_wallet_events(wallet)
         self.window_opened_signal.emit(w)
         return w
+
+    def _register_wallet_events(self, wallet: Abstract_Wallet) -> None:
+        wallet.contacts._on_contact_added = self._on_contact_added
+        wallet.contacts._on_contact_removed = self._on_contact_removed
+        wallet.contacts._on_identity_added = self._on_identity_added
+        wallet.contacts._on_identity_removed = self._on_identity_removed
+
+    def _on_identity_added(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        self.identity_added_signal.emit(contact, identity)
+
+    def _on_identity_removed(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        self.identity_removed_signal.emit(contact, identity)
+
+    def _on_contact_added(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        self.contact_added_signal.emit(contact, identity)
+
+    def _on_contact_removed(self, contact: ContactEntry) -> None:
+        self.contact_removed_signal.emit(contact)
 
     def get_wallet_window(self, path: str) -> Optional[ElectrumWindow]:
         for w in self.windows:

@@ -24,7 +24,7 @@
 import datetime
 from dateutil.parser import isoparse
 from enum import IntEnum
-from typing import Any, Iterable, List, NamedTuple, Optional
+from typing import Any, Iterable, List, NamedTuple, Optional, Tuple
 
 from bitcoinx import PublicKey
 
@@ -68,12 +68,14 @@ def get_system_id(system_name: str) -> IdentitySystem:
 
 
 class ContactIdentity(NamedTuple):
+    identity_id: int
     system_id: IdentitySystem
     system_data: Any
     last_verified: Optional[datetime.datetime] = None
 
     def to_list(self) -> List[Any]:
         return [
+            self.identity_id,
             int(self.system_id),
             self.system_data,
             self.last_verified.astimezone().isoformat()
@@ -83,9 +85,9 @@ class ContactIdentity(NamedTuple):
     @classmethod
     def from_list(klass, data: List) -> "ContactIdentity":
         dt = None
-        if data[2] is not None:
-            dt = isoparse(data[2])
-        return klass(IdentitySystem(data[0]), data[1], dt)
+        if data[3] is not None:
+            dt = isoparse(data[3])
+        return klass(data[0], IdentitySystem(data[1]), data[2], dt)
 
 
 class ContactEntry(NamedTuple):
@@ -111,6 +113,8 @@ class Contacts(object):
         if data is not None:
             version, contacts_data = data
             if version == 2:
+                pass
+            elif version == 3:
                 for row in contacts_data:
                     entry = ContactEntry.from_list(row)
                     self._entries[entry.contact_id] = entry
@@ -121,7 +125,7 @@ class Contacts(object):
         contacts_data = []
         for entry in self._entries.values():
             contacts_data.append(entry.to_list())
-        self.storage.put('contacts2', [ 2, contacts_data ])
+        self.storage.put('contacts2', [ 3, contacts_data ])
 
     def check_identity_exists(self, system_id: IdentityCheckResult,
             system_data: Any) -> IdentityCheckResult:
@@ -164,6 +168,13 @@ class Contacts(object):
     def get_contacts(self) -> Iterable[ContactEntry]:
         return self._entries.values()
 
+    def get_contact_identities(self) -> Iterable[Tuple[ContactEntry, ContactIdentity]]:
+        results = []
+        for contact in self._entries.values():
+            for identity in contact.identities:
+                results.append((contact, identity))
+        return results
+
     def add_contact(self, system_id: IdentitySystem, label: str,
             identity_data: Any) -> ContactEntry:
         try:
@@ -178,39 +189,57 @@ class Contacts(object):
         contact_id = 1
         if len(self._entries):
             contact_id = max(k for k in self._entries.keys()) + 1
-        identity = ContactIdentity(system_id, identity_data)
-        self._entries[contact_id] = ContactEntry(contact_id, label, [ identity ])
+        identity_id = 1
+        identity = ContactIdentity(identity_id, system_id, identity_data)
+        contact = self._entries[contact_id] = ContactEntry(contact_id, label, [ identity ])
         self.save()
+
+        self._on_contact_added(contact, identity)
 
         return self._entries[contact_id]
 
     def remove_contact(self, contact_id: int) -> None:
         if contact_id not in self._entries:
             raise KeyError(contact_id)
+        contact = self._entries[contact_id]
         del self._entries[contact_id]
         self.save()
 
+        self._on_contact_removed(contact)
+
     def remove_contacts(self, contact_ids: Iterable[int]) -> None:
         changed = False
+        removed = []
         for contact_id in contact_ids:
             if contact_id in self._entries:
+                removed.append(self._entries[contact_id])
                 del self._entries[contact_id]
                 changed = True
         if changed:
             self.save()
 
+        for contact in removed:
+            self._on_contact_removed(contact)
+
     def add_identity(self, contact_id: int, system_id: IdentitySystem, system_data: str) -> None:
-        identity = ContactIdentity(system_id, system_data)
         contact = self._entries[contact_id]
+        identity_id = max(identity.identity_id for identity in contact.identities) + 1
+        identity = ContactIdentity(identity_id, system_id, system_data)
         contact.identities.append(identity)
         self.save()
 
-    def remove_identity(self, contact_id: int, system_id: IdentitySystem) -> None:
+        self._on_identity_added(contact, identity)
+
+        return identity
+
+    def remove_identity(self, contact_id: int, identity_id: int) -> None:
         contact = self._entries[contact_id]
         for identity in contact.identities:
-            if identity.system_id == system_id:
+            if identity.identity_id == identity_id:
                 contact.identities.remove(identity)
                 self.save()
+
+                self._on_identity_removed(contact, identity)
                 break
 
     def _is_public_key_valid(self, hex: str) -> bool:
@@ -221,3 +250,16 @@ class Contacts(object):
             # ValueError <- PublicKey.from_hex()
             # TypeError <- PublicKey()
             return False
+
+    def _on_identity_added(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        pass
+
+    def _on_identity_removed(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        pass
+
+    def _on_contact_added(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        pass
+
+    def _on_contact_removed(self, contact: ContactEntry) -> None:
+        pass
+
