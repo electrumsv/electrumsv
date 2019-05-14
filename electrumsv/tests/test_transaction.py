@@ -3,10 +3,9 @@ import pytest
 
 from electrumsv import transaction
 from electrumsv.keystore import xpubkey_to_address
-from electrumsv.transaction import get_address_from_output_script
 from electrumsv.util import bh2u
 
-from bitcoinx import PrivateKey, PublicKey, Tx, Script, Address
+from bitcoinx import PrivateKey, PublicKey, Tx, Script, Address, TxOutput
 
 
 unsigned_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000005701ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300feffffffd8e43201000000000118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700'
@@ -58,6 +57,8 @@ class Test_BCDataStream(unittest.TestCase):
 class TestTransaction(unittest.TestCase):
 
     def test_tx_unsigned(self):
+        outputs = [TxOutput(20112408, Address.from_string(
+            '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())]
         expected = {
             'inputs': [{'address': Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN'),
                         'num_sig': 1,
@@ -71,10 +72,7 @@ class TestTransaction(unittest.TestCase):
                         'value': 20112600,
                         'x_pubkeys': ['ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300']}],
             'lockTime': 507231,
-            'outputs': [{'address': Address.from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK'),
-                         'prevout_n': 0,
-                         'scriptPubKey': '76a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac',
-                         'value': 20112408}],
+            'outputs': outputs,
             'version': 1}
         tx = transaction.Transaction(unsigned_blob)
         calc = tx.deserialize()
@@ -82,7 +80,7 @@ class TestTransaction(unittest.TestCase):
         self.assertEqual(tx.deserialize(), None)
 
         self.assertEqual(tx.as_dict(), {'hex': unsigned_blob, 'complete': False, 'final': True})
-        self.assertEqual(tx.outputs(), [(Address.from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK'), 20112408)])
+        self.assertEqual(tx.outputs(), outputs)
         self.assertEqual(tx.serialize(), unsigned_blob)
 
 
@@ -99,10 +97,8 @@ class TestTransaction(unittest.TestCase):
                         'type': 'p2pkh',
                         'x_pubkeys': ['03b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166']}],
             'lockTime': 507231,
-            'outputs': [{'address': Address.from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK'),
-                         'prevout_n': 0,
-                         'scriptPubKey': '76a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac',
-                         'value': 20112408}],
+            'outputs': [TxOutput(20112408, Address.from_string(
+                '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())],
             'version': 1
         }
         tx = transaction.Transaction(signed_blob)
@@ -231,20 +227,3 @@ class TestTransaction2:
         tx.update_signatures(sigs)
         assert tx.is_complete()
         assert tx.txid() == "b83acf939a92c420d0cb8d45d5d4dfad4e90369ebce0f49a45808dc1b41259b0"
-
-
-@pytest.mark.parametrize("script,answer,compressed", (
-    ('2102edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312ac',
-     PublicKey.from_hex(
-         '02edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312'), True),
-    ('4104edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312ecfe4ab1f246e44df8'
-     '5461fd4eb18ad5bd8203334a6586380cca6ed4a92ca232ac',
-     PublicKey.from_hex(
-         '04edf5d63693c081edcc571187f219bb303022d0e83ac12b9c1ee803e7a7402312ecfe4ab1f246e44d'
-         'f85461fd4eb18ad5bd8203334a6586380cca6ed4a92ca232'), False),
-
-))
-def test_get_address_from_output_script_P2PK(script, answer, compressed):
-    result = get_address_from_output_script(bytes.fromhex(script))
-    assert result == answer
-    assert result.is_compressed() == compressed
