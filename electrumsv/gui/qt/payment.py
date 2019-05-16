@@ -93,9 +93,6 @@ class DetailFormContext(QObject):
         self.payment_window = payment_window
         self.wallet_api = wallet_api
 
-        # TODO: Remove this and incorporate what uses it into the wallet api.
-        self.wallet_window = wallet_api.wallet_window
-
     def set_initial_identity_id(self, identity_id: bytes) -> None:
         self.initial_identity_id = identity_id
 
@@ -165,7 +162,7 @@ class FundsSelectionWidget(QWidget):
         self.setObjectName("FundsSelector")
 
         balance = form_context.wallet_api.get_balance()
-        sv_text, fiat_text = form_context.wallet_window.get_amount_and_units(balance)
+        sv_text, fiat_text = form_context.wallet_api.get_amount_and_units(balance)
 
         if fiat_text:
             column_count = 3
