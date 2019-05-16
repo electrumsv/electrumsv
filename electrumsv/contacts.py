@@ -250,7 +250,7 @@ class Contacts(object):
     def _get_unique_identity_id(self, system_id: IdentitySystem, system_data: str) -> bytes:
         if system_id == IdentitySystem.OnChain:
             return bytes.fromhex(system_data)
-        return sha256(system_data)
+        return sha256(system_data.encode('utf-8'))
 
     def _is_public_key_valid(self, hex: str) -> bool:
         try:

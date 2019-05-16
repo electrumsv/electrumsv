@@ -1,5 +1,6 @@
 
 import datetime
+import os
 from typing import Any, Optional
 import unittest
 
@@ -16,7 +17,7 @@ class TestContactExtras(unittest.TestCase):
     def test_contact_identity_persistence(self):
         for system_id in contacts.IdentitySystem:
             # We call 'astimezone' pre-emptively so that the comparison works.
-            identity = contacts.ContactIdentity(22, system_id, "test",
+            identity = contacts.ContactIdentity(os.urandom(32), system_id, "test",
                 datetime.datetime.now().astimezone())
             data = identity.to_list()
             new_identity = contacts.ContactIdentity.from_list(data)
@@ -24,7 +25,7 @@ class TestContactExtras(unittest.TestCase):
 
     def test_contact_entry_persistence(self):
         entry = contacts.ContactEntry(1, "zzz", [
-            contacts.ContactIdentity(22, contacts.IdentitySystem.OnChain, "...", None)
+            contacts.ContactIdentity(os.urandom(32), contacts.IdentitySystem.OnChain, "...", None)
         ])
         data = entry.to_list()
         new_entry = contacts.ContactEntry.from_list(data)
