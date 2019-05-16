@@ -66,7 +66,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.desc = desc
         self.monospace_font = QFont(platform.monospace_font)
 
-        self.setMinimumWidth(750)
+        self.setMinimumWidth(900)
         self.setWindowTitle(_("Transaction"))
 
         vbox = QVBoxLayout()
@@ -320,8 +320,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             else:
                 prevout_hash = x.get('prevout_hash')
                 prevout_n = x.get('prevout_n')
-                cursor.insertText(prevout_hash[0:8] + '...', ext)
-                cursor.insertText(prevout_hash[-8:] + ":%-4d " % prevout_n, ext)
+                cursor.insertText(f'{prevout_hash}:{prevout_n:<6d}', ext)
                 addr = x['address']
                 if isinstance(addr, PublicKey):
                     addr = addr.toAddress()
