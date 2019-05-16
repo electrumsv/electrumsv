@@ -203,7 +203,7 @@ class QtPluginBase(object):
         tooltip = keystore.label or _('Unnamed')
         action = QAction(read_QIcon(self.icon_unpaired), tooltip, window)
         action.triggered.connect(partial(self.show_settings_wrapped, window, keystore))
-        window.toolbar.addAction(action)
+        window.add_toolbar_action(action)
         handler.action = action
         handler.icon_unpaired = self.icon_unpaired
         handler.icon_paired = self.icon_paired
