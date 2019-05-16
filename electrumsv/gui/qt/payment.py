@@ -526,7 +526,7 @@ class PayeeWidget(QWidget):
         else:
             self.search_widget = PayeeSearchWidget(form_context)
             self._mode = self.MODE_SEARCH
-            initial_widget = self.badge_widget
+            initial_widget = self.search_widget
 
         layout.addWidget(initial_widget)
 
