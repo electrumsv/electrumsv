@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 #
-# Electrum - lightweight Bitcoin client
+# ElectrumSV - lightweight Bitcoin client
 # Copyright (C) 2015 Thomas Voegtlin
+# Copyright (C) 2019 ElectrumSV Developers
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -23,98 +24,232 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from functools import partial
+from typing import Any, Optional
 
-from PyQt5.QtCore import (Qt, QSortFilterProxyModel)
-from PyQt5.QtWidgets import (QAbstractItemView, QMenu, QTreeWidgetItem, QVBoxLayout, QLabel,
-    QLineEdit, QComboBox, QCompleter, QGridLayout)
+from PyQt5.QtCore import Qt, QSortFilterProxyModel, QObject
+from PyQt5.QtGui import QPainter, QPixmap
+from PyQt5.QtWidgets import (QVBoxLayout, QLabel,
+    QLineEdit, QComboBox, QCompleter, QGridLayout, QWidget, QScrollArea, QHBoxLayout, QSizePolicy,
+    QStyle, QStyleOption, QPushButton, QToolBar, QAction, QWidgetItem)
 
 from electrumsv.contacts import (get_system_id, IDENTITY_SYSTEM_NAMES, IdentitySystem,
-    ContactDataError, IdentityCheckResult)
+    ContactDataError, IdentityCheckResult, ContactEntry, ContactIdentity)
 from electrumsv.i18n import _
 
-from .util import (Buttons, CancelButton, MyTreeWidget, OkButton, WindowModalDialog)
+from .util import (Buttons, CancelButton, OkButton, WindowModalDialog, icon_path,
+    read_QIcon)
+from .wallet_api import WalletAPI
+
+contactcard_stylesheet = """
+#ContactCard {
+    background-color: white;
+    border-bottom: 1px solid #E3E2E2;
+    margin-left: 5px;
+    margin-right: 5px;
+}
+
+#ContactAvatar {
+    padding: 4px;
+    border: 1px solid #E2E2E2;
+}
+"""
+
+class ListContext(QObject):
+    def __init__(self, wallet_api: WalletAPI, contact_list: "ContactList") -> None:
+        super().__init__(contact_list)
+
+        self.contact_list = contact_list
+        self.wallet_api = wallet_api
 
 
-class ContactList(MyTreeWidget):
-    filter_columns = [0, 1, 2]  # Name, System, Identifier
+class ContactList(QWidget):
+    def __init__(self, wallet_api: WalletAPI, parent: Optional['ElectrumWindow']=None):
+        super().__init__(parent)
 
-    def __init__(self, parent):
-        MyTreeWidget.__init__(self, parent, self.create_menu,
-            [_('Name'), _('Type'), _('Identity')], 0, [0])
-        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.setSortingEnabled(True)
-        self.setStyleSheet("QTreeView::item {  padding-right: 15px; }")
+        self._context = ListContext(wallet_api, self)
 
-    def on_doubleclick(self, item, column):
-        contact_key = item.data(0, Qt.UserRole)
-        edit_contact_dialog(self, self.parent, contact_key)
+        cards = ContactCards(self._context, self)
+        self.setStyleSheet(contactcard_stylesheet)
 
-    def create_menu(self, position):
-        menu = QMenu()
-        selected = self.selectedItems()
-        if not selected:
-            menu.addAction(_("New contact"), partial(edit_contact_dialog, self, self.parent))
-        else:
-            column = self.currentColumn()
-            column_title = self.headerItem().text(column)
-            column_data = '\n'.join([item.text(column) for item in selected])
-            menu.addAction(_("Copy {}").format(column_title),
-                           lambda: self.parent.app.clipboard().setText(column_data))
-            if column in self.editable_columns:
-                item = self.currentItem()
-                contact_key = item.data(0, Qt.UserRole)
-                menu.addAction(_("Edit {}").format(column_title),
-                               lambda: partial(edit_contact_dialog, self, self.parent, contact_key))
+        scroll = QScrollArea(self)
+        scroll.setWidget(cards)
+        scroll.setWidgetResizable(True)
 
-            keys = [item.data(0, Qt.UserRole)[0] for item in selected]
-            menu.addAction(_("Pay to"), lambda: self.parent.payto_contacts(keys))
-            menu.addAction(_("Delete"), lambda: self._delete_contacts(keys))
-            # URLs = [
-            #     web.BE_URL(self.config, 'addr', Address.from_string(key))
-            #     for key in keys if Address.is_valid(key)
-            # ]
-            # if URLs:
-            #     menu.addAction(_("View on block explorer"),
-            #                    lambda: [webbrowser.open(URL) for URL in URLs])
+        add_contact_action = QAction(self)
+        add_contact_action.setIcon(read_QIcon("icons8-plus-blueui.svg"))
+        add_contact_action.setToolTip(_("Add new contact"))
+        add_contact_action.triggered.connect(self._on_add_contact_action)
 
-        menu.exec_(self.viewport().mapToGlobal(position))
+        toolbar = QToolBar(self)
+        toolbar.setMovable(False)
+        toolbar.setOrientation(Qt.Vertical)
+        toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        toolbar.addAction(add_contact_action)
 
-    def on_update(self):
-        item = self.currentItem()
-        current_contact_key = item.data(0, Qt.UserRole) if item else None
-        self.clear()
+        self._layout = QHBoxLayout()
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
+        self._layout.addWidget(scroll)
+        self._layout.addWidget(toolbar)
+        self.setLayout(self._layout)
 
-        for entry in sorted(self.parent.contacts.get_contacts(), key=lambda e: e.label):
+    def _on_add_contact_action(self) -> None:
+        edit_contact_dialog(self._context.wallet_api)
+
+
+class ContactCards(QWidget):
+    def __init__(self, context: ListContext, parent: Any=None) -> None:
+        super().__init__(parent)
+
+        self._context = context
+
+        self._layout = QVBoxLayout()
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
+
+        for entry in sorted(self.parent().parent().contacts.get_contacts(), key=lambda e: e.label):
             for identity in entry.identities:
-                contact_key = (entry.contact_id, identity.identity_id)
-                system_name = IDENTITY_SYSTEM_NAMES[identity.system_id]
-                item = QTreeWidgetItem([
-                    entry.label,
-                    system_name,
-                    str(identity.system_data),
-                ])
-                item.setData(0, Qt.UserRole, contact_key)
-                self.addTopLevelItem(item)
-                if contact_key == current_contact_key:
-                    self.setCurrentItem(item)
-
-    def _delete_contacts(self, contact_ids):
-        if not self.parent.question(_("Are you sure?")):
-            return
-
-        self.parent.contacts.remove_contacts(contact_ids)
-        self.parent._on_contacts_changed()
+                self._add_identity(entry, identity)
+                # contact_key = (entry.contact_id, identity.identity_id)
+                # item.setData(0, Qt.UserRole, contact_key)
+                # self.addTopLevelItem(item)
+                # if contact_key == current_contact_key:
+                #     self.setCurrentItem(item)
 
 
-def edit_contact_dialog(parent, main_window, contact_key=None):
+        self._layout.addStretch(1)
+        self.setLayout(self._layout)
+
+        self._context.wallet_api.contact_changed.connect(self._on_contact_changed)
+
+    def _add_identity(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        test_card = ContactCard(self._context, contact, identity)
+        test_card.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
+        # The last item is the stretch QSpacerItem.
+        self._layout.insertWidget(0, test_card)
+
+    def _remove_identity(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        # When removing a widget from a layout. layout.removeWidget does not work. layout.takeAt
+        # does not work. Setting the parent to None does.
+        for i in range(self._layout.count(), -1, -1):
+            item = self._layout.itemAt(i)
+            if isinstance(item, QWidgetItem):
+                widget = item.widget()
+                if identity is None and widget._contact.contact_id == contact.contact_id:
+                    widget.setParent(None)
+                elif widget._identity.identity_id == identity.identity_id:
+                    widget.setParent(None)
+
+    def _on_contact_changed(self, added: bool, contact: ContactEntry,
+            identity: ContactIdentity) -> None:
+        if added:
+            self._add_identity(contact, identity)
+        else:
+            self._remove_identity(contact, identity)
+
+
+class ContactCard(QWidget):
+    def __init__(self, context: ListContext, contact: ContactEntry, identity: ContactIdentity,
+            parent: Any=None):
+        super().__init__(parent)
+
+        self._context = context
+        self._contact = contact
+        self._identity = identity
+
+        self.setObjectName("ContactCard")
+        self.setFixedHeight(120)
+
+        avatar_label = QLabel("")
+        avatar_label.setPixmap(QPixmap(icon_path("icons8-decision-80.png")))
+        avatar_label.setObjectName("ContactAvatar")
+        avatar_label.setToolTip(_("What your contact avatar looks like."))
+
+        label = QLabel("...")
+        label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
+
+        def _on_pay_button_clicked(checked: Optional[bool]=False) -> None:
+            from . import payment
+            from importlib import reload
+            reload(payment)
+            self.w = payment.PaymentWindow(self._context.wallet_api, self._identity.identity_id,
+                parent=self)
+            self.w.show()
+
+        def _on_delete_button_clicked(checked: Optional[bool]=False) -> None:
+            wallet_window = self._context.wallet_api.wallet_window
+            if not wallet_window.question(_("Are you sure?")):
+                return
+            wallet_window.contacts.remove_contacts([ self._contact.contact_id ])
+
+        def _on_edit_button_clicked(checked: Optional[bool]=False) -> None:
+            contact_key = (self._contact.contact_id, self._identity.identity_id)
+            edit_contact_dialog(self._context.wallet_api, contact_key)
+
+            wallet_window = self._context.wallet_api.wallet_window
+            contact = wallet_window.contacts.get_contact(contact_key[0])
+            identity = [ ci for ci in contact.identities if ci.identity_id == contact_key[1] ][0]
+
+            self._contact = contact
+            self._identity = identity
+            self._update()
+
+        pay_button = QPushButton(_("Pay"), self)
+        pay_button.clicked.connect(_on_pay_button_clicked)
+
+        message_button = QPushButton(_("Message"), self)
+        message_button.setEnabled(False)
+
+        edit_button = QPushButton(_("Edit"), self)
+        edit_button.clicked.connect(_on_edit_button_clicked)
+
+        delete_button = QPushButton(_("Delete"), self)
+        delete_button.clicked.connect(_on_delete_button_clicked)
+
+        action_layout = QVBoxLayout()
+        action_layout.setSpacing(0)
+        action_layout.addStretch(1)
+        action_layout.addWidget(pay_button)
+        action_layout.addWidget(message_button)
+        action_layout.addWidget(edit_button)
+        action_layout.addWidget(delete_button)
+
+        self._layout = QHBoxLayout()
+        self._layout.setSpacing(8)
+        self._layout.setContentsMargins(20, 10, 20, 10)
+        self._layout.addWidget(avatar_label)
+        self._layout.addWidget(label, 1, Qt.AlignTop)
+        self._layout.addLayout(action_layout)
+        self.setLayout(self._layout)
+
+        self._avatar_label = avatar_label
+        self._name_label = label
+
+        self._update()
+
+    # QWidget styles do not render. Found this somewhere on the qt5 doc site.
+    def paintEvent(self, event):
+        opt = QStyleOption()
+        opt.initFrom(self)
+        p = QPainter(self)
+        self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
+
+    def _update(self):
+        system_name = IDENTITY_SYSTEM_NAMES[self._identity.system_id]
+        label_text = f"{self._contact.label} / {system_name}"
+        self._name_label.setText(label_text)
+
+
+def edit_contact_dialog(wallet_api, contact_key=None):
+    wallet_window = wallet_api.wallet_window
+
     editing = contact_key is not None
     if editing:
         title = _("Edit Contact")
     else:
         title = _("New Contact")
 
-    d = WindowModalDialog(parent, title)
+    d = WindowModalDialog(wallet_window, title)
     vbox = QVBoxLayout(d)
     vbox.addWidget(QLabel(title + ':'))
 
@@ -164,7 +299,7 @@ def edit_contact_dialog(parent, main_window, contact_key=None):
         if system_id is None:
             identity_result = IdentityCheckResult.Invalid
         else:
-            identity_result = main_window.contacts.check_identity_valid(system_id, identity_text,
+            identity_result = wallet_window.contacts.check_identity_valid(system_id, identity_text,
                 skip_exists=editing)
         is_valid = identity_result == IdentityCheckResult.Ok
         _set_validation_state(identity_line, is_valid)
@@ -180,7 +315,7 @@ def edit_contact_dialog(parent, main_window, contact_key=None):
         can_submit = can_submit and is_valid
 
         name_text = name_line.text().strip()
-        name_result = main_window.contacts.check_label(name_text)
+        name_result = wallet_window.contacts.check_label(name_text)
         is_valid = (name_result == IdentityCheckResult.Ok or
             editing and name_result == IdentityCheckResult.InUse)
         _set_validation_state(name_line, is_valid)
@@ -222,7 +357,7 @@ def edit_contact_dialog(parent, main_window, contact_key=None):
         combo1.lineEdit().setText(IDENTITY_SYSTEM_NAMES[IdentitySystem.OnChain])
         identity_line.setFocus()
     else:
-        entry = main_window.contacts.get_contact(contact_key[0])
+        entry = wallet_window.contacts.get_contact(contact_key[0])
         identity = [ ci for ci in entry.identities if ci.identity_id == contact_key[1] ][0]
         combo1.lineEdit().setText(IDENTITY_SYSTEM_NAMES[identity.system_id])
         identity_line.setText(identity.system_data)
@@ -234,14 +369,14 @@ def edit_contact_dialog(parent, main_window, contact_key=None):
         identity_text = identity_line.text().strip()
         system_id = get_system_id(combo1.currentText())
         if contact_key is not None:
-            contact = main_window.contacts.get_contact(contact_key[0])
+            contact = wallet_window.contacts.get_contact(contact_key[0])
             identity = [ ci for ci in contact.identities if ci.identity_id == contact_key[1] ][0]
             if contact_key[1] != identity.identity_id:
-                main_window.contacts.remove_identity(contact_key[0], contact_key[1])
-                main_window.contacts.add_identity(contact_key[0], system_id, identity_text)
+                wallet_window.contacts.remove_identity(contact_key[0], contact_key[1])
+                wallet_window.contacts.add_identity(contact_key[0], system_id, identity_text)
             if contact.label != name_text:
-                main_window.contacts.set_label(contact_key[0], name_text)
+                wallet_window.contacts.set_label(contact_key[0], name_text)
         else:
-            main_window.contacts.add_contact(system_id, name_text, identity_text)
-        main_window._on_contacts_changed()
+            wallet_window.contacts.add_contact(system_id, name_text, identity_text)
+        wallet_window._on_contacts_changed()
 

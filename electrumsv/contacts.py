@@ -26,7 +26,7 @@ from dateutil.parser import isoparse
 from enum import IntEnum
 from typing import Any, Iterable, List, NamedTuple, Optional, Tuple
 
-from bitcoinx import PublicKey
+from bitcoinx import PublicKey, sha256
 
 from .logs import logs
 
@@ -68,14 +68,14 @@ def get_system_id(system_name: str) -> IdentitySystem:
 
 
 class ContactIdentity(NamedTuple):
-    identity_id: int
+    identity_id: bytes
     system_id: IdentitySystem
     system_data: Any
     last_verified: Optional[datetime.datetime] = None
 
     def to_list(self) -> List[Any]:
         return [
-            self.identity_id,
+            self.identity_id.hex(),
             int(self.system_id),
             self.system_data,
             self.last_verified.astimezone().isoformat()
@@ -87,7 +87,7 @@ class ContactIdentity(NamedTuple):
         dt = None
         if data[3] is not None:
             dt = isoparse(data[3])
-        return klass(data[0], IdentitySystem(data[1]), data[2], dt)
+        return klass(bytes.fromhex(data[0]), IdentitySystem(data[1]), data[2], dt)
 
 
 class ContactEntry(NamedTuple):
@@ -106,18 +106,23 @@ class ContactEntry(NamedTuple):
 
 class Contacts(object):
     def __init__(self, storage):
+        self._identity_contact_id = {}
         self._entries = {}
         self.storage = storage
 
         data = storage.get('contacts2', None)
         if data is not None:
             version, contacts_data = data
-            if version == 2:
+            if version < 4:
                 pass
-            elif version == 3:
+            elif version == 4:
                 for row in contacts_data:
                     entry = ContactEntry.from_list(row)
                     self._entries[entry.contact_id] = entry
+
+                    for identity in entry.identities:
+                        self._identity_contact_id[identity.identity_id] = entry.contact_id
+
             else:
                 raise ContactDataError("Unrecognized version")
 
@@ -125,7 +130,7 @@ class Contacts(object):
         contacts_data = []
         for entry in self._entries.values():
             contacts_data.append(entry.to_list())
-        self.storage.put('contacts2', [ 3, contacts_data ])
+        self.storage.put('contacts2', [ 4, contacts_data ])
 
     def check_identity_exists(self, system_id: IdentityCheckResult,
             system_data: Any) -> IdentityCheckResult:
@@ -189,7 +194,7 @@ class Contacts(object):
         contact_id = 1
         if len(self._entries):
             contact_id = max(k for k in self._entries.keys()) + 1
-        identity_id = 1
+        identity_id = self._get_unique_identity_id(system_id, identity_data)
         identity = ContactIdentity(identity_id, system_id, identity_data)
         contact = self._entries[contact_id] = ContactEntry(contact_id, label, [ identity ])
         self.save()
@@ -223,7 +228,7 @@ class Contacts(object):
 
     def add_identity(self, contact_id: int, system_id: IdentitySystem, system_data: str) -> None:
         contact = self._entries[contact_id]
-        identity_id = max(identity.identity_id for identity in contact.identities) + 1
+        identity_id = self._get_unique_identity_id(system_id, system_data)
         identity = ContactIdentity(identity_id, system_id, system_data)
         contact.identities.append(identity)
         self.save()
@@ -241,6 +246,11 @@ class Contacts(object):
 
                 self._on_identity_removed(contact, identity)
                 break
+
+    def _get_unique_identity_id(self, system_id: IdentitySystem, system_data: str) -> bytes:
+        if system_id == IdentitySystem.OnChain:
+            return bytes.fromhex(system_data)
+        return sha256(system_data)
 
     def _is_public_key_valid(self, hex: str) -> bool:
         try:

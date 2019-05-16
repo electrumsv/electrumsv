@@ -84,6 +84,7 @@ from .util import (
     CloseButton, CancelButton, text_dialog, filename_field, address_combo, icon_path,
     update_fixed_tree_height, UntrustedMessageDialog
 )
+from .wallet_api import WalletAPI
 
 
 logger = logs.get_logger("mainwindow")
@@ -124,6 +125,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def __init__(self, wallet):
         QMainWindow.__init__(self)
+
+        self._api = WalletAPI(self)
 
         self.logger = logger
         self.config = app_state.config
@@ -533,7 +536,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         labels_menu.addAction(_("&Import"), self.do_import_labels)
         labels_menu.addAction(_("&Export"), self.do_export_labels)
         contacts_menu = wallet_menu.addMenu(_("Contacts"))
-        contacts_menu.addAction(_("&New"), partial(edit_contact_dialog, self, self))
+        contacts_menu.addAction(_("&New"), partial(edit_contact_dialog, self._api))
         invoices_menu = wallet_menu.addMenu(_("Invoices"))
         invoices_menu.addAction(_("Import"), self.invoice_list.import_invoices)
         hist_menu = wallet_menu.addMenu(_("&History"))
@@ -601,7 +604,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         spacer = QWidget(self)
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         spacer.setVisible(True)
-        toolbar.addWidget(spacer)
+        self.spacer_action = toolbar.addWidget(spacer)
 
         log_action = QAction(read_QIcon("icons8-moleskine-80.png"), _("Log Viewer"), self)
         log_action.triggered.connect(self.app.show_log_viewer)
@@ -629,6 +632,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.addToolBar(toolbar)
         self.setUnifiedTitleAndToolBarOnMac(True)
+
+    def add_toolbar_action(self, action: QAction) -> None:
+        self.toolbar.insertAction(self.spacer_action, action)
 
     def _update_check_toolbar_update(self):
         update_check_state = "default"
@@ -707,7 +713,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from . import payment
         from importlib import reload
         reload(payment)
-        self.w = payment.PaymentWindow(self)
+        self.w = payment.PaymentWindow(self._api, parent=self)
         self.w.show()
 
     def donate_to_server(self):
@@ -951,7 +957,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.utxo_list.update()
         self.contact_list.update()
         self.invoice_list.update()
-        self.update_completions()
         self.history_updated_signal.emit()
 
     def create_history_tab(self):
@@ -1486,11 +1491,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         contact = self.contacts.get_contact(contact_id)
         return contact.label
 
-    def update_completions(self):
-        pass
-        # l = [self.get_contact_payto(entry.contact_id) for entry in self.contacts.get_contacts()]
-        # self.completions.setStringList(l)
-
     def protected(func): # pylint: disable=no-self-argument
         '''Password request wrapper.  The password is passed to the function
         as the 'password' named argument.  "None" indicates either an
@@ -1886,7 +1886,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return self.create_list_tab(l)
 
     def create_contacts_tab(self):
-        self.contact_list = l = ContactList(self)
+        self.contact_list = l = ContactList(self._api, self)
         return self.create_list_tab(l)
 
     def remove_address(self, addr):
@@ -1935,7 +1935,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contact_list.update()
         self.history_list.update()
         self.history_updated_signal.emit()
-        self.update_completions()
 
     def show_invoice(self, key):
         pr = self.invoices.get(key)
