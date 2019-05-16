@@ -44,8 +44,6 @@ contactcard_stylesheet = """
 #ContactCard {
     background-color: white;
     border-bottom: 1px solid #E3E2E2;
-    margin-left: 5px;
-    margin-right: 5px;
 }
 
 #ContactAvatar {
@@ -107,26 +105,34 @@ class ContactCards(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
 
-        for entry in sorted(self.parent().parent().contacts.get_contacts(), key=lambda e: e.label):
-            for identity in entry.identities:
-                self._add_identity(entry, identity)
-                # contact_key = (entry.contact_id, identity.identity_id)
-                # item.setData(0, Qt.UserRole, contact_key)
-                # self.addTopLevelItem(item)
-                # if contact_key == current_contact_key:
-                #     self.setCurrentItem(item)
+        self._empty_label = None
 
+        contact_identities = self._context.wallet_api.get_identities()
+        if len(contact_identities) > 0:
+            for contact, identity in sorted(contact_identities, key=lambda t: t[0].label):
+                self._add_identity(contact, identity)
+            self._layout.addStretch(1)
+        else:
+            self._add_empty_label()
 
-        self._layout.addStretch(1)
         self.setLayout(self._layout)
 
         self._context.wallet_api.contact_changed.connect(self._on_contact_changed)
 
+    # def _reorder_identities(self):
+    #     for i in range(self._layout.count(), -1, -1):
+    #         item = self._layout.itemAt
+
     def _add_identity(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        was_empty = self._remove_empty_label()
+
         test_card = ContactCard(self._context, contact, identity)
         test_card.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
         # The last item is the stretch QSpacerItem.
         self._layout.insertWidget(0, test_card)
+
+        if was_empty:
+            self._layout.addStretch(1)
 
     def _remove_identity(self, contact: ContactEntry, identity: ContactIdentity) -> None:
         # When removing a widget from a layout. layout.removeWidget does not work. layout.takeAt
@@ -140,12 +146,30 @@ class ContactCards(QWidget):
                 elif widget._identity.identity_id == identity.identity_id:
                     widget.setParent(None)
 
+
+        if self._layout.count() == 1:
+            # Remove the trailing stretch. It's not a wrapped widget, so takeAt will work.
+            self._layout.takeAt(0)
+            self._add_empty_label()
+
     def _on_contact_changed(self, added: bool, contact: ContactEntry,
             identity: ContactIdentity) -> None:
         if added:
             self._add_identity(contact, identity)
         else:
             self._remove_identity(contact, identity)
+
+    def _add_empty_label(self) -> None:
+        self._empty_label = QLabel(_("You do not currently have any contacts."))
+        self._empty_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+        self._layout.addWidget(self._empty_label)
+
+    def _remove_empty_label(self) -> bool:
+        if self._empty_label is not None:
+            self._empty_label.setParent(None)
+            self._empty_label = None
+            return True
+        return False
 
 
 class ContactCard(QWidget):
@@ -158,7 +182,6 @@ class ContactCard(QWidget):
         self._identity = identity
 
         self.setObjectName("ContactCard")
-        self.setFixedHeight(120)
 
         avatar_label = QLabel("")
         avatar_label.setPixmap(QPixmap(icon_path("icons8-decision-80.png")))
@@ -167,6 +190,12 @@ class ContactCard(QWidget):
 
         label = QLabel("...")
         label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
+        label.setAlignment(Qt.AlignHCenter)
+
+        name_layout = QVBoxLayout()
+        name_layout.setContentsMargins(0, 0, 0, 0)
+        name_layout.addWidget(avatar_label)
+        name_layout.addWidget(label)
 
         def _on_pay_button_clicked(checked: Optional[bool]=False) -> None:
             from . import payment
@@ -180,14 +209,13 @@ class ContactCard(QWidget):
             wallet_window = self._context.wallet_api.wallet_window
             if not wallet_window.question(_("Are you sure?")):
                 return
-            wallet_window.contacts.remove_contacts([ self._contact.contact_id ])
+            self._context.wallet_api.remove_contacts([ self._contact.contact_id ])
 
         def _on_edit_button_clicked(checked: Optional[bool]=False) -> None:
             contact_key = (self._contact.contact_id, self._identity.identity_id)
             edit_contact_dialog(self._context.wallet_api, contact_key)
 
-            wallet_window = self._context.wallet_api.wallet_window
-            contact = wallet_window.contacts.get_contact(contact_key[0])
+            contact = self._context.wallet_api.get_contact(contact_key[0])
             identity = [ ci for ci in contact.identities if ci.identity_id == contact_key[1] ][0]
 
             self._contact = contact
@@ -217,8 +245,8 @@ class ContactCard(QWidget):
         self._layout = QHBoxLayout()
         self._layout.setSpacing(8)
         self._layout.setContentsMargins(20, 10, 20, 10)
-        self._layout.addWidget(avatar_label)
-        self._layout.addWidget(label, 1, Qt.AlignTop)
+        self._layout.addLayout(name_layout)
+        self._layout.addStretch(1)
         self._layout.addLayout(action_layout)
         self.setLayout(self._layout)
 
@@ -235,21 +263,18 @@ class ContactCard(QWidget):
         self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
 
     def _update(self):
-        system_name = IDENTITY_SYSTEM_NAMES[self._identity.system_id]
-        label_text = f"{self._contact.label} / {system_name}"
-        self._name_label.setText(label_text)
+        self._name_label.setText(self._contact.label)
 
 
+# TODO: Refactor this into a class.
 def edit_contact_dialog(wallet_api, contact_key=None):
-    wallet_window = wallet_api.wallet_window
-
     editing = contact_key is not None
     if editing:
         title = _("Edit Contact")
     else:
         title = _("New Contact")
 
-    d = WindowModalDialog(wallet_window, title)
+    d = WindowModalDialog(wallet_api.wallet_window, title)
     vbox = QVBoxLayout(d)
     vbox.addWidget(QLabel(title + ':'))
 
@@ -299,7 +324,7 @@ def edit_contact_dialog(wallet_api, contact_key=None):
         if system_id is None:
             identity_result = IdentityCheckResult.Invalid
         else:
-            identity_result = wallet_window.contacts.check_identity_valid(system_id, identity_text,
+            identity_result = wallet_api.check_identity_valid(system_id, identity_text,
                 skip_exists=editing)
         is_valid = identity_result == IdentityCheckResult.Ok
         _set_validation_state(identity_line, is_valid)
@@ -315,7 +340,7 @@ def edit_contact_dialog(wallet_api, contact_key=None):
         can_submit = can_submit and is_valid
 
         name_text = name_line.text().strip()
-        name_result = wallet_window.contacts.check_label(name_text)
+        name_result = wallet_api.check_label(name_text)
         is_valid = (name_result == IdentityCheckResult.Ok or
             editing and name_result == IdentityCheckResult.InUse)
         _set_validation_state(name_line, is_valid)
@@ -357,7 +382,7 @@ def edit_contact_dialog(wallet_api, contact_key=None):
         combo1.lineEdit().setText(IDENTITY_SYSTEM_NAMES[IdentitySystem.OnChain])
         identity_line.setFocus()
     else:
-        entry = wallet_window.contacts.get_contact(contact_key[0])
+        entry = wallet_api.get_contact(contact_key[0])
         identity = [ ci for ci in entry.identities if ci.identity_id == contact_key[1] ][0]
         combo1.lineEdit().setText(IDENTITY_SYSTEM_NAMES[identity.system_id])
         identity_line.setText(identity.system_data)
@@ -369,14 +394,13 @@ def edit_contact_dialog(wallet_api, contact_key=None):
         identity_text = identity_line.text().strip()
         system_id = get_system_id(combo1.currentText())
         if contact_key is not None:
-            contact = wallet_window.contacts.get_contact(contact_key[0])
+            contact = wallet_api.get_contact(contact_key[0])
             identity = [ ci for ci in contact.identities if ci.identity_id == contact_key[1] ][0]
             if contact_key[1] != identity.identity_id:
-                wallet_window.contacts.remove_identity(contact_key[0], contact_key[1])
-                wallet_window.contacts.add_identity(contact_key[0], system_id, identity_text)
+                wallet_api.remove_identity(contact_key[0], contact_key[1])
+                wallet_api.add_identity(contact_key[0], system_id, identity_text)
             if contact.label != name_text:
-                wallet_window.contacts.set_label(contact_key[0], name_text)
+                wallet_api.set_label(contact_key[0], name_text)
         else:
-            wallet_window.contacts.add_contact(system_id, name_text, identity_text)
-        wallet_window._on_contacts_changed()
+            wallet_api.add_contact(system_id, name_text, identity_text)
 

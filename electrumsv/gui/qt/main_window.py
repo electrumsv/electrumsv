@@ -31,7 +31,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Iterable
+from typing import Iterable, Tuple
 import weakref
 import webbrowser
 
@@ -854,12 +854,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             text += ' (%s)'%x
         return text
 
-    def get_amount_and_units(self, amount):
+    def get_amount_and_units(self, amount: int) -> Tuple[str, str]:
         bitcoin_text = self.format_amount(amount) + ' ' + app_state.base_unit()
         fiat_text = app_state.fx.format_amount_and_units(amount)
         return bitcoin_text, fiat_text
 
-    def format_fee_rate(self, fee_rate):
+    def format_fee_rate(self, fee_rate: int) -> str:
         return format_fee_satoshis(fee_rate/1000, app_state.num_zeros) + ' sat/B'
 
     def connect_fields(self, window, btc_e, fiat_e, fee_e):
