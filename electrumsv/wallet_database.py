@@ -35,8 +35,11 @@ __all__ = [
 
 def max_sql_variables():
     """Get the maximum number of arguments allowed in a query by the current
-    sqlite3 implementation. Based on `this question
-    `_
+    sqlite3 implementation.
+
+    ESV amendment: Report that on CentOS the following error occurs:
+       "sqlite3.OperationalError: too many terms in compound SELECT"
+    This is another limit, likely lower: SQLITE_LIMIT_COMPOUND_SELECT
 
     Returns
     -------
@@ -55,7 +58,8 @@ def max_sql_variables():
         try:
             cur.execute(query, args)
         except sqlite3.OperationalError as e:
-            if "too many SQL variables" in str(e):
+            es = str(e)
+            if "too many SQL variables" in es or "too many terms in compound SELECT" in es:
                 high = guess
             else:
                 raise
