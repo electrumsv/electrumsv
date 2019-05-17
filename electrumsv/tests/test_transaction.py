@@ -256,13 +256,14 @@ class TestXPublicKey:
         # A compressed 02 key
         '026370246118a7c218fd557496ebb2b0862d59c6486e88f83e07fd12ce8a88fb00',
     ))
-    def test_raw_public_keys(self, raw_hex):
+    def test_raw_public_keys(self, raw_hex, coin):
         public_key = PublicKey.from_hex(raw_hex)
         x_pubkey = XPublicKey(raw_hex)
         assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
         assert x_pubkey.to_hex() == raw_hex
         assert x_pubkey.to_public_key() == public_key
-        assert x_pubkey.to_address() == public_key.to_address()
+        assert x_pubkey.to_address() == public_key.to_address(coin=coin)
+        assert x_pubkey.to_address().coin() is coin
 
     @pytest.mark.parametrize("raw_hex, path1, path2", (
         (
@@ -276,7 +277,7 @@ class TestXPublicKey:
             0, 25,
         ),
     ))
-    def test_bip32_extended_keys(self, raw_hex, path1, path2):
+    def test_bip32_extended_keys(self, raw_hex, path1, path2, coin):
         # see test_keystore.py
         xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
                 'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
@@ -287,7 +288,8 @@ class TestXPublicKey:
         assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
         assert x_pubkey.to_hex() == raw_hex
         assert x_pubkey.to_public_key() == True_10_public_key
-        assert x_pubkey.to_address() == True_10_public_key.to_address()
+        assert x_pubkey.to_address() == True_10_public_key.to_address(coin=coin)
+        assert x_pubkey.to_address().coin() is coin
 
     @pytest.mark.parametrize("raw_hex, public_key_hex", (
         ('fee9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df9c09d'
@@ -301,7 +303,7 @@ class TestXPublicKey:
          'a78f8d87aa7c519892a6adb5e7b39702379411dd7ba49f324f8c7e4e51f17'
         ),
     ))
-    def test_old_keystore(self, raw_hex, public_key_hex):
+    def test_old_keystore(self, raw_hex, public_key_hex, coin):
         public_key = PublicKey.from_hex(public_key_hex)
         assert public_key.is_compressed() is False
         x_pubkey = XPublicKey(raw_hex)
@@ -309,7 +311,8 @@ class TestXPublicKey:
         assert x_pubkey.to_hex() == raw_hex
         assert x_pubkey.to_public_key() == public_key
         assert x_pubkey.to_public_key().is_compressed() is False
-        assert x_pubkey.to_address() == public_key.to_address()
+        assert x_pubkey.to_address() == public_key.to_address(coin=coin)
+        assert x_pubkey.to_address().coin() is coin
 
     @pytest.mark.parametrize("raw_hex, address", (
         ('fd76a9140d58656ec279ed001c58c7aabc64193f07414ff388ac',
@@ -319,10 +322,12 @@ class TestXPublicKey:
          '3BDvP5dDhJHpdZs393GUUnRiNwCj3C3GF4'
         ),
     ))
-    def test_addresses(self, raw_hex, address):
+    def test_addresses(self, raw_hex, address, coin):
         address = Address.from_string(address)
+        address._coin = coin
         x_pubkey = XPublicKey(raw_hex)
         assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
         assert x_pubkey.to_hex() == raw_hex
         assert x_pubkey.to_public_key() == address
         assert x_pubkey.to_address() == address
+        assert x_pubkey.to_address().coin() is coin

@@ -119,6 +119,7 @@ class XPublicKey:
         assert self.raw[0] == 0xfd
         result = classify_output_script(Script(self.raw[1:]))
         assert isinstance(result, Address)
+        result = (result.__class__)(result.hash160(), coin=Net.COIN)
         return result
 
     def to_address(self):
