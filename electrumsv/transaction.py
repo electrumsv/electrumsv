@@ -72,12 +72,18 @@ class XPublicKey:
 
     def __init__(self, raw):
         if not isinstance(raw, (bytes, str)):
-            raise TypeError(f'raw must be bytes or a string')
+            raise TypeError(f'raw {raw} must be bytes or a string')
         try:
             self.raw = raw if isinstance(raw, bytes) else bytes.fromhex(raw)
             self.to_public_key()
         except (ValueError, AssertionError):
             raise ValueError(f'invalid XPublicKey: {raw}')
+
+    def __eq__(self, other):
+        return isinstance(other, XPublicKey) and self.raw == other.raw
+
+    def __hash__(self):
+        return hash(self.raw) + 1
 
     def _bip32_public_key(self):
         extended_key, path = self.bip32_extended_key_and_path()
@@ -86,15 +92,11 @@ class XPublicKey:
             result = result.child(n)
         return result
 
-    def _old_keystore_root_public_key(self):
-        assert len(self.raw) == 69
-        return PublicKey.from_bytes(pack_byte(4) + self.raw[1:65])
-
     def _old_keystore_public_key(self):
-        root_public_key = self._old_keystore_root_public_key()
-        path = [unpack_le_uint16(self.raw[n: n+2])[0] for n in (65, 67)]
+        mpk, path = self.old_keystore_mpk_and_path()
+        mpk = PublicKey.from_bytes(pack_byte(4) + mpk)
         delta = double_sha256(f'{path[1]}:{path[0]}:'.encode() + self.raw[1:65])
-        return root_public_key.add(delta)
+        return mpk.add(delta)
 
     def to_bytes(self):
         return self.raw
@@ -102,31 +104,48 @@ class XPublicKey:
     def to_hex(self):
         return self.raw.hex()
 
+    def kind(self):
+        return self.raw[0]
+
     def is_bip32_key(self):
-        return self.raw[0] == 0xff
+        return self.kind() == 0xff
 
     def bip32_extended_key(self):
-        assert self.is_bip32_key()
         assert len(self.raw) == 83    # 1 + 78 + 2 + 2
+        assert self.is_bip32_key()
         return base58_encode_check(self.raw[1:79])
 
     def bip32_extended_key_and_path(self):
         extended_key = self.bip32_extended_key()
         return extended_key, [unpack_le_uint16(self.raw[n: n+2])[0] for n in (79, 81)]
 
+    def old_keystore_mpk_and_path(self):
+        assert len(self.raw) == 69
+        assert self.kind() == 0xfe
+        mpk = self.raw[1:65]  # The public key bytes without the 0x04 prefix
+        return mpk, [unpack_le_uint16(self.raw[n: n+2])[0] for n in (65, 67)]
+
     def to_public_key(self):
         '''Returns a PublicKey instance or an Address instance.'''
-        if self.raw[0] in {0x02, 0x03, 0x04}:
+        kind = self.kind()
+        if kind in {0x02, 0x03, 0x04}:
             return PublicKey.from_bytes(self.raw)
-        if self.raw[0] == 0xff:
+        if kind == 0xff:
             return self._bip32_public_key()
-        if self.raw[0] == 0xfe:
+        if kind == 0xfe:
             return self._old_keystore_public_key()
-        assert self.raw[0] == 0xfd
+        assert kind == 0xfd
         result = classify_output_script(Script(self.raw[1:]))
         assert isinstance(result, Address)
         result = (result.__class__)(result.hash160(), coin=Net.COIN)
         return result
+
+    def to_public_key_hex(self):
+        # Only used for the pubkeys array
+        public_key = self.to_public_key()
+        if isinstance(public_key, Address):
+            return public_key.to_script_bytes().hex()
+        return public_key.to_hex()
 
     def to_address(self):
         result = self.to_public_key()
@@ -134,14 +153,8 @@ class XPublicKey:
             result = result.to_address(coin=Net.COIN)
         return result
 
-
-# These two functions will eventually go away
-def xpubkey_to_address(x_pubkey):
-    return XPublicKey(x_pubkey).to_address()
-
-
-def xpubkey_to_pubkey(x_pubkey):
-    return XPublicKey(x_pubkey).to_public_key()
+    def __repr__(self):
+        return f'XPublicKey({self.raw.hex()})'
 
 
 class UnknownAddress(object):
@@ -173,9 +186,9 @@ class _BCDataStream(object):
 
     def write(self, _bytes):  # Initialize with string of _bytes
         if self.input is None:
-            self.input = bytearray(_bytes)
+            self.input = bytes(_bytes)
         else:
-            self.input += bytearray(_bytes)
+            self.input += bytes(_bytes)
 
     def read_string(self, encoding='ascii'):
         # Strings are encoded depending on length:
@@ -309,11 +322,6 @@ def _match_decoded(decoded, to_match):
 def _parse_sig(x_sig):
     return [None if x == NO_SIGNATURE else x for x in x_sig]
 
-def _safe_parse_pubkey(x):
-    try:
-        return xpubkey_to_pubkey(x)
-    except:
-        return x
 
 def _parse_scriptSig(d, _bytes):
     try:
@@ -340,11 +348,11 @@ def _parse_scriptSig(d, _bytes):
     match = [ Ops.OP_PUSHDATA4, Ops.OP_PUSHDATA4 ]
     if _match_decoded(decoded, match):
         sig = bh2u(decoded[0][1])
-        x_pubkey = bh2u(decoded[1][1])
+        x_pubkey = XPublicKey(decoded[1][1])
         try:
             signatures = _parse_sig([sig])
-            pubkey = xpubkey_to_pubkey(x_pubkey)
-            address = xpubkey_to_address(x_pubkey)
+            pubkey = x_pubkey.to_public_key_hex()
+            address = x_pubkey.to_address()
         except:
             logger.exception("cannot find address in input script %s", bh2u(_bytes))
             return
@@ -352,7 +360,7 @@ def _parse_scriptSig(d, _bytes):
         d['signatures'] = signatures
         d['x_pubkeys'] = [x_pubkey]
         d['num_sig'] = 1
-        d['pubkeys'] = [pubkey.to_hex()]
+        d['pubkeys'] = [pubkey]
         d['address'] = address
         return
 
@@ -368,7 +376,7 @@ def _parse_scriptSig(d, _bytes):
     d['num_sig'] = m
     d['signatures'] = _parse_sig(x_sig)
     d['x_pubkeys'] = x_pubkeys
-    d['pubkeys'] = [pubkey.to_hex() for pubkey in pubkeys]
+    d['pubkeys'] = pubkeys
     d['redeemScript'] = redeemScript
     d['address'] = P2SH_Address(hash_160(redeemScript))
 
@@ -383,8 +391,8 @@ def _parse_redeemScript(s):
     if not _match_decoded(dec2, match_multisig):
         logger.error("cannot find address in input script %s", bh2u(s))
         return
-    x_pubkeys = [bh2u(x[1]) for x in dec2[1:-2]]
-    pubkeys = [_safe_parse_pubkey(x) for x in x_pubkeys]
+    x_pubkeys = [XPublicKey(x[1]) for x in dec2[1:-2]]
+    pubkeys = [x_pubkey.to_public_key().to_hex() for x_pubkey in x_pubkeys]
     redeemScript = P2MultiSig_Output(pubkeys, m).to_script_bytes()
     return m, n, x_pubkeys, pubkeys, redeemScript
 
@@ -434,11 +442,6 @@ def deserialize(raw):
 # pay & redeem scripts
 
 def multisig_script(public_keys, threshold):
-    '''public_keys should be sorted hex strings.  P2MultiSig_Ouput is not used as they may be
-    derivation rules and not valid public keys.
-    '''
-    if sorted(public_keys) != public_keys:
-        logger.warning('public keys are not sorted')
     assert 1 <= threshold <= len(public_keys)
     parts = [push_int(threshold)]
     parts.extend(push_item(bytes.fromhex(public_key)) for public_key in public_keys)
@@ -511,7 +514,7 @@ class Transaction:
         x_pubkeys = txin['x_pubkeys']
         pubkeys = txin.get('pubkeys')
         if pubkeys is None:
-            pubkeys = [xpubkey_to_pubkey(x).to_hex() for x in x_pubkeys]
+            pubkeys = [x_pubkey.to_public_key_hex() for x_pubkey in x_pubkeys]
             pubkeys, x_pubkeys = zip(*sorted(zip(pubkeys, x_pubkeys)))
             txin['pubkeys'] = pubkeys = list(pubkeys)
             txin['x_pubkeys'] = x_pubkeys = list(x_pubkeys)
@@ -530,7 +533,7 @@ class Transaction:
             raise RuntimeError('expected {} signatures; got {}'
                                .format(len(self.inputs()), len(signatures)))
         for i, txin in enumerate(self.inputs()):
-            pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
+            pubkeys, _x_pubkeys = self.get_sorted_pubkeys(txin)
             sig = bh2u(signatures[i] + bytes([self.nHashType() & 255]))
             logger.warning(f'Signature {i}: {sig}')
             if sig in txin.get('signatures'):
@@ -598,29 +601,16 @@ class Transaction:
 
     @classmethod
     def estimate_pubkey_size_from_x_pubkey(cls, x_pubkey):
-        try:
-            if x_pubkey[0:2] in ['02', '03']:  # compressed pubkey
-                return 0x21
-            elif x_pubkey[0:2] == '04':  # uncompressed pubkey
-                return 0x41
-            elif x_pubkey[0:2] == 'ff':  # bip32 extended pubkey
-                return 0x21
-            elif x_pubkey[0:2] == 'fe':  # old electrum extended pubkey
-                return 0x41
-        except Exception as e:
-            pass
-        return 0x21  # just guess it is compressed
+        if x_pubkey.kind() in (0x04, 0xfe):    # uncompressed, old electrum extended pubkey
+            return 0x41
+        return 0x21
 
     @classmethod
     def estimate_pubkey_size_for_txin(cls, txin):
-        pubkeys = txin.get('pubkeys', [])
-        x_pubkeys = txin.get('x_pubkeys', [])
-        if pubkeys and len(pubkeys) > 0:
-            return cls.estimate_pubkey_size_from_x_pubkey(pubkeys[0])
-        elif x_pubkeys and len(x_pubkeys) > 0:
+        x_pubkeys = txin['x_pubkeys']
+        if x_pubkeys:
             return cls.estimate_pubkey_size_from_x_pubkey(x_pubkeys[0])
-        else:
-            return 0x21  # just guess it is compressed
+        return 0x21
 
     @classmethod
     def get_siglist(self, txin, estimate_size=False):
@@ -641,7 +631,7 @@ class Transaction:
                 pk_list = pubkeys
                 sig_list = signatures
             else:
-                pk_list = x_pubkeys
+                pk_list = [x_pubkey.to_hex() for x_pubkey in x_pubkeys]
                 sig_list = [sig if sig else NO_SIGNATURE for sig in x_signatures]
         return pk_list, sig_list
 
@@ -813,6 +803,7 @@ class Transaction:
         return r == s
 
     def sign(self, keypairs):
+        assert all(isinstance(key, XPublicKey) for key in keypairs)
         for i, txin in enumerate(self.inputs()):
             num = txin['num_sig']
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)

@@ -7,9 +7,9 @@ from electrumsv.keystore import (
     Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed,
     from_master_key, from_seed
 )
-from electrumsv.transaction import xpubkey_to_address
 from electrumsv.crypto import pw_encode
 from electrumsv.networks import Net, SVMainnet, SVTestnet
+from electrumsv.transaction import XPublicKey
 
 
 class TestOld_KeyStore:
@@ -74,11 +74,11 @@ class TestOld_KeyStore:
         assert keystore.get_master_public_key() == mpk_hex
         assert keystore.dump() == {'mpk': mpk_hex, 'type': 'old'}
         assert keystore.is_watching_only()
-        assert keystore.get_xpubkey(False, 4) == (
+        assert keystore.get_xpubkey(False, 4).to_hex() == (
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68'
             '863b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d000000400'
         )
-        assert keystore.get_xpubkey(True, 259) == (
+        assert keystore.get_xpubkey(True, 259).to_hex() == (
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
             'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
         )
@@ -87,19 +87,19 @@ class TestOld_KeyStore:
         mpk_hex = ("08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a688"
                    "63b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d0")
         keystore = from_master_key(mpk_hex)
-        assert keystore.get_pubkey_derivation(
+        assert keystore.get_pubkey_derivation(XPublicKey(
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68'
             '863b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d000000400'
-        ) == [0, 4]
-        assert keystore.get_pubkey_derivation(
+        )) == [0, 4]
+        assert keystore.get_pubkey_derivation(XPublicKey(
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
             'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
-        ) == [1, 259]
-        assert keystore.get_pubkey_derivation(
-            'fe18863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
-            'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
-        ) is None
-        assert keystore.get_pubkey_derivation("ff") is None
+        )) == [1, 259]
+        with pytest.raises(ValueError):
+            keystore.get_pubkey_derivation(XPublicKey(
+                'fe18863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
+                'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
+            ))
 
 
 # Password b'password'; one minikey, one WIF
@@ -216,25 +216,25 @@ class TestImported_KeyStore:
             bytes.fromhex(hex_str), is_compressed)
 
     def test_get_pubkey_derivation(self):
-        pubkey = imported_keystore.get_pubkey_derivation(
+        pubkey = imported_keystore.get_pubkey_derivation(XPublicKey(
             '04e7dd15b4271f8308ff52ad3d3e472b652e78a2c5bc6ed10250a543d28c0128894ae'
             '863d086488e6773c4589be93a1793f685dd3f1e8a1f1b390b23470f7d1095'
-        )
+        ))
         assert isinstance(pubkey, PublicKey)
-        pubkey = imported_keystore.get_pubkey_derivation(
+        pubkey = imported_keystore.get_pubkey_derivation(XPublicKey(
             '02d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645c'
-        )
+        ))
         assert isinstance(pubkey, PublicKey)
-        assert imported_keystore.get_pubkey_derivation(
+        assert imported_keystore.get_pubkey_derivation(XPublicKey(
             '02c113be5c752294f8b0be2727bbf7f1bf71e6bba5c9e9141f611610707bbce4db'
-        ) is None
-        pubkey = imported_keystore.get_pubkey_derivation(
+        )) is None
+        pubkey = imported_keystore.get_pubkey_derivation(XPublicKey(
             'fd76a914d9351dcbad5b8f3b8bfa2f2cdc85c28118ca932688ac'
-        )
+        ))
         assert isinstance(pubkey, PublicKey)
-        pubkey = imported_keystore.get_pubkey_derivation(
+        pubkey = imported_keystore.get_pubkey_derivation(XPublicKey(
             'fd76a914753e5cd1dd15a7028daa03fe5e47389297ac227a88ac'
-        )
+        ))
         assert pubkey is None
 
 
@@ -306,17 +306,17 @@ class TestXPub:
             '13d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1200001900'
         )
 
-    def test_parse_xpubkey(self):
+    def test_xpubkey(self):
         xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
                 'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
-        assert BIP32_KeyStore.parse_xpubkey(
+        assert XPublicKey(
             'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdb'
             'b213d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1201000a00'
-        ) == (xpub, [1, 10])
-        assert BIP32_KeyStore.parse_xpubkey(
+        ).bip32_extended_key_and_path() == (xpub, [1, 10])
+        assert XPublicKey(
             'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdbb2'
             '13d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1200001900'
-        ) == (xpub, [0, 25])
+        ).bip32_extended_key_and_path() == (xpub, [0, 25])
 
 def test_from_bip39_seed():
     keystore = from_bip39_seed('foo bar baz', '', "m/44'/0'/0'")
@@ -339,12 +339,6 @@ def test_bip32_root():
                       'fUP8o7sGwa8Kw619tfnBpqfeKxsxJq8rvts8hDxA912YcgbuGZX3AZDd')
     Net.set_to(SVMainnet)
 
-
-def test_xpubkey_to_address():
-    privkey = PrivateKey.from_random()
-    public_key = privkey.public_key
-    x_pubkey = 'fd' + public_key.P2PKH_script().to_hex()
-    assert xpubkey_to_address(x_pubkey) == public_key.to_address()
 
 def test_from_master_key():
     keystore = from_master_key('xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCe'

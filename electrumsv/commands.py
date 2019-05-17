@@ -43,7 +43,7 @@ from .exchange_rate import FxTask
 from .i18n import _
 from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
-from .transaction import Transaction
+from .transaction import Transaction, XPublicKey
 from .util import bh2u, format_satoshis, json_decode, to_bytes
 
 
@@ -262,10 +262,10 @@ class Commands:
                 txin_type, privkey, compressed = (
                     'p2pkh', privkey.to_bytes(), privkey.is_compressed()
                 )
-                pubkey = privkey.public_key.to_hex()
-                keypairs[pubkey] = privkey, compressed
+                x_pubkey = XPublicKey(privkey.public_key.to_hex())
+                keypairs[x_pubkey] = privkey, compressed
                 txin['type'] = txin_type
-                txin['x_pubkeys'] = [pubkey]
+                txin['x_pubkeys'] = [XPublicKey(pubkey)]
                 txin['signatures'] = [None]
                 txin['num_sig'] = 1
 

@@ -88,7 +88,6 @@ class TrezorKeyStore(Hardware_KeyStore):
             pubkeys, x_pubkeys = tx.get_sorted_pubkeys(txin)
             tx_hash = txin['prevout_hash']
             for x_pubkey in x_pubkeys:
-                x_pubkey = XPublicKey(x_pubkey)
                 if not x_pubkey.is_bip32_key():
                     continue
                 xpub = x_pubkey.bip32_extended_key()
@@ -320,8 +319,7 @@ class TrezorPlugin(HW_PluginBase):
             else:
                 if for_sig:
                     x_pubkeys = txin['x_pubkeys']
-                    xpubs = [XPublicKey(x_pubkey).bip32_extended_key_and_path()
-                             for x_pubkey in x_pubkeys]
+                    xpubs = [x_pubkey.bip32_extended_key_and_path() for x_pubkey in x_pubkeys]
                     multisig = self._make_multisig(txin.get('num_sig'), xpubs,
                                                    txin.get('signatures'))
                     script_type = self.get_trezor_input_script_type(multisig is not None)

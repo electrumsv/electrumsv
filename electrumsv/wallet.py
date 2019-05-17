@@ -60,7 +60,7 @@ from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type
 from .transaction import (
-    Transaction, classify_tx_output, tx_output_to_display_text, xpubkey_to_address,
+    Transaction, classify_tx_output, tx_output_to_display_text, XPublicKey,
 )
 from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxFlags, TxData, TxProof
 from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
@@ -127,7 +127,7 @@ def _append_utxos_to_inputs(inputs, get_utxos, pubkey, txin_type, imax):
         item['prevout_hash'] = item['tx_hash']
         item['prevout_n'] = item['tx_pos']
         item['pubkeys'] = [pubkey]
-        item['x_pubkeys'] = [pubkey]
+        item['x_pubkeys'] = [XPublicKey(pubkey)]
         item['signatures'] = [None]
         item['num_sig'] = 1
         inputs.append(item)
@@ -137,7 +137,7 @@ def sweep_preparations(privkeys, get_utxos, imax=100):
     def find_utxos_for_privkey(txin_type, privkey, compressed):
         pubkey = PrivateKey(privkey).public_key.to_hex(compressed=compressed)
         _append_utxos_to_inputs(inputs, get_utxos, pubkey, txin_type, imax)
-        keypairs[pubkey] = privkey, compressed
+        keypairs[XPublicKey(pubkey)] = privkey, compressed
 
     inputs = []
     keypairs = {}
@@ -1167,7 +1167,7 @@ class Abstract_Wallet:
             if isinstance(k, BIP32_KeyStore):
                 for txin in tx.inputs():
                     for x_pubkey in txin['x_pubkeys']:
-                        addr = xpubkey_to_address(x_pubkey)
+                        addr = xpubkey.to_address()
                         try:
                             c, index = self.get_address_index(addr)
                         except:
@@ -1629,7 +1629,7 @@ class ImportedAddressWallet(ImportedWalletBase):
         self._sorted = None
 
     def _add_input_sig_info(self, txin, address):
-        x_pubkey = 'fd' + address.to_script_bytes().hex()
+        x_pubkey = XPublicKey('fd' + address.to_script_bytes().hex())
         txin['x_pubkeys'] = [x_pubkey]
         txin['signatures'] = [None]
 
@@ -1712,7 +1712,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         assert txin['type'] == 'p2pkh'
         pubkey = self.keystore.address_to_pubkey(address)
         txin['num_sig'] = 1
-        txin['x_pubkeys'] = [pubkey.to_hex()]
+        txin['x_pubkeys'] = [XPublicKey(pubkey.to_hex())]
         txin['signatures'] = [None]
 
     def pubkeys_to_address(self, pubkey):

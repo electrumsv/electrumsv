@@ -76,7 +76,6 @@ class KeepKey_KeyStore(Hardware_KeyStore):
             pubkeys, x_pubkeys = tx.get_sorted_pubkeys(txin)
             tx_hash = txin['prevout_hash']
             for x_pubkey in x_pubkeys:
-                x_pubkey = XPublicKey(x_pubkey)
                 if not x_pubkey.is_bip32_key():
                     continue
                 xpub = x_pubkey.bip32_extended_key()
@@ -319,14 +318,13 @@ class KeepKeyPlugin(HW_PluginBase):
                 if for_sig:
                     x_pubkeys = txin['x_pubkeys']
                     if len(x_pubkeys) == 1:
-                        x_pubkey = XPublicKey(x_pubkeys[0])
+                        x_pubkey = x_pubkeys[0]
                         xpub, path = x_pubkey.bip32_extended_key_and_path()
                         xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
                         txinputtype.address_n.extend(xpub_n + path)
                         txinputtype.script_type = self.types.SPENDADDRESS
                     else:
                         def f(x_pubkey):
-                            x_pubkey = XPublicKey(x_pubkey)
                             if x_pubkey.is_bip32_key():
                                 xpub, path = x_pubkey.bip32_extended_key_and_path()
                             else:
@@ -348,7 +346,6 @@ class KeepKeyPlugin(HW_PluginBase):
                         )
                         # find which key is mine
                         for x_pubkey in x_pubkeys:
-                            x_pubkey = XPublicKey(x_pubkey)
                             if x_pubkey.is_bip32_key():
                                 xpub, path = x_pubkey.bip32_extended_key_and_path()
                                 if xpub in self.xpub_path:

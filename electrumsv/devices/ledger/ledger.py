@@ -336,9 +336,9 @@ class Ledger_KeyStore(Hardware_KeyStore):
 
             pubkeys, x_pubkeys = tx.get_sorted_pubkeys(txin)
             for i, x_pubkey in enumerate(x_pubkeys):
-                if x_pubkey in derivations:
+                if x_pubkey.to_hex() in derivations:
                     signingPos = i
-                    s = derivations.get(x_pubkey)
+                    s = derivations.get(x_pubkey.to_hex())
                     hwAddress = "{:s}/{:d}/{:d}".format(self.get_derivation()[2:], s[0], s[1])
                     break
             else:

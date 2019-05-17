@@ -38,7 +38,7 @@ from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
 from .networks import Net
-from .transaction import xpubkey_to_pubkey, xpubkey_to_address
+from .transaction import XPublicKey
 
 
 logger = logs.get_logger("keystore")
@@ -81,7 +81,7 @@ class KeyStore:
                     sig = bytes.fromhex(sig)[:-1]
                     while pub_idx >= 0:
                         x_pubkey = x_pubkeys[pub_idx]
-                        public_key = xpubkey_to_pubkey(x_pubkey)
+                        public_key = x_pubkey.to_public_key()
                         used.add(x_pubkey)
                         if public_key.verify_der_signature(sig, pre_hash, None):
                             break
@@ -216,13 +216,12 @@ class Imported_KeyStore(Software_KeyStore):
         return privkey.to_bytes(), privkey.is_compressed()
 
     def get_pubkey_derivation(self, x_pubkey):
-        if x_pubkey[0:2] in ['02', '03', '04']:
-            pubkey = PublicKey.from_hex(x_pubkey)
+        if x_pubkey.kind() in (0x02, 0x03, 0x04):
+            pubkey = x_pubkey.to_public_key()
             if pubkey in self.keypairs:
                 return pubkey
-        elif x_pubkey[0:2] == 'fd':
-            addr = _script_to_address(x_pubkey[2:])
-            return self.address_to_pubkey(addr)
+        elif x_pubkey.kind() == 0xfd:
+            return self.address_to_pubkey(x_pubkey.to_address())
 
     def update_password(self, old_password, new_password):
         self.check_password(old_password)
@@ -306,18 +305,10 @@ class Xpub:
 
     def get_xpubkey(self, c, i):
         s = ''.join(int_to_hex(x,2) for x in (c, i))
-        return 'ff' + base58_decode_check(self.xpub).hex() + s
-
-    @classmethod
-    def parse_xpubkey(self, pubkey):
-        assert pubkey[0:2] == 'ff'
-        assert len(pubkey) == 166
-        pk = bytes.fromhex(pubkey)
-        xkey = base58_encode_check(pk[1:79])
-        return xkey, [unpack_le_uint16(pk[n: n+2])[0] for n in (79, 81)]
+        return XPublicKey('ff' + base58_decode_check(self.xpub).hex() + s)
 
     def get_pubkey_derivation_based_on_wallet_advice(self, x_pubkey):
-        addr = xpubkey_to_address(x_pubkey)
+        addr = xpubkey.to_address()
         try:
             if addr in self.wallet_advice and self.wallet_advice[addr] is not None:
                 return self.wallet_advice[addr]
@@ -328,14 +319,14 @@ class Xpub:
         return
 
     def get_pubkey_derivation(self, x_pubkey):
-        if x_pubkey[0:2] == 'fd':
+        if x_pubkey.kind() == 0xfd:
             return self.get_pubkey_derivation_based_on_wallet_advice(x_pubkey)
-        if x_pubkey[0:2] != 'ff':
+        if x_pubkey.kind() != 0xff:
             return
-        xpub, derivation = self.parse_xpubkey(x_pubkey)
+        xpub, path = x_pubkey.bip32_extended_key_and_path()
         if self.xpub != xpub:
             return
-        return derivation
+        return path
 
 
 class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
@@ -519,29 +510,15 @@ class Old_KeyStore(Deterministic_KeyStore):
 
     def get_xpubkey(self, for_change, n):
         s = ''.join(int_to_hex(x,2) for x in (for_change, n))
-        return 'fe' + self.mpk + s
-
-    @classmethod
-    def parse_xpubkey(self, x_pubkey):
-        assert x_pubkey[0:2] == 'fe'
-        pk = x_pubkey[2:]
-        mpk = pk[0:128]
-        dd = pk[128:]
-        s = []
-        while dd:
-            n = int(rev_hex(dd[0:4]), 16)
-            dd = dd[4:]
-            s.append(n)
-        assert len(s) == 2
-        return mpk, s
+        return XPublicKey('fe' + self.mpk + s)
 
     def get_pubkey_derivation(self, x_pubkey):
-        if x_pubkey[0:2] != 'fe':
+        if x_pubkey.kind() != 0xfe:
             return
-        mpk, derivation = self.parse_xpubkey(x_pubkey)
-        if self.mpk != mpk:
+        mpk, path = x_pubkey.old_keystore_mpk_and_path()
+        if self.mpk != mpk.hex():
             return
-        return derivation
+        return path
 
     def update_password(self, old_password, new_password):
         self.check_password(old_password)
