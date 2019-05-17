@@ -458,10 +458,10 @@ class Commands:
     def _mktx(self, outputs, fee=None, change_addr=None, domain=None, nocheck=False,
               unsigned=False, password=None, locktime=None):
         self.nocheck = nocheck
-        
+
         if change_addr is not None:
             change_addr = Address.from_string(change_addr)
-        
+
         domain = None if domain is None else [Address.from_string(x) for x in domain]
         final_outputs = []
         for address, amount in outputs:
