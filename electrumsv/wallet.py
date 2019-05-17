@@ -126,7 +126,6 @@ def _append_utxos_to_inputs(inputs, get_utxos, pubkey, txin_type, imax):
         item['type'] = txin_type
         item['prevout_hash'] = item['tx_hash']
         item['prevout_n'] = item['tx_pos']
-        item['pubkeys'] = [pubkey]
         item['x_pubkeys'] = [XPublicKey(pubkey)]
         item['signatures'] = [None]
         item['num_sig'] = 1
@@ -1633,7 +1632,6 @@ class ImportedAddressWallet(ImportedWalletBase):
         txin['x_pubkeys'] = [x_pubkey]
         txin['signatures'] = [None]
 
-
 class ImportedPrivkeyWallet(ImportedWalletBase):
     # wallet made of imported private keys
 
@@ -1962,11 +1960,11 @@ class Multisig_Wallet(Deterministic_Wallet):
         return ''.join(sorted(self.get_master_public_keys()))
 
     def _add_input_sig_info(self, txin, address):
-        # x_pubkeys are not sorted here because it would be too slow
-        # they are sorted in transaction.get_sorted_pubkeys
         derivation = self.get_address_index(address)
-        txin['x_pubkeys'] = [k.get_xpubkey(*derivation) for k in self.get_keystores()]
-        txin['pubkeys'] = None
+        x_pubkeys = [k.get_xpubkey(*derivation) for k in self.get_keystores()]
+        # Sort them using the order of the realized pubkeys
+        sorted_pairs = sorted((x_pubkey.to_public_key_hex(), x_pubkey) for x_pubkey in x_pubkeys)
+        txin['x_pubkeys'] = [x_pubkey for _hex, x_pubkey in sorted_pairs]
         # we need n place holders
         txin['signatures'] = [None] * self.n
         txin['num_sig'] = self.m

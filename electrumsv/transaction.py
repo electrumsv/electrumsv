@@ -28,7 +28,7 @@ import struct
 from bitcoinx import (
     PublicKey, PrivateKey, bip32_key_from_string, base58_encode_check,
     Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
-    P2MultiSig_Output, push_int, push_item, Script,
+    Script, push_int, push_item,
     Address, P2SH_Address, P2PK_Output, TxOutput, classify_output_script,
     pack_byte, unpack_le_uint16, read_list, double_sha256,
 )
@@ -41,6 +41,7 @@ from .util import profiler, bfh, bh2u
 
 
 NO_SIGNATURE = 'ff'
+dummy_public_key = PublicKey.from_bytes(bytes(range(3, 36)))
 
 logger = logs.get_logger("transaction")
 
@@ -152,6 +153,9 @@ class XPublicKey:
         if not isinstance(result, Address):
             result = result.to_address(coin=Net.COIN)
         return result
+
+    def is_compressed(self):
+        return self.kind() not in (0x04, 0xfe)
 
     def __repr__(self):
         return f'XPublicKey({self.raw.hex()})'
@@ -338,8 +342,7 @@ def _parse_scriptSig(d, _bytes):
         d['type'] = 'p2pk'
         d['signatures'] = [bh2u(item)]
         d['num_sig'] = 1
-        d['x_pubkeys'] = ["(pubkey)"]
-        d['pubkeys'] = ["(pubkey)"]
+        d['x_pubkeys'] = []
         return
 
     # non-generated TxIn transactions push a signature
@@ -351,7 +354,6 @@ def _parse_scriptSig(d, _bytes):
         x_pubkey = XPublicKey(decoded[1][1])
         try:
             signatures = _parse_sig([sig])
-            pubkey = x_pubkey.to_public_key_hex()
             address = x_pubkey.to_address()
         except:
             logger.exception("cannot find address in input script %s", bh2u(_bytes))
@@ -360,7 +362,6 @@ def _parse_scriptSig(d, _bytes):
         d['signatures'] = signatures
         d['x_pubkeys'] = [x_pubkey]
         d['num_sig'] = 1
-        d['pubkeys'] = [pubkey]
         d['address'] = address
         return
 
@@ -370,15 +371,13 @@ def _parse_scriptSig(d, _bytes):
         logger.error("cannot find address in input script %s", bh2u(_bytes))
         return
     x_sig = [bh2u(x[1]) for x in decoded[1:-1]]
-    m, n, x_pubkeys, pubkeys, redeemScript = _parse_redeemScript(decoded[-1][1])
+    m, n, x_pubkeys, address = _parse_redeemScript(decoded[-1][1])
     # write result in d
     d['type'] = 'p2sh'
     d['num_sig'] = m
     d['signatures'] = _parse_sig(x_sig)
     d['x_pubkeys'] = x_pubkeys
-    d['pubkeys'] = pubkeys
-    d['redeemScript'] = redeemScript
-    d['address'] = P2SH_Address(hash_160(redeemScript))
+    d['address'] = address
 
 
 def _parse_redeemScript(s):
@@ -392,9 +391,9 @@ def _parse_redeemScript(s):
         logger.error("cannot find address in input script %s", bh2u(s))
         return
     x_pubkeys = [XPublicKey(x[1]) for x in dec2[1:-2]]
-    pubkeys = [x_pubkey.to_public_key().to_hex() for x_pubkey in x_pubkeys]
-    redeemScript = P2MultiSig_Output(pubkeys, m).to_script_bytes()
-    return m, n, x_pubkeys, pubkeys, redeemScript
+    redeemScript = multisig_script(x_pubkeys, m)
+    address = P2SH_Address(hash_160(redeemScript))
+    return m, n, x_pubkeys, address
 
 
 def _parse_input(vds):
@@ -412,7 +411,6 @@ def _parse_input(vds):
         d['scriptSig'] = bh2u(scriptSig)
     else:
         d['x_pubkeys'] = []
-        d['pubkeys'] = []
         d['signatures'] = {}
         d['address'] = None
         d['type'] = 'unknown'
@@ -441,13 +439,14 @@ def deserialize(raw):
 
 # pay & redeem scripts
 
-def multisig_script(public_keys, threshold):
-    assert 1 <= threshold <= len(public_keys)
+def multisig_script(x_pubkeys, threshold):
+    '''Returns bytes.'''
+    assert 1 <= threshold <= len(x_pubkeys)
     parts = [push_int(threshold)]
-    parts.extend(push_item(bytes.fromhex(public_key)) for public_key in public_keys)
-    parts.append(push_int(len(public_keys)))
+    parts.extend(push_item(x_pubkey.to_bytes()) for x_pubkey in x_pubkeys)
+    parts.append(push_int(len(x_pubkeys)))
     parts.append(pack_byte(Ops.OP_CHECKMULTISIG))
-    return b''.join(parts).hex()
+    return b''.join(parts)
 
 
 def tx_from_str(txt):
@@ -507,18 +506,6 @@ class Transaction:
             self.deserialize()
         return self._outputs
 
-    @classmethod
-    def get_sorted_pubkeys(self, txin):
-        # sort pubkeys and x_pubkeys, using the order of pubkeys
-        x_pubkeys = txin['x_pubkeys']
-        pubkeys = txin.get('pubkeys')
-        if pubkeys is None:
-            pubkeys = [x_pubkey.to_public_key_hex() for x_pubkey in x_pubkeys]
-            pubkeys, x_pubkeys = zip(*sorted(zip(pubkeys, x_pubkeys)))
-            txin['pubkeys'] = pubkeys = list(pubkeys)
-            txin['x_pubkeys'] = x_pubkeys = list(x_pubkeys)
-        return pubkeys, x_pubkeys
-
     def update_signatures(self, signatures):
         """Add new signatures to a transaction
 
@@ -532,11 +519,11 @@ class Transaction:
             raise RuntimeError('expected {} signatures; got {}'
                                .format(len(self.inputs()), len(signatures)))
         for i, txin in enumerate(self.inputs()):
-            pubkeys, _x_pubkeys = self.get_sorted_pubkeys(txin)
             sig = bh2u(signatures[i] + bytes([self.nHashType()]))
             logger.warning(f'Signature {i}: {sig}')
             if sig in txin.get('signatures'):
                 continue
+            pubkeys = [x_pubkey.to_public_key() for x_pubkey in txin['x_pubkeys']]
             pre_hash = self.preimage_hash(i)
             rec_sig_base = der_signature_to_compact(signatures[i])
             for recid in range(4):
@@ -546,16 +533,14 @@ class Transaction:
                 except (InvalidSignatureError, ValueError):
                     # the point might not be on the curve for some recid values
                     continue
-                # public key is compressed
-                pubkey_hex = public_key.to_hex()
-                if pubkey_hex in pubkeys:
+                if public_key in pubkeys:
                     try:
                         public_key.verify_recoverable_signature(rec_sig, pre_hash, None)
                     except Exception:
                         logger.exception('')
                         continue
-                    j = pubkeys.index(pubkey_hex)
-                    logger.debug(f'adding sig {i} {j} {pubkey_hex} {sig}')
+                    j = pubkeys.index(public_key)
+                    logger.debug(f'adding sig {i} {j} {public_key} {sig}')
                     self.add_signature_to_txin(i, j, sig)
                     break
         # redo raw
@@ -599,57 +584,46 @@ class Transaction:
         return output.to_hex()
 
     @classmethod
-    def estimate_pubkey_size_from_x_pubkey(cls, x_pubkey):
-        if x_pubkey.kind() in (0x04, 0xfe):    # uncompressed, old electrum extended pubkey
-            return 0x41
-        return 0x21
-
-    @classmethod
-    def estimate_pubkey_size_for_txin(cls, txin):
-        x_pubkeys = txin['x_pubkeys']
-        if x_pubkeys:
-            return cls.estimate_pubkey_size_from_x_pubkey(x_pubkeys[0])
-        return 0x21
-
-    @classmethod
     def get_siglist(self, txin, estimate_size=False):
         # if we have enough signatures, we use the actual pubkeys
         # otherwise, use extended pubkeys (with bip32 derivation)
         num_sig = txin.get('num_sig', 1)
         if estimate_size:
-            pubkey_size = self.estimate_pubkey_size_for_txin(txin)
-            pk_list = ["00" * pubkey_size] * len(txin.get('x_pubkeys', [None]))
+            x_pubkeys = txin['x_pubkeys']
+            dummy = XPublicKey(dummy_public_key.to_bytes(compressed=x_pubkeys[0].is_compressed()))
+            x_pubkeys = [dummy] * len(x_pubkeys)
             # we assume that signature will be 0x48 bytes long
             sig_list = [ "00" * 0x48 ] * num_sig
         else:
-            pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
+            x_pubkeys = txin['x_pubkeys']
             x_signatures = txin['signatures']
             signatures = [sig for sig in x_signatures if sig]
             is_complete = len(signatures) == num_sig
             if is_complete:
-                pk_list = pubkeys
+                # Realise the x_pubkeys
+                x_pubkeys = [XPublicKey(x_pubkey.to_public_key().to_bytes())
+                             for x_pubkey in x_pubkeys]
                 sig_list = signatures
             else:
-                pk_list = [x_pubkey.to_hex() for x_pubkey in x_pubkeys]
                 sig_list = [sig if sig else NO_SIGNATURE for sig in x_signatures]
-        return pk_list, sig_list
+        return x_pubkeys, sig_list
 
     @classmethod
     def input_script(self, txin, estimate_size=False):
         _type = txin['type']
         if _type == 'coinbase':
             return txin['scriptSig']
-        pubkeys, sig_list = self.get_siglist(txin, estimate_size)
+        x_pubkeys, sig_list = self.get_siglist(txin, estimate_size)
         script = ''.join(push_script(x) for x in sig_list)
         if _type == 'p2pk':
             pass
         elif _type == 'p2sh':
             # put op_0 before script
             script = '00' + script
-            redeem_script = multisig_script(pubkeys, txin['num_sig'])
+            redeem_script = multisig_script(x_pubkeys, txin['num_sig']).hex()
             script += push_script(redeem_script)
         elif _type == 'p2pkh':
-            script += push_script(pubkeys[0])
+            script += push_script(x_pubkeys[0].to_hex())
         elif _type == 'unknown':
             return txin['scriptSig']
         return script
@@ -667,10 +641,10 @@ class Transaction:
         if _type == 'p2pkh':
             return txin['address'].to_script_bytes().hex()
         elif _type == 'p2sh':
-            pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
-            return multisig_script(pubkeys, txin['num_sig'])
+            return multisig_script(txin['x_pubkeys'], txin['num_sig']).hex()
         elif _type == 'p2pk':
-            output = P2PK_Output(PublicKey.from_hex(txin['pubkeys'][0]))
+            x_pubkey = txin['x_pubkeys'][0]
+            output = P2PK_Output(x_pubkey.to_public_key())
             return output.to_script_bytes().hex()
         elif _type == 'unknown':
             # this approach enables most P2SH smart contracts
@@ -801,7 +775,7 @@ class Transaction:
         assert all(isinstance(key, XPublicKey) for key in keypairs)
         for i, txin in enumerate(self.inputs()):
             num = txin['num_sig']
-            pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
+            x_pubkeys = txin['x_pubkeys']
             for j, x_pubkey in enumerate(x_pubkeys):
                 signatures = [sig for sig in txin['signatures'] if sig]
                 if len(signatures) == num:
@@ -812,8 +786,9 @@ class Transaction:
                     sec, compressed = keypairs.get(x_pubkey)
                     sig = self.sign_txin(i, sec)
                     txin['signatures'][j] = sig
-                    pubkey = PrivateKey(sec).public_key.to_hex(compressed=compressed)
-                    txin['pubkeys'][j] = pubkey # needed for fd keys
+                    # Needed for fd x_pubkeys
+                    pubkey_bytes = PrivateKey(sec).public_key.to_bytes(compressed=compressed)
+                    x_pubkeys[j] = XPublicKey(pubkey_bytes)
                     self._inputs[i] = txin
         logger.debug("is_complete %s", self.is_complete())
         self.raw = self.serialize()

@@ -73,7 +73,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         # path of the xpubs that are involved
         xpub_path = {}
         for txin in tx.inputs():
-            pubkeys, x_pubkeys = tx.get_sorted_pubkeys(txin)
+            x_pubkeys = txin['x_pubkeys']
             tx_hash = txin['prevout_hash']
             for x_pubkey in x_pubkeys:
                 if not x_pubkey.is_bip32_key():

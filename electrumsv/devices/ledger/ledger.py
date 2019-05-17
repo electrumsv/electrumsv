@@ -312,7 +312,6 @@ class Ledger_KeyStore(Hardware_KeyStore):
         client = self.get_client()
         inputs = []
         inputsPaths = []
-        pubKeys = []
         chipInputs = []
         redeemScripts = []
         signatures = []
@@ -334,8 +333,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             if txin['type'] in ['p2sh']:
                 p2shTransaction = True
 
-            pubkeys, x_pubkeys = tx.get_sorted_pubkeys(txin)
-            for i, x_pubkey in enumerate(x_pubkeys):
+            for i, x_pubkey in enumerate(txin['x_pubkeys']):
                 if x_pubkey.to_hex() in derivations:
                     signingPos = i
                     s = derivations.get(x_pubkey.to_hex())
@@ -349,7 +347,6 @@ class Ledger_KeyStore(Hardware_KeyStore):
                            txin['prevout_hash'], signingPos,
                            txin.get('sequence', 0xffffffff - 1)])
             inputsPaths.append(hwAddress)
-            pubKeys.append(pubkeys)
 
         # Sanity check
         if p2shTransaction:
