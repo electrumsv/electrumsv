@@ -472,7 +472,6 @@ def tx_from_str(txt):
 class Transaction:
 
     SIGHASH_FORKID = 0x40
-    FORKID = 0x000000
 
     def __str__(self):
         if self.raw is None:
@@ -534,7 +533,7 @@ class Transaction:
                                .format(len(self.inputs()), len(signatures)))
         for i, txin in enumerate(self.inputs()):
             pubkeys, _x_pubkeys = self.get_sorted_pubkeys(txin)
-            sig = bh2u(signatures[i] + bytes([self.nHashType() & 255]))
+            sig = bh2u(signatures[i] + bytes([self.nHashType()]))
             logger.warning(f'Signature {i}: {sig}')
             if sig in txin.get('signatures'):
                 continue
@@ -706,7 +705,7 @@ class Transaction:
     @classmethod
     def nHashType(cls):
         '''Hash type in hex.'''
-        return 0x01 | (cls.SIGHASH_FORKID + (cls.FORKID << 8))
+        return 0x01 | cls.SIGHASH_FORKID
 
     def preimage_hash(self, txin_index):
         return sha256d(bfh(self.serialize_preimage(txin_index)))
@@ -827,7 +826,7 @@ class Transaction:
         pre_hash = self.preimage_hash(txin_index)
         privkey = PrivateKey(privkey_bytes)
         sig = privkey.sign(pre_hash, None)
-        sig = bh2u(sig) + int_to_hex(self.nHashType() & 255, 1)
+        sig = bh2u(sig) + int_to_hex(self.nHashType(), 1)
         return sig
 
     def is_final(self):
