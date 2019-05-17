@@ -26,11 +26,11 @@
 
 from typing import Any, Optional
 
-from PyQt5.QtCore import Qt, QSortFilterProxyModel, QObject
+from PyQt5.QtCore import Qt, QSortFilterProxyModel, QObject, QSize
 from PyQt5.QtGui import QPainter, QPixmap
 from PyQt5.QtWidgets import (QVBoxLayout, QLabel,
     QLineEdit, QComboBox, QCompleter, QGridLayout, QWidget, QScrollArea, QHBoxLayout, QSizePolicy,
-    QStyle, QStyleOption, QPushButton, QToolBar, QAction, QWidgetItem)
+    QStyle, QStyleOption, QPushButton, QToolBar, QAction, QWidgetItem, QListWidget, QListWidgetItem)
 
 from electrumsv.contacts import (get_system_id, IDENTITY_SYSTEM_NAMES, IdentitySystem,
     ContactDataError, IdentityCheckResult, ContactEntry, ContactIdentity)
@@ -69,30 +69,46 @@ class ContactList(QWidget):
         cards = ContactCards(self._context, self)
         self.setStyleSheet(contactcard_stylesheet)
 
-        scroll = QScrollArea(self)
-        scroll.setWidget(cards)
-        scroll.setWidgetResizable(True)
-
         add_contact_action = QAction(self)
         add_contact_action.setIcon(read_QIcon("icons8-plus-blueui.svg"))
         add_contact_action.setToolTip(_("Add new contact"))
         add_contact_action.triggered.connect(self._on_add_contact_action)
+
+        sort_action = QAction(self)
+        sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-2-80-blueui.png"))
+        sort_action.setToolTip(_("Sort"))
+        sort_action.triggered.connect(self._on_sort_action)
 
         toolbar = QToolBar(self)
         toolbar.setMovable(False)
         toolbar.setOrientation(Qt.Vertical)
         toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
         toolbar.addAction(add_contact_action)
+        toolbar.addAction(sort_action)
 
         self._layout = QHBoxLayout()
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
-        self._layout.addWidget(scroll)
+        self._layout.addWidget(cards)
         self._layout.addWidget(toolbar)
         self.setLayout(self._layout)
 
+        self._cards = cards
+        self._sort_action = sort_action
+        self._sort_type = 1
+
     def _on_add_contact_action(self) -> None:
         edit_contact_dialog(self._context.wallet_api)
+
+    def _on_sort_action(self) -> None:
+        if self._sort_type == 1:
+            self._sort_type = -1
+            self._sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-80-blueui.png"))
+            self._cards._list.sortItems(Qt.DescendingOrder)
+        else:
+            self._sort_type = 1
+            self._sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-2-80-blueui.png"))
+            self._cards._list.sortItems(Qt.AscendingOrder)
 
 
 class ContactCards(QWidget):
@@ -106,12 +122,12 @@ class ContactCards(QWidget):
         self._layout.setSpacing(0)
 
         self._empty_label = None
+        self._list = None
 
         contact_identities = self._context.wallet_api.get_identities()
         if len(contact_identities) > 0:
             for contact, identity in sorted(contact_identities, key=lambda t: t[0].label):
                 self._add_identity(contact, identity)
-            self._layout.addStretch(1)
         else:
             self._add_empty_label()
 
@@ -119,37 +135,40 @@ class ContactCards(QWidget):
 
         self._context.wallet_api.contact_changed.connect(self._on_contact_changed)
 
-    # def _reorder_identities(self):
-    #     for i in range(self._layout.count(), -1, -1):
-    #         item = self._layout.itemAt
-
     def _add_identity(self, contact: ContactEntry, identity: ContactIdentity) -> None:
-        was_empty = self._remove_empty_label()
+        self._remove_empty_label()
+        if self._list is None:
+            self._list = QListWidget(self)
+            self._list.setSortingEnabled(True)
+            self._layout.addWidget(self._list)
 
         test_card = ContactCard(self._context, contact, identity)
-        test_card.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
-        # The last item is the stretch QSpacerItem.
-        self._layout.insertWidget(0, test_card)
+        test_card.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
 
-        if was_empty:
-            self._layout.addStretch(1)
+        list_item = QListWidgetItem()
+        list_item.setText(contact.label)
+        # The item won't display unless it gets a size hint. It seems to resize horizontally
+        # but unless the height is a minimal amount it won't do anything proactive..
+        list_item.setSizeHint(QSize(256, 130))
+        self._list.addItem(list_item)
+        self._list.setItemWidget(list_item, test_card)
 
     def _remove_identity(self, contact: ContactEntry, identity: ContactIdentity) -> None:
-        # When removing a widget from a layout. layout.removeWidget does not work. layout.takeAt
-        # does not work. Setting the parent to None does.
-        for i in range(self._layout.count(), -1, -1):
-            item = self._layout.itemAt(i)
-            if isinstance(item, QWidgetItem):
-                widget = item.widget()
-                if identity is None and widget._contact.contact_id == contact.contact_id:
-                    widget.setParent(None)
-                elif widget._identity.identity_id == identity.identity_id:
-                    widget.setParent(None)
+        removal_entries = []
+        for i in range(self._list.count()-1, -1, -1):
+            item = self._list.item(i)
+            widget = self._list.itemWidget(item)
+            if identity is None and widget._contact.contact_id == contact.contact_id:
+                self._list.takeItem(i)
+            elif widget._identity.identity_id == identity.identity_id:
+                self._list.takeItem(i)
 
+        if self._list.count() == 0:
+            # Remove the list.
+            self._list.setParent(None)
+            self._list = None
 
-        if self._layout.count() == 1:
-            # Remove the trailing stretch. It's not a wrapped widget, so takeAt will work.
-            self._layout.takeAt(0)
+            # Replace it with the placeholder label.
             self._add_empty_label()
 
     def _on_contact_changed(self, added: bool, contact: ContactEntry,
@@ -164,12 +183,10 @@ class ContactCards(QWidget):
         self._empty_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
         self._layout.addWidget(self._empty_label)
 
-    def _remove_empty_label(self) -> bool:
+    def _remove_empty_label(self) -> None:
         if self._empty_label is not None:
             self._empty_label.setParent(None)
             self._empty_label = None
-            return True
-        return False
 
 
 class ContactCard(QWidget):
