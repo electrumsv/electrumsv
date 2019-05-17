@@ -746,10 +746,6 @@ class Transaction:
         txouts = var_int(len(outputs)) + b''.join(output.to_bytes() for output in outputs).hex()
         return nVersion + txins + txouts + nLocktime
 
-    def hash(self):
-        logger.warning("deprecated tx.hash()")
-        return self.txid()
-
     def txid(self):
         if not self.is_complete():
             return None
