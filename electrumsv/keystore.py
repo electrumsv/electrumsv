@@ -81,7 +81,7 @@ class KeyStore:
                     sig = bytes.fromhex(sig)[:-1]
                     while pub_idx >= 0:
                         x_pubkey = x_pubkeys[pub_idx]
-                        public_key = PublicKey.from_hex(xpubkey_to_pubkey(x_pubkey))
+                        public_key = xpubkey_to_pubkey(x_pubkey)
                         used.add(x_pubkey)
                         if public_key.verify_der_signature(sig, pre_hash, None):
                             break

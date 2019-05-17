@@ -134,7 +134,7 @@ def xpubkey_to_address(x_pubkey):
 
 
 def xpubkey_to_pubkey(x_pubkey):
-    return XPublicKey(x_pubkey).to_public_key().to_hex()
+    return XPublicKey(x_pubkey).to_public_key()
 
 
 class UnknownAddress(object):
@@ -345,7 +345,7 @@ def _parse_scriptSig(d, _bytes):
         d['signatures'] = signatures
         d['x_pubkeys'] = [x_pubkey]
         d['num_sig'] = 1
-        d['pubkeys'] = [pubkey]
+        d['pubkeys'] = [pubkey.to_hex()]
         d['address'] = address
         return
 
@@ -361,7 +361,7 @@ def _parse_scriptSig(d, _bytes):
     d['num_sig'] = m
     d['signatures'] = _parse_sig(x_sig)
     d['x_pubkeys'] = x_pubkeys
-    d['pubkeys'] = pubkeys
+    d['pubkeys'] = [pubkey.to_hex() for pubkey in pubkeys]
     d['redeemScript'] = redeemScript
     d['address'] = P2SH_Address(hash_160(redeemScript))
 
@@ -504,7 +504,7 @@ class Transaction:
         x_pubkeys = txin['x_pubkeys']
         pubkeys = txin.get('pubkeys')
         if pubkeys is None:
-            pubkeys = [xpubkey_to_pubkey(x) for x in x_pubkeys]
+            pubkeys = [xpubkey_to_pubkey(x).to_hex() for x in x_pubkeys]
             pubkeys, x_pubkeys = zip(*sorted(zip(pubkeys, x_pubkeys)))
             txin['pubkeys'] = pubkeys = list(pubkeys)
             txin['x_pubkeys'] = x_pubkeys = list(x_pubkeys)
