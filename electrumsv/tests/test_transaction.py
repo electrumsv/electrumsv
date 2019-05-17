@@ -261,6 +261,7 @@ class TestXPublicKey:
         x_pubkey = XPublicKey(raw_hex)
         assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
         assert x_pubkey.to_hex() == raw_hex
+        assert not x_pubkey.is_bip32_key()
         assert x_pubkey.to_public_key() == public_key
         assert x_pubkey.to_address() == public_key.to_address(coin=coin)
         assert x_pubkey.to_address().coin() is coin
@@ -287,6 +288,7 @@ class TestXPublicKey:
         x_pubkey = XPublicKey(bytes.fromhex(raw_hex))
         assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
         assert x_pubkey.to_hex() == raw_hex
+        assert x_pubkey.is_bip32_key()
         assert x_pubkey.to_public_key() == True_10_public_key
         assert x_pubkey.to_address() == True_10_public_key.to_address(coin=coin)
         assert x_pubkey.to_address().coin() is coin
@@ -309,6 +311,7 @@ class TestXPublicKey:
         x_pubkey = XPublicKey(raw_hex)
         assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
         assert x_pubkey.to_hex() == raw_hex
+        assert not x_pubkey.is_bip32_key()
         assert x_pubkey.to_public_key() == public_key
         assert x_pubkey.to_public_key().is_compressed() is False
         assert x_pubkey.to_address() == public_key.to_address(coin=coin)
@@ -328,6 +331,7 @@ class TestXPublicKey:
         x_pubkey = XPublicKey(raw_hex)
         assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
         assert x_pubkey.to_hex() == raw_hex
+        assert not x_pubkey.is_bip32_key()
         assert x_pubkey.to_public_key() == address
         assert x_pubkey.to_address() == address
         assert x_pubkey.to_address().coin() is coin

@@ -667,10 +667,6 @@ def from_bip39_seed(seed, passphrase, derivation):
 
 # extended pubkeys
 
-def is_xpubkey(x_pubkey):
-    return x_pubkey[0:2] == 'ff'
-
-
 def parse_xpubkey(x_pubkey):
     assert x_pubkey[0:2] == 'ff'
     return BIP32_KeyStore.parse_xpubkey(x_pubkey)

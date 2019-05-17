@@ -9,10 +9,10 @@ from electrumsv.app_state import app_state
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
-from electrumsv.keystore import Hardware_KeyStore, is_xpubkey, parse_xpubkey
+from electrumsv.keystore import Hardware_KeyStore, parse_xpubkey
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output
+from electrumsv.transaction import classify_tx_output, XPublicKey
 from electrumsv.util import bfh
 
 from ..hw_wallet import HW_PluginBase
@@ -88,7 +88,7 @@ class TrezorKeyStore(Hardware_KeyStore):
             pubkeys, x_pubkeys = tx.get_sorted_pubkeys(txin)
             tx_hash = txin['prevout_hash']
             for x_pubkey in x_pubkeys:
-                if not is_xpubkey(x_pubkey):
+                if not XPublicKey(x_pubkey).is_bip32_key():
                     continue
                 xpub, s = parse_xpubkey(x_pubkey)
                 if xpub == self.get_master_public_key():

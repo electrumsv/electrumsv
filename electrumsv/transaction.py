@@ -108,6 +108,9 @@ class XPublicKey:
     def to_hex(self):
         return self.raw.hex()
 
+    def is_bip32_key(self):
+        return self.raw[0] == 0xff
+
     def to_public_key(self):
         '''Returns a PublicKey instance or an Address instance.'''
         if self.raw[0] in {0x02, 0x03, 0x04}:
