@@ -12,7 +12,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output, XPublicKey
+from electrumsv.transaction import classify_tx_output
 from electrumsv.util import bfh
 
 from ..hw_wallet import HW_PluginBase

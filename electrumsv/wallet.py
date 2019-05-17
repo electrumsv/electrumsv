@@ -1167,7 +1167,7 @@ class Abstract_Wallet:
             if isinstance(k, BIP32_KeyStore):
                 for txin in tx.inputs():
                     for x_pubkey in txin['x_pubkeys']:
-                        addr = xpubkey.to_address()
+                        addr = x_pubkey.to_address()
                         try:
                             c, index = self.get_address_index(addr)
                         except:

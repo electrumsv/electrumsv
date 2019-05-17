@@ -36,7 +36,8 @@ from typing import Iterable, Tuple
 import weakref
 import webbrowser
 
-from bitcoinx import PublicKey, Script, OP_RETURN, Address, P2PKH_Address, TxOutput
+from bitcoinx import PublicKey, Script, Address, P2PKH_Address, TxOutput
+from bitcoinx import OP_RETURN   # pylint: disable=no-name-in-module
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl)
 from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices, QPixmap

@@ -37,7 +37,6 @@ from electrumsv.crypto import sha256d
 from electrumsv.extensions import cosigner_pool
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.transaction import XPublicKey
 from electrumsv.util import bh2u, bfh
 from electrumsv.wallet import Multisig_Wallet
 

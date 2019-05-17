@@ -265,7 +265,7 @@ class Commands:
                 x_pubkey = XPublicKey(privkey.public_key.to_hex())
                 keypairs[x_pubkey] = privkey, compressed
                 txin['type'] = txin_type
-                txin['x_pubkeys'] = [XPublicKey(pubkey)]
+                txin['x_pubkeys'] = [x_pubkey]
                 txin['signatures'] = [None]
                 txin['num_sig'] = 1
 

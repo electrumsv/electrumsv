@@ -26,13 +26,13 @@ from unicodedata import normalize
 
 from bitcoinx import (
     PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey, Address, Script,
-    int_to_be_bytes, be_bytes_to_int, CURVE_ORDER, unpack_le_uint16,
+    int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
     bip32_key_from_string, bip32_decompose_chain_string,
-    base58_encode_check, base58_decode_check, classify_output_script
+    base58_decode_check, classify_output_script
 )
 
 from .app_state import app_state
-from .bitcoin import bfh, is_seed, seed_type, rev_hex, int_to_hex, is_address_valid
+from .bitcoin import bfh, is_seed, seed_type, int_to_hex, is_address_valid
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword
 from .logs import logs
@@ -308,7 +308,7 @@ class Xpub:
         return XPublicKey('ff' + base58_decode_check(self.xpub).hex() + s)
 
     def get_pubkey_derivation_based_on_wallet_advice(self, x_pubkey):
-        addr = xpubkey.to_address()
+        addr = x_pubkey.to_address()
         try:
             if addr in self.wallet_advice and self.wallet_advice[addr] is not None:
                 return self.wallet_advice[addr]
