@@ -36,7 +36,6 @@ from electrumsv.app_state import app_state
 from electrumsv.crypto import sha256d
 from electrumsv.extensions import cosigner_pool
 from electrumsv.i18n import _
-from electrumsv.keystore import parse_xpubkey
 from electrumsv.logs import logs
 from electrumsv.transaction import XPublicKey
 from electrumsv.util import bh2u, bfh
@@ -132,9 +131,9 @@ class CosignerPool(object):
         xpub_set = set([])
         for txin in tx.inputs():
             for x_pubkey in txin['x_pubkeys']:
-                if XPublicKey(x_pubkey).is_bip32_key():
-                    xpub, s = parse_xpubkey(x_pubkey)
-                    xpub_set.add(xpub)
+                x_pubkey = XPublicKey(x_pubkey)
+                if x_pubkey.is_bip32_key():
+                    xpub_set.add(x_pubkey.bip32_extended_key())
         return cosigner_xpub in xpub_set
 
     def is_theirs(self, wallet, item, tx):

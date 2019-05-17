@@ -32,7 +32,7 @@ from electrumsv.app_state import app_state
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
-from electrumsv.keystore import Hardware_KeyStore, parse_xpubkey
+from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.transaction import classify_tx_output, XPublicKey
@@ -76,9 +76,10 @@ class KeepKey_KeyStore(Hardware_KeyStore):
             pubkeys, x_pubkeys = tx.get_sorted_pubkeys(txin)
             tx_hash = txin['prevout_hash']
             for x_pubkey in x_pubkeys:
-                if not XPublicKey(x_pubkey).is_bip32_key():
+                x_pubkey = XPublicKey(x_pubkey)
+                if not x_pubkey.is_bip32_key():
                     continue
-                xpub, s = parse_xpubkey(x_pubkey)
+                xpub = x_pubkey.bip32_extended_key()
                 if xpub == self.get_master_public_key():
                     xpub_path[xpub] = self.get_derivation()
 
@@ -318,21 +319,22 @@ class KeepKeyPlugin(HW_PluginBase):
                 if for_sig:
                     x_pubkeys = txin['x_pubkeys']
                     if len(x_pubkeys) == 1:
-                        x_pubkey = x_pubkeys[0]
-                        xpub, s = parse_xpubkey(x_pubkey)
+                        x_pubkey = XPublicKey(x_pubkeys[0])
+                        xpub, path = x_pubkey.bip32_extended_key_and_path()
                         xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
-                        txinputtype.address_n.extend(xpub_n + s)
+                        txinputtype.address_n.extend(xpub_n + path)
                         txinputtype.script_type = self.types.SPENDADDRESS
                     else:
                         def f(x_pubkey):
-                            if XPublicKey(x_pubkey).is_bip32_key():
-                                xpub, s = parse_xpubkey(x_pubkey)
+                            x_pubkey = XPublicKey(x_pubkey)
+                            if x_pubkey.is_bip32_key():
+                                xpub, path = x_pubkey.bip32_extended_key_and_path()
                             else:
                                 xpub = BIP32PublicKey(bfh(x_pubkey), NULL_DERIVATION, Net.COIN)
                                 xpub = xpub.to_extended_key_string()
-                                s = []
+                                path = []
                             node = self.ckd_public.deserialize(xpub)
-                            return self.types.HDNodePathType(node=node, address_n=s)
+                            return self.types.HDNodePathType(node=node, address_n=path)
                         pubkeys = [f(x) for x in x_pubkeys]
                         multisig = self.types.MultisigRedeemScriptType(
                             pubkeys=pubkeys,
@@ -346,11 +348,12 @@ class KeepKeyPlugin(HW_PluginBase):
                         )
                         # find which key is mine
                         for x_pubkey in x_pubkeys:
-                            if XPublicKey(x_pubkey).is_bip32_key():
-                                xpub, s = parse_xpubkey(x_pubkey)
+                            x_pubkey = XPublicKey(x_pubkey)
+                            if x_pubkey.is_bip32_key():
+                                xpub, path = x_pubkey.bip32_extended_key_and_path()
                                 if xpub in self.xpub_path:
                                     xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
-                                    txinputtype.address_n.extend(xpub_n + s)
+                                    txinputtype.address_n.extend(xpub_n + path)
                                     break
 
                 prev_hash = bytes.fromhex(txin['prevout_hash'])

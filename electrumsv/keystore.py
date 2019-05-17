@@ -38,7 +38,7 @@ from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
 from .networks import Net
-from .transaction import xpubkey_to_pubkey
+from .transaction import xpubkey_to_pubkey, xpubkey_to_address
 
 
 logger = logs.get_logger("keystore")
@@ -664,15 +664,6 @@ def from_bip39_seed(seed, passphrase, derivation):
     bip32_seed = bip39_to_seed(seed, passphrase)
     k.add_xprv_from_seed(bip32_seed, derivation)
     return k
-
-# extended pubkeys
-
-def parse_xpubkey(x_pubkey):
-    assert x_pubkey[0:2] == 'ff'
-    return BIP32_KeyStore.parse_xpubkey(x_pubkey)
-
-
-
 
 def load_keystore(storage, name):
     w = storage.get('wallet_type', 'standard')

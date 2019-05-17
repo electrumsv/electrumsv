@@ -266,29 +266,30 @@ class TestXPublicKey:
         assert x_pubkey.to_address() == public_key.to_address(coin=coin)
         assert x_pubkey.to_address().coin() is coin
 
-    @pytest.mark.parametrize("raw_hex, path1, path2", (
+    @pytest.mark.parametrize("raw_hex, path", (
         (
             'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdb'
             'b213d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1201000a00',
-            1, 10,
+            [1, 10],
         ),
         (
             'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdbb2'
             '13d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1200001900',
-            0, 25,
+            [0, 25],
         ),
     ))
-    def test_bip32_extended_keys(self, raw_hex, path1, path2, coin):
+    def test_bip32_extended_keys(self, raw_hex, path, coin):
         # see test_keystore.py
         xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
                 'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
         root_key = bip32_key_from_string(xpub)
-        True_10_public_key = root_key.child(path1).child(path2)
+        True_10_public_key = root_key.child(path[0]).child(path[1])
 
         x_pubkey = XPublicKey(bytes.fromhex(raw_hex))
         assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
         assert x_pubkey.to_hex() == raw_hex
         assert x_pubkey.is_bip32_key()
+        assert x_pubkey.bip32_extended_key_and_path() == (xpub, path)
         assert x_pubkey.to_public_key() == True_10_public_key
         assert x_pubkey.to_address() == True_10_public_key.to_address(coin=coin)
         assert x_pubkey.to_address().coin() is coin

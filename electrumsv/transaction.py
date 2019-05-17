@@ -26,7 +26,7 @@
 import struct
 
 from bitcoinx import (
-    PublicKey, PrivateKey, BIP32PublicKey, bip32_key_from_string, base58_encode_check,
+    PublicKey, PrivateKey, bip32_key_from_string, base58_encode_check,
     Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
     P2MultiSig_Output, push_int, push_item, Script,
     Address, P2SH_Address, P2PK_Output, TxOutput, classify_output_script,
@@ -79,16 +79,10 @@ class XPublicKey:
         except (ValueError, AssertionError):
             raise ValueError(f'invalid XPublicKey: {raw}')
 
-    def _bip32_root_public_key(self):
-        assert self.raw[0] == 0xff
-        assert len(self.raw) == 83    # 1 + 78 + 2 + 2
-        result = bip32_key_from_string(base58_encode_check(self.raw[1:79]))
-        assert isinstance(result, BIP32PublicKey)
-        return result
-
     def _bip32_public_key(self):
-        result = self._bip32_root_public_key()
-        for n in (unpack_le_uint16(self.raw[n: n+2])[0] for n in (79, 81)):
+        extended_key, path = self.bip32_extended_key_and_path()
+        result = bip32_key_from_string(extended_key)
+        for n in path:
             result = result.child(n)
         return result
 
@@ -110,6 +104,15 @@ class XPublicKey:
 
     def is_bip32_key(self):
         return self.raw[0] == 0xff
+
+    def bip32_extended_key(self):
+        assert self.is_bip32_key()
+        assert len(self.raw) == 83    # 1 + 78 + 2 + 2
+        return base58_encode_check(self.raw[1:79])
+
+    def bip32_extended_key_and_path(self):
+        extended_key = self.bip32_extended_key()
+        return extended_key, [unpack_le_uint16(self.raw[n: n+2])[0] for n in (79, 81)]
 
     def to_public_key(self):
         '''Returns a PublicKey instance or an Address instance.'''

@@ -9,7 +9,7 @@ from electrumsv.app_state import app_state
 from electrumsv.device import Device
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
-from electrumsv.keystore import Hardware_KeyStore, parse_xpubkey
+from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.transaction import classify_tx_output, XPublicKey
@@ -88,9 +88,10 @@ class TrezorKeyStore(Hardware_KeyStore):
             pubkeys, x_pubkeys = tx.get_sorted_pubkeys(txin)
             tx_hash = txin['prevout_hash']
             for x_pubkey in x_pubkeys:
-                if not XPublicKey(x_pubkey).is_bip32_key():
+                x_pubkey = XPublicKey(x_pubkey)
+                if not x_pubkey.is_bip32_key():
                     continue
-                xpub, s = parse_xpubkey(x_pubkey)
+                xpub = x_pubkey.bip32_extended_key()
                 if xpub == self.get_master_public_key():
                     xpub_path[xpub] = self.get_derivation()
 
@@ -319,7 +320,8 @@ class TrezorPlugin(HW_PluginBase):
             else:
                 if for_sig:
                     x_pubkeys = txin['x_pubkeys']
-                    xpubs = [parse_xpubkey(x) for x in x_pubkeys]
+                    xpubs = [XPublicKey(x_pubkey).bip32_extended_key_and_path()
+                             for x_pubkey in x_pubkeys]
                     multisig = self._make_multisig(txin.get('num_sig'), xpubs,
                                                    txin.get('signatures'))
                     script_type = self.get_trezor_input_script_type(multisig is not None)
@@ -327,10 +329,10 @@ class TrezorPlugin(HW_PluginBase):
                         script_type=script_type,
                         multisig=multisig)
                     # find which key is mine
-                    for xpub, deriv in xpubs:
+                    for xpub, path in xpubs:
                         if xpub in xpub_path:
                             xpub_n = bip32_decompose_chain_string(xpub_path[xpub])
-                            txinputtype.address_n = xpub_n + deriv
+                            txinputtype.address_n = xpub_n + path
                             break
 
                 prev_hash = bfh(txin['prevout_hash'])
