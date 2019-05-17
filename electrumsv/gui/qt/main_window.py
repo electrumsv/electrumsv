@@ -2471,6 +2471,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if tx:
                 self.show_transaction(tx)
         except Exception as reason:
+            self.logger.exception(reason)
             self.show_critical(_("ElectrumSV was unable to read the transaction:") +
                                "\n" + str(reason))
 
@@ -2482,6 +2483,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if tx:
                 self.show_transaction(tx)
         except (SerializationError, Exception) as reason:
+            self.logger.exception(reason)
             self.show_critical(_("ElectrumSV was unable to read the transaction:") +
                                "\n" + str(reason))
 
@@ -2491,6 +2493,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if tx:
                 self.show_transaction(tx)
         except Exception as reason:
+            self.logger.exception(reason)
             self.show_critical(_("ElectrumSV was unable to read the transaction:") +
                                "\n" + str(reason))
 
