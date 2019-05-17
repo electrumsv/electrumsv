@@ -35,7 +35,6 @@ from bitcoinx import (
 
 from .bitcoin import to_bytes, push_script, int_to_hex, var_int
 from .crypto import sha256d, hash_160
-from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 from .networks import Net
 from .logs import logs
 from .util import profiler, bfh, bh2u
@@ -127,6 +126,15 @@ class XPublicKey:
         if not isinstance(result, Address):
             result = result.to_address(coin=Net.COIN)
         return result
+
+
+# These two functions will eventually go away
+def xpubkey_to_address(x_pubkey):
+    return XPublicKey(x_pubkey).to_address()
+
+
+def xpubkey_to_pubkey(x_pubkey):
+    return XPublicKey(x_pubkey).to_public_key().to_hex()
 
 
 class UnknownAddress(object):
@@ -328,7 +336,8 @@ def _parse_scriptSig(d, _bytes):
         x_pubkey = bh2u(decoded[1][1])
         try:
             signatures = _parse_sig([sig])
-            pubkey, address = xpubkey_to_address(x_pubkey)
+            pubkey = xpubkey_to_pubkey(x_pubkey)
+            address = xpubkey_to_address(x_pubkey)
         except:
             logger.exception("cannot find address in input script %s", bh2u(_bytes))
             return

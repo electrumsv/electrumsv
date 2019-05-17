@@ -38,6 +38,7 @@ from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
 from .networks import Net
+from .transaction import xpubkey_to_pubkey
 
 
 logger = logs.get_logger("keystore")
@@ -316,7 +317,7 @@ class Xpub:
         return xkey, [unpack_le_uint16(pk[n: n+2])[0] for n in (79, 81)]
 
     def get_pubkey_derivation_based_on_wallet_advice(self, x_pubkey):
-        _, addr = xpubkey_to_address(x_pubkey)
+        addr = xpubkey_to_address(x_pubkey)
         try:
             if addr in self.wallet_advice and self.wallet_advice[addr] is not None:
                 return self.wallet_advice[addr]
@@ -675,27 +676,6 @@ def parse_xpubkey(x_pubkey):
     return BIP32_KeyStore.parse_xpubkey(x_pubkey)
 
 
-def xpubkey_to_address(x_pubkey):
-    if x_pubkey[0:2] == 'fd':
-        address = _script_to_address(x_pubkey[2:])
-        return x_pubkey, address
-    if x_pubkey[0:2] in ['02', '03', '04']:
-        pubkey = x_pubkey
-    elif x_pubkey[0:2] == 'ff':
-        xpub, s = BIP32_KeyStore.parse_xpubkey(x_pubkey)
-        pubkey = BIP32_KeyStore.get_pubkey_from_xpub(xpub, s)
-    elif x_pubkey[0:2] == 'fe':
-        mpk, s = Old_KeyStore.parse_xpubkey(x_pubkey)
-        pubkey = Old_KeyStore.get_pubkey_from_mpk(mpk, s[0], s[1])
-    else:
-        raise Exception("Cannot parse pubkey")
-    if pubkey:
-        address = PublicKey.from_hex(pubkey).to_address(coin=Net.COIN)
-    return pubkey, address
-
-def xpubkey_to_pubkey(x_pubkey):
-    pubkey, address = xpubkey_to_address(x_pubkey)
-    return pubkey
 
 
 def load_keystore(storage, name):

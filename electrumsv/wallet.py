@@ -53,15 +53,15 @@ from .contacts import Contacts
 from .crypto import sha256d
 from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
 from .i18n import _
-from .keystore import (
-    load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore, xpubkey_to_address
-)
+from .keystore import load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore
 from .logs import logs
 from .networks import Net
 from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type
-from .transaction import Transaction, classify_tx_output, tx_output_to_display_text
+from .transaction import (
+    Transaction, classify_tx_output, tx_output_to_display_text, xpubkey_to_address,
+)
 from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxFlags, TxData, TxProof
 from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
 from .version import PACKAGE_VERSION
@@ -1167,7 +1167,7 @@ class Abstract_Wallet:
             if isinstance(k, BIP32_KeyStore):
                 for txin in tx.inputs():
                     for x_pubkey in txin['x_pubkeys']:
-                        _, addr = xpubkey_to_address(x_pubkey)
+                        addr = xpubkey_to_address(x_pubkey)
                         try:
                             c, index = self.get_address_index(addr)
                         except:
