@@ -178,6 +178,9 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     @classmethod
     def from_string(cls, string, net=Net):
         '''Construct from an address string.'''
+        if string is None:
+            return None
+
         if len(string) > 35:
             try:
                 return cls.from_cashaddr_string(string)
