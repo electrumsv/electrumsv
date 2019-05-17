@@ -1,11 +1,13 @@
 import unittest
 import pytest
 
+from bitcoinx import PrivateKey, PublicKey, Tx, Script, Address, TxOutput, bip32_key_from_string
+
 from electrumsv import transaction
 from electrumsv.keystore import xpubkey_to_address
+from electrumsv.transaction import XPublicKey
 from electrumsv.util import bh2u
 
-from bitcoinx import PrivateKey, PublicKey, Tx, Script, Address, TxOutput
 
 
 unsigned_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000005701ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300feffffffd8e43201000000000118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700'
@@ -227,3 +229,101 @@ class TestTransaction2:
         tx.update_signatures(sigs)
         assert tx.is_complete()
         assert tx.txid() == "b83acf939a92c420d0cb8d45d5d4dfad4e90369ebce0f49a45808dc1b41259b0"
+
+
+class TestXPublicKey:
+
+    def test_bad_type(self):
+        public_key = PublicKey.from_hex(
+            '034339a901d8526c4d733c8ea7c861f1a6324f37f6b86f838725820e0c5fc19570')
+        with pytest.raises(TypeError):
+            XPublicKey(public_key)
+
+    def test_bad_key(self):
+        with pytest.raises(ValueError):
+            XPublicKey('034339a901d8526c4d733c8ea7c861f1a6324f37f6b86f838725820e0c5fc1957000')
+        with pytest.raises(ValueError):
+            XPublicKey(
+            'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdb'
+            'b213d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1201000a'
+            )
+
+    @pytest.mark.parametrize("raw_hex", (
+        # An uncompressed 04 key
+        '046d6caac248af96f6afa7f904f550253a0f3ef3f5aa2fe6838a95b216691468e'
+        '2487e6222a6664e079c8edf7518defd562dbeda1e7593dfd7f0be285880a24dab',
+        # A compressed 03 key
+        '034339a901d8526c4d733c8ea7c861f1a6324f37f6b86f838725820e0c5fc19570',
+        # A compressed 02 key
+        '026370246118a7c218fd557496ebb2b0862d59c6486e88f83e07fd12ce8a88fb00',
+    ))
+    def test_raw_public_keys(self, raw_hex):
+        public_key = PublicKey.from_hex(raw_hex)
+        x_pubkey = XPublicKey(raw_hex)
+        assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
+        assert x_pubkey.to_hex() == raw_hex
+        assert x_pubkey.to_public_key() == public_key
+        assert x_pubkey.to_address() == public_key.to_address()
+
+    @pytest.mark.parametrize("raw_hex, path1, path2", (
+        (
+            'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdb'
+            'b213d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1201000a00',
+            1, 10,
+        ),
+        (
+            'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdbb2'
+            '13d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa1200001900',
+            0, 25,
+        ),
+    ))
+    def test_bip32_extended_keys(self, raw_hex, path1, path2):
+        # see test_keystore.py
+        xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
+                'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
+        root_key = bip32_key_from_string(xpub)
+        True_10_public_key = root_key.child(path1).child(path2)
+
+        x_pubkey = XPublicKey(bytes.fromhex(raw_hex))
+        assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
+        assert x_pubkey.to_hex() == raw_hex
+        assert x_pubkey.to_public_key() == True_10_public_key
+        assert x_pubkey.to_address() == True_10_public_key.to_address()
+
+    @pytest.mark.parametrize("raw_hex, public_key_hex", (
+        ('fee9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df9c09d'
+         '5a3e271dc814a29981f81b3faaf2737b551ef5dcc6189cf0f8252c442b301000a00',
+         '044794e135aa6d397222b4395091e53557f0e1ab9ffc0358303de6b9800642a9f544c3'
+         'f8d2ece93e25864f19f44279661c16aaa8e85eea9ea1c8c1fcf1c61fcae0'
+        ),
+        ('fee9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df9c09'
+         'd5a3e271dc814a29981f81b3faaf2737b551ef5dcc6189cf0f8252c442b300000500',
+         '04935970bd7c9e51bfe8e1135bb89a8ce09f8876d60d81ba4432f5e6fa394e6d09c9b'
+         'a78f8d87aa7c519892a6adb5e7b39702379411dd7ba49f324f8c7e4e51f17'
+        ),
+    ))
+    def test_old_keystore(self, raw_hex, public_key_hex):
+        public_key = PublicKey.from_hex(public_key_hex)
+        assert public_key.is_compressed() is False
+        x_pubkey = XPublicKey(raw_hex)
+        assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
+        assert x_pubkey.to_hex() == raw_hex
+        assert x_pubkey.to_public_key() == public_key
+        assert x_pubkey.to_public_key().is_compressed() is False
+        assert x_pubkey.to_address() == public_key.to_address()
+
+    @pytest.mark.parametrize("raw_hex, address", (
+        ('fd76a9140d58656ec279ed001c58c7aabc64193f07414ff388ac',
+         '12DZgNWoB5c2PW74y7vQm9SACjxyoKCjtQ'
+        ),
+        ('fda91468916676bce64b1e02c3bffa3c75ca0449c8355e87',
+         '3BDvP5dDhJHpdZs393GUUnRiNwCj3C3GF4'
+        ),
+    ))
+    def test_addresses(self, raw_hex, address):
+        address = Address.from_string(address)
+        x_pubkey = XPublicKey(raw_hex)
+        assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)
+        assert x_pubkey.to_hex() == raw_hex
+        assert x_pubkey.to_public_key() == address
+        assert x_pubkey.to_address() == address

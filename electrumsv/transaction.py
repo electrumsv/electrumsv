@@ -26,9 +26,11 @@
 import struct
 
 from bitcoinx import (
-    PublicKey, PrivateKey, Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
-    P2MultiSig_Output, push_int, push_item, pack_byte, Script,
-    Address, P2SH_Address, P2PK_Output, TxOutput, read_list, classify_output_script
+    PublicKey, PrivateKey, BIP32PublicKey, bip32_key_from_string, base58_encode_check,
+    Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
+    P2MultiSig_Output, push_int, push_item, Script,
+    Address, P2SH_Address, P2PK_Output, TxOutput, classify_output_script,
+    pack_byte, unpack_le_uint16, read_list, double_sha256,
 )
 
 from .bitcoin import to_bytes, push_script, int_to_hex, var_int
@@ -65,6 +67,66 @@ def _validate_outputs(outputs):
     assert all(isinstance(output, TxOutput) for output in outputs)
     assert all(isinstance(output.script_pubkey, Script) for output in outputs)
     assert all(isinstance(output.value, int) for output in outputs)
+
+
+class XPublicKey:
+
+    def __init__(self, raw):
+        if not isinstance(raw, (bytes, str)):
+            raise TypeError(f'raw must be bytes or a string')
+        try:
+            self.raw = raw if isinstance(raw, bytes) else bytes.fromhex(raw)
+            self.to_public_key()
+        except (ValueError, AssertionError):
+            raise ValueError(f'invalid XPublicKey: {raw}')
+
+    def _bip32_root_public_key(self):
+        assert self.raw[0] == 0xff
+        assert len(self.raw) == 83    # 1 + 78 + 2 + 2
+        result = bip32_key_from_string(base58_encode_check(self.raw[1:79]))
+        assert isinstance(result, BIP32PublicKey)
+        return result
+
+    def _bip32_public_key(self):
+        result = self._bip32_root_public_key()
+        for n in (unpack_le_uint16(self.raw[n: n+2])[0] for n in (79, 81)):
+            result = result.child(n)
+        return result
+
+    def _old_keystore_root_public_key(self):
+        assert len(self.raw) == 69
+        return PublicKey.from_bytes(pack_byte(4) + self.raw[1:65])
+
+    def _old_keystore_public_key(self):
+        root_public_key = self._old_keystore_root_public_key()
+        path = [unpack_le_uint16(self.raw[n: n+2])[0] for n in (65, 67)]
+        delta = double_sha256(f'{path[1]}:{path[0]}:'.encode() + self.raw[1:65])
+        return root_public_key.add(delta)
+
+    def to_bytes(self):
+        return self.raw
+
+    def to_hex(self):
+        return self.raw.hex()
+
+    def to_public_key(self):
+        '''Returns a PublicKey instance or an Address instance.'''
+        if self.raw[0] in {0x02, 0x03, 0x04}:
+            return PublicKey.from_bytes(self.raw)
+        if self.raw[0] == 0xff:
+            return self._bip32_public_key()
+        if self.raw[0] == 0xfe:
+            return self._old_keystore_public_key()
+        assert self.raw[0] == 0xfd
+        result = classify_output_script(Script(self.raw[1:]))
+        assert isinstance(result, Address)
+        return result
+
+    def to_address(self):
+        result = self.to_public_key()
+        if not isinstance(result, Address):
+            result = result.to_address(coin=Net.COIN)
+        return result
 
 
 class UnknownAddress(object):
