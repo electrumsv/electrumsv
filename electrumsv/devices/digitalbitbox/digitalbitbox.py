@@ -628,30 +628,27 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             # Fill signatures
             if len(dbb_signatures) != len(tx.inputs()):
                 raise Exception("Incorrect number of transactions signed.") # Should never occur
-            for i, txin in enumerate(tx.inputs()):
+            for i, (txin, siginfo, pre_hash) in enumerate(
+                    zip(tx.inputs(), dbb_signatures, inputhasharray)):
                 num = txin['num_sig']
-                for pubkey in txin['pubkeys']:
-                    signatures = [sig for sig in txin['signatures'] if sig]
-                    if len(signatures) == num:
-                        break # txin is complete
-                    ii = txin['pubkeys'].index(pubkey)
-                    siginfo = dbb_signatures[i]
+                signatures = [sig for sig in txin['signatures'] if sig]
+                if len(signatures) == num:
+                    continue  # txin is complete
+                for pubkey_index, x_pubkey in enumerate(txin['x_pubkeys']):
                     compact_sig = bytes.fromhex(siginfo['sig'])
                     if 'recid' in siginfo:
                         # firmware > v2.1.1
                         recid = int(siginfo['recid'], 16)
                         recoverable_sig = compact_sig + bytes([recid])
-                        h = inputhasharray[i]
-                        pk = PublicKey.from_recoverable_signature(recoverable_sig, h, None)
-                        pk = pk.to_hex(compressed=True)
+                        pk = PublicKey.from_recoverable_signature(recoverable_sig, pre_hash, None)
                     elif 'pubkey' in siginfo:
                         # firmware <= v2.1.1
-                        pk = siginfo['pubkey']
-                    if pk != pubkey:
+                        pk = PublicKey.from_hex(siginfo['pubkey'])
+                    if pk != x_pubkey.to_public_key():
                         continue
                     sig = (compact_signature_to_der(compact_sig) +
                            bytes([Transaction.nHashType() & 255]))
-                    tx.add_signature_to_txin(i, ii, sig.hex())
+                    tx.add_signature_to_txin(i, pubkey_index, sig.hex())
         except UserCancelled:
             raise
         except Exception as e:
