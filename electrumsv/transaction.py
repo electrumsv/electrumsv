@@ -440,7 +440,10 @@ def deserialize(raw):
 # pay & redeem scripts
 
 def multisig_script(x_pubkeys, threshold):
-    '''Returns bytes.'''
+    '''Returns bytes.
+
+    x_pubkeys is an array of XPulicKey objects or an array of PublicKey objects.
+    '''
     assert 1 <= threshold <= len(x_pubkeys)
     parts = [push_int(threshold)]
     parts.extend(push_item(x_pubkey.to_bytes()) for x_pubkey in x_pubkeys)
@@ -641,7 +644,8 @@ class Transaction:
         if _type == 'p2pkh':
             return txin['address'].to_script_bytes().hex()
         elif _type == 'p2sh':
-            return multisig_script(txin['x_pubkeys'], txin['num_sig']).hex()
+            pubkeys = [x_pubkey.to_public_key() for x_pubkey in txin['x_pubkeys']]
+            return multisig_script(pubkeys, txin['num_sig']).hex()
         elif _type == 'p2pk':
             x_pubkey = txin['x_pubkeys'][0]
             output = P2PK_Output(x_pubkey.to_public_key())
@@ -786,9 +790,9 @@ class Transaction:
                     sec, compressed = keypairs.get(x_pubkey)
                     sig = self.sign_txin(i, sec)
                     txin['signatures'][j] = sig
-                    # Needed for fd x_pubkeys
-                    pubkey_bytes = PrivateKey(sec).public_key.to_bytes(compressed=compressed)
-                    x_pubkeys[j] = XPublicKey(pubkey_bytes)
+                    if x_pubkey.kind() == 0xfd:
+                        pubkey_bytes = PrivateKey(sec).public_key.to_bytes(compressed=compressed)
+                        x_pubkeys[j] = XPublicKey(pubkey_bytes)
                     self._inputs[i] = txin
         logger.debug("is_complete %s", self.is_complete())
         self.raw = self.serialize()
