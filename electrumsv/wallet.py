@@ -42,7 +42,7 @@ from typing import Optional, Union, Tuple, List, Any
 from aiorpcx import run_in_thread
 from bitcoinx import (
     PrivateKey, PublicKey, is_minikey, P2MultiSig_Output, Address, hash160, P2SH_Address,
-    TxOutput,
+    TxOutput, classify_output_script, P2PKH_Address, P2PK_Output
 )
 
 from . import coinchooser
@@ -99,12 +99,33 @@ class UTXO:
         return ':'.join((self.tx_hash, str(self.out_index)))
 
     def to_tx_input(self):
-        return {
+        txin = {
             'address': self.address,
             'value': self.value,
             'prevout_n': self.out_index,
             'prevout_hash': self.tx_hash,
         }
+
+        kind = classify_output_script(self.script_pubkey)
+        if isinstance(kind, P2PKH_Address):
+            txin['type'] = 'p2pkh'
+            txin['num_sig'] = 1
+            # _add_input_sig_info() with replace with public key
+            txin['x_pubkeys'] = [XPublicKey('fd' + self.script_pubkey.to_hex())]
+        elif isinstance(kind, P2SH_Address):
+            txin['type'] = 'p2sh'
+            # _add_input_sig_info() with replace with public key
+            txin['x_pubkeys'] = []
+            txin['num_sig'] = 0
+        elif isinstance(kind, P2PK_Output):
+            txin['type'] = 'p2pk'
+            txin['num_sig'] = 1
+            txin['x_pubkeys'] = [XPublicKey(kind.public_key.to_bytes())]
+        else:
+            raise RuntimeError(f'cannot spend {self}')
+
+        txin['signatures'] = [None] * len(txin['x_pubkeys'])
+        return txin
 
 
 def dust_threshold(network):
@@ -974,7 +995,7 @@ class Abstract_Wallet:
     def dust_threshold(self):
         return dust_threshold(self.network)
 
-    def make_unsigned_transaction(self, inputs, outputs, config, fixed_fee: Optional[int]=None,
+    def make_unsigned_transaction(self, utxos, outputs, config, fixed_fee: Optional[int]=None,
                                   change_addr: Optional[Address]=None) -> Transaction:
         # check outputs
         all_index = None
@@ -985,15 +1006,15 @@ class Abstract_Wallet:
                 all_index = n
 
         # Avoid index-out-of-range with inputs[0] below
-        if not inputs:
+        if not utxos:
             raise NotEnoughFunds()
 
         if fixed_fee is None and config.fee_per_kb() is None:
             raise Exception('Dynamic fee estimates not available')
 
-        inputs = [item.to_tx_input() if isinstance(item, UTXO) else item for item in inputs]
-        for item in inputs:
-            self._add_input_info(item)
+        inputs = [utxo.to_tx_input() for utxo in utxos]
+        for txin in inputs:
+            self._add_input_sig_info(txin)
 
         # change address
         if change_addr:
@@ -1138,24 +1159,12 @@ class Abstract_Wallet:
         else:
             return
         txin = utxo.to_tx_input()
-        self._add_input_info(txin)
+        self._add_input_sig_info(txin)
         inputs = [txin]
         outputs = [TxOutput(tx_output.value - fee, address.to_script())]
         locktime = self.get_local_height()
         # note: no need to call tx.BIP_LI01_sort() here - single input/output
         return Transaction.from_io(inputs, outputs, locktime=locktime)
-
-    def _add_input_info(self, txin):
-        address = txin['address']
-        if self.is_mine(address):
-            txin['type'] = self.get_txin_type(address)
-            if 'value' not in txin:
-                # Bitcoin SV needs value to sign
-                received_amount = 0
-                received, _spent = self._get_addr_io(address)
-                item = received.get((txin['prevout_hash'], txin['prevout_n']))
-                txin['value'] = item[1]
-            self._add_input_sig_info(txin, address)
 
     def can_sign(self, tx):
         if tx.is_complete():
@@ -1627,10 +1636,9 @@ class ImportedAddressWallet(ImportedWalletBase):
         self.addresses.remove(address)
         self._sorted = None
 
-    def _add_input_sig_info(self, txin, address):
-        x_pubkey = XPublicKey('fd' + address.to_script_bytes().hex())
-        txin['x_pubkeys'] = [x_pubkey]
-        txin['signatures'] = [None]
+    def _add_input_sig_info(self, txin):
+        pass
+
 
 class ImportedPrivkeyWallet(ImportedWalletBase):
     # wallet made of imported private keys
@@ -1706,12 +1714,11 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         pubkey = self.keystore.address_to_pubkey(address)
         return self.keystore.export_private_key(pubkey, password)
 
-    def _add_input_sig_info(self, txin, address):
-        assert txin['type'] == 'p2pkh'
-        pubkey = self.keystore.address_to_pubkey(address)
-        txin['num_sig'] = 1
-        txin['x_pubkeys'] = [XPublicKey(pubkey.to_hex())]
-        txin['signatures'] = [None]
+    def _add_input_sig_info(self, txin):
+        address = txin['address']
+        if self.is_mine(address):
+            pubkey = self.keystore.address_to_pubkey(address)
+            txin['x_pubkeys'] = [XPublicKey(pubkey.to_bytes())]
 
     def pubkeys_to_address(self, pubkey):
         pubkey = PublicKey.from_hex(pubkey)
@@ -1865,22 +1872,18 @@ class Simple_Deterministic_Wallet(Simple_Wallet, Deterministic_Wallet):
     def get_public_keys(self, address):
         return [self.get_public_key(address)]
 
-    def _add_input_sig_info(self, txin, address):
-        derivation = self.get_address_index(address)
-        x_pubkey = self.keystore.get_xpubkey(*derivation)
-        txin['x_pubkeys'] = [x_pubkey]
-        txin['signatures'] = [None]
-        txin['num_sig'] = 1
+    def _add_input_sig_info(self, txin):
+        address = txin['address']
+        if self.is_mine(address):
+            derivation = self.get_address_index(address)
+            x_pubkey = self.keystore.get_xpubkey(*derivation)
+            txin['x_pubkeys'] = [x_pubkey]
 
     def get_master_public_key(self):
         return self.keystore.get_master_public_key()
 
     def derive_pubkeys(self, c, i):
         return self.keystore.derive_pubkey(c, i)
-
-
-
-
 
 
 class Standard_Wallet(Simple_Deterministic_Wallet):
@@ -1959,15 +1962,17 @@ class Multisig_Wallet(Deterministic_Wallet):
     def get_fingerprint(self):
         return ''.join(sorted(self.get_master_public_keys()))
 
-    def _add_input_sig_info(self, txin, address):
-        derivation = self.get_address_index(address)
-        x_pubkeys = [k.get_xpubkey(*derivation) for k in self.get_keystores()]
-        # Sort them using the order of the realized pubkeys
-        sorted_pairs = sorted((x_pubkey.to_public_key_hex(), x_pubkey) for x_pubkey in x_pubkeys)
-        txin['x_pubkeys'] = [x_pubkey for _hex, x_pubkey in sorted_pairs]
-        # we need n place holders
-        txin['signatures'] = [None] * self.n
-        txin['num_sig'] = self.m
+    def _add_input_sig_info(self, txin):
+        address = txin['address']
+        if self.is_mine(address):
+            derivation = self.get_address_index(address)
+            x_pubkeys = [k.get_xpubkey(*derivation) for k in self.get_keystores()]
+            # Sort them using the order of the realized pubkeys
+            sorted_pairs = sorted((x_pubkey.to_public_key_hex(), x_pubkey)
+                                  for x_pubkey in x_pubkeys)
+            txin['x_pubkeys'] = [x_pubkey for _hex, x_pubkey in sorted_pairs]
+            txin['signatures'] = [None] * len(x_pubkeys)
+            txin['num_sig'] = self.m
 
 
 wallet_types = ['standard', 'multisig', 'imported']
