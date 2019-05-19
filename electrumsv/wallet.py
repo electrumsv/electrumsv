@@ -41,14 +41,14 @@ from typing import Optional, Union, Tuple, List, Any
 
 from aiorpcx import run_in_thread
 from bitcoinx import (
-    PrivateKey, PublicKey, is_minikey, P2MultiSig_Output, Address, hash160, P2SH_Address,
-    TxOutput, classify_output_script, P2PKH_Address, P2PK_Output
+    PrivateKey, PublicKey, P2MultiSig_Output, Address, hash160, P2SH_Address,
+    TxOutput, classify_output_script, P2PKH_Address, P2PK_Output, hash_to_hex_str, sha256,
 )
 
 from . import coinchooser
 from . import paymentrequest
 from .app_state import app_state
-from .bitcoin import COINBASE_MATURITY, scripthash_hex
+from .bitcoin import COINBASE_MATURITY
 from .contacts import Contacts
 from .crypto import sha256d
 from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
@@ -132,51 +132,36 @@ def dust_threshold(network):
     return 546 # hard-coded Bitcoin SV dust threshold. Was changed to this as of Sept. 2018
 
 
-def _append_utxos_to_inputs(inputs, get_utxos, pubkey, txin_type, imax):
-    public_key = PublicKey.from_hex(pubkey)
-    if txin_type == 'p2pkh':
-        address = public_key.to_address(coin=Net.COIN)
-        sh = scripthash_hex(address)
-    else:
-        address = public_key
-        sh = scripthash_hex(address.P2PK_script())
-    for item in get_utxos(sh):
-        if len(inputs) >= imax:
-            break
-        item['address'] = address
-        item['type'] = txin_type
-        item['prevout_hash'] = item['tx_hash']
-        item['prevout_n'] = item['tx_pos']
-        item['x_pubkeys'] = [XPublicKey(pubkey)]
-        item['signatures'] = [None]
-        item['num_sig'] = 1
-        inputs.append(item)
-
 def sweep_preparations(privkeys, get_utxos, imax=100):
 
-    def find_utxos_for_privkey(txin_type, privkey, compressed):
-        pubkey = PrivateKey(privkey).public_key.to_hex(compressed=compressed)
-        _append_utxos_to_inputs(inputs, get_utxos, pubkey, txin_type, imax)
-        keypairs[XPublicKey(pubkey)] = privkey, compressed
+    def find_coins(address, script_pubkey):
+        script_hash_hex = hash_to_hex_str(sha256(bytes(script_pubkey)))
+        return [UTXO(value=item['value'],
+                     script_pubkey=script_pubkey,
+                     tx_hash=item['tx_hash'],
+                     out_index=item['tx_pos'],
+                     height=item['height'],
+                     address=address,
+                     is_coinbase=False)  # Guess
+                for item in get_utxos(script_hash_hex)]
 
-    inputs = []
+    coins = []
     keypairs = {}
     for sec in privkeys:
         privkey = PrivateKey.from_text(sec)
-        privkey, compressed = privkey.to_bytes(), privkey.is_compressed()
-        find_utxos_for_privkey('p2pkh', privkey, compressed)
-        # do other lookups to increase support coverage
-        if is_minikey(sec):
-            # minikeys don't have a compressed byte
-            # we lookup both compressed and uncompressed pubkeys
-            find_utxos_for_privkey('p2pkh', privkey, not compressed)
-        else:
-            # WIF serialization does not distinguish p2pkh and p2pk
-            # we also search for pay-to-pubkey outputs
-            find_utxos_for_privkey('p2pk', privkey, compressed)
-    if not inputs:
+        # Search compressed and uncompressed keys, P2PKH and P2PK
+        for public_key in (privkey.public_key, privkey.public_key.complement()):
+            address = public_key.to_address(coin=Net.COIN)
+            coins.extend(find_coins(address, address.to_script()))
+            output = P2PK_Output(public_key)
+            coins.extend(find_coins(public_key, output.to_script()))
+            for x_pubkey in [XPublicKey(b'\xfd' + address.to_script().to_bytes()),
+                             XPublicKey(public_key.to_bytes())]:
+                keypairs[x_pubkey] = privkey.to_bytes(), public_key.is_compressed()
+
+    if not coins:
         raise Exception(_('No inputs found. (Note that inputs need to be confirmed)'))
-    return inputs, keypairs
+    return coins[:imax], keypairs
 
 
 def sweep(privkeys, network, config, recipient, fee=None, imax=100):
