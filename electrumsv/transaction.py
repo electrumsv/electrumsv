@@ -684,16 +684,19 @@ class Transaction:
         '''Hash type in hex.'''
         return 0x01 | cls.SIGHASH_FORKID
 
-    def preimage_hash(self, txin):
-        tx_inputs = self.inputs()
-        input_index = tx_inputs.index(txin)
+    def to_Tx(self, input_scripts):
         tx_inputs = [TxInput(
             prev_hash=hex_str_to_hash(txin['prevout_hash']),
             prev_idx=txin['prevout_n'],
-            script_sig=None,   # Not used
+            script_sig=input_script,
             sequence=txin['sequence']
-        ) for txin in tx_inputs]
-        tx = Tx(self.version, tx_inputs, self.outputs(), self.locktime)
+        ) for txin, input_script in zip(self.inputs(), input_scripts)]
+        return Tx(self.version, tx_inputs, self.outputs(), self.locktime)
+
+    def preimage_hash(self, txin):
+        tx_inputs = self.inputs()
+        input_index = tx_inputs.index(txin)
+        tx = self.to_Tx([Script()] * len(tx_inputs))    # Scripts are unused in signing
         script_code = bytes.fromhex(self.get_preimage_script(txin))
         sighash = SigHash(self.nHashType())
         return tx.signature_hash(input_index, txin['value'], script_code, sighash=sighash)
