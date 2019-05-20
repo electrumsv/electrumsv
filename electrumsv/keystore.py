@@ -25,10 +25,10 @@ import hashlib
 from unicodedata import normalize
 
 from bitcoinx import (
-    PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey, Address, Script,
+    PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey,
     int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
     bip32_key_from_string, bip32_decompose_chain_string,
-    base58_decode_check, classify_output_script
+    base58_decode_check
 )
 
 from .app_state import app_state

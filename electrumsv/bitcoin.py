@@ -23,7 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from bitcoinx import Ops, hash_to_hex_str, sha256, Address, P2PK_Output
+from bitcoinx import Ops, hash_to_hex_str, sha256, Address
 
 from .crypto import hmac_oneshot
 from .util import bfh, bh2u, assert_bytes, to_bytes
