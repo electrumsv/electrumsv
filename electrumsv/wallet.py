@@ -104,6 +104,7 @@ class UTXO:
             'value': self.value,
             'prevout_n': self.out_index,
             'prevout_hash': self.tx_hash,
+            'sequence': 0xffffffff,
         }
 
         kind = classify_output_script(self.script_pubkey)
