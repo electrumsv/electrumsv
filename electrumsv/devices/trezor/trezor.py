@@ -12,8 +12,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output
-from electrumsv.util import bfh
+from electrumsv.transaction import classify_tx_output, txin_stripped_signatures_with_blanks
 
 from ..hw_wallet import HW_PluginBase
 from ..hw_wallet.plugin import LibraryFoundButUnusable
@@ -317,7 +316,8 @@ class TrezorPlugin(HW_PluginBase):
             txinputtype.amount = txin['value']
             x_pubkeys = txin['x_pubkeys']
             xpubs = [x_pubkey.bip32_extended_key_and_path() for x_pubkey in x_pubkeys]
-            multisig = self._make_multisig(txin['num_sig'], xpubs, txin['signatures'])
+            signatures = txin_stripped_signatures_with_blanks(txin)
+            multisig = self._make_multisig(txin['num_sig'], xpubs, signatures)
             script_type = self.get_trezor_input_script_type(multisig is not None)
             txinputtype = TxInputType(script_type=script_type, multisig=multisig)
             # find which key is mine
@@ -340,8 +340,6 @@ class TrezorPlugin(HW_PluginBase):
             signatures = [b''] * len(pubkeys)
         elif len(signatures) != len(pubkeys):
             raise RuntimeError('Mismatched number of signatures')
-        else:
-            signatures = [bfh(x)[:-1] if x else b'' for x in signatures]
 
         return MultisigRedeemScriptType(
             pubkeys=pubkeys,

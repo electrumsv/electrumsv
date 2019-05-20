@@ -12,7 +12,7 @@ from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.transaction import Transaction, classify_tx_output
-from electrumsv.util import bfh, bh2u, versiontuple
+from electrumsv.util import bfh, versiontuple
 
 from ..hw_wallet import HW_PluginBase
 
@@ -413,7 +413,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             self.handler.finished()
 
         for txin, input, signature in zip(tx.inputs(), inputs, signatures):
-            txin['signatures'][input[4]] = bh2u(signature)
+            txin['signatures'][input[4]] = signature
         tx.raw = tx.serialize()
 
     @set_and_unset_signing

@@ -38,7 +38,7 @@ from .exceptions import InvalidPassword
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
 from .networks import Net
-from .transaction import XPublicKey
+from .transaction import XPublicKey, txin_unused_x_pubkeys
 
 
 logger = logs.get_logger("keystore")
@@ -60,30 +60,7 @@ class KeyStore:
     def get_tx_derivations(self, tx):
         keypairs = {}
         for txin in tx.inputs():
-            sigs = txin['signatures']
-            x_pubkeys = txin['x_pubkeys']
-
-            # Remove pubkeys that have already signed
-            used = set()
-            sig_idx = len(sigs) - 1
-            pub_idx = len(x_pubkeys) - 1
-            pre_hash = tx.preimage_hash(txin)
-            while sig_idx >= 0:
-                sig = sigs[sig_idx]
-                sig_idx -= 1
-                if sig is not None:
-                    sig = bytes.fromhex(sig)[:-1]
-                    while pub_idx >= 0:
-                        x_pubkey = x_pubkeys[pub_idx]
-                        public_key = x_pubkey.to_public_key()
-                        used.add(x_pubkey)
-                        if public_key.verify_der_signature(sig, pre_hash, None):
-                            break
-                        pub_idx -= 1
-                pub_idx -= 1
-            for x_pubkey in x_pubkeys:
-                if x_pubkey in used:
-                    continue
+            for x_pubkey in txin_unused_x_pubkeys(txin):
                 derivation = self.get_pubkey_derivation(x_pubkey)
                 if not derivation:
                     continue

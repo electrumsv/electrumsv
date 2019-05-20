@@ -25,7 +25,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.platform import platform
-from electrumsv.transaction import Transaction
+from electrumsv.transaction import Transaction, is_txin_complete
 from electrumsv.util import to_string
 
 from ..hw_wallet import HW_PluginBase
@@ -627,10 +627,8 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 raise Exception("Incorrect number of transactions signed.") # Should never occur
             for txin, siginfo, pre_hash in enumerate(
                     zip(tx.inputs(), dbb_signatures, inputhasharray)):
-                num = txin['num_sig']
-                signatures = [sig for sig in txin['signatures'] if sig]
-                if len(signatures) == num:
-                    continue  # txin is complete
+                if is_txin_complete(txin):
+                    continue
                 for pubkey_index, x_pubkey in enumerate(txin['x_pubkeys']):
                     compact_sig = bytes.fromhex(siginfo['sig'])
                     if 'recid' in siginfo:
@@ -643,9 +641,9 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                         pk = PublicKey.from_hex(siginfo['pubkey'])
                     if pk != x_pubkey.to_public_key():
                         continue
-                    sig = (compact_signature_to_der(compact_sig) +
-                           bytes([Transaction.nHashType() & 255]))
-                    tx.add_signature_to_txin(txin, pubkey_index, sig.hex())
+                    full_sig = (compact_signature_to_der(compact_sig) +
+                                bytes([Transaction.nHashType() & 255]))
+                    tx.add_signature_to_txin(txin, pubkey_index, full_sig)
         except UserCancelled:
             raise
         except Exception as e:

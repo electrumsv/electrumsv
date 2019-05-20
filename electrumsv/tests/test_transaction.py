@@ -8,7 +8,7 @@ from bitcoinx import (
 
 from electrumsv import transaction
 from electrumsv.keystore import Old_KeyStore, BIP32_KeyStore
-from electrumsv.transaction import XPublicKey, Transaction, multisig_script
+from electrumsv.transaction import XPublicKey, Transaction, multisig_script, NO_SIGNATURE
 from electrumsv.util import bh2u
 
 
@@ -71,7 +71,7 @@ class TestTransaction(unittest.TestCase):
                         'prev_idx': 1,
                         'scriptSig': '01ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300',
                         'sequence': 4294967294,
-                        'signatures': [None],
+                        'signatures': [NO_SIGNATURE],
                         'type': 'p2pkh',
                         'value': 20112600,
                         'x_pubkeys': [XPublicKey('ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300')]}],
@@ -96,7 +96,7 @@ class TestTransaction(unittest.TestCase):
                         'prev_idx': 1,
                         'scriptSig': '473044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f46885412103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166',
                         'sequence': 4294967294,
-                        'signatures': ['3044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f4688541'],
+                        'signatures': [bytes.fromhex('3044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f4688541')],
                         'type': 'p2pkh',
                         'x_pubkeys': [XPublicKey('03b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166')]}],
             'lockTime': 507231,

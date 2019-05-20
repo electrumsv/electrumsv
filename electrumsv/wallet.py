@@ -61,7 +61,7 @@ from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type
 from .transaction import (
-    Transaction, classify_tx_output, tx_output_to_display_text, XPublicKey,
+    Transaction, classify_tx_output, tx_output_to_display_text, XPublicKey, NO_SIGNATURE
 )
 from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxFlags, TxData, TxProof
 from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
@@ -126,7 +126,7 @@ class UTXO:
         else:
             raise RuntimeError(f'cannot spend {self}')
 
-        txin['signatures'] = [None] * len(txin['x_pubkeys'])
+        txin['signatures'] = [NO_SIGNATURE] * len(txin['x_pubkeys'])
         return txin
 
 
@@ -1952,7 +1952,7 @@ class Multisig_Wallet(Deterministic_Wallet):
             sorted_pairs = sorted((x_pubkey.to_public_key_hex(), x_pubkey)
                                   for x_pubkey in x_pubkeys)
             txin['x_pubkeys'] = [x_pubkey for _hex, x_pubkey in sorted_pairs]
-            txin['signatures'] = [None] * len(x_pubkeys)
+            txin['signatures'] = [NO_SIGNATURE] * len(x_pubkeys)
             txin['num_sig'] = self.m
 
 

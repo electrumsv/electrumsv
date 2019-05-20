@@ -40,7 +40,7 @@ from .logs import logs
 from .util import profiler, bfh, bh2u
 
 
-NO_SIGNATURE = 'ff'
+NO_SIGNATURE = b'\xff'
 dummy_public_key = PublicKey.from_bytes(bytes(range(3, 36)))
 
 logger = logs.get_logger("transaction")
@@ -323,10 +323,6 @@ def _match_decoded(decoded, to_match):
     return True
 
 
-def _parse_sig(x_sig):
-    return [None if x == NO_SIGNATURE else x for x in x_sig]
-
-
 def _parse_scriptSig(d, _bytes):
     try:
         decoded = list(_script_GetOp(_bytes))
@@ -340,7 +336,7 @@ def _parse_scriptSig(d, _bytes):
         item = decoded[0][1]
         # payto_pubkey
         d['type'] = 'p2pk'
-        d['signatures'] = [bh2u(item)]
+        d['signatures'] = [item]
         d['num_sig'] = 1
         d['x_pubkeys'] = []
         return
@@ -350,19 +346,13 @@ def _parse_scriptSig(d, _bytes):
     # (65 bytes) onto the stack:
     match = [ Ops.OP_PUSHDATA4, Ops.OP_PUSHDATA4 ]
     if _match_decoded(decoded, match):
-        sig = bh2u(decoded[0][1])
+        sig = decoded[0][1]
         x_pubkey = XPublicKey(decoded[1][1])
-        try:
-            signatures = _parse_sig([sig])
-            address = x_pubkey.to_address()
-        except:
-            logger.exception("cannot find address in input script %s", bh2u(_bytes))
-            return
         d['type'] = 'p2pkh'
-        d['signatures'] = signatures
+        d['signatures'] = [sig]
         d['x_pubkeys'] = [x_pubkey]
         d['num_sig'] = 1
-        d['address'] = address
+        d['address'] = x_pubkey.to_address()
         return
 
     # p2sh transaction, m of n
@@ -370,12 +360,11 @@ def _parse_scriptSig(d, _bytes):
     if not _match_decoded(decoded, match):
         logger.error("cannot find address in input script %s", bh2u(_bytes))
         return
-    x_sig = [bh2u(x[1]) for x in decoded[1:-1]]
     m, n, x_pubkeys, address = _parse_redeemScript(decoded[-1][1])
     # write result in d
     d['type'] = 'p2sh'
     d['num_sig'] = m
-    d['signatures'] = _parse_sig(x_sig)
+    d['signatures'] = [x[1] for x in decoded[1:-1]]
     d['x_pubkeys'] = x_pubkeys
     d['address'] = address
 
@@ -406,20 +395,21 @@ def _parse_input(vds):
     d['prev_idx'] = prev_idx
     d['sequence'] = sequence
     d['address'] = UnknownAddress()
+    d['scriptSig'] = bh2u(scriptSig)
+    d['x_pubkeys'] = []
+    d['signatures'] = []
+    d['address'] = None
+    d['type'] = 'unknown'
+    d['num_sig'] = 0
+    d['scriptSig'] = bh2u(scriptSig)
     if prev_hash == bytes(32):
         d['type'] = 'coinbase'
-        d['scriptSig'] = bh2u(scriptSig)
     else:
-        d['x_pubkeys'] = []
-        d['signatures'] = {}
-        d['address'] = None
-        d['type'] = 'unknown'
-        d['num_sig'] = 0
-        d['scriptSig'] = bh2u(scriptSig)
         _parse_scriptSig(d, scriptSig)
 
-        if not Transaction.is_txin_complete(d):
-            d['value'] = vds.read_uint64()
+    if not is_txin_complete(d):
+        d['value'] = vds.read_uint64()
+
     return d
 
 
@@ -435,6 +425,26 @@ def deserialize(raw):
     d['outputs'] = read_list(vds.read_bytes, TxOutput.read)
     d['lockTime'] = vds.read_uint32()
     return d
+
+
+def txin_signatures_present(txin):
+    return [sig for sig in txin['signatures'] if sig != NO_SIGNATURE]
+
+
+def is_txin_complete(txin):
+    return len(txin_signatures_present(txin)) >= txin['num_sig']
+
+
+def txin_stripped_signatures_with_blanks(txin):
+    '''Strips the sighash byte.'''
+    return [b'' if sig == NO_SIGNATURE else sig[:-1] for sig in txin['signatures']]
+
+
+def txin_unused_x_pubkeys(txin):
+    if is_txin_complete(txin):
+        return []
+    return [x_pubkey for x_pubkey, signature in zip(txin['x_pubkeys'], txin['signatures'])
+            if signature == NO_SIGNATURE]
 
 
 # pay & redeem scripts
@@ -522,9 +532,9 @@ class Transaction:
             raise RuntimeError('expected {} signatures; got {}'
                                .format(len(self.inputs()), len(signatures)))
         for txin, signature in zip(self.inputs(), signatures):
-            sig = bh2u(signature + bytes([self.nHashType()]))
-            logger.warning(f'Signature: {sig}')
-            if sig in txin.get('signatures'):
+            full_sig = signature + bytes([self.nHashType()])
+            logger.warning(f'Signature: {full_sig.hex()}')
+            if full_sig in txin['signatures']:
                 continue
             pubkeys = [x_pubkey.to_public_key() for x_pubkey in txin['x_pubkeys']]
             pre_hash = self.preimage_hash(txin)
@@ -543,14 +553,14 @@ class Transaction:
                         logger.exception('')
                         continue
                     j = pubkeys.index(public_key)
-                    logger.debug(f'adding sig {j} {public_key} {sig}')
-                    self.add_signature_to_txin(txin, j, sig)
+                    logger.debug(f'adding sig {j} {public_key} {full_sig}')
+                    self.add_signature_to_txin(txin, j, full_sig)
                     break
         # redo raw
         self.raw = self.serialize()
 
     def add_signature_to_txin(self, txin, signingPos, sig):
-        assert isinstance(sig, str)
+        assert isinstance(sig, bytes)
         txin['signatures'][signingPos] = sig
         txin['scriptSig'] = None  # force re-serialization
         self.raw = None
@@ -595,47 +605,33 @@ class Transaction:
             dummy = XPublicKey(dummy_public_key.to_bytes(compressed=x_pubkeys[0].is_compressed()))
             x_pubkeys = [dummy] * len(x_pubkeys)
             # we assume that signature will be 0x48 bytes long
-            sig_list = [ "00" * 0x48 ] * num_sig
+            sig_list = [bytes(72) ] * num_sig
         else:
             x_pubkeys = txin['x_pubkeys']
-            x_signatures = txin['signatures']
-            signatures = [sig for sig in x_signatures if sig]
-            is_complete = len(signatures) == num_sig
-            if is_complete:
+            if is_txin_complete(txin):
                 # Realise the x_pubkeys
                 x_pubkeys = [XPublicKey(x_pubkey.to_public_key().to_bytes())
                              for x_pubkey in x_pubkeys]
-                sig_list = signatures
+                sig_list = txin_signatures_present(txin)
             else:
-                sig_list = [sig if sig else NO_SIGNATURE for sig in x_signatures]
+                sig_list = txin['signatures']
         return x_pubkeys, sig_list
 
     @classmethod
     def input_script(self, txin, estimate_size=False):
         _type = txin['type']
-        if _type == 'coinbase':
+        if _type in ('coinbase', 'unknown'):
             return txin['scriptSig']
         x_pubkeys, sig_list = self.get_siglist(txin, estimate_size)
-        script = ''.join(push_script(x) for x in sig_list)
-        if _type == 'p2pk':
-            pass
-        elif _type == 'p2sh':
+        script = b''.join(push_item(signature) for signature in sig_list).hex()
+        if _type == 'p2sh':
             # put op_0 before script
             script = '00' + script
             redeem_script = multisig_script(x_pubkeys, txin['num_sig']).hex()
             script += push_script(redeem_script)
         elif _type == 'p2pkh':
             script += push_script(x_pubkeys[0].to_hex())
-        elif _type == 'unknown':
-            return txin['scriptSig']
         return script
-
-    @classmethod
-    def is_txin_complete(self, txin):
-        num_sig = txin.get('num_sig', 1)
-        x_signatures = txin['signatures']
-        signatures = [sig for sig in x_signatures if sig]
-        return len(signatures) == num_sig
 
     @classmethod
     def get_preimage_script(self, txin):
@@ -669,8 +665,7 @@ class Transaction:
         s += script
         s += int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
         # offline signing needs to know the input value
-        if ('value' in txin   # Legacy txs
-            and not (estimate_size or self.is_txin_complete(txin))):
+        if 'value' in txin and not (estimate_size or is_txin_complete(txin)):
             s += int_to_hex(txin['value'], 8)
         return s
 
@@ -753,9 +748,7 @@ class Transaction:
         r = 0
         s = 0
         for txin in self.inputs():
-            if txin['type'] == 'coinbase':
-                continue
-            signatures = [sig for sig in txin.get('signatures', []) if sig]
+            signatures = txin_signatures_present(txin)
             s += len(signatures)
             r += txin.get('num_sig',-1)
         return s, r
@@ -767,13 +760,11 @@ class Transaction:
     def sign(self, keypairs):
         assert all(isinstance(key, XPublicKey) for key in keypairs)
         for txin in self.inputs():
+            if is_txin_complete(txin):
+                continue
             num = txin['num_sig']
             x_pubkeys = txin['x_pubkeys']
             for j, x_pubkey in enumerate(x_pubkeys):
-                signatures = [sig for sig in txin['signatures'] if sig]
-                if len(signatures) == num:
-                    # txin is complete
-                    break
                 if x_pubkey in keypairs.keys():
                     logger.debug("adding signature for %s", x_pubkey)
                     sec, compressed = keypairs.get(x_pubkey)
@@ -789,8 +780,7 @@ class Transaction:
         pre_hash = self.preimage_hash(txin)
         privkey = PrivateKey(privkey_bytes)
         sig = privkey.sign(pre_hash, None)
-        sig = bh2u(sig) + int_to_hex(self.nHashType(), 1)
-        return sig
+        return sig + pack_byte(self.nHashType())
 
     def as_dict(self):
         if self.raw is None:
