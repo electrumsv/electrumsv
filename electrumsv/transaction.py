@@ -789,10 +789,6 @@ class Transaction:
         sig = bh2u(sig) + int_to_hex(self.nHashType(), 1)
         return sig
 
-    def is_final(self):
-        return not any([x.get('sequence', 0xffffffff - 1) < 0xffffffff - 1
-                        for x in self.inputs()])
-
     def as_dict(self):
         if self.raw is None:
             self.raw = self.serialize()
@@ -800,6 +796,5 @@ class Transaction:
         out = {
             'hex': self.raw,
             'complete': self.is_complete(),
-            'final': self.is_final(),
         }
         return out

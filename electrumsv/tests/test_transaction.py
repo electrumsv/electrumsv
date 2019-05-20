@@ -83,7 +83,7 @@ class TestTransaction(unittest.TestCase):
         self.assertEqual(calc, expected)
         self.assertEqual(tx.deserialize(), None)
 
-        self.assertEqual(tx.as_dict(), {'hex': unsigned_blob, 'complete': False, 'final': True})
+        self.assertEqual(tx.as_dict(), {'hex': unsigned_blob, 'complete': False})
         self.assertEqual(tx.outputs(), outputs)
         self.assertEqual(tx.serialize(), unsigned_blob)
 
@@ -107,7 +107,7 @@ class TestTransaction(unittest.TestCase):
         tx = Transaction(signed_blob)
         self.assertEqual(tx.deserialize(), expected)
         self.assertEqual(tx.deserialize(), None)
-        self.assertEqual(tx.as_dict(), {'hex': signed_blob, 'complete': True, 'final': True})
+        self.assertEqual(tx.as_dict(), {'hex': signed_blob, 'complete': True})
 
         self.assertEqual(tx.serialize(), signed_blob)
 
