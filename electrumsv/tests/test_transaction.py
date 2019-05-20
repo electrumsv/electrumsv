@@ -67,7 +67,7 @@ class TestTransaction(unittest.TestCase):
         expected = {
             'inputs': [{'address': Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN'),
                         'num_sig': 1,
-                        'prevout_hash': 'ed6a4d07e546b677abf6ba1257c2546128c694f23f4b9ebbd822fdfe435ef349',
+                        'prev_hash': bytes.fromhex('49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'),
                         'prevout_n': 1,
                         'scriptSig': '01ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300',
                         'sequence': 4294967294,
@@ -92,7 +92,7 @@ class TestTransaction(unittest.TestCase):
         expected = {
             'inputs': [{'address': Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN'),
                         'num_sig': 1,
-                        'prevout_hash': 'ed6a4d07e546b677abf6ba1257c2546128c694f23f4b9ebbd822fdfe435ef349',
+                        'prev_hash': bytes.fromhex('49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'),
                         'prevout_n': 1,
                         'scriptSig': '473044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f46885412103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166',
                         'sequence': 4294967294,

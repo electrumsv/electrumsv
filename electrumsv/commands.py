@@ -34,6 +34,7 @@ import sys
 
 from bitcoinx import (
     PrivateKey, PublicKey, Address, P2MultiSig_Output, P2SH_Address, hash160, TxOutput,
+    hex_str_to_hash,
 )
 
 from .app_state import app_state
@@ -253,9 +254,9 @@ class Commands:
         locktime = jsontx.get('locktime', 0)
         for txin in inputs:
             if txin.get('output'):
-                prevout_hash, prevout_n = txin['output'].split(':')
+                prev_hash, prevout_n = txin['output'].split(':')
                 txin['prevout_n'] = int(prevout_n)
-                txin['prevout_hash'] = prevout_hash
+                txin['prev_hash'] = hex_str_to_hash(prev_hash)
             sec = txin.get('privkey')
             if sec:
                 privkey = PrivateKey.from_text(sec)

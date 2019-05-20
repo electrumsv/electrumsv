@@ -42,7 +42,8 @@ from typing import Optional, Union, Tuple, List, Any
 from aiorpcx import run_in_thread
 from bitcoinx import (
     PrivateKey, PublicKey, P2MultiSig_Output, Address, hash160, P2SH_Address,
-    TxOutput, classify_output_script, P2PKH_Address, P2PK_Output, hash_to_hex_str, sha256,
+    TxOutput, classify_output_script, P2PKH_Address, P2PK_Output,
+    hex_str_to_hash, hash_to_hex_str, sha256,
 )
 
 from . import coinchooser
@@ -103,7 +104,7 @@ class UTXO:
             'address': self.address,
             'value': self.value,
             'prevout_n': self.out_index,
-            'prevout_hash': self.tx_hash,
+            'prev_hash': hex_str_to_hash(self.tx_hash),
             'sequence': 0xffffffff,
         }
 
@@ -556,7 +557,7 @@ class Abstract_Wallet:
             if addr in addresses:
                 is_mine = True
                 is_relevant = True
-                for txout in self.get_txouts(item['prevout_hash'], addr):
+                for txout in self.get_txouts(hash_to_hex_str(item['prev_hash']), addr):
                     if txout.out_tx_n == item['prevout_n']:
                         value = txout.amount
                         break
@@ -790,18 +791,17 @@ class Abstract_Wallet:
         # add inputs
         for tx_input in tx.inputs():
             address = tx_input.get('address')
-            if tx_input['type'] != 'coinbase':
-                prevout_hash = tx_input['prevout_hash']
-                prevout_n = tx_input['prevout_n']
             if self.is_mine(address):
+                prev_hash_hex = hash_to_hex_str(tx_input['prev_hash'])
+                prevout_n = tx_input['prevout_n']
                 # find value from prev output
-                match = next((row for row in self.get_txouts(prevout_hash, address)
+                match = next((row for row in self.get_txouts(prev_hash_hex, address)
                     if row.out_tx_n == prevout_n), None)
                 if match is not None:
-                    txin = DBTxInput(address.to_string(), prevout_hash, prevout_n, match.amount)
+                    txin = DBTxInput(address.to_string(), prev_hash_hex, prevout_n, match.amount)
                     txins.append((tx_hash, txin))
                 else:
-                    self.pruned_txo[(prevout_hash, prevout_n)] = tx_hash
+                    self.pruned_txo[(prev_hash_hex, prevout_n)] = tx_hash
 
         # add outputs
         for n, tx_output in enumerate(tx.outputs()):
@@ -1185,17 +1185,12 @@ class Abstract_Wallet:
     def add_input_values_to_tx(self, tx):
         """ add input values to the tx, for signing"""
         for txin in tx.inputs():
-            if 'value' not in txin:
-                inputtx = self.get_input_tx(txin['prevout_hash'])
-                if inputtx is not None:
-                    tx_output = inputtx.outputs()[txin['prevout_n']]
-                    txin['value'] = tx_output.value
-                    txin['prev_tx'] = inputtx   # may be needed by hardware wallets
+            assert 'value' in txin
 
     def add_hw_info(self, tx):
         for txin in tx.inputs():
             if 'prev_tx' not in txin:
-                txin['prev_tx'] = self.get_input_tx(txin['prevout_hash'])
+                txin['prev_tx'] = self.get_input_tx(hash_to_hex_str(txin['prev_hash']))
         # add output info for hw wallets
         info = []
         xpubs = self.get_master_public_keys()

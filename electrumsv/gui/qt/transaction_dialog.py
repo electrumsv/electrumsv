@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit
 )
 
-from bitcoinx import PublicKey, Address
+from bitcoinx import PublicKey, Address, hash_to_hex_str
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import base_encode
@@ -314,14 +314,14 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         i_text.clear()
         cursor = i_text.textCursor()
-        for x in self.tx.inputs():
-            if x['type'] == 'coinbase':
+        for txin in self.tx.inputs():
+            if txin['type'] == 'coinbase':
                 cursor.insertText('coinbase')
             else:
-                prevout_hash = x.get('prevout_hash')
-                prevout_n = x.get('prevout_n')
-                cursor.insertText(f'{prevout_hash}:{prevout_n:<6d}', ext)
-                addr = x['address']
+                prev_hash = hash_to_hex_str(txin['prev_hash'])
+                prevout_n = txin['prevout_n']
+                cursor.insertText(f'{prev_hash}:{prevout_n:<6d}', ext)
+                addr = txin['address']
                 if isinstance(addr, PublicKey):
                     addr = addr.toAddress()
                 if addr is None:
@@ -329,8 +329,8 @@ class TxDialog(QDialog, MessageBoxMixin):
                 else:
                     addr_text = addr.to_string()
                 cursor.insertText(addr_text, text_format(addr))
-                if x.get('value'):
-                    cursor.insertText(format_amount(x['value']), ext)
+                if txin['value'] is not None:
+                    cursor.insertText(format_amount(txin['value']), ext)
             cursor.insertBlock()
 
         o_text.clear()

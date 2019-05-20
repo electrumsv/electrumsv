@@ -311,7 +311,7 @@ class TrezorPlugin(HW_PluginBase):
         inputs = []
         for txin in tx.inputs():
             txinputtype = TxInputType()
-            txinputtype.prev_hash = bytes.fromhex(txin['prevout_hash'])
+            txinputtype.prev_hash = bytes(reversed(txin['prev_hash']))
             txinputtype.prev_index = txin['prevout_n']
             txinputtype.sequence = txin['sequence']
             txinputtype.amount = txin['value']

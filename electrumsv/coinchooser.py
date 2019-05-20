@@ -180,7 +180,7 @@ class CoinChooserBase:
         added to the transaction fee.'''
 
         # Deterministic randomness from coins
-        utxos = [c['prevout_hash'] + str(c['prevout_n']) for c in coins]
+        utxos = [c['prev_hash'].hex() + str(c['prevout_n']) for c in coins]
         self.p = PRNG(''.join(sorted(utxos)))
 
         # Copy the ouputs so when adding change we don't modify "outputs"

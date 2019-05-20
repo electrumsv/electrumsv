@@ -342,7 +342,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
 
             redeemScript = Transaction.get_preimage_script(txin)
             inputs.append([txin['prev_tx'].raw, txin['prevout_n'], redeemScript,
-                           txin['prevout_hash'], signingPos, txin['sequence']])
+                           txin['prev_hash'], signingPos, txin['sequence']])
             inputsPaths.append(hwAddress)
 
         # Concatenate all the tx outputs as binary
@@ -365,7 +365,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             for utxo in inputs:
                 sequence = int_to_hex(utxo[5], 4)
                 txtmp = bitcoinTransaction(bfh(utxo[0]))
-                tmp = bfh(utxo[3])[::-1]
+                tmp = utxo[3]
                 tmp += bfh(int_to_hex(utxo[1], 4))
                 tmp += txtmp.outputs[utxo[1]].amount
                 chipInputs.append({'value' : tmp, 'witness' : True, 'sequence' : sequence})
