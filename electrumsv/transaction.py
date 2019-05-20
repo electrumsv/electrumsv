@@ -29,8 +29,8 @@ from bitcoinx import (
     PublicKey, PrivateKey, bip32_key_from_string, base58_encode_check,
     Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
     Script, push_int, push_item,
-    Address, P2SH_Address, P2PK_Output, TxOutput, classify_output_script,
-    pack_byte, unpack_le_uint16, read_list, double_sha256,
+    Address, P2SH_Address, P2PK_Output, Tx, TxInput, TxOutput, SigHash, classify_output_script,
+    pack_byte, unpack_le_uint16, read_list, double_sha256, hex_str_to_hash
 )
 
 from .bitcoin import to_bytes, push_script, int_to_hex, var_int
@@ -685,30 +685,18 @@ class Transaction:
         return 0x01 | cls.SIGHASH_FORKID
 
     def preimage_hash(self, txin):
-        return sha256d(bfh(self.serialize_preimage(txin)))
-
-    def serialize_preimage(self, txin):
-        nVersion = int_to_hex(self.version, 4)
-        nHashType = int_to_hex(self.nHashType(), 4)
-        nLocktime = int_to_hex(self.locktime, 4)
-        inputs = self.inputs()
-        outputs = self.outputs()
-
-        hashPrevouts = bh2u(sha256d(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
-        hashSequence = bh2u(sha256d(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
-                                             for txin in inputs))))
-        hashOutputs = bh2u(sha256d(b''.join(output.to_bytes() for output in outputs)))
-        outpoint = self.serialize_outpoint(txin)
-        preimage_script = self.get_preimage_script(txin)
-        scriptCode = var_int(len(preimage_script) // 2) + preimage_script
-        try:
-            amount = int_to_hex(txin['value'], 8)
-        except KeyError:
-            raise InputValueMissing
-        nSequence = int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
-        preimage = (nVersion + hashPrevouts + hashSequence + outpoint +
-                    scriptCode + amount + nSequence + hashOutputs + nLocktime + nHashType)
-        return preimage
+        tx_inputs = self.inputs()
+        input_index = tx_inputs.index(txin)
+        tx_inputs = [TxInput(
+            prev_hash=hex_str_to_hash(txin['prevout_hash']),
+            prev_idx=txin['prevout_n'],
+            script_sig=None,   # Not used
+            sequence=txin['sequence']
+        ) for txin in tx_inputs]
+        tx = Tx(self.version, tx_inputs, self.outputs(), self.locktime)
+        script_code = bytes.fromhex(self.get_preimage_script(txin))
+        sighash = SigHash(self.nHashType())
+        return tx.signature_hash(input_index, txin['value'], script_code, sighash=sighash)
 
     def serialize(self, estimate_size=False):
         nVersion = int_to_hex(self.version, 4)
