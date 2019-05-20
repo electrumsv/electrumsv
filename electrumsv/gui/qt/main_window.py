@@ -24,6 +24,7 @@
 
 import asyncio
 import base64
+from collections import Counter
 import csv
 from decimal import Decimal
 from functools import partial
@@ -458,27 +459,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def update_recently_visited(self, filename):
         recent = self.config.get('recently_open', [])
-        try:
-            sorted(recent)
-        except:
-            recent = []
         if filename in recent:
             recent.remove(filename)
         recent.insert(0, filename)
-        recent2 = []
-        for k in recent:
-            if os.path.exists(k):
-                recent2.append(k)
-        recent = recent2[:5]
+        recent = [path for path in recent if os.path.exists(path)][:10]
         self.config.set_key('recently_open', recent)
         self.recently_visited_menu.clear()
-        for i, k in enumerate(sorted(recent)):
-            b = os.path.basename(k)
-            def loader(k):
-                return lambda: self.app.new_window(k)
-            self.recently_visited_menu.addAction(
-                b, loader(k)).setShortcut(QKeySequence("Ctrl+%d"%(i+1)))
-        self.recently_visited_menu.setEnabled(len(recent))
+
+        basenames = [os.path.basename(path) for path in recent]
+        counts = Counter(basenames)
+        pairs = sorted((basename if counts[basename] == 1 else path, path)
+                       for basename, path in zip(basenames, recent))
+        for menu_text, path in pairs:
+            self.recently_visited_menu.addAction(menu_text, partial(self.app.new_window, path))
+        self.recently_visited_menu.setEnabled(bool(pairs))
 
     def get_wallet_folder(self):
         return os.path.dirname(os.path.abspath(self.config.get_wallet_path()))
