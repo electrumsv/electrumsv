@@ -2433,7 +2433,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             my_coins = self.wallet.get_spendable_coins(None, self.config)
             my_outpoints = [coin.key() for coin in my_coins]
             for txin in tx.inputs():
-                outpoint = (txin['prev_hash'], txin['prevout_n'])
+                outpoint = (txin['prev_hash'], txin['prev_idx'])
                 if outpoint in my_outpoints:
                     my_index = my_outpoints.index(outpoint)
                     txin['value'] = my_coins[my_index].value

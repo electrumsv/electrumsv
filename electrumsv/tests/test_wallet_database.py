@@ -197,25 +197,25 @@ class TestTransactionInputStore(unittest.TestCase):
     def test_pack_unpack(self):
         address_string = "address_string1"
         prevout_tx_hash = "prevout_tx_hash1"
-        prevout_n = 20
+        prev_idx = 20
         amount = 5555
-        txin1 = DBTxInput(address_string, prevout_tx_hash, prevout_n, amount)
+        txin1 = DBTxInput(address_string, prevout_tx_hash, prev_idx, amount)
         packed_raw = self.store._pack_value(txin1)
-        address_string2, prevout_tx_hash2, prevout_n2, amount2 = self.store._unpack_value(
+        address_string2, prevout_tx_hash2, prev_idx2, amount2 = self.store._unpack_value(
             packed_raw)
         self.assertEqual(txin1.address_string, address_string2)
         self.assertEqual(txin1.prevout_tx_hash, prevout_tx_hash2)
-        self.assertEqual(txin1.prevout_n, prevout_n2)
+        self.assertEqual(txin1.prev_idx, prev_idx2)
         self.assertEqual(txin1.amount, amount2)
 
     def test_unpack_version_1(self):
         packed_hex = "010f616464726573735f737472696e673110707265766f75745f74785f686173683114fdb315"
         packed_raw = bytes.fromhex(packed_hex)
-        address_string2, prevout_tx_hash2, prevout_n2, amount2 = self.store._unpack_value(
+        address_string2, prevout_tx_hash2, prev_idx2, amount2 = self.store._unpack_value(
             packed_raw)
         self.assertEqual("address_string1", address_string2)
         self.assertEqual("prevout_tx_hash1", prevout_tx_hash2)
-        self.assertEqual(20, prevout_n2)
+        self.assertEqual(20, prev_idx2)
         self.assertEqual(5555, amount2)
 
 

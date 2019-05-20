@@ -421,7 +421,7 @@ class AbstractTransactionXput(ABC):
         raise NotImplementedError
 
 
-class DBTxInput(namedtuple("DBTxInputTuple", "address_string prevout_tx_hash prevout_n amount")):
+class DBTxInput(namedtuple("DBTxInputTuple", "address_string prevout_tx_hash prev_idx amount")):
     pass
 
 
@@ -434,7 +434,7 @@ class TransactionInputStore(GenericKeyValueStore, AbstractTransactionXput):
         raw = bitcoinx.pack_varint(1)
         raw += bitcoinx.pack_varbytes(txin.address_string.encode())
         raw += bitcoinx.pack_varbytes(txin.prevout_tx_hash.encode())
-        raw += bitcoinx.pack_varint(txin.prevout_n)
+        raw += bitcoinx.pack_varint(txin.prev_idx)
         raw += bitcoinx.pack_varint(txin.amount)
         return raw
 
@@ -445,9 +445,9 @@ class TransactionInputStore(GenericKeyValueStore, AbstractTransactionXput):
         if pack_version == 1:
             address_string = bitcoinx.read_varbytes(io.read).decode()
             prevout_tx_hash = bitcoinx.read_varbytes(io.read).decode()
-            prevout_n = bitcoinx.read_varint(io.read)
+            prev_idx = bitcoinx.read_varint(io.read)
             amount = bitcoinx.read_varint(io.read)
-            return DBTxInput(address_string, prevout_tx_hash, prevout_n, amount)
+            return DBTxInput(address_string, prevout_tx_hash, prev_idx, amount)
         raise DataPackingError(f"Unhandled packing format {pack_version}")
 
     def add_entries(self, entries: Iterable[Tuple[str, DBTxInput]]) -> None:

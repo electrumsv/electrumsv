@@ -26,10 +26,9 @@
 from collections import defaultdict, namedtuple
 from math import floor, log10
 
-from bitcoinx import TxOutput
+from bitcoinx import TxOutput, sha256, pack_le_uint32
 
 from .bitcoin import COIN
-from .crypto import sha256
 from .logs import logs
 from .transaction import Transaction
 from .exceptions import NotEnoughFunds
@@ -180,8 +179,8 @@ class CoinChooserBase:
         added to the transaction fee.'''
 
         # Deterministic randomness from coins
-        utxos = [c['prev_hash'].hex() + str(c['prevout_n']) for c in coins]
-        self.p = PRNG(''.join(sorted(utxos)))
+        utxos = [c['prev_hash'] + pack_le_uint32(c['prev_idx']) for c in coins]
+        self.p = PRNG(b''.join(sorted(utxos)))
 
         # Copy the ouputs so when adding change we don't modify "outputs"
         tx = Transaction.from_io([], outputs)

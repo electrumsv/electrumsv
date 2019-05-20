@@ -27,10 +27,10 @@ import struct
 
 from bitcoinx import (
     PublicKey, PrivateKey, bip32_key_from_string, base58_encode_check,
-    Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
+    Ops, der_signature_to_compact, InvalidSignatureError,
     Script, push_int, push_item,
     Address, P2SH_Address, P2PK_Output, Tx, TxInput, TxOutput, SigHash, classify_output_script,
-    pack_byte, pack_le_uint32, unpack_le_uint16, read_list, double_sha256, hex_str_to_hash
+    pack_byte, pack_le_uint32, unpack_le_uint16, read_list, double_sha256
 )
 
 from .bitcoin import to_bytes, push_script, int_to_hex, var_int
@@ -399,11 +399,11 @@ def _parse_redeemScript(s):
 def _parse_input(vds):
     d = {}
     prev_hash = vds.read_bytes(32)
-    prevout_n = vds.read_uint32()
+    prev_idx = vds.read_uint32()
     scriptSig = vds.read_bytes(vds.read_compact_size())
     sequence = vds.read_uint32()
     d['prev_hash'] = prev_hash
-    d['prevout_n'] = prevout_n
+    d['prev_idx'] = prev_idx
     d['sequence'] = sequence
     d['address'] = UnknownAddress()
     if prev_hash == bytes(32):
@@ -658,7 +658,7 @@ class Transaction:
 
     @classmethod
     def serialize_outpoint(self, txin):
-        return txin['prev_hash'].hex() + int_to_hex(txin['prevout_n'], 4)
+        return txin['prev_hash'].hex() + int_to_hex(txin['prev_idx'], 4)
 
     @classmethod
     def serialize_input(self, txin, script, estimate_size=False):
@@ -676,7 +676,7 @@ class Transaction:
 
     def BIP_LI01_sort(self):
         # See https://github.com/kristovatlas/rfc/blob/master/bips/bip-li01.mediawiki
-        self._inputs.sort(key = lambda txin: txin['prev_hash'] + pack_le_uint32(txin['prevout_n']))
+        self._inputs.sort(key = lambda txin: txin['prev_hash'] + pack_le_uint32(txin['prev_idx']))
         self._outputs.sort(key = lambda output: (output.value, output.script_pubkey))
 
     @classmethod
@@ -687,7 +687,7 @@ class Transaction:
     def to_Tx(self, input_scripts):
         tx_inputs = [TxInput(
             prev_hash=txin['prev_hash'],
-            prev_idx=txin['prevout_n'],
+            prev_idx=txin['prev_idx'],
             script_sig=input_script,
             sequence=txin['sequence']
         ) for txin, input_script in zip(self.inputs(), input_scripts)]

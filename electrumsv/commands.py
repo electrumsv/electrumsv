@@ -254,8 +254,8 @@ class Commands:
         locktime = jsontx.get('locktime', 0)
         for txin in inputs:
             if txin.get('output'):
-                prev_hash, prevout_n = txin['output'].split(':')
-                txin['prevout_n'] = int(prevout_n)
+                prev_hash, prev_idx = txin['output'].split(':')
+                txin['prev_idx'] = int(prev_idx)
                 txin['prev_hash'] = hex_str_to_hash(prev_hash)
             sec = txin.get('privkey')
             if sec:

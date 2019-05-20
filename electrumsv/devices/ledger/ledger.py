@@ -341,7 +341,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
                 self.give_error("No matching x_key for sign_transaction") # should never happen
 
             redeemScript = Transaction.get_preimage_script(txin)
-            inputs.append([txin['prev_tx'].raw, txin['prevout_n'], redeemScript,
+            inputs.append([txin['prev_tx'].raw, txin['prev_idx'], redeemScript,
                            txin['prev_hash'], signingPos, txin['sequence']])
             inputsPaths.append(hwAddress)
 

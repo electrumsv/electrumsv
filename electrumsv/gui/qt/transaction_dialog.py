@@ -319,8 +319,8 @@ class TxDialog(QDialog, MessageBoxMixin):
                 cursor.insertText('coinbase')
             else:
                 prev_hash = hash_to_hex_str(txin['prev_hash'])
-                prevout_n = txin['prevout_n']
-                cursor.insertText(f'{prev_hash}:{prevout_n:<6d}', ext)
+                prev_idx = txin['prev_idx']
+                cursor.insertText(f'{prev_hash}:{prev_idx:<6d}', ext)
                 addr = txin['address']
                 if isinstance(addr, PublicKey):
                     addr = addr.toAddress()

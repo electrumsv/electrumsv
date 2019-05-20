@@ -565,8 +565,8 @@ class WalletStorage:
         for tx_hash, address_entry in txi.items():
             for address_string, output_values in address_entry.items():
                 for prevout_key, amount in output_values:
-                    prevout_tx_hash, prevout_n = prevout_key.split(":")
-                    txin = DBTxInput(address_string, prevout_tx_hash, int(prevout_n), amount)
+                    prevout_tx_hash, prev_idx = prevout_key.split(":")
+                    txin = DBTxInput(address_string, prevout_tx_hash, int(prev_idx), amount)
                     to_add.append((tx_hash, txin))
         if len(to_add):
             db.txin_store.add_entries(to_add)

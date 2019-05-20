@@ -103,7 +103,7 @@ class UTXO:
         txin = {
             'address': self.address,
             'value': self.value,
-            'prevout_n': self.out_index,
+            'prev_idx': self.out_index,
             'prev_hash': hex_str_to_hash(self.tx_hash),
             'sequence': 0xffffffff,
         }
@@ -558,7 +558,7 @@ class Abstract_Wallet:
                 is_mine = True
                 is_relevant = True
                 for txout in self.get_txouts(hash_to_hex_str(item['prev_hash']), addr):
-                    if txout.out_tx_n == item['prevout_n']:
+                    if txout.out_tx_n == item['prev_idx']:
                         value = txout.amount
                         break
                 else:
@@ -649,7 +649,7 @@ class Abstract_Wallet:
         sent = {}
         for tx_hash, height in h:
             for txin in self.get_txins(tx_hash, address):
-                sent[(txin.prevout_tx_hash, txin.prevout_n)] = height
+                sent[(txin.prevout_tx_hash, txin.prev_idx)] = height
         return received, sent
 
     def is_frozen_utxo(self, utxo):
@@ -793,15 +793,15 @@ class Abstract_Wallet:
             address = tx_input.get('address')
             if self.is_mine(address):
                 prev_hash_hex = hash_to_hex_str(tx_input['prev_hash'])
-                prevout_n = tx_input['prevout_n']
+                prev_idx = tx_input['prev_idx']
                 # find value from prev output
                 match = next((row for row in self.get_txouts(prev_hash_hex, address)
-                    if row.out_tx_n == prevout_n), None)
+                    if row.out_tx_n == prev_idx), None)
                 if match is not None:
-                    txin = DBTxInput(address.to_string(), prev_hash_hex, prevout_n, match.amount)
+                    txin = DBTxInput(address.to_string(), prev_hash_hex, prev_idx, match.amount)
                     txins.append((tx_hash, txin))
                 else:
-                    self.pruned_txo[(prev_hash_hex, prevout_n)] = tx_hash
+                    self.pruned_txo[(prev_hash_hex, prev_idx)] = tx_hash
 
         # add outputs
         for n, tx_output in enumerate(tx.outputs()):
@@ -838,7 +838,7 @@ class Abstract_Wallet:
             for txin_hash, txin in self.db.txin.get_all_entries().items():
                 if txin.prevout_tx_hash == tx_hash:
                     removal_txins.append((tx_hash, txin))
-                    self.pruned_txo[(txin.prevout_tx_hash, txin.prevout_n)] = txin_hash
+                    self.pruned_txo[(txin.prevout_tx_hash, txin.prev_idx)] = txin_hash
 
             removal_txins.extend(self.get_txins(tx_hash))
             if len(removal_txins):
