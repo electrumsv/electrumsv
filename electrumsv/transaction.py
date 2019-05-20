@@ -521,14 +521,14 @@ class Transaction:
         if len(self.inputs()) != len(signatures):
             raise RuntimeError('expected {} signatures; got {}'
                                .format(len(self.inputs()), len(signatures)))
-        for i, txin in enumerate(self.inputs()):
-            sig = bh2u(signatures[i] + bytes([self.nHashType()]))
-            logger.warning(f'Signature {i}: {sig}')
+        for txin, signature in zip(self.inputs(), signatures):
+            sig = bh2u(signature + bytes([self.nHashType()]))
+            logger.warning(f'Signature: {sig}')
             if sig in txin.get('signatures'):
                 continue
             pubkeys = [x_pubkey.to_public_key() for x_pubkey in txin['x_pubkeys']]
-            pre_hash = self.preimage_hash(i)
-            rec_sig_base = der_signature_to_compact(signatures[i])
+            pre_hash = self.preimage_hash(txin)
+            rec_sig_base = der_signature_to_compact(signature)
             for recid in range(4):
                 rec_sig = rec_sig_base + bytes([recid])
                 try:
@@ -543,7 +543,7 @@ class Transaction:
                         logger.exception('')
                         continue
                     j = pubkeys.index(public_key)
-                    logger.debug(f'adding sig {i} {j} {public_key} {sig}')
+                    logger.debug(f'adding sig {j} {public_key} {sig}')
                     self.add_signature_to_txin(txin, j, sig)
                     break
         # redo raw
@@ -684,16 +684,15 @@ class Transaction:
         '''Hash type in hex.'''
         return 0x01 | cls.SIGHASH_FORKID
 
-    def preimage_hash(self, txin_index):
-        return sha256d(bfh(self.serialize_preimage(txin_index)))
+    def preimage_hash(self, txin):
+        return sha256d(bfh(self.serialize_preimage(txin)))
 
-    def serialize_preimage(self, i):
+    def serialize_preimage(self, txin):
         nVersion = int_to_hex(self.version, 4)
         nHashType = int_to_hex(self.nHashType(), 4)
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
-        txin = inputs[i]
 
         hashPrevouts = bh2u(sha256d(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
         hashSequence = bh2u(sha256d(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
@@ -776,7 +775,7 @@ class Transaction:
 
     def sign(self, keypairs):
         assert all(isinstance(key, XPublicKey) for key in keypairs)
-        for i, txin in enumerate(self.inputs()):
+        for txin in self.inputs():
             num = txin['num_sig']
             x_pubkeys = txin['x_pubkeys']
             for j, x_pubkey in enumerate(x_pubkeys):
@@ -787,17 +786,16 @@ class Transaction:
                 if x_pubkey in keypairs.keys():
                     logger.debug("adding signature for %s", x_pubkey)
                     sec, compressed = keypairs.get(x_pubkey)
-                    sig = self.sign_txin(i, sec)
+                    sig = self.sign_txin(txin, sec)
                     txin['signatures'][j] = sig
                     if x_pubkey.kind() == 0xfd:
                         pubkey_bytes = PrivateKey(sec).public_key.to_bytes(compressed=compressed)
                         x_pubkeys[j] = XPublicKey(pubkey_bytes)
-                    self._inputs[i] = txin
         logger.debug("is_complete %s", self.is_complete())
         self.raw = self.serialize()
 
-    def sign_txin(self, txin_index, privkey_bytes):
-        pre_hash = self.preimage_hash(txin_index)
+    def sign_txin(self, txin, privkey_bytes):
+        pre_hash = self.preimage_hash(txin)
         privkey = PrivateKey(privkey_bytes)
         sig = privkey.sign(pre_hash, None)
         sig = bh2u(sig) + int_to_hex(self.nHashType(), 1)

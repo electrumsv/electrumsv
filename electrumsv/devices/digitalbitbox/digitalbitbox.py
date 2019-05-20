@@ -516,7 +516,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             pubkeyarray = []
 
             # Build hasharray from inputs
-            for i, txin in enumerate(tx.inputs()):
+            for txin in tx.inputs():
                 if txin['type'] != 'p2pkh':
                     p2pkhTransaction = False
 
@@ -524,7 +524,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     if x_pubkey.to_hex() in derivations:
                         index = derivations.get(x_pubkey.to_hex())
                         inputPath = "%s/%d/%d" % (self.get_derivation(), index[0], index[1])
-                        inputHash = sha256d(bytes.fromhex(tx.serialize_preimage(i)))
+                        inputHash = tx.preimage_hash(txin)
                         hasharray_i = {'hash': inputHash.hex(), 'keypath': inputPath}
                         hasharray.append(hasharray_i)
                         inputhasharray.append(inputHash)

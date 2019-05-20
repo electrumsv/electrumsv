@@ -59,7 +59,7 @@ class KeyStore:
 
     def get_tx_derivations(self, tx):
         keypairs = {}
-        for txin_index, txin in enumerate(tx.inputs()):
+        for txin in tx.inputs():
             sigs = txin['signatures']
             x_pubkeys = txin['x_pubkeys']
 
@@ -67,7 +67,7 @@ class KeyStore:
             used = set()
             sig_idx = len(sigs) - 1
             pub_idx = len(x_pubkeys) - 1
-            pre_hash = tx.preimage_hash(txin_index)
+            pre_hash = tx.preimage_hash(txin)
             while sig_idx >= 0:
                 sig = sigs[sig_idx]
                 sig_idx -= 1
