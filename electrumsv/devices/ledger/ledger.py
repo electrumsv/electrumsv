@@ -320,19 +320,17 @@ class Ledger_KeyStore(Hardware_KeyStore):
         changeAmount = None
         output = None
         outputAmount = None
-        p2shTransaction = False
         pin = ""
         self.get_client() # prompt for the PIN before displaying the dialog if necessary
+
+        # Sanity check
+        is_p2sh = any(txin['type'] == 'p2sh' for txin in tx.inputs())
+        if is_p2sh and not all(txin['type'] == 'p2sh' for txin in tx.inputs()):
+            self.give_error("P2SH / regular input mixed in same transaction not supported")
 
         # Fetch inputs of the transaction to sign
         derivations = self.get_tx_derivations(tx)
         for txin in tx.inputs():
-            if txin['type'] == 'coinbase':
-                self.give_error("Coinbase not supported")     # should never happen
-
-            if txin['type'] in ['p2sh']:
-                p2shTransaction = True
-
             for i, x_pubkey in enumerate(txin['x_pubkeys']):
                 if x_pubkey.to_hex() in derivations:
                     signingPos = i
@@ -344,22 +342,14 @@ class Ledger_KeyStore(Hardware_KeyStore):
 
             redeemScript = Transaction.get_preimage_script(txin)
             inputs.append([txin['prev_tx'].raw, txin['prevout_n'], redeemScript,
-                           txin['prevout_hash'], signingPos,
-                           txin.get('sequence', 0xffffffff - 1)])
+                           txin['prevout_hash'], signingPos, txin['sequence']])
             inputsPaths.append(hwAddress)
-
-        # Sanity check
-        if p2shTransaction:
-            for txin in tx.inputs():
-                if txin['type'] != 'p2sh':   # should never happen
-                    self.give_error(
-                        "P2SH / regular input mixed in same transaction not supported")
 
         # Concatenate all the tx outputs as binary
         txOutput = pack_list(tx.outputs(), TxOutput.to_bytes)
 
         # Recognize outputs - only one output and one change is authorized
-        if not p2shTransaction:
+        if not is_p2sh:
             for tx_output, info in zip(tx.outputs(), tx.output_info):
                 if (info is not None) and len(tx.outputs()) != 1:
                     index, xpubs, m = info
@@ -422,9 +412,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
         finally:
             self.handler.finished()
 
-        for i, txin in enumerate(tx.inputs()):
-            signingPos = inputs[i][4]
-            txin['signatures'][signingPos] = bh2u(signatures[i])
+        for txin, input, signature in zip(tx.inputs(), inputs, signatures):
+            txin['signatures'][input[4]] = bh2u(signature)
         tx.raw = tx.serialize()
 
     @set_and_unset_signing

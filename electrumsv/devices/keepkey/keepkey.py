@@ -73,9 +73,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         # path of the xpubs that are involved
         xpub_path = {}
         for txin in tx.inputs():
-            x_pubkeys = txin['x_pubkeys']
-            tx_hash = txin['prevout_hash']
-            for x_pubkey in x_pubkeys:
+            for x_pubkey in txin['x_pubkeys']:
                 if not x_pubkey.is_bip32_key():
                     continue
                 xpub = x_pubkey.bip32_extended_key()
@@ -290,7 +288,7 @@ class KeepKeyPlugin(HW_PluginBase):
     def sign_transaction(self, keystore, tx, xpub_path):
         self.xpub_path = xpub_path
         client = self.get_client(keystore)
-        inputs = self.tx_inputs(tx, True)
+        inputs = self.tx_inputs(tx)
         outputs = self.tx_outputs(keystore.get_derivation(), tx)
         signatures = client.sign_tx(self.get_coin_name(client), inputs, outputs,
                                     lock_time=tx.locktime)[0]
@@ -307,65 +305,51 @@ class KeepKeyPlugin(HW_PluginBase):
         client.get_address(Net.KEEPKEY_DISPLAY_COIN_NAME, address_n,
                            True, script_type=script_type)
 
-    def tx_inputs(self, tx, for_sig=False):
+    def tx_inputs(self, tx):
         inputs = []
         for txin in tx.inputs():
             txinputtype = self.types.TxInputType()
-            if txin['type'] == 'coinbase':
-                prev_hash = bytes(32)
-                prev_index = 0xffffffff  # signed int -1
+            txinputtype.prev_hash = bytes.fromhex(txin['prevout_hash'])
+            txinputtype.prev_index = txin['prevout_n']
+            txinputtype.sequence = txin['sequence']
+            txinputtype.amount = txin['value']
+
+            x_pubkeys = txin['x_pubkeys']
+            if len(x_pubkeys) == 1:
+                x_pubkey = x_pubkeys[0]
+                xpub, path = x_pubkey.bip32_extended_key_and_path()
+                xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
+                txinputtype.address_n.extend(xpub_n + path)
+                txinputtype.script_type = self.types.SPENDADDRESS
             else:
-                if for_sig:
-                    x_pubkeys = txin['x_pubkeys']
-                    if len(x_pubkeys) == 1:
-                        x_pubkey = x_pubkeys[0]
+                def f(x_pubkey):
+                    if x_pubkey.is_bip32_key():
                         xpub, path = x_pubkey.bip32_extended_key_and_path()
-                        xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
-                        txinputtype.address_n.extend(xpub_n + path)
-                        txinputtype.script_type = self.types.SPENDADDRESS
                     else:
-                        def f(x_pubkey):
-                            if x_pubkey.is_bip32_key():
-                                xpub, path = x_pubkey.bip32_extended_key_and_path()
-                            else:
-                                xpub = BIP32PublicKey(bfh(x_pubkey), NULL_DERIVATION, Net.COIN)
-                                xpub = xpub.to_extended_key_string()
-                                path = []
-                            node = self.ckd_public.deserialize(xpub)
-                            return self.types.HDNodePathType(node=node, address_n=path)
-                        pubkeys = [f(x) for x in x_pubkeys]
-                        multisig = self.types.MultisigRedeemScriptType(
-                            pubkeys=pubkeys,
-                            signatures=[bfh(x)[:-1] if x else b'' for x in txin.get('signatures')],
-                            m=txin.get('num_sig'),
-                        )
-                        script_type = self.types.SPENDMULTISIG
-                        txinputtype = self.types.TxInputType(
-                            script_type=script_type,
-                            multisig=multisig
-                        )
-                        # find which key is mine
-                        for x_pubkey in x_pubkeys:
-                            if x_pubkey.is_bip32_key():
-                                xpub, path = x_pubkey.bip32_extended_key_and_path()
-                                if xpub in self.xpub_path:
-                                    xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
-                                    txinputtype.address_n.extend(xpub_n + path)
-                                    break
-
-                prev_hash = bytes.fromhex(txin['prevout_hash'])
-                prev_index = txin['prevout_n']
-
-            if 'value' in txin:
-                txinputtype.amount = txin['value']
-            txinputtype.prev_hash = prev_hash
-            txinputtype.prev_index = prev_index
-
-            if 'scriptSig' in txin:
-                script_sig = bfh(txin['scriptSig'])
-                txinputtype.script_sig = script_sig
-
-            txinputtype.sequence = txin.get('sequence', 0xffffffff - 1)
+                        xpub = BIP32PublicKey(bfh(x_pubkey), NULL_DERIVATION, Net.COIN)
+                        xpub = xpub.to_extended_key_string()
+                        path = []
+                    node = self.ckd_public.deserialize(xpub)
+                    return self.types.HDNodePathType(node=node, address_n=path)
+                pubkeys = [f(x) for x in x_pubkeys]
+                multisig = self.types.MultisigRedeemScriptType(
+                    pubkeys=pubkeys,
+                    signatures=[bfh(x)[:-1] if x else b'' for x in txin['signatures']],
+                    m=txin['num_sig'],
+                )
+                script_type = self.types.SPENDMULTISIG
+                txinputtype = self.types.TxInputType(
+                    script_type=script_type,
+                    multisig=multisig
+                )
+                # find which key is mine
+                for x_pubkey in x_pubkeys:
+                    if x_pubkey.is_bip32_key():
+                        xpub, path = x_pubkey.bip32_extended_key_and_path()
+                        if xpub in self.xpub_path:
+                            xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
+                            txinputtype.address_n.extend(xpub_n + path)
+                            break
 
             inputs.append(txinputtype)
 

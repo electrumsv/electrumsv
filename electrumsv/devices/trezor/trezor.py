@@ -85,7 +85,6 @@ class TrezorKeyStore(Hardware_KeyStore):
         # path of the xpubs that are involved
         xpub_path = {}
         for txin in tx.inputs():
-            tx_hash = txin['prevout_hash']
             for x_pubkey in txin['x_pubkeys']:
                 if not x_pubkey.is_bip32_key():
                     continue
@@ -279,7 +278,7 @@ class TrezorPlugin(HW_PluginBase):
 
     def sign_transaction(self, keystore, tx, xpub_path):
         client = self.get_client(keystore)
-        inputs = self.tx_inputs(tx, xpub_path, True)
+        inputs = self.tx_inputs(tx, xpub_path)
         outputs = self.tx_outputs(keystore.get_derivation(), tx)
         details = SignTx(lock_time=tx.locktime)
         signatures, _ = client.sign_tx(self.get_coin_name(), inputs, outputs, details=details,
@@ -308,43 +307,25 @@ class TrezorPlugin(HW_PluginBase):
         script_type = self.get_trezor_input_script_type(multisig is not None)
         client.show_address(address_path, script_type, multisig)
 
-    def tx_inputs(self, tx, xpub_path, for_sig=False):
+    def tx_inputs(self, tx, xpub_path):
         inputs = []
         for txin in tx.inputs():
             txinputtype = TxInputType()
-            if txin['type'] == 'coinbase':
-                prev_hash = b"\x00"*32
-                prev_index = 0xffffffff  # signed int -1
-            else:
-                if for_sig:
-                    x_pubkeys = txin['x_pubkeys']
-                    xpubs = [x_pubkey.bip32_extended_key_and_path() for x_pubkey in x_pubkeys]
-                    multisig = self._make_multisig(txin.get('num_sig'), xpubs,
-                                                   txin.get('signatures'))
-                    script_type = self.get_trezor_input_script_type(multisig is not None)
-                    txinputtype = TxInputType(
-                        script_type=script_type,
-                        multisig=multisig)
-                    # find which key is mine
-                    for xpub, path in xpubs:
-                        if xpub in xpub_path:
-                            xpub_n = bip32_decompose_chain_string(xpub_path[xpub])
-                            txinputtype.address_n = xpub_n + path
-                            break
-
-                prev_hash = bfh(txin['prevout_hash'])
-                prev_index = txin['prevout_n']
-
-            if 'value' in txin:
-                txinputtype.amount = txin['value']
-            txinputtype.prev_hash = prev_hash
-            txinputtype.prev_index = prev_index
-
-            if 'scriptSig' in txin:
-                script_sig = bfh(txin['scriptSig'])
-                txinputtype.script_sig = script_sig
-
-            txinputtype.sequence = txin.get('sequence', 0xffffffff - 1)
+            txinputtype.prev_hash = bytes.fromhex(txin['prevout_hash'])
+            txinputtype.prev_index = txin['prevout_n']
+            txinputtype.sequence = txin['sequence']
+            txinputtype.amount = txin['value']
+            x_pubkeys = txin['x_pubkeys']
+            xpubs = [x_pubkey.bip32_extended_key_and_path() for x_pubkey in x_pubkeys]
+            multisig = self._make_multisig(txin['num_sig'], xpubs, txin['signatures'])
+            script_type = self.get_trezor_input_script_type(multisig is not None)
+            txinputtype = TxInputType(script_type=script_type, multisig=multisig)
+            # find which key is mine
+            for xpub, path in xpubs:
+                if xpub in xpub_path:
+                    xpub_n = bip32_decompose_chain_string(xpub_path[xpub])
+                    txinputtype.address_n = xpub_n + path
+                    break
 
             inputs.append(txinputtype)
 
