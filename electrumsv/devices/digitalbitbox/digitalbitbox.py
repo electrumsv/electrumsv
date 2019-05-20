@@ -625,7 +625,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             # Fill signatures
             if len(dbb_signatures) != len(tx.inputs()):
                 raise Exception("Incorrect number of transactions signed.") # Should never occur
-            for i, (txin, siginfo, pre_hash) in enumerate(
+            for txin, siginfo, pre_hash in enumerate(
                     zip(tx.inputs(), dbb_signatures, inputhasharray)):
                 num = txin['num_sig']
                 signatures = [sig for sig in txin['signatures'] if sig]
@@ -645,7 +645,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                         continue
                     sig = (compact_signature_to_der(compact_sig) +
                            bytes([Transaction.nHashType() & 255]))
-                    tx.add_signature_to_txin(i, pubkey_index, sig.hex())
+                    tx.add_signature_to_txin(txin, pubkey_index, sig.hex())
         except UserCancelled:
             raise
         except Exception as e:

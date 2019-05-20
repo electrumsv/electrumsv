@@ -544,14 +544,13 @@ class Transaction:
                         continue
                     j = pubkeys.index(public_key)
                     logger.debug(f'adding sig {i} {j} {public_key} {sig}')
-                    self.add_signature_to_txin(i, j, sig)
+                    self.add_signature_to_txin(txin, j, sig)
                     break
         # redo raw
         self.raw = self.serialize()
 
-    def add_signature_to_txin(self, i, signingPos, sig):
+    def add_signature_to_txin(self, txin, signingPos, sig):
         assert isinstance(sig, str)
-        txin = self._inputs[i]
         txin['signatures'][signingPos] = sig
         txin['scriptSig'] = None  # force re-serialization
         self.raw = None
