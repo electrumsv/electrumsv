@@ -158,7 +158,7 @@ class XPublicKey:
         return self.kind() not in (0x04, 0xfe)
 
     def __repr__(self):
-        return f'XPublicKey({self.raw.hex()})'
+        return f"XPublicKey('{self.raw.hex()}')"
 
 
 class UnknownAddress(object):
