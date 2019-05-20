@@ -44,12 +44,6 @@ from .transaction import XPublicKey
 logger = logs.get_logger("keystore")
 
 
-def _script_to_address(script_hex):
-    result = classify_output_script(Script.from_hex(script_hex))
-    assert isinstance(result, Address)
-    return result
-
-
 class KeyStore:
     def __init__(self):
         self.wallet_advice = {}
@@ -647,7 +641,7 @@ def load_keystore(storage, name):
     d = storage.get(name, {})
     t = d.get('type')
     if not t:
-        raise Exception('wallet format requires update')
+        raise ValueError('wallet format requires update')
     if t == 'old':
         k = Old_KeyStore(d)
     elif t == 'imported':
@@ -657,7 +651,7 @@ def load_keystore(storage, name):
     elif t == 'hardware':
         k = app_state.device_manager.create_keystore(d)
     else:
-        raise Exception('unknown wallet type', t)
+        raise ValueError('unknown wallet type', t)
     return k
 
 
