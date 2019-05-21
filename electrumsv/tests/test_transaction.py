@@ -62,50 +62,47 @@ class Test_BCDataStream(unittest.TestCase):
 class TestTransaction(unittest.TestCase):
 
     def test_tx_unsigned(self):
-        outputs = [TxOutput(20112408, Address.from_string(
-            '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())]
-        expected = {
-            'inputs': [{'address': Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN'),
-                        'num_sig': 1,
-                        'prev_hash': bytes.fromhex('49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'),
-                        'prev_idx': 1,
-                        'scriptSig': '01ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300',
-                        'sequence': 4294967294,
-                        'signatures': [NO_SIGNATURE],
-                        'type': 'p2pkh',
-                        'value': 20112600,
-                        'x_pubkeys': [XPublicKey('ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300')]}],
-            'lockTime': 507231,
-            'outputs': outputs,
-            'version': 1}
         tx = Transaction(unsigned_blob)
         calc = tx.deserialize()
-        self.assertEqual(calc, expected)
-        self.assertEqual(tx.deserialize(), None)
+        assert calc['version'] == 1
+        inputs = calc['inputs']
+        assert len(inputs) == 1
+        txin = inputs[0]
+        assert txin.prev_hash.hex() == '49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'
+        assert txin.prev_idx == 1
+        assert txin.script_sig.to_hex() == '01ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300'
+        assert txin.sequence == 4294967294
+        assert txin.value == 20112600
+        assert txin.signatures == [NO_SIGNATURE]
+        assert txin.x_pubkeys == [XPublicKey('ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300')]
+        assert txin.address == Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN')
+        assert txin.threshold == 1
+        assert calc['outputs'] == [TxOutput(20112408, Address.from_string(
+            '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())]
+        assert calc['lockTime'] == 507231
 
+        self.assertEqual(tx.deserialize(), None)
         self.assertEqual(tx.as_dict(), {'hex': unsigned_blob, 'complete': False})
-        self.assertEqual(tx.outputs(), outputs)
         self.assertEqual(tx.serialize(), unsigned_blob)
 
-
     def test_tx_signed(self):
-        expected = {
-            'inputs': [{'address': Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN'),
-                        'num_sig': 1,
-                        'prev_hash': bytes.fromhex('49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'),
-                        'prev_idx': 1,
-                        'scriptSig': '473044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f46885412103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166',
-                        'sequence': 4294967294,
-                        'signatures': [bytes.fromhex('3044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f4688541')],
-                        'type': 'p2pkh',
-                        'x_pubkeys': [XPublicKey('03b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166')]}],
-            'lockTime': 507231,
-            'outputs': [TxOutput(20112408, Address.from_string(
-                '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())],
-            'version': 1
-        }
         tx = Transaction(signed_blob)
-        self.assertEqual(tx.deserialize(), expected)
+        calc = tx.deserialize()
+        assert calc['version'] == 1
+        inputs = calc['inputs']
+        assert len(inputs) == 1
+        txin = inputs[0]
+        assert txin.prev_hash.hex() == '49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'
+        assert txin.prev_idx == 1
+        assert txin.script_sig.to_hex() == '473044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f46885412103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166'
+        assert txin.sequence == 4294967294
+        assert txin.signatures == [bytes.fromhex('3044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f4688541')]
+        assert txin.x_pubkeys == [XPublicKey('03b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166')]
+        assert txin.address == Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN')
+        assert txin.threshold == 1
+        assert calc['outputs'] == [TxOutput(20112408, Address.from_string(
+            '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())]
+        assert calc['lockTime'] == 507231
         self.assertEqual(tx.deserialize(), None)
         self.assertEqual(tx.as_dict(), {'hex': signed_blob, 'complete': True})
 

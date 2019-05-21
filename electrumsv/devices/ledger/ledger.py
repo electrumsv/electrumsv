@@ -21,7 +21,6 @@ try:
     from btchip.btchipComm import HIDDongleHIDAPI
     from btchip.btchip import btchip
     from btchip.btchipUtils import compress_public_key
-    from btchip.bitcoinTransaction import bitcoinTransaction
     from btchip.btchipFirmwareWizard import checkFirmware
     from btchip.btchipException import BTChipException
     BTCHIP = True
@@ -324,14 +323,14 @@ class Ledger_KeyStore(Hardware_KeyStore):
         self.get_client() # prompt for the PIN before displaying the dialog if necessary
 
         # Sanity check
-        is_p2sh = any(txin['type'] == 'p2sh' for txin in tx.inputs())
-        if is_p2sh and not all(txin['type'] == 'p2sh' for txin in tx.inputs()):
+        is_p2sh = any(txin.type() == 'p2sh' for txin in tx.inputs())
+        if is_p2sh and not all(txin.type() == 'p2sh' for txin in tx.inputs()):
             self.give_error("P2SH / regular input mixed in same transaction not supported")
 
         # Fetch inputs of the transaction to sign
         derivations = self.get_tx_derivations(tx)
         for txin in tx.inputs():
-            for i, x_pubkey in enumerate(txin['x_pubkeys']):
+            for i, x_pubkey in enumerate(txin.x_pubkeys):
                 if x_pubkey.to_hex() in derivations:
                     signingPos = i
                     s = derivations.get(x_pubkey.to_hex())
@@ -341,8 +340,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
                 self.give_error("No matching x_key for sign_transaction") # should never happen
 
             redeemScript = Transaction.get_preimage_script(txin)
-            inputs.append([txin['prev_tx'].raw, txin['prev_idx'], redeemScript,
-                           txin['prev_hash'], signingPos, txin['sequence']])
+            inputs.append([txin.value, txin.prev_idx, redeemScript,
+                           txin.prev_hash, signingPos, txin.sequence])
             inputsPaths.append(hwAddress)
 
         # Concatenate all the tx outputs as binary
@@ -361,14 +360,9 @@ class Ledger_KeyStore(Hardware_KeyStore):
 
         self.handler.show_message(_("Confirm Transaction on your Ledger device..."))
         try:
-            # Get trusted inputs from the original transactions
             for utxo in inputs:
                 sequence = int_to_hex(utxo[5], 4)
-                txtmp = bitcoinTransaction(bfh(utxo[0]))
-                tmp = utxo[3]
-                tmp += bfh(int_to_hex(utxo[1], 4))
-                tmp += txtmp.outputs[utxo[1]].amount
-                chipInputs.append({'value' : tmp, 'witness' : True, 'sequence' : sequence})
+                chipInputs.append({'value' : utxo[0], 'witness' : True, 'sequence' : sequence})
                 redeemScripts.append(bfh(utxo[2]))
 
             # Sign all inputs
@@ -413,7 +407,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             self.handler.finished()
 
         for txin, input, signature in zip(tx.inputs(), inputs, signatures):
-            txin['signatures'][input[4]] = signature
+            txin.signatures[input[4]] = signature
         tx.raw = tx.serialize()
 
     @set_and_unset_signing

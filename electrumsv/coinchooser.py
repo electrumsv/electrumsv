@@ -26,7 +26,7 @@
 from collections import defaultdict, namedtuple
 from math import floor, log10
 
-from bitcoinx import TxOutput, sha256, pack_le_uint32
+from bitcoinx import TxOutput, sha256
 
 from .bitcoin import COIN
 from .logs import logs
@@ -99,7 +99,7 @@ class CoinChooserBase:
         def make_Bucket(desc, coins):
             size = sum(Transaction.estimated_input_size(coin)
                        for coin in coins)
-            value = sum(coin['value'] for coin in coins)
+            value = sum(coin.value for coin in coins)
             return Bucket(desc, size, value, coins)
 
         return [make_Bucket(key, value) for key, value in buckets.items()]
@@ -179,8 +179,7 @@ class CoinChooserBase:
         added to the transaction fee.'''
 
         # Deterministic randomness from coins
-        utxos = [c['prev_hash'] + pack_le_uint32(c['prev_idx']) for c in coins]
-        self.p = PRNG(b''.join(sorted(utxos)))
+        self.p = PRNG(b''.join(sorted(c.prevout_bytes() for c in coins)))
 
         # Copy the ouputs so when adding change we don't modify "outputs"
         tx = Transaction.from_io([], outputs)
@@ -266,7 +265,7 @@ class CoinChooserPrivacy(CoinChooserRandom):
     Third, it penalizes change that is too big.'''
 
     def keys(self, coins):
-        return [coin['address'] for coin in coins]
+        return [coin.address for coin in coins]
 
     def penalty_func(self, tx):
         out_values = [output.value for output in tx.outputs()]

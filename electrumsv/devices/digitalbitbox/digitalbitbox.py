@@ -517,10 +517,10 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
 
             # Build hasharray from inputs
             for txin in tx.inputs():
-                if txin['type'] != 'p2pkh':
+                if txin.type() != 'p2pkh':
                     p2pkhTransaction = False
 
-                for x_pubkey in txin['x_pubkeys']:
+                for x_pubkey in txin.x_pubkeys:
                     if x_pubkey.to_hex() in derivations:
                         index = derivations.get(x_pubkey.to_hex())
                         inputPath = "%s/%d/%d" % (self.get_derivation(), index[0], index[1])
@@ -548,14 +548,15 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 class CustomTXSerialization(Transaction):
                     @classmethod
                     def input_script(self, txin, estimate_size=False):
-                        if txin['type'] == 'p2pkh':
+                        type_ = txin.type()
+                        if type_ == 'p2pkh':
                             return Transaction.get_preimage_script(txin)
-                        if txin['type'] == 'p2sh':
+                        if type_ == 'p2sh':
                             # Multisig verification has partial support, but is
                             # disabled. This is the expected serialization though, so we
                             # leave it here until we activate it.
                             return '00' + push_script(Transaction.get_preimage_script(txin))
-                        raise Exception("unsupported type %s" % txin['type'])
+                        raise RuntimeError(f'unsupported type {type_}')
                 tx_dbb_serialized = CustomTXSerialization(tx.serialize()).serialize()
             else:
                 # We only need this for the signing echo / verification.
@@ -629,7 +630,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     zip(tx.inputs(), dbb_signatures, inputhasharray)):
                 if is_txin_complete(txin):
                     continue
-                for pubkey_index, x_pubkey in enumerate(txin['x_pubkeys']):
+                for pubkey_index, x_pubkey in enumerate(txin.x_pubkeys):
                     compact_sig = bytes.fromhex(siginfo['sig'])
                     if 'recid' in siginfo:
                         # firmware > v2.1.1

@@ -34,7 +34,7 @@ import sys
 
 from bitcoinx import (
     PrivateKey, PublicKey, Address, P2MultiSig_Output, P2SH_Address, hash160, TxOutput,
-    hex_str_to_hash,
+    hex_str_to_hash, Script,
 )
 
 from .app_state import app_state
@@ -44,7 +44,7 @@ from .exchange_rate import FxTask
 from .i18n import _
 from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
-from .transaction import Transaction, XPublicKey
+from .transaction import Transaction, XPublicKey, XTxInput, NO_SIGNATURE
 from .util import bh2u, format_satoshis, json_decode, to_bytes
 
 
@@ -252,24 +252,33 @@ class Commands:
         inputs = jsontx.get('inputs')
         outputs = jsontx.get('outputs')
         locktime = jsontx.get('locktime', 0)
-        for txin in inputs:
-            if txin.get('output'):
-                prev_hash, prev_idx = txin['output'].split(':')
-                txin['prev_idx'] = int(prev_idx)
-                txin['prev_hash'] = hex_str_to_hash(prev_hash)
+
+        # This might need work
+        def to_tx_input(txin):
+            prev_hash, prev_idx = txin['output'].split(':')
+            x_pubkeys = []
+            value = txin.get('value')
             sec = txin.get('privkey')
+            threshold = 1
             if sec:
                 privkey = PrivateKey.from_text(sec)
-                txin_type, privkey, compressed = (
-                    'p2pkh', privkey.to_bytes(), privkey.is_compressed()
-                )
+                privkey, compressed = privkey.to_bytes(), privkey.is_compressed()
                 x_pubkey = XPublicKey(privkey.public_key.to_hex())
                 keypairs[x_pubkey] = privkey, compressed
-                txin['type'] = txin_type
-                txin['x_pubkeys'] = [x_pubkey]
-                txin['signatures'] = [None]
-                txin['num_sig'] = 1
+                x_pubkeys = [x_pubkey]
+            return XTxInput(
+                prev_hash=hex_str_to_hash(prev_hash),
+                prev_idx=int(prev_idx),
+                script_sig=Script(),
+                sequence=0xffffffff,
+                value=value,
+                x_pubkeys=x_pubkeys,
+                address=None,
+                threshold=threshold,
+                signatures=[NO_SIGNATURE] * len(x_pubkeys),
+            )
 
+        inputs = [to_tx_input(txin) for txin in inputs]
         outputs = [TxOutput(output['value'], Address.from_string(output['address']).to_script())
                    for output in outputs]
         tx = Transaction.from_io(inputs, outputs, locktime=locktime)

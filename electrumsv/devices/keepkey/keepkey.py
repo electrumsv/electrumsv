@@ -73,7 +73,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         # path of the xpubs that are involved
         xpub_path = {}
         for txin in tx.inputs():
-            for x_pubkey in txin['x_pubkeys']:
+            for x_pubkey in txin.x_pubkeys:
                 if not x_pubkey.is_bip32_key():
                     continue
                 xpub = x_pubkey.bip32_extended_key()
@@ -309,12 +309,12 @@ class KeepKeyPlugin(HW_PluginBase):
         inputs = []
         for txin in tx.inputs():
             txinputtype = self.types.TxInputType()
-            txinputtype.prev_hash = bytes(reversed(txin['prev_hash']))
-            txinputtype.prev_index = txin['prev_idx']
-            txinputtype.sequence = txin['sequence']
-            txinputtype.amount = txin['value']
+            txinputtype.prev_hash = bytes(reversed(txin.prev_hash))
+            txinputtype.prev_index = txin.prev_idx
+            txinputtype.sequence = txin.sequence
+            txinputtype.amount = txin.value
 
-            x_pubkeys = txin['x_pubkeys']
+            x_pubkeys = txin.x_pubkeys
             if len(x_pubkeys) == 1:
                 x_pubkey = x_pubkeys[0]
                 xpub, path = x_pubkey.bip32_extended_key_and_path()
@@ -335,7 +335,7 @@ class KeepKeyPlugin(HW_PluginBase):
                 multisig = self.types.MultisigRedeemScriptType(
                     pubkeys=pubkeys,
                     signatures=txin_stripped_signatures_with_blanks(txin),
-                    m=txin['num_sig'],
+                    m=txin.threshold,
                 )
                 script_type = self.types.SPENDMULTISIG
                 txinputtype = self.types.TxInputType(

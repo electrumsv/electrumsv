@@ -42,7 +42,7 @@ from typing import Optional, Union, Tuple, List, Any
 from aiorpcx import run_in_thread
 from bitcoinx import (
     PrivateKey, PublicKey, P2MultiSig_Output, Address, hash160, P2SH_Address,
-    TxOutput, classify_output_script, P2PKH_Address, P2PK_Output,
+    TxOutput, classify_output_script, P2PKH_Address, P2PK_Output, Script,
     hex_str_to_hash, hash_to_hex_str, sha256,
 )
 
@@ -61,7 +61,8 @@ from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type
 from .transaction import (
-    Transaction, classify_tx_output, tx_output_to_display_text, XPublicKey, NO_SIGNATURE
+    Transaction, classify_tx_output, tx_output_to_display_text, XPublicKey, NO_SIGNATURE,
+    XTxInput
 )
 from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxFlags, TxData, TxProof
 from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
@@ -100,34 +101,32 @@ class UTXO:
         return ':'.join((self.tx_hash, str(self.out_index)))
 
     def to_tx_input(self):
-        txin = {
-            'address': self.address,
-            'value': self.value,
-            'prev_idx': self.out_index,
-            'prev_hash': hex_str_to_hash(self.tx_hash),
-            'sequence': 0xffffffff,
-        }
-
         kind = classify_output_script(self.script_pubkey)
         if isinstance(kind, P2PKH_Address):
-            txin['type'] = 'p2pkh'
-            txin['num_sig'] = 1
-            # _add_input_sig_info() with replace with public key
-            txin['x_pubkeys'] = [XPublicKey('fd' + self.script_pubkey.to_hex())]
+            threshold = 1
+            # _add_input_sig_info() will replace with public key
+            x_pubkeys = [XPublicKey('fd' + self.script_pubkey.to_hex())]
         elif isinstance(kind, P2SH_Address):
-            txin['type'] = 'p2sh'
-            # _add_input_sig_info() with replace with public key
-            txin['x_pubkeys'] = []
-            txin['num_sig'] = 0
+            # _add_input_sig_info() will replace with public key
+            threshold = 0
+            x_pubkeys = []
         elif isinstance(kind, P2PK_Output):
-            txin['type'] = 'p2pk'
-            txin['num_sig'] = 1
-            txin['x_pubkeys'] = [XPublicKey(kind.public_key.to_bytes())]
+            threshold = 1
+            x_pubkeys = [XPublicKey(kind.public_key.to_bytes())]
         else:
             raise RuntimeError(f'cannot spend {self}')
 
-        txin['signatures'] = [NO_SIGNATURE] * len(txin['x_pubkeys'])
-        return txin
+        return XTxInput(
+            prev_hash=hex_str_to_hash(self.tx_hash),
+            prev_idx=self.out_index,
+            script_sig=Script(),
+            sequence=0xffffffff,
+            value=self.value,
+            x_pubkeys=x_pubkeys,
+            address=self.address,
+            threshold=threshold,
+            signatures=[NO_SIGNATURE] * len(x_pubkeys),
+        )
 
 
 def dust_threshold(network):
@@ -552,13 +551,13 @@ class Abstract_Wallet:
         is_pruned = False
         is_partial = False
         v_in = v_out = v_out_mine = 0
-        for item in tx.inputs():
-            addr = item['address']
+        for txin in tx.inputs():
+            addr = txin.address
             if addr in addresses:
                 is_mine = True
                 is_relevant = True
-                for txout in self.get_txouts(hash_to_hex_str(item['prev_hash']), addr):
-                    if txout.out_tx_n == item['prev_idx']:
+                for txout in self.get_txouts(hash_to_hex_str(txin.prev_hash), addr):
+                    if txout.out_tx_n == txin.prev_idx:
                         value = txout.amount
                         break
                 else:
@@ -783,17 +782,17 @@ class Abstract_Wallet:
             self._update_transaction_xputs(tx_hash, tx)
 
     def _update_transaction_xputs(self, tx_hash: str, tx: Transaction) -> None:
-        is_coinbase = tx.inputs()[0]['type'] == 'coinbase'
+        is_coinbase = tx.inputs()[0].is_coinbase()
         # We batch the adding of inputs and outputs as it is a thousand times faster.
         txins = []
         txouts = []
 
         # add inputs
         for tx_input in tx.inputs():
-            address = tx_input.get('address')
+            address = tx_input.address
             if self.is_mine(address):
-                prev_hash_hex = hash_to_hex_str(tx_input['prev_hash'])
-                prev_idx = tx_input['prev_idx']
+                prev_hash_hex = hash_to_hex_str(tx_input.prev_hash)
+                prev_idx = tx_input.prev_idx
                 # find value from prev output
                 match = next((row for row in self.get_txouts(prev_hash_hex, address)
                     if row.out_tx_n == prev_idx), None)
@@ -945,10 +944,12 @@ class Abstract_Wallet:
                 tx.deserialize()
                 input_addresses = []
                 output_addresses = []
-                for x in tx.inputs():
-                    if x['type'] == 'coinbase': continue
-                    addr = x.get('address')
-                    if addr is None: continue
+                for txin in tx.inputs():
+                    if txin.is_coinbase():
+                        continue
+                    addr = tx.address
+                    if addr is None:
+                        continue
                     input_addresses.append(addr.to_string())
                 for tx_output in tx.outputs():
                     text, kind = tx_output_to_display_text(tx_output)
@@ -1033,7 +1034,7 @@ class Abstract_Wallet:
             tx = coin_chooser.make_tx(inputs, outputs, change_addrs[:max_change],
                                       fee_estimator, self.dust_threshold())
         else:
-            sendable = sum(x['value'] for x in inputs)
+            sendable = sum(txin.value for txin in inputs)
             outputs[all_index].value = 0
             tx = Transaction.from_io(inputs, outputs)
             fee = fee_estimator(tx.estimated_size())
@@ -1160,7 +1161,7 @@ class Abstract_Wallet:
             # by giving them the sequence number ahead of time
             if isinstance(k, BIP32_KeyStore):
                 for txin in tx.inputs():
-                    for x_pubkey in txin['x_pubkeys']:
+                    for x_pubkey in txin.x_pubkeys:
                         addr = x_pubkey.to_address()
                         try:
                             c, index = self.get_address_index(addr)
@@ -1182,15 +1183,7 @@ class Abstract_Wallet:
             tx = Transaction(tx_hex)
         return tx
 
-    def add_input_values_to_tx(self, tx):
-        """ add input values to the tx, for signing"""
-        for txin in tx.inputs():
-            assert 'value' in txin
-
     def add_hw_info(self, tx):
-        for txin in tx.inputs():
-            if 'prev_tx' not in txin:
-                txin['prev_tx'] = self.get_input_tx(hash_to_hex_str(txin['prev_hash']))
         # add output info for hw wallets
         info = []
         xpubs = self.get_master_public_keys()
@@ -1211,8 +1204,6 @@ class Abstract_Wallet:
     def sign_transaction(self, tx: Transaction, password: str) -> None:
         if self.is_watching_only():
             return
-        # add input values for signing
-        self.add_input_values_to_tx(tx)
         # hardware wallets require extra info
         if any([(isinstance(k, Hardware_KeyStore) and k.can_sign(tx))
                 for k in self.get_keystores()]):
@@ -1696,10 +1687,10 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         return self.keystore.export_private_key(pubkey, password)
 
     def _add_input_sig_info(self, txin):
-        address = txin['address']
+        address = txin.address
         if self.is_mine(address):
             pubkey = self.keystore.address_to_pubkey(address)
-            txin['x_pubkeys'] = [XPublicKey(pubkey.to_bytes())]
+            txin.x_pubkeys = [XPublicKey(pubkey.to_bytes())]
 
     def pubkeys_to_address(self, pubkey):
         pubkey = PublicKey.from_hex(pubkey)
@@ -1854,11 +1845,11 @@ class Simple_Deterministic_Wallet(Simple_Wallet, Deterministic_Wallet):
         return [self.get_public_key(address)]
 
     def _add_input_sig_info(self, txin):
-        address = txin['address']
+        address = txin.address
         if self.is_mine(address):
             derivation = self.get_address_index(address)
             x_pubkey = self.keystore.get_xpubkey(*derivation)
-            txin['x_pubkeys'] = [x_pubkey]
+            txin.x_pubkeys = [x_pubkey]
 
     def get_master_public_key(self):
         return self.keystore.get_master_public_key()
@@ -1944,16 +1935,16 @@ class Multisig_Wallet(Deterministic_Wallet):
         return ''.join(sorted(self.get_master_public_keys()))
 
     def _add_input_sig_info(self, txin):
-        address = txin['address']
+        address = txin.address
         if self.is_mine(address):
             derivation = self.get_address_index(address)
             x_pubkeys = [k.get_xpubkey(*derivation) for k in self.get_keystores()]
             # Sort them using the order of the realized pubkeys
             sorted_pairs = sorted((x_pubkey.to_public_key_hex(), x_pubkey)
                                   for x_pubkey in x_pubkeys)
-            txin['x_pubkeys'] = [x_pubkey for _hex, x_pubkey in sorted_pairs]
-            txin['signatures'] = [NO_SIGNATURE] * len(x_pubkeys)
-            txin['num_sig'] = self.m
+            txin.x_pubkeys = [x_pubkey for _hex, x_pubkey in sorted_pairs]
+            txin.signatures = [NO_SIGNATURE] * len(x_pubkeys)
+            txin.threshold = self.m
 
 
 wallet_types = ['standard', 'multisig', 'imported']

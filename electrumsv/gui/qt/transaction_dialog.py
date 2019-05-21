@@ -315,13 +315,13 @@ class TxDialog(QDialog, MessageBoxMixin):
         i_text.clear()
         cursor = i_text.textCursor()
         for txin in self.tx.inputs():
-            if txin['type'] == 'coinbase':
+            if txin.is_coinbase():
                 cursor.insertText('coinbase')
             else:
-                prev_hash = hash_to_hex_str(txin['prev_hash'])
-                prev_idx = txin['prev_idx']
+                prev_hash = hash_to_hex_str(txin.prev_hash)
+                prev_idx = txin.prev_idx
                 cursor.insertText(f'{prev_hash}:{prev_idx:<6d}', ext)
-                addr = txin['address']
+                addr = txin.address
                 if isinstance(addr, PublicKey):
                     addr = addr.toAddress()
                 if addr is None:
@@ -329,8 +329,8 @@ class TxDialog(QDialog, MessageBoxMixin):
                 else:
                     addr_text = addr.to_string()
                 cursor.insertText(addr_text, text_format(addr))
-                if txin['value'] is not None:
-                    cursor.insertText(format_amount(txin['value']), ext)
+                if txin.value is not None:
+                    cursor.insertText(format_amount(txin.value), ext)
             cursor.insertBlock()
 
         o_text.clear()

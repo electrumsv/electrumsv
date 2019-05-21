@@ -1049,6 +1049,7 @@ class Network:
                 except CancelledError:
                     had_timeout = True
                 except Exception as e:
+                    logger.exception(e)
                     logger.error(f'fetching transaction {tx_hash}: {e}')
                 else:
                     wallet.add_transaction(tx_hash, tx)
