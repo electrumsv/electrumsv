@@ -66,12 +66,6 @@ def tx_output_to_display_text(tx_output: TxOutput):
     return text, kind
 
 
-def _validate_outputs(outputs):
-    assert all(isinstance(output, TxOutput) for output in outputs)
-    assert all(isinstance(output.script_pubkey, Script) for output in outputs)
-    assert all(isinstance(output.value, int) for output in outputs)
-
-
 class XPublicKey:
 
     def __init__(self, raw):
@@ -388,7 +382,6 @@ class Transaction(Tx):
 
     @classmethod
     def from_io(cls, inputs, outputs, locktime=0):
-        _validate_outputs(outputs)
         return cls(version=1, inputs=inputs, outputs=outputs.copy(), locktime=locktime)
 
     @classmethod
@@ -489,13 +482,6 @@ class Transaction(Tx):
             return None
         ser = self.serialize()
         return bh2u(sha256d(bfh(ser))[::-1])
-
-    def add_inputs(self, inputs):
-        self.inputs.extend(inputs)
-
-    def add_outputs(self, outputs):
-        _validate_outputs(outputs)
-        self.outputs.extend(outputs)
 
     def input_value(self):
         return sum(txin.value for txin in self.inputs)

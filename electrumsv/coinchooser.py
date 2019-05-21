@@ -198,14 +198,14 @@ class CoinChooserBase:
         buckets = self.choose_buckets(buckets, sufficient_funds,
                                       self.penalty_func(tx))
 
-        tx.add_inputs([coin for b in buckets for coin in b.coins])
+        tx.inputs.extend(coin for b in buckets for coin in b.coins)
         tx_size = base_size + sum(bucket.size for bucket in buckets)
 
         # This takes a count of change outputs and returns a tx fee;
         # each pay-to-bitcoin-address output serializes as 34 bytes
         fee = lambda count: fee_estimator(tx_size + count * 34)
         change, dust = self.change_outputs(tx, change_addrs, fee, dust_threshold)
-        tx.add_outputs(change)
+        tx.outputs.extend(change)
 
         logger.debug("using %d inputs", len(tx.inputs))
         logger.debug("using buckets: %s", [bucket.desc for bucket in buckets])
