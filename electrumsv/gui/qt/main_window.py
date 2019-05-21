@@ -61,7 +61,7 @@ from electrumsv.network import broadcast_failure_reason
 from electrumsv.networks import Net
 from electrumsv.paymentrequest import PR_PAID
 from electrumsv.transaction import (
-    Transaction, SerializationError, tx_from_str, tx_output_to_display_text,
+    Transaction, tx_from_str, tx_output_to_display_text,
 )
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, format_fee_satoshis,
@@ -2476,7 +2476,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             tx = self.tx_from_text(text)
             if tx:
                 self.show_transaction(tx)
-        except (SerializationError, Exception) as reason:
+        except Exception as reason:
             self.logger.exception(reason)
             self.show_critical(_("ElectrumSV was unable to read the transaction:") +
                                "\n" + str(reason))

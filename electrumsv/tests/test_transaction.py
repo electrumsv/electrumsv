@@ -6,9 +6,8 @@ from bitcoinx import (
     P2PKH_Address, P2SH_Address, hash160
 )
 
-from electrumsv import transaction
 from electrumsv.keystore import Old_KeyStore, BIP32_KeyStore
-from electrumsv.transaction import XPublicKey, Transaction, multisig_script, NO_SIGNATURE
+from electrumsv.transaction import XPublicKey, Transaction, NO_SIGNATURE
 from electrumsv.util import bh2u
 
 
@@ -17,47 +16,6 @@ unsigned_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b64
 signed_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000006a473044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f46885412103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166feffffff0118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700'
 v2_blob = "0200000001191601a44a81e061502b7bfbc6eaa1cef6d1e6af5308ef96c9342f71dbf4b9b5000000006b483045022100a6d44d0a651790a477e75334adfb8aae94d6612d01187b2c02526e340a7fd6c8022028bdf7a64a54906b13b145cd5dab21a26bd4b85d6044e9b97bceab5be44c2a9201210253e8e0254b0c95776786e40984c1aa32a7d03efa6bdacdea5f421b774917d346feffffff026b20fa04000000001976a914024db2e87dd7cfd0e5f266c5f212e21a31d805a588aca0860100000000001976a91421919b94ae5cefcdf0271191459157cdb41c4cbf88aca6240700"
 
-
-class Test_BCDataStream(unittest.TestCase):
-
-    def test_compact_size(self):
-        s = transaction._BCDataStream()
-        values = [0, 1, 252, 253, 2**16-1, 2**16, 2**32-1, 2**32, 2**64-1]
-        for v in values:
-            s.write_compact_size(v)
-
-        with self.assertRaises(transaction.SerializationError):
-            s.write_compact_size(-1)
-
-        self.assertEqual(bh2u(s.input),
-                          '0001fcfdfd00fdfffffe00000100feffffffffff0000000001000000ffffffffffffffffff')
-        for v in values:
-            self.assertEqual(s.read_compact_size(), v)
-
-        with self.assertRaises(transaction.SerializationError):
-            s.read_compact_size()
-
-    def test_string(self):
-        s = transaction._BCDataStream()
-        with self.assertRaises(transaction.SerializationError):
-            s.read_string()
-
-        msgs = ['Hello', ' ', 'World', '', '!']
-        for msg in msgs:
-            s.write_string(msg)
-        for msg in msgs:
-            self.assertEqual(s.read_string(), msg)
-
-        with self.assertRaises(transaction.SerializationError):
-            s.read_string()
-
-    def test_bytes(self):
-        s = transaction._BCDataStream()
-        s.write(b'foobar')
-        self.assertEqual(s.read_bytes(3), b'foo')
-        self.assertEqual(s.read_bytes(2), b'ba')
-        self.assertEqual(s.read_bytes(4), b'r')
-        self.assertEqual(s.read_bytes(1), b'')
 
 class TestTransaction(unittest.TestCase):
 
