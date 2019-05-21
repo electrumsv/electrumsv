@@ -644,7 +644,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                         continue
                     full_sig = (compact_signature_to_der(compact_sig) +
                                 bytes([Transaction.nHashType() & 255]))
-                    tx.add_signature_to_txin(txin, pubkey_index, full_sig)
+                    txin.signatures[pubkey_index] = full_sig
         except UserCancelled:
             raise
         except Exception as e:

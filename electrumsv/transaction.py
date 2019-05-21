@@ -436,12 +436,8 @@ class Transaction(Tx):
                         continue
                     j = pubkeys.index(public_key)
                     logger.debug(f'adding sig {j} {public_key} {full_sig}')
-                    self.add_signature_to_txin(txin, j, full_sig)
+                    txin.signatures[j] = full_sig
                     break
-
-    def add_signature_to_txin(self, txin, signingPos, sig):
-        assert isinstance(sig, bytes)
-        txin.signatures[signingPos] = sig
 
     @classmethod
     def get_siglist(self, txin, estimate_size=False):
