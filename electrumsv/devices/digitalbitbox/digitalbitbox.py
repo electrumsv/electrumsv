@@ -516,7 +516,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             pubkeyarray = []
 
             # Build hasharray from inputs
-            for txin in tx.inputs():
+            for txin in tx.inputs:
                 if txin.type() != 'p2pkh':
                     p2pkhTransaction = False
 
@@ -624,10 +624,10 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 dbb_signatures.extend(reply['sign'])
 
             # Fill signatures
-            if len(dbb_signatures) != len(tx.inputs()):
-                raise Exception("Incorrect number of transactions signed.") # Should never occur
+            if len(dbb_signatures) != len(tx.inputs):
+                raise RuntimeError("Incorrect number of transactions signed")
             for txin, siginfo, pre_hash in enumerate(
-                    zip(tx.inputs(), dbb_signatures, inputhasharray)):
+                    zip(tx.inputs, dbb_signatures, inputhasharray)):
                 if is_txin_complete(txin):
                     continue
                 for pubkey_index, x_pubkey in enumerate(txin.x_pubkeys):

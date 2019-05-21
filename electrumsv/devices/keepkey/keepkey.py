@@ -72,7 +72,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
             return
         # path of the xpubs that are involved
         xpub_path = {}
-        for txin in tx.inputs():
+        for txin in tx.inputs:
             for x_pubkey in txin.x_pubkeys:
                 if not x_pubkey.is_bip32_key():
                     continue
@@ -307,7 +307,7 @@ class KeepKeyPlugin(HW_PluginBase):
 
     def tx_inputs(self, tx):
         inputs = []
-        for txin in tx.inputs():
+        for txin in tx.inputs:
             txinputtype = self.types.TxInputType()
             txinputtype.prev_hash = bytes(reversed(txin.prev_hash))
             txinputtype.prev_index = txin.prev_idx
@@ -359,7 +359,7 @@ class KeepKeyPlugin(HW_PluginBase):
         outputs = []
         has_change = False
 
-        for tx_output, info in zip(tx.outputs(), tx.output_info):
+        for tx_output, info in zip(tx.outputs, tx.output_info):
             if info is not None and not has_change:
                 has_change = True # no more than one change address
                 index, xpubs, m = info

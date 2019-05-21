@@ -83,7 +83,7 @@ class TrezorKeyStore(Hardware_KeyStore):
             return
         # path of the xpubs that are involved
         xpub_path = {}
-        for txin in tx.inputs():
+        for txin in tx.inputs:
             for x_pubkey in txin.x_pubkeys:
                 if not x_pubkey.is_bip32_key():
                     continue
@@ -308,7 +308,7 @@ class TrezorPlugin(HW_PluginBase):
 
     def tx_inputs(self, tx, xpub_path):
         inputs = []
-        for txin in tx.inputs():
+        for txin in tx.inputs:
             txinputtype = TxInputType()
             txinputtype.prev_hash = bytes(reversed(txin.prev_hash))
             txinputtype.prev_index = txin.prev_idx
@@ -376,7 +376,7 @@ class TrezorPlugin(HW_PluginBase):
 
         outputs = []
 
-        for tx_output, info in zip(tx.outputs(), tx.output_info):
+        for tx_output, info in zip(tx.outputs, tx.output_info):
             if info:
                 # Send derivations of addresses in our wallet
                 index, xpubs, m = info

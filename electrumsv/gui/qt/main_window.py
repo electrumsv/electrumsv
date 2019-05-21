@@ -2428,11 +2428,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return None
         hex_str = tx_from_str(txt)
         tx = Transaction.from_hex(hex_str)
-        tx.deserialize()
         if self.wallet:
             my_coins = self.wallet.get_spendable_coins(None, self.config)
             my_outpoints = [coin.key() for coin in my_coins]
-            for txin in tx.inputs():
+            for txin in tx.inputs:
                 outpoint = (txin.prev_hash, txin.prev_idx)
                 if outpoint in my_outpoints:
                     my_index = my_outpoints.index(outpoint)

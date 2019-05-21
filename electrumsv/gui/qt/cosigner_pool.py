@@ -128,7 +128,7 @@ class CosignerPool(object):
 
     def cosigner_can_sign(self, tx, cosigner_xpub):
         xpub_set = set([])
-        for txin in tx.inputs():
+        for txin in tx.inputs:
             for x_pubkey in txin.x_pubkeys:
                 if x_pubkey.is_bip32_key():
                     xpub_set.add(x_pubkey.bip32_extended_key())

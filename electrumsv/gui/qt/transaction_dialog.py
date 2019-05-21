@@ -58,7 +58,6 @@ class TxDialog(QDialog, MessageBoxMixin):
         # Take a copy; it might get updated in the main window by the FX thread.  If this
         # happens during or after a long sign operation the signatures are lost.
         self.tx = copy.deepcopy(tx)
-        self.tx.deserialize()
         self.main_window = parent
         self.wallet = parent.wallet
         self.prompt_if_unsaved = prompt_if_unsaved
@@ -281,14 +280,14 @@ class TxDialog(QDialog, MessageBoxMixin):
         if self.tx.locktime > 0:
             vbox.addWidget(QLabel("LockTime: %d\n" % self.tx.locktime))
 
-        vbox.addWidget(QLabel(_("Inputs") + ' (%d)'%len(self.tx.inputs())))
+        vbox.addWidget(QLabel(_("Inputs") + ' (%d)'%len(self.tx.inputs)))
 
         i_text = QTextEdit()
         i_text.setFont(self.monospace_font)
         i_text.setReadOnly(True)
 
         vbox.addWidget(i_text)
-        vbox.addWidget(QLabel(_("Outputs") + ' (%d)'%len(self.tx.outputs())))
+        vbox.addWidget(QLabel(_("Outputs") + ' (%d)'%len(self.tx.outputs)))
         o_text = QTextEdit()
         o_text.setFont(self.monospace_font)
         o_text.setReadOnly(True)
@@ -314,7 +313,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         i_text.clear()
         cursor = i_text.textCursor()
-        for txin in self.tx.inputs():
+        for txin in self.tx.inputs:
             if txin.is_coinbase():
                 cursor.insertText('coinbase')
             else:
@@ -335,7 +334,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         o_text.clear()
         cursor = o_text.textCursor()
-        for tx_output in self.tx.outputs():
+        for tx_output in self.tx.outputs:
             text, kind = tx_output_to_display_text(tx_output)
             cursor.insertText(text, text_format(kind))
 

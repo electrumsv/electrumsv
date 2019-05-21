@@ -551,7 +551,7 @@ class Abstract_Wallet:
         is_pruned = False
         is_partial = False
         v_in = v_out = v_out_mine = 0
-        for txin in tx.inputs():
+        for txin in tx.inputs:
             addr = txin.address
             if addr in addresses:
                 is_mine = True
@@ -570,7 +570,7 @@ class Abstract_Wallet:
                 is_partial = True
         if not is_mine:
             is_partial = False
-        for tx_output in tx.outputs():
+        for tx_output in tx.outputs:
             v_out += tx_output.value
             addr = classify_tx_output(tx_output)   # Needn't be an address
             if addr in addresses:
@@ -782,13 +782,13 @@ class Abstract_Wallet:
             self._update_transaction_xputs(tx_hash, tx)
 
     def _update_transaction_xputs(self, tx_hash: str, tx: Transaction) -> None:
-        is_coinbase = tx.inputs()[0].is_coinbase()
+        is_coinbase = tx.is_coinbase()
         # We batch the adding of inputs and outputs as it is a thousand times faster.
         txins = []
         txouts = []
 
         # add inputs
-        for tx_input in tx.inputs():
+        for tx_input in tx.inputs:
             address = tx_input.address
             if self.is_mine(address):
                 prev_hash_hex = hash_to_hex_str(tx_input.prev_hash)
@@ -803,7 +803,7 @@ class Abstract_Wallet:
                     self.pruned_txo[(prev_hash_hex, prev_idx)] = tx_hash
 
         # add outputs
-        for n, tx_output in enumerate(tx.outputs()):
+        for n, tx_output in enumerate(tx.outputs):
             address = classify_tx_output(tx_output)
             if isinstance(address, Address) and self.is_mine(address):
                 txout = DBTxOutput(address.to_string(coin=Net.COIN), n,
@@ -941,17 +941,16 @@ class Abstract_Wallet:
             item['label'] = self.get_label(tx_hash)
             if show_addresses:
                 tx = self.get_transaction(tx_hash)
-                tx.deserialize()
                 input_addresses = []
                 output_addresses = []
-                for txin in tx.inputs():
+                for txin in tx.inputs:
                     if txin.is_coinbase():
                         continue
                     addr = tx.address
                     if addr is None:
                         continue
                     input_addresses.append(addr.to_string())
-                for tx_output in tx.outputs():
+                for tx_output in tx.outputs:
                     text, kind = tx_output_to_display_text(tx_output)
                     output_addresses.append(text)
                 item['input_addresses'] = input_addresses
@@ -1133,7 +1132,7 @@ class Abstract_Wallet:
 
     def cpfp(self, tx, fee):
         txid = tx.txid()
-        for output_index, tx_output in enumerate(tx.outputs()):
+        for output_index, tx_output in enumerate(tx.outputs):
             address = classify_tx_output(tx_output)
             if isinstance(address, Address) and self.is_mine(address):
                 break
@@ -1160,7 +1159,7 @@ class Abstract_Wallet:
             # setup "wallet advice" so Xpub wallets know how to sign 'fd' type tx inputs
             # by giving them the sequence number ahead of time
             if isinstance(k, BIP32_KeyStore):
-                for txin in tx.inputs():
+                for txin in tx.inputs:
                     for x_pubkey in txin.x_pubkeys:
                         addr = x_pubkey.to_address()
                         try:
@@ -1187,7 +1186,7 @@ class Abstract_Wallet:
         # add output info for hw wallets
         info = []
         xpubs = self.get_master_public_keys()
-        for tx_output in tx.outputs():
+        for tx_output in tx.outputs:
             addr = classify_tx_output(tx_output)
             if isinstance(addr, Address) and self.is_mine(addr):
                 index = self.get_address_index(addr)

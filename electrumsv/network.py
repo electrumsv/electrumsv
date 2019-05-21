@@ -1042,10 +1042,9 @@ class Network:
                 wallet.progress_event.set()
                 tx_hash = tasks.pop(task)
                 try:
-                    tx = Transaction.from_hex(task.result())
-                    # Check it can be deserialized
-                    tx.deserialize()
-                    session.logger.debug(f'received tx {tx_hash} bytes: {len(tx.raw)}')
+                    tx_hex = task.result()
+                    tx = Transaction.from_hex(tx_hex)
+                    session.logger.debug(f'received tx {tx_hash} bytes: {len(tx_hex)//2}')
                 except CancelledError:
                     had_timeout = True
                 except Exception as e:

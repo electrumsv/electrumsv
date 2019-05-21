@@ -323,13 +323,13 @@ class Ledger_KeyStore(Hardware_KeyStore):
         self.get_client() # prompt for the PIN before displaying the dialog if necessary
 
         # Sanity check
-        is_p2sh = any(txin.type() == 'p2sh' for txin in tx.inputs())
-        if is_p2sh and not all(txin.type() == 'p2sh' for txin in tx.inputs()):
+        is_p2sh = any(txin.type() == 'p2sh' for txin in tx.inputs)
+        if is_p2sh and not all(txin.type() == 'p2sh' for txin in tx.inputs):
             self.give_error("P2SH / regular input mixed in same transaction not supported")
 
         # Fetch inputs of the transaction to sign
         derivations = self.get_tx_derivations(tx)
-        for txin in tx.inputs():
+        for txin in tx.inputs:
             for i, x_pubkey in enumerate(txin.x_pubkeys):
                 if x_pubkey.to_hex() in derivations:
                     signingPos = i
@@ -345,12 +345,12 @@ class Ledger_KeyStore(Hardware_KeyStore):
             inputsPaths.append(hwAddress)
 
         # Concatenate all the tx outputs as binary
-        txOutput = pack_list(tx.outputs(), TxOutput.to_bytes)
+        txOutput = pack_list(tx.outputs, TxOutput.to_bytes)
 
         # Recognize outputs - only one output and one change is authorized
         if not is_p2sh:
-            for tx_output, info in zip(tx.outputs(), tx.output_info):
-                if (info is not None) and len(tx.outputs()) != 1:
+            for tx_output, info in zip(tx.outputs, tx.output_info):
+                if (info is not None) and len(tx.outputs) != 1:
                     index, xpubs, m = info
                     changePath = self.get_derivation()[2:] + "/{:d}/{:d}".format(*index)
                     changeAmount = tx_output.value
@@ -406,7 +406,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
         finally:
             self.handler.finished()
 
-        for txin, input, signature in zip(tx.inputs(), inputs, signatures):
+        for txin, input, signature in zip(tx.inputs, inputs, signatures):
             txin.signatures[input[4]] = signature
         tx.raw = tx.serialize()
 

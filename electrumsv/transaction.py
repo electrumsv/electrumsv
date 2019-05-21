@@ -32,7 +32,9 @@ from bitcoinx import (
     Script, push_int, push_item, hash_to_hex_str,
     Address, P2PKH_Address, P2SH_Address, P2PK_Output,
     Tx, TxInput, TxOutput, SigHash, classify_output_script,
-    pack_byte, unpack_le_uint16, read_list, double_sha256, hash160
+    read_le_uint32, read_varbytes, read_le_int32, read_le_int64, read_list,
+    pack_byte, pack_le_int32, pack_le_uint32, pack_le_int64, pack_list, unpack_le_uint16,
+    double_sha256, hash160
 )
 
 from .bitcoin import to_bytes, push_script, int_to_hex, var_int
@@ -171,6 +173,42 @@ class XTxInput(TxInput):
     address = attr.ib()
     threshold = attr.ib()
     signatures = attr.ib()
+
+    @classmethod
+    def read(cls, read):
+        prev_hash = read(32)
+        prev_idx = read_le_uint32(read)
+        script_sig = Script(read_varbytes(read))
+        sequence = read_le_uint32(read)
+        kwargs = {'x_pubkeys': [], 'address': None, 'threshold': 0, 'signatures': []}
+        if prev_hash != bytes(32):
+            _parse_script_sig(script_sig.to_bytes(), kwargs)
+        result = cls(prev_hash, prev_idx, script_sig, sequence, value=0, **kwargs)
+        if not is_txin_complete(result):
+            result.value = read_le_int64(read)
+        return result
+
+    def _realize_script_sig(self):
+        signatures = txin_signatures_present(self)
+        type_ = self.type()
+        if type_ == 'p2pk':
+            return Script(push_item(signatures[0]))
+        if type_ == 'p2pkh':
+            return Script(push_item(signatures[0]) +
+                          push_item(self.x_pubkeys[0].to_public_key().to_bytes()))
+        if type_ == 'p2sh':
+            parts = [pack_byte(Ops.OP_0)]
+            parts.extend(push_item(signature) for signature in signatures)
+            nested_script = multisig_script(self.x_pubkeys, self.threshold)
+            parts.append(nested_script)
+            return Script(b''.join(parts))
+        return self.script_sig
+
+    def to_bytes(self):
+        if is_txin_complete(self):
+            self.script_sig = self._realize_script_sig()
+            return super().to_bytes()
+        return super().to_bytes() + pack_le_int64(self.value)
 
     def type(self):
         if isinstance(self.address, P2PKH_Address):
@@ -405,20 +443,6 @@ def _parse_input(vds):
     return result
 
 
-def deserialize(raw):
-    vds = _BCDataStream()
-    vds.write(bfh(raw))
-
-    d = {}
-    d['version'] = vds.read_int32()
-    n_vin = vds.read_compact_size()
-    assert n_vin != 0
-    d['inputs'] = [_parse_input(vds) for i in range(n_vin)]
-    d['outputs'] = read_list(vds.read_bytes, TxOutput.read)
-    d['lockTime'] = vds.read_uint32()
-    return d
-
-
 def txin_signatures_present(txin):
     return [sig for sig in txin.signatures if sig != NO_SIGNATURE]
 
@@ -473,55 +497,49 @@ def tx_from_str(txt):
 
 
 
-class Transaction:
+class Transaction(Tx):
 
     SIGHASH_FORKID = 0x40
 
-    def __str__(self):
-        if self.raw is None:
-            self.raw = self.serialize()
-        return self.raw
-
-    def __init__(self, hex_str):
-        bytes.fromhex(hex_str)
-        self.raw = hex_str
-        self._inputs = None
-        self._outputs = None
-        self.locktime = 0
-        self.version = 1
+    @classmethod
+    def from_io(cls, inputs, outputs, locktime=0):
+        _validate_outputs(outputs)
+        return cls(version=1, inputs=inputs, outputs=outputs.copy(), locktime=locktime)
 
     @classmethod
-    def from_hex(cls, hex_str):
-        return cls(hex_str.strip())
+    def read(cls, read):
+        '''Overridden to specialize reading the inputs.'''
+        return cls(
+            read_le_int32(read),
+            read_list(read, XTxInput.read),
+            read_list(read, TxOutput.read),
+            read_le_uint32(read),
+        )
 
-    def update(self, raw):
-        self.raw = raw
-        self._inputs = None
-        self.deserialize()
+    def to_bytes(self):
+        return b''.join((
+            pack_le_int32(self.version),
+            pack_list(self.inputs, XTxInput.to_bytes),
+            pack_list(self.outputs, TxOutput.to_bytes),
+            pack_le_uint32(self.locktime),
+        ))
 
-    def inputs(self):
-        if self._inputs is None:
-            self.deserialize()
-        return self._inputs
-
-    def outputs(self):
-        if self._outputs is None:
-            self.deserialize()
-        return self._outputs
+    def __str__(self):
+        return self.serialize()
 
     def update_signatures(self, signatures):
         """Add new signatures to a transaction
 
         `signatures` is expected to be a list of binary sigs with signatures[i]
-        intended for self._inputs[i], without the SIGHASH appended.
+        intended for self.inputs[i], without the SIGHASH appended.
         This is used by hardware device code.
         """
         if self.is_complete():
             return
-        if len(self.inputs()) != len(signatures):
+        if len(self.inputs) != len(signatures):
             raise RuntimeError('expected {} signatures; got {}'
-                               .format(len(self.inputs()), len(signatures)))
-        for txin, signature in zip(self.inputs(), signatures):
+                               .format(len(self.inputs), len(signatures)))
+        for txin, signature in zip(self.inputs, signatures):
             full_sig = signature + bytes([self.nHashType()])
             logger.warning(f'Signature: {full_sig.hex()}')
             if full_sig in txin.signatures:
@@ -546,35 +564,10 @@ class Transaction:
                     logger.debug(f'adding sig {j} {public_key} {full_sig}')
                     self.add_signature_to_txin(txin, j, full_sig)
                     break
-        # redo raw
-        self.raw = self.serialize()
 
     def add_signature_to_txin(self, txin, signingPos, sig):
         assert isinstance(sig, bytes)
         txin.signatures[signingPos] = sig
-        self.raw = None
-
-    def deserialize(self) -> dict:
-        if self.raw is None:
-            return
-        if self._inputs is not None:
-            return
-        d = deserialize(self.raw)
-        self._inputs = d['inputs']
-        self._outputs = d['outputs']
-        _validate_outputs(self._outputs)
-        self.locktime = d['lockTime']
-        self.version = d['version']
-        return d
-
-    @classmethod
-    def from_io(cls, inputs, outputs, locktime=0):
-        _validate_outputs(outputs)
-        self = cls(None)
-        self._inputs = inputs
-        self._outputs = outputs.copy()
-        self.locktime = locktime
-        return self
 
     @classmethod
     def pay_script(self, output):
@@ -655,41 +648,29 @@ class Transaction:
 
     def BIP_LI01_sort(self):
         # See https://github.com/kristovatlas/rfc/blob/master/bips/bip-li01.mediawiki
-        self._inputs.sort(key = lambda txin: txin.prevout_bytes())
-        self._outputs.sort(key = lambda output: (output.value, output.script_pubkey))
+        self.inputs.sort(key = lambda txin: txin.prevout_bytes())
+        self.outputs.sort(key = lambda output: (output.value, output.script_pubkey))
 
     @classmethod
     def nHashType(cls):
         '''Hash type in hex.'''
         return 0x01 | cls.SIGHASH_FORKID
 
-    def to_Tx(self, input_scripts):
-        tx_inputs = [TxInput(
-            prev_hash=txin.prev_hash,
-            prev_idx=txin.prev_idx,
-            script_sig=input_script,
-            sequence=txin.sequence
-        ) for txin, input_script in zip(self.inputs(), input_scripts)]
-        return Tx(self.version, tx_inputs, self.outputs(), self.locktime)
-
     def preimage_hash(self, txin):
-        tx_inputs = self.inputs()
-        input_index = tx_inputs.index(txin)
-        tx = self.to_Tx([Script()] * len(tx_inputs))    # Scripts are unused in signing
+        input_index = self.inputs.index(txin)
         script_code = bytes.fromhex(self.get_preimage_script(txin))
         sighash = SigHash(self.nHashType())
-        return tx.signature_hash(input_index, txin.value, script_code, sighash=sighash)
+        return self.signature_hash(input_index, txin.value, script_code, sighash=sighash)
 
     def serialize(self, estimate_size=False):
         nVersion = int_to_hex(self.version, 4)
         nLocktime = int_to_hex(self.locktime, 4)
-        inputs = self.inputs()
-        outputs = self.outputs()
-        txins = var_int(len(inputs)) + ''.join(
+        txins = var_int(len(self.inputs)) + ''.join(
             self.serialize_input(txin, self.input_script(txin, estimate_size), estimate_size)
-            for txin in inputs
+            for txin in self.inputs
         )
-        txouts = var_int(len(outputs)) + b''.join(output.to_bytes() for output in outputs).hex()
+        txouts = (var_int(len(self.outputs))
+                  + b''.join(output.to_bytes() for output in self.outputs).hex())
         return nVersion + txins + txouts + nLocktime
 
     def txid(self):
@@ -699,19 +680,17 @@ class Transaction:
         return bh2u(sha256d(bfh(ser))[::-1])
 
     def add_inputs(self, inputs):
-        self._inputs.extend(inputs)
-        self.raw = None
+        self.inputs.extend(inputs)
 
     def add_outputs(self, outputs):
         _validate_outputs(outputs)
-        self._outputs.extend(outputs)
-        self.raw = None
+        self.outputs.extend(outputs)
 
     def input_value(self):
-        return sum(txin.value for txin in self.inputs())
+        return sum(txin.value for txin in self.inputs)
 
     def output_value(self):
-        return sum(output.value for output in self.outputs())
+        return sum(output.value for output in self.outputs)
 
     def get_fee(self):
         return self.input_value() - self.output_value()
@@ -719,8 +698,7 @@ class Transaction:
     @profiler
     def estimated_size(self):
         '''Return an estimated tx size in bytes.'''
-        return (len(self.serialize(True)) // 2 if not self.is_complete() or self.raw is None
-                else len(self.raw) // 2)  # ASCII hex string
+        return len(self.serialize(True)) // 2
 
     @classmethod
     def estimated_input_size(self, txin):
@@ -731,7 +709,7 @@ class Transaction:
     def signature_count(self):
         r = 0
         s = 0
-        for txin in self.inputs():
+        for txin in self.inputs:
             signatures = txin_signatures_present(txin)
             s += len(signatures)
             r += txin.threshold
@@ -743,7 +721,7 @@ class Transaction:
 
     def sign(self, keypairs):
         assert all(isinstance(key, XPublicKey) for key in keypairs)
-        for txin in self.inputs():
+        for txin in self.inputs:
             if is_txin_complete(txin):
                 continue
             for j, x_pubkey in enumerate(txin.x_pubkeys):
@@ -755,7 +733,6 @@ class Transaction:
                         pubkey_bytes = PrivateKey(sec).public_key.to_bytes(compressed=compressed)
                         txin.x_pubkeys[j] = XPublicKey(pubkey_bytes)
         logger.debug("is_complete %s", self.is_complete())
-        self.raw = self.serialize()
 
     def sign_txin(self, txin, privkey_bytes):
         pre_hash = self.preimage_hash(txin)
@@ -764,11 +741,8 @@ class Transaction:
         return sig + pack_byte(self.nHashType())
 
     def as_dict(self):
-        if self.raw is None:
-            self.raw = self.serialize()
-        self.deserialize()
         out = {
-            'hex': self.raw,
+            'hex': self.to_hex(),
             'complete': self.is_complete(),
         }
         return out

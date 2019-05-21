@@ -59,7 +59,7 @@ class KeyStore:
 
     def get_tx_derivations(self, tx):
         keypairs = {}
-        for txin in tx.inputs():
+        for txin in tx.inputs:
             for x_pubkey in txin_unused_x_pubkeys(txin):
                 derivation = self.get_pubkey_derivation(x_pubkey)
                 if not derivation:

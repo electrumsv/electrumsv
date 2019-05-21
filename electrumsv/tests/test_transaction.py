@@ -63,11 +63,9 @@ class TestTransaction(unittest.TestCase):
 
     def test_tx_unsigned(self):
         tx = Transaction.from_hex(unsigned_blob)
-        calc = tx.deserialize()
-        assert calc['version'] == 1
-        inputs = calc['inputs']
-        assert len(inputs) == 1
-        txin = inputs[0]
+        assert tx.version == 1
+        assert len(tx.inputs) == 1
+        txin = tx.inputs[0]
         assert txin.prev_hash.hex() == '49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'
         assert txin.prev_idx == 1
         assert txin.script_sig.to_hex() == '01ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300'
@@ -77,21 +75,17 @@ class TestTransaction(unittest.TestCase):
         assert txin.x_pubkeys == [XPublicKey('ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300')]
         assert txin.address == Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN')
         assert txin.threshold == 1
-        assert calc['outputs'] == [TxOutput(20112408, Address.from_string(
+        assert tx.outputs == [TxOutput(20112408, Address.from_string(
             '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())]
-        assert calc['lockTime'] == 507231
+        assert tx.locktime == 507231
 
-        self.assertEqual(tx.deserialize(), None)
         self.assertEqual(tx.as_dict(), {'hex': unsigned_blob, 'complete': False})
-        self.assertEqual(tx.serialize(), unsigned_blob)
 
     def test_tx_signed(self):
         tx = Transaction.from_hex(signed_blob)
-        calc = tx.deserialize()
-        assert calc['version'] == 1
-        inputs = calc['inputs']
-        assert len(inputs) == 1
-        txin = inputs[0]
+        assert tx.version == 1
+        assert len(tx.inputs) == 1
+        txin = tx.inputs[0]
         assert txin.prev_hash.hex() == '49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'
         assert txin.prev_idx == 1
         assert txin.script_sig.to_hex() == '473044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f46885412103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166'
@@ -100,17 +94,15 @@ class TestTransaction(unittest.TestCase):
         assert txin.x_pubkeys == [XPublicKey('03b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166')]
         assert txin.address == Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN')
         assert txin.threshold == 1
-        assert calc['outputs'] == [TxOutput(20112408, Address.from_string(
+        assert tx.outputs == [TxOutput(20112408, Address.from_string(
             '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())]
-        assert calc['lockTime'] == 507231
-        self.assertEqual(tx.deserialize(), None)
+        assert tx.locktime == 507231
         self.assertEqual(tx.as_dict(), {'hex': signed_blob, 'complete': True})
-
         self.assertEqual(tx.serialize(), signed_blob)
 
         tx.update_signatures(signed_blob)
 
-        self.assertEqual(tx.estimated_size(), 191)
+        self.assertEqual(tx.estimated_size(), 192)
 
     def test_errors(self):
         # This tries to access some attribute of the string, expecting an
@@ -204,19 +196,19 @@ class TestTransaction2:
     def test_sign_tx_1(self):
         # Test signing the first input only
         tx = self.sign_tx(unsigned_tx, [priv_keys[0]])
-        assert tx.raw == signed_tx_1
+        assert tx.to_hex() == signed_tx_1
         assert not tx.is_complete()
 
     def test_sign_tx_2(self):
         # Test signing the second input only
         tx = self.sign_tx(unsigned_tx, [priv_keys[1]])
-        assert tx.raw == signed_tx_2
+        assert tx.to_hex() == signed_tx_2
         assert not tx.is_complete()
 
     def test_sign_tx_3(self):
         # Test signing both
         tx = self.sign_tx(unsigned_tx, priv_keys)
-        assert tx.raw == signed_tx_3
+        assert tx.to_hex() == signed_tx_3
         assert tx.is_complete()
         assert tx.txid() == "b83acf939a92c420d0cb8d45d5d4dfad4e90369ebce0f49a45808dc1b41259b0"
 
@@ -396,6 +388,5 @@ class TestXPublicKey:
             '01f06db700000000001976a9148c16fd67cdf85cdd2b7686081152424159c3eb3388ac7ce40800'
         )
         tx = Transaction.from_hex(tx_hex)
-        tx.deserialize()
         assert tx.serialize() == tx_hex
         tx.serialize(True)
