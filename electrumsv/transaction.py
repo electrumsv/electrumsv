@@ -321,20 +321,6 @@ def _parse_script_sig(script, kwargs):
     return
 
 
-def _parse_input(vds):
-    prev_hash = vds.read_bytes(32)
-    prev_idx = vds.read_uint32()
-    script_sig = Script(vds.read_bytes(vds.read_compact_size()))
-    sequence = vds.read_uint32()
-    kwargs = {'x_pubkeys': [], 'address': None, 'threshold': 0, 'signatures': []}
-    if prev_hash != bytes(32):
-        _parse_script_sig(script_sig.to_bytes(), kwargs)
-    result = XTxInput(prev_hash, prev_idx, script_sig, sequence, value=0, **kwargs)
-    if not is_txin_complete(result):
-        result.value = vds.read_uint64()
-    return result
-
-
 def txin_signatures_present(txin):
     return [sig for sig in txin.signatures if sig != NO_SIGNATURE]
 
