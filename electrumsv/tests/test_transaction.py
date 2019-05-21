@@ -1,4 +1,3 @@
-import unittest
 import pytest
 
 from bitcoinx import (
@@ -17,7 +16,7 @@ signed_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e
 v2_blob = "0200000001191601a44a81e061502b7bfbc6eaa1cef6d1e6af5308ef96c9342f71dbf4b9b5000000006b483045022100a6d44d0a651790a477e75334adfb8aae94d6612d01187b2c02526e340a7fd6c8022028bdf7a64a54906b13b145cd5dab21a26bd4b85d6044e9b97bceab5be44c2a9201210253e8e0254b0c95776786e40984c1aa32a7d03efa6bdacdea5f421b774917d346feffffff026b20fa04000000001976a914024db2e87dd7cfd0e5f266c5f212e21a31d805a588aca0860100000000001976a91421919b94ae5cefcdf0271191459157cdb41c4cbf88aca6240700"
 
 
-class TestTransaction(unittest.TestCase):
+class TestTransaction:
 
     def test_tx_unsigned(self):
         tx = Transaction.from_hex(unsigned_blob)
@@ -37,7 +36,7 @@ class TestTransaction(unittest.TestCase):
             '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())]
         assert tx.locktime == 507231
 
-        self.assertEqual(tx.as_dict(), {'hex': unsigned_blob, 'complete': False})
+        assert tx.as_dict() == {'hex': unsigned_blob, 'complete': False}
 
     def test_tx_signed(self):
         tx = Transaction.from_hex(signed_blob)
@@ -55,63 +54,54 @@ class TestTransaction(unittest.TestCase):
         assert tx.outputs == [TxOutput(20112408, Address.from_string(
             '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())]
         assert tx.locktime == 507231
-        self.assertEqual(tx.as_dict(), {'hex': signed_blob, 'complete': True})
-        self.assertEqual(tx.serialize(), signed_blob)
+        assert tx.as_dict() == {'hex': signed_blob, 'complete': True}
+        assert tx.serialize() == signed_blob
 
         tx.update_signatures(signed_blob)
 
-        self.assertEqual(tx.estimated_size(), 192)
+        assert tx.estimated_size() == 192
 
     def test_parse_xpub(self):
         res = XPublicKey('fe4e13b0f311a55b8a5db9a32e959da9f011b131019d4cebe6141b9e2c93edcbfc0954c358b062a9f94111548e50bde5847a3096b8b7872dcffadb0e9579b9017b01000200').to_address()
-        self.assertEqual(res, Address.from_string('19h943e4diLc68GXW7G75QNe2KWuMu7BaJ'))
+        assert res == Address.from_string('19h943e4diLc68GXW7G75QNe2KWuMu7BaJ')
 
     def test_version_field(self):
         tx = Transaction.from_hex(v2_blob)
-        self.assertEqual(tx.txid(), "b97f9180173ab141b61b9f944d841e60feec691d6daab4d4d932b24dd36606fe")
+        assert tx.txid() == "b97f9180173ab141b61b9f944d841e60feec691d6daab4d4d932b24dd36606fe"
 
     def test_txid_coinbase_to_p2pk(self):
         tx = Transaction.from_hex('01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4103400d0302ef02062f503253482f522cfabe6d6dd90d39663d10f8fd25ec88338295d4c6ce1c90d4aeb368d8bdbadcc1da3b635801000000000000000474073e03ffffffff013c25cf2d01000000434104b0bd634234abbb1ba1e986e884185c61cf43e001f9137f23c2c409273eb16e6537a576782eba668a7ef8bd3b3cfb1edb7117ab65129b8a2e681f3c1e0908ef7bac00000000')
-        self.assertEqual('dbaf14e1c476e76ea05a8b71921a46d6b06f0a950f17c5f9f1a03b8fae467f10', tx.txid())
+        assert 'dbaf14e1c476e76ea05a8b71921a46d6b06f0a950f17c5f9f1a03b8fae467f10' == tx.txid()
 
     def test_txid_coinbase_to_p2pkh(self):
         tx = Transaction.from_hex('01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff25033ca0030400001256124d696e656420627920425443204775696c640800000d41000007daffffffff01c00d1298000000001976a91427a1f12771de5cc3b73941664b2537c15316be4388ac00000000')
-        self.assertEqual('4328f9311c6defd9ae1bd7f4516b62acf64b361eb39dfcf09d9925c5fd5c61e8', tx.txid())
+        assert '4328f9311c6defd9ae1bd7f4516b62acf64b361eb39dfcf09d9925c5fd5c61e8' == tx.txid()
 
     def test_txid_p2pk_to_p2pkh(self):
         tx = Transaction.from_hex('010000000118231a31d2df84f884ced6af11dc24306319577d4d7c340124a7e2dd9c314077000000004847304402200b6c45891aed48937241907bc3e3868ee4c792819821fcde33311e5a3da4789a02205021b59692b652a01f5f009bd481acac2f647a7d9c076d71d85869763337882e01fdffffff016c95052a010000001976a9149c4891e7791da9e622532c97f43863768264faaf88ac00000000')
-        self.assertEqual('90ba90a5b115106d26663fce6c6215b8699c5d4b2672dd30756115f3337dddf9', tx.txid())
+        assert '90ba90a5b115106d26663fce6c6215b8699c5d4b2672dd30756115f3337dddf9' == tx.txid()
 
     def test_txid_p2pk_to_p2sh(self):
         tx = Transaction.from_hex('0100000001e4643183d6497823576d17ac2439fb97eba24be8137f312e10fcc16483bb2d070000000048473044022032bbf0394dfe3b004075e3cbb3ea7071b9184547e27f8f73f967c4b3f6a21fa4022073edd5ae8b7b638f25872a7a308bb53a848baa9b9cc70af45fcf3c683d36a55301fdffffff011821814a0000000017a9143c640bc28a346749c09615b50211cb051faff00f8700000000')
-        self.assertEqual('172bdf5a690b874385b98d7ab6f6af807356f03a26033c6a65ab79b4ac2085b5', tx.txid())
+        assert '172bdf5a690b874385b98d7ab6f6af807356f03a26033c6a65ab79b4ac2085b5' == tx.txid()
 
     def test_txid_p2pkh_to_p2pkh(self):
         tx = Transaction.from_hex('0100000001f9dd7d33f315617530dd72264b5d9c69b815626cce3f66266d1015b1a590ba90000000006a4730440220699bfee3d280a499daf4af5593e8750b54fef0557f3c9f717bfa909493a84f60022057718eec7985b7796bb8630bf6ea2e9bf2892ac21bd6ab8f741a008537139ffe012103b4289890b40590447b57f773b5843bf0400e9cead08be225fac587b3c2a8e973fdffffff01ec24052a010000001976a914ce9ff3d15ed5f3a3d94b583b12796d063879b11588ac00000000')
-        self.assertEqual('24737c68f53d4b519939119ed83b2a8d44d716d7f3ca98bcecc0fbb92c2085ce', tx.txid())
+        assert '24737c68f53d4b519939119ed83b2a8d44d716d7f3ca98bcecc0fbb92c2085ce' == tx.txid()
 
     def test_txid_p2pkh_to_p2sh(self):
         tx = Transaction.from_hex('010000000195232c30f6611b9f2f82ec63f5b443b132219c425e1824584411f3d16a7a54bc000000006b4830450221009f39ac457dc8ff316e5cc03161c9eff6212d8694ccb88d801dbb32e85d8ed100022074230bb05e99b85a6a50d2b71e7bf04d80be3f1d014ea038f93943abd79421d101210317be0f7e5478e087453b9b5111bdad586038720f16ac9658fd16217ffd7e5785fdffffff0200e40b540200000017a914d81df3751b9e7dca920678cc19cac8d7ec9010b08718dfd63c2c0000001976a914303c42b63569ff5b390a2016ff44651cd84c7c8988acc7010000')
-        self.assertEqual('155e4740fa59f374abb4e133b87247dccc3afc233cb97c2bf2b46bba3094aedc', tx.txid())
+        assert '155e4740fa59f374abb4e133b87247dccc3afc233cb97c2bf2b46bba3094aedc' == tx.txid()
 
     def test_txid_p2sh_to_p2pkh(self):
         tx = Transaction.from_hex('0100000001b98d550fa331da21038952d6931ffd3607c440ab2985b75477181b577de118b10b000000fdfd0000483045022100a26ea637a6d39aa27ea7a0065e9691d477e23ad5970b5937a9b06754140cf27102201b00ed050b5c468ee66f9ef1ff41dfb3bd64451469efaab1d4b56fbf92f9df48014730440220080421482a37cc9a98a8dc3bf9d6b828092ad1a1357e3be34d9c5bbdca59bb5f02206fa88a389c4bf31fa062977606801f3ea87e86636da2625776c8c228bcd59f8a014c69522102420e820f71d17989ed73c0ff2ec1c1926cf989ad6909610614ee90cf7db3ef8721036eae8acbae031fdcaf74a824f3894bf54881b42911bd3ad056ea59a33ffb3d312103752669b75eb4dc0cca209af77a59d2c761cbb47acc4cf4b316ded35080d92e8253aeffffffff0101ac3a00000000001976a914a6b6bcc85975bf6a01a0eabb2ac97d5a418223ad88ac00000000')
-        self.assertEqual('0ea982e8e601863e604ef6d9acf9317ae59d3eac9cafee6dd946abadafd35af8', tx.txid())
+        assert '0ea982e8e601863e604ef6d9acf9317ae59d3eac9cafee6dd946abadafd35af8' == tx.txid()
 
     def test_txid_p2sh_to_p2sh(self):
         # Note the public keys in this transaction are not sorted.  This also tests we do
         # not sort them.
         tx = Transaction.from_hex('01000000018695eef2250b3a3b6ef45fe065e601610e69dd7a56de742092d40e6276e6c9ec00000000fdfd000047304402203199bf8e49f7203e8bcbfd754aa356c6ba61643a3490f8aef3888e0aaa7c048c02201e7180bfd670f4404e513359b4020fbc85d6625e3e265e0c357e8611f11b83e401483045022100e60f897db114679f9a310a032a22e9a7c2b8080affe2036c480ff87bf6f45ada02202dbd27af38dd97d418e24d89c3bb7a97e359dd927c1094d8c9e5cac57df704fb014c69522103adc563b9f5e506f485978f4e913c10da208eac6d96d49df4beae469e81a4dd982102c52bc9643a021464a31a3bfa99cfa46afaa4b3acda31e025da204b4ee44cc07a2103a1c8edcc3310b3d7937e9e4179e7bd9cdf31c276f985f4eb356f21b874225eb153aeffffffff02b8ce05000000000017a9145c9c158430b7b79c3ad7ef9bdf981601eda2412d87b82400000000000017a9146bf3ff89019ecc5971a39cdd4f1cabd3b647ad5d8700000000')
-        self.assertEqual('2caab5a11fa1ec0f5bb014b8858d00fecf2c001e15d22ad04379ad7b36fef305', tx.txid())
-
-
-class NetworkMock(object):
-
-    def __init__(self, unspent):
-        self.unspent = unspent
-
-    def synchronous_get(self, _arg):
-        return self.unspent
+        assert '2caab5a11fa1ec0f5bb014b8858d00fecf2c001e15d22ad04379ad7b36fef305' == tx.txid()
 
 
 # 2 inputs, one for each priv_key below
