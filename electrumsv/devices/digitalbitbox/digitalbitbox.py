@@ -25,7 +25,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.platform import platform
-from electrumsv.transaction import Transaction, is_txin_complete
+from electrumsv.transaction import Transaction
 from electrumsv.util import to_string
 
 from ..hw_wallet import HW_PluginBase
@@ -628,7 +628,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 raise RuntimeError("Incorrect number of transactions signed")
             for txin, siginfo, pre_hash in enumerate(
                     zip(tx.inputs, dbb_signatures, inputhasharray)):
-                if is_txin_complete(txin):
+                if txin.is_complete():
                     continue
                 for pubkey_index, x_pubkey in enumerate(txin.x_pubkeys):
                     compact_sig = bytes.fromhex(siginfo['sig'])

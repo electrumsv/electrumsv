@@ -37,7 +37,7 @@ from bitcoinx import (
     double_sha256, hash160
 )
 
-from .bitcoin import to_bytes, push_script, int_to_hex, var_int
+from .bitcoin import push_script, int_to_hex, var_int
 from .crypto import sha256d
 from .networks import Net
 from .logs import logs
@@ -184,12 +184,12 @@ class XTxInput(TxInput):
         if prev_hash != bytes(32):
             _parse_script_sig(script_sig.to_bytes(), kwargs)
         result = cls(prev_hash, prev_idx, script_sig, sequence, value=0, **kwargs)
-        if not is_txin_complete(result):
+        if not result.is_complete():
             result.value = read_le_int64(read)
         return result
 
     def _realize_script_sig(self):
-        signatures = txin_signatures_present(self)
+        signatures = self.signatures_present()
         type_ = self.type()
         if type_ == 'p2pk':
             return Script(push_item(signatures[0]))
@@ -205,10 +205,28 @@ class XTxInput(TxInput):
         return self.script_sig
 
     def to_bytes(self):
-        if is_txin_complete(self):
+        if self.is_complete():
             self.script_sig = self._realize_script_sig()
             return super().to_bytes()
         return super().to_bytes() + pack_le_int64(self.value)
+
+    def signatures_present(self):
+        '''Return a list of all signatures that are present.'''
+        return [sig for sig in self.signatures if sig != NO_SIGNATURE]
+
+    def is_complete(self):
+        '''Return true if this input has all signatures present.'''
+        return len(self.signatures_present()) >= self.threshold
+
+    def stripped_signatures_with_blanks(self):
+        '''Strips the sighash byte.'''
+        return [b'' if sig == NO_SIGNATURE else sig[:-1] for sig in self.signatures]
+
+    def unused_x_pubkeys(self):
+        if self.is_complete():
+            return []
+        return [x_pubkey for x_pubkey, signature in zip(self.x_pubkeys, self.signatures)
+                if signature == NO_SIGNATURE]
 
     def type(self):
         if isinstance(self.address, P2PKH_Address):
@@ -320,28 +338,6 @@ def _parse_script_sig(script, kwargs):
     kwargs['signatures'] = [x[1] for x in decoded[1:-1]]
     return
 
-
-def txin_signatures_present(txin):
-    return [sig for sig in txin.signatures if sig != NO_SIGNATURE]
-
-
-def is_txin_complete(txin):
-    return len(txin_signatures_present(txin)) >= txin.threshold
-
-
-def txin_stripped_signatures_with_blanks(txin):
-    '''Strips the sighash byte.'''
-    return [b'' if sig == NO_SIGNATURE else sig[:-1] for sig in txin.signatures]
-
-
-def txin_unused_x_pubkeys(txin):
-    if is_txin_complete(txin):
-        return []
-    return [x_pubkey for x_pubkey, signature in zip(txin.x_pubkeys, txin.signatures)
-            if signature == NO_SIGNATURE]
-
-
-# pay & redeem scripts
 
 def multisig_script(x_pubkeys, threshold):
     '''Returns bytes.
@@ -467,11 +463,11 @@ class Transaction(Tx):
             sig_list = [bytes(72)] * txin.threshold
         else:
             x_pubkeys = txin.x_pubkeys
-            if is_txin_complete(txin):
+            if txin.is_complete():
                 # Realise the x_pubkeys
                 x_pubkeys = [XPublicKey(x_pubkey.to_public_key().to_bytes())
                              for x_pubkey in x_pubkeys]
-                sig_list = txin_signatures_present(txin)
+                sig_list = txin.signatures_present()
             else:
                 sig_list = txin.signatures
         return x_pubkeys, sig_list
@@ -520,7 +516,7 @@ class Transaction(Tx):
         s += script
         s += int_to_hex(txin.sequence, 4)
         # offline signing needs to know the input value
-        if not (estimate_size or is_txin_complete(txin)):
+        if not (estimate_size or txin.is_complete()):
             s += int_to_hex(txin.value, 8)
         return s
 
@@ -588,7 +584,7 @@ class Transaction(Tx):
         r = 0
         s = 0
         for txin in self.inputs:
-            signatures = txin_signatures_present(txin)
+            signatures = txin.signatures_present()
             s += len(signatures)
             r += txin.threshold
         return s, r
@@ -600,7 +596,7 @@ class Transaction(Tx):
     def sign(self, keypairs):
         assert all(isinstance(key, XPublicKey) for key in keypairs)
         for txin in self.inputs:
-            if is_txin_complete(txin):
+            if txin.is_complete():
                 continue
             for j, x_pubkey in enumerate(txin.x_pubkeys):
                 if x_pubkey in keypairs.keys():

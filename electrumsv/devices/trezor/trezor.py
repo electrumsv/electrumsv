@@ -12,7 +12,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output, txin_stripped_signatures_with_blanks
+from electrumsv.transaction import classify_tx_output
 
 from ..hw_wallet import HW_PluginBase
 from ..hw_wallet.plugin import LibraryFoundButUnusable
@@ -316,7 +316,7 @@ class TrezorPlugin(HW_PluginBase):
             txinputtype.amount = txin.value
             x_pubkeys = txin.x_pubkeys
             xpubs = [x_pubkey.bip32_extended_key_and_path() for x_pubkey in x_pubkeys]
-            signatures = txin_stripped_signatures_with_blanks(txin)
+            signatures = txin.stripped_signatures_with_blanks()
             multisig = self._make_multisig(txin.threshold, xpubs, signatures)
             script_type = self.get_trezor_input_script_type(multisig is not None)
             txinputtype = TxInputType(script_type=script_type, multisig=multisig)

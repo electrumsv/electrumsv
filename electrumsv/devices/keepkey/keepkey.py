@@ -35,7 +35,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output, txin_stripped_signatures_with_blanks
+from electrumsv.transaction import classify_tx_output
 from electrumsv.util import bfh
 
 from ..hw_wallet import HW_PluginBase
@@ -334,7 +334,7 @@ class KeepKeyPlugin(HW_PluginBase):
                 pubkeys = [f(x) for x in x_pubkeys]
                 multisig = self.types.MultisigRedeemScriptType(
                     pubkeys=pubkeys,
-                    signatures=txin_stripped_signatures_with_blanks(txin),
+                    signatures=txin.stripped_signatures_with_blanks(),
                     m=txin.threshold,
                 )
                 script_type = self.types.SPENDMULTISIG
