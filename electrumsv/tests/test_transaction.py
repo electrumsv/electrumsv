@@ -331,4 +331,3 @@ class TestXPublicKey:
         )
         tx = Transaction.from_hex(tx_hex)
         assert tx.serialize() == tx_hex
-        tx.serialize(True)

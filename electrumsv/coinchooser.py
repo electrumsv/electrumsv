@@ -97,8 +97,7 @@ class CoinChooserBase:
             buckets[key].append(coin)
 
         def make_Bucket(desc, coins):
-            size = sum(Transaction.estimated_input_size(coin)
-                       for coin in coins)
+            size = sum(coin.estimated_size() for coin in coins)
             value = sum(coin.value for coin in coins)
             return Bucket(desc, size, value, coins)
 

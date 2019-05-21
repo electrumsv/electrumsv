@@ -41,11 +41,12 @@ from .bitcoin import push_script, int_to_hex, var_int
 from .crypto import sha256d
 from .networks import Net
 from .logs import logs
-from .util import profiler, bfh, bh2u
+from .util import bfh, bh2u
 
 
 NO_SIGNATURE = b'\xff'
 dummy_public_key = PublicKey.from_bytes(bytes(range(3, 36)))
+dummy_signature = bytes(72)
 
 logger = logs.get_logger("transaction")
 
@@ -188,8 +189,7 @@ class XTxInput(TxInput):
             result.value = read_le_int64(read)
         return result
 
-    def _realize_script_sig(self):
-        signatures = self.signatures_present()
+    def _realize_script_sig(self, signatures):
         type_ = self.type()
         if type_ == 'p2pk':
             return Script(push_item(signatures[0]))
@@ -206,7 +206,7 @@ class XTxInput(TxInput):
 
     def to_bytes(self):
         if self.is_complete():
-            self.script_sig = self._realize_script_sig()
+            self.script_sig = self._realize_script_sig(self.signatures_present())
             return super().to_bytes()
         return super().to_bytes() + pack_le_int64(self.value)
 
@@ -227,6 +227,14 @@ class XTxInput(TxInput):
             return []
         return [x_pubkey for x_pubkey, signature in zip(self.x_pubkeys, self.signatures)
                 if signature == NO_SIGNATURE]
+
+    def estimated_size(self):
+        '''Return an estimated of serialized input size in bytes.'''
+        saved_script_sig = self.script_sig
+        self.script_sig = self._realize_script_sig([dummy_signature] * self.threshold)
+        size = len(TxInput.to_bytes(self))   # base class implementation
+        self.script_sig = saved_script_sig
+        return size
 
     def type(self):
         if isinstance(self.address, P2PKH_Address):
@@ -440,32 +448,24 @@ class Transaction(Tx):
                     break
 
     @classmethod
-    def get_siglist(self, txin, estimate_size=False):
+    def get_siglist(self, txin):
         # if we have enough signatures, we use the actual pubkeys
         # otherwise, use extended pubkeys (with bip32 derivation)
-        if estimate_size:
-            x_pubkeys = txin.x_pubkeys
-            dummy = XPublicKey(dummy_public_key.to_bytes(compressed=x_pubkeys[0].is_compressed()))
-            x_pubkeys = [dummy] * len(x_pubkeys)
-            # we assume that signature will be 0x48 bytes long
-            sig_list = [bytes(72)] * txin.threshold
+        x_pubkeys = txin.x_pubkeys
+        if txin.is_complete():
+            # Realise the x_pubkeys
+            x_pubkeys = [XPublicKey(x_pubkey.to_public_key().to_bytes()) for x_pubkey in x_pubkeys]
+            sig_list = txin.signatures_present()
         else:
-            x_pubkeys = txin.x_pubkeys
-            if txin.is_complete():
-                # Realise the x_pubkeys
-                x_pubkeys = [XPublicKey(x_pubkey.to_public_key().to_bytes())
-                             for x_pubkey in x_pubkeys]
-                sig_list = txin.signatures_present()
-            else:
-                sig_list = txin.signatures
+            sig_list = txin.signatures
         return x_pubkeys, sig_list
 
     @classmethod
-    def input_script(self, txin, estimate_size=False):
+    def input_script(self, txin):
         _type = txin.type()
         if _type in ('coinbase', 'unknown'):
             return txin.script_sig.to_hex()
-        x_pubkeys, sig_list = self.get_siglist(txin, estimate_size)
+        x_pubkeys, sig_list = self.get_siglist(txin)
         script = b''.join(push_item(signature) for signature in sig_list).hex()
         if _type == 'p2sh':
             # put op_0 before script
@@ -496,7 +496,7 @@ class Transaction(Tx):
         return txin.prev_hash.hex() + int_to_hex(txin.prev_idx, 4)
 
     @classmethod
-    def serialize_input(self, txin, script, estimate_size=False):
+    def serialize_input(self, txin, script):
         # Prev hash and index
         s = self.serialize_outpoint(txin)
         # Script length, script, sequence
@@ -504,7 +504,7 @@ class Transaction(Tx):
         s += script
         s += int_to_hex(txin.sequence, 4)
         # offline signing needs to know the input value
-        if not (estimate_size or txin.is_complete()):
+        if not txin.is_complete():
             s += int_to_hex(txin.value, 8)
         return s
 
@@ -524,12 +524,11 @@ class Transaction(Tx):
         sighash = SigHash(self.nHashType())
         return self.signature_hash(input_index, txin.value, script_code, sighash=sighash)
 
-    def serialize(self, estimate_size=False):
+    def serialize(self):
         nVersion = int_to_hex(self.version, 4)
         nLocktime = int_to_hex(self.locktime, 4)
         txins = var_int(len(self.inputs)) + ''.join(
-            self.serialize_input(txin, self.input_script(txin, estimate_size), estimate_size)
-            for txin in self.inputs
+            self.serialize_input(txin, self.input_script(txin)) for txin in self.inputs
         )
         txouts = (var_int(len(self.outputs))
                   + b''.join(output.to_bytes() for output in self.outputs).hex())
@@ -557,16 +556,14 @@ class Transaction(Tx):
     def get_fee(self):
         return self.input_value() - self.output_value()
 
-    @profiler
     def estimated_size(self):
         '''Return an estimated tx size in bytes.'''
-        return len(self.serialize(True)) // 2
-
-    @classmethod
-    def estimated_input_size(self, txin):
-        '''Return an estimated of serialized input size in bytes.'''
-        script = self.input_script(txin, True)
-        return len(self.serialize_input(txin, script, True)) // 2  # ASCII hex string
+        saved_inputs = self.inputs
+        self.inputs = []
+        size_without_inputs = len(self.to_bytes())
+        self.inputs = saved_inputs
+        input_size = sum(txin.estimated_size() for txin in self.inputs)
+        return size_without_inputs + input_size
 
     def signature_count(self):
         r = 0
