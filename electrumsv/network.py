@@ -1042,7 +1042,7 @@ class Network:
                 wallet.progress_event.set()
                 tx_hash = tasks.pop(task)
                 try:
-                    tx = Transaction(task.result())
+                    tx = Transaction.from_hex(task.result())
                     # Check it can be deserialized
                     tx.deserialize()
                     session.logger.debug(f'received tx {tx_hash} bytes: {len(tx.raw)}')

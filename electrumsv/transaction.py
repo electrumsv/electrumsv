@@ -455,7 +455,7 @@ def multisig_script(x_pubkeys, threshold):
 
 
 def tx_from_str(txt):
-    "json or raw hexadecimal"
+    "Takes json or hexadecimal, returns a hexadecimal string."
     import json
     txt = txt.strip()
     if not txt:
@@ -482,19 +482,17 @@ class Transaction:
             self.raw = self.serialize()
         return self.raw
 
-    def __init__(self, raw):
-        if raw is None:
-            self.raw = None
-        elif isinstance(raw, str):
-            self.raw = raw.strip() if raw else None
-        elif isinstance(raw, dict):
-            self.raw = raw['hex']
-        else:
-            raise Exception("cannot initialize transaction", raw)
+    def __init__(self, hex_str):
+        bytes.fromhex(hex_str)
+        self.raw = hex_str
         self._inputs = None
         self._outputs = None
         self.locktime = 0
         self.version = 1
+
+    @classmethod
+    def from_hex(cls, hex_str):
+        return cls(hex_str.strip())
 
     def update(self, raw):
         self.raw = raw

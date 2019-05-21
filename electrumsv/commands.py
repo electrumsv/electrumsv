@@ -288,7 +288,7 @@ class Commands:
     @command('wp')
     def signtransaction(self, tx, privkey=None, password=None):
         """Sign a transaction. The wallet keys will be used unless a private key is provided."""
-        tx = Transaction(tx)
+        tx = Transaction.from_hex(tx)
         if privkey:
             privkey2 = PrivateKey.from_text(privkey)
             txin_type, privkey2, compressed = (
@@ -304,13 +304,13 @@ class Commands:
     @command('')
     def deserialize(self, tx):
         """Deserialize a serialized transaction"""
-        tx = Transaction(tx)
+        tx = Transaction.from_hex(tx)
         return self._EnsureDictNamedTuplesAreJSONSafe(tx.deserialize().copy())
 
     @command('n')
     def broadcast(self, tx):
         """Broadcast a transaction to the network. """
-        tx = Transaction(tx)
+        tx = Transaction.from_hex(tx)
         return self.network.broadcast_transaction_and_wait(tx)
 
     @command('')
@@ -557,15 +557,11 @@ class Commands:
     @command('n')
     def gettransaction(self, txid):
         """Retrieve a transaction. """
-        tx = None
         if self.wallet:
             tx = self.wallet.get_transaction(txid)
-        if tx is None:
+        else:
             raw = self.network.request_and_wait('blockchain.transaction.get', [txid])
-            if raw:
-                tx = Transaction(raw)
-            else:
-                raise Exception("Unknown transaction")
+            tx = Transaction.from_hex(raw)
         return tx.as_dict()
 
     @command('')

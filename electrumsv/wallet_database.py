@@ -1050,7 +1050,7 @@ class TxCacheEntry:
         if self._transaction is None:
             if self.bytedata is None:
                 return None
-            self._transaction = Transaction(self.bytedata.hex())
+            self._transaction = Transaction.from_hex(self.bytedata.hex())
         return self._transaction
 
     def __repr__(self):

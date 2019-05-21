@@ -2426,8 +2426,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def tx_from_text(self, txt):
         if not txt:
             return None
-        txt_tx = tx_from_str(txt)
-        tx = Transaction(txt_tx)
+        hex_str = tx_from_str(txt)
+        tx = Transaction.from_hex(hex_str)
         tx.deserialize()
         if self.wallet:
             my_coins = self.wallet.get_spendable_coins(None, self.config)
@@ -2499,7 +2499,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if ok and txid:
             txid = str(txid).strip()
             try:
-                r = self.network.request_and_wait('blockchain.transaction.get', [txid])
+                hex_str = self.network.request_and_wait('blockchain.transaction.get', [txid])
             except Exception as exc:
                 d = UntrustedMessageDialog(
                     self, _("Transaction Lookup Error"),
@@ -2507,7 +2507,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     exc)
                 d.exec()
                 return
-            tx = transaction.Transaction(r)
+            tx = transaction.Transaction.from_hex(hex_str)
             self.show_transaction(tx)
 
     @protected

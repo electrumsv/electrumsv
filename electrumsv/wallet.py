@@ -1180,7 +1180,7 @@ class Abstract_Wallet:
         tx = self.get_transaction(tx_hash)
         if not tx and self.network:
             tx_hex = self.network.request_and_wait('blockchain.transaction.get', [tx_hash])
-            tx = Transaction(tx_hex)
+            tx = Transaction.from_hex(tx_hex)
         return tx
 
     def add_hw_info(self, tx):

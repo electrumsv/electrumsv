@@ -614,7 +614,7 @@ class TestTxCache(unittest.TestCase):
     def test_add_transaction(self):
         cache = TxCache(self.store)
 
-        tx = Transaction(tx_hex_1)
+        tx = Transaction.from_hex(tx_hex_1)
         cache.add_transaction(tx)
         self.assertTrue(cache.is_cached(tx.txid()))
         entry = cache.get_entry(tx.txid())
@@ -624,7 +624,7 @@ class TestTxCache(unittest.TestCase):
     def test_add_transaction_update(self):
         cache = TxCache(self.store)
 
-        tx = Transaction(tx_hex_1)
+        tx = Transaction.from_hex(tx_hex_1)
         data = [ tx.txid(), TxData(height=1295924,timestamp=1555296290,position=4,fee=None),
             None, TxFlags.StateCleared ]
         cache.add([ data ])

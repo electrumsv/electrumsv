@@ -31,12 +31,12 @@ from bitcoinx import PublicKey, bip32_key_from_string
 
 
 from electrumsv import util, keystore
-from electrumsv import transaction
 from electrumsv.app_state import app_state
 from electrumsv.crypto import sha256d
 from electrumsv.extensions import cosigner_pool
 from electrumsv.i18n import _
 from electrumsv.logs import logs
+from electrumsv.transaction import Transaction
 from electrumsv.util import bh2u, bfh
 from electrumsv.wallet import Multisig_Wallet
 
@@ -211,5 +211,5 @@ class CosignerPool(object):
             window.show_error(_('Error decrypting message') + ':\n' + str(e))
             return
 
-        tx = transaction.Transaction(message)
+        tx = Transaction.from_hex(message)
         window.show_transaction(tx, prompt_if_unsaved=True)

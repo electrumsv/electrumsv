@@ -130,7 +130,7 @@ class LocalRPCFunctions:
         if wallet_name and wallet_memo:
             wallet = self._get_wallet(wallet_name)
 
-        tx = Transaction(tx_hex)
+        tx = Transaction.from_hex(tx_hex)
         try:
             tx_id = app_state.daemon.network.broadcast_transaction_and_wait(tx)
         except aiorpcx.jsonrpc.RPCError as e:
