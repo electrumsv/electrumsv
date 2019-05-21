@@ -577,10 +577,6 @@ class Transaction(Tx):
             r += txin.threshold
         return s, r
 
-    def is_complete(self):
-        s, r = self.signature_count()
-        return r == s
-
     def sign(self, keypairs):
         assert all(isinstance(key, XPublicKey) for key in keypairs)
         for txin in self.inputs:
