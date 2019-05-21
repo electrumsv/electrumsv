@@ -1,7 +1,6 @@
-#!/usr/bin/env python
-#
 # Electrum - lightweight Bitcoin client
 # Copyright (C) 2011 Thomas Voegtlin
+# Copyright (C) 2019 Neil Booth
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -37,7 +36,6 @@ from bitcoinx import (
     double_sha256, hash160
 )
 
-from .bitcoin import push_script, int_to_hex, var_int
 from .crypto import sha256d
 from .networks import Net
 from .logs import logs
@@ -189,26 +187,29 @@ class XTxInput(TxInput):
             result.value = read_le_int64(read)
         return result
 
-    def _realize_script_sig(self, signatures):
+    def _realize_script_sig(self, x_pubkeys, signatures):
         type_ = self.type()
         if type_ == 'p2pk':
             return Script(push_item(signatures[0]))
         if type_ == 'p2pkh':
-            return Script(push_item(signatures[0]) +
-                          push_item(self.x_pubkeys[0].to_public_key().to_bytes()))
+            return Script(push_item(signatures[0]) + push_item(x_pubkeys[0].to_bytes()))
         if type_ == 'p2sh':
             parts = [pack_byte(Ops.OP_0)]
             parts.extend(push_item(signature) for signature in signatures)
-            nested_script = multisig_script(self.x_pubkeys, self.threshold)
-            parts.append(nested_script)
+            nested_script = multisig_script(x_pubkeys, self.threshold)
+            parts.append(push_item(nested_script))
             return Script(b''.join(parts))
         return self.script_sig
 
     def to_bytes(self):
         if self.is_complete():
-            self.script_sig = self._realize_script_sig(self.signatures_present())
+            x_pubkeys = [x_pubkey.to_public_key() for x_pubkey in self.x_pubkeys]
+            signatures = self.signatures_present()
+            self.script_sig = self._realize_script_sig(x_pubkeys, signatures)
             return super().to_bytes()
-        return super().to_bytes() + pack_le_int64(self.value)
+        else:
+            self.script_sig = self._realize_script_sig(self.x_pubkeys, self.signatures)
+            return super().to_bytes() + pack_le_int64(self.value)
 
     def signatures_present(self):
         '''Return a list of all signatures that are present.'''
@@ -231,7 +232,9 @@ class XTxInput(TxInput):
     def estimated_size(self):
         '''Return an estimated of serialized input size in bytes.'''
         saved_script_sig = self.script_sig
-        self.script_sig = self._realize_script_sig([dummy_signature] * self.threshold)
+        x_pubkeys = [x_pubkey.to_public_key() for x_pubkey in self.x_pubkeys]
+        signatures = [dummy_signature] * self.threshold
+        self.script_sig = self._realize_script_sig(x_pubkeys, signatures)
         size = len(TxInput.to_bytes(self))   # base class implementation
         self.script_sig = saved_script_sig
         return size
@@ -448,35 +451,6 @@ class Transaction(Tx):
                     break
 
     @classmethod
-    def get_siglist(self, txin):
-        # if we have enough signatures, we use the actual pubkeys
-        # otherwise, use extended pubkeys (with bip32 derivation)
-        x_pubkeys = txin.x_pubkeys
-        if txin.is_complete():
-            # Realise the x_pubkeys
-            x_pubkeys = [XPublicKey(x_pubkey.to_public_key().to_bytes()) for x_pubkey in x_pubkeys]
-            sig_list = txin.signatures_present()
-        else:
-            sig_list = txin.signatures
-        return x_pubkeys, sig_list
-
-    @classmethod
-    def input_script(self, txin):
-        _type = txin.type()
-        if _type in ('coinbase', 'unknown'):
-            return txin.script_sig.to_hex()
-        x_pubkeys, sig_list = self.get_siglist(txin)
-        script = b''.join(push_item(signature) for signature in sig_list).hex()
-        if _type == 'p2sh':
-            # put op_0 before script
-            script = '00' + script
-            redeem_script = multisig_script(x_pubkeys, txin.threshold).hex()
-            script += push_script(redeem_script)
-        elif _type == 'p2pkh':
-            script += push_script(x_pubkeys[0].to_hex())
-        return script
-
-    @classmethod
     def get_preimage_script(self, txin):
         _type = txin.type()
         if _type == 'p2pkh':
@@ -490,23 +464,6 @@ class Transaction(Tx):
             return output.to_script_bytes().hex()
         else:
             raise RuntimeError('Unknown txin type', _type)
-
-    @classmethod
-    def serialize_outpoint(self, txin):
-        return txin.prev_hash.hex() + int_to_hex(txin.prev_idx, 4)
-
-    @classmethod
-    def serialize_input(self, txin, script):
-        # Prev hash and index
-        s = self.serialize_outpoint(txin)
-        # Script length, script, sequence
-        s += var_int(len(script)//2)
-        s += script
-        s += int_to_hex(txin.sequence, 4)
-        # offline signing needs to know the input value
-        if not txin.is_complete():
-            s += int_to_hex(txin.value, 8)
-        return s
 
     def BIP_LI01_sort(self):
         # See https://github.com/kristovatlas/rfc/blob/master/bips/bip-li01.mediawiki
@@ -525,14 +482,7 @@ class Transaction(Tx):
         return self.signature_hash(input_index, txin.value, script_code, sighash=sighash)
 
     def serialize(self):
-        nVersion = int_to_hex(self.version, 4)
-        nLocktime = int_to_hex(self.locktime, 4)
-        txins = var_int(len(self.inputs)) + ''.join(
-            self.serialize_input(txin, self.input_script(txin)) for txin in self.inputs
-        )
-        txouts = (var_int(len(self.outputs))
-                  + b''.join(output.to_bytes() for output in self.outputs).hex())
-        return nVersion + txins + txouts + nLocktime
+        return self.to_bytes().hex()
 
     def txid(self):
         if not self.is_complete():
