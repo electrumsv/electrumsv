@@ -62,12 +62,6 @@ class TestTransaction(unittest.TestCase):
 
         self.assertEqual(tx.estimated_size(), 192)
 
-    def test_errors(self):
-        # This tries to access some attribute of the string, expecting an
-        # address object.
-        with self.assertRaises(AttributeError):
-            Transaction.pay_script('')
-
     def test_parse_xpub(self):
         res = XPublicKey('fe4e13b0f311a55b8a5db9a32e959da9f011b131019d4cebe6141b9e2c93edcbfc0954c358b062a9f94111548e50bde5847a3096b8b7872dcffadb0e9579b9017b01000200').to_address()
         self.assertEqual(res, Address.from_string('19h943e4diLc68GXW7G75QNe2KWuMu7BaJ'))

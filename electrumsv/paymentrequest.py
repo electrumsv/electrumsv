@@ -29,10 +29,9 @@ import time
 from typing import Any, List, Optional, Tuple
 import urllib.parse
 
-from bitcoinx import TxOutput, Script, P2PKH_Address, Address
+from bitcoinx import TxOutput, Script, Address, classify_output_script
 import requests
 
-from . import transaction
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .logs import logs
 from .util import bfh
@@ -66,9 +65,9 @@ class Output:
     # FIXME: this should either be removed in favour of TxOutput, or be a lighter wrapper
     # around it.
 
-    def __init__(self, script_hex: str, amount: Optional[int]=None,
+    def __init__(self, script: Script, amount: Optional[int]=None,
                  description: Optional[str]=None):
-        self.script_hex = script_hex
+        self.script = script
         # TODO: Must not have a JSON string length of 100 bytes.
         if description is not None:
             description_json = json.dumps(description)
@@ -77,31 +76,20 @@ class Output:
         self.description = description
         self.amount = amount
 
+    def address(self):
+        return classify_output_script(self.script)
+
     def to_tx_output(self):
-        return TxOutput(self.amount, Script.from_hex(self.script_hex))
+        return TxOutput(self.amount, self.script)
 
     def to_ui_dict(self) -> dict:
         return {
             'amount': self.amount,
-            'address': self._get_address_from_script_hex(self.script_hex)
+            'address': self.address(),
         }
 
     def get_address_string(self):
-        address_ = self._get_address_from_script_hex(self.script_hex)
-        return address_.to_string()
-
-    def _get_address_from_script_hex(self, script_hex):
-        # NOTE: In theory we could verify the bytes and extract the variable P2PKH hash.
-        script_bytes = bytes.fromhex(script_hex)
-        script_asm = Script(script_bytes).to_asm()
-        tokens = script_asm.split(" ")
-        assert len(tokens) == 5
-        assert tokens[0] == "OP_DUP"
-        assert tokens[1] == "OP_HASH160"
-        assert tokens[3] == "OP_EQUALVERIFY"
-        assert tokens[4] == "OP_CHECKSIG"
-        pkh_hex = tokens[2]
-        return P2PKH_Address(bytes.fromhex(pkh_hex))
+        return self.address().to_string()
 
     @classmethod
     def from_dict(klass, data: dict) -> 'Output':
@@ -117,11 +105,11 @@ class Output:
         if description is not None and type(description) is not str:
             raise Bip270Exception("Invalid 'description' field")
 
-        return klass(script_hex, amount, description)
+        return klass(Script.from_hex(script_hex), amount, description)
 
     def to_dict(self) -> dict:
         data = {
-            'script': self.script_hex,
+            'script': self.script.to_hex(),
         }
         if self.amount and type(self.amount) is int:
             data['amount'] = self.amount
@@ -168,7 +156,7 @@ class PaymentRequest:
 
     @classmethod
     def from_wallet_entry(klass, data: dict) -> 'PaymentRequest':
-        address_ = data['address']
+        address = data['address']
         amount = data['amount']
         memo = data['memo']
 
@@ -178,9 +166,7 @@ class PaymentRequest:
         if creation_timestamp is not None and expiration_seconds is not None:
             expiration_timestamp = creation_timestamp + expiration_seconds
 
-        script_hex = address_.to_script_bytes().hex()
-
-        outputs = [ Output(script_hex, amount) ]
+        outputs = [ Output(address.to_script(), amount) ]
         return klass(outputs, creation_timestamp, expiration_timestamp, memo)
 
     @classmethod
@@ -289,8 +275,7 @@ class PaymentRequest:
 
         payment_memo = "Paid using ElectrumSV"
         payment = Payment(self.merchant_data, transaction_hex, [], payment_memo)
-        refund_script_hex = refund_address.to_script_bytes().hex()
-        payment.refund_outputs.append(Output(refund_script_hex))
+        payment.refund_outputs.append(Output(refund_address.to_script()))
 
         parsed_url = urllib.parse.urlparse(self.payment_url)
         response = self._make_request(parsed_url.geturl(), payment.to_json())
@@ -484,9 +469,7 @@ def make_unsigned_request(req: dict) -> PaymentRequest:
         amount = 0
     memo = req['memo']
 
-    script_hex = transaction.Transaction.pay_script(address)
-
-    pr = PaymentRequest([ Output(script_hex, amount=amount) ])
+    pr = PaymentRequest([ Output(address.to_script(), amount=amount) ])
     pr.creation_timestamp = creation_timestamp
     if expiration_seconds is not None:
         pr.expiration_timestamp = creation_timestamp + expiration_seconds

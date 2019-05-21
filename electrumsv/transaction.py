@@ -444,14 +444,6 @@ class Transaction(Tx):
         txin.signatures[signingPos] = sig
 
     @classmethod
-    def pay_script(self, output):
-        if isinstance(output, PublicKey):
-            return output.P2PK_script().to_hex()
-        if isinstance(output, Address):
-            return output.to_script_bytes().hex()
-        return output.to_hex()
-
-    @classmethod
     def get_siglist(self, txin, estimate_size=False):
         # if we have enough signatures, we use the actual pubkeys
         # otherwise, use extended pubkeys (with bip32 derivation)

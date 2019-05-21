@@ -10,7 +10,7 @@ from electrumsv import paymentrequest
 
 PKH_HEX = "8b2b1e60ccf6c206f1fde862897cd61be5f2a021"
 PKH_ADDRESS = P2PKH_Address(bytes.fromhex(PKH_HEX))
-P2PKH_SCRIPT_HEX = PKH_ADDRESS.to_script_bytes().hex()
+P2PKH_SCRIPT = PKH_ADDRESS.to_script()
 
 TRANSACTION_HEX = ("0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c"+
     "912084000000002401ff2102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e473"+
@@ -29,43 +29,43 @@ def _generate_address():
 
 class TestOutput(unittest.TestCase):
     def test_get_address_string(self):
-        output = paymentrequest.Output(P2PKH_SCRIPT_HEX)
+        output = paymentrequest.Output(P2PKH_SCRIPT)
         self.assertEqual(PKH_ADDRESS.to_string(), output.get_address_string())
 
     def test_dict_optional_fields_unused(self):
-        output = paymentrequest.Output(P2PKH_SCRIPT_HEX)
+        output = paymentrequest.Output(P2PKH_SCRIPT)
         data = output.to_dict()
         self.assertTrue('amount' not in data)
         self.assertTrue('description' not in data)
 
     def test_dict_optional_fields_used(self):
-        output = paymentrequest.Output(P2PKH_SCRIPT_HEX, 1, "description")
+        output = paymentrequest.Output(P2PKH_SCRIPT, 1, "description")
         data = output.to_dict()
         self.assertTrue('script' in data)
-        self.assertEqual(P2PKH_SCRIPT_HEX, data['script'])
+        self.assertEqual(P2PKH_SCRIPT.to_hex(), data['script'])
         self.assertTrue('amount' in data)
         self.assertTrue('description' in data)
 
     def test_json_restoration_all(self):
-        original_output = paymentrequest.Output(P2PKH_SCRIPT_HEX, 1, "description")
+        original_output = paymentrequest.Output(P2PKH_SCRIPT, 1, "description")
         output_json = original_output.to_json()
         restored_output = paymentrequest.Output.from_json(output_json)
-        self.assertEqual(original_output.script_hex, restored_output.script_hex)
+        self.assertEqual(original_output.script, restored_output.script)
         self.assertEqual(original_output.amount, restored_output.amount)
         self.assertEqual(original_output.description, restored_output.description)
 
     def test_json_restoration_required(self):
-        original_output = paymentrequest.Output(P2PKH_SCRIPT_HEX)
+        original_output = paymentrequest.Output(P2PKH_SCRIPT)
         output_json = original_output.to_json()
         restored_output = paymentrequest.Output.from_json(output_json)
-        self.assertEqual(original_output.script_hex, restored_output.script_hex)
+        self.assertEqual(original_output.script, restored_output.script)
         self.assertEqual(original_output.amount, restored_output.amount)
         self.assertEqual(original_output.description, restored_output.description)
 
 
 class TestPayment(unittest.TestCase):
     def test_dict_optional_fields_unused(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         payment = paymentrequest.Payment("merchant_data", "transaction_hex", outputs)
         data = payment.to_dict()
         self.assertTrue('merchantData' in data)
@@ -73,7 +73,7 @@ class TestPayment(unittest.TestCase):
         self.assertFalse('memo' in data)
 
     def test_dict_optional_fields_used(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         payment = paymentrequest.Payment("merchant_data", "transaction_hex", outputs, "memo")
         data = payment.to_dict()
         self.assertTrue('merchantData' in data)
@@ -81,33 +81,33 @@ class TestPayment(unittest.TestCase):
         self.assertTrue('memo' in data)
 
     def test_json_restoration_all(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         original = paymentrequest.Payment("merchant_data", "transaction_hex", outputs, "memo")
         json_value = original.to_json()
         restored = paymentrequest.Payment.from_json(json_value)
         self.assertEqual(original.merchant_data, restored.merchant_data)
         self.assertEqual(original.transaction_hex, restored.transaction_hex)
         self.assertEqual(len(original.refund_outputs), len(restored.refund_outputs))
-        self.assertEqual(original.refund_outputs[0].script_hex,
-                         restored.refund_outputs[0].script_hex)
+        self.assertEqual(original.refund_outputs[0].script,
+                         restored.refund_outputs[0].script)
         self.assertEqual(original.memo, restored.memo)
 
     def test_json_restoration_required(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         original = paymentrequest.Payment("merchant_data", "transaction_hex", outputs)
         json_value = original.to_json()
         restored = paymentrequest.Payment.from_json(json_value)
         self.assertEqual(original.merchant_data, restored.merchant_data)
         self.assertEqual(original.transaction_hex, restored.transaction_hex)
         self.assertEqual(len(original.refund_outputs), len(restored.refund_outputs))
-        self.assertEqual(original.refund_outputs[0].script_hex,
-                         restored.refund_outputs[0].script_hex)
+        self.assertEqual(original.refund_outputs[0].script,
+                         restored.refund_outputs[0].script)
         self.assertEqual(original.memo, restored.memo)
 
 
 class TestPaymentACK(unittest.TestCase):
     def test_dict_optional_fields_unused(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         payment = paymentrequest.Payment("merchant_data", "transaction_hex", outputs)
         payment_ack = paymentrequest.PaymentACK(payment)
         data = payment_ack.to_dict()
@@ -115,7 +115,7 @@ class TestPaymentACK(unittest.TestCase):
         self.assertFalse('memo' in data)
 
     def test_dict_optional_fields_used(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         payment = paymentrequest.Payment("merchant_data", "transaction_hex", outputs, "memo")
         payment_ack = paymentrequest.PaymentACK(payment, 'memo')
         data = payment_ack.to_dict()
@@ -123,7 +123,7 @@ class TestPaymentACK(unittest.TestCase):
         self.assertTrue('memo' in data)
 
     def test_json_restoration_all(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         payment = paymentrequest.Payment("merchant_data", "transaction_hex", outputs, "memo")
         original = paymentrequest.PaymentACK(payment)
         json_value = original.to_json()
@@ -132,13 +132,13 @@ class TestPaymentACK(unittest.TestCase):
         self.assertEqual(original.payment.transaction_hex, restored.payment.transaction_hex)
         self.assertEqual(len(original.payment.refund_outputs),
                          len(restored.payment.refund_outputs))
-        self.assertEqual(original.payment.refund_outputs[0].script_hex,
-                         restored.payment.refund_outputs[0].script_hex)
+        self.assertEqual(original.payment.refund_outputs[0].script,
+                         restored.payment.refund_outputs[0].script)
         self.assertEqual(original.payment.memo, restored.payment.memo)
         self.assertEqual(original.memo, restored.memo)
 
     def test_json_restoration_required(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         payment = paymentrequest.Payment("merchant_data", "transaction_hex", outputs)
         original = paymentrequest.PaymentACK(payment)
         json_value = original.to_json()
@@ -148,12 +148,12 @@ class TestPaymentACK(unittest.TestCase):
 
 class TestPaymentRequest(unittest.TestCase):
     def test_dict_optional_fields_unused(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         original = paymentrequest.PaymentRequest(outputs)
         json_value = original.to_json()
         restored = paymentrequest.PaymentRequest.from_json(json_value)
         self.assertEqual(len(original.outputs), len(restored.outputs))
-        self.assertEqual(original.outputs[0].script_hex, restored.outputs[0].script_hex)
+        self.assertEqual(original.outputs[0].script, restored.outputs[0].script)
         self.assertEqual(original.creation_timestamp, restored.creation_timestamp)
         self.assertEqual(original.expiration_timestamp, restored.expiration_timestamp)
         self.assertEqual(original.memo, restored.memo)
@@ -161,7 +161,7 @@ class TestPaymentRequest(unittest.TestCase):
         self.assertEqual(original.merchant_data, restored.merchant_data)
 
     def test_dict_optional_fields_used(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         creation_timestamp = int(time.time() + 100)
         expiration_timestamp = creation_timestamp + 100
         request = paymentrequest.PaymentRequest(
@@ -175,7 +175,7 @@ class TestPaymentRequest(unittest.TestCase):
         self.assertTrue('merchantData' in data)
 
     def test_json_restoration_all(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         creation_timestamp = int(time.time() + 100)
         expiration_timestamp = creation_timestamp + 100
         original = paymentrequest.PaymentRequest(
@@ -183,7 +183,7 @@ class TestPaymentRequest(unittest.TestCase):
         json_value = original.to_json()
         restored = paymentrequest.PaymentRequest.from_json(json_value)
         self.assertEqual(len(original.outputs), len(restored.outputs))
-        self.assertEqual(original.outputs[0].script_hex, restored.outputs[0].script_hex)
+        self.assertEqual(original.outputs[0].script, restored.outputs[0].script)
         self.assertEqual(original.creation_timestamp, restored.creation_timestamp)
         self.assertEqual(original.expiration_timestamp, restored.expiration_timestamp)
         self.assertEqual(original.memo, restored.memo)
@@ -191,12 +191,12 @@ class TestPaymentRequest(unittest.TestCase):
         self.assertEqual(original.merchant_data, restored.merchant_data)
 
     def test_json_restoration_required(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         original = paymentrequest.PaymentRequest(outputs)
         json_value = original.to_json()
         restored = paymentrequest.PaymentRequest.from_json(json_value)
         self.assertEqual(len(original.outputs), len(restored.outputs))
-        self.assertEqual(original.outputs[0].script_hex, restored.outputs[0].script_hex)
+        self.assertEqual(original.outputs[0].script, restored.outputs[0].script)
         self.assertEqual(original.creation_timestamp, restored.creation_timestamp)
         self.assertEqual(original.expiration_timestamp, restored.expiration_timestamp)
         self.assertEqual(original.memo, restored.memo)
@@ -219,7 +219,7 @@ class TestPaymentRequest(unittest.TestCase):
             return self._content
 
     def test_send_payment_success(self):
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         payment = paymentrequest.Payment("merchant_data", "transaction_hex", outputs)
         ack_memo = "ack_memo"
         payment_ack = paymentrequest.PaymentACK(payment, ack_memo)
@@ -229,7 +229,7 @@ class TestPaymentRequest(unittest.TestCase):
             def _make_request(self, url, message):
                 return TestPaymentRequest._FakeRequestResponse(200, NotImplemented, ack_json)
 
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         creation_timestamp = int(time.time() + 100)
         expiration_timestamp = creation_timestamp + 100
         payment_request = PaymentRequestTestable(
@@ -248,7 +248,7 @@ class TestPaymentRequest(unittest.TestCase):
             def _make_request(self, url, message):
                 return None
 
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         creation_timestamp = int(time.time() + 100)
         expiration_timestamp = creation_timestamp + 100
         payment_request = PaymentRequestTestable(
@@ -264,7 +264,7 @@ class TestPaymentRequest(unittest.TestCase):
             def _make_request(self, url, message):
                 return TestPaymentRequest._FakeRequestResponse(403, "reason", b"content")
 
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         creation_timestamp = int(time.time() + 100)
         expiration_timestamp = creation_timestamp + 100
         payment_request = PaymentRequestTestable(
@@ -281,7 +281,7 @@ class TestPaymentRequest(unittest.TestCase):
             def _make_request(self, url, message):
                 return TestPaymentRequest._FakeRequestResponse(400, "reason", b"content")
 
-        outputs = [ paymentrequest.Output(P2PKH_SCRIPT_HEX) ]
+        outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         creation_timestamp = int(time.time() + 100)
         expiration_timestamp = creation_timestamp + 100
         payment_request = PaymentRequestTestable(
