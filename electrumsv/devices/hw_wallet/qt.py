@@ -200,9 +200,10 @@ class QtPluginBase(object):
         keystore.handler = handler
         keystore.plugin = self
 
-        tooltip = keystore.label or _('Unnamed')
-        action = QAction(read_QIcon(self.icon_unpaired), tooltip, window)
+        action_label = keystore.label.strip() or _('Unnamed')
+        action = QAction(read_QIcon(self.icon_unpaired), action_label, window)
         action.triggered.connect(partial(self.show_settings_wrapped, window, keystore))
+        action.setToolTip(_("Hardware Wallet"))
         window.add_toolbar_action(action)
         handler.action = action
         handler.icon_unpaired = self.icon_unpaired

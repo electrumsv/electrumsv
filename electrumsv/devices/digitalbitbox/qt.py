@@ -3,8 +3,8 @@ from .digitalbitbox import DigitalBitboxPlugin
 
 
 class Plugin(DigitalBitboxPlugin, QtPluginBase):
-    icon_unpaired = "digitalbitbox_unpaired.png"
-    icon_paired = "digitalbitbox.png"
+    icon_paired = "icons8-usb-connected-80.png"
+    icon_unpaired = "icons8-usb-disconnected-80.png"
 
     def create_handler(self, window):
         return DigitalBitbox_Handler(window)

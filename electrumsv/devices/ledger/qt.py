@@ -8,8 +8,8 @@ from electrumsv.gui.qt.util import WindowModalDialog
 
 
 class Plugin(LedgerPlugin, QtPluginBase):
-    icon_unpaired = "ledger_unpaired.png"
-    icon_paired = "ledger.png"
+    icon_paired = "icons8-usb-connected-80.png"
+    icon_unpaired = "icons8-usb-disconnected-80.png"
 
     def create_handler(self, window):
         return Ledger_Handler(window)
