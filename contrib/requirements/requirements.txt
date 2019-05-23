@@ -1,6 +1,8 @@
 pyaes>=0.1a1
 requests
 qrcode
+dnspython
+ecdsa
 jsonrpclib-pelix
 aiorpcX>=0.18.0,<0.19
 python-dateutil>=2.8.0
