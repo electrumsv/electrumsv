@@ -73,8 +73,8 @@ CHARACTER_RECOVERY = (
 
 
 class Plugin(KeepKeyPlugin, QtPluginBase):
-    icon_paired = "keepkey.png"
-    icon_unpaired = "keepkey_unpaired.png"
+    icon_paired = "icons8-usb-connected-80.png"
+    icon_unpaired = "icons8-usb-disconnected-80.png"
 
     def create_handler(self, window):
         return QtHandler(window, self.device)

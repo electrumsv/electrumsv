@@ -248,8 +248,8 @@ class QtPlugin(QtPluginBase):
 
 
 class Plugin(TrezorPlugin, QtPlugin):
-    icon_unpaired = "trezor_unpaired.png"
-    icon_paired = "trezor.png"
+    icon_paired = "icons8-usb-connected-80.png"
+    icon_unpaired = "icons8-usb-disconnected-80.png"
 
 
 class SettingsDialog(WindowModalDialog):
