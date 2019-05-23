@@ -974,6 +974,7 @@ class Network:
                 self.wallet_jobs.put(('undo_verifications', above_height))
             main_chain = new_main_chain
             self.trigger_callback('updated')
+            self.trigger_callback('main_chain', main_chain, new_main_chain)
 
     async def _set_main_server(self, server, reason):
         '''Set the main server to something new.'''
