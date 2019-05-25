@@ -33,3 +33,14 @@ function DoCodeSignMaybe { # ARGS: infoName fileOrDirName codesignIdentity
     info "Code signing ${infoName}..."
     codesign -f -v $deep -s "$identity" --preserve-metadata=requirements,entitlements "$file" || fail "Could not code sign ${infoName}"
 }
+
+verify_hash() {
+    local file=$1 expected_hash=$2
+    actual_hash=$(shasum -a 256 $file | awk '{print $1}')
+    if [ "$actual_hash" == "$expected_hash" ]; then
+        return 0
+    else
+        echo "$file $actual_hash (unexpected hash)" >&2
+        exit 1
+    fi
+}
