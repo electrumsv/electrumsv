@@ -50,9 +50,9 @@ from .bitcoin import scripthash_hex
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
-from .util import JSON
+from .util import JSON, normalize_version
 from .networks import Net
-from .version import PACKAGE_VERSION, PROTOCOL_VERSION
+from .version import PACKAGE_VERSION, PROTOCOL_VERSION, PROTOCOL_VERSION_MINIMUM
 
 
 logger = logs.get_logger("network")
@@ -64,6 +64,7 @@ HEADERS_SUBSCRIBE = 'blockchain.headers.subscribe'
 REQUEST_MERKLE_PROOF = 'blockchain.transaction.get_merkle'
 SCRIPTHASH_HISTORY = 'blockchain.scripthash.get_history'
 SCRIPTHASH_SUBSCRIBE = 'blockchain.scripthash.subscribe'
+SCRIPTHASH_UNSUBSCRIBE = 'blockchain.scripthash.unsubscribe'
 BROADCAST_TX_MSG_LIST = (
     ('dust', _('very small "dust" payments')),
     (('Missing inputs', 'Inputs unavailable', 'bad-txns-inputs-spent'),
@@ -439,9 +440,14 @@ class SVSession(RPCSession):
 
     async def _negotiate_protocol(self):
         '''Raises: RPCError, TaskTimeout'''
-        args = (PACKAGE_VERSION, PROTOCOL_VERSION)
+        args = (PACKAGE_VERSION, [ PROTOCOL_VERSION_MINIMUM, PROTOCOL_VERSION ])
         self.version = await self.send_request('server.version', args)
         self.logger.debug(f'negotiated protocol: {self.version}')
+
+    def _check_minimum_version(self, minimum_version: str) -> bool:
+        if type(self.version) is list:
+            return normalize_version(minimum_version) >= normalize_version(self.version[1])
+        return False
 
     async def _get_checkpoint_headers(self):
         '''Raises: RPCError, TaskTimeout'''
@@ -579,10 +585,13 @@ class SVSession(RPCSession):
         while height < tip.height:
             height = await self._request_chunk(height + 1, 2016)
 
-    async def _subscribe_to_script_hash(self, script_hash):
+    async def _subscribe_to_script_hash(self, script_hash: str) -> None:
         '''Raises: RPCError, TaskTimeout'''
         status = await self.send_request(SCRIPTHASH_SUBSCRIBE, [script_hash])
         await self._on_status_changed(script_hash, status)
+
+    async def _unsubscribe_from_script_hash(self, script_hash: str) -> bool:
+        return await self.send_request(SCRIPTHASH_UNSUBSCRIBE, [script_hash])
 
     async def _on_status_changed(self, script_hash, status):
         address = self._address_map.get(script_hash)
@@ -822,8 +831,24 @@ class SVSession(RPCSession):
         assert len(set(subs)) == len(subs)
 
     @classmethod
-    def unsubscribe_wallet(cls, wallet):
-        cls._subs_by_wallet.pop(wallet, None)
+    async def unsubscribe_wallet(cls, wallet):
+        subs = cls._subs_by_wallet.pop(wallet, None)
+        if subs is None:
+            return
+        session = app_state.daemon.network.main_session()
+        if not session._check_minimum_version("1.4.2"):
+            logger.debug("Server is below version 1.4.2, and does not support unsubscribing")
+            return
+        logger.debug(f"Unsubscribing {len(subs)} subscriptions for {wallet}")
+        try:
+            async with TaskGroup() as group:
+                for script_hash in subs:
+                    await group.spawn(session._unsubscribe_from_script_hash(script_hash))
+            logger.debug(f"Unsubscribed {len(subs)} subscriptions for {wallet}")
+        except CancelledError:
+            logger.debug(f"Unsubscription of {len(subs)} subscriptions for {wallet} cancelled")
+        except Exception:
+            logger.debug(f"Exception while unsubscribing {len(subs)} subscriptions for {wallet}")
 
 
 class Network:
@@ -1154,7 +1179,7 @@ class Network:
                     if session:
                         await session.disconnect(str(error), blacklist=blacklist)
         finally:
-            SVSession.unsubscribe_wallet(wallet)
+            await SVSession.unsubscribe_wallet(wallet)
             logger.info(f'stopped maintaining wallet {wallet}')
 
     async def _main_session(self):
