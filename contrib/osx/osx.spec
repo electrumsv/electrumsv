@@ -29,6 +29,7 @@ datas += collect_data_files('electrumsv_secp256k1')
 
 # Workaround for "Retro Look":
 binaries = [b for b in collect_dynamic_libs('PyQt5') if 'macstyle' in b[0]]
+binaries += [(base_dir + "contrib/osx/libusb-1.0.dylib", ".")]
 
 a = Analysis([base_dir + 'electrum-sv'], binaries=binaries, datas=datas)
 
