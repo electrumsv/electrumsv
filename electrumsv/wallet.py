@@ -775,6 +775,8 @@ class Abstract_Wallet:
             self.logger.debug("adding tx data %s", tx_hash)
             self.db.tx.add_transaction(tx, TxFlags.StateSettled)
 
+        self.txs_changed_event.set()
+
     def apply_transactions_xputs(self, tx_hash: str, tx: Transaction) -> None:
         with self.transaction_lock:
             self._update_transaction_xputs(tx_hash, tx)
