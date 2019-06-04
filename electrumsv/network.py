@@ -887,8 +887,7 @@ class SVSession(RPCSession):
             logger.debug(f"Unsubscribed {len(subs)} subscriptions for {wallet}")
         except CancelledError:
             logger.debug(f"Unsubscription of {len(subs)} subscriptions for {wallet} cancelled")
-        except Exception:
-            logger.debug(f"Exception while unsubscribing {len(subs)} subscriptions for {wallet}")
+            raise
 
 
 class Network:
