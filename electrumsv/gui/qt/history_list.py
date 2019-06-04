@@ -84,8 +84,11 @@ class HistoryList(MyTreeWidget):
         '''Replaced in address_dialog.py'''
         return self.wallet.get_addresses()
 
-    @profiler
     def on_update(self):
+        self._on_update_history_list()
+
+    @profiler
+    def _on_update_history_list(self):
         self.wallet = self.parent.wallet
         h = self.wallet.get_history(self.get_domain())
         item = self.currentItem()

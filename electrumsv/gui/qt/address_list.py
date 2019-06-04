@@ -35,6 +35,7 @@ from electrumsv.i18n import _
 from electrumsv.app_state import app_state
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.platform import platform
+from electrumsv.util import profiler
 from electrumsv.wallet import Multisig_Wallet, Deterministic_Wallet
 import electrumsv.web as web
 
@@ -60,6 +61,10 @@ class AddressList(MyTreeWidget):
         self.update_headers(headers)
 
     def on_update(self):
+        self._on_update_address_list()
+
+    @profiler
+    def _on_update_address_list(self):
         def remember_expanded_items():
             # save the set of expanded items... so that address list updates don't
             # annoyingly collapse our tree list widget due to the update.

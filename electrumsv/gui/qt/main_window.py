@@ -65,7 +65,7 @@ from electrumsv.transaction import (
 )
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, format_fee_satoshis,
-    get_update_check_dates, get_identified_release_signers
+    get_update_check_dates, get_identified_release_signers, profiler
 )
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import Multisig_Wallet, sweep_preparations
@@ -940,6 +940,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.set_status_bar_fiat(fiat_status)
         self.update_network_status(self.wallet)
 
+    @profiler
     def update_wallet(self):
         self.update_status()
         if self.wallet.is_synchronized() or not self.network or not self.network.is_connected():

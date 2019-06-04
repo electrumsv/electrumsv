@@ -33,7 +33,7 @@ import ssl
 import stat
 import threading
 import time
-import traceback
+from typing import List
 
 import certifi
 from aiorpcx import (
@@ -764,7 +764,8 @@ class SVSession(RPCSession):
 
     async def subscribe_wallet(self, wallet, pairs=None):
         if pairs is None:
-            pairs = [(address, scripthash_hex(address)) for address in wallet.get_addresses()]
+            pairs = [(address, scripthash_hex(address))
+                for address in wallet.get_observed_addresses()]
         else:
             # If wallet was unsubscribed in the meantime keep it that way
             if wallet not in self._subs_by_wallet:
@@ -816,7 +817,7 @@ class SVSession(RPCSession):
         '''Raises: RPCError, TaskTimeout'''
         return await self.send_request(SCRIPTHASH_HISTORY, [script_hash])
 
-    async def subscribe_to_pairs(self, wallet, pairs):
+    async def subscribe_to_pairs(self, wallet, pairs) -> None:
         '''pairs is an iterable of (address, script_hash) pairs.
 
         Raises: RPCError, TaskTimeout'''
@@ -842,11 +843,38 @@ class SVSession(RPCSession):
         # A wallet shouldn't be subscribing the same address twice
         assert len(set(subs)) == len(subs)
 
+    async def unsubscribe_from_pairs(self, wallet, pairs) -> None:
+        '''pairs is an iterable of (address, script_hash) pairs.
+
+        Raises: RPCError, TaskTimeout'''
+        subs = self._subs_by_wallet[wallet]
+        exclusive_subs = self._get_exclusive_set(wallet, subs)
+        async with TaskGroup() as group:
+            for address, script_hash in pairs:
+                if script_hash not in exclusive_subs:
+                    continue
+                subs.remove(script_hash)
+                del self._address_map[script_hash]
+                await group.spawn(self._unsubscribe_from_script_hash(script_hash))
+
+    @classmethod
+    def _get_exclusive_set(cls, wallet, subs: List[str]) -> set:
+        subs_set = set(subs)
+        for other_wallet, other_subs in cls._subs_by_wallet.items():
+            if other_wallet == wallet:
+                continue
+            subs_set -= set(other_subs)
+        return subs_set
+
     @classmethod
     async def unsubscribe_wallet(cls, wallet):
         subs = cls._subs_by_wallet.pop(wallet, None)
         if subs is None:
             return
+        exclusive_subs = cls._get_exclusive_set(wallet, subs)
+        if not len(exclusive_subs):
+            return
+
         session = app_state.daemon.network.main_session()
         if not session._check_minimum_version("1.4.2"):
             logger.debug("Server is below version 1.4.2, and does not support unsubscribing")
@@ -1163,9 +1191,9 @@ class Network:
             await wallet.txs_changed_event.wait()
             wallet.txs_changed_event.clear()
 
-    async def _monitor_addresses(self, wallet):
+    async def _monitor_new_addresses(self, wallet):
         '''Raises: RPCError, TaskTimeout'''
-        addresses = wallet.get_addresses()
+        addresses = wallet.get_observed_addresses()
         while True:
             session = await self._main_session()
             session.logger.info(f'subscribing to {len(addresses):,d} new addresses for {wallet}')
@@ -1175,6 +1203,16 @@ class Network:
             await session.subscribe_to_pairs(wallet, pairs)
             addresses = await wallet.new_addresses()
 
+    async def _monitor_stale_addresses(self, wallet):
+        '''Raises: RPCError, TaskTimeout'''
+        while True:
+            addresses = await wallet.stale_addresses()
+            session = await self._main_session()
+            session.logger.info(f'unsubscribing from {len(addresses):,d} '+
+                f'stale addresses for {wallet}')
+            pairs = [(address, scripthash_hex(address)) for address in addresses]
+            await session.unsubscribe_from_pairs(wallet, pairs)
+
     async def _maintain_wallet(self, wallet):
         '''Put all tasks for a single wallet in a group so they can be cancelled together.'''
         logger.info(f'maintaining wallet {wallet}')
@@ -1183,7 +1221,8 @@ class Network:
                 try:
                     async with TaskGroup() as group:
                         await group.spawn(self._monitor_txs, wallet)
-                        await group.spawn(self._monitor_addresses, wallet)
+                        await group.spawn(self._monitor_new_addresses, wallet)
+                        await group.spawn(self._monitor_stale_addresses, wallet)
                         await group.spawn(wallet.synchronize_loop)
                 except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
                     blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
