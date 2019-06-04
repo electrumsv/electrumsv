@@ -35,7 +35,7 @@ from electrumsv.i18n import _
 from electrumsv.app_state import app_state
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.platform import platform
-from electrumsv.wallet import Multisig_Wallet
+from electrumsv.wallet import Multisig_Wallet, Deterministic_Wallet
 import electrumsv.web as web
 
 from .util import MyTreeWidget, SortableTreeWidgetItem
@@ -110,13 +110,35 @@ class AddressList(MyTreeWidget):
                 seq_item = account_item
             used_item = QTreeWidgetItem( [ _("Used"), '', '', '', '', ''] )
             used_flag = False
+
             addr_list = change_addresses if is_change else receiving_addresses
+            if isinstance(self.wallet, Deterministic_Wallet):
+                address_hashes = [ a.hash160() for a in addr_list ]
+                gap_limit = (self.wallet.gap_limit_for_change if is_change
+                    else self.wallet.gap_limit)
+
+                limit_idx = None
+                for i in range(len(address_hashes)-1, -1, -1):
+                    if self.wallet.get_address_history(addr_list[i]):
+                        limit_idx = i + 1 + gap_limit
+                        break
+
+                def is_beyond_limit(address) -> bool:
+                    idx = address_hashes.index(address.hash160())
+                    ref_idx = idx - gap_limit
+                    if ref_idx < 0 or limit_idx is None:
+                        return False
+                    return idx >= limit_idx
+            else:
+                def is_beyond_limit(address) -> bool:
+                    return False
+
             for n, address in enumerate(addr_list):
                 num = len(self.wallet.get_address_history(address))
                 is_used = self.wallet.is_used(address)
                 balance = sum(self.wallet.get_addr_balance(address))
                 address_text = address.to_string()
-                label = self.wallet.labels.get(address.to_string(), '')
+                label = self.wallet.labels.get(address_text, '')
                 balance_text = self.parent.format_amount(balance, whitespaces=True)
                 columns = [address_text, str(n), label, balance_text, str(num)]
                 if fx:
@@ -135,7 +157,7 @@ class AddressList(MyTreeWidget):
                 address_item.setData(0, Qt.UserRole+1, True) # label can be edited
                 if self.wallet.is_frozen_address(address):
                     address_item.setBackground(0, QColor('lightblue'))
-                if self.wallet.is_beyond_limit(address, is_change):
+                if is_beyond_limit(address):
                     address_item.setBackground(0, QColor('red'))
                 if is_used:
                     if not used_flag:

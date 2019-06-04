@@ -33,6 +33,7 @@ import ssl
 import stat
 import threading
 import time
+import traceback
 
 import certifi
 from aiorpcx import (
@@ -356,6 +357,17 @@ class SVSession(RPCSession):
         self.server = server
         self.tip = None
         self.version = None
+
+    # async def send_request(self, method, args=()):
+    #     t0 = time.time()
+    #     logger.debug(f"send_request({method}, {args}) at {t0}")
+    #     try:
+    #         return await super().send_request(method, args)
+    #     finally:
+    #         td = time.time() - t0
+    #         if td > 0.5:
+    #             logger.debug(f"send_request({method}, {args}) at {t0} took {td}")
+    #             traceback.print_stack()
 
     @classmethod
     def _required_checkpoint_headers(cls):

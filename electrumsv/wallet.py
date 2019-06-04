@@ -243,8 +243,6 @@ class Abstract_Wallet:
         self.invoices = InvoiceStore(self.storage)
         self.contacts = Contacts(self.storage)
 
-        self._analyze_history()
-
     def save_storage(self):
         self.storage.write()
 
@@ -1092,20 +1090,6 @@ class Abstract_Wallet:
         else:
             self._frozen_coins.difference_update(utxo.key() for utxo in utxos)
 
-    def _analyze_history(self):
-        bad_addrs = [addr for addr in self._history if not self.is_mine(addr)]
-        for addr in bad_addrs:
-            self._history.pop(addr)
-
-        for hist in self._history.values():
-            for tx_hash, tx_height in hist:
-                if (len(self.get_txouts(tx_hash)) or len(self.get_txins(tx_hash)) or
-                        tx_hash in self.pruned_txo.values()):
-                    continue
-                tx = self.get_transaction(tx_hash)
-                if tx is not None:
-                    self.apply_transactions_xputs(tx_hash, tx)
-
     def start(self, network):
         self.network = network
         if network:
@@ -1498,9 +1482,6 @@ class ImportedWalletBase(Simple_Wallet):
     def get_master_public_keys(self):
         return []
 
-    def is_beyond_limit(self, address, is_change):
-        return False
-
     def get_fingerprint(self):
         return ''
 
@@ -1795,21 +1776,6 @@ class Deterministic_Wallet(Abstract_Wallet):
         '''Class-specific synchronization (generation of missing addresses).'''
         await self._synchronize_chain(False)
         await self._synchronize_chain(True)
-
-    def is_beyond_limit(self, address, is_change):
-        if is_change:
-            addr_list = self.get_change_addresses()
-            limit = self.gap_limit_for_change
-        else:
-            addr_list = self.get_receiving_addresses()
-            limit = self.gap_limit
-        idx = addr_list.index(address)
-        ref_idx = idx - limit
-        if ref_idx < 0:
-            return False
-        addresses = addr_list[ref_idx: idx]
-        # This isn't really right but it's good enough for now and not entirely broken...
-        return all(not self._history.get(addr) for addr in addresses)
 
     def get_master_public_keys(self):
         return [self.get_master_public_key()]
