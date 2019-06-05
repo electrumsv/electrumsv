@@ -285,55 +285,65 @@ class CoinSplittingTab(QWidget):
         self.intro_label.setText("".join(text))
 
     def update_layout(self):
+        disabled_text = None
         window = self.window()
         if hasattr(window, "wallet"):
-            grid = QGridLayout()
-            grid.setColumnStretch(0, 1)
-            grid.setColumnStretch(4, 1)
+            if window.wallet.is_deterministic():
+                grid = QGridLayout()
+                grid.setColumnStretch(0, 1)
+                grid.setColumnStretch(4, 1)
 
-            self.intro_label = QLabel("")
-            self.intro_label.setTextFormat(Qt.RichText)
-            self.intro_label.setMinimumWidth(600)
-            self.intro_label.setWordWrap(True)
+                self.intro_label = QLabel("")
+                self.intro_label.setTextFormat(Qt.RichText)
+                self.intro_label.setMinimumWidth(600)
+                self.intro_label.setWordWrap(True)
 
-            self.split_button = QPushButton(_("Split"))
-            self.split_button.setMaximumWidth(120)
-            self.split_button.clicked.connect(self._on_split_button_clicked)
+                self.split_button = QPushButton(_("Split"))
+                self.split_button.setMaximumWidth(120)
+                self.split_button.clicked.connect(self._on_split_button_clicked)
 
-            help_content = "".join([
-                "<ol>",
-                "<li>",
-                _("Frozen coins will not be included in any split you make. You can use the "
-                  "Coins tab to freeze or unfreeze selected coins, and by doing so only split "
-                  "chosen amounts of your coins at a time.  The View menu can be used to toggle "
-                  "tabs."),
-                "</li>",
-                "<li>",
-                _("In order to prevent abuse, the faucet will limit how often you can obtain "
-                  "dust to split with. But that's okay, you can wait and split more coins. "
-                  "Or, if you are not concerned with your coins being linked, you can split "
-                  "dust from your already split coins, and use that to split further subsets."),
-                "</li>",
-                "</ol>",
-            ])
+                help_content = "".join([
+                    "<ol>",
+                    "<li>",
+                    _("Frozen coins will not be included in any split you make. You can use the "
+                    "Coins tab to freeze or unfreeze selected coins, and by doing so only split "
+                    "chosen amounts of your coins at a time.  The View menu can be used to toggle "
+                    "tabs."),
+                    "</li>",
+                    "<li>",
+                    _("In order to prevent abuse, the faucet will limit how often you can obtain "
+                    "dust to split with. But that's okay, you can wait and split more coins. "
+                    "Or, if you are not concerned with your coins being linked, you can split "
+                    "dust from your already split coins, and use that to split further subsets."),
+                    "</li>",
+                    "</ol>",
+                ])
 
-            button_row = QHBoxLayout()
-            button_row.addWidget(self.split_button)
-            button_row.addWidget(util.HelpButton(help_content, textFormat=Qt.RichText,
-                                                 title="Additional Information"))
+                button_row = QHBoxLayout()
+                button_row.addWidget(self.split_button)
+                button_row.addWidget(util.HelpButton(help_content, textFormat=Qt.RichText,
+                                                    title="Additional Information"))
 
-            grid.addWidget(self.intro_label, 0, 1, 1, 3)
-            # grid.addWidget(balance_widget, 2, 1, 1, 3, Qt.AlignHCenter)
-            grid.addLayout(button_row, 2, 1, 1, 3, Qt.AlignHCenter)
+                grid.addWidget(self.intro_label, 0, 1, 1, 3)
+                # grid.addWidget(balance_widget, 2, 1, 1, 3, Qt.AlignHCenter)
+                grid.addLayout(button_row, 2, 1, 1, 3, Qt.AlignHCenter)
 
-            vbox = QVBoxLayout()
-            vbox.addStretch(1)
-            vbox.addLayout(grid)
-            vbox.addStretch(1)
+                vbox = QVBoxLayout()
+                vbox.addStretch(1)
+                vbox.addLayout(grid)
+                vbox.addStretch(1)
 
-            self.update_balances()
+                self.update_balances()
+            else:
+                disabled_text = _("This is not the type of wallet that generate new addresses, "+
+                        "and therefore it cannot be used for <br/>coin-splitting. Create a new "+
+                        "standard wallet in ElectrumSV and send your coins there, then<br/>split "+
+                        "them.")
         else:
-            label = QLabel("Wallet not loaded, change tabs and come back.")
+            disabled_text = _("Wallet not loaded, change tabs and come back.")
+
+        if disabled_text is not None:
+            label = QLabel(disabled_text)
 
             hbox = QHBoxLayout()
             hbox.addWidget(label, 0, Qt.AlignHCenter | Qt.AlignVCenter)
