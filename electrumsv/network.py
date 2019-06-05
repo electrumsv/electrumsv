@@ -873,28 +873,24 @@ class SVSession(RPCSession):
         return subs_set
 
     @classmethod
-    async def unsubscribe_wallet(cls, wallet):
+    async def unsubscribe_wallet(cls, wallet, session):
         subs = cls._subs_by_wallet.pop(wallet, None)
         if subs is None:
             return
+        if not session:
+            return
         exclusive_subs = cls._get_exclusive_set(wallet, subs)
-        if not len(exclusive_subs):
+        if not exclusive_subs:
             return
 
-        session = app_state.daemon.network.main_session()
         if session.ptuple < (1, 4, 2):
             logger.debug("negotiated protocol does not support unsubscribing")
             return
         logger.debug(f"Unsubscribing {len(exclusive_subs)} subscriptions for {wallet}")
-        try:
-            async with TaskGroup() as group:
-                for script_hash in exclusive_subs:
-                    await group.spawn(session._unsubscribe_from_script_hash(script_hash))
-            logger.debug(f"Unsubscribed {len(exclusive_subs)} subscriptions for {wallet}")
-        except CancelledError:
-            logger.debug(f"Unsubscription of {len(exclusive_subs)} subscriptions "+
-                f"for {wallet} cancelled")
-            raise
+        async with TaskGroup() as group:
+            for script_hash in exclusive_subs:
+                await group.spawn(session._unsubscribe_from_script_hash(script_hash))
+        logger.debug(f"Unsubscribed {len(exclusive_subs)} subscriptions for {wallet}")
 
 
 class Network:
@@ -1236,7 +1232,7 @@ class Network:
                     if session:
                         await session.disconnect(str(error), blacklist=blacklist)
         finally:
-            await SVSession.unsubscribe_wallet(wallet)
+            await SVSession.unsubscribe_wallet(wallet, self.main_session())
             logger.info(f'stopped maintaining wallet {wallet}')
 
     async def _main_session(self):
