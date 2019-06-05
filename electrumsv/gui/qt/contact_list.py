@@ -29,8 +29,8 @@ from typing import Any, Optional
 from PyQt5.QtCore import Qt, QSortFilterProxyModel, QObject, QSize
 from PyQt5.QtGui import QPainter, QPixmap
 from PyQt5.QtWidgets import (QVBoxLayout, QLabel,
-    QLineEdit, QComboBox, QCompleter, QGridLayout, QWidget, QScrollArea, QHBoxLayout, QSizePolicy,
-    QStyle, QStyleOption, QPushButton, QToolBar, QAction, QWidgetItem, QListWidget, QListWidgetItem)
+    QLineEdit, QComboBox, QCompleter, QGridLayout, QWidget, QHBoxLayout, QSizePolicy,
+    QStyle, QStyleOption, QPushButton, QToolBar, QAction, QListWidget, QListWidgetItem)
 
 from electrumsv.contacts import (get_system_id, IDENTITY_SYSTEM_NAMES, IdentitySystem,
     ContactDataError, IdentityCheckResult, ContactEntry, ContactIdentity)
