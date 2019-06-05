@@ -1408,9 +1408,9 @@ class Abstract_Wallet:
         def f(x):
             try:
                 addr = x['address']
-                return self.get_address_index(addr) or addr
+                return self.get_address_index(addr) or str(addr)
             except:
-                return addr
+                return str(addr)
         return sorted((self.get_payment_request(x, config) for x in self.receive_requests), key=f)
 
     def get_fingerprint(self):
