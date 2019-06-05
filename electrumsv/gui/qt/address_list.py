@@ -112,7 +112,7 @@ class AddressList(MyTreeWidget):
             used_flag = False
 
             addr_list = change_addresses if is_change else receiving_addresses
-            if isinstance(self.wallet, Deterministic_Wallet):
+            if self.wallet.is_deterministic():
                 address_hashes = [ a.hash160 for a in addr_list ]
                 gap_limit = (self.wallet.gap_limit_for_change if is_change
                     else self.wallet.gap_limit)
