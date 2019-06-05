@@ -1512,9 +1512,6 @@ class ImportedWalletBase(Simple_Wallet):
     def get_master_public_keys(self):
         return []
 
-    def is_beyond_limit(self, address, is_change):
-        return False
-
     def get_fingerprint(self):
         return ''
 
@@ -1819,21 +1816,6 @@ class Deterministic_Wallet(Abstract_Wallet):
         '''Class-specific synchronization (generation of missing addresses).'''
         await self._synchronize_chain(False)
         await self._synchronize_chain(True)
-
-    def is_beyond_limit(self, address, is_change):
-        if is_change:
-            addr_list = self.get_change_addresses()
-            limit = self.gap_limit_for_change
-        else:
-            addr_list = self.get_receiving_addresses()
-            limit = self.gap_limit
-        idx = addr_list.index(address)
-        ref_idx = idx - limit
-        if ref_idx < 0:
-            return False
-        addresses = addr_list[ref_idx: idx]
-        # This isn't really right but it's good enough for now and not entirely broken...
-        return all(not self._history.get(addr) for addr in addresses)
 
     def get_master_public_keys(self):
         return [self.get_master_public_key()]

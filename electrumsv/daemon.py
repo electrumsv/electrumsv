@@ -148,6 +148,7 @@ class Daemon(DaemonThread):
         self.wallets = {}
         # Setup JSONRPC server
         self.init_server(config, fd, is_gui)
+        # self.init_thread_watcher()
 
     def init_server(self, config: SimpleConfig, fd, is_gui: bool) -> None:
         host = config.get('rpchost', '127.0.0.1')
@@ -173,6 +174,26 @@ class Daemon(DaemonThread):
         for cmdname in known_commands:
             server.register_function(getattr(self.cmd_runner, cmdname), cmdname)
         server.register_function(self.run_cmdline, 'run_cmdline')
+
+    def init_thread_watcher(self) -> None:
+        import threading
+        import sys
+        import traceback
+
+        def _watcher():
+            while True:
+                for th in threading.enumerate():
+                    th_text = str(th)
+                    if "GUI" not in th_text:
+                        continue
+                    print(th)
+                    traceback.print_stack(sys._current_frames()[th.ident])
+                    print()
+                time.sleep(5.0)
+
+        t = threading.Thread(target=_watcher)
+        t.setDaemon(True)
+        t.start()
 
     def ping(self) -> bool:
         return True
