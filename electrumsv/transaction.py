@@ -413,6 +413,10 @@ class Transaction(Tx):
     def __str__(self):
         return self.serialize()
 
+    def is_complete(self):
+        '''Return true if this input has all signatures present.'''
+        return all(txin.is_complete() for txin in self.inputs)
+
     def update_signatures(self, signatures):
         """Add new signatures to a transaction
 
@@ -486,10 +490,10 @@ class Transaction(Tx):
         return self.to_bytes().hex()
 
     def txid(self):
-        if not self.is_complete():
-            return None
-        ser = self.serialize()
-        return bh2u(sha256d(bfh(ser))[::-1])
+        '''A hexadecimal string if complete, otherwise None.'''
+        if self.is_complete():
+            return hash_to_hex_str(self.hash())
+        return None
 
     def input_value(self):
         return sum(txin.value for txin in self.inputs)
