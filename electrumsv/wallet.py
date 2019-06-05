@@ -223,6 +223,9 @@ class Abstract_Wallet:
 
         self.analyze_history()
 
+    def is_deterministic(self):
+        return False
+
     def missing_transactions(self):
         '''Returns a set of tx_hashes.'''
         with self.lock:
@@ -1720,6 +1723,9 @@ class Deterministic_Wallet(Abstract_Wallet):
     def __init__(self, storage):
         Abstract_Wallet.__init__(self, storage)
         self.gap_limit = storage.get('gap_limit', 20)
+
+    def is_deterministic(self):
+        return True
 
     def has_seed(self):
         return self.keystore.has_seed()
