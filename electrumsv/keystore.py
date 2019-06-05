@@ -148,7 +148,7 @@ class Imported_KeyStore(Software_KeyStore):
 
     def address_to_pubkey(self, address):
         for pubkey in self.keypairs:
-            if pubkey.to_address(coin=Net.COIN) == address.to_string():
+            if pubkey.to_address() == address:
                 return pubkey
         return None
 
