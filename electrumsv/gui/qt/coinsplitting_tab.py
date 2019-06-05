@@ -273,6 +273,13 @@ class CoinSplittingTab(QWidget):
               "in order to finalise the split."),
             "</li>",
             "</ol>",
+            "<p>",
+            _("<b>This will only split the coins currently available in this wallet.</b> "
+              "While any further coins you send to your wallet are included in the overall "
+              "balance, if they were unsplit before sending, they remain unsplit on arrival. "
+              "It it your responsibility to ensure you know if you are sending unsplit coins "
+              "and what the repercussions are. If in doubt, click split and be sure."),
+            "</p>",
         ])
 
         self.intro_label.setText("".join(text))
