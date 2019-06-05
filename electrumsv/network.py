@@ -51,9 +51,9 @@ from .bitcoin import scripthash_hex
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
-from .util import JSON, normalize_version
+from .util import JSON, protocol_tuple, version_string
 from .networks import Net
-from .version import PACKAGE_VERSION, PROTOCOL_VERSION, PROTOCOL_VERSION_MINIMUM
+from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
 
 
 logger = logs.get_logger("network")
@@ -356,7 +356,7 @@ class SVSession(RPCSession):
         self.logger = logger
         self.server = server
         self.tip = None
-        self.version = None
+        self.ptuple = (0, )
 
     # async def send_request(self, method, args=()):
     #     t0 = time.time()
@@ -452,14 +452,16 @@ class SVSession(RPCSession):
 
     async def _negotiate_protocol(self):
         '''Raises: RPCError, TaskTimeout'''
-        args = (PACKAGE_VERSION, [ PROTOCOL_VERSION_MINIMUM, PROTOCOL_VERSION ])
-        self.version = await self.send_request('server.version', args)
-        self.logger.debug(f'negotiated protocol: {self.version}')
-
-    def _check_minimum_version(self, minimum_version: str) -> bool:
-        if type(self.version) is list:
-            return normalize_version(minimum_version) >= normalize_version(self.version[1])
-        return False
+        method = 'server.version'
+        args = (PACKAGE_VERSION, [ version_string(PROTOCOL_MIN), version_string(PROTOCOL_MAX) ])
+        try:
+            server_string, protocol_string = await self.send_request(method, args)
+            self.logger.debug(f'server string: {server_string}')
+            self.logger.debug(f'negotiated protocol: {protocol_string}')
+            self.ptuple = protocol_tuple(protocol_string)
+            assert PROTOCOL_MIN <= self.ptuple <= PROTOCOL_MAX
+        except (AssertionError, ValueError) as e:
+            raise DisconnectSessionError(f'{method} failed: {e}', blacklist=True)
 
     async def _get_checkpoint_headers(self):
         '''Raises: RPCError, TaskTimeout'''
@@ -880,8 +882,8 @@ class SVSession(RPCSession):
             return
 
         session = app_state.daemon.network.main_session()
-        if not session._check_minimum_version("1.4.2"):
-            logger.debug("Server is below version 1.4.2, and does not support unsubscribing")
+        if session.ptuple < (1, 4, 2):
+            logger.debug("negotiated protocol does not support unsubscribing")
             return
         logger.debug(f"Unsubscribing {len(exclusive_subs)} subscriptions for {wallet}")
         try:

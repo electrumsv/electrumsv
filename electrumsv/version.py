@@ -1,7 +1,8 @@
 PACKAGE_VERSION = '1.3.0a1'                        # version of the client package
 PACKAGE_DATE = '2019-04-21T20:00:00.000000+13:00'  # official timestamp for client package
-PROTOCOL_VERSION = '1.4.2'                         # protocol version requested
-PROTOCOL_VERSION_MINIMUM = '1.4'                   # do not connect to lower than this
+# Negotiate protocol in this range
+PROTOCOL_MIN = (1, 4)
+PROTOCOL_MAX = (1, 4, 2)
 
 # The hash of the mnemonic seed must begin with this
 SEED_PREFIX      = '01'      # Standard wallet

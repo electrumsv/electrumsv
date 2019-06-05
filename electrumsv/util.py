@@ -27,7 +27,6 @@ from datetime import datetime
 import json
 import hmac
 import os
-import re
 import socket
 import ssl
 import stat
@@ -45,8 +44,24 @@ from .version import PACKAGE_DATE
 def inv_dict(d):
     return {v: k for k, v in d.items()}
 
-def normalize_version(v):
-    return [int(x) for x in re.sub(r'(\.0+)*$','', v).split(".")]
+
+def protocol_tuple(s):
+    '''Converts a protocol version number, such as "1.0" to a tuple (1, 0).
+
+    If the version number is bad, (0, ) indicating version 0 is returned.'''
+    try:
+        return tuple(int(part) for part in s.split('.'))
+    except (TypeError, ValueError, AttributeError):
+        raise ValueError(f'invalid protocol version: {s}') from None
+
+
+def version_string(ptuple):
+    '''Convert a version tuple such as (1, 2) to "1.2".
+    There is always at least one dot, so (1, ) becomes "1.0".'''
+    while len(ptuple) < 2:
+        ptuple += (0, )
+    return '.'.join(str(p) for p in ptuple)
+
 
 class MyEncoder(json.JSONEncoder):
     # https://github.com/PyCQA/pylint/issues/414
