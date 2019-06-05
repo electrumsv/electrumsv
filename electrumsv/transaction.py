@@ -36,7 +36,6 @@ from bitcoinx import (
     double_sha256, hash160
 )
 
-from .crypto import sha256d
 from .networks import Net
 from .logs import logs
 from .util import bfh, bh2u
@@ -49,18 +48,10 @@ dummy_signature = bytes(72)
 logger = logs.get_logger("transaction")
 
 
-def bitcoinx_net_fixup(ret):
-    # NOTE: This is a workaround for addresses defaulting to mainnet.
-    # Because we lookup addresses in a dict, it does some net-based string comparison which fails.
-    if ret is not None and hasattr(ret, "_coin"):
-        ret._coin = Net.COIN
-
 def classify_tx_output(tx_output: TxOutput):
     # This returns a P2PKH_Address, P2SH_Address, P2PK_Output, OP_RETURN_Output,
     # P2MultiSig_Output or Unknown_Output
-    ret = classify_output_script(tx_output.script_pubkey)
-    bitcoinx_net_fixup(ret)
-    return ret
+    return classify_output_script(tx_output.script_pubkey)
 
 
 def tx_output_to_display_text(tx_output: TxOutput):

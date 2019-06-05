@@ -34,7 +34,6 @@ import requests
 
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .logs import logs
-from .transaction import bitcoinx_net_fixup
 from .util import bfh
 
 
@@ -78,9 +77,7 @@ class Output:
         self.amount = amount
 
     def address(self):
-        ret = classify_output_script(self.script)
-        bitcoinx_net_fixup(ret)
-        return ret
+        return classify_output_script(self.script)
 
     def to_tx_output(self):
         return TxOutput(self.amount, self.script)
