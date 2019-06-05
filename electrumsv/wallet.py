@@ -249,6 +249,9 @@ class Abstract_Wallet:
     def save_storage(self):
         self.storage.write()
 
+    def is_deterministic(self):
+        return False
+
     def missing_transactions(self):
         '''Returns a set of tx_hashes.'''
         return self.db.tx.get_unsynced_ids()
@@ -1737,6 +1740,9 @@ class Deterministic_Wallet(Abstract_Wallet):
     def __init__(self, storage):
         Abstract_Wallet.__init__(self, storage)
         self.gap_limit = storage.get('gap_limit', 20)
+
+    def is_deterministic(self):
+        return True
 
     def has_seed(self):
         return self.keystore.has_seed()
