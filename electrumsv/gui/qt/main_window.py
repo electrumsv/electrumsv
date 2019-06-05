@@ -548,7 +548,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         view_menu = menubar.addMenu(_("&View"))
         add_toggle_action(view_menu, self.addresses_tab)
         add_toggle_action(view_menu, self.utxo_tab)
-        add_toggle_action(view_menu, self.contacts_tab)
+        # NOTE: rt12 -- disable contact list.
+        # add_toggle_action(view_menu, self.contacts_tab)
+        self.contacts_tab.setVisible(False)
         add_toggle_action(view_menu, self.coinsplitting_tab)
         add_toggle_action(view_menu, self.console_tab)
 
@@ -591,10 +593,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         toolbar.setIconSize(QSize(icon_size, icon_size))
         toolbar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
 
-        make_payment_action = QAction(read_QIcon("icons8-initiate-money-transfer-80.png"),
-            _("Make Payment"), self)
-        make_payment_action.triggered.connect(self.new_payment)
-        toolbar.addAction(make_payment_action)
+        # NOTE: rt12 -- disable payment button in stable branch
+        # make_payment_action = QAction(read_QIcon("icons8-initiate-money-transfer-80.png"),
+        #     _("Make Payment"), self)
+        # make_payment_action.triggered.connect(self.new_payment)
+        # toolbar.addAction(make_payment_action)
 
         spacer = QWidget(self)
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
