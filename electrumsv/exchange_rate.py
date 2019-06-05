@@ -151,17 +151,6 @@ class Coinbase(ExchangeBase):
         return {ccy: Decimal(rate) for (ccy, rate) in json["data"]["rates"].items()}
 
 
-class Kraken(ExchangeBase):
-
-    def get_rates(self, ccy):
-        ccys = ['EUR', 'USD']
-        pairs = ['BSV%s' % c for c in ccys]
-        json = self.get_json('api.kraken.com',
-                             '/0/public/Ticker?pair=%s' % ','.join(pairs))
-        return dict((k[-3:], Decimal(float(v['c'][0])))
-                     for k, v in json['result'].items())
-
-
 class CoinFloor(ExchangeBase):
     # CoinFloor API only supports GBP on public API
     def get_rates(self, ccy):
@@ -358,7 +347,7 @@ class FxTask:
         return self.config.get("currency", "EUR")
 
     def config_exchange(self):
-        return self.config.get('use_exchange', 'Kraken')
+        return self.config.get('use_exchange', 'CoinGecko')
 
     def show_history(self):
         return (self.is_enabled() and self.get_history_config() and
@@ -375,7 +364,7 @@ class FxTask:
             self.trigger_history_refresh()
 
     def set_exchange(self, name):
-        class_ = globals().get(name, Kraken)
+        class_ = globals().get(name, CoinGecko)
         logger.debug("using exchange %s", name)
         if self.config_exchange() != name:
             self.config.set_key('use_exchange', name, True)
