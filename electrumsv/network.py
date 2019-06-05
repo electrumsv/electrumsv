@@ -859,6 +859,10 @@ class SVSession(RPCSession):
 
     @classmethod
     def _get_exclusive_set(cls, wallet, subs: List[str]) -> set:
+        # This returns the script hashes the given wallet is subscribed to, that no other
+        # wallet is also subscribed to. This ensures that when we unsubscribe script hashes for
+        # the given wallet, as the server subscription is shared between wallets, we only
+        # unsubscribe if the script hash will no longer be needed for any wallet.
         subs_set = set(subs)
         for other_wallet, other_subs in cls._subs_by_wallet.items():
             if other_wallet == wallet:
@@ -879,14 +883,15 @@ class SVSession(RPCSession):
         if not session._check_minimum_version("1.4.2"):
             logger.debug("Server is below version 1.4.2, and does not support unsubscribing")
             return
-        logger.debug(f"Unsubscribing {len(subs)} subscriptions for {wallet}")
+        logger.debug(f"Unsubscribing {len(exclusive_subs)} subscriptions for {wallet}")
         try:
             async with TaskGroup() as group:
-                for script_hash in subs:
+                for script_hash in exclusive_subs:
                     await group.spawn(session._unsubscribe_from_script_hash(script_hash))
-            logger.debug(f"Unsubscribed {len(subs)} subscriptions for {wallet}")
+            logger.debug(f"Unsubscribed {len(exclusive_subs)} subscriptions for {wallet}")
         except CancelledError:
-            logger.debug(f"Unsubscription of {len(subs)} subscriptions for {wallet} cancelled")
+            logger.debug(f"Unsubscription of {len(exclusive_subs)} subscriptions "+
+                f"for {wallet} cancelled")
             raise
 
 
