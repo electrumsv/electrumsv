@@ -208,9 +208,9 @@ class Abstract_Wallet:
         self._new_addresses = []
         self._new_addresses_lock = threading.Lock()
         self._new_addresses_event = app_state.async_.event()
-        self._stale_addresses = []
-        self._stale_addresses_lock = threading.Lock()
-        self._stale_addresses_event = app_state.async_.event()
+        self._used_addresses = []
+        self._used_addresses_lock = threading.Lock()
+        self._used_addresses_event = app_state.async_.event()
         self._synchronize_event = app_state.async_.event()
         self._synchronized_event = app_state.async_.event()
         self.txs_changed_event = app_state.async_.event()
@@ -753,7 +753,7 @@ class Abstract_Wallet:
         for addresses in address_list:
             empty_idx = None
             for i, address in enumerate(addresses):
-                if not self._is_stale_address(address):
+                if not self.is_used(address):
                     observed.append(address)
 
         return observed
@@ -850,7 +850,7 @@ class Abstract_Wallet:
         if txouts:
             self.db.txout.add_entries(txouts)
 
-        self._check_stale_addresses(addresses)
+        self._check_used_addresses(addresses)
 
     # Used by ImportedWalletBase
     def _remove_transaction(self, tx_hash: str) -> None:
@@ -898,7 +898,7 @@ class Abstract_Wallet:
                         not len(self.get_txouts(tx_id, addr))):
                     self.apply_transactions_xputs(tx_id, tx)
 
-        self._check_stale_addresses([ addr ])
+        self._check_used_addresses([ addr ])
 
         self.txs_changed_event.set()
         await self._trigger_synchronization()
@@ -1141,7 +1141,7 @@ class Abstract_Wallet:
         return not self.is_watching_only() and hasattr(self.keystore, 'get_private_key')
 
     def is_used(self, address):
-        return len(self.get_address_history(address))
+        return len(self.get_address_history(address)) and self.is_empty(address)
 
     def is_empty(self, address):
         assert isinstance(address, Address)
@@ -1448,28 +1448,20 @@ class Abstract_Wallet:
             self._new_addresses = []
         return result
 
-    def _is_stale_address(self, address: Address) -> bool:
-        received, sent = self._get_addr_io(address)
-        if sent and received:
-            c, u, x = self.get_addr_balance(address)
-            if c + u + x == 0:
-                return True
-        return False
-
-    def _check_stale_addresses(self, addresses: Iterable[Address]) -> None:
+    def _check_used_addresses(self, addresses: Iterable[Address]) -> None:
         assert all(isinstance(address, Address) for address in addresses)
-        addresses = [ a for a in addresses if self._is_stale_address(a) ]
+        addresses = [ a for a in addresses if self.is_used(a) ]
         if addresses:
-            with self._stale_addresses_lock:
-                self._stale_addresses.extend(addresses)
-            self._stale_addresses_event.set()
+            with self._used_addresses_lock:
+                self._used_addresses.extend(addresses)
+            self._used_addresses_event.set()
 
-    async def stale_addresses(self) -> List[Address]:
-        await self._stale_addresses_event.wait()
-        self._stale_addresses_event.clear()
-        with self._stale_addresses_lock:
-            result = self._stale_addresses
-            self._stale_addresses = []
+    async def used_addresses(self) -> List[Address]:
+        await self._used_addresses_event.wait()
+        self._used_addresses_event.clear()
+        with self._used_addresses_lock:
+            result = self._used_addresses
+            self._used_addresses = []
         return result
 
     def has_password(self):

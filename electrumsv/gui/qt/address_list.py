@@ -123,7 +123,7 @@ class AddressList(MyTreeWidget):
                     else self.wallet.gap_limit)
 
                 limit_idx = None
-                for i in range(len(address_hashes)-1, -1, -1):
+                for i in range(len(addr_list)-1, -1, -1):
                     if self.wallet.get_address_history(addr_list[i]):
                         limit_idx = i + 1 + gap_limit
                         break

@@ -1205,13 +1205,13 @@ class Network:
             await session.subscribe_to_pairs(wallet, pairs)
             addresses = await wallet.new_addresses()
 
-    async def _monitor_stale_addresses(self, wallet):
+    async def _monitor_used_addresses(self, wallet):
         '''Raises: RPCError, TaskTimeout'''
         while True:
-            addresses = await wallet.stale_addresses()
+            addresses = await wallet.used_addresses()
             session = await self._main_session()
             session.logger.info(f'unsubscribing from {len(addresses):,d} '+
-                f'stale addresses for {wallet}')
+                f'used addresses for {wallet}')
             pairs = [(address, scripthash_hex(address)) for address in addresses]
             await session.unsubscribe_from_pairs(wallet, pairs)
 
@@ -1224,7 +1224,7 @@ class Network:
                     async with TaskGroup() as group:
                         await group.spawn(self._monitor_txs, wallet)
                         await group.spawn(self._monitor_new_addresses, wallet)
-                        await group.spawn(self._monitor_stale_addresses, wallet)
+                        await group.spawn(self._monitor_used_addresses, wallet)
                         await group.spawn(wallet.synchronize_loop)
                 except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
                     blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
