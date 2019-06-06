@@ -35,7 +35,7 @@ from electrumsv.address import Address
 from electrumsv.app_state import app_state
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.platform import platform
-from electrumsv.wallet import Multisig_Wallet, Deterministic_Wallet
+from electrumsv.wallet import Multisig_Wallet
 import electrumsv.web as web
 
 from .util import MyTreeWidget, SortableTreeWidgetItem
