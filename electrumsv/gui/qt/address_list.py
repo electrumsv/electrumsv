@@ -196,7 +196,7 @@ class AddressList(MyTreeWidget):
             if col == 0:
                 copy_text = addr.to_string()
             else:
-                copy_text = item.text(col)
+                copy_text = item.text(col).strip()
             menu.addAction(_("Copy {}").format(column_title),
                            lambda: self.parent.app.clipboard().setText(copy_text))
             menu.addAction(_('Details'), lambda: self.parent.show_address(addr))

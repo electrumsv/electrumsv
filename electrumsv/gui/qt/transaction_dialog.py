@@ -27,9 +27,9 @@ import copy
 import datetime
 import json
 
-from PyQt5.QtGui import QFont, QBrush, QTextCharFormat, QColor
+from PyQt5.QtGui import QFont, QBrush, QTextCharFormat, QColor, QCursor
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit
+    QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit, QToolTip
 )
 
 from electrumsv.address import Address, PublicKey
@@ -72,7 +72,10 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         vbox.addWidget(QLabel(_("Transaction ID:")))
         self.tx_hash_e  = ButtonsLineEdit()
-        self.tx_hash_e.addButton("qrcode.png", self.show_tx_hash_qr, _("Show as QR code"))
+        self.tx_hash_e.addButton("qrcode.png",
+            self._on_click_show_tx_hash_qr, _("Show as QR code"))
+        self.tx_hash_e.addButton("copy.png",
+            self._on_click_copy_tx_id, _("Copy to clipboard"))
 
         self.tx_hash_e.setReadOnly(True)
         vbox.addWidget(self.tx_hash_e)
@@ -137,8 +140,12 @@ class TxDialog(QDialog, MessageBoxMixin):
     def copy_tx_to_clipboard(self):
         self.main_window.app.clipboard().setText(str(self.tx))
 
-    def show_tx_hash_qr(self):
+    def _on_click_show_tx_hash_qr(self):
         self.main_window.show_qrcode(str(self.tx_hash_e.text()), 'Transaction ID', parent=self)
+
+    def _on_click_copy_tx_id(self) -> None:
+        app_state.app.clipboard().setText(self._tx_hash)
+        QToolTip.showText(QCursor.pos(), _("Transaction ID copied to clipboard"), self)
 
     def got_verified_tx(self, event, args):
         if event == 'verified' and args[0] == self.tx.txid():
@@ -225,6 +232,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         can_sign = not self.tx.is_complete() and \
             (self.wallet.can_sign(self.tx) or bool(self.main_window.tx_external_keypairs))
         self.sign_button.setEnabled(can_sign)
+        self._tx_hash = tx_info.hash
         self.tx_hash_e.setText(tx_info.hash or _('Unknown'))
         if tx_info_fee is None:
             try:
