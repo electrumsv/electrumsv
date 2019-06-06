@@ -172,7 +172,7 @@ class HistoryList(MyTreeWidget):
             column_data = tx_hash
         else:
             column_title = self.headerItem().text(column)
-            column_data = item.text(column)
+            column_data = item.text(column).strip()
 
         tx_URL = web.BE_URL(self.config, 'tx', tx_hash)
         height, _conf, _timestamp = self.wallet.get_tx_height(tx_hash)

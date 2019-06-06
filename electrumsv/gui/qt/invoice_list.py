@@ -85,7 +85,7 @@ class InvoiceList(MyTreeWidget):
         key = item.data(0, Qt.UserRole)
         column = self.currentColumn()
         column_title = self.headerItem().text(column)
-        column_data = item.text(column)
+        column_data = item.text(column).strip()
         pr = self.parent.invoices.get(key)
         status = self.parent.invoices.get_status(key)
         if column_data:

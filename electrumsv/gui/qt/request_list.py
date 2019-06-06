@@ -113,7 +113,7 @@ class RequestList(MyTreeWidget):
         req = self.wallet.receive_requests[addr]
         column = self.currentColumn()
         column_title = self.headerItem().text(column)
-        column_data = item.text(column)
+        column_data = item.text(column).strip()
         menu = QMenu(self)
         menu.addAction(_("Copy {}").format(column_title),
                        lambda: self.parent.app.clipboard().setText(column_data))
