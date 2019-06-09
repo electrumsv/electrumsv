@@ -855,6 +855,9 @@ class SVSession(RPCSession):
             for address, script_hash in pairs:
                 if script_hash not in exclusive_subs:
                     continue
+                # Blocking on each removal allows for race conditions.
+                if script_hash not in subs:
+                    continue
                 subs.remove(script_hash)
                 del self._address_map[script_hash]
                 await group.spawn(self._unsubscribe_from_script_hash(script_hash))
