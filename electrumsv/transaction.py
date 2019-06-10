@@ -464,7 +464,7 @@ class Transaction(Tx):
     def BIP_LI01_sort(self):
         # See https://github.com/kristovatlas/rfc/blob/master/bips/bip-li01.mediawiki
         self.inputs.sort(key = lambda txin: txin.prevout_bytes())
-        self.outputs.sort(key = lambda output: (output.value, output.script_pubkey))
+        self.outputs.sort(key = lambda output: (output.value, output.script_pubkey.to_bytes()))
 
     @classmethod
     def nHashType(cls):
