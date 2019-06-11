@@ -768,11 +768,12 @@ class SVSession(RPCSession):
         if pairs is None:
             pairs = [(address, scripthash_hex(address))
                 for address in wallet.get_observed_addresses()]
+            self.logger.info(f'subscribing to {len(pairs):,d} observed addresses for {wallet}')
         else:
+            self.logger.info(f'subscribing to {len(pairs):,d} addresses for {wallet}')
             # If wallet was unsubscribed in the meantime keep it that way
             if wallet not in self._subs_by_wallet:
                 return
-        self.logger.info(f'subscribing to {len(pairs):,d} addresses for {wallet}')
         await self.subscribe_to_pairs(wallet, pairs)
 
     async def subscribe_wallets(self):
@@ -781,6 +782,7 @@ class SVSession(RPCSession):
 
         Raises: RPCError, TaskTimeout
         '''
+        self.logger.debug("subscribe_wallets")
         subs_by_wallet = self._subs_by_wallet
         address_map = self._address_map
         SVSession._address_map = {}
@@ -889,11 +891,11 @@ class SVSession(RPCSession):
         if session.ptuple < (1, 4, 2):
             logger.debug("negotiated protocol does not support unsubscribing")
             return
-        logger.debug(f"Unsubscribing {len(exclusive_subs)} subscriptions for {wallet}")
+        logger.debug(f"unsubscribing {len(exclusive_subs)} subscriptions for {wallet}")
         async with TaskGroup() as group:
             for script_hash in exclusive_subs:
                 await group.spawn(session._unsubscribe_from_script_hash(script_hash))
-        logger.debug(f"Unsubscribed {len(exclusive_subs)} subscriptions for {wallet}")
+        logger.debug(f"unsubscribed {len(exclusive_subs)} subscriptions for {wallet}")
 
 
 class Network:
@@ -1213,8 +1215,13 @@ class Network:
         while True:
             addresses = await wallet.used_addresses()
             session = await self._main_session()
-            session.logger.info(f'unsubscribing from {len(addresses):,d} '+
-                f'used addresses for {wallet}')
+            if len(addresses) < 5:
+                address_strings = [a.to_string() for a in addresses]
+                session.logger.info(
+                    f'unsubscribing from used addresses for {wallet}: {address_strings}')
+            else:
+                session.logger.info(f'unsubscribing from {len(addresses):,d} '+
+                    f'used addresses for {wallet}')
             pairs = [(address, scripthash_hex(address)) for address in addresses]
             await session.unsubscribe_from_pairs(wallet, pairs)
 

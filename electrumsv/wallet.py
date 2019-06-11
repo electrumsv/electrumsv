@@ -1450,6 +1450,8 @@ class Abstract_Wallet:
         assert all(isinstance(address, Address) for address in addresses)
         addresses = [ a for a in addresses if self.is_used(a) ]
         if addresses:
+            address_strings = [a.to_string() for a in addresses]
+            self.logger.debug("_check_used_addresses: %s", address_strings)
             with self._used_addresses_lock:
                 self._used_addresses.extend(addresses)
             self._used_addresses_event.set()
