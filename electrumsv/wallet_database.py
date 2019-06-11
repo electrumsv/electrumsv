@@ -732,7 +732,8 @@ class TransactionStore(BaseWalletStore):
         etx_id = self._encrypt_hex(tx_id)
         db = self._get_db()
         clause, params = self._flag_clause(flags, mask)
-        query = "SELECT MetaData, ByteData, Flags FROM Transactions WHERE Key=?"
+        query = ("SELECT MetaData, ByteData, Flags FROM Transactions "+
+            "WHERE Key=? AND DateDeleted IS NULL")
         if clause:
             query += " AND "+ clause
         cursor = db.execute(query, [etx_id] + params)
@@ -746,10 +747,10 @@ class TransactionStore(BaseWalletStore):
     def get_many(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_ids: Optional[Iterable[str]]=None) -> List[Tuple[str, TxData, Optional[bytes], int]]:
         db = self._get_db()
-        query = "SELECT Key, MetaData, ByteData, Flags FROM Transactions"
+        query = "SELECT Key, MetaData, ByteData, Flags FROM Transactions WHERE DateDeleted IS NULL"
         clause, params = self._flag_clause(flags, mask)
         if clause:
-            query += " WHERE "+ clause
+            query += " AND "+ clause
 
         results = []
         def _collect_results(cursor, results):
@@ -763,15 +764,12 @@ class TransactionStore(BaseWalletStore):
 
         if tx_ids is not None and len(tx_ids):
             etx_ids = [ self._encrypt_hex(tx_id) for tx_id in tx_ids ]
-            if clause:
-                query += " AND "
-            else:
-                query += " WHERE "
 
             batch_size = MAX_VARS - len(params)
             while len(etx_ids):
                 batch_params = params + etx_ids[:batch_size]
-                batch_query = query + "Key IN ({0})".format(",".join("?" for k in batch_params))
+                batch_query = (query +
+                    " AND Key IN ({0})".format(",".join("?" for k in batch_params)))
                 cursor = db.execute(batch_query, batch_params)
                 _collect_results(cursor, results)
                 etx_ids = etx_ids[batch_size:]
@@ -786,7 +784,7 @@ class TransactionStore(BaseWalletStore):
         etx_id = self._encrypt_hex(tx_id)
         db = self._get_db()
         clause, params = self._flag_clause(flags, mask)
-        query = "SELECT MetaData, Flags FROM Transactions WHERE Key=?"
+        query = "SELECT MetaData, Flags FROM Transactions WHERE Key=? AND DateDeleted IS NULL"
         if clause:
             query += " AND "+ clause
         cursor = db.execute(query, [etx_id] + params)
@@ -799,10 +797,10 @@ class TransactionStore(BaseWalletStore):
     def get_metadata_many(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_ids: Optional[Iterable[str]]=None) -> List[Tuple[str, TxData, int]]:
         db = self._get_db()
-        query = "SELECT Key, MetaData, Flags FROM Transactions"
+        query = "SELECT Key, MetaData, Flags FROM Transactions WHERE DateDeleted IS NULL"
         clause, params = self._flag_clause(flags, mask)
         if clause:
-            query += " WHERE "+ clause
+            query += " AND "+ clause
 
         results = []
         def _collect_results(cursor, results):
@@ -815,15 +813,13 @@ class TransactionStore(BaseWalletStore):
 
         if tx_ids is not None and len(tx_ids):
             etx_ids = [ self._encrypt_hex(tx_id) for tx_id in tx_ids ]
-            if clause:
-                query += " AND "
-            else:
-                query += " WHERE "
 
             batch_size = MAX_VARS - len(params)
             while len(etx_ids):
-                batch_params = params + etx_ids[:batch_size]
-                batch_query = query + "Key IN ({0})".format(",".join("?" for k in tx_ids))
+                batch_etx_ids = etx_ids[:batch_size]
+                batch_params = params + batch_etx_ids
+                batch_query = (query +
+                    " AND Key IN ({0})".format(",".join("?" for k in batch_etx_ids)))
                 cursor = db.execute(batch_query, batch_params)
                 _collect_results(cursor, results)
                 etx_ids = etx_ids[batch_size:]
@@ -1067,6 +1063,9 @@ class TxCache:
 
         self.update_proof = self._store.update_proof
 
+        # Prime the cache with metadata for all transactions.
+        self.get_metadatas()
+
     def _validate_transaction_bytes(self, tx_id: str, bytedata: Optional[bytes]) -> bool:
         if bytedata is None:
             return True
@@ -1283,10 +1282,10 @@ class TxCache:
                 if bytedata is not None and not self._validate_transaction_bytes(tx_id, bytedata):
                     raise InvalidDataError(tx_id)
                 cache_additions.append((tx_id, TxCacheEntry(metadata, get_flags, bytedata)))
-            if len(cache_additions) < 20:
-                self.logger.debug("cache_additions: %r", cache_additions)
+            if len(cache_additions) < 5:
+                self.logger.debug("entry_cache_additions: %r", cache_additions)
             else:
-                self.logger.debug("cache_additions (%d entries)", len(cache_additions))
+                self.logger.debug("entry_cache_additions (%d entries)", len(cache_additions))
             self._cache.update(cache_additions)
 
         access_time = time.time()
@@ -1305,9 +1304,36 @@ class TxCache:
             # self._cache_access.update([ (t[0], access_time) for t in cache_additions ])
         return results
 
-    def get_metadatas(self, flags: Optional[int]=None,
-            mask: Optional[int]=None) -> List[Tuple[str, TxData]]:
-        return self._store.get_metadata_many(flags, mask)
+    def get_metadatas(self, flags: Optional[int]=None, mask: Optional[int]=None,
+            tx_ids: Optional[Iterable[str]]=None,
+            require_all: bool=True) -> List[Tuple[str, TxData]]:
+        specific_tx_ids = None
+        if tx_ids is not None:
+            specific_tx_ids = [ tx_id for tx_id in tx_ids if tx_id not in self._cache ]
+
+        cache_additions = []
+        if tx_ids is None or specific_tx_ids:
+            for tx_id, metadata, flags_get in self._store.get_metadata_many(flags, mask, tx_ids):
+                cache_additions.append((tx_id,
+                    TxCacheEntry(metadata, flags_get, is_bytedata_cached=False)))
+            if len(cache_additions) < 5:
+                self.logger.debug("metadata_cache_additions: %r", cache_additions)
+            else:
+                self.logger.debug("metadata_cache_additions (%d entries)", len(cache_additions))
+            self._cache.update(cache_additions)
+
+        results = []
+        if specific_tx_ids is not None:
+            for tx_id in tx_ids:
+                entry = self._cache.get(tx_id)
+                if entry is None:
+                    if require_all:
+                        raise MissingRowError(tx_id)
+                elif self._entry_visible(entry.flags, flags, mask):
+                    results.append((tx_id, entry))
+        else:
+            results = cache_additions
+        return results
 
     def get_transactions(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_ids: Optional[Iterable[str]]=None) -> List[Tuple[str, Transaction]]:
@@ -1332,23 +1358,23 @@ class TxCache:
     def get_unverified_entries(self, watermark_height: int) -> Dict[str, int]:
         # TODO: Revise how we track this if the load is too high.
         # Add an index, cache it if possible.. etc.
-        results = self.get_entries(
+        results = self.get_metadatas(
             flags=TxFlags.HasByteData | TxFlags.HasHeight,
             mask=TxFlags.HasByteData | TxFlags.HasTimestamp | TxFlags.HasPosition |
                  TxFlags.HasHeight)
         return [ t for t in results if 0 < t[1].metadata.height <= watermark_height ]
 
     def delete_reorged_entries(self, reorg_height: int) -> None:
-        flags = TxFlags.HasHeight
-        mask = TxFlags.HasHeight
+        fetch_flags = TxFlags.HasHeight
+        fetch_mask = TxFlags.HasHeight
 
         updates = []
-        for (tx_id, metadata, flags) in self.get_metadatas(flags, mask):
-            mask_flags = (TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition |
+        for (tx_id, entry) in self.get_metadatas(fetch_flags, fetch_mask):
+            filter_mask = (TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition |
                 TxFlags.HasProofData)
-            if flags & mask_flags == mask_flags and metadata.height > reorg_height:
-                flags &= ~mask_flags
-                updates.append((tx_id, metadata, flags))
+            if entry.flags & filter_mask == filter_mask and entry.metadata.height > reorg_height:
+                update_flags = entry.flags & ~filter_mask
+                updates.append((tx_id, entry.metadata, update_flags))
         if len(updates):
             self._store.update_metadata_many(updates)
         return len(updates)

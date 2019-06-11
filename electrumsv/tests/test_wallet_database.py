@@ -860,7 +860,7 @@ class TestTxCache(unittest.TestCase):
         results = cache.get_unsynced_ids()
         self.assertEqual(0, len(results))
 
-    def test_get_unverified_entries(self):
+    def test_get_unverified_entries_too_high(self):
         cache = TxCache(self.store)
 
         tx_bytes_1 = bytes.fromhex(tx_hex_1)
@@ -872,7 +872,12 @@ class TestTxCache(unittest.TestCase):
         results = cache.get_unverified_entries(100)
         self.assertEqual(0, len(results))
 
+    def test_get_unverified_entries(self):
         cache = TxCache(self.store)
+
+        tx_bytes_1 = bytes.fromhex(tx_hex_1)
+        tx_hash_bytes_1 = bitcoinx.double_sha256(tx_bytes_1)
+        tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
 
         data = TxData(height=11)
         cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateCleared) ])
