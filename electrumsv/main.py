@@ -364,7 +364,10 @@ def main():
         config_options['electrum_sv_path'] = os.path.join(portable_base_path, 'electrum_sv_data')
 
     if config_options.get('file_logging'):
-        log_path = os.path.join(platform.user_dir(prefer_local=True), "logs")
+        if config_options.get('portable'):
+            log_path = os.path.join(config_options['electrum_sv_path'], "logs")
+        else:
+            log_path = os.path.join(platform.user_dir(prefer_local=True), "logs")
         os.makedirs(log_path, exist_ok=True)
         log_path = os.path.join(log_path, time.strftime("%Y%m%d-%H%M%S") + ".log")
         logs.add_file_output(log_path)
