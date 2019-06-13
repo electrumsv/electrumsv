@@ -473,6 +473,7 @@ class Abstract_Wallet:
 
     def add_verified_tx(self, tx_hash, height, timestamp, position, proof_position, proof_branch):
         entry = self.db.tx.get_entry(tx_hash, TxFlags.StateSettled)
+        # Ensure we are not verifying transactions multiple times.
         if entry is None:
             self.logger.debug("Attempting to clear unsettled tx %s", tx_hash)
             return
@@ -488,6 +489,10 @@ class Abstract_Wallet:
         height, conf, timestamp = self.get_tx_height(tx_hash)
         self.logger.debug("add_verified_tx %d %d %d", height, conf, timestamp)
         self.network.trigger_callback('verified', tx_hash, height, conf, timestamp)
+
+        addresses = [ Address.from_string(entry.address_string)
+            for entry in self.get_txins(tx_hash) ]
+        self._check_used_addresses(addresses)
 
     def undo_verifications(self, above_height):
         '''Used by the verifier when a reorg has happened'''
@@ -848,8 +853,6 @@ class Abstract_Wallet:
         if txouts:
             self.db.txout.add_entries(txouts)
 
-        self._check_used_addresses(addresses)
-
     # Used by ImportedWalletBase
     def _remove_transaction(self, tx_hash: str) -> None:
         with self.transaction_lock:
@@ -895,8 +898,6 @@ class Abstract_Wallet:
                 if (tx is not None and not len(self.get_txins(tx_id, addr)) and
                         not len(self.get_txouts(tx_id, addr))):
                     self.apply_transactions_xputs(tx_id, tx)
-
-        self._check_used_addresses([ addr ])
 
         self.txs_changed_event.set()
         await self._trigger_synchronization()
