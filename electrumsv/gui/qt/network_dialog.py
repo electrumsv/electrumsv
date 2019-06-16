@@ -112,7 +112,7 @@ class NodesListWidget(QTreeWidget):
         _chain, common_height = our_chain.common_chain_and_height(chain)
         fork_height = common_height + 1
         headers_obj = app_state.headers
-        header = headers_obj.header_at_height(fork_height)
+        header = headers_obj.header_at_height(chain, fork_height)
         prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
         return f'{prefix}@{fork_height}'
 
