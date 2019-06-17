@@ -1595,6 +1595,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.do_send(preview = True)
 
     def do_send(self, preview = False):
+        dialogs.show_named('think-before-sending')
+
         r = self.read_send_tab()
         if not r:
             return

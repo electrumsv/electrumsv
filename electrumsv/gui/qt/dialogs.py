@@ -134,30 +134,13 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
     return box.result(parent, wallet, **kwargs)
 
 raw_release_notes = """
-  * Release notes: Read <a href="https://medium.com/@roger.taylor/electrumsv-1-2-1-b6262361191">the article</a>
-    on Medium, that goes into these in more detail.
-  * Performance: Password protected wallet loading and saving encrypts and decrypts using AES
-    encryption. Users may see faster loading and saving due to use of C functionality rather than
-    the fallback Python functionality, in some circumstances.
-  * Windows: Previously running the ElectrumSV application on Windows would not allow easy access
-    to the logging information. In the worst case, the user would just get an error about not being
-    able to run the 'electrum-sv' script. With this release it should now be possible to run from
-    the command prompt and provide the '--v=debug' option to see why ElectrumSV could not start up.
-  * Scaling testnet: We now run a server on the scaling testnet. This will be useful for users who
-    want to test against a network that can at times be simulating heavy use. In order to use this
-    provide the '--scaling-testnet' option when running from the command prompt, in much the same
-    way you provide '--testnet' to operate on the normal testnet.
-  * Block explorers: An existing feature we have is that users can select a transaction and choose
-    to view it on a block explorer, and can select what block explorer to use in their settings.
-    Now you can also choose the 'satoshi.io' explorer in addition to the ones we already offer.
-  * Networking responsiveness: We have modified how we connect to the blockchain servers we use.
-    It is now based on how well the servers are responding, which will mean that in the case of
-    heavier/larger wallets, they should eventually complete their operations, rather than faltering
-    and perhaps not managing to do so.
-  * Payment requests: We no longer support BIP70 payment requests as of ESV 1.2.1. If you wish to
-    use BIP70 payment requests, please use ESV 1.2.0 or earlier. Our payment request support is now
-    based on the JSON-based BIP270 and awaits the use of an identity system for signing.
+  * TBD.
 """
+# raw_release_notes = """
+#   * Release notes: Read <a href="https://medium.com/@roger.taylor/electrumsv-1-2-1-b6262361191">the article</a>
+#     on Medium, that goes into these in more detail.
+#   * Lots of other things that are yet to be added.
+# """
 raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
 raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
 raw_release_notes += "</li>"
@@ -206,9 +189,18 @@ works if we pretend to be Bitcoin Cash.
 </ul>
 """
 
+take_care_notice = """
+<span>ElectrumSV is just a Bitcoin SV wallet, it cannot stop you from making bad decisions. Read
+<a href="https://medium.com/@roger.taylor/avoiding-coin-loss-b8bd66855369">this article</a> for
+an overview of the various risks, and the mistakes others have made resulting in the
+<font color=red><b>loss of coins</b></font>.
+Your coins are your responsibility, take care with them.</span>
+"""
+
 all_boxes = [
-    InfoBox('welcome-ESV-1.2.1',
-            _('Welcome to ElectrumSV 1.2.1'),
+    InfoBox('welcome-ESV-1.2.2',
+            _('Welcome to ElectrumSV 1.2.2'),
+            '<p>'+ take_care_notice +'</p>'+
             _('This release includes the following changes:') +
             '<ul>'+ raw_release_notes +'</ul>'
     ),
@@ -222,6 +214,10 @@ all_boxes = [
     WarningBox('hardware-wallet-quality',
             _('Hardware Wallet Quality'),
             hardware_wallet_notes,
+            frequency=DisplayFrequency.OncePerRun),
+    WarningBox("think-before-sending",
+            _("Avoid Coin Loss"),
+            take_care_notice,
             frequency=DisplayFrequency.OncePerRun),
 ]
 
