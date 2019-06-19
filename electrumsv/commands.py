@@ -517,9 +517,9 @@ class Commands:
                 continue
             if change and not self.wallet.is_change(addr):
                 continue
-            if unused and self.wallet.is_used(addr):
+            if unused and self.wallet.is_archived_address(addr):
                 continue
-            if funded and self.wallet.is_empty(addr):
+            if funded and self.wallet.is_empty_address(addr):
                 continue
             item = addr.to_string()
             if labels or balance:

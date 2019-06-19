@@ -1,4 +1,11 @@
 """
+# Pending work?
+
+* The input, output and tx caches are actually authoritative, as they are prepopulated with a
+  knowledge of what exists. But the caching layer defers to the underlying store when it only
+  really needs to dip in there to upgrade cached entries from metadata to full data, or to
+  update the database itself. Most database accesses could be done in a background thread as
+  a batched operation.
 
 # Why DateCreated, DateUpdated and DateDeleted?
 
@@ -1427,12 +1434,9 @@ class TxCache:
                 else:
                     cache_additions.append((tx_id,
                         TxCacheEntry(metadata, flags_get, is_bytedata_cached=False)))
-            if len(cache_additions) < 5:
-                self.logger.debug("get_metadatas/cache_additions: %r %r", cache_additions,
-                    existing_matches)
-            else:
-                self.logger.debug("get_metadatas/cache_additions (%d added) (%d present)",
-                    len(cache_additions), len(existing_matches))
+            self.logger.debug("get_metadatas/cache_additions: adds=%d %r... haves=%d %r...",
+                len(cache_additions), cache_additions[:5],
+                len(existing_matches), existing_matches[:5])
             self.set_cache_entries(cache_additions)
 
         results = []

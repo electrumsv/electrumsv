@@ -140,7 +140,7 @@ class AddressList(MyTreeWidget):
 
             for n, address in enumerate(addr_list):
                 num = len(self.wallet.get_address_history(address))
-                is_used = self.wallet.is_used(address)
+                is_archived = self.wallet.is_archived_address(address)
                 balance = sum(self.wallet.get_addr_balance(address))
                 address_text = address.to_string()
                 label = self.wallet.labels.get(address_text, '')
@@ -164,7 +164,7 @@ class AddressList(MyTreeWidget):
                     address_item.setBackground(0, QColor('lightblue'))
                 if is_beyond_limit(address):
                     address_item.setBackground(0, QColor('red'))
-                if is_used:
+                if is_archived:
                     if not used_flag:
                         seq_item.insertChild(0, used_item)
                         used_flag = True

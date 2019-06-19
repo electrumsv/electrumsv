@@ -373,6 +373,19 @@ class Abstract_Wallet:
             if address_data is not None:
                 save_func('addresses', address_data)
 
+    def get_tx_ids_for_address(self, address: Address) -> List[str]:
+        address_string = address.to_string()
+        tx_ids = set([])
+        for tx_id, entries in self.db.txin.get_all_entries().items():
+            for entry in entries:
+                if entry.address_string == address_string:
+                    tx_ids.add(tx_id)
+        for tx_id, entries in self.db.txout.get_all_entries().items():
+            for entry in entries:
+                if entry.address_string == address_string:
+                    tx_ids.add(tx_id)
+        return tx_ids
+
     def get_txins(self, tx_id: str, address: Optional[Address]=None) -> List[DBTxInput]:
         entries = self.db.txin.get_entries(tx_id)
         if address is None:
@@ -758,7 +771,7 @@ class Abstract_Wallet:
         for addresses in address_list:
             empty_idx = None
             for i, address in enumerate(addresses):
-                if not self.is_used(address):
+                if not self.is_archived_address(address):
                     observed.append(address)
 
         return observed
@@ -1139,15 +1152,26 @@ class Abstract_Wallet:
         self.save_external_data()
         self.storage.write()
 
-    def can_export(self):
+    def can_export(self) -> bool:
         return not self.is_watching_only() and hasattr(self.keystore, 'get_private_key')
 
-    def is_used(self, address):
-        return len(self.get_address_history(address)) and self.is_empty(address)
+    def is_archived_address(self, address: Address) -> bool:
+        # The address was used, all known usage is finalised, and it has a balance of 0.
+        return (len(self.get_address_history(address)) and self.is_empty_address(address) and
+            self.is_confirmed_address(address))
 
-    def is_empty(self, address):
+    def is_empty_address(self, address: Address) -> bool:
+        # No confirmed, unconfirmed or unmatured balance on the address.
         assert isinstance(address, Address)
         return not any(self.get_addr_balance(address))
+
+    def is_confirmed_address(self, address: Address) -> bool:
+        # Knowing this address has been used, is all usage finalised?
+        for tx_id in self.get_tx_ids_for_address(address):
+            metadata = self.db.tx.get_cached_entry(tx_id).metadata
+            if metadata.height is not None and metadata.height >= 0:
+                return True
+        return False
 
     def cpfp(self, tx, fee):
         txid = tx.txid()
@@ -1452,7 +1476,7 @@ class Abstract_Wallet:
 
     def _check_used_addresses(self, addresses: Iterable[Address]) -> None:
         assert all(isinstance(address, Address) for address in addresses)
-        addresses = [ a for a in addresses if self.is_used(a) ]
+        addresses = [ a for a in addresses if self.is_archived_address(a) ]
         if addresses:
             address_strings = [a.to_string() for a in addresses]
             self.logger.debug("_check_used_addresses: %s", address_strings)
