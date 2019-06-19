@@ -23,6 +23,7 @@
 
 from decimal import Decimal
 import os
+import random
 import re
 import shutil
 import threading
@@ -41,14 +42,19 @@ from .util import format_satoshis_plain
 logger = logs.get_logger("web")
 
 
-def BE_tuple(config):
-    return Net.BLOCK_EXPLORERS.get(BE_from_config(config))
-
 def BE_from_config(config):
-    return config.get('block_explorer', 'bchsvexplorer.com')
+    return config.get('block_explorer', '')
+
+def random_BE():
+    possible_keys = [ k for k in Net.BLOCK_EXPLORERS.keys() if k != "system default" ]
+    if len(possible_keys):
+        return random.choice(possible_keys)
 
 def BE_URL(config, kind, item):
-    be_tuple = BE_tuple(config)
+    selected_key = BE_from_config(config)
+    if selected_key is None or selected_key not in Net.BLOCK_EXPLORERS:
+        selected_key = random_BE()
+    be_tuple = Net.BLOCK_EXPLORERS.get(selected_key)
     if not be_tuple:
         return
     url_base, parts = be_tuple
