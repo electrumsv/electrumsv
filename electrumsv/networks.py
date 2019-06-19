@@ -129,12 +129,16 @@ class SVTestnet(object):
     BIP44_COIN_TYPE = 1
 
     BLOCK_EXPLORERS = {
-        'satoshisvision.network': (
-            'http://explore.satoshisvision.network',
-            {'tx': 'tx', 'addr': 'address'},
-        ),
         'bitcoincloud.net': (
             'https://testnet.bitcoincloud.net',
+            {'tx': 'tx', 'addr': 'address'},
+        ),
+        'whatsonchain.com': (
+            'http://test.whatsonchain.com',
+            {'tx': 'tx', 'addr': 'address'},
+        ),
+        'satoshi.io': (
+            'https://test.satoshi.io',
             {'tx': 'tx', 'addr': 'address'},
         ),
         'system default': (
@@ -185,6 +189,14 @@ class SVScalingTestnet(object):
         'bitcoinscaling.io': (
             'https://bigblocks.bitcoinscaling.io',
             {'tx': 'transaction', 'addr': 'address'},
+        ),
+        'whatsonchain.com': (
+            'http://stn.whatsonchain.com',
+            {'tx': 'tx', 'addr': 'address'},
+        ),
+        'satoshi.io': (
+            'https://stn.satoshi.io',
+            {'tx': 'tx', 'addr': 'address'},
         ),
         'system default': (
             'blockchain:',
