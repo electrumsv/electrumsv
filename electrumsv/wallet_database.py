@@ -20,7 +20,8 @@ import random
 import sqlite3
 import threading
 import time
-from typing import Optional, Dict, Set, Iterable, List, Tuple, Union
+import traceback
+from typing import Optional, Dict, Set, Iterable, List, Tuple, Union, Any
 
 import bitcoinx
 
@@ -135,6 +136,9 @@ class BaseWalletStore:
     def _set_table_name(self, table_name: str) -> None:
         self._table_name = table_name
 
+    def get_table_name(self) -> str:
+        return self._table_name
+
     def _db_create(self, db: sqlite3.Connection) -> None:
         pass
 
@@ -199,6 +203,11 @@ class BaseWalletStore:
 
     def _decrypt_hex(self, value: bytes) -> str:
         return self._decrypt(value).hex()
+
+    def execute_unsafe(self, query: str) -> Any:
+        db = self._get_db()
+        db.execute(query)
+        db.commit()
 
 
 class GenericKeyValueStore(BaseWalletStore):
@@ -360,6 +369,17 @@ class GenericKeyValueStore(BaseWalletStore):
         db.executemany(self._DELETE_VALUE_SQL, datas)
         db.commit()
         self._logger.debug("deleted values for '%s'", [ v[0] for v in entries ])
+
+    def _delete_duplicates(self) -> None:
+        table_name = self.get_table_name()
+        self.execute_unsafe(f"""
+        DELETE FROM {table_name}
+        WHERE rowid NOT IN (
+            SELECT MIN(rowid)
+            FROM {table_name}
+            GROUP BY Key, ByteData
+        )
+        """)
 
 
 StoreObject = Union[list, dict]
@@ -879,7 +899,7 @@ class TransactionStore(BaseWalletStore):
         db.commit()
         if len(entries) < 20:
             self._logger.debug("add %d transactions: %s", len(entries),
-                [ (a, b, byte_repr(c), d) for (a, b, c, d) in entries ])
+                [ (a, b, byte_repr(c), TxFlags.to_repr(d)) for (a, b, c, d) in entries ])
         else:
             self._logger.debug("add %d transactions (too many to show)", len(entries))
 
@@ -911,7 +931,7 @@ class TransactionStore(BaseWalletStore):
             datas)
         db.commit()
         self._logger.debug("update %d transactions: %s", len(entries),
-            [ (a, b, byte_repr(c), d) for (a, b, c, d) in entries ])
+            [ (a, b, byte_repr(c), TxFlags.to_repr(d)) for (a, b, c, d) in entries ])
 
     def update_metadata(self, tx_id: str, data: TxData, flags: Optional[int]=TxFlags.Unset) -> None:
         # NOTE: This should only be used if it knows the existing flags column value, it should
@@ -997,15 +1017,20 @@ class TransactionStore(BaseWalletStore):
 
 
 class TxXputCache(AbstractTransactionXput):
-    def __init__(self, store):
+    def __init__(self, store, name: str):
         self._store = store
+        self._name = name
+        self._logger = logs.get_logger(name)
 
-        self._cache = store.get_all_entries()
+        cache_entries = store.get_all_entries()
+        self._cache = self._process_cache(cache_entries)
 
     def add_entries(self, entries: Iterable[Tuple[str, tuple]]) -> None:
         for tx_id, tx_xput in entries:
             cached_entries = self._cache.setdefault(tx_id, [])
-            cached_entries.append(tx_xput)
+            # We expect to add duplicates and to be responsible for filtering them out.
+            if tx_xput not in cached_entries:
+                cached_entries.append(tx_xput)
         self._store.add_entries(entries)
 
     def get_entries(self, tx_id: str) -> List[tuple]:
@@ -1022,6 +1047,26 @@ class TxXputCache(AbstractTransactionXput):
             cached_entries.remove(tx_xput)
         self._store.delete_entries(entries)
 
+    def _process_cache(self, cache: Dict[str, List[tuple]], verbose: Optional[bool]=False) -> None:
+        new_cache = {}
+        duplicate_count = 0
+        for tx_id, entries in list(cache.items()):
+            map = {}
+            for entry in entries:
+                if entry in map:
+                    if verbose:
+                        self._logger.error(f"LOADED DUPLICATE TxXput {tx_id} entry {entry}")
+                        # Clean up later. https://stackoverflow.com/a/25885564
+                    else:
+                        duplicate_count += 1
+                map[entry] = True
+            new_cache[tx_id] = list(map.keys())
+        if duplicate_count > 0:
+            self._logger.error(f"LOADED DUPLICATES store={self._name} count={duplicate_count}")
+            # What is a duplicate is a symptom, observing how duplicates added is the diagnosis.
+            self._store._delete_duplicates()
+        return new_cache
+
 
 class TxCacheEntry:
     def __init__(self, metadata: TxData, flags: int, bytedata: Optional[bytes]=None,
@@ -1030,6 +1075,8 @@ class TxCacheEntry:
         self.metadata = metadata
         self.bytedata = bytedata
         self._is_bytedata_cached = is_bytedata_cached
+        assert bytedata is None or is_bytedata_cached, \
+            f"bytedata consistency check {bytedata} {is_bytedata_cached}"
         self.flags = flags
         self.time_loaded = time.time() if time_loaded is None else time_loaded
 
@@ -1039,6 +1086,8 @@ class TxCacheEntry:
         return self.metadata is not None
 
     def is_bytedata_cached(self):
+        # This indicates if we have read the underlying full entry, and not just the metadata.
+        # Hence it is set by default, and only clear on explicit reads of the metadata.
         return self._is_bytedata_cached
 
     @property
@@ -1051,7 +1100,7 @@ class TxCacheEntry:
 
     def __repr__(self):
         return (f"TxCacheEntry({self.metadata}, {TxFlags.to_repr(self.flags)}, "
-            f"{None if self.bytedata is None else f'data({len(self.bytedata)} bytes)'})")
+            f"{byte_repr(self.bytedata)}, {self._is_bytedata_cached})")
 
 
 class TxCache:
@@ -1062,6 +1111,8 @@ class TxCache:
         self._store = store
 
         self.update_proof = self._store.update_proof
+
+        self._lock = threading.Lock()
 
         # Prime the cache with metadata for all transactions.
         self.get_metadatas()
@@ -1110,6 +1161,10 @@ class TxCache:
         self.update_or_add([ (tx_id, TxData(), bytedata, flags | TxFlags.HasByteData) ])
 
     def add(self, inserts: List[Tuple[str, TxData, Optional[bytes], int]]) -> None:
+        with self._lock:
+            return self._add(inserts)
+
+    def _add(self, inserts: List[Tuple[str, TxData, Optional[bytes], int]]) -> None:
         access_time = time.time()
         for tx_id, metadata, bytedata, add_flags in inserts:
             assert tx_id not in self._cache, f"Tx {tx_id} found in cache unexpectedly"
@@ -1119,11 +1174,14 @@ class TxCache:
             assert ((add_flags & TxFlags.METADATA_FIELD_MASK) == 0 or
                 flags == add_flags), f"{TxFlags.to_repr(flags)} != {TxFlags.to_repr(add_flags)}"
             self._cache[tx_id] = TxCacheEntry(metadata, flags, bytedata)
+            assert bytedata is None or self._cache[tx_id].is_bytedata_cached(), \
+                "bytedata not flagged as cached"
             # self._cache_access[tx_id] = access_time
         self._store.add_many(inserts)
 
     def update(self, updates: List[Tuple[str, TxData, Optional[bytes], int]]) -> None:
-        self._update(updates)
+        with self._lock:
+            self._update(updates)
 
     def _update(self, updates: List[Tuple[str, TxData, Optional[bytes], int]],
             update_all: bool=True) -> Iterable[str]:
@@ -1133,9 +1191,9 @@ class TxCache:
         update_map = { t[0]: t for t in updates }
         desired_update_ids = set(update_map)
         skipped_update_ids = set([])
-        actual_updates = {}
+        actual_updates = []
         # self.logger.debug("_update: desired_update_ids=%s", desired_update_ids)
-        for tx_id, entry in self.get_entries(tx_ids=desired_update_ids, require_all=update_all):
+        for tx_id, entry in self._get_entries(tx_ids=desired_update_ids, require_all=update_all):
             _discard, metadata, bytedata, flags = update_map[tx_id]
             # No-one should ever pass in field flags in normal circumstances.
             # In this case we use this to selectively merge the flagged fields in the update
@@ -1145,42 +1203,51 @@ class TxCache:
             position = metadata.position if flags & TxFlags.HasPosition else entry.metadata.position
             timestamp = (metadata.timestamp if flags & TxFlags.HasTimestamp
                 else entry.metadata.timestamp)
-            new_metadata = TxData(height, timestamp, position, fee)
             new_bytedata = bytedata if flags & TxFlags.HasByteData else entry.bytedata
-            is_bytedata_cached = (flags & TxFlags.HasByteData) != 0 or entry.is_bytedata_cached()
-            if metadata == new_metadata and (not is_bytedata_cached or bytedata == new_bytedata):
-                self.logger.debug("_update: skipped %s (unchanged)", tx_id)
+            new_metadata = TxData(height, timestamp, position, fee)
+            # Take the existing entry flags and set the state ones based on metadata present.
+            new_flags = self._adjust_field_flags(new_metadata,
+                entry.flags & ~TxFlags.STATE_MASK)
+            # Take the declared metadata flags that apply and set them.
+            if flags & TxFlags.STATE_MASK != 0:
+                new_flags |= flags & TxFlags.STATE_MASK
+            else:
+                new_flags |= entry.flags & TxFlags.STATE_MASK
+            if new_bytedata is not None:
+                new_flags |= TxFlags.HasByteData
+            if (entry.metadata == new_metadata and entry.bytedata == new_bytedata and
+                    entry.flags == new_flags):
+                self.logger.debug("_update: skipped %s %r %s %r %s %s", tx_id, metadata,
+                    TxFlags.to_repr(flags), new_metadata, byte_repr(new_bytedata),
+                    entry.is_bytedata_cached())
                 skipped_update_ids.add(tx_id)
             else:
-                new_flags = self._adjust_field_flags(new_metadata,
-                    entry.flags & ~TxFlags.STATE_MASK)
-                if flags & TxFlags.STATE_MASK != 0:
-                    new_flags |= flags & TxFlags.STATE_MASK
-                else:
-                    new_flags |= entry.flags & TxFlags.STATE_MASK
-                if new_bytedata is not None:
-                    new_flags |= TxFlags.HasByteData
-                self.logger.debug("_update: %s %r %s %r %s", tx_id, metadata,
-                    TxFlags.to_repr(flags), new_metadata, TxFlags.to_repr(new_flags))
-                actual_updates[tx_id] = TxCacheEntry(new_metadata, new_flags, new_bytedata,
-                    entry.time_loaded, is_bytedata_cached)
+                is_full_entry = entry.is_bytedata_cached() or new_bytedata is not None
+                new_entry = TxCacheEntry(new_metadata, new_flags, new_bytedata,
+                    entry.time_loaded, is_full_entry)
+                self.logger.debug("_update: %s %r %s %s %r %r HIT %s", tx_id,
+                    metadata, TxFlags.to_repr(flags), byte_repr(bytedata),
+                    entry, new_entry, new_bytedata is None and (new_flags & TxFlags.HasByteData))
+                actual_updates.append((tx_id, new_entry))
 
         if len(actual_updates):
-            self._cache.update(actual_updates)
+            self.set_cache_entries(actual_updates)
             update_entries = [
                 (tx_id, entry.metadata, entry.bytedata, entry.flags)
-                for tx_id, entry in actual_updates.items()
+                for tx_id, entry in actual_updates
             ]
             self._store.update_many(update_entries)
 
-        return (desired_update_ids - set(actual_updates)) - set(skipped_update_ids)
+        actual_update_ids = set([ t[0] for t in actual_updates ])
+        return (desired_update_ids - actual_update_ids) - set(skipped_update_ids)
 
     def update_or_add(self, upadds: List[Tuple[str, TxData, Optional[bytes], int]]) -> None:
         # We do not require that all updates are applied, because the subset that do not
         # exist will be inserted.
-        insert_ids = self._update(upadds, update_all=False)
-        if len(insert_ids):
-            self.add([ t for t in upadds if t[0] in insert_ids ])
+        with self._lock:
+            insert_ids = self._update(upadds, update_all=False)
+            if len(insert_ids):
+                self._add([ t for t in upadds if t[0] in insert_ids ])
 
     def update_flags(self, tx_id: str, flags: int, mask: Optional[int]=None) -> None:
         if mask is None:
@@ -1188,19 +1255,33 @@ class TxCache:
         else:
             mask |= TxFlags.METADATA_FIELD_MASK
 
-        entry = self.get_entry(tx_id)
-        entry.flags = (entry.flags & mask) | (flags & ~TxFlags.METADATA_FIELD_MASK)
-        self._store.update_flags(tx_id, flags, mask)
+        with self._lock:
+            entry = self._get_entry(tx_id)
+            entry.flags = (entry.flags & mask) | (flags & ~TxFlags.METADATA_FIELD_MASK)
+            self._store.update_flags(tx_id, flags, mask)
 
     def delete(self, tx_id: str):
-        self.logger.debug("cache_deletion: %s", tx_id)
-        del self._cache[tx_id]
-        self._store.delete(tx_id)
+        with self._lock:
+            self.logger.debug("cache_deletion: %s", tx_id)
+            del self._cache[tx_id]
+            self._store.delete(tx_id)
 
     def get_flags(self, tx_id: str) -> Optional[int]:
         entry = self.get_entry(tx_id)
         if entry is not None:
             return entry.flags
+
+    def set_cache_entries(self, entries: List[Tuple[str, TxCacheEntry]]) -> None:
+        for tx_id, new_entry in entries:
+            if tx_id in self._cache:
+                entry = self._cache[tx_id]
+                if entry.is_bytedata_cached() and not new_entry.is_bytedata_cached():
+                    self.logger.debug(f"set_cache_entries, bytedata conflict v1 {tx_id}")
+                    raise RuntimeError(f"bytedata conflict 1 for {tx_id}")
+                if entry.bytedata is not None and new_entry.bytedata is None:
+                    self.logger.debug(f"set_cache_entries, bytedata conflict v2 {tx_id}")
+                    raise RuntimeError(f"bytedata conflict 2 for {tx_id}")
+        self._cache.update(entries)
 
     # NOTE: Only used by unit tests at this time.
     def is_cached(self, tx_id: str) -> bool:
@@ -1211,6 +1292,11 @@ class TxCache:
             return self._cache[tx_id]
 
     def get_entry(self, tx_id: str, flags: Optional[int]=None,
+            mask: Optional[int]=None) -> Optional[TxCacheEntry]:
+        with self._lock:
+            return self._get_entry(tx_id, flags, mask)
+
+    def _get_entry(self, tx_id: str, flags: Optional[int]=None,
             mask: Optional[int]=None) -> Optional[TxCacheEntry]:
         if tx_id in self._cache:
             entry = self._cache[tx_id]
@@ -1223,10 +1309,10 @@ class TxCache:
             metadata, bytedata, flags_get = result
             if bytedata is None or self._validate_transaction_bytes(tx_id, bytedata):
                 entry = TxCacheEntry(metadata, flags_get, bytedata)
-                self._cache[tx_id] = entry
+                self.set_cache_entries([ (tx_id, entry) ])
                 # self._cache_access[tx_id] = time.time()
-                self.logger.debug("cache_addition: %r", (tx_id, entry, TxFlags.to_repr(flags),
-                    mask))
+                self.logger.debug("get_entry/cache_change: %r", (tx_id, entry,
+                    TxFlags.to_repr(flags), TxFlags.to_repr(mask)))
                 return entry if self._entry_visible(entry.flags, flags, mask) else None
             raise InvalidDataError(tx_id)
 
@@ -1238,6 +1324,11 @@ class TxCache:
 
     def get_metadata(self, tx_id: str, flags: Optional[int]=None,
             mask: Optional[int]=None) -> Optional[TxCacheEntry]:
+        with self._lock:
+            return self._get_metadata(tx_id, flags, mask)
+
+    def _get_metadata(self, tx_id: str, flags: Optional[int]=None,
+            mask: Optional[int]=None) -> Optional[TxCacheEntry]:
         if tx_id in self._cache:
             entry = self._cache[tx_id]
             # self._cache_access[tx_id] = time.time()
@@ -1247,10 +1338,10 @@ class TxCache:
         if result is not None:
             metadata, flags_get = result
             entry = TxCacheEntry(metadata, flags_get, is_bytedata_cached=False)
-            self._cache[tx_id] = entry
+            self.set_cache_entries([ (tx_id, entry) ])
             # self._cache_access[tx_id] = time.time()
-            self.logger.debug("cache_addition: %r", (tx_id, entry, TxFlags.to_repr(flags),
-                TxFlags.to_repr(mask)))
+            self.logger.debug("get_metadata/cache_change: %r", (tx_id, entry,
+                TxFlags.to_repr(flags), TxFlags.to_repr(mask)))
             return entry.metadata if self._entry_visible(entry.flags, flags, mask) else None
 
         # TODO: If something is requested that does not exist, it will miss the cache and wait
@@ -1268,11 +1359,18 @@ class TxCache:
     def get_entries(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_ids: Optional[Iterable[str]]=None,
             require_all: bool=True) -> List[Tuple[str, TxCacheEntry]]:
+        with self._lock:
+            return self._get_entries(flags, mask, tx_ids, require_all)
+
+    def _get_entries(self, flags: Optional[int]=None, mask: Optional[int]=None,
+            tx_ids: Optional[Iterable[str]]=None,
+            require_all: bool=True) -> List[Tuple[str, TxCacheEntry]]:
         specific_tx_ids = None
         if tx_ids is not None:
             specific_tx_ids = [ tx_id for tx_id in tx_ids if tx_id not in self._cache ]
 
         cache_additions = []
+        existing_matches = []
         if tx_ids is None or specific_tx_ids:
             # self.logger.debug("get_entries specific=%s flags=%s mask=%s", specific_tx_ids,
             #     flags and TxFlags.to_repr(flags), mask and TxFlags.to_repr(mask))
@@ -1282,11 +1380,11 @@ class TxCache:
                 if bytedata is not None and not self._validate_transaction_bytes(tx_id, bytedata):
                     raise InvalidDataError(tx_id)
                 cache_additions.append((tx_id, TxCacheEntry(metadata, get_flags, bytedata)))
-            if len(cache_additions) < 5:
-                self.logger.debug("entry_cache_additions: %r", cache_additions)
+            if True or len(cache_additions) < 5:
+                self.logger.debug("get_entries/cache_additions: %r", cache_additions)
             else:
-                self.logger.debug("entry_cache_additions (%d entries)", len(cache_additions))
-            self._cache.update(cache_additions)
+                self.logger.debug("get_entries/cache_additions (%d entries)", len(cache_additions))
+            self.set_cache_entries(cache_additions)
 
         access_time = time.time()
         results = []
@@ -1307,20 +1405,35 @@ class TxCache:
     def get_metadatas(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_ids: Optional[Iterable[str]]=None,
             require_all: bool=True) -> List[Tuple[str, TxData]]:
+        with self._lock:
+            return self._get_metadatas(flags, mask, tx_ids, require_all)
+
+    def _get_metadatas(self, flags: Optional[int]=None, mask: Optional[int]=None,
+            tx_ids: Optional[Iterable[str]]=None,
+            require_all: bool=True) -> List[Tuple[str, TxData]]:
         specific_tx_ids = None
         if tx_ids is not None:
             specific_tx_ids = [ tx_id for tx_id in tx_ids if tx_id not in self._cache ]
 
         cache_additions = []
+        existing_matches = []
         if tx_ids is None or specific_tx_ids:
             for tx_id, metadata, flags_get in self._store.get_metadata_many(flags, mask, tx_ids):
-                cache_additions.append((tx_id,
-                    TxCacheEntry(metadata, flags_get, is_bytedata_cached=False)))
+                # We have no way of knowing if the match already exists, and if it does we should
+                # take the possibly full/complete with bytedata cached version, rather than
+                # corrupt the cache with the limited metadata version.
+                if tx_id in self._cache:
+                    existing_matches.append((tx_id, self._cache[tx_id]))
+                else:
+                    cache_additions.append((tx_id,
+                        TxCacheEntry(metadata, flags_get, is_bytedata_cached=False)))
             if len(cache_additions) < 5:
-                self.logger.debug("metadata_cache_additions: %r", cache_additions)
+                self.logger.debug("get_metadatas/cache_additions: %r %r", cache_additions,
+                    existing_matches)
             else:
-                self.logger.debug("metadata_cache_additions (%d entries)", len(cache_additions))
-            self._cache.update(cache_additions)
+                self.logger.debug("get_metadatas/cache_additions (%d added) (%d present)",
+                    len(cache_additions), len(existing_matches))
+            self.set_cache_entries(cache_additions)
 
         results = []
         if specific_tx_ids is not None:
@@ -1332,7 +1445,7 @@ class TxCache:
                 elif self._entry_visible(entry.flags, flags, mask):
                     results.append((tx_id, entry))
         else:
-            results = cache_additions
+            results = cache_additions + existing_matches
         return results
 
     def get_transactions(self, flags: Optional[int]=None, mask: Optional[int]=None,
@@ -1368,16 +1481,18 @@ class TxCache:
         fetch_flags = TxFlags.HasHeight
         fetch_mask = TxFlags.HasHeight
 
-        updates = []
-        for (tx_id, entry) in self.get_metadatas(fetch_flags, fetch_mask):
-            filter_mask = (TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition |
-                TxFlags.HasProofData)
-            if entry.flags & filter_mask == filter_mask and entry.metadata.height > reorg_height:
-                update_flags = entry.flags & ~filter_mask
-                updates.append((tx_id, entry.metadata, update_flags))
-        if len(updates):
-            self._store.update_metadata_many(updates)
-        return len(updates)
+        with self._lock:
+            updates = []
+            for (tx_id, entry) in self.get_metadatas(fetch_flags, fetch_mask):
+                filter_mask = (TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition |
+                    TxFlags.HasProofData)
+                if (entry.flags & filter_mask == filter_mask and
+                        entry.metadata.height > reorg_height):
+                    update_flags = entry.flags & ~filter_mask
+                    updates.append((tx_id, entry.metadata, update_flags))
+            if len(updates):
+                self._store.update_metadata_many(updates)
+            return len(updates)
 
 
 class WalletData:
@@ -1388,8 +1503,8 @@ class WalletData:
         self.misc_store = ObjectKeyValueStore("HotData", wallet_path, aeskey)
 
         self.tx_cache = TxCache(self.tx_store)
-        self.txin_cache = TxXputCache(self.txin_store)
-        self.txout_cache = TxXputCache(self.txout_store)
+        self.txin_cache = TxXputCache(self.txin_store, "txins")
+        self.txout_cache = TxXputCache(self.txout_store, "txouts")
 
     @property
     def tx(self) -> TransactionStore:

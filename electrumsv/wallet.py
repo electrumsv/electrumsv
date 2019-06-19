@@ -475,7 +475,9 @@ class Abstract_Wallet:
         entry = self.db.tx.get_entry(tx_hash, TxFlags.StateSettled)
         # Ensure we are not verifying transactions multiple times.
         if entry is None:
-            self.logger.debug("Attempting to clear unsettled tx %s", tx_hash)
+            entry = self.db.tx.get_entry(tx_hash)
+            self.logger.debug("Attempting to clear unsettled tx %s %r",
+                tx_hash, entry)
             return
 
         # We only update a subset.
@@ -848,6 +850,8 @@ class Abstract_Wallet:
                 txin = DBTxInput(address.to_string(), tx_hash, n, tx_output.value)
                 txins.append((next_tx_hash, txin))
 
+        # We expect to be passing in existing entries as this gets recalled for a transaction
+        # by the history code, and we do not filter them out above.
         if txins:
             self.db.txin.add_entries(txins)
         if txouts:
@@ -881,7 +885,6 @@ class Abstract_Wallet:
         with self.lock:
             self._history[addr] = hist # { address: (tx_hash, tx_height) }
 
-            tx_ids = set(t[0] for t in hist)
             updates = []
             for tx_hash, tx_height in hist:
                 tx_fee = tx_fees.get(tx_hash, None)
@@ -892,7 +895,7 @@ class Abstract_Wallet:
                 updates.append((tx_hash, data, None, flags))
             self.db.tx.update_or_add(updates)
 
-            for tx_id in tx_ids:
+            for tx_id in set(t[0] for t in hist):
                 # if addr is new, we have to recompute txi and txo
                 tx = self.get_transaction(tx_id)
                 if (tx is not None and not len(self.get_txins(tx_id, addr)) and
@@ -1076,7 +1079,7 @@ class Abstract_Wallet:
         fee_in_satoshis=tx.get_fee()
         sats_per_byte=fee_in_satoshis/tx_in_bytes
         if sats_per_byte > 50:
-            raise ExcessiveFee()
+           raise ExcessiveFee()
 
         # Sort the inputs and outputs deterministically
         tx.BIP_LI01_sort()

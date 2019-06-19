@@ -927,7 +927,7 @@ class TestXputCache(unittest.TestCase):
         for tx_xput, tx_store in ((tx_input, self.txin_store), (tx_output, self.txout_store)):
             tx_store.add_entries([ (tx_id, tx_xput) ])
 
-            cache = wallet_database.TxXputCache(tx_store)
+            cache = wallet_database.TxXputCache(tx_store, "teststore")
             self.assertTrue(tx_id in cache._cache)
             self.assertEqual(1, len(cache._cache[tx_id]))
             self.assertEqual(tx_xput, cache._cache[tx_id][0])
@@ -939,7 +939,7 @@ class TestXputCache(unittest.TestCase):
 
         for tx_xput, tx_store in ((tx_input, self.txin_store), (tx_output, self.txout_store)):
             tx_store.add_entries([ (tx_id, tx_xput) ])
-            cache = wallet_database.TxXputCache(tx_store)
+            cache = wallet_database.TxXputCache(tx_store, "teststore")
             entries = cache.get_entries(tx_id)
 
             self.assertEqual(1, len(entries))
@@ -951,7 +951,7 @@ class TestXputCache(unittest.TestCase):
         tx_output = DBTxOutput("address_string", 10, 10, False)
 
         for tx_xput, tx_store in ((tx_input, self.txin_store), (tx_output, self.txout_store)):
-            cache = wallet_database.TxXputCache(tx_store)
+            cache = wallet_database.TxXputCache(tx_store, "teststore")
             cache.add_entries([ (tx_id, tx_xput) ])
 
             # Check the caching layer has the entry.
@@ -970,7 +970,7 @@ class TestXputCache(unittest.TestCase):
         tx_output = DBTxOutput("address_string", 10, 10, False)
 
         for tx_xput, tx_store in ((tx_input, self.txin_store), (tx_output, self.txout_store)):
-            cache = wallet_database.TxXputCache(tx_store)
+            cache = wallet_database.TxXputCache(tx_store, "teststore")
             cache.add_entries([ (tx_id, tx_xput) ])
             cache.delete_entries([ (tx_id, tx_xput) ])
 
