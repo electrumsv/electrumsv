@@ -1033,12 +1033,15 @@ class TxXputCache(AbstractTransactionXput):
         self._cache = self._process_cache(cache_entries)
 
     def add_entries(self, entries: Iterable[Tuple[str, tuple]]) -> None:
-        for tx_id, tx_xput in entries:
+        new_entries = []
+        for i, (tx_id, tx_xput) in enumerate(entries):
             cached_entries = self._cache.setdefault(tx_id, [])
             # We expect to add duplicates and to be responsible for filtering them out.
             if tx_xput not in cached_entries:
                 cached_entries.append(tx_xput)
-        self._store.add_entries(entries)
+                new_entries.append(entries[i])
+        if len(new_entries):
+            self._store.add_entries(new_entries)
 
     def get_entries(self, tx_id: str) -> List[tuple]:
         if tx_id not in self._cache:
