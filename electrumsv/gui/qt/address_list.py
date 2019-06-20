@@ -94,8 +94,8 @@ class AddressList(MyTreeWidget):
         current_address = item.data(0, Qt.UserRole) if item else None
         expanded_item_names = remember_expanded_items()
         self.clear()
-        receiving_addresses = self.wallet.get_receiving_addresses()
-        change_addresses = self.wallet.get_change_addresses()
+        receiving_addresses = self.wallet.get_receiving_addresses()[:]
+        change_addresses = self.wallet.get_change_addresses()[:]
 
         account_item = self
         sequences = [0,1] if change_addresses else [0]
