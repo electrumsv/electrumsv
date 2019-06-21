@@ -1386,14 +1386,15 @@ class TxCache:
             #     flags and TxFlags.to_repr(flags), mask and TxFlags.to_repr(mask))
             for tx_id, metadata, bytedata, get_flags in self._store.get_many(flags, mask,
                     specific_tx_ids):
-                # TODO: Evaluate whether this is necessary.
                 if bytedata is not None and not self._validate_transaction_bytes(tx_id, bytedata):
                     raise InvalidDataError(tx_id)
-                cache_additions.append((tx_id, TxCacheEntry(metadata, get_flags, bytedata)))
-            if True or len(cache_additions) < 5:
-                self.logger.debug("get_entries/cache_additions: %r", cache_additions)
-            else:
-                self.logger.debug("get_entries/cache_additions (%d entries)", len(cache_additions))
+                if tx_id in self._cache:
+                    existing_matches.append((tx_id, self._cache[tx_id]))
+                else:
+                    cache_additions.append((tx_id, TxCacheEntry(metadata, get_flags, bytedata)))
+            self.logger.debug("get_entries/cache_additions: adds=%d %r... haves=%d %r...",
+                len(cache_additions), cache_additions[:5],
+                len(existing_matches), existing_matches[:5])
             self.set_cache_entries(cache_additions)
 
         access_time = time.time()
@@ -1408,7 +1409,7 @@ class TxCache:
                     # self._cache_access[tx_id] = access_time
                     results.append((tx_id, entry))
         else:
-            results = cache_additions
+            results = cache_additions + existing_matches
             # self._cache_access.update([ (t[0], access_time) for t in cache_additions ])
         return results
 
