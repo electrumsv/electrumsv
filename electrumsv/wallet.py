@@ -197,6 +197,7 @@ class Abstract_Wallet:
     """
 
     max_change_outputs = 3
+    _filter_observed_addresses = False
 
     def __init__(self, storage):
         self.storage = storage
@@ -763,18 +764,20 @@ class Abstract_Wallet:
         """
         Get the unused addresses and used ones with unspent balances.
         """
-        address_list = [
-            self.get_receiving_addresses(),
-            self.get_change_addresses()
-        ]
-        observed = []
-        for addresses in address_list:
-            empty_idx = None
-            for i, address in enumerate(addresses):
-                if not self.is_archived_address(address):
-                    observed.append(address)
+        if self._filter_observed_addresses:
+            address_list = [
+                self.get_receiving_addresses(),
+                self.get_change_addresses()
+            ]
+            observed = []
+            for addresses in address_list:
+                empty_idx = None
+                for i, address in enumerate(addresses):
+                    if not self.is_archived_address(address):
+                        observed.append(address)
 
-        return observed
+            return observed
+        return self.get_addresses()
 
     def get_frozen_balance(self) -> Tuple[int, int, int]:
         if not self._frozen_coins:
@@ -1473,6 +1476,8 @@ class Abstract_Wallet:
         return result
 
     def _check_used_addresses(self, addresses: Iterable[Address]) -> None:
+        if not self._filter_observed_addresses:
+            return
         assert all(isinstance(address, Address) for address in addresses)
         addresses = [ a for a in addresses if self.is_archived_address(a) ]
         if addresses:
