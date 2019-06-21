@@ -1027,7 +1027,7 @@ class Network:
                 _chain, above_height = main_chain.common_chain_and_height(new_main_chain)
                 logger.info(f'main chain updated; undoing wallet verifications '
                             f'above height {above_height:,d}')
-                self.wallet_jobs.put(('undo_verifications', above_height))
+                await self.wallet_jobs.put(('undo_verifications', above_height))
             main_chain = new_main_chain
             self.trigger_callback('updated')
             self.trigger_callback('main_chain', main_chain, new_main_chain)
