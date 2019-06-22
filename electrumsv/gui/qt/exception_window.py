@@ -28,6 +28,7 @@ import json
 import locale
 import platform
 import sys
+import threading
 import traceback
 
 import requests
@@ -37,9 +38,13 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.i18n import _
+from electrumsv.logs import logs
 from electrumsv.version import PACKAGE_VERSION
 from .main_window import ElectrumWindow
 from .util import read_QIcon
+
+
+logger = logs.get_logger("exc-handler")
 
 
 issue_template = """<h2>Traceback</h2>
@@ -192,6 +197,9 @@ class Exception_Hook(QObject):
         if exctype is KeyboardInterrupt or exctype is SystemExit:
             sys.__excepthook__(exctype, value, tb)
         else:
+            # Ensure that the exception is logged at the point of occurrence.
+            logger.exception("logged exception, thread=%s", threading.get_ident(),
+                exc_info=(exctype, value, tb))
             self.uncaught_signal.emit((exctype, value, tb))
 
     def show(self, exc_triple):
