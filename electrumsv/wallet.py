@@ -576,11 +576,11 @@ class Abstract_Wallet:
     def get_addr_io(self, address):
         h = self.get_address_history(address)
         received = {}
-        sent = {}
         for tx_hash, height in h:
             l = self.txo.get(tx_hash, {}).get(address, [])
             for n, v, is_cb in l:
                 received[tx_hash + ':%d'%n] = (height, v, is_cb)
+        sent = {}
         for tx_hash, height in h:
             l = self.txi.get(tx_hash, {}).get(address, [])
             for txi, v in l:
@@ -653,18 +653,19 @@ class Abstract_Wallet:
             domain = self.get_addresses()
         if exclude_frozen:
             domain = set(domain) - self.frozen_addresses
-        for addr in domain:
-            utxos = self.get_addr_utxo(addr)
-            for x in utxos.values():
-                if exclude_frozen and x['is_frozen_coin']:
+        with self.transaction_lock:
+            for addr in domain:
+                utxos = self.get_addr_utxo(addr)
+                for x in utxos.values():
+                    if exclude_frozen and x['is_frozen_coin']:
+                        continue
+                    if confirmed_only and x['height'] <= 0:
+                        continue
+                    if (mature and x['coinbase'] and
+                            x['height'] + COINBASE_MATURITY > self.get_local_height()):
+                        continue
+                    coins.append(x)
                     continue
-                if confirmed_only and x['height'] <= 0:
-                    continue
-                if (mature and x['coinbase'] and
-                        x['height'] + COINBASE_MATURITY > self.get_local_height()):
-                    continue
-                coins.append(x)
-                continue
         return coins
 
     def dummy_address(self):
@@ -740,7 +741,7 @@ class Abstract_Wallet:
                 next_tx = self.pruned_txo.get(ser)
                 if next_tx is not None:
                     self.pruned_txo.pop(ser)
-                    dd = self.txi.get(next_tx, {})
+                    dd = self.txi.setdefault(next_tx, {})
                     if dd.get(addr) is None:
                         dd[addr] = []
                     dd[addr].append((ser, v))
