@@ -422,7 +422,7 @@ class Abstract_Wallet:
     def undo_verifications(self, above_height):
         '''Used by the verifier when a reorg has happened'''
         with self.lock:
-            for tx_hash, item in self.verified_tx.items():
+            for tx_hash, item in list(self.verified_tx.items()):
                 tx_height, timestamp, pos = item
                 if tx_height > above_height:
                     self.logger.info(f'removing verification of {tx_hash}')
