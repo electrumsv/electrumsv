@@ -20,7 +20,14 @@ class BalancePopup(QWidget):
         grid_layout.addWidget(QLabel(_('Unconfirmed')), 1, 0, 1, 1)
         grid_layout.addWidget(QLabel(_('Unmatured')), 2, 0, 1, 1)
 
-        balances = main_window.wallet.get_balance()
+        cc = uu = xx = 0
+        for wallet in main_window.parent_wallet.get_child_wallets():
+            c, u, x = wallet.get_balance()
+            cc += c
+            uu += u
+            xx += x
+
+        balances = (cc, uu, xx)
         for i, balance in enumerate(balances):
             bsv_status, fiat_status = main_window.get_amount_and_units(balance)
             grid_layout.addWidget(QLabel(bsv_status), i, 1, 1, 1, Qt.AlignRight)

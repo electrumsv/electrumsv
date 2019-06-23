@@ -67,7 +67,7 @@ def tx_output_to_display_text(tx_output: TxOutput):
 
 class XPublicKey:
 
-    def __init__(self, raw):
+    def __init__(self, raw) -> None:
         if not isinstance(raw, (bytes, str)):
             raise TypeError(f'raw {raw} must be bytes or a string')
         try:
@@ -76,10 +76,10 @@ class XPublicKey:
         except (ValueError, AssertionError):
             raise ValueError(f'invalid XPublicKey: {raw}')
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         return isinstance(other, XPublicKey) and self.raw == other.raw
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.raw) + 1
 
     def _bip32_public_key(self):
@@ -95,16 +95,16 @@ class XPublicKey:
         delta = double_sha256(f'{path[1]}:{path[0]}:'.encode() + self.raw[1:65])
         return mpk.add(delta)
 
-    def to_bytes(self):
+    def to_bytes(self) -> bytes:
         return self.raw
 
-    def to_hex(self):
+    def to_hex(self) -> str:
         return self.raw.hex()
 
     def kind(self):
         return self.raw[0]
 
-    def is_bip32_key(self):
+    def is_bip32_key(self) -> bool:
         return self.kind() == 0xff
 
     def bip32_extended_key(self):

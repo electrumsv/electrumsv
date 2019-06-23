@@ -84,18 +84,21 @@ class DeviceMgr:
         self.hid_lock = threading.RLock()
 
     @classmethod
-    def _module(cls, device_kind):
+    def _module(cls, device_kind: str):
         if device_kind == 'trezor':
-            import electrumsv.devices.trezor as module
+            import electrumsv.devices.trezor as module1
+            return module1
         elif device_kind == 'keepkey':
-            import electrumsv.devices.keepkey as module
+            import electrumsv.devices.keepkey as module2
+            return module2
         elif device_kind == 'ledger':
-            import electrumsv.devices.ledger as module
+            import electrumsv.devices.ledger as module3
+            return module3
         elif device_kind == 'digitalbitbox':
-            import electrumsv.devices.digitalbitbox as module
+            import electrumsv.devices.digitalbitbox as module4
+            return module4
         else:
             raise DeviceError(f'unsupported device kind: {device_kind}')
-        return module
 
     @classmethod
     def _plugin_class(cls, device_kind):
@@ -159,7 +162,7 @@ class DeviceMgr:
         for client in clients:
             client.timeout(cutoff)
 
-    def get_plugin(self, device_kind):
+    def get_plugin(self, device_kind: str):
         # There need only be one instance per device kind.
         if device_kind not in self.plugins:
             self.plugins[device_kind] = self._plugin_class(device_kind)(device_kind)
@@ -302,8 +305,6 @@ class DeviceMgr:
         info = infos[c]
         # save new label
         keystore.set_label(info.label)
-        if handler.win.wallet:
-            handler.win.wallet.save_keystore()
         return info
 
     def find_hid_devices(self, device_ids):

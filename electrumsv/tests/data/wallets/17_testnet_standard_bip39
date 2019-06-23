@@ -1,0 +1,59 @@
+{
+    "addr_history": {},
+    "addresses": {
+        "change": [
+            "mxdrpx7vNmFTtPqDMqWW5MbLnEWrHeG9tG",
+            "muGKayBxLFmsMQMYzGeRwv9nXqyBiCiHve",
+            "n1PupKTiHdYzNNHZgqFfxodwiSDcgWnS8d",
+            "mfdTwudETRNhyNaf1Y5Mrsks9i5spx7mPr",
+            "mpuKA6YJrvfTFwRSNiduacaPZdCwHPLV9C",
+            "mtjSJLwmEV83KdEY12XyA5QDtJAZUCcj8X"
+        ],
+        "receiving": [
+            "mneqqWSAQCg6tTP4BUdnPDBRanFqaaryMM",
+            "miiq5NDKVkD45qJnDYfqQLSb3nEWDNzpkH",
+            "mhD7a4hHZytdhM5rKxDrKc1iA6yz92CJVf",
+            "mzDU5S1ovWBFavg2iiAzTW4wJC1VwNT1ub",
+            "n3nMAteeiRqqxTiHatJXkvve1VbK8cu8uX",
+            "mnvhsBbuUAWwoSU5mTHsdnDyVaTouUXMmw",
+            "mnJv5k9QLQKnjw8E53JpgPx3A2CUPS61WU",
+            "n17FMkhJntpubBKaVDv8BGz1tyaJvRrVco",
+            "mkCLbWeD1Qg5PYtiD1vjJJGgnmSH1frQig",
+            "n3Y6m7mBsTh1id1qGQWCCajTv2HrcMxuNb",
+            "mfYib46rYML3k8inQ1mvMaHiiv8K9bYVAT",
+            "my2o7RVcxZeiLpPgoH4ZH7tMpUby4C2Uo9",
+            "mqFTTsn2RPhn4g9sZn3RbkEWLSpS7qwiiN",
+            "n1BxEoPtzMcSygoJZ8uumvDXuYhcTPuJrX",
+            "mrGNKyqJu1CvGGw8pAyNAFxAekmUkdyKgx",
+            "mx3VQvHg6L8ATmeKAKuEYFdftUhKz42iwh",
+            "mrNqQjabiEgL51Yc9536mPEyoKcZyPyNsq",
+            "n2nwS4qXwMN5eAc8FzKXEnhq721DeMqk33",
+            "msRKqSjEJGKHZCoPZYZMrCTfacRhGzZHzD",
+            "mfZgVCiwButTwWhfropMi252VqnYy2f1Az"
+        ]
+    },
+    "keystore": {
+        "type": "bip32",
+        "xprv": "tprv8h9FU7r2xjRTiiKtpibcTijE9L5MYU4kcE8DyuQLDvW9XpamqVCmiaeE7nRAmuC6Ee2gCbVsg8ZjUn4FFVkWgMhb6wLS6t3Qd9Ue9aiyzeY",
+        "xpub": "tpubDDqHcXtH7778cBMgiNGCs8PLiMbHhoFfBXj1GRSdeCJYNJqYTt2Mu5G6HvzEw7ouzg5AjiCUt4E7D2K15qo8ejXk5TBmBqw9t9LNfRjkA6x"
+    },
+    "labels": {},
+    "pruned_txo": {},
+    "seed_type": "bip39",
+    "seed_version": 17,
+    "stored_height": 1317190,
+    "transactions": {},
+    "tx_fees": {},
+    "txi": {},
+    "txo": {},
+    "use_encryption": false,
+    "verified_tx3": {},
+    "wallet_nonce": 1,
+    "wallet_type": "standard",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

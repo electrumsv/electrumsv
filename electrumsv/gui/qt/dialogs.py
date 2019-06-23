@@ -45,7 +45,7 @@ class BoxBase(object):
         self.info_text = info_text
         self.display_frequency = frequency or self.display_frequency
 
-    def result(self, parent, wallet, **kwargs):
+    def result(self, parent, parent_wallet, **kwargs):
         '''Return the result of the suppressible box.  If this is saved in the configuration
         then the saved value is returned, otherwise the user is asked.'''
         if self.name in self.last_shown:
@@ -54,16 +54,16 @@ class BoxBase(object):
                 return value
 
         key = f'suppress_{self.name}'
-        if wallet:
-            value = wallet.storage.get(key, None)
+        if parent_wallet:
+            value = parent_wallet.get_storage().get(key, None)
         else:
             value = app_state.config.get(key, None)
 
         if value is None:
             set_it, value = self.show_dialog(parent, **kwargs)
             if set_it and value is not None:
-                if wallet:
-                    wallet.storage.put(key, value)
+                if parent_wallet:
+                    parent_wallet.get_storage().put(key, value)
                 else:
                     app_state.config.set_key(key, value, True)
 
@@ -127,11 +127,11 @@ class YesNoBox(BoxBase):
         return cb.isChecked(), dialog.clickedButton() is yes_button
 
 
-def show_named(name, *, parent=None, wallet=None, **kwargs):
+def show_named(name, *, parent=None, parent_wallet=None, **kwargs):
     box = all_boxes_by_name.get(name)
     if not box:
         raise ValueError(f'no box with name {name} found')
-    return box.result(parent, wallet, **kwargs)
+    return box.result(parent, parent_wallet, **kwargs)
 
 raw_release_notes = """
   * Wallets: The wallet format has changed and when you open your wallet it will be backed up
@@ -140,50 +140,6 @@ raw_release_notes = """
 raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
 raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
 raw_release_notes += "</li>"
-
-hardware_wallet_notes = """
-<p>
-Hardware wallet vendors have been slow to properly support Bitcoin SV with their products.
-In addition they do not maintain the code in ElectrumSV that enables you to continue
-to use their product.
-</p>
-<p>
-Maintaining and improving ElectrumSV takes time and resources that we have to prioritize.
-Owing to vendor apathy and the poor quality of the hardware wallet code and documentation,
-we limit our efforts to the minimum necessary to enable you to continue to use the
-hardware for normal operations.  However the vendors frequently change their software
-libraries and wallet firmware, so we cannot guarantee we will be able to support the
-hardware wallets and features indefinitely.
-</p>
-<p>
-Hopefully in the future there will be less political, more professional and higher
-quality hardware wallets, or equivalent solutions, available for our users' needs.
-</p>
-<p>
-Below is the current support status for each vendor:
-</p>
-<ul>
-<li>
-<b>KeepKey</b> Bitcoin SV is fully supported with the most recent firmware and client
-library releases from KeepKey.  The the hardware gives warnings about "wrong address path
-for the selected coin" for wallets with Bitcoin Cash 145' derivations, which you can safely
-ignore.
-</li>
-<li>
-<b>Trezor</b> Trezor show no intent to support Bitcoin SV.  The hardware currently works
-if we pretend to be Bitcoin Cash.  This means addresses show as Bitcoin Cash addresses, not
-Bitcoin addresses, making verification difficult for you.
-</li>
-<li>
-<b>Ledger</b> Ledger state that Bitcoin SV support is "not planned at this time".  The
-hardware currently works if we pretend to be Bitcoin Cash.
-</li>
-<li>
-<b>Digital Bitbox</b> DBB show no intent to support Bitcoin SV.  The hardware currently
-works if we pretend to be Bitcoin Cash.
-</li>
-</ul>
-"""
 
 take_care_notice = """
 <span>ElectrumSV is just a Bitcoin SV wallet, it cannot stop you from making bad decisions. Read
@@ -207,10 +163,6 @@ all_boxes = [
                 _('Bitcoin transactions are traceable. If you choose to upload illegal '
                   'material, you can be identified, and will risk the consequences.'),
             ))),
-    WarningBox('hardware-wallet-quality',
-            _('Hardware Wallet Quality'),
-            hardware_wallet_notes,
-            frequency=DisplayFrequency.OncePerRun),
     WarningBox("think-before-sending",
             _("Avoid Coin Loss"),
             take_care_notice,

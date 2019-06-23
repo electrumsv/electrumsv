@@ -1,21 +1,36 @@
-from io import StringIO
 import json
 import os
 import shutil
-import sys
 import tempfile
+from typing import Dict, Optional
 import unittest
 
 import pytest
 from bitcoinx import PrivateKey, PublicKey, Address, Script
 
+from electrumsv.keystore import from_seed, from_xpub, Old_KeyStore
 from electrumsv.networks import Net, SVMainnet, SVTestnet
-from electrumsv.storage import WalletStorage, FINAL_SEED_VERSION
+from electrumsv.storage import WalletStorage, FINAL_SEED_VERSION, multisig_type
 from electrumsv.transaction import XPublicKey
-from electrumsv.wallet import sweep_preparations, ImportedPrivkeyWallet, UTXO
+from electrumsv.wallet import (sweep_preparations, ImportedPrivkeyWallet, ImportedAddressWallet,
+    Multisig_Wallet, ParentWallet, Standard_Wallet, UTXO)
 
 from .util import setup_async, tear_down_async
 
+
+class _TestableParentWallet(ParentWallet):
+    def name(self):
+        return self.__class__.__name__
+
+class MockStorage:
+    def __init__(self) -> None:
+        self.path = tempfile.mktemp()
+        self.tx_store_aeskey_hex = os.urandom(32).hex()
+
+    def get(self, attr_name, default=None):
+        if attr_name == "tx_store_aeskey":
+            return self.tx_store_aeskey_hex
+        return default
 
 def setUpModule():
     setup_async()
@@ -27,8 +42,7 @@ def tearDownModule():
 
 @pytest.fixture()
 def tmp_storage(tmpdir):
-    return WalletStorage(os.path.join(tmpdir, 'wallet'))
-
+    return MockStorage()
 
 @pytest.fixture(params=[SVMainnet, SVTestnet])
 def network(request):
@@ -55,15 +69,9 @@ class WalletTestCase(unittest.TestCase):
 
         self.wallet_path = os.path.join(self.user_dir, "somewallet")
 
-        self._saved_stdout = sys.stdout
-        self._stdout_buffer = StringIO()
-        sys.stdout = self._stdout_buffer
-
     def tearDown(self):
         super(WalletTestCase, self).tearDown()
         shutil.rmtree(self.user_dir)
-        # Restore the "real" stdout
-        sys.stdout = self._saved_stdout
 
 
 class TestWalletStorage(WalletTestCase):
@@ -100,13 +108,323 @@ class TestWalletStorage(WalletTestCase):
         self.assertEqual(some_dict, json.loads(contents))
 
 
+def check_legacy_parent_of_standard_wallet(parent_wallet: ParentWallet,
+        seed_words: Optional[str]=None, is_bip39: bool=False) -> None:
+    assert len(parent_wallet.get_child_wallets()) == 1
+    child_wallet: Standard_Wallet = parent_wallet.get_child_wallets()[0]
+
+    parent_keystores = parent_wallet.get_keystores()
+    assert len(parent_keystores) == 1
+    child_keystores = child_wallet.get_keystores()
+    assert len(child_keystores) == 1
+    assert parent_keystores[0] is child_keystores[0]
+
+    keystore_data = parent_keystores[0].dump()
+    entry_count = 4
+    if is_bip39:
+        entry_count = 3
+    assert len(keystore_data) == entry_count
+    assert keystore_data['type'] == 'bip32'
+    assert 'xpub' in keystore_data
+    assert 'xprv' in keystore_data
+    if is_bip39:
+        assert "seed" not in keystore_data
+    else:
+        if seed_words is None:
+            assert "seed" in keystore_data
+        else:
+            assert keystore_data['seed'] == seed_words
+
+    child_wallet_data = child_wallet.dump()
+    # A newly created wallet.
+    expected_count = 3
+    if "stored_height" in child_wallet_data:
+        # A wallet that has synced after it was created.
+        assert "labels" in child_wallet_data
+        expected_count = 5
+    assert len(child_wallet_data) == expected_count
+    assert child_wallet_data['id'] == 0
+    assert child_wallet_data['wallet_type'] == 'standard'
+
+    keystore_usage = child_wallet_data['keystore_usage']
+    assert len(keystore_usage) == 1
+    assert len(keystore_usage[0]) == 1
+    assert keystore_usage[0]['index'] == 0
+
+def check_legacy_parent_of_imported_privkey_wallet(parent_wallet: ParentWallet,
+        keypairs: Optional[Dict[str, str]]=None) -> None:
+    assert len(parent_wallet.get_child_wallets()) == 1
+    child_wallet: ImportedPrivkeyWallet = parent_wallet.get_child_wallets()[0]
+
+    parent_keystores = parent_wallet.get_keystores()
+    assert len(parent_keystores) == 1
+    child_keystores = child_wallet.get_keystores()
+    assert len(child_keystores) == 1
+    assert parent_keystores[0] is child_keystores[0]
+
+    keystore_data = parent_keystores[0].dump()
+    assert 'type' in keystore_data
+    assert len(keystore_data) == 2
+    assert keystore_data['type'] == 'imported'
+    if keypairs is not None:
+        assert keystore_data['keypairs'] == keypairs
+    else:
+        assert "keypairs" in keystore_data
+
+    child_wallet_data = child_wallet.dump()
+    # A newly created wallet.
+    expected_count = 3
+    if "stored_height" in child_wallet_data:
+        # A wallet that has synced after it was created.
+        expected_count = 4
+    assert len(child_wallet_data) == expected_count
+    assert child_wallet_data['id'] == 0
+    assert child_wallet_data['wallet_type'] == ImportedPrivkeyWallet.wallet_type
+    keystore_usage = child_wallet_data['keystore_usage']
+    assert len(keystore_usage) == 1
+    assert len(keystore_usage[0]) == 1
+    assert keystore_usage[0]['index'] == 0
+
+
+def check_legacy_parent_of_imported_address_wallet(parent_wallet: ParentWallet) -> None:
+    assert len(parent_wallet.get_child_wallets()) == 1
+    child_wallet: ImportedAddressWallet = parent_wallet.get_child_wallets()[0]
+
+    assert len(parent_wallet.get_keystores()) == 0
+    assert len(child_wallet.get_keystores()) == 0
+    child_wallet_data = child_wallet.dump()
+    # A newly created wallet.
+    expected_count = 2
+    if "stored_height" in child_wallet_data:
+        # A wallet that has synced after it was created.
+        expected_count = 3
+    assert len(child_wallet_data) == expected_count
+    assert child_wallet_data['id'] == 0
+    assert child_wallet_data['wallet_type'] == ImportedAddressWallet.wallet_type
+    assert "keystore_usage" not in child_wallet_data
+
+
+def check_legacy_parent_of_multisig_wallet(parent_wallet: ParentWallet) -> None:
+    assert len(parent_wallet.get_child_wallets()) == 1
+    child_wallet: Multisig_Wallet = parent_wallet.get_child_wallets()[0]
+
+    wallet_type = child_wallet.wallet_type
+    m, n = multisig_type(wallet_type)
+
+    parent_keystores = parent_wallet.get_keystores()
+    assert len(parent_keystores) == 2
+    child_keystores = child_wallet.get_keystores()
+    assert len(child_keystores) == n
+    for i in range(n):
+        assert parent_keystores[i] is child_keystores[i]
+
+    for i in range(n):
+        keystore_data = parent_keystores[0].dump()
+        if len(keystore_data) == 4:
+            assert keystore_data['type'] == 'bip32'
+            assert keystore_data['seed'] is not None # == seed_words
+            assert keystore_data['xpub'] is not None
+            assert keystore_data['xprv'] is not None
+        else:
+            assert len(keystore_data) == 3
+            assert keystore_data['type'] == 'bip32'
+            assert keystore_data['xpub'] is not None
+            assert keystore_data['xprv'] is None
+
+    child_wallet_data = child_wallet.dump()
+    # A newly created wallet.
+    entry_count = 3
+    if "stored_height" in child_wallet_data:
+        assert "labels" in child_wallet_data
+        # A wallet that has synced after it was created.
+        entry_count = 5
+    assert len(child_wallet_data) == entry_count
+    assert child_wallet_data['id'] == 0
+    assert child_wallet_data['wallet_type'] == wallet_type
+    keystore_usage = []
+    for i in range(n):
+        keystore_usage.append({'index': i, 'name': f'x{i+1}/'})
+    assert child_wallet_data['keystore_usage'] == keystore_usage
+
+def check_legacy_parent_of_hardware_wallet(parent_wallet: ParentWallet) -> None:
+    assert len(parent_wallet.get_child_wallets()) == 1
+    child_wallet = parent_wallet.get_child_wallets()[0]
+
+    parent_keystores = parent_wallet.get_keystores()
+    assert len(parent_keystores) == 1
+    child_keystores = child_wallet.get_keystores()
+    assert len(child_keystores) == 1
+    assert parent_keystores[0] is child_keystores[0]
+
+    keystore_data = parent_keystores[0].dump()
+    # General hardware wallet.
+    entry_count = 5
+    if keystore_data['hw_type'] == "ledger":
+        # Ledger wallets extend the keystore.
+        assert "cfg" in keystore_data
+        entry_count = 6
+    assert len(keystore_data) == entry_count
+    assert keystore_data['type'] == 'hardware'
+    assert 'hw_type' in keystore_data
+    assert 'label' in keystore_data
+    assert "derivation" in keystore_data
+
+    child_wallet_data = child_wallet.dump()
+    # A newly created wallet.
+    expected_count = 3
+    if "stored_height" in child_wallet_data:
+        # A wallet that has synced after it was created.
+        assert "labels" in child_wallet_data
+        expected_count = 5
+    assert len(child_wallet_data) == expected_count
+    assert child_wallet_data['id'] == 0
+    assert child_wallet_data['wallet_type'] == 'standard'
+
+    keystore_usage = child_wallet_data['keystore_usage']
+    assert len(keystore_usage) == 1
+    assert len(keystore_usage[0]) == 1
+    assert keystore_usage[0]['index'] == 0
+
+
+# Verify that different legacy wallets are created with correct keystores in both parent
+# wallet, and child wallet. And that the underlying data for keystore and wallet persistence
+# is also exported correctly.
+class TestLegacyWalletCreation:
+    def test_standard_electrum(self, tmp_storage) -> None:
+        seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
+        child_keystore = from_seed(seed_words, '', False)
+
+        parent_wallet = ParentWallet.as_legacy_wallet_container(tmp_storage)
+        keystore_usage = parent_wallet.add_keystore(child_keystore.dump())
+        child_wallet = Standard_Wallet.create_within_parent(parent_wallet,
+            keystore_usage=[ keystore_usage ])
+
+        check_legacy_parent_of_standard_wallet(parent_wallet)
+
+    def test_old(self, tmp_storage) -> None:
+        seed_words = ('powerful random nobody notice nothing important '+
+            'anyway look away hidden message over')
+        child_keystore = from_seed(seed_words, '', False)
+        assert isinstance(child_keystore, Old_KeyStore)
+
+        parent_wallet = ParentWallet.as_legacy_wallet_container(tmp_storage)
+        keystore_usage = parent_wallet.add_keystore(child_keystore.dump())
+        child_wallet = Standard_Wallet.create_within_parent(parent_wallet,
+            keystore_usage=[ keystore_usage ])
+
+        parent_keystores = parent_wallet.get_keystores()
+        assert len(parent_keystores) == 1
+        child_keystores = child_wallet.get_keystores()
+        assert len(child_keystores) == 1
+        assert parent_keystores[0] is child_keystores[0]
+
+        keystore_data = parent_keystores[0].dump()
+        assert len(keystore_data) == 3
+        assert keystore_data['type'] == 'old'
+        assert 'mpk' in keystore_data
+        assert 'seed' in keystore_data
+
+        child_wallet_data = child_wallet.dump()
+        assert len(child_wallet_data) == 3
+        assert child_wallet_data['id'] == 0
+        assert child_wallet_data['wallet_type'] == 'standard'
+        keystore_usage = child_wallet_data['keystore_usage']
+        assert len(keystore_usage) == 1
+        assert len(keystore_usage[0]) == 1
+        assert keystore_usage[0]['index'] == 0
+
+    def test_imported_privkey(self, tmp_storage) -> None:
+        text = """
+        KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6
+        """
+        parent_wallet = ParentWallet.as_legacy_wallet_container(tmp_storage)
+        child_wallet = ImportedPrivkeyWallet.from_text(parent_wallet, text)
+
+        keypairs = {'02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997':
+            'KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6'}
+        check_legacy_parent_of_imported_privkey_wallet(parent_wallet, keypairs=keypairs)
+
+    def test_imported_pubkey(self, tmp_storage) -> None:
+        text = """
+        15hETetDmcXm1mM4sEf7U2KXC9hDHFMSzz
+        1GPHVTY8UD9my6jyP4tb2TYJwUbDetyNC6
+        """
+        parent_wallet = ParentWallet.as_legacy_wallet_container(tmp_storage)
+        child_wallet = ImportedAddressWallet.from_text(parent_wallet, text)
+
+        check_legacy_parent_of_imported_address_wallet(parent_wallet)
+
+    def test_multisig(self, tmp_storage) -> None:
+        parent_wallet = ParentWallet.as_legacy_wallet_container(tmp_storage)
+        seed_words = ('blast uniform dragon fiscal ensure vast young utility dinosaur abandon '+
+            'rookie sure')
+        ks1 = from_seed(seed_words, '', True)
+        ks2 = from_xpub('xpub661MyMwAqRbcGfCPEkkyo5WmcrhTq8mi3xuBS7VEZ3LYvsgY1cCFDben'+
+            'T33bdD12axvrmXhuX3xkAbKci3yZY9ZEk8vhLic7KNhLjqdh5ec')
+        keystores = [ ks1, ks2 ]
+        keystore_usages = []
+        for i, k in enumerate(keystores):
+            keystore_usage = parent_wallet.add_keystore(k.dump())
+            keystore_usage['name'] = f'x{i+1}/'
+            keystore_usages.append(keystore_usage)
+        child_wallet = Multisig_Wallet.create_within_parent(parent_wallet,
+            keystore_usage=keystore_usages, wallet_type="2of2")
+
+        check_legacy_parent_of_multisig_wallet(parent_wallet)
+
+
+legacy_wallet_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "wallets")
+
+@pytest.mark.parametrize("wallet_filename", os.listdir(legacy_wallet_path))
+def test_legacy_wallet_loading(wallet_filename: str):
+    source_wallet_path = os.path.join(legacy_wallet_path, wallet_filename)
+    temp_dir = tempfile.mkdtemp()
+    wallet_path = os.path.join(temp_dir, wallet_filename)
+    shutil.copyfile(source_wallet_path, wallet_path)
+
+    # net = None
+    # if "testnet" in wallet_filename:
+    #     net = SVTestnet
+    # elif "mainnet" in wallet_filename:
+    #     net = SVMainnet
+    # else:
+    #     raise Exception(f"unable to identify wallet network for {wallet_filename}")
+
+    storage = WalletStorage(wallet_path)
+    if "passworded" in wallet_filename:
+        storage.decrypt("123456")
+
+    try:
+        parent_wallet = ParentWallet(storage)
+    except OSError as e:
+        if "is not a valid Win32 application" not in e.args[1]:
+            raise e
+        pytest.xfail("Missing libusb for this architecture")
+        return
+
+    if "standard" in wallet_filename:
+        is_bip39 = "bip39" in wallet_filename
+        check_legacy_parent_of_standard_wallet(parent_wallet, is_bip39=is_bip39)
+    elif "imported_privkey" in wallet_filename:
+        check_legacy_parent_of_imported_privkey_wallet(parent_wallet)
+    elif "imported_address" in wallet_filename:
+        check_legacy_parent_of_imported_address_wallet(parent_wallet)
+    elif "multisig" in wallet_filename:
+        check_legacy_parent_of_multisig_wallet(parent_wallet)
+    elif "hardware" in wallet_filename:
+        check_legacy_parent_of_hardware_wallet(parent_wallet)
+    else:
+        raise Exception(f"unrecognised wallet file {wallet_filename}")
+
+
 class TestImportedPrivkeyWallet:
 
     def test_pubkeys_to_address(self, tmp_storage, network):
         coin = network.COIN
         privkey = PrivateKey.from_random()
         WIF = privkey.to_WIF(coin=coin)
-        wallet = ImportedPrivkeyWallet.from_text(tmp_storage, WIF, None)
+        parent_wallet = _TestableParentWallet.as_legacy_wallet_container(tmp_storage)
+        wallet = ImportedPrivkeyWallet.from_text(parent_wallet, WIF)
         public_key = privkey.public_key
         pubkey_hex = public_key.to_hex()
         address = public_key.to_address(coin=coin).to_string()

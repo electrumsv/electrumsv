@@ -38,6 +38,7 @@ class RequestList(MyTreeWidget):
     filter_columns = [0, 1, 2, 3, 4]  # Date, Account, Address, Description, Amount
 
     def __init__(self, parent):
+        self.wallet = parent.parent_wallet.get_default_wallet()
         MyTreeWidget.__init__(self, parent, self.create_menu, [
             _('Date'), _('Address'), '', _('Description'), _('Amount'), _('Status')], 3)
         self.currentItemChanged.connect(self.item_changed)
@@ -51,11 +52,12 @@ class RequestList(MyTreeWidget):
             return
         if not item.isSelected():
             return
-        addr = item.data(0, Qt.UserRole)
-        req = self.wallet.receive_requests[addr]
+        wallet_id, addr = item.data(0, Qt.UserRole)
+        wallet = self.parent.parent_wallet.get_wallet_for_account(wallet_id)
+        req = wallet.receive_requests[addr]
         expires = age(req['time'] + req['exp']) if req.get('exp') else _('Never')
         amount = req['amount']
-        message = self.wallet.labels.get(addr.to_string(), '')
+        message = wallet.labels.get(addr.to_string(), '')
         self.parent.receive_address_e.setText(addr.to_string())
         self.parent.receive_message_e.setText(message)
         self.parent.receive_amount_e.setAmount(amount)
@@ -65,7 +67,6 @@ class RequestList(MyTreeWidget):
         self.parent.new_request_button.setEnabled(True)
 
     def on_update(self):
-        self.wallet = self.parent.wallet
         # hide receive tab if no receive requests available
         b = len(self.wallet.receive_requests) > 0
         self.setVisible(b)
@@ -84,6 +85,8 @@ class RequestList(MyTreeWidget):
             self.parent.set_receive_address(addr)
         self.parent.new_request_button.setEnabled(addr != current_address)
 
+        wallet_id = self.wallet.get_id()
+
         # clear the list and fill it again
         self.clear()
         for req in self.wallet.get_sorted_requests(self.config):
@@ -99,7 +102,7 @@ class RequestList(MyTreeWidget):
             amount_str = self.parent.format_amount(amount) if amount else ""
             item = QTreeWidgetItem([date, address.to_string(), '', message,
                                     amount_str, pr_tooltips.get(status,'')])
-            item.setData(0, Qt.UserRole, address)
+            item.setData(0, Qt.UserRole, (wallet_id, address))
             if status is not PR_UNKNOWN:
                 item.setIcon(6, read_QIcon(pr_icons.get(status)))
             self.addTopLevelItem(item)
@@ -120,6 +123,8 @@ class RequestList(MyTreeWidget):
         menu.addAction(_("Copy URI"),
                        lambda: self.parent.view_and_paste(
                            'URI', '', self.parent.get_request_URI(addr)))
-        menu.addAction(_("Save as BIP270 file"), lambda: self.parent.export_payment_request(addr))
-        menu.addAction(_("Delete"), lambda: self.parent.delete_payment_request(addr))
+        menu.addAction(_("Save as BIP270 file"),
+            lambda: self.parent.export_payment_request(addr))
+        menu.addAction(_("Delete"),
+            lambda: self.parent.delete_payment_request(addr))
         menu.exec_(self.viewport().mapToGlobal(position))

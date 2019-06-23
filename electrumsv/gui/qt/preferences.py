@@ -25,6 +25,7 @@
 '''ElectrumSV Preferences dialog.'''
 
 from functools import partial
+from typing import Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -38,6 +39,7 @@ from electrumsv.extensions import label_sync
 from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
 import electrumsv.web as web
+from electrumsv.wallet import ParentWallet
 
 from .amountedit import BTCSatsByteEdit
 from .util import (
@@ -46,15 +48,14 @@ from .util import (
 
 
 class PreferencesDialog(QDialog):
-
-    def __init__(self, wallet=None):
+    def __init__(self, parent_wallet: Optional[ParentWallet]=None):
         '''The preferences dialog has a wallet tab only if wallet is given.'''
         super().__init__()
         self.setWindowTitle(_('Preferences'))
-        self.lay_out(wallet)
+        self.lay_out(parent_wallet)
         self.initial_language = app_state.config.get('language', None)
 
-    def accept(self):
+    def accept(self) -> None:
         if app_state.fx:
             app_state.fx.trigger_history_refresh()
         # Qt on Mac has a bug with "modalSession has been exited prematurely" That means
@@ -66,15 +67,16 @@ class PreferencesDialog(QDialog):
                 title=_('Success'), parent=self)
         super().accept()
 
-    def lay_out(self, wallet):
+    def lay_out(self, parent_wallet: Optional[ParentWallet]):
+        default_wallet = parent_wallet.get_default_wallet() if parent_wallet else None
         tabs_info = [
             (self.general_widgets(), _('General')),
             (self.tx_widgets(), _('Transactions')),
             (self.fiat_widgets(), _('Fiat')),
-            (self.extensions_widgets(wallet), _('Extensions')),
+            (self.extensions_widgets(default_wallet), _('Extensions')),
         ]
-        if wallet:
-            tabs_info.append((self.wallet_widgets(wallet), _('Wallet')))
+        if default_wallet:
+            tabs_info.append((self.wallet_widgets(default_wallet), _('Wallet')))
 
         tabs = QTabWidget()
         tabs.setUsesScrollButtons(False)
@@ -355,7 +357,7 @@ class PreferencesDialog(QDialog):
 
     def wallet_widgets(self, wallet):
         label = QLabel(_("The settings below only affect the wallet {}")
-                       .format(wallet.basename()))
+                       .format(wallet.name()))
 
         usechange_cb = QCheckBox(_('Use change addresses'))
         usechange_cb.setChecked(wallet.use_change)

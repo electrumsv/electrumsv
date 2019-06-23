@@ -23,12 +23,13 @@
 
 import hashlib
 from unicodedata import normalize
+from typing import Any, Dict, List, Tuple, Union
 
 from bitcoinx import (
     PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey,
     int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
     bip32_key_from_string, bip32_decompose_chain_string,
-    base58_decode_check
+    base58_decode_check, Address
 )
 
 from .app_state import app_state
@@ -45,16 +46,28 @@ logger = logs.get_logger("keystore")
 
 
 class KeyStore:
-    def __init__(self):
-        self.wallet_advice = {}
+    def __init__(self) -> None:
+        self.wallet_advice: Dict[Address, Tuple[bool, int]] = {}
 
-    def has_seed(self):
+    def has_seed(self) -> bool:
         return False
 
-    def is_watching_only(self):
+    def can_change_password(self) -> bool:
+        raise NotImplementedError
+
+    def may_have_password(self) -> bool:
+        raise NotImplementedError
+
+    def update_password(self, old_password, new_password):
+        raise NotImplementedError
+
+    def dump(self) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def is_watching_only(self) -> bool:
         return False
 
-    def can_import(self):
+    def can_import(self) -> bool:
         return False
 
     def get_tx_derivations(self, tx):
@@ -67,22 +80,21 @@ class KeyStore:
                 keypairs[x_pubkey] = derivation
         return keypairs
 
-    def can_sign(self, tx):
+    def can_sign(self, tx) -> bool:
         if self.is_watching_only():
             return False
         return bool(self.get_tx_derivations(tx))
 
-    def set_wallet_advice(self, addr, advice):
+    def set_wallet_advice(self, addr, advice) -> None:
         pass
 
 
 
 class Software_KeyStore(KeyStore):
-
     def __init__(self):
         KeyStore.__init__(self)
 
-    def may_have_password(self):
+    def may_have_password(self) -> bool:
         return not self.is_watching_only()
 
     def sign_message(self, sequence, message, password):
@@ -120,16 +132,16 @@ class Imported_KeyStore(Software_KeyStore):
                          for pubkey, enc_privkey in keypairs.items()}
         self._sorted = None
 
-    def is_deterministic(self):
+    def is_deterministic(self) -> bool:
         return False
 
-    def can_change_password(self):
+    def can_change_password(self) -> bool:
         return True
 
     def get_master_public_key(self):
         return None
 
-    def dump(self):
+    def dump(self) -> Dict[str, Any]:
         keypairs = {pubkey.to_hex(): enc_privkey
                     for pubkey, enc_privkey in self.keypairs.items()}
         return {
@@ -137,7 +149,7 @@ class Imported_KeyStore(Software_KeyStore):
             'keypairs': keypairs,
         }
 
-    def can_import(self):
+    def can_import(self) -> bool:
         return True
 
     def get_addresses(self):
@@ -207,15 +219,15 @@ class Imported_KeyStore(Software_KeyStore):
 
 class Deterministic_KeyStore(Software_KeyStore):
 
-    def __init__(self, d):
+    def __init__(self, d) -> None:
         Software_KeyStore.__init__(self)
         self.seed = d.get('seed', '')
         self.passphrase = d.get('passphrase', '')
 
-    def is_deterministic(self):
+    def is_deterministic(self) -> bool:
         return True
 
-    def dump(self):
+    def dump(self) -> Dict[str, Any]:
         d = {}
         if self.seed:
             d['seed'] = self.seed
@@ -223,16 +235,16 @@ class Deterministic_KeyStore(Software_KeyStore):
             d['passphrase'] = self.passphrase
         return d
 
-    def has_seed(self):
+    def has_seed(self) -> bool:
         return bool(self.seed)
 
-    def is_watching_only(self):
+    def is_watching_only(self) -> bool:
         return not self.has_seed()
 
-    def can_change_password(self):
+    def can_change_password(self) -> bool:
         return not self.is_watching_only()
 
-    def add_seed(self, seed):
+    def add_seed(self, seed) -> None:
         if self.seed:
             raise Exception("a seed exists")
         self.seed = self.format_seed(seed)
@@ -245,10 +257,13 @@ class Deterministic_KeyStore(Software_KeyStore):
             return pw_decode(self.passphrase, password)
         return ''
 
+    def format_seed(self, seed: str) -> str:
+        raise NotImplementedError
+
 
 class Xpub:
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.xpub = None
         self.xpub_receive = None
         self.xpub_change = None
@@ -311,7 +326,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
     def format_seed(self, seed):
         return ' '.join(seed.split())
 
-    def dump(self):
+    def dump(self) -> Dict[str, Any]:
         d = Deterministic_KeyStore.dump(self)
         d['type'] = 'bip32'
         d['xpub'] = self.xpub
@@ -343,10 +358,10 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
             b = pw_decode(self.xprv, old_password)
             self.xprv = pw_encode(b, new_password)
 
-    def is_watching_only(self):
+    def is_watching_only(self) -> bool:
         return self.xprv is None
 
-    def add_xprv(self, xprv: BIP32PrivateKey):
+    def add_xprv(self, xprv: BIP32PrivateKey) -> None:
         self.xprv = xprv.to_extended_key_string()
         self.xpub = xprv.public_key.to_extended_key_string()
 
@@ -363,13 +378,14 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
             privkey = privkey.child_safe(n)
         return privkey.to_bytes(), True
 
-    def set_wallet_advice(self, addr, advice): #overrides KeyStore.set_wallet_advice
+    def set_wallet_advice(self, addr, advice) -> None:
+        # overrides KeyStore.set_wallet_advice
         self.wallet_advice[addr] = advice
 
 
 class Old_KeyStore(Deterministic_KeyStore):
 
-    def __init__(self, d):
+    def __init__(self, d: Dict[str, Any]) -> None:
         super().__init__(d)
         self.mpk = d['mpk']
 
@@ -506,6 +522,7 @@ class Hardware_KeyStore(KeyStore, Xpub):
     #   - device
     #   - DEVICE_IDS
     #   - wallet_type
+    device: str
 
     max_change_outputs = 1
 
@@ -519,6 +536,7 @@ class Hardware_KeyStore(KeyStore, Xpub):
         self.label = d.get('label')
         self.derivation = d.get('derivation')
         self.handler = None
+        self.plugin = None
         self.libraries_available = False
 
     def set_label(self, label):
@@ -560,11 +578,6 @@ class Hardware_KeyStore(KeyStore, Xpub):
 
     def can_change_password(self):
         return False
-
-    def needs_prevtx(self):
-        '''Returns true if this hardware wallet needs to know the input
-        transactions to sign a transactions'''
-        return True
 
 
 
@@ -613,39 +626,37 @@ def from_bip39_seed(seed, passphrase, derivation):
     k.add_xprv_from_seed(bip32_seed, derivation)
     return k
 
-def load_keystore(storage, name):
-    w = storage.get('wallet_type', 'standard')
-    d = storage.get(name, {})
-    t = d.get('type')
-    if not t:
+
+def load_keystore(keystore_data: Dict[str, Any]) -> KeyStore:
+    keystore_type = keystore_data.get('type', None)
+    if not keystore_type:
         raise ValueError('wallet format requires update')
-    if t == 'old':
-        k = Old_KeyStore(d)
-    elif t == 'imported':
-        k = Imported_KeyStore(d)
-    elif t == 'bip32':
-        k = BIP32_KeyStore(d)
-    elif t == 'hardware':
-        k = app_state.device_manager.create_keystore(d)
-    else:
-        raise ValueError('unknown wallet type', t)
-    return k
+
+    if keystore_type == 'old':
+        return Old_KeyStore(keystore_data)
+    elif keystore_type == 'imported':
+        return Imported_KeyStore(keystore_data)
+    elif keystore_type == 'bip32':
+        return BIP32_KeyStore(keystore_data)
+    elif keystore_type == 'hardware':
+        return app_state.device_manager.create_keystore(keystore_data)
+    raise ValueError('unknown keystore type', keystore_type)
 
 
-def is_address_list(text):
+def is_address_list(text: str) -> bool:
     parts = text.split()
-    return parts and all(is_address_valid(x) for x in parts)
+    return bool(parts) and all(is_address_valid(x) for x in parts)
 
 
-def get_private_keys(text):
+def get_private_keys(text: str) -> List[str]:
     parts = text.split('\n')
     parts = [''.join(part.split()) for part in parts]
     parts = [part for part in parts if part]
     if parts and all(is_private_key(x) for x in parts):
         return parts
+    return []
 
-
-def is_private_key_list(text):
+def is_private_key_list(text: str) -> bool:
     return bool(get_private_keys(text))
 
 
@@ -655,10 +666,10 @@ is_master_key = lambda x: Old_KeyStore.is_hex_mpk(x) or is_xprv(x) or is_xpub(x)
 is_bip32_key = lambda x: is_xprv(x) or is_xpub(x)
 
 
-def bip44_derivation(account_id):
+def bip44_derivation(account_id: int) -> str:
     return "m/44'/%d'/%d'" % (Net.BIP44_COIN_TYPE, int(account_id))
 
-def bip44_derivation_cointype(cointype, account_id):
+def bip44_derivation_cointype(cointype: int, account_id: int) -> str:
     return f"m/44'/{cointype:d}'/{account_id:d}'"
 
 def from_seed(seed, passphrase, is_p2sh):
@@ -679,18 +690,12 @@ def from_seed(seed, passphrase, is_p2sh):
 class InvalidSeed(Exception):
     pass
 
-def from_private_key_list(text):
-    keystore = Imported_KeyStore({})
-    for x in get_private_keys(text):
-        keystore.import_key(x, None)
-    return keystore
-
-def from_xpub(xpub):
+def from_xpub(xpub) -> BIP32_KeyStore:
     k = BIP32_KeyStore({})
     k.xpub = xpub
     return k
 
-def from_master_key(text):
+def from_master_key(text: str) -> Union[BIP32_KeyStore, Old_KeyStore]:
     if is_xprv(text):
         k = BIP32_KeyStore({})
         k.add_xprv(bip32_key_from_string(text))
@@ -703,7 +708,7 @@ def from_master_key(text):
     return k
 
 
-def is_xpub(text):
+def is_xpub(text: str) -> bool:
     try:
         key = bip32_key_from_string(text)
         return isinstance(key, BIP32PublicKey)
@@ -711,7 +716,7 @@ def is_xpub(text):
         return False
 
 
-def is_xprv(text):
+def is_xprv(text: str) -> bool:
     try:
         key = bip32_key_from_string(text)
         return isinstance(key, BIP32PrivateKey)
@@ -719,7 +724,7 @@ def is_xprv(text):
         return False
 
 
-def is_private_key(text):
+def is_private_key(text: str) -> bool:
     try:
         PrivateKey.from_text(text)
         return True

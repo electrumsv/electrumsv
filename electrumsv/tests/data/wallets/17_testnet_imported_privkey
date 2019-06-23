@@ -1,0 +1,26 @@
+{
+    "addr_history": {},
+    "keystore": {
+        "keypairs": {
+            "02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997": "KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6"
+        },
+        "type": "imported"
+    },
+    "pruned_txo": {},
+    "seed_version": 17,
+    "stored_height": 1317188,
+    "transactions": {},
+    "tx_fees": {},
+    "txi": {},
+    "txo": {},
+    "use_encryption": false,
+    "verified_tx3": {},
+    "wallet_nonce": 1,
+    "wallet_type": "imported_privkey",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

@@ -93,10 +93,6 @@ class TrezorKeyStore(Hardware_KeyStore):
 
         self.plugin.sign_transaction(self, tx, xpub_path)
 
-    def needs_prevtx(self):
-        # Trezor doesn't neeed previous transactions for Bitcoin SV
-        return False
-
 
 class TrezorPlugin(HW_PluginBase):
     firmware_URL = 'https://wallet.trezor.io'

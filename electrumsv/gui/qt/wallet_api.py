@@ -61,8 +61,12 @@ class WalletAPI(QObject):
     # Balance related.
 
     def get_balance(self, account_id=None) -> int:
-        c, u, x = self.wallet_window.wallet.get_balance()
-        return c + u
+        balance = 0
+        for child_wallet in self.wallet_window.parent_wallet.get_child_wallets():
+            if account_id is None or account_id == child_wallet.get_id():
+                c, u, x = self.wallet_window.parent_wallet.get_balance()
+                balance += c + u
+        return balance
 
     def get_fiat_unit(self) -> Optional[str]:
         fx = app_state.fx

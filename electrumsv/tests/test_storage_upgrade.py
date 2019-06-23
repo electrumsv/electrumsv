@@ -2,8 +2,8 @@ import os
 import shutil
 import tempfile
 
-from electrumsv.storage import WalletStorage
-from electrumsv.wallet import Wallet
+from electrumsv.storage import WalletStorage, multisig_type
+from electrumsv.wallet import ParentWallet
 
 from electrumsv.tests.test_wallet import WalletTestCase
 
@@ -271,7 +271,7 @@ class TestStorageUpgrade(WalletTestCase):
 ##########
 
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         super().setUpClass()
         from electrumsv.simple_config import SimpleConfig
 
@@ -279,7 +279,7 @@ class TestStorageUpgrade(WalletTestCase):
         config = SimpleConfig({'electrum_sv_path': cls.electrum_sv_path})
 
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         super().tearDownClass()
         shutil.rmtree(cls.electrum_sv_path)
 
@@ -303,11 +303,43 @@ class TestStorageUpgrade(WalletTestCase):
     def _sanity_check_upgraded_storage(self, storage, expect_backup=False):
         self.assertFalse(storage.requires_split())
         self.assertFalse(storage.requires_upgrade())
-        Wallet(storage)
         if expect_backup and os.path.exists(storage.path):
             backup_path = storage._wallet_backup_pattern % (storage.path, 1)
             self.assertTrue(os.path.exists(backup_path),
                 f"backup file '{backup_path}' does not exist")
+
+        self._sanity_check_upgraded_wallet(storage)
+
+    def _sanity_check_upgraded_wallet(self, storage):
+        # We're going to verify that the parent wrapped legacy wallet has migrated it's
+        # keystores to the right place, and it's references are valid.
+        parent_wallet = ParentWallet(storage)
+        child_wallets = parent_wallet.get_child_wallets()
+
+        # These are all legacy wallets, so one child wallet wrapped in the parent wallet.
+        self.assertEqual(len(child_wallets), 1)
+
+        keystore_indexes = {}
+        for child_wallet in child_wallets:
+            # Verify that the wallet has the expected number of keystores.
+            keystores = child_wallet.get_keystores()
+            mn = multisig_type(child_wallet.wallet_type)
+            if mn is None:
+                if child_wallet.wallet_type == "imported_addr":
+                    self.assertEqual(len(keystores), 0)
+                else:
+                    self.assertEqual(len(keystores), 1)
+            else:
+                self.assertEqual(len(keystores), mn[1])
+
+            # Verify that the number of used keystores are the same number that exists.
+            for keystore_usage in child_wallet._get_keystore_usage():
+                # Verify that each index is valid.
+                self.assertLess(keystore_usage['index'], len(parent_wallet.get_keystores()))
+                keystore_indexes[keystore_usage['index']] = True
+
+        # Generically check that all parent keystores are in use.
+        self.assertEqual(len(parent_wallet._keystores), len(keystore_indexes))
 
     def _load_storage_from_json_string(self, wallet_json, manual_upgrades=True):
         with open(self.wallet_path, "w") as f:

@@ -66,15 +66,15 @@ class LabelSync(object):
 
     def get_nonce(self, wallet):
         # nonce is the nonce to be used with the next change
-        nonce = wallet.storage.get('wallet_nonce')
+        nonce = wallet.get('wallet_nonce', None)
         if nonce is None:
             nonce = 1
             self.set_nonce(wallet, nonce)
         return nonce
 
     def set_nonce(self, wallet, nonce):
-        logger.debug("set {} nonce to {}".format(wallet.basename(), nonce))
-        wallet.storage.put("wallet_nonce", nonce)
+        logger.debug("set {} nonce to {}".format(wallet.name(), nonce))
+        wallet.put("wallet_nonce", nonce)
 
     def set_label(self, wallet, item, label):
         if wallet not in self.wallets:
@@ -167,7 +167,7 @@ class LabelSync(object):
 
         logger.info(f"received {len(response):,d} labels")
         # do not write to disk because we're in a daemon thread
-        wallet.storage.put('labels', wallet.labels)
+        wallet.put('labels', wallet.labels)
         self.set_nonce(wallet, response["nonce"] + 1)
         self.on_pulled(wallet)
 
@@ -179,7 +179,7 @@ class LabelSync(object):
 
     def start_wallet(self, wallet):
         nonce = self.get_nonce(wallet)
-        logger.debug("wallet %s nonce is %s", wallet.basename(), nonce)
+        logger.debug("wallet %s nonce is %s", wallet.name(), nonce)
         mpk = wallet.get_fingerprint()
         if not mpk:
             return
@@ -207,10 +207,12 @@ class LabelSync(object):
     def window_opened(self, window):
         if label_sync.is_enabled():
             app_state.app.labels_changed_signal.connect(window.update_tabs)
-            self.start_wallet(window.wallet)
+            for wallet in window.parent_wallet.get_child_wallets():
+                self.start_wallet(wallet)
 
     def window_closed(self, window):
-        self.stop_wallet(window.wallet)
+        for wallet in window.parent_wallet.get_child_wallets():
+            self.stop_wallet(wallet)
 
     def settings_widget(self, *args):
         return EnterButton(_('Settings'), partial(self.settings_dialog, *args))

@@ -25,6 +25,7 @@
 # SOFTWARE.
 
 import threading
+from typing import Any
 
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -34,10 +35,12 @@ from .cmdline import CmdLineHandler
 
 
 class HW_PluginBase(object):
+    libraries_available_message: str
+
     hid_lock = threading.Lock()
 
     def __init__(self, device_kind):
-        self.device = self.keystore_class.device
+        self.device: Any = self.keystore_class.device
         self.name = device_kind
         self.logger = logs.get_logger(device_kind)
 

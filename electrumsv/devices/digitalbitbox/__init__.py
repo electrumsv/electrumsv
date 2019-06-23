@@ -22,7 +22,7 @@
 # SOFTWARE.
 
 
-def plugin_class(gui_kind):
+def plugin_class(gui_kind: str):
     if gui_kind == 'qt':
         from .qt import Plugin
         return Plugin

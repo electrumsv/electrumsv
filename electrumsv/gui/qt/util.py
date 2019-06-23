@@ -1,5 +1,6 @@
 import os.path
 from functools import partial, lru_cache
+from typing import Optional
 
 from PyQt5.QtCore import Qt, QCoreApplication, QLocale, QTimer
 from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
@@ -330,18 +331,19 @@ def address_combo(addresses):
     return hbox, addr_combo
 
 
-def filename_field(parent, config, defaultname, select_msg):
-
+def filename_field(config, defaultname, select_msg):
     vbox = QVBoxLayout()
-    vbox.addWidget(QLabel(_("Format")))
-    gb = QGroupBox("format", parent)
+    gb = QGroupBox(_("Format"))
+    gbox = QHBoxLayout()
     b1 = QRadioButton(gb)
     b1.setText(_("CSV"))
     b1.setChecked(True)
     b2 = QRadioButton(gb)
-    b2.setText(_("json"))
-    vbox.addWidget(b1)
-    vbox.addWidget(b2)
+    b2.setText(_("JSON"))
+    gbox.addWidget(b1)
+    gbox.addWidget(b2)
+    gb.setLayout(gbox)
+    vbox.addWidget(gb)
 
     hbox = QHBoxLayout()
 
@@ -476,10 +478,11 @@ class MyTreeWidget(QTreeWidget):
 
     def on_edited(self, item, column, prior):
         '''Called only when the text actually changes'''
-        key = item.data(0, Qt.UserRole)
+        wallet_id, key = item.data(0, Qt.UserRole)
         text = item.text(column)
-        self.parent.wallet.set_label(key, text)
-        self.parent.history_list.update_labels()
+        wallet = self.parent.parent_wallet.get_wallet_for_account(wallet_id)
+        wallet.set_label(key, text)
+        self.parent.history_view.update_tx_labels()
 
     def update(self):
         # Defer updates if editing
@@ -651,6 +654,35 @@ def update_fixed_tree_height(tree: QTreeWidget, maximum_height=None):
     if tree.header().isVisible:
         table_height += tree.header().height() + 2
     tree.setFixedHeight(table_height)
+
+
+def protected(func):
+    '''Password request wrapper.  The password is passed to the function
+    as the 'password' named argument.  "None" indicates either an
+    unencrypted wallet, or the user cancelled the password request.
+    An empty input is passed as the empty string.'''
+    def request_password(self, *args, **kwargs):
+        main_window = self
+        if 'wallet_id' in kwargs:
+            main_window = app_state.app.get_wallet_window_by_id(kwargs['wallet_id'])
+
+        parent = main_window.top_level_window()
+        password: Optional[str] = None
+        while main_window.parent_wallet.has_password():
+            password = main_window.password_dialog(parent=parent)
+            if password is None:
+                # User cancelled password input
+                return
+            try:
+                main_window.parent_wallet.check_password(password)
+                break
+            except Exception as e:
+                main_window.show_error(str(e), parent=parent)
+                continue
+
+        kwargs['password'] = password
+        return func(self, *args, **kwargs)
+    return request_password
 
 
 def icon_path(icon_basename):

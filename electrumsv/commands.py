@@ -31,6 +31,7 @@ from decimal import Decimal
 from functools import wraps
 import json
 import sys
+from typing import Any, Dict, List, Optional
 
 from bitcoinx import (
     PrivateKey, PublicKey, Address, P2MultiSig_Output, P2SH_Address, hash160, TxOutput,
@@ -46,7 +47,6 @@ from .logs import logs
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .transaction import Transaction, XPublicKey, XTxInput, NO_SIGNATURE
 from .util import bh2u, format_satoshis, json_decode, to_bytes
-
 
 logger = logs.get_logger("commands")
 
@@ -95,15 +95,15 @@ def command(s):
         @wraps(func)
         def func_wrapper(*args, **kwargs):
             c = known_commands[func.__name__]
-            wallet = args[0].wallet
+            parent_wallet = args[0].parent_wallet
             network = args[0].network
             password = kwargs.get('password')
             if c.requires_network and network is None:
                 raise Exception("Daemon offline")  # Same wording as in daemon.py.
-            if c.requires_wallet and wallet is None:
+            if c.requires_wallet and parent_wallet is None:
                 raise Exception("Wallet not loaded. Use 'electrum-sv daemon load_wallet'")
-            if c.requires_password and password is None and wallet.storage.get('use_encryption') \
-               and not kwargs.get("unsigned"):
+            if (c.requires_password and password is None and
+                    parent_wallet.storage.get('use_encryption') and not kwargs.get("unsigned")):
                 return {'error': 'Password required' }
             return func(*args, **kwargs)
         return func_wrapper
@@ -112,16 +112,16 @@ def command(s):
 
 class Commands:
 
-    def __init__(self, config, wallet, network, callback = None):
+    def __init__(self, config, parent_wallet, network, callback = None):
         self.config = config
-        self.wallet = wallet
+        self.parent_wallet = parent_wallet
         self.network = network
         self._callback = callback
 
     def _run(self, method, *args, password_getter=None, **kwargs):
         # this wrapper is called from the python console
         cmd = known_commands[method]
-        if cmd.requires_password and self.wallet.has_password():
+        if cmd.requires_password and self.parent_wallet.has_password():
             password = password_getter()
             if password is None:
                 return
@@ -158,10 +158,9 @@ class Commands:
     @command('wp')
     def password(self, password=None, new_password=None):
         """Change wallet password. """
-        b = self.wallet.storage.is_encrypted()
-        self.wallet.update_password(password, new_password, b)
-        self.wallet.storage.write()
-        return {'password':self.wallet.has_password()}
+        self.parent_wallet.update_password(password, new_password)
+        self.parent_wallet.save_storage()
+        return {'password':self.parent_wallet.has_password()}
 
     @command('')
     def getconfig(self, key):
@@ -202,10 +201,11 @@ class Commands:
         return self.network.request_and_wait('blockchain.scripthash.get_history', [sh])
 
     @command('w')
-    def listunspent(self):
+    def listunspent(self, account_id: int):
         """List unspent outputs. Returns the list of unspent transaction
         outputs in your wallet."""
-        utxos = self.wallet.get_utxos(exclude_frozen=False)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        utxos = wallet.get_utxos(exclude_frozen=False)
         tx_inputs = [utxo.to_tx_input() for utxo in utxos]
         for tx_input in tx_inputs:
             tx_input['address'] = tx_input['address'].to_string()
@@ -263,8 +263,9 @@ class Commands:
         return tx.as_dict()
 
     @command('wp')
-    def signtransaction(self, tx, privkey=None, password=None):
+    def signtransaction(self, account_id: int, tx, privkey=None, password=None):
         """Sign a transaction. The wallet keys will be used unless a private key is provided."""
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
         tx = Transaction.from_hex(tx)
         if privkey:
             privkey2 = PrivateKey.from_text(privkey)
@@ -275,7 +276,7 @@ class Commands:
             x_pubkey = 'fd' + bh2u(b'\x00' + h160)
             tx.sign({x_pubkey:(privkey2, compressed)})
         else:
-            self.wallet.sign_transaction(tx, password)
+            wallet.sign_transaction(tx, password)
         return tx.as_dict()
 
     @command('')
@@ -301,24 +302,27 @@ class Commands:
         return {'address':address, 'redeemScript':redeem_script.hex()}
 
     @command('w')
-    def freeze(self, address):
+    def freeze(self, account_id: int, address: str):
         """Freeze address. Freeze the funds at one of your wallet\'s addresses"""
         address = Address.from_string(address)
-        return self.wallet.set_frozen_state([address], True)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return wallet.set_frozen_state([address], True)
 
     @command('w')
-    def unfreeze(self, address):
+    def unfreeze(self, account_id: int, address: str):
         """Unfreeze address. Unfreeze the funds at one of your wallet\'s address"""
         address = Address.from_string(address)
-        return self.wallet.set_frozen_state([address], False)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return wallet.set_frozen_state([address], False)
 
     @command('wp')
-    def getprivatekeys(self, address, password=None):
+    def getprivatekeys(self, account_id: int, address: str, password=None):
         """Get private keys of addresses. You may pass a single wallet address, or a list of
         wallet addresses."""
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
         def get_pk(address):
             address = Address.from_string(address)
-            return self.wallet.export_private_key(address, password)
+            return wallet.export_private_key(address, password)
 
         if isinstance(address, str):
             return get_pk(address)
@@ -326,10 +330,11 @@ class Commands:
             return [get_pk(addr) for addr in address]
 
     @command('w')
-    def ismine(self, address):
+    def ismine(self, account_id: int, address: str) -> bool:
         """Check if address is in wallet. Return true if and only address is in wallet"""
         address = Address.from_string(address)
-        return self.wallet.is_mine(address)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return wallet.is_mine(address)
 
     @command('')
     def dumpprivkeys(self):
@@ -343,15 +348,17 @@ class Commands:
         return is_address_valid(address)
 
     @command('w')
-    def getpubkeys(self, address):
+    def getpubkeys(self, account_id: int, address: str):
         """Return the public keys for a wallet address. """
         address = Address.from_string(address)
-        return self.wallet.get_public_keys(address)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return wallet.get_public_keys(address)
 
     @command('w')
-    def getbalance(self):
+    def getbalance(self, account_id: int):
         """Return the balance of your wallet. """
-        c, u, x = self.wallet.get_balance()
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        c, u, x = wallet.get_balance()
         out = {"confirmed": str(Decimal(c)/COIN)}
         if u:
             out["unconfirmed"] = str(Decimal(u)/COIN)
@@ -389,29 +396,32 @@ class Commands:
         return PACKAGE_VERSION
 
     @command('w')
-    def getmpk(self):
+    def getmpk(self, account_id: int):
         """Get master public key. Return your wallet\'s master public key"""
-        return self.wallet.get_master_public_key()
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return self.parent_wallet.get_master_public_key()
 
     @command('wp')
-    def getmasterprivate(self, password=None):
+    def getmasterprivate(self, account_id: int, password=None):
         """Get master private key. Return your wallet\'s master private key"""
-        return str(self.wallet.keystore.get_master_private_key(password))
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return str(wallet.get_keystore().get_master_private_key(password))
 
     @command('wp')
-    def getseed(self, password=None):
+    def getseed(self, account_id: int, password=None):
         """Get seed phrase. Print the generation seed of your wallet."""
-        s = self.wallet.get_seed(password)
-        return s
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return wallet.get_seed(password)
 
     @command('wp')
-    def importprivkey(self, privkey, password=None):
+    def importprivkey(self, account_id: int, privkey, password=None):
         """Import a private key."""
-        if not self.wallet.can_import_privkey():
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        if not wallet.can_import_privkey():
             return ("Error: This type of wallet cannot import private keys. "
                     "Try to create a new wallet with that key.")
         try:
-            addr = self.wallet.import_private_key(privkey, password)
+            addr = wallet.import_private_key(privkey, password)
             out = "Keypair imported: " + addr
         except Exception as e:
             out = "Error: " + str(e)
@@ -431,11 +441,12 @@ class Commands:
         return tx.as_dict() if tx else None
 
     @command('wp')
-    def signmessage(self, address, message, password=None):
+    def signmessage(self, account_id, address, message, password=None):
         """Sign a message with a key. Use quotes if your message contains
         whitespaces"""
         address = Address.from_string(address)
-        sig = self.wallet.sign_message(address, message, password)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        sig = wallet.sign_message(address, message, password)
         return base64.b64encode(sig).decode('ascii')
 
     @command('')
@@ -443,8 +454,9 @@ class Commands:
         """Verify a signature."""
         return PublicKey.verify_message_and_address(signature, message, address)
 
-    def _mktx(self, outputs, fee=None, change_addr=None, domain=None, nocheck=False,
-              unsigned=False, password=None, locktime=None):
+    def _mktx(self, account_id: int, outputs, fee=None, change_addr=None, domain=None,
+            nocheck=False, unsigned=False, password=None, locktime=None):
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
         self.nocheck = nocheck
         change_addr = None if change_addr is None else Address.from_string(change_addr)
         domain = None if domain is None else [Address.from_string(x) for x in domain]
@@ -454,38 +466,41 @@ class Commands:
             amount = satoshis(amount)
             final_outputs.append(TxOutput(amount, address.to_script()))
 
-        coins = self.wallet.get_spendable_coins(domain, self.config)
-        tx = self.wallet.make_unsigned_transaction(coins, final_outputs, self.config,
+        coins = wallet.get_spendable_coins(domain, self.config)
+        tx = wallet.make_unsigned_transaction(coins, final_outputs, self.config,
                                                    fee, change_addr)
         if locktime is not None:
             tx.locktime = locktime
         if not unsigned:
-            self.wallet.sign_transaction(tx, password)
+            wallet.sign_transaction(tx, password)
         return tx
 
     @command('wp')
-    def payto(self, destination, amount, fee=None, from_addr=None, change_addr=None,
-              nocheck=False, unsigned=False, password=None, locktime=None):
+    def payto(self, account_id: int, destination, amount, fee=None, from_addr=None,
+            change_addr=None, nocheck=False, unsigned=False, password=None, locktime=None):
         """Create a transaction. """
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
         tx_fee = satoshis(fee)
         domain = from_addr.split(',') if from_addr else None
-        tx = self._mktx([(destination, amount)], tx_fee, change_addr, domain,
-                        nocheck, unsigned, password, locktime)
+        tx = self._mktx(account_id, [(destination, amount)], tx_fee, change_addr, domain,
+            nocheck, unsigned, password, locktime)
         return tx.as_dict()
 
     @command('wp')
-    def paytomany(self, outputs, fee=None, from_addr=None, change_addr=None, nocheck=False,
-                  unsigned=False, password=None, locktime=None):
+    def paytomany(self, account_id: int, outputs, fee=None, from_addr=None, change_addr=None,
+            nocheck=False, unsigned=False, password=None, locktime=None):
         """Create a multi-output transaction. """
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
         tx_fee = satoshis(fee)
         domain = from_addr.split(',') if from_addr else None
-        tx = self._mktx(outputs, tx_fee, change_addr, domain, nocheck, unsigned,
+        tx = self._mktx(account_id, outputs, tx_fee, change_addr, domain, nocheck, unsigned,
                         password, locktime)
         return tx.as_dict()
 
     @command('w')
-    def history(self, year=None, show_addresses=False, show_fiat=False):
+    def history(self, account_id, year=None, show_addresses=False, show_fiat=False):
         """Wallet history. Returns the transaction history of your wallet."""
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
         kwargs = {'show_addresses': show_addresses}
         if year:
             import time
@@ -495,47 +510,50 @@ class Commands:
             kwargs['to_timestamp'] = time.mktime(end_date.timetuple())
         if show_fiat:
             app_state.fx = FxTask(app_state.config, None)
-        return self.wallet.export_history(**kwargs)
+        return self.parent_wallet.export_history(**kwargs)
 
     @command('w')
-    def setlabel(self, key, label):
+    def setlabel(self, account_id: int, key, label):
         """Assign a label to an item. Item may be a bitcoin address address or a
         transaction ID"""
-        self.wallet.set_label(key, label)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        wallet.set_label(key, label)
 
     @command('w')
-    def listaddresses(self, receiving=False, change=False, labels=False, frozen=False,
-                      unused=False, funded=False, balance=False):
+    def listaddresses(self, account_id: int, receiving=False, change=False, labels=False,
+            frozen=False, unused=False, funded=False, balance=False):
         """List wallet addresses. Returns the list of all addresses in your wallet. Use optional
         arguments to filter the results.
         """
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
         out = []
-        for addr in self.wallet.get_addresses():
-            if frozen and not self.wallet.is_frozen_address(addr):
+        for addr in wallet.get_addresses():
+            if frozen and not wallet.is_frozen_address(addr):
                 continue
-            if receiving and self.wallet.is_change(addr):
+            if receiving and wallet.is_change(addr):
                 continue
-            if change and not self.wallet.is_change(addr):
+            if change and not wallet.is_change(addr):
                 continue
-            if unused and self.wallet.is_archived_address(addr):
+            if unused and wallet.is_archived_address(addr):
                 continue
-            if funded and self.wallet.is_empty_address(addr):
+            if funded and wallet.is_empty_address(addr):
                 continue
             item = addr.to_string()
             if labels or balance:
                 item = (item,)
             if balance:
-                item += (format_satoshis(sum(self.wallet.get_addr_balance(addr))),)
+                item += (format_satoshis(sum(wallet.get_addr_balance(addr))),)
             if labels:
-                item += (repr(self.wallet.labels.get(addr.to_string(), '')),)
+                item += (repr(wallet.labels.get(addr.to_string(), '')),)
             out.append(item)
         return out
 
     @command('n')
-    def gettransaction(self, txid):
+    def gettransaction(self, account_id: str, txid: str) -> Dict[str, Any]:
         """Retrieve a transaction. """
-        if self.wallet:
-            tx = self.wallet.get_transaction(txid)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        if wallet:
+            tx = wallet.get_transaction(txid)
         else:
             raw = self.network.request_and_wait('blockchain.transaction.get', [txid])
             tx = Transaction.from_hex(raw)
@@ -549,11 +567,12 @@ class Commands:
         return encrypted
 
     @command('wp')
-    def decrypt(self, pubkey, encrypted, password=None):
+    def decrypt(self, account_id: int, pubkey, encrypted, password: Optional[str]=None):
         """Decrypt a message encrypted with a public key."""
-        return self.wallet.decrypt_message(pubkey, encrypted, password)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return wallet.decrypt_message(pubkey, encrypted, password)
 
-    def _format_request(self, out):
+    def _format_request(self, out: Dict[str, Any]) -> Dict[str, Any]:
         pr_str = {
             PR_UNKNOWN: 'Unknown',
             PR_UNPAID: 'Pending',
@@ -566,17 +585,20 @@ class Commands:
         return out
 
     @command('w')
-    def getrequest(self, key):
+    def getrequest(self, account_id: int, key: str) -> Dict[str, Any]:
         """Return a payment request"""
-        r = self.wallet.get_payment_request(Address.from_string(key), self.config)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        r = wallet.get_payment_request(Address.from_string(key), self.config)
         if not r:
             raise Exception("Request not found")
         return self._format_request(r)
 
     @command('w')
-    def listrequests(self, pending=False, expired=False, paid=False):
+    def listrequests(self, account_id: int, pending: bool=False, expired: bool=False,
+            paid: bool=False) -> List[Dict[str, Any]]:
         """List the payment requests you made."""
-        out = self.wallet.get_sorted_requests(self.config)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        out = wallet.get_sorted_requests(self.config)
         if pending:
             f = PR_UNPAID
         elif expired:
@@ -590,52 +612,58 @@ class Commands:
         return [self._format_request(x) for x in out]
 
     @command('w')
-    def createnewaddress(self):
+    def createnewaddress(self, account_id: int) -> str:
         """Create a new receiving address, beyond the gap limit of the wallet"""
-        return self.wallet.create_new_address(False).to_string()
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return wallet.create_new_address(False).to_string()
 
     @command('w')
-    def getunusedaddress(self):
+    def getunusedaddress(self, account_id: int) -> str:
         """Returns the first unused address of the wallet, or None if all addresses are used.  An
         address is considered as used if it has received a transaction, or if it is used
         in a payment request.
         """
-        return self.wallet.get_unused_address().to_string()
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return wallet.get_unused_address().to_string()
 
     @command('w')
-    def addrequest(self, amount, memo='', expiration=None, force=False):
+    def addrequest(self, account_id: int, amount, memo='', expiration=None, force=False):
         """Create a payment request, using the first unused address of the wallet.  The address
         will be condidered as used after this operation.  If no payment is received, the
         address will be considered as unused if the payment request is deleted from the
         wallet.
         """
-        addr = self.wallet.get_unused_address()
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        addr = wallet.get_unused_address()
         if addr is None:
             if force:
-                addr = self.wallet.create_new_address(False)
+                addr = wallet.create_new_address(False)
             else:
                 return False
         amount = satoshis(amount)
         expiration = int(expiration) if expiration else None
-        req = self.wallet.make_payment_request(addr, amount, memo, expiration)
-        self.wallet.add_payment_request(req, self.config)
-        out = self.wallet.get_payment_request(addr, self.config)
+        req = wallet.make_payment_request(addr, amount, memo, expiration)
+        wallet.add_payment_request(req, self.config)
+        out = wallet.get_payment_request(addr, self.config)
         return self._format_request(out)
 
     @command('wp')
-    def signrequest(self, address, password=None):
+    def signrequest(self, account_id: int, address, password=None):
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
         raise Exception("Not applicable as no openalias")
 
     @command('w')
-    def rmrequest(self, address):
+    def rmrequest(self, account_id: int, address: str):
         """Remove a payment request"""
-        return self.wallet.remove_payment_request(address, self.config)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return wallet.remove_payment_request(address, self.config)
 
     @command('w')
-    def clearrequests(self):
+    def clearrequests(self, account_id: int) -> None:
         """Remove all payment requests"""
-        for k in list(self.wallet.receive_requests.keys()):
-            self.wallet.remove_payment_request(k, self.config)
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        for k in list(wallet.receive_requests.keys()):
+            wallet.remove_payment_request(k, self.config)
 
     @command('n')
     def notify(self, address, URL):
@@ -656,9 +684,10 @@ class Commands:
         return True
 
     @command('wn')
-    def is_synchronized(self):
+    def is_synchronized(self, account_id: int) -> bool:
         """ return wallet synchronization status """
-        return self.wallet.is_synchronized()
+        wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        return self.parent_wallet.is_synchronized()
 
     @command('n')
     def getfeerate(self):

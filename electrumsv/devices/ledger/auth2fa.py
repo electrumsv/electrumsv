@@ -1,4 +1,5 @@
 import copy
+from typing import Dict, Any
 
 from PyQt5.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QLabel
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QComboBox
@@ -7,6 +8,8 @@ from btchip.btchip import BTChipException
 from electrumsv.gui.qt.password_dialog import PasswordLineEdit
 from electrumsv.i18n import _
 from electrumsv.logs import logs
+
+from .ledger import Ledger_KeyStore
 
 
 logger = logs.get_logger("plugin.ledger.auth2fa")
@@ -24,7 +27,7 @@ helpTxt = [
 ]
 
 class LedgerAuthDialog(QDialog):
-    def __init__(self, handler, data):
+    def __init__(self, handler, keystore: Ledger_KeyStore, data: Dict[str, Any]):
         '''Ask user for 2nd factor authentication. Support text and security card methods.
         Use last method from settings, but support downgrade.
         '''
@@ -34,8 +37,8 @@ class LedgerAuthDialog(QDialog):
         self.idxs = self.txdata['keycardData'] if self.txdata['confirmationType'] > 1 else ''
         self.setMinimumWidth(600)
         self.setWindowTitle(_("Ledger Wallet Authentication"))
-        self.cfg = copy.deepcopy(self.handler.win.wallet.get_keystore().cfg)
-        self.dongle = self.handler.win.wallet.get_keystore().get_client().dongle
+        self.cfg = copy.deepcopy(keystore.cfg)
+        self.dongle = keystore.get_client().dongle
         self.pin = ''
 
         self.devmode = self.getDevice2FAMode()
@@ -48,8 +51,7 @@ class LedgerAuthDialog(QDialog):
         def on_change_mode(idx):
             self.cfg['mode'] = 0 if self.devmode == 0x11 else idx if idx > 0 else 1
             if self.cfg['mode'] > 0:
-                self.handler.win.wallet.get_keystore().cfg = self.cfg
-                self.handler.win.wallet.save_keystore()
+                keystore.cfg = self.cfg
             self.update_dlg()
         def return_pin():
             self.pin = (self.pintxt.text() if self.txdata['confirmationType'] == 1

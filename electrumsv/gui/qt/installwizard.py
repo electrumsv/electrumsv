@@ -1,6 +1,5 @@
 import os
 import shutil
-import threading
 
 from PyQt5.QtCore import Qt, pyqtSignal, QEventLoop, QRect
 from PyQt5.QtGui import QPalette, QPen, QPainter, QPixmap
@@ -19,9 +18,8 @@ from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
 from electrumsv.util import get_electron_cash_user_dir
-from electrumsv.wallet import Wallet
+from electrumsv.wallet import ParentWallet
 
-from . import dialogs
 from .network_dialog import NetworkChoiceLayout
 from .password_dialog import PasswordLayout, PW_NEW, PasswordLineEdit
 from .seed_dialog import SeedLayout, KeysLayout
@@ -473,8 +471,9 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             if not MessageBox.question(msg):
                 return
             self.storage.upgrade()
-            self.wallet = Wallet(self.storage)
-            return self.wallet
+
+            self.parent_wallet = ParentWallet(self.storage)
+            return self.parent_wallet
 
         action = self.storage.get_action()
         if action and action != 'new':
@@ -487,19 +486,17 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 return
             self.show()
         if action:
-            # self.wallet is set in run, unless they go back.
+            # self.parent_wallet is set in run, unless they go back.
             self.run(action)
-            if action == "new" and self.wallet:
+            if action == "new" and self.parent_wallet:
                # We forceably save new wallets in order to get the initial state synced on disk
                 # that the user can both find it if ESV crashes, and that the externally referenced
                 # and encrypted data has synchronised persisted keys
-                self.wallet.save_storage()
-            return self.wallet
+                self.parent_wallet.save_storage()
+            return self.parent_wallet
 
-        self.wallet = Wallet(self.storage)
-        return self.wallet
-
-
+        self.parent_wallet = ParentWallet(self.storage)
+        return self.parent_wallet
 
     def finished(self):
         """Called in hardware client wrapper, in order to close popups."""
@@ -633,36 +630,14 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     def pw_layout(self, msg, kind):
         playout = PasswordLayout(None, msg, kind, self.next_button)
-        playout.encrypt_cb.setChecked(True)
         self.exec_layout(playout.layout())
-        return playout.new_password(), playout.encrypt_cb.isChecked()
+        return playout.new_password()
 
     @wizard_dialog
     def request_password(self, run_next):
         """Request the user enter a new password and confirm it.  Return
         the password or None for no password."""
         return self.pw_layout(MSG_ENTER_PASSWORD, PW_NEW)
-
-    def show_restore(self, wallet, network):
-        # FIXME: these messages are shown after the install wizard is
-        # finished and the window closed.  On MacOSX they appear parented
-        # with a re-appeared ghost install wizard window...
-        if network:
-            def task():
-                wallet.synchronize()
-                if wallet.is_found():
-                    msg = _("Recovery successful")
-                else:
-                    msg = _("No transactions found for this seed")
-                self.synchronized_signal.emit(msg)
-            self.synchronized_signal.connect(self.show_message)
-            t = threading.Thread(target = task)
-            t.daemon = True
-            t.start()
-        else:
-            msg = _("You restored this wallet whilst offline, so ElectrumSV can show no "
-                    "transactions and will only generate the first few addresses.")
-            self.show_message(msg)
 
     @wizard_dialog
     def confirm_dialog(self, title, message, run_next):
@@ -783,7 +758,3 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         m = int(m_edit.value())
         n = int(n_edit.value())
         return (m, n)
-
-    def choose_hw_device(self):
-        dialogs.show_named('hardware-wallet-quality')
-        super().choose_hw_device()

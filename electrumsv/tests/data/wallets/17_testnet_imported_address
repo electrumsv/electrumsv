@@ -1,0 +1,23 @@
+{
+    "addr_history": {},
+    "addresses": [
+        "n3FVGmKGomoHtB5gtYrVwtqLcsUfZWvicz",
+        "mmGJspPRkYV4Lrv8Bw4Qrnw9GpD1rijEmG"
+    ],
+    "pruned_txo": {},
+    "seed_version": 17,
+    "stored_height": 1317189,
+    "transactions": {},
+    "tx_fees": {},
+    "txi": {},
+    "txo": {},
+    "verified_tx3": {},
+    "wallet_nonce": 1,
+    "wallet_type": "imported_addr",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

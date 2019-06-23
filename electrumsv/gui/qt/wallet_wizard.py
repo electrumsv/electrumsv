@@ -52,7 +52,7 @@ def open_wallet_wizard():
                 return
 
         try:
-            wallet = app_state.daemon.load_wallet(wallet_data['path'], password)
+            parent_wallet = app_state.daemon.load_wallet(wallet_data['path'], password)
         except Exception as e:
             logger.exception("")
             if '2fa' in str(e):
@@ -64,7 +64,7 @@ def open_wallet_wizard():
                                 'Cannot load wallet:\n' + str(e))
                 d.exec_()
             return
-        wallet_window = app_state.app._create_window_for_wallet(wallet)
+        wallet_window = app_state.app._create_window_for_wallet(parent_wallet)
     wallet_window.bring_to_top()
     wallet_window.setWindowState(wallet_window.windowState() &
                                  ~Qt.WindowMinimized | Qt.WindowActive)

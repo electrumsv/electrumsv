@@ -8,12 +8,14 @@ from PyQt5.QtWidgets import QGridLayout, QPushButton, \
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
+from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.util import bh2u
 
+from electrumsv.gui.qt.main_window import ElectrumWindow
 from electrumsv.gui.qt.util import (
     WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton,
 )
-from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
+from ..hw_wallet.qt import QtHandlerBase, QtPluginBase, HandlerWindow
 from .trezor import (TrezorPlugin, TIM_RECOVER,
                      RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX)
 
@@ -107,7 +109,7 @@ class QtHandler(QtHandlerBase):
     matrix_signal = pyqtSignal(object)
     close_matrix_dialog_signal = pyqtSignal()
 
-    def __init__(self, win, device):
+    def __init__(self, win: HandlerWindow, device):
         super(QtHandler, self).__init__(win, device)
         self.pin_signal.connect(self.pin_dialog)
         self.matrix_signal.connect(self.matrix_recovery_dialog)
@@ -162,11 +164,13 @@ class QtHandler(QtHandlerBase):
 class QtPlugin(QtPluginBase):
     # Derived classes must provide the following class-static variables:
     #   icon_file
+    #   device
+    device: str
 
-    def create_handler(self, window):
+    def create_handler(self, window: HandlerWindow) -> QtHandlerBase:
         return QtHandler(window, self.device)
 
-    def show_settings_dialog(self, window, keystore):
+    def show_settings_dialog(self, window: ElectrumWindow, keystore: Hardware_KeyStore) -> None:
         device_id = self.choose_device(window, keystore)
         if device_id:
             SettingsDialog(window, self, keystore, device_id).exec_()
@@ -257,7 +261,8 @@ class SettingsDialog(WindowModalDialog):
     We want users to be able to wipe a device even if they've forgotten
     their PIN.'''
 
-    def __init__(self, window, plugin, keystore, device_id):
+    def __init__(self, window: ElectrumWindow, plugin, keystore: Hardware_KeyStore,
+            device_id) -> None:
         title = _("{} Settings").format(plugin.device)
         super(SettingsDialog, self).__init__(window, title)
         self.setMaximumWidth(540)
@@ -377,13 +382,12 @@ class SettingsDialog(WindowModalDialog):
             invoke_client('set_pin', remove=True)
 
         def wipe_device():
-            wallet = window.wallet
-            if wallet and sum(wallet.get_balance()):
+            wallets = window.parent_wallet.get_wallets_for_keystore(keystore)
+            if sum(wallet.get_balance() for wallet in wallets):
                 title = _("Confirm Device Wipe")
                 msg = _("Are you SURE you want to wipe the device?\n"
                         "Your wallet still has bitcoins in it!")
-                if not self.question(msg, title=title,
-                                     icon=QMessageBox.Critical):
+                if not self.question(msg, title=title, icon=QMessageBox.Critical):
                     return
             invoke_client('wipe_device', unpair_after=True)
 

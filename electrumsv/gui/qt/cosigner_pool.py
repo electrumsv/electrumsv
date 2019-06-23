@@ -38,7 +38,7 @@ from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.transaction import Transaction
 from electrumsv.util import bh2u, bfh
-from electrumsv.wallet import Multisig_Wallet
+from electrumsv.wallet import Multisig_Wallet, Abstract_Wallet
 
 from electrumsv.gui.qt.util import WaitingDialog
 
@@ -109,15 +109,15 @@ class CosignerPool(object):
             self.listener = None
             self.items.clear()
 
-    def window_closed(self, window):
+    def window_closed(self, window: 'ElectrumWindow'):
         if cosigner_pool.is_enabled():
             self.items = [item for item in self.items if item.window != window]
 
-    def window_opened(self, window):
-        wallet = window.wallet
-        if cosigner_pool.is_enabled() and type(wallet) == Multisig_Wallet:
+    def window_opened(self, window: 'ElectrumWindow'):
+        wallet = window.parent_wallet.get_default_wallet()
+        if cosigner_pool.is_enabled() and type(wallet) is Multisig_Wallet:
             items = []
-            for key, keystore in wallet.keystores.items():
+            for keystore in wallet.get_keystores():
                 xpub = keystore.get_master_public_key()
                 pubkey = bip32_key_from_string(xpub)
                 K = pubkey.to_bytes()
@@ -126,7 +126,7 @@ class CosignerPool(object):
             # Presumably atomic
             self.items.extend(items)
 
-    def cosigner_can_sign(self, tx, cosigner_xpub):
+    def cosigner_can_sign(self, tx: Transaction, cosigner_xpub):
         xpub_set = set([])
         for txin in tx.inputs:
             for x_pubkey in txin.x_pubkeys:
@@ -134,16 +134,16 @@ class CosignerPool(object):
                     xpub_set.add(x_pubkey.bip32_extended_key())
         return cosigner_xpub in xpub_set
 
-    def is_theirs(self, wallet, item, tx):
-        return (item.window.wallet is wallet and item.watching_only
+    def is_theirs(self, wallet: Abstract_Wallet, item, tx: Transaction) -> bool:
+        return (item.window.parent_wallet.contains_wallet(wallet) and item.watching_only
                 and self.cosigner_can_sign(tx, item.xpub))
 
-    def show_button(self, wallet, tx):
+    def show_button(self, wallet: Abstract_Wallet, tx: Transaction) -> bool:
         if tx.is_complete() or wallet.can_sign(tx):
             return False
         return any(self.is_theirs(wallet, item, tx) for item in self.items)
 
-    def do_send(self, wallet, tx):
+    def do_send(self, wallet: Abstract_Wallet, tx: Transaction) -> None:
         def on_done(window, future):
             try:
                 future.result()
@@ -176,8 +176,9 @@ class CosignerPool(object):
             logger.error("keyhash not found")
             return
 
-        wallet = window.wallet
-        if isinstance(wallet.keystore, keystore.Hardware_KeyStore):
+        parent_wallet = window.parent_wallet
+        wallet = parent_wallet.get_default_wallet()
+        if isinstance(wallet.get_keystore(), keystore.Hardware_KeyStore):
             window.show_warning(
                 _('An encrypted transaction was retrieved from cosigning pool.') + '\n' +
                 _('However, hardware wallets do not support message decryption, '
@@ -185,7 +186,7 @@ class CosignerPool(object):
             self.listener.clear(keyhash)
             return
 
-        if wallet.has_password():
+        if parent_wallet.has_password():
             password = window.password_dialog(
                 _('An encrypted transaction was retrieved from cosigning pool.') + '\n' +
                 _('Please enter your password to decrypt it.'))
@@ -200,7 +201,7 @@ class CosignerPool(object):
 
         self.listener.clear(keyhash)
 
-        xprv = wallet.keystore.get_master_private_key(password)
+        xprv = wallet.get_keystore().get_master_private_key(password)
         if not xprv:
             return
         privkey = bip32_key_from_string(xprv)

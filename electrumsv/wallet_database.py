@@ -92,6 +92,11 @@ class InvalidDataError(Exception):
     pass
 
 
+class MigrationContext(namedtuple("MigrationContextTuple",
+        "source_version target_version")):
+    pass
+
+
 TXDATA_VERSION = 1
 TXPROOF_VERSION = 1
 
@@ -120,24 +125,43 @@ def byte_repr(value):
 # TODO: Deletion should be via a flag. Occasional purges might do row deletion of flagged rows.
 # NOTE: We could hash the db and store the hash in the wallet storage to detect changes.
 
+
 class BaseWalletStore:
     _table_name = None
 
-    def __init__(self, table_name: str, wallet_path: str, aeskey: bytes) -> None:
-        self._state = threading.local()
+    def __init__(self, table_name: str, wallet_path: str, aeskey: bytes, group_id: int,
+            migration_context: Optional[MigrationContext]=None) -> None:
         self._aes_key = aeskey[:16]
         self._aes_iv = aeskey[16:]
+        self._group_id = group_id
+        self._dbs: Dict[int, sqlite3.Connection] = {}
 
-        self._db_path = wallet_path +".sqlite"
+        self._db_path = self.get_db_path(wallet_path)
 
         self._set_table_name(table_name)
 
         db = self._get_db()
         self._db_create(db)
-        self._db_migrate(db)
+        if migration_context is not None:
+            self._db_migrate(db, migration_context)
         db.commit()
 
         self._fetch_write_timestamp()
+
+    @staticmethod
+    def get_db_path(wallet_path: str) -> str:
+        return wallet_path +".sqlite"
+
+    def _get_db(self) -> sqlite3.Connection:
+        thread_id = threading.get_ident()
+        if thread_id not in self._dbs:
+            self._dbs[thread_id] = sqlite3.connect(self._db_path)
+        return self._dbs[thread_id]
+
+    def __del__(self) -> None:
+        for db in self._dbs.values():
+            db.close()
+        self._dbs = None
 
     def _set_table_name(self, table_name: str) -> None:
         self._table_name = table_name
@@ -148,27 +172,15 @@ class BaseWalletStore:
     def _db_create(self, db: sqlite3.Connection) -> None:
         pass
 
-    def _db_migrate(self, db: sqlite3.Connection) -> None:
+    def _db_migrate(self, db: sqlite3.Connection, context: MigrationContext) -> None:
         pass
 
-    def _get_db(self):
-        if not hasattr(self._state, "db"):
-            self._state.db = sqlite3.connect(self._db_path)
-        return self._state.db
-
-    def _get_column_types(self, db, table_name):
+    def _get_column_types(self, db: sqlite3.Connection, table_name: str) -> Dict[str, Any]:
         column_types = {}
         for row in db.execute(f"PRAGMA table_info({table_name});"):
             _discard, column_name, column_type, _discard, _discard, _discard = row
             column_types[column_name] = column_type
         return column_types
-
-    def close(self):
-        # TODO: This only closes the database instance held on the current thread. In theory
-        # only the async code behind the daemon should be touching this, not the GUI thread
-        # via the wallet.
-        self._state.db.close()
-        self._state = None
 
     def get_write_timestamp(self):
         "Get the cached write timestamp (when anything was last updated or deleted)."
@@ -187,13 +199,15 @@ class BaseWalletStore:
 
         db = self._get_db()
         cursor = db.execute(f"SELECT DateUpdated FROM {self._table_name} "+
-            "ORDER BY DateUpdated DESC LIMIT 1")
+            "WHERE GroupId=? "+
+            "ORDER BY DateUpdated DESC LIMIT 1", [self._group_id])
         row = cursor.fetchone()
         if row is not None:
             self._write_timestamp = max(row[0], self._write_timestamp)
 
         cursor = db.execute(f"SELECT DateDeleted FROM {self._table_name} "+
-            "ORDER BY DateDeleted DESC LIMIT 1")
+            "WHERE GroupId=? "+
+            "ORDER BY DateDeleted DESC LIMIT 1", [self._group_id])
         row = cursor.fetchone()
         if row is not None and row[0] is not None:
             self._write_timestamp = max(row[0], self._write_timestamp)
@@ -210,9 +224,9 @@ class BaseWalletStore:
     def _decrypt_hex(self, value: bytes) -> str:
         return self._decrypt(value).hex()
 
-    def execute_unsafe(self, query: str) -> Any:
+    def execute_unsafe(self, query: str, *params: Iterable[Any]) -> Any:
         db = self._get_db()
-        db.execute(query)
+        db.execute(query, params)
         db.commit()
 
 
@@ -220,39 +234,55 @@ class GenericKeyValueStore(BaseWalletStore):
     _encrypt_key = BaseWalletStore._encrypt_hex
     _decrypt_key = BaseWalletStore._decrypt_hex
 
-    def __init__(self, table_name: str, wallet_path: str, aeskey: bytes) -> None:
+    def __init__(self, table_name: str, wallet_path: str, aeskey: bytes,
+            group_id: int, migration_context: Optional[MigrationContext]=None) -> None:
         self._logger = logs.get_logger(f"{table_name}-store")
 
-        super().__init__(table_name, wallet_path, aeskey)
+        super().__init__(table_name, wallet_path, aeskey, group_id, migration_context)
 
     def _set_table_name(self, table_name: str) -> None:
         super()._set_table_name(table_name)
 
         self._CREATE_TABLE_SQL = ("CREATE TABLE IF NOT EXISTS "+ table_name +" ("+
                 "Key BLOB,"+
+                "GroupId INT DEFAULT 0,"+
                 "ByteData BLOB,"+
                 "DateCreated INTEGER,"+
                 "DateUpdated INTEGER,"+
                 "DateDeleted INTEGER DEFAULT NULL"+
             ")")
         self._CREATE_SQL = ("INSERT INTO "+ table_name +" "+
-            "(Key, ByteData, DateCreated, DateUpdated) VALUES (?, ?, ?, ?)")
+            "(GroupId, Key, ByteData, DateCreated, DateUpdated) VALUES (?, ?, ?, ?, ?)")
         self._READ_SQL = ("SELECT ByteData FROM "+ table_name +" "+
-            "WHERE DateDeleted IS NULL AND Key=?")
+            "WHERE GroupID=? AND DateDeleted IS NULL AND Key=?")
         self._READ_ALL_SQL = ("SELECT Key, ByteData FROM "+ table_name +" "+
-            "WHERE DateDeleted IS NULL")
+            "WHERE GroupID=? AND DateDeleted IS NULL")
         self._READ_ROW_SQL = ("SELECT ByteData, DateCreated, DateUpdated, DateDeleted "+
             "FROM "+ table_name +" "+
-            "WHERE Key=?")
+            "WHERE GroupId=? AND Key=?")
         self._UPDATE_SQL = ("UPDATE "+ table_name +" SET ByteData=?, DateUpdated=? "+
-            "WHERE DateDeleted IS NULL AND Key=?")
+            "WHERE GroupId=? AND DateDeleted IS NULL AND Key=?")
         self._DELETE_SQL = ("UPDATE "+ table_name +" SET DateDeleted=? "+
-            "WHERE DateDeleted IS NULL AND Key=?")
+            "WHERE GroupId=? AND DateDeleted IS NULL AND Key=?")
         self._DELETE_VALUE_SQL = ("UPDATE "+ table_name +" SET DateDeleted=? "+
-            "WHERE DateDeleted IS NULL AND Key=? AND ByteData=?")
+            "WHERE GroupId=? AND DateDeleted IS NULL AND Key=? AND ByteData=?")
 
     def _db_create(self, db: sqlite3.Connection) -> None:
         db.execute(self._CREATE_TABLE_SQL)
+
+    def _db_migrate(self, db: sqlite3.Connection, context: MigrationContext) -> None:
+        if context.source_version == 18 and context.target_version == 19:
+            # The creation version is always the latest, so this will be duplicated outside of
+            # a migration that starts from 18.
+            column_types = self._get_column_types(db, self.get_table_name())
+            if "GroupId" not in column_types:
+                # Scope of migration is move from single keystore wallet to parent wallet concept.
+                db.execute(
+                    f"ALTER TABLE {self.get_table_name()} ADD COLUMN GroupId INTEGER DEFAULT 0")
+                self._logger.debug(
+                    f"_db_migrate: added 'GroupId' column to '{self.get_table_name()}' table")
+        else:
+            raise Exception("Asked to migrate unexpected versions", context)
 
     def _fetch_write_timestamp(self):
         "Calculate the timestamp of the last write to this table, based on database metadata."
@@ -260,13 +290,15 @@ class GenericKeyValueStore(BaseWalletStore):
 
         db = self._get_db()
         cursor = db.execute(f"SELECT DateUpdated FROM {self._table_name} "+
-            "ORDER BY DateUpdated DESC LIMIT 1")
+            "WHERE GroupId=? "+
+            "ORDER BY DateUpdated DESC LIMIT 1", [self._group_id])
         row = cursor.fetchone()
         if row is not None:
             self._write_timestamp = max(row[0], self._write_timestamp)
 
         cursor = db.execute(f"SELECT DateDeleted FROM {self._table_name} "+
-            "ORDER BY DateDeleted DESC LIMIT 1")
+            "WHERE GroupID=? "+
+            "ORDER BY DateDeleted DESC LIMIT 1", [self._group_id])
         row = cursor.fetchone()
         if row is not None and row[0] is not None:
             self._write_timestamp = max(row[0], self._write_timestamp)
@@ -279,7 +311,7 @@ class GenericKeyValueStore(BaseWalletStore):
         timestamp = self._get_current_timestamp()
         self._write_timestamp = timestamp
         db = self._get_db()
-        db.execute(self._CREATE_SQL, [ekey, evalue, timestamp, timestamp])
+        db.execute(self._CREATE_SQL, [self._group_id, ekey, evalue, timestamp, timestamp])
         db.commit()
         self._logger.debug("add '%s'", key)
 
@@ -289,7 +321,8 @@ class GenericKeyValueStore(BaseWalletStore):
         datas = []
         for key, value in entries:
             assert type(value) is bytes
-            datas.append([ self._encrypt_key(key), self._encrypt(value), timestamp, timestamp])
+            datas.append([ self._group_id, self._encrypt_key(key), self._encrypt(value),
+                timestamp, timestamp])
         self._write_timestamp = timestamp
         db = self._get_db()
         db.executemany(self._CREATE_SQL, datas)
@@ -300,7 +333,7 @@ class GenericKeyValueStore(BaseWalletStore):
     def get_value(self, key: str) -> Optional[bytes]:
         ekey = self._encrypt_key(key)
         db = self._get_db()
-        cursor = db.execute(self._READ_SQL, [ekey])
+        cursor = db.execute(self._READ_SQL, [self._group_id, ekey])
         row = cursor.fetchone()
         if row is not None:
             return self._decrypt(row[0])
@@ -309,21 +342,21 @@ class GenericKeyValueStore(BaseWalletStore):
     @tprofiler
     def get_all(self) -> Optional[bytes]:
         db = self._get_db()
-        cursor = db.execute(self._READ_ALL_SQL)
+        cursor = db.execute(self._READ_ALL_SQL, [ self._group_id ])
         return [ (self._decrypt_hex(row[0]), self._decrypt(row[1])) for row in cursor.fetchall() ]
 
     @tprofiler
     def get_values(self, key: str) -> List[bytes]:
         ekey = self._encrypt_key(key)
         db = self._get_db()
-        cursor = db.execute(self._READ_SQL, [ekey])
+        cursor = db.execute(self._READ_SQL, [self._group_id, ekey])
         return [ self._decrypt(row[0]) for row in cursor.fetchall() ]
 
     @tprofiler
     def get_row(self, key: str) -> Optional[Tuple[bytes, int, int, int]]:
         ekey = self._encrypt_key(key)
         db = self._get_db()
-        cursor = db.execute(self._READ_ROW_SQL, [ekey])
+        cursor = db.execute(self._READ_ROW_SQL, [self._group_id, ekey])
         row = cursor.fetchone()
         if row is not None:
             return (self._decrypt(row[0]), row[1], row[2], row[3])
@@ -337,7 +370,7 @@ class GenericKeyValueStore(BaseWalletStore):
         timestamp = self._get_current_timestamp()
         self._write_timestamp = timestamp
         db = self._get_db()
-        db.execute(self._UPDATE_SQL, [evalue, timestamp, ekey])
+        db.execute(self._UPDATE_SQL, [evalue, timestamp, self._group_id, ekey])
         db.commit()
         self._logger.debug("updated '%s'", key)
 
@@ -347,7 +380,7 @@ class GenericKeyValueStore(BaseWalletStore):
         timestamp = self._get_current_timestamp()
         self._write_timestamp = timestamp
         db = self._get_db()
-        db.execute(self._DELETE_SQL, [timestamp, ekey])
+        db.execute(self._DELETE_SQL, [timestamp, self._group_id, ekey])
         db.commit()
         self._logger.debug("deleted '%s'", key)
 
@@ -358,7 +391,7 @@ class GenericKeyValueStore(BaseWalletStore):
         timestamp = self._get_current_timestamp()
         self._write_timestamp = timestamp
         db = self._get_db()
-        db.execute(self._DELETE_VALUE_SQL, [timestamp, ekey, evalue])
+        db.execute(self._DELETE_VALUE_SQL, [timestamp, self._group_id, ekey, evalue])
         db.commit()
         self._logger.debug("deleted value for '%s'", key)
 
@@ -369,7 +402,7 @@ class GenericKeyValueStore(BaseWalletStore):
         for key, value in entries:
             ekey = self._encrypt_key(key)
             evalue = self._encrypt(value)
-            datas.append((timestamp, ekey, evalue))
+            datas.append((timestamp, self._group_id, ekey, evalue))
         self._write_timestamp = timestamp
         db = self._get_db()
         db.executemany(self._DELETE_VALUE_SQL, datas)
@@ -377,15 +410,15 @@ class GenericKeyValueStore(BaseWalletStore):
         self._logger.debug("deleted values for '%s'", [ v[0] for v in entries ])
 
     def _delete_duplicates(self) -> None:
-        table_name = self.get_table_name()
         self.execute_unsafe(f"""
-        DELETE FROM {table_name}
+        DELETE FROM {self.get_table_name()}
         WHERE rowid NOT IN (
             SELECT MIN(rowid)
-            FROM {table_name}
+            FROM {self.get_table_name()}
+            WHERE GroupId=?
             GROUP BY Key, ByteData
-        )
-        """)
+        ) AND GroupId=?
+        """, self._group_id, self._group_id)
 
 
 StoreObject = Union[list, dict]
@@ -452,8 +485,9 @@ class DBTxInput(namedtuple("DBTxInputTuple", "address_string prevout_tx_hash pre
 
 
 class TransactionInputStore(GenericKeyValueStore, AbstractTransactionXput):
-    def __init__(self, wallet_path: str, aeskey: bytes) -> None:
-        super().__init__("TransactionInputs", wallet_path, aeskey)
+    def __init__(self, wallet_path: str, aeskey: bytes,
+            group_id: int, migration_context: Optional[MigrationContext]=None) -> None:
+        super().__init__("TransactionInputs", wallet_path, aeskey, group_id, migration_context)
 
     @staticmethod
     def _pack_value(txin: DBTxInput) -> bytes:
@@ -500,9 +534,10 @@ class DBTxOutput(namedtuple("DBTxOutputTuple", "address_string out_tx_n amount i
     pass
 
 
-class TransactionOutputStore(GenericKeyValueStore):
-    def __init__(self, wallet_path: str, aeskey: bytes) -> None:
-        super().__init__("TransactionOutputs", wallet_path, aeskey)
+class TransactionOutputStore(GenericKeyValueStore, AbstractTransactionXput):
+    def __init__(self, wallet_path: str, aeskey: bytes,
+            group_id: int, migration_context: Optional[MigrationContext]=None) -> None:
+        super().__init__("TransactionOutputs", wallet_path, aeskey, group_id, migration_context)
 
     @staticmethod
     def _pack_value(txout: DBTxOutput) -> bytes:
@@ -633,14 +668,16 @@ class TransactionStore(BaseWalletStore):
     outputs.
     """
 
-    def __init__(self, wallet_path: str, aeskey: bytes) -> None:
+    def __init__(self, wallet_path: str, aeskey: bytes, group_id: int,
+            migration_context: Optional[MigrationContext]=None) -> None:
         self._logger = logs.get_logger("tx-store")
 
-        super().__init__("Transactions", wallet_path, aeskey)
+        super().__init__("Transactions", wallet_path, aeskey, group_id, migration_context)
 
-    def _db_create(self, db):
+    def _db_create(self, db) -> None:
         db.execute(
             "CREATE TABLE IF NOT EXISTS Transactions ("+
+                "GroupId INTEGER DEFAULT 0,"+
                 "Key BLOB, "+
                 "Flags INTEGER,"
                 "MetaData BLOB,"+
@@ -651,8 +688,17 @@ class TransactionStore(BaseWalletStore):
                 "DateDeleted INTEGER DEFAULT NULL,"+
                 "UNIQUE(Key,DateDeleted))")
 
-    def _db_migrate(self, db):
-        pass
+    def _db_migrate(self, db: sqlite3.Connection, context: MigrationContext) -> None:
+        if context.source_version == 18 and context.target_version == 19:
+            # The creation version is always the latest, so this will be duplicated outside of
+            # a migration that starts from 18.
+            column_types = self._get_column_types(db, "Transactions")
+            if "GroupId" not in column_types:
+                # Scope of migration is move from single keystore wallet to parent wallet concept.
+                db.execute("ALTER TABLE Transactions ADD COLUMN GroupId INTEGER DEFAULT 0")
+                self._logger.debug(f"_db_migrate: added 'GroupId' column to 'Transactions' table")
+        else:
+            raise Exception("Asked to migrate unexpected versions", context)
 
     # Version 1: Serialised direct values (or dummy random values).
     # Version 2: Serialised direct values (or dummy random values).
@@ -738,7 +784,7 @@ class TransactionStore(BaseWalletStore):
         etx_id = self._encrypt_hex(tx_id)
         db = self._get_db()
         cursor = db.execute("SELECT EXISTS(SELECT 1 FROM Transactions "+
-            "WHERE Key=? AND DateDeleted IS NULL)", [etx_id])
+            "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL)", [self._group_id, etx_id])
         row = cursor.fetchone()
         return row[0] == 1
 
@@ -748,7 +794,7 @@ class TransactionStore(BaseWalletStore):
         db = self._get_db()
         cursor = db.execute(
             "SELECT Flags FROM Transactions "+
-            "WHERE Key=? AND DateDeleted IS NULL", [etx_id])
+            "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL", [self._group_id, etx_id])
         row = cursor.fetchone()
         return row[0] if row is not None else None
 
@@ -759,10 +805,10 @@ class TransactionStore(BaseWalletStore):
         db = self._get_db()
         clause, params = self._flag_clause(flags, mask)
         query = ("SELECT MetaData, ByteData, Flags FROM Transactions "+
-            "WHERE Key=? AND DateDeleted IS NULL")
+            "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL")
         if clause:
             query += " AND "+ clause
-        cursor = db.execute(query, [etx_id] + params)
+        cursor = db.execute(query, [self._group_id, etx_id] + params)
         row = cursor.fetchone()
         if row is not None:
             bytedata = self._decrypt(row[1]) if row[1] is not None else None
@@ -773,10 +819,13 @@ class TransactionStore(BaseWalletStore):
     def get_many(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_ids: Optional[Iterable[str]]=None) -> List[Tuple[str, TxData, Optional[bytes], int]]:
         db = self._get_db()
-        query = "SELECT Key, MetaData, ByteData, Flags FROM Transactions WHERE DateDeleted IS NULL"
-        clause, params = self._flag_clause(flags, mask)
+        query = ("SELECT Key, MetaData, ByteData, Flags FROM Transactions "+
+            "WHERE GroupId=? AND DateDeleted IS NULL")
+        params = [ self._group_id ]
+        clause, extra_params = self._flag_clause(flags, mask)
         if clause:
             query += " AND "+ clause
+            params.extend(extra_params)
 
         results = []
         def _collect_results(cursor, results):
@@ -793,10 +842,10 @@ class TransactionStore(BaseWalletStore):
 
             batch_size = MAX_VARS - len(params)
             while len(etx_ids):
-                batch_params = params + etx_ids[:batch_size]
+                batch_etx_ids = etx_ids[:batch_size]
                 batch_query = (query +
-                    " AND Key IN ({0})".format(",".join("?" for k in batch_params)))
-                cursor = db.execute(batch_query, batch_params)
+                    " AND Key IN ({0})".format(",".join("?" for k in batch_etx_ids)))
+                cursor = db.execute(batch_query, params + batch_etx_ids)
                 _collect_results(cursor, results)
                 etx_ids = etx_ids[batch_size:]
         else:
@@ -810,10 +859,11 @@ class TransactionStore(BaseWalletStore):
         etx_id = self._encrypt_hex(tx_id)
         db = self._get_db()
         clause, params = self._flag_clause(flags, mask)
-        query = "SELECT MetaData, Flags FROM Transactions WHERE Key=? AND DateDeleted IS NULL"
+        query = ("SELECT MetaData, Flags FROM Transactions "+
+            "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL")
         if clause:
             query += " AND "+ clause
-        cursor = db.execute(query, [etx_id] + params)
+        cursor = db.execute(query, [self._group_id, etx_id] + params)
         row = cursor.fetchone()
         if row is not None:
             return self._unpack_data(self._decrypt(row[0]), row[1]), row[1]
@@ -823,10 +873,13 @@ class TransactionStore(BaseWalletStore):
     def get_metadata_many(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_ids: Optional[Iterable[str]]=None) -> List[Tuple[str, TxData, int]]:
         db = self._get_db()
-        query = "SELECT Key, MetaData, Flags FROM Transactions WHERE DateDeleted IS NULL"
-        clause, params = self._flag_clause(flags, mask)
+        query = ("SELECT Key, MetaData, Flags FROM Transactions "+
+            "WHERE GroupId=? AND DateDeleted IS NULL")
+        params = [ self._group_id ]
+        clause, extra_params = self._flag_clause(flags, mask)
         if clause:
             query += " AND "+ clause
+            params.extend(extra_params)
 
         results = []
         def _collect_results(cursor, results):
@@ -860,7 +913,7 @@ class TransactionStore(BaseWalletStore):
         db = self._get_db()
         cursor = db.execute(
             "SELECT ProofData FROM Transactions "+
-            "WHERE DateDeleted is NULL AND Key=?", [etx_id])
+            "WHERE GroupId=? AND DateDeleted is NULL AND Key=?", [self._group_id, etx_id])
         row = cursor.fetchone()
         if row is None:
             raise MissingRowError(tx_id)
@@ -870,14 +923,15 @@ class TransactionStore(BaseWalletStore):
         return self._unpack_proof(raw)
 
     @tprofiler
-    def get_ids(self, flags: Optional[int]=None, mask: Optional[int]=None) -> Set[str]:
+    def get_ids(self, flags: Optional[int]=None,
+            mask: Optional[int]=None) -> Set[str]:
         db = self._get_db()
-        query = "SELECT Key FROM Transactions WHERE DateDeleted IS NULL"
+        query = "SELECT Key FROM Transactions WHERE GroupId=? AND DateDeleted IS NULL"
         clause, params = self._flag_clause(flags, mask)
         if clause:
             query += " AND "+ clause
         results = []
-        for t in db.execute(query, params):
+        for t in db.execute(query, [ self._group_id ] + params):
             results.append(self._decrypt_hex(t[0]))
         return set(results)
 
@@ -890,6 +944,7 @@ class TransactionStore(BaseWalletStore):
         db = self._get_db()
         timestamp = self._get_current_timestamp()
         self._write_timestamp = timestamp
+        # TODO: Make this a batch update.
         for tx_id, metadata, bytedata, flags in entries:
             etx_id = self._encrypt_hex(tx_id)
             metadata_bytes, flags = self._pack_data(metadata, flags)
@@ -899,9 +954,9 @@ class TransactionStore(BaseWalletStore):
                 flags |= TxFlags.HasByteData
             ebytedata = None if bytedata is None else self._encrypt(bytedata)
             db.execute("INSERT INTO Transactions "+
-                "(Key, MetaData, ByteData, Flags, DateCreated, DateUpdated) "+
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                [etx_id, emetadata, ebytedata, flags, timestamp, timestamp])
+                "(GroupId, Key, MetaData, ByteData, Flags, DateCreated, DateUpdated) "+
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [self._group_id, etx_id, emetadata, ebytedata, flags, timestamp, timestamp])
         db.commit()
         if len(entries) < 20:
             self._logger.debug("add %d transactions: %s", len(entries),
@@ -928,18 +983,19 @@ class TransactionStore(BaseWalletStore):
             if bytedata is not None:
                 flags |= TxFlags.HasByteData
                 ebytedata = self._encrypt(bytedata)
-            datas.append((emetadata, ebytedata, flags, timestamp, etx_id))
+            datas.append((emetadata, ebytedata, flags, timestamp, self._group_id, etx_id))
 
         db = self._get_db()
         db.executemany(
             "UPDATE Transactions SET MetaData=?,ByteData=?,Flags=?,DateUpdated=? "+
-            "WHERE Key=? AND DateDeleted IS NULL",
+            "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL",
             datas)
         db.commit()
         self._logger.debug("update %d transactions: %s", len(entries),
             [ (a, b, byte_repr(c), TxFlags.to_repr(d)) for (a, b, c, d) in entries ])
 
-    def update_metadata(self, tx_id: str, data: TxData, flags: Optional[int]=TxFlags.Unset) -> None:
+    def update_metadata(self, tx_id: str, data: TxData,
+            flags: Optional[int]=TxFlags.Unset) -> None:
         # NOTE: This should only be used if it knows the existing flags column value, it should
         # preserve the state, bytedata and proofdata flags if it does not intend to clear them.
         self.update_metadata_many([ (tx_id, data, flags) ])
@@ -956,26 +1012,27 @@ class TransactionStore(BaseWalletStore):
             etx_id = self._encrypt_hex(tx_id)
             metadata_bytes, flags = self._pack_data(data, flags)
             emetadata = self._encrypt(metadata_bytes)
-            datas.append((emetadata, flags, timestamp, etx_id))
+            datas.append((emetadata, flags, timestamp, self._group_id, etx_id))
         db = self._get_db()
         db.executemany(
             "UPDATE Transactions SET MetaData=?,Flags=?,DateUpdated=? "+
-            "WHERE Key=? AND DateDeleted IS NULL",
+            "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL",
             datas)
         db.commit()
         self._logger.debug("update %d transactions: %s", len(entries),
             [ (a, b, byte_repr(c), d) for (a, b, c, d) in entries ])
 
     @tprofiler
-    def update_flags(self, tx_id: str, flags: int, mask: Optional[int]=TxFlags.Unset) -> None:
+    def update_flags(self, tx_id: str, flags: int,
+            mask: Optional[int]=TxFlags.Unset) -> None:
         timestamp = self._get_current_timestamp()
         self._write_timestamp = timestamp
 
         etx_id = self._encrypt_hex(tx_id)
         db = self._get_db()
         db.execute("UPDATE Transactions SET Flags=((Flags&?)|?), DateUpdated=? "+
-            "WHERE Key=? AND DateDeleted IS NULL",
-            [mask, flags, timestamp, etx_id])
+            "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL",
+            [mask, flags, timestamp, self._group_id, etx_id])
         db.commit()
         self._logger.debug("update_flags '%s'", tx_id)
 
@@ -990,8 +1047,8 @@ class TransactionStore(BaseWalletStore):
         db = self._get_db()
         db.execute(
             "UPDATE Transactions SET ProofData=?, DateUpdated=?, Flags=(Flags|?) "+
-            "WHERE Key=? AND DateDeleted IS NULL",
-            [eraw, timestamp, TxFlags.HasProofData, etx_id])
+            "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL",
+            [eraw, timestamp, TxFlags.HasProofData, self._group_id, etx_id])
         db.commit()
         self._logger.debug("updated %d transaction proof '%s'", 1, tx_id)
 
@@ -1002,8 +1059,9 @@ class TransactionStore(BaseWalletStore):
 
         etx_id = self._encrypt_hex(tx_id)
         db = self._get_db()
-        db.execute("UPDATE Transactions SET DateDeleted=? WHERE Key=? AND DateDeleted IS NULL",
-            [timestamp, etx_id])
+        db.execute("UPDATE Transactions SET DateDeleted=? "+
+            "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL",
+            [timestamp, self._group_id, etx_id])
         db.commit()
         self._logger.debug("deleted %d transaction '%s'", 1, tx_id)
 
@@ -1016,8 +1074,9 @@ class TransactionStore(BaseWalletStore):
         db = self._get_db()
         for tx_id in tx_ids:
             etx_id = self._encrypt_hex(tx_id)
-            db.execute("UPDATE Transactions SET DateDeleted=? WHERE Key=? AND DateDeleted IS NULL",
-                [timestamp, etx_id])
+            db.execute("UPDATE Transactions SET DateDeleted=? "+
+                "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL",
+                [timestamp, self._group_id, etx_id])
         db.commit()
         self._logger.debug("deleted %d transactions", len(tx_ids))
 
@@ -1383,8 +1442,8 @@ class TxCache:
         if tx_ids is None or specific_tx_ids:
             # self.logger.debug("get_entries specific=%s flags=%s mask=%s", specific_tx_ids,
             #     flags and TxFlags.to_repr(flags), mask and TxFlags.to_repr(mask))
-            for tx_id, metadata, bytedata, get_flags in self._store.get_many(flags, mask,
-                    specific_tx_ids):
+            for tx_id, metadata, bytedata, get_flags in self._store.get_many(
+                    flags, mask, specific_tx_ids):
                 if bytedata is not None and not self._validate_transaction_bytes(tx_id, bytedata):
                     raise InvalidDataError(tx_id)
                 if tx_id in self._cache:
@@ -1428,7 +1487,8 @@ class TxCache:
         cache_additions = []
         existing_matches = []
         if tx_ids is None or specific_tx_ids:
-            for tx_id, metadata, flags_get in self._store.get_metadata_many(flags, mask, tx_ids):
+            for tx_id, metadata, flags_get in self._store.get_metadata_many(
+                    flags, mask, tx_ids):
                 # We have no way of knowing if the match already exists, and if it does we should
                 # take the possibly full/complete with bytedata cached version, rather than
                 # corrupt the cache with the limited metadata version.
@@ -1503,11 +1563,16 @@ class TxCache:
 
 
 class WalletData:
-    def __init__(self, wallet_path: str, aeskey: bytes) -> None:
-        self.tx_store = TransactionStore(wallet_path, aeskey)
-        self.txin_store = TransactionInputStore(wallet_path, aeskey)
-        self.txout_store = TransactionOutputStore(wallet_path, aeskey)
-        self.misc_store = ObjectKeyValueStore("HotData", wallet_path, aeskey)
+    def __init__(self, wallet_path: str, aeskey: bytes, subwallet_id: int,
+            migration_context: Optional[MigrationContext]=None) -> None:
+        self.tx_store = TransactionStore(wallet_path, aeskey, subwallet_id,
+            migration_context)
+        self.txin_store = TransactionInputStore(wallet_path, aeskey, subwallet_id,
+            migration_context)
+        self.txout_store = TransactionOutputStore(wallet_path, aeskey, subwallet_id,
+            migration_context)
+        self.misc_store = ObjectKeyValueStore("HotData", wallet_path, aeskey, subwallet_id,
+            migration_context)
 
         self.tx_cache = TxCache(self.tx_store)
         self.txin_cache = TxXputCache(self.txin_store, "txins")

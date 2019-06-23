@@ -45,11 +45,13 @@ class InvoiceList(MyTreeWidget):
         self.setColumnWidth(1, 200)
 
     def on_update(self):
-        inv_list = self.parent.invoices.unpaid_invoices()
+        wallet_id = self.parent._send_wallet.get_id()
+        invoices = self.parent._send_wallet.invoices
+        inv_list = invoices.unpaid_invoices()
         self.clear()
         for pr in inv_list:
             key = pr.get_id()
-            status = self.parent.invoices.get_status(key)
+            status = invoices.get_status(key)
             requestor = pr.get_requestor()
             exp = pr.get_expiration_date()
             date_str = format_time(exp, _("Unknown")) if exp else _('Never')
@@ -57,7 +59,7 @@ class InvoiceList(MyTreeWidget):
                                     self.parent.format_amount(pr.get_amount(), whitespaces=True),
                                     pr_tooltips.get(status,'')])
             item.setIcon(4, read_QIcon(pr_icons.get(status)))
-            item.setData(0, Qt.UserRole, key)
+            item.setData(0, Qt.UserRole, (wallet_id, key))
             item.setFont(1, self.monospace_font)
             item.setFont(3, self.monospace_font)
             self.addTopLevelItem(item)
@@ -72,7 +74,7 @@ class InvoiceList(MyTreeWidget):
         if not filename:
             return
         try:
-            self.parent.invoices.import_file(filename)
+            self.parent._send_wallet.invoices.import_file(filename)
         except FileImportFailed as e:
             self.parent.show_message(str(e))
         self.on_update()
@@ -82,12 +84,14 @@ class InvoiceList(MyTreeWidget):
         item = self.itemAt(position)
         if not item:
             return
-        key = item.data(0, Qt.UserRole)
+        wallet_id, key = item.data(0, Qt.UserRole)
+        # TODO: ACCOUNTS: Consider if send wallet is correct, or if we should look to the
+        # wallet for the wallet id.
         column = self.currentColumn()
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
-        pr = self.parent.invoices.get(key)
-        status = self.parent.invoices.get_status(key)
+        pr = self.parent._send_wallet.invoices.get(key)
+        status = self.parent._send_wallet.invoices.get_status(key)
         if column_data:
             menu.addAction(_("Copy {}").format(column_title),
                            lambda: self.parent.app.clipboard().setText(column_data))

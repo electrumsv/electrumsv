@@ -44,7 +44,8 @@ from electrumsv.simple_config import SimpleConfig
 from electrumsv import startup
 from electrumsv.storage import WalletStorage
 from electrumsv.util import json_encode, json_decode, setup_thread_excepthook
-from electrumsv.wallet import Wallet, ImportedPrivkeyWallet, ImportedAddressWallet
+from electrumsv.wallet import (ImportedAddressWallet, ImportedPrivkeyWallet, ParentWallet,
+    Standard_Wallet)
 from electrumsv.winconsole import setup_windows_console
 
 
@@ -75,10 +76,12 @@ def run_non_RPC(config):
         text = config.get('text').strip()
         passphrase = config.get('passphrase', '')
         password = password_dialog() if keystore.is_private(text) else None
+
+        parent_wallet = ParentWallet.as_legacy_wallet_container(storage)
         if keystore.is_address_list(text):
-            wallet = ImportedAddressWallet.from_text(storage, text)
+            legacy_wallet = ImportedAddressWallet.from_text(parent_wallet, text)
         elif keystore.is_private_key_list(text):
-            wallet = ImportedPrivkeyWallet.from_text(storage, text, password)
+            legacy_wallet = ImportedPrivkeyWallet.from_text(parent_wallet, text)
         else:
             if keystore.is_seed(text):
                 k = keystore.from_seed(text, passphrase, False)
@@ -86,19 +89,19 @@ def run_non_RPC(config):
                 k = keystore.from_master_key(text)
             else:
                 sys.exit("Error: Seed or key not recognized")
-            if password:
-                k.update_password(None, password)
-            storage.put('keystore', k.dump())
-            storage.put('wallet_type', 'standard')
-            storage.put('use_encryption', bool(password))
-            storage.write()
-            wallet = Wallet(storage)
+
+            keystore_usage = parent_wallet.add_keystore(k.dump())
+            Standard_Wallet.create_within_parent(parent_wallet, keystore_usage=[ keystore_usage ])
+
+        if password:
+            parent_wallet.update_password(None, password)
+
         if not config.get('offline'):
             network = Network()
-            network.add_wallet(wallet)
+            network.add_wallet(parent_wallet)
             print("Recovering wallet...")
-            wallet.synchronize()
-            msg = ("Recovery successful" if wallet.is_found()
+            parent_wallet.synchronize()
+            msg = ("Recovery successful" if parent_wallet.has_usage()
                    else "Found no history for this wallet")
         else:
             msg = ("This wallet was restored offline. "
@@ -111,17 +114,19 @@ def run_non_RPC(config):
         seed_type = 'standard'
         seed = Mnemonic('en').make_seed(seed_type)
         k = keystore.from_seed(seed, passphrase, False)
-        storage.put('keystore', k.dump())
-        storage.put('wallet_type', 'standard')
-        wallet = Wallet(storage)
-        wallet.update_password(None, password, True)
-        wallet.synchronize()
+
+        parent_wallet = ParentWallet.as_legacy_wallet_container(storage)
+        keystore_usage = parent_wallet.add_keystore(k.dump())
+        Standard_Wallet.create_within_parent(parent_wallet, keystore_usage=[ keystore_usage ])
+
+        parent_wallet.update_password(None, password)
+        parent_wallet.synchronize()
         print("Your wallet generation seed is:\n\"%s\"" % seed)
         print("Please keep it in a safe place; if you lose it, "
               "you will not be able to restore your wallet.")
 
-    wallet.storage.write()
-    print("Wallet saved in '%s'" % wallet.storage.path)
+    parent_wallet.save_storage()
+    print("Wallet saved in '%s'" % parent_wallet.get_storage_path())
     sys.exit(0)
 
 
@@ -211,13 +216,13 @@ def run_offline_command(config, config_options):
         storage = WalletStorage(config.get_wallet_path())
         if storage.is_encrypted():
             storage.decrypt(password)
-        wallet = Wallet(storage)
+        parent_wallet = ParentWallet(storage)
     else:
-        wallet = None
+        parent_wallet = None
     # check password
-    if cmd.requires_password and storage.get('use_encryption'):
+    if cmd.requires_password and parent_wallet.has_password():
         try:
-            seed = wallet.check_password(password)
+            parent_wallet.check_password(password)
         except InvalidPassword:
             print("Error: This password does not decode this wallet.")
             sys.exit(1)
@@ -232,12 +237,12 @@ def run_offline_command(config, config_options):
     kwargs = {}
     for x in cmd.options:
         kwargs[x] = (config_options.get(x) if x in ['password', 'new_password'] else config.get(x))
-    cmd_runner = Commands(config, wallet, None)
+    cmd_runner = Commands(config, parent_wallet, None)
     func = getattr(cmd_runner, cmd.name)
     result = func(*args, **kwargs)
     # save wallet
-    if wallet:
-        wallet.storage.write()
+    if parent_wallet:
+        parent_wallet.save_storage()
     return result
 
 

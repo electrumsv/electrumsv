@@ -41,7 +41,7 @@ from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .util import json_decode, DaemonThread, to_string, random_integer
 from .version import PACKAGE_VERSION
-from .wallet import Wallet, Abstract_Wallet
+from .wallet import ParentWallet
 
 
 logger = logs.get_logger("daemon")
@@ -184,8 +184,8 @@ class Daemon(DaemonThread):
             while True:
                 for th in threading.enumerate():
                     th_text = str(th)
-                    if "GUI" not in th_text:
-                        continue
+                    # if "GUI" not in th_text:
+                    #     continue
                     print(th)
                     traceback.print_stack(sys._current_frames()[th.ident])
                     print()
@@ -207,7 +207,7 @@ class Daemon(DaemonThread):
         elif sub == 'load_wallet':
             path = config.get_wallet_path()
             wallet = self.load_wallet(path, config.get('password'))
-            self.cmd_runner.wallet = wallet
+            self.cmd_runner.parent_wallet = wallet
             response = True
         elif sub == 'close_wallet':
             path = config.get_wallet_path()
@@ -242,7 +242,7 @@ class Daemon(DaemonThread):
 
         return "error: ElectrumSV is running in daemon mode; stop the daemon first."
 
-    def load_wallet(self, path: str, password: Optional[str]) -> Abstract_Wallet:
+    def load_wallet(self, path: str, password: Optional[str]) -> ParentWallet:
         # wizard will be launched if we return
         if path in self.wallets:
             wallet = self.wallets[path]
@@ -260,22 +260,23 @@ class Daemon(DaemonThread):
             return
         if storage.get_action():
             return
-        wallet = Wallet(storage)
-        self.start_wallet(wallet)
-        return wallet
 
-    def get_wallet(self, path: str) -> Abstract_Wallet:
+        parent_wallet = ParentWallet(storage)
+        self.start_wallet(parent_wallet)
+        return parent_wallet
+
+    def get_wallet(self, path: str) -> ParentWallet:
         return self.wallets.get(path)
 
-    def start_wallet(self, wallet: Abstract_Wallet) -> None:
-        self.wallets[wallet.storage.path] = wallet
-        wallet.start(self.network)
+    def start_wallet(self, parent_wallet: ParentWallet) -> None:
+        self.wallets[parent_wallet.get_storage_path()] = parent_wallet
+        parent_wallet.start(self.network)
 
     def stop_wallet_at_path(self, path: str) -> None:
         # Issue #659 wallet may already be stopped.
         if path in self.wallets:
-            wallet = self.wallets.pop(path)
-            wallet.stop()
+            parent_wallet = self.wallets.pop(path)
+            parent_wallet.stop()
 
     def stop_wallets(self):
         for path in list(self.wallets.keys()):
@@ -289,12 +290,12 @@ class Daemon(DaemonThread):
         cmd = known_commands[cmdname]
         if cmd.requires_wallet:
             path = config.get_wallet_path()
-            wallet = self.wallets.get(path)
-            if wallet is None:
+            parent_wallet = self.wallets.get(path)
+            if parent_wallet is None:
                 return {'error': 'Wallet "%s" is not loaded. Use "electrum-sv daemon load_wallet"'
                         % os.path.basename(path)}
         else:
-            wallet = None
+            parent_wallet = None
         # arguments passed to function
         args = [config.get(x) for x in cmd.params]
         # decode json arguments
@@ -304,7 +305,7 @@ class Daemon(DaemonThread):
         for x in cmd.options:
             kwargs[x] = (config_options.get(x) if x in ['password', 'new_password']
                          else config.get(x))
-        cmd_runner = Commands(config, wallet, self.network)
+        cmd_runner = Commands(config, parent_wallet, self.network)
         func = getattr(cmd_runner, cmd.name)
         result = func(*args, **kwargs)
         return result
@@ -314,6 +315,7 @@ class Daemon(DaemonThread):
             self.server.handle_request() if self.server else time.sleep(0.1)
         logger.warning("no longer running")
         if self.network:
+            logger.warning("wait for network shutdown")
             self.fx_task.cancel()
             app_state.async_.spawn_and_wait(self.network.shutdown_wait)
         self.on_stop()

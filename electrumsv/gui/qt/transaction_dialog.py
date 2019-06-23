@@ -59,7 +59,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         # happens during or after a long sign operation the signatures are lost.
         self.tx = copy.deepcopy(tx)
         self.main_window = parent
-        self.wallet = parent.wallet
+        self.parent_wallet = parent.parent_wallet
+        self.wallet = self.parent_wallet.get_default_wallet()
         self.prompt_if_unsaved = prompt_if_unsaved
         self.saved = False
         self.desc = desc

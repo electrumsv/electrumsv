@@ -25,18 +25,21 @@ class TestCommands(unittest.TestCase):
         self.assertEqual(True, Commands._setconfig_normalize_value('show_console_tab', "True"))
 
     def test_setconfig_non_auth_list(self):
-        self.assertEqual(['file:///var/www/', 'https://electrum.org'],
-            Commands._setconfig_normalize_value('url_rewrite', "['file:///var/www/','https://electrum.org']"))
-        self.assertEqual(['file:///var/www/', 'https://electrum.org'],
-            Commands._setconfig_normalize_value('url_rewrite', '["file:///var/www/","https://electrum.org"]'))
+        self.assertEqual(['file:///var/www/', 'https://electrumsv.io'],
+            Commands._setconfig_normalize_value('url_rewrite',
+                "['file:///var/www/','https://electrumsv.io']"))
+        self.assertEqual(['file:///var/www/', 'https://electrumsv.io'],
+            Commands._setconfig_normalize_value('url_rewrite',
+                '["file:///var/www/","https://electrumsv.io"]'))
 
     def test_setconfig_auth(self):
         self.assertEqual("7777", Commands._setconfig_normalize_value('rpcuser', "7777"))
         self.assertEqual("7777", Commands._setconfig_normalize_value('rpcuser', '7777'))
         self.assertEqual("7777", Commands._setconfig_normalize_value('rpcpassword', '7777'))
         self.assertEqual("2asd", Commands._setconfig_normalize_value('rpcpassword', '2asd'))
-        self.assertEqual("['file:///var/www/','https://electrum.org']",
-            Commands._setconfig_normalize_value('rpcpassword', "['file:///var/www/','https://electrum.org']"))
+        self.assertEqual("['file:///var/www/','https://electrumsv.io']",
+            Commands._setconfig_normalize_value('rpcpassword',
+                "['file:///var/www/','https://electrumsv.io']"))
 
     def test_encrypt(self):
         c = Commands(None, None, None)
@@ -54,7 +57,7 @@ class TestCommands(unittest.TestCase):
     def test_createmultisig(self):
         c = Commands(None, None, None)
         pubkeys = ["03b25918969e43702abeb6a60942e72e3a3c603dfd272de59e7679a52f35527ccf",
-                   "0383cf538b41dbba7b7ee57a53bc673fef8a6896734ae587032f755ac0cba86cc2"]
+                    "0383cf538b41dbba7b7ee57a53bc673fef8a6896734ae587032f755ac0cba86cc2"]
 
         result = c.createmultisig(2, pubkeys)
         result_rev = c.createmultisig(2, list(reversed(pubkeys)))

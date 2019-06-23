@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from unittest import mock
@@ -20,8 +21,27 @@ def tearDownModule():
     tear_down_async()
 
 
+class _ParentWallet(wallet.ParentWallet):
+    def name(self):
+        return self.__class__.__name__
+
+class MockStorage:
+    def __init__(self) -> None:
+        self.path = tempfile.mktemp()
+        self.tx_store_aeskey_hex = os.urandom(32).hex()
+
+    def get(self, attr_name, default=None):
+        if attr_name == "tx_store_aeskey":
+            return self.tx_store_aeskey_hex
+        return default
+
+
 class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
     gap_limit = 1  # make tests run faster
+
+    def setUp(self) -> None:
+        self.storage = MockStorage()
+        self.parent_wallet = _ParentWallet.as_legacy_wallet_container(self.storage)
 
     def _check_seeded_keystore_sanity(self, ks):
         self.assertTrue (ks.is_deterministic())
@@ -36,21 +56,24 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         self.assertFalse(ks.has_seed())
 
     def _create_standard_wallet(self, ks):
-        store = storage.WalletStorage(tempfile.mktemp())
-        store.put('keystore', ks.dump())
-        store.put('gap_limit', self.gap_limit)
-        w = wallet.Standard_Wallet(store)
+        keystore_usage = self.parent_wallet.add_keystore(ks.dump())
+        w = wallet.Standard_Wallet.create_within_parent(self.parent_wallet,
+            keystore_usage=[ keystore_usage ], gap_limit=self.gap_limit)
         w.synchronize()
         return w
 
     def _create_multisig_wallet(self, ks1, ks2):
-        store = storage.WalletStorage(tempfile.mktemp())
+        keystore_usages = []
+        keystore_usage = self.parent_wallet.add_keystore(ks1.dump())
+        keystore_usage['name'] = f'x{1:d}/'
+        keystore_usages.append(keystore_usage)
+        keystore_usage = self.parent_wallet.add_keystore(ks2.dump())
+        keystore_usage['name'] = f'x{2:d}/'
+        keystore_usages.append(keystore_usage)
+
         multisig_type = "%dof%d" % (2, 2)
-        store.put('wallet_type', multisig_type)
-        store.put('x%d/' % 1, ks1.dump())
-        store.put('x%d/' % 2, ks2.dump())
-        store.put('gap_limit', self.gap_limit)
-        w = wallet.Multisig_Wallet(store)
+        w = wallet.Multisig_Wallet.create_within_parent(self.parent_wallet,
+            keystore_usage=keystore_usages, wallet_type=multisig_type, gap_limit=self.gap_limit)
         w.synchronize()
         return w
 

@@ -1,5 +1,6 @@
 import hashlib
 from struct import pack, unpack
+from typing import Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx import (
     BIP32Derivation, BIP32PublicKey, PublicKey, TxOutput, pack_be_uint32, pack_list
@@ -15,6 +16,9 @@ from electrumsv.transaction import Transaction, classify_tx_output
 from electrumsv.util import bfh, versiontuple
 
 from ..hw_wallet import HW_PluginBase
+
+if TYPE_CHECKING:
+    from .qt import Ledger_Handler
 
 try:
     import hid
@@ -34,6 +38,7 @@ logger = logs.get_logger("plugin.ledger")
 BITCOIN_CASH_SUPPORT = (1, 1, 8)
 
 class Ledger_Client():
+    handler: 'Ledger_Handler'
 
     def __init__(self, hidDevice):
         self.dongleObject = btchip(hidDevice)
@@ -192,7 +197,7 @@ class Ledger_Client():
                 raise e
             self.preflightDone = True
 
-    def password_dialog(self, msg=None):
+    def password_dialog(self, msg: str) -> Tuple[bool, Optional[str], Optional[str]]:
         response = self.handler.get_word(msg)
         if response is None:
             return False, None, None
@@ -270,7 +275,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
             info = self.get_client().signMessagePrepare(address_path, message)
             pin = ""
             if info['confirmationNeeded']:
-                pin = self.handler.get_auth( info ) # does the authenticate dialog and returns pin
+                # does the authenticate dialog and returns pin
+                pin = self.handler.get_auth(self, info)
                 if not pin:
                     raise UserWarning(_('Cancelled by user'))
                 pin = str(pin).encode()
@@ -377,7 +383,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
             if outputData['confirmationNeeded']:
                 outputData['address'] = output.to_string(coin=Net.COIN)
                 self.handler.finished()
-                pin = self.handler.get_auth( outputData ) # the authenticate dialog and returns pin
+                # the authenticate dialog and returns pin
+                pin = self.handler.get_auth(self, outputData)
                 if not pin:
                     raise UserWarning()
                 self.handler.show_message(_("Confirmed. Signing Transaction..."))

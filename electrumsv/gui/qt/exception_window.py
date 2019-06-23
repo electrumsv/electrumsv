@@ -163,10 +163,11 @@ class Exception_Window(QDialog):
         }
 
     def get_additional_info(self):
-        wallet_types = ','.join(
-            getattr(w.wallet, 'wallet_type', 'Unknown')
-            for w in self.app.topLevelWindows()
-            if isinstance(w, ElectrumWindow)) or 'Unknown'
+        wallets = []
+        for window in self.app.topLevelWindows():
+            if isinstance(window, ElectrumWindow):
+                wallets.extend(window.parent_wallet.get_child_wallets())
+        wallet_types = ','.join(wallets) if len(wallets) else "Unknown"
         return {
             "app_version": PACKAGE_VERSION,
             "python_version": sys.version,
