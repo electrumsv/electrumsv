@@ -900,6 +900,7 @@ class Network:
         self.sessions_changed_event = app_state.async_.event()
         self.check_main_chain_event = app_state.async_.event()
         self.stop_network_event = app_state.async_.event()
+        self.shutdown_complete_event = app_state.async_.event()
 
         # Add a wallet, remove a wallet, or redo all wallet verifications
         self.wallet_jobs = app_state.async_.queue()
@@ -913,8 +914,7 @@ class Network:
             os.mkdir(dir_path)
             os.chmod(dir_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-        self.task = app_state.async_.spawn(self._main_task)
-        self.connections_task = None
+        self.future = app_state.async_.spawn(self._main_task)
 
     async def _main_task(self):
         try:
@@ -924,6 +924,7 @@ class Network:
                 await group.spawn(self._monitor_main_chain)
                 await group.spawn(self._monitor_wallets, group)
         finally:
+            self.shutdown_complete_event.set()
             app_state.config.set_key('servers', list(SVServer.all_servers.values()), True)
 
     async def _restart_network(self):
@@ -939,10 +940,11 @@ class Network:
                 self.main_server, self.proxy = self._read_config()
 
             logger.debug('starting...')
-            self.connections_task = await group.spawn(self._maintain_connections)
+            connections_task = await group.spawn(self._maintain_connections)
             await self.stop_network_event.wait()
             self.stop_network_event.clear()
-            await self.shutdown_wait()
+            with suppress(CancelledError):
+                await connections_task
 
     async def _maintain_connections(self):
         count = 1 if app_state.config.get('oneserver') else 10
@@ -1246,13 +1248,9 @@ class Network:
     # External API
     #
 
-    def shutdown(self):
-        self.task.cancel()
-
     async def shutdown_wait(self):
-        self.shutdown()
-        with suppress(CancelledError):
-            await self.task
+        self.future.cancel()
+        await self.shutdown_complete_event.wait()
         assert not self.sessions
         logger.warning('stopped')
 
