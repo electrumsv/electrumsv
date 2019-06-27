@@ -2166,6 +2166,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             mpk_text.addCopyButton(self.app)
             def show_mpk(index):
                 mpk_text.setText(mpk_list[index])
+                mpk_text.repaint()   # macOS hack for Electrum #4777
             # only show the combobox in case multiple accounts are available
             if len(mpk_list) > 1:
                 def label(key):
