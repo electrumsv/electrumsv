@@ -2,9 +2,9 @@ msgid ""
 msgstr ""
 "Project-Id-Version: electrumsv\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-01-15 18:42+1300\n"
-"PO-Revision-Date: 2019-01-15 05:53\n"
-"Last-Translator: rt121212121 <roger.taylor.email@gmail.com>\n"
+"POT-Creation-Date: 2019-07-05 05:33+1200\n"
+"PO-Revision-Date: 2019-07-04 17:34\n"
+"Last-Translator: rt121212121\n"
 "Language-Team: German\n"
 "Language: de_DE\n"
 "MIME-Version: 1.0\n"
@@ -16,262 +16,292 @@ msgstr ""
 "X-Crowdin-Language: de\n"
 "X-Crowdin-File: /electrumsv-client/messages.pot\n"
 
-#: electrumsv/exchange_rate.py:452
-msgid "  (No FX rate available)"
-msgstr "  (Wechselkurs nicht verfügbar)"
-
-#: electrumsv/gui/qt/address_list.py:61
+#: electrumsv/gui/qt/address_list.py:59
 msgid " Balance"
 msgstr " Guthaben"
 
-#: electrumsv/gui/qt/preferences.py:169
-msgid " These settings affect the fields in the Send tab"
+#: electrumsv/gui/qt/wallet_wizard.py:477
+#, python-format
+msgid "%(wallet_name)s however, works in a compatible way where it should be possible to use both it and ElectrumSV at the same time."
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:411
-#: electrumsv/plugins/keepkey/qt_generic.py:423
+#: electrumsv/gui/qt/wallet_wizard.py:471
+#, python-format
+msgid "%(wallet_name)s is one of these applications. If you are still using it, it may get confused if you do more than watch, like sending and receiving coins using ElectrumSV."
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:392 electrumsv/devices/keepkey/qt.py:409
 #, python-format
 msgid "%2d minutes"
 msgstr "%2d Minuten"
 
-#: electrumsv/gui/qt/installwizard.py:237
+#: electrumsv/gui/qt/installwizard.py:409
 #, python-format
 msgid "%d wallets are selected / will be copied."
+msgstr "%d Wallets sind markiert / werden kopiert."
+
+#: electrumsv/gui/qt/installwizard.py:399
+#, python-format
+msgid "%d wallets copied."
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:209
+#: electrumsv/devices/trezor/qt.py:197
 #, python-format
 msgid "%d words"
 msgstr "%d Wörter"
 
-#: electrumsv/gui/qt/main_window.py:592
+#: electrumsv/gui/qt/main_window.py:576
 msgid "&About"
 msgstr "&Über Electrum"
 
-#: electrumsv/gui/qt/main_window.py:174
+#: electrumsv/gui/qt/wallet_wizard.py:260
+msgid "&Add Wallet"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:178
 msgid "&Addresses"
 msgstr "&Adressen"
 
-#: electrumsv/gui/qt/main_window.py:593
+#: electrumsv/gui/qt/main_window.py:577
 msgid "&Check for updates"
-msgstr ""
+msgstr "&Suche nach Updates"
 
-#: electrumsv/gui/qt/main_window.py:601
+#: electrumsv/gui/qt/main_window.py:585
 msgid "&Donate to server"
 msgstr "&An Server spenden"
 
-#: electrumsv/gui/qt/main_window.py:578
+#: electrumsv/gui/qt/main_window.py:563
 msgid "&Encrypt/decrypt message"
 msgstr "&Nachricht verschlüsseln/entschlüsseln"
 
-#: electrumsv/gui/qt/main_window.py:539 electrumsv/gui/qt/main_window.py:547
+#: electrumsv/gui/qt/main_window.py:524 electrumsv/gui/qt/main_window.py:532
 msgid "&Export"
 msgstr "&Exportieren"
 
-#: electrumsv/gui/qt/main_window.py:521
+#: electrumsv/gui/qt/main_window.py:499
 msgid "&File"
 msgstr "&Datei"
 
-#: electrumsv/gui/qt/main_window.py:587
+#: electrumsv/gui/qt/main_window.py:572
 msgid "&From QR code"
 msgstr "&Von QR-Code"
 
-#: electrumsv/gui/qt/main_window.py:584
+#: electrumsv/gui/qt/main_window.py:569
 msgid "&From file"
 msgstr "&Aus Datei"
 
-#: electrumsv/gui/qt/main_window.py:585
+#: electrumsv/gui/qt/main_window.py:570
 msgid "&From text"
 msgstr "&Aus Text"
 
-#: electrumsv/gui/qt/main_window.py:586
+#: electrumsv/gui/qt/main_window.py:571
 msgid "&From the blockchain"
 msgstr "&Aus der Blockchain"
 
-#: electrumsv/gui/qt/main_window.py:591
+#: electrumsv/gui/qt/main_window.py:575
 msgid "&Help"
 msgstr "&Hilfe"
 
-#: electrumsv/gui/qt/main_window.py:553
+#: electrumsv/gui/qt/main_window.py:537
 msgid "&History"
 msgstr "&Verlauf"
 
-#: electrumsv/gui/qt/main_window.py:537 electrumsv/gui/qt/main_window.py:546
+#: electrumsv/gui/qt/main_window.py:522 electrumsv/gui/qt/main_window.py:531
 msgid "&Import"
 msgstr "&Importieren"
 
-#: electrumsv/gui/qt/main_window.py:531
+#: electrumsv/gui/qt/main_window.py:509
 msgid "&Information"
 msgstr "&Informationen"
 
-#: electrumsv/gui/qt/main_window.py:545
+#: electrumsv/gui/qt/main_window.py:530
 msgid "&Labels"
 msgstr "&Bezeichnungen"
 
-#: electrumsv/gui/qt/main_window.py:583
+#: electrumsv/gui/qt/main_window.py:568
 msgid "&Load transaction"
 msgstr "&Transaktion laden"
 
-#: electrumsv/gui/qt/main_window.py:574
+#: electrumsv/gui/qt/main_window.py:560
 msgid "&Network"
 msgstr "&Netzwerk"
 
-#: electrumsv/gui/qt/main_window.py:549
+#: electrumsv/gui/qt/main_window.py:534
 msgid "&New"
 msgstr "&Neu"
 
-#: electrumsv/gui/qt/main_window.py:524
+#: electrumsv/gui/qt/main_window.py:516
+msgid "&New Wizard"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:502
 msgid "&New/Restore"
 msgstr "&Neu/Wiederherstellen"
 
-#: electrumsv/gui/qt/main_window.py:594
+#: electrumsv/gui/qt/main_window.py:578
 msgid "&Official website"
 msgstr "&Offizielle Webseite"
 
-#: electrumsv/gui/qt/main_window.py:523
+#: electrumsv/gui/qt/main_window.py:501
 msgid "&Open"
 msgstr "&Öffnen"
 
-#: electrumsv/gui/qt/main_window.py:533
+#: electrumsv/gui/qt/main_window.py:518
 msgid "&Password"
 msgstr "&Passwort"
 
-#: electrumsv/gui/qt/main_window.py:581
+#: electrumsv/gui/qt/main_window.py:566
 msgid "&Pay to many"
 msgstr "&Zahle an mehrere"
 
-#: electrumsv/gui/qt/main_window.py:575
-msgid "&Plugins"
-msgstr ""
-
-#: electrumsv/gui/qt/main_window.py:535
+#: electrumsv/gui/qt/main_window.py:520
 msgid "&Private keys"
 msgstr "&Private Schlüssel"
 
-#: electrumsv/gui/qt/main_window.py:528
+#: electrumsv/gui/qt/main_window.py:506
 msgid "&Quit"
 msgstr "&Beenden"
 
-#: electrumsv/gui/qt/main_window.py:522
+#: electrumsv/gui/qt/main_window.py:500
 msgid "&Recently open"
 msgstr "&Vor kurzem geöffnet"
 
-#: electrumsv/gui/qt/main_window.py:599
+#: electrumsv/gui/qt/main_window.py:583
 msgid "&Report Bug"
 msgstr "&Fehler melden"
 
-#: electrumsv/gui/qt/main_window.py:525
+#: electrumsv/gui/qt/main_window.py:503
 msgid "&Save Copy"
 msgstr "&Kopie Speichern"
 
-#: electrumsv/gui/qt/main_window.py:534
+#: electrumsv/gui/qt/main_window.py:519
 msgid "&Seed"
-msgstr ""
+msgstr "&Seed"
 
-#: electrumsv/gui/qt/main_window.py:577
+#: electrumsv/gui/qt/main_window.py:562
 msgid "&Sign/verify message"
 msgstr "&Nachricht signieren/verifizieren"
 
-#: electrumsv/gui/qt/main_window.py:536
+#: electrumsv/gui/qt/main_window.py:521
 msgid "&Sweep"
 msgstr "&Entleeren"
 
-#: electrumsv/gui/qt/main_window.py:571
+#: electrumsv/gui/qt/main_window.py:557
 msgid "&Tools"
 msgstr "&Werkzeuge"
 
-#: electrumsv/gui/qt/main_window.py:564
+#: electrumsv/gui/qt/main_window.py:548
 msgid "&View"
 msgstr "&Ansicht"
 
-#: electrumsv/gui/qt/main_window.py:530
+#: electrumsv/gui/qt/main_window.py:508
 msgid "&Wallet"
-msgstr ""
+msgstr "&Wallet"
 
-#: electrumsv/gui/qt/transaction_dialog.py:269
+#: electrumsv/gui/qt/transaction_dialog.py:280
 #, python-format
 msgid "( %s in dust was added to fee )"
-msgstr ""
+msgstr "( Kleingeld in Höhe von %s wurde zur Transaktionsgebühr hinzugefügt )"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:597
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:605
 msgid "(Touch {} of {})"
 msgstr ""
 
-#: electrumsv/gui/qt/password_dialog.py:225
-msgid "+"
-msgstr ""
-
-#: electrumsv/gui/qt/util.py:38
+#: electrumsv/gui/qt/util.py:35
 msgid "1 day"
 msgstr "1 Tag"
 
-#: electrumsv/gui/qt/util.py:37
+#: electrumsv/gui/qt/util.py:34
 msgid "1 hour"
 msgstr "1 Stunde"
 
-#: electrumsv/gui/qt/installwizard.py:235
-msgid "1 wallet is selected / will be copied."
+#: electrumsv/gui/qt/installwizard.py:397
+msgid "1 wallet copied."
 msgstr ""
 
-#: electrumsv/gui/qt/util.py:39
+#: electrumsv/gui/qt/installwizard.py:407
+msgid "1 wallet is selected / will be copied."
+msgstr "1 Wallet ist markiert / wird kopiert."
+
+#: electrumsv/gui/qt/util.py:36
 msgid "1 week"
 msgstr "1 Woche"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:167
+#: electrumsv/gui/qt/app.py:305
+msgid "2FA wallets are not supported"
+msgstr ""
+
+#: electrumsv/gui/qt/coinsplitting_tab.py:277
+msgid "<b>This will only split the coins currently available in this wallet.</b> While any further coins you send to your wallet are included in the overall balance, if they were unsplit before sending, they remain unsplit on arrival. It it your responsibility to ensure you know if you are sending unsplit coins and what the repercussions are. If in doubt, click split and be sure."
+msgstr ""
+
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:172
 msgid "A backup is saved automatically when generating a new wallet."
 msgstr "Bei Erstellung eines neuen Wallets wird automatisch ein Backup gemacht."
 
-#: electrumsv/gui/qt/main_window.py:468
+#: electrumsv/gui/qt/main_window.py:446
 msgid "A copy of your wallet file was created in"
 msgstr "Eine Kopie ihrer Wallet wurde angelegt unter"
 
-#: electrumsv/plugin.py:422
-msgid "A library is probably missing."
-msgstr "Vermutlich fehlt eine Programmbibliothek."
+#: electrumsv/gui/qt/main_window.py:704
+msgid "A new version of ElectrumSV, version {}, is available for download"
+msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:249
+#: electrumsv/gui/qt/main_window.py:673 electrumsv/gui/qt/main_window.py:681
+#, python-format
+msgid "A newer version of ElectrumSV is available, and was released on {0:%c}"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:458
+msgid "A seed phrase is a way of storing a wallet's private key. Using it ElectrumSV can access the wallet's previous payments, and send and receive the coins in the wallet."
+msgstr ""
+
+#: electrumsv/gui/qt/coinsplitting_tab.py:250
 msgid "A small amount of SV coin will be obtained from a faucet."
-msgstr ""
+msgstr "Ein kleiner Betrag an BSV Münzen wird von einem Faucet genommen."
 
-#: electrumsv/gui/qt/main_window.py:1243
-msgid "A suggested fee is automatically added to this field. You may override it. The suggested fee increases with the size of the transaction."
-msgstr "Eine empfohlene Gebühr wird diesem Feld automatisch hinzugefügt, kann aber überschrieben werden. Die empfohlene Gebühr steigt mit der Größe der Transaktion."
-
-#: electrumsv/gui/qt/coinsplitting_tab.py:252
+#: electrumsv/gui/qt/coinsplitting_tab.py:253
 msgid "A transaction will be constructed including your entire spendable balance combined with the new known SV coin from the faucet, to be sent back into this wallet."
+msgstr "Eine Transaktion wird konstruiert, die das gesamte Guthaben sowie die neue Münze vom Faucet kombiniert und an das Wallet selbst geschickt wird."
+
+#: electrumsv/gui/qt/seed_dialog.py:157
+msgid "About importing a seed"
 msgstr ""
 
-#: electrumsv/plugins/keepkey/qt_generic.py:76
+#: electrumsv/devices/keepkey/qt.py:197
 msgid "Accept Word"
 msgstr "Wort akzeptieren"
 
-#: electrumsv/gui/qt/installwizard.py:514
+#: electrumsv/gui/qt/installwizard.py:591
 msgid "Add Cosigner"
 msgstr "Mitsignierer Hinzufügen"
 
-#: electrumsv/base_wizard.py:129
+#: electrumsv/gui/qt/wallet_wizard.py:361
+msgid "Add Wallet"
+msgstr ""
+
+#: electrumsv/base_wizard.py:130
 msgid "Add a cosigner to your multi-sig wallet"
 msgstr "Mitsignierer zur Multisignaturbörse hinzufügen"
 
-#: electrumsv/extensions.py:45
-msgid "Add an optional virtual keyboard to the password dialog."
-msgstr "Eine optionale Bildschirmtastatur zum Passwortdialog hinzufügen."
-
-#: electrumsv/base_wizard.py:117
+#: electrumsv/base_wizard.py:118
 msgid "Add cosigner"
 msgstr "Mitsignierer hinzufügen"
 
-#: electrumsv/gui/qt/exception_window.py:92
+#: electrumsv/gui/qt/main_window.py:1306
+msgid "Add file(s)"
+msgstr ""
+
+#: electrumsv/gui/qt/contact_list.py:74
+msgid "Add new contact"
+msgstr ""
+
+#: electrumsv/gui/qt/exception_window.py:96
 msgid "Add your email address if you are willing to provide further detail, but note that it will appear in the relevant github issue."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1608
-msgid "Additional fees"
-msgstr "Weitere Gebühren"
-
 #: electrumsv/gui/qt/utxo_list.py:40 electrumsv/gui/qt/address_dialog.py:40
-#: electrumsv/gui/qt/main_window.py:2126 electrumsv/gui/qt/main_window.py:2230
-#: electrumsv/gui/qt/main_window.py:2306 electrumsv/gui/qt/contact_list.py:42
+#: electrumsv/gui/qt/main_window.py:2241 electrumsv/gui/qt/main_window.py:2328
 #: electrumsv/gui/qt/request_list.py:42
 msgid "Address"
 msgstr "Adresse"
@@ -280,11 +310,11 @@ msgstr "Adresse"
 msgid "Address is frozen"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2266
+#: electrumsv/gui/qt/main_window.py:2276
 msgid "Address not in wallet."
 msgstr "Adresse ist nicht in dieser Börse."
 
-#: electrumsv/gui/qt/util.py:302
+#: electrumsv/gui/qt/util.py:328
 msgid "Address to sweep to:"
 msgstr ""
 
@@ -292,64 +322,73 @@ msgstr ""
 msgid "Address:"
 msgstr "Adresse:"
 
-#: electrumsv/wallet.py:1180
-msgid "Addresses generated:"
-msgstr "Adressen generiert:"
-
-#: electrumsv/plugins/trezor/qt.py:579
-#: electrumsv/plugins/keepkey/qt_generic.py:587
+#: electrumsv/devices/trezor/qt.py:560 electrumsv/devices/keepkey/qt.py:553
 msgid "Advanced"
 msgstr "Erweitert"
 
-#: electrumsv/plugins/trezor/qt.py:345
-#: electrumsv/plugins/keepkey/qt_generic.py:367
+#: electrumsv/devices/trezor/qt.py:326 electrumsv/devices/keepkey/qt.py:374
 msgid "After disabling passphrases, you can only pair this ElectrumSV wallet if it had an empty passphrase.  If its passphrase was not empty, you will need to create a new wallet with the install wizard.  You can use this wallet again at any time by re-enabling passphrases and entering its passphrase."
 msgstr ""
 
-#: electrumsv/gui/qt/utxo_list.py:40 electrumsv/gui/qt/main_window.py:1220
-#: electrumsv/gui/qt/main_window.py:1961 electrumsv/gui/qt/history_list.py:71
-#: electrumsv/gui/qt/history_list.py:74 electrumsv/gui/qt/request_list.py:42
-#: electrumsv/gui/qt/invoice_list.py:41
+#: electrumsv/gui/qt/payment.py:172
+msgid "All available funds"
+msgstr ""
+
+#: electrumsv/gui/qt/contact_list.py:356
+msgid "Already in use"
+msgstr ""
+
+#: electrumsv/gui/qt/utxo_list.py:40 electrumsv/gui/qt/payment.py:665
+#: electrumsv/gui/qt/main_window.py:1254 electrumsv/gui/qt/main_window.py:1947
+#: electrumsv/gui/qt/history_list.py:71 electrumsv/gui/qt/history_list.py:74
+#: electrumsv/gui/qt/request_list.py:42 electrumsv/gui/qt/invoice_list.py:41
 msgid "Amount"
 msgstr "Betrag"
 
-#: electrumsv/gui/qt/transaction_dialog.py:250
+#: electrumsv/devices/trezor/trezor.py:58
+msgid "Amount for OP_RETURN output must be zero."
+msgstr ""
+
+#: electrumsv/gui/qt/transaction_dialog.py:261
 msgid "Amount received:"
 msgstr "Betrag erhalten:"
 
-#: electrumsv/gui/qt/transaction_dialog.py:254
+#: electrumsv/gui/qt/transaction_dialog.py:265
 msgid "Amount sent:"
 msgstr "Betrag gesendet:"
 
 #: electrumsv/gui/qt/coinsplitting_tab.py:160
-#: electrumsv/gui/qt/main_window.py:1601
+#: electrumsv/gui/qt/main_window.py:1626
 msgid "Amount to be sent"
 msgstr "Zu sendender Betrag"
 
-#: electrumsv/gui/qt/main_window.py:1214
+#: electrumsv/gui/qt/main_window.py:1248
 msgid "Amount to be sent."
 msgstr "Zu sendender Betrag."
 
-#: electrumsv/gui/qt/exception_window.py:69
+#: electrumsv/gui/qt/exception_window.py:74
 msgid "An Error Occurred"
 msgstr "Ein Fehler ist aufgetreten"
 
-#: electrumsv/plugins/cosigner_pool/qt.py:200
-#: electrumsv/plugins/cosigner_pool/qt.py:206
-#: electrumsv/plugins/cosigner_pool/qt.py:213
+#: electrumsv/gui/qt/cosigner_pool.py:184
+#: electrumsv/gui/qt/cosigner_pool.py:192
+#: electrumsv/gui/qt/cosigner_pool.py:199
 msgid "An encrypted transaction was retrieved from cosigning pool."
 msgstr "Eine verschlüsselte Transaktion wurde vom Cosigner-Pool empfangen."
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:163
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:168
 msgid "An uninitialized Digital Bitbox is detected."
 msgstr ""
 
-#: electrumsv/base_wizard.py:232
+#: electrumsv/base_wizard.py:230
 msgid "An unnamed {}"
 msgstr "{} (Unbenannt)"
 
-#: electrumsv/plugins/trezor/qt.py:459
-#: electrumsv/plugins/keepkey/qt_generic.py:474
+#: electrumsv/gui/qt/wallet_wizard.py:709
+msgid "Analyze Wallet"
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:440 electrumsv/devices/keepkey/qt.py:457
 msgid "Apply"
 msgstr "Anwenden"
 
@@ -357,81 +396,114 @@ msgstr "Anwenden"
 msgid "Arabic"
 msgstr "Arabisch"
 
-#: electrumsv/plugins/trezor/qt.py:402
-#: electrumsv/plugins/keepkey/qt_generic.py:414
+#: electrumsv/devices/trezor/qt.py:383 electrumsv/devices/keepkey/qt.py:400
 msgid "Are you SURE you want to wipe the device?\n"
 "Your wallet still has bitcoins in it!"
 msgstr "Sind Sie sicher, dass Sie das Gerät zurücksetzen wollen?\n"
 "Die Börse enthält noch Bitcoins!"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:287
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:292
 msgid "Are you sure you want to erase the Digital Bitbox?"
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:356
-#: electrumsv/plugins/keepkey/qt_generic.py:378
+#: electrumsv/devices/trezor/qt.py:337 electrumsv/devices/keepkey/qt.py:385
 msgid "Are you sure you want to proceed?"
 msgstr "Wollen Sie wirklich fortfahren?"
+
+#: electrumsv/gui/qt/contact_list.py:227
+msgid "Are you sure?"
+msgstr ""
 
 #: electrumsv/i18n.py:55
 msgid "Armenian"
 msgstr "Armenisch"
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:238
+#: electrumsv/gui/qt/coinsplitting_tab.py:239
 msgid "As of the November 2018 hard-fork, Bitcoin Cash split into Bitcoin ABC and Bitcoin SV."
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:260
+#: electrumsv/gui/qt/coinsplitting_tab.py:261
 msgid "As this wallet is password protected, you will be prompted to enter your password to sign the transaction."
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:660
+#: electrumsv/gui/qt/main_window.py:1550
+msgid "Attach a file to include it in the transaction."
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1288
+msgid "Attached Files"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1284
+msgid "Attached files (optional)."
+msgstr ""
+
+#: electrumsv/gui/qt/installwizard.py:730
 msgid "Auto connect"
 msgstr "Automatisch verbinden"
 
-#: electrumsv/gui/qt/preferences.py:228
+#: electrumsv/gui/qt/preferences.py:219
 msgid "Automatically check for software updates"
 msgstr ""
 
-#: electrumsv/gui/qt/seed_dialog.py:102
+#: electrumsv/gui/qt/dialogs.py:219
+msgid "Avoid Coin Loss"
+msgstr ""
+
+#: electrumsv/gui/qt/seed_dialog.py:103
 msgid "BIP39 seed"
 msgstr "BIP39 Seed"
 
-#: electrumsv/gui/qt/seed_dialog.py:39
+#: electrumsv/gui/qt/seed_dialog.py:40
 msgid "BIP39 seeds can be imported so that users can access funds locked in other wallets."
 msgstr ""
 
-#: electrumsv/gui/qt/address_list.py:59 electrumsv/gui/qt/main_window.py:829
-#: electrumsv/gui/qt/history_list.py:71 electrumsv/gui/qt/history_list.py:74
+#: electrumsv/gui/qt/address_list.py:56 electrumsv/gui/qt/history_list.py:71
+#: electrumsv/gui/qt/history_list.py:74
 msgid "Balance"
 msgstr "Guthaben"
 
-#: electrumsv/gui/qt/preferences.py:170
+#: electrumsv/gui/qt/preferences.py:179
 msgid "Base unit"
 msgstr "Basiseinheit"
 
-#: electrumsv/gui/qt/preferences.py:167
-msgid "Base unit of your wallet."
-msgstr "Basiseinheit der Wallet."
+#: electrumsv/gui/qt/preferences.py:180
+msgid "Base unit of display in the application."
+msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:641
+#: electrumsv/gui/qt/seed_dialog.py:145
+msgid "Be aware that if you are importing a seed created using another wallet like Centbee, Handcash or Moneybutton only do so if it is absolutely necessary or you do not plan to do anything other than watch the coins.  At least Handcash and Moneybutton get confused if other wallets try and manage the same coins at the same time. You will need to fix your original Handcash or Moneybutton wallets if you send or receive the same coins in ElectrumSV, in order to get them to work correctly again."
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:747
 msgid "Before reporting a bug, upgrade to the most recent version of ElectrumSV (latest release or git HEAD), and include the version number in your report."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:902
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:483
+msgid "Bitbox did not sign the message."
+msgstr ""
+
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:467
+msgid "Bitbox does not appear to be connected."
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:988
 msgid "Bitcoin SV address where the payment should be received. Note that each payment request uses a different Bitcoin SV address."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1239
-msgid "Bitcoin SV transactions are in general not free. A transaction fee is paid by the sender of the funds."
+#: electrumsv/gui/qt/wallet_wizard.py:190
+msgid "Bitcoin SV is the only Bitcoin that follows the original whitepaper<br/> and values being stable and non-experimental."
 msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:316
+#: electrumsv/gui/qt/dialogs.py:211
+msgid "Bitcoin transactions are traceable. If you choose to upload illegal material, you can be identified, and will risk the consequences."
+msgstr ""
+
+#: electrumsv/gui/qt/network_dialog.py:332
 msgid "Blockchain"
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:436
-#: electrumsv/plugins/keepkey/qt_generic.py:450
+#: electrumsv/devices/trezor/qt.py:417 electrumsv/devices/keepkey/qt.py:434
 msgid "Bootloader Hash"
 msgstr "Bootloader-Hash"
 
@@ -439,78 +511,83 @@ msgstr "Bootloader-Hash"
 msgid "Brasilian"
 msgstr "Brasilianisch"
 
-#: electrumsv/gui/qt/transaction_dialog.py:99
+#: electrumsv/gui/qt/transaction_dialog.py:100
 msgid "Broadcast"
 msgstr "Übertragen"
 
-#: electrumsv/gui/qt/main_window.py:1707
+#: electrumsv/gui/qt/main_window.py:1729
 msgid "Broadcasting transaction..."
 msgstr "Sende Transaktion..."
 
-#: electrumsv/gui/qt/main_window.py:2985
+#: electrumsv/gui/qt/main_window.py:2934
 msgid "CPFP no longer valid"
 msgstr "CPFP nicht länger gültig"
 
-#: electrumsv/gui/qt/util.py:313
+#: electrumsv/gui/qt/util.py:339
 msgid "CSV"
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:66
-#: electrumsv/plugins/keepkey/qt_generic.py:84 electrumsv/gui/qt/util.py:155
+#: electrumsv/devices/trezor/qt.py:66 electrumsv/devices/keepkey/qt.py:205
+#: electrumsv/gui/qt/dialogs.py:207 electrumsv/gui/qt/util.py:136
 msgid "Cancel"
 msgstr "Abbrechen"
 
-#: electrumsv/plugins/ledger/ledger.py:269
-#: electrumsv/plugins/ledger/ledger.py:283
-#: electrumsv/plugins/ledger/ledger.py:416
+#: electrumsv/devices/ledger/ledger.py:277
+#: electrumsv/devices/ledger/ledger.py:291
+#: electrumsv/devices/ledger/ledger.py:424
 msgid "Cancelled by user"
 msgstr "Durch Benutzer abgebrochen"
 
-#: electrumsv/base_wizard.py:366
-msgid "Cannot add this cosigner:"
-msgstr "Mitsignierer konnte nicht hinzugefügt werden:"
-
-#: electrumsv/plugins/hw_wallet/qt.py:201
+#: electrumsv/devices/hw_wallet/qt.py:216
 msgid "Cannot find python library for"
 msgstr "Python-Bibliothek nicht gefunden:"
 
-#: electrumsv/gui/qt/installwizard.py:336
+#: electrumsv/gui/qt/app.py:306
+msgid "Cannot load wallet \"{}\""
+msgstr ""
+
+#: electrumsv/gui/qt/installwizard.py:292
 msgid "Cannot read file"
 msgstr "Datei konnte nicht gelesen werden"
 
-#: electrumsv/gui/qt/main_window.py:2260
+#: electrumsv/gui/qt/main_window.py:2270
 msgid "Cannot sign messages with this type of address."
 msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:378
-#, python-format
-msgid "Chain split detected at block %d"
+#: electrumsv/gui/qt/paytoedit.py:113
+msgid "Cash address warning"
 msgstr ""
 
-#: electrumsv/gui/qt/address_list.py:101
+#: electrumsv/gui/qt/network_dialog.py:400
+msgid "Chain split detected at height(s) {}\n"
+msgstr ""
+
+#: electrumsv/gui/qt/address_list.py:103
 msgid "Change"
 msgstr "Wechselgeld"
 
-#: electrumsv/plugins/trezor/qt.py:314
-#: electrumsv/plugins/keepkey/qt_generic.py:334
+#: electrumsv/devices/trezor/qt.py:295 electrumsv/devices/keepkey/qt.py:343
 msgid "Change PIN"
 msgstr "PIN ändern"
 
-#: electrumsv/gui/qt/password_dialog.py:64
+#: electrumsv/gui/qt/password_dialog.py:120
 msgid "Change Password"
 msgstr "Password ändern"
 
-#: electrumsv/plugins/trezor/qt.py:483
-#: electrumsv/plugins/keepkey/qt_generic.py:500
+#: electrumsv/devices/trezor/qt.py:464
 msgid "Change..."
 msgstr "Ändern..."
 
-#: electrumsv/plugins/trezor/clientbase.py:28
-#: electrumsv/plugins/keepkey/clientbase.py:26
+#: electrumsv/gui/qt/main_window.py:663 electrumsv/gui/qt/main_window.py:668
+msgid "Check for Updates"
+msgstr ""
+
+#: electrumsv/devices/trezor/client.py:32
+#: electrumsv/devices/keepkey/client.py:201
 msgid "Check your {} device to continue"
 msgstr "Prüfen Sie Ihr {}-Gerät um fortzufahren"
 
-#: electrumsv/gui/qt/main_window.py:2937
+#: electrumsv/gui/qt/main_window.py:2892
 msgid "Child Pays for Parent"
 msgstr "Child-Pays-For-Parent"
 
@@ -522,29 +599,28 @@ msgstr "Child-Pays-For-Parent"
 msgid "Chinese"
 msgstr "Chinesisch"
 
-#: electrumsv/plugins/trezor/qt.py:362
-#: electrumsv/plugins/keepkey/qt_generic.py:385
+#: electrumsv/devices/trezor/qt.py:343
 msgid "Choose Homescreen"
 msgstr "Homescreen auswählen"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:304
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:309
 msgid "Choose a backup file:"
 msgstr "Backup-Datei auswählen:"
 
-#: electrumsv/gui/qt/installwizard.py:39
+#: electrumsv/gui/qt/installwizard.py:45
 msgid "Choose a password to encrypt your wallet keys."
 msgstr "Wählen Sie ein Passwort um die Geldbörsenschlüssel zu verschlüsseln."
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:229
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:234
 msgid "Choose how to initialize your Digital Bitbox:"
 msgstr ""
 
-#: electrumsv/plugins/trezor/trezor.py:162
+#: electrumsv/devices/trezor/trezor.py:173
 msgid "Choose how you want to initialize your {}.\n\n"
 "The first two methods are secure as no secret information is entered into your computer."
 msgstr ""
 
-#: electrumsv/plugins/keepkey/plugin.py:140
+#: electrumsv/devices/keepkey/keepkey.py:210
 msgid "Choose how you want to initialize your {}.\n\n"
 "The first two methods are secure as no secret information is entered into your computer.\n\n"
 "For the last two methods you input secrets on your keyboard and upload them to your {}, and so you should only do those on a computer you know to be trustworthy and free of malware."
@@ -552,32 +628,31 @@ msgstr "Wählen Sie, wie Sie ihr {} initialisieren wollen.\n\n"
 "Die ersten beiden Methoden sind sicher, da keine geheimen Informationen über den Computer eingegeben werden.\n\n"
 "Bei den anderen beiden Methoden werden Geheimnisse über die Tastatur eingegeben und auf ihr {} geladen - Sie sollten das also nur tun, wenn Ihr Computer vertrauenswürdig und virenfrei ist."
 
-#: electrumsv/plugins/trezor/clientbase.py:27
+#: electrumsv/devices/trezor/client.py:31
 msgid "Choose on your {} device where to enter your passphrase"
 msgstr "Wähle auf deinem {} aus, wie du die Passphrase eingeben willst"
 
-#: electrumsv/gui/qt/installwizard.py:704
+#: electrumsv/gui/qt/installwizard.py:773
 msgid "Choose the number of signatures needed to unlock funds in your wallet:"
 msgstr "Wie viele Signaturen werden mindestens benötigt, um die Brieftasche zu entsperren:"
 
-#: electrumsv/gui/qt/preferences.py:201
+#: electrumsv/gui/qt/preferences.py:191
 msgid "Choose which online block explorer to use for functions that open a web browser"
 msgstr "Wählen Sie einen Blockexplorer für Web-Funktionen"
 
-#: electrumsv/gui/qt/installwizard.py:287
+#: electrumsv/gui/qt/installwizard.py:178
 msgid "Choose..."
 msgstr "Auswählen..."
 
-#: electrumsv/gui/qt/main_window.py:1287
+#: electrumsv/gui/qt/main_window.py:1326
 msgid "Clear"
 msgstr "Löschen"
 
-#: electrumsv/plugins/trezor/qt.py:515
-#: electrumsv/plugins/keepkey/qt_generic.py:524
+#: electrumsv/devices/trezor/qt.py:496 electrumsv/devices/keepkey/qt.py:489
 msgid "Clear the session after the specified period of inactivity.  Once a session has timed out, your PIN and passphrase (if enabled) must be re-entered to use the device."
 msgstr "Die Sitzung nach der angegebenen Zeit an Inaktivität schließen. Danach müssen Sie ihre PIN (und falls vorhanden eine Passphrase) erneut eingeben um das Gerät zu nutzen."
 
-#: electrumsv/plugins/ledger/auth2fa.py:33
+#: electrumsv/devices/ledger/auth2fa.py:35
 msgid "Click Pair button to begin pairing a mobile phone."
 msgstr "Den \"Verbinden\"-Knopf drücken, um das Telefon zu verbinden."
 
@@ -585,18 +660,17 @@ msgstr "Den \"Verbinden\"-Knopf drücken, um das Telefon zu verbinden."
 msgid "Click here to hide this message."
 msgstr ""
 
-#: electrumsv/gui/qt/app_state.py:137 electrumsv/gui/qt/main_window.py:2326
-#: electrumsv/gui/qt/main_window.py:2388 electrumsv/gui/qt/qrcodewidget.py:125
-#: electrumsv/gui/qt/transaction_dialog.py:105 electrumsv/gui/qt/updater.py:97
-#: electrumsv/gui/qt/util.py:131
+#: electrumsv/gui/qt/app.py:173 electrumsv/gui/qt/main_window.py:2350
+#: electrumsv/gui/qt/main_window.py:2415 electrumsv/gui/qt/qrcodewidget.py:123
+#: electrumsv/gui/qt/transaction_dialog.py:106 electrumsv/gui/qt/util.py:112
 msgid "Close"
 msgstr "Schließen"
 
-#: electrumsv/gui/qt/main_window.py:176
+#: electrumsv/gui/qt/main_window.py:180
 msgid "Co&ins"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:182
+#: electrumsv/gui/qt/main_window.py:186
 msgid "Coin Splitting"
 msgstr ""
 
@@ -604,205 +678,203 @@ msgstr ""
 msgid "Coin is frozen"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:180
+#: electrumsv/gui/qt/main_window.py:184
 msgid "Con&sole"
 msgstr "Kon&sole"
 
-#: electrumsv/gui/qt/main_window.py:178
+#: electrumsv/gui/qt/main_window.py:182
 msgid "Con&tacts"
 msgstr "Kon&takte"
 
-#: electrumsv/plugins/trezor/qt.py:401
-#: electrumsv/plugins/keepkey/qt_generic.py:413
+#: electrumsv/gui/qt/payment.py:786
+msgid "Confirm"
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:382 electrumsv/devices/keepkey/qt.py:399
 msgid "Confirm Device Wipe"
 msgstr "Zurücksetzen des Geräts bestätigen"
 
-#: electrumsv/gui/qt/password_dialog.py:90
+#: electrumsv/gui/qt/password_dialog.py:143
 msgid "Confirm Passphrase:"
 msgstr "Passphrase bestätigen:"
 
-#: electrumsv/gui/qt/password_dialog.py:105
+#: electrumsv/gui/qt/password_dialog.py:158
 msgid "Confirm Password:"
 msgstr "Passwort bestätigen:"
 
-#: electrumsv/gui/qt/installwizard.py:535
+#: electrumsv/gui/qt/installwizard.py:612
 msgid "Confirm Seed"
 msgstr "Seed bestätigen"
 
-#: electrumsv/base_wizard.py:433
+#: electrumsv/base_wizard.py:405
 msgid "Confirm Seed Extension"
 msgstr "Seed-Erweiterung bestätigen"
 
-#: electrumsv/plugins/trezor/qt.py:342
-#: electrumsv/plugins/keepkey/qt_generic.py:364
+#: electrumsv/devices/trezor/qt.py:323 electrumsv/devices/keepkey/qt.py:371
 msgid "Confirm Toggle Passphrase Protection"
 msgstr "Umschalten der Passphrase bestätigen"
 
-#: electrumsv/plugins/ledger/ledger.py:376
+#: electrumsv/devices/ledger/ledger.py:384
 msgid "Confirm Transaction on your Ledger device..."
 msgstr "Bestätigen Sie die Transaktion auf Ihrem Ledger..."
 
-#: electrumsv/plugins/trezor/clientbase.py:21
-#: electrumsv/plugins/keepkey/clientbase.py:19
+#: electrumsv/devices/trezor/client.py:25
+#: electrumsv/devices/keepkey/client.py:194
 msgid "Confirm internal entropy on your {} device to begin"
 msgstr "Bestätigen Sie die interne Entropie auf Ihrem {} um zu beginnen"
 
-#: electrumsv/plugins/trezor/clientbase.py:24
-#: electrumsv/plugins/keepkey/clientbase.py:22
+#: electrumsv/devices/trezor/client.py:28
+#: electrumsv/devices/keepkey/client.py:197
 msgid "Confirm on your {} device the message to sign"
 msgstr "Bestätigen Sie die Nachricht auf Ihrem {} um zu signieren"
 
-#: electrumsv/plugins/trezor/clientbase.py:151
-#: electrumsv/plugins/keepkey/clientbase.py:188
+#: electrumsv/devices/trezor/client.py:156
+#: electrumsv/devices/keepkey/client.py:129
 msgid "Confirm on your {} device to change your PIN"
 msgstr "Bestätigen Sie die PIN-Änderung auf Ihrem {}"
 
-#: electrumsv/plugins/trezor/clientbase.py:144
-#: electrumsv/plugins/keepkey/clientbase.py:181
+#: electrumsv/devices/trezor/client.py:149
+#: electrumsv/devices/keepkey/client.py:122
 msgid "Confirm on your {} device to change your home screen"
 msgstr "Bestätigen Sie die Startbildschirmänderung auf Ihrem {}"
 
-#: electrumsv/plugins/trezor/clientbase.py:149
-#: electrumsv/plugins/keepkey/clientbase.py:186
+#: electrumsv/devices/trezor/client.py:154
+#: electrumsv/devices/keepkey/client.py:127
 msgid "Confirm on your {} device to disable PIN protection"
 msgstr "Bestätigen Sie das Deaktivieren des PIN-Schutzes auf Ihrem {}"
 
-#: electrumsv/plugins/trezor/clientbase.py:132
-#: electrumsv/plugins/keepkey/clientbase.py:170
+#: electrumsv/devices/trezor/client.py:137
+#: electrumsv/devices/keepkey/client.py:111
 msgid "Confirm on your {} device to disable passphrases"
 msgstr "Bestätigen Sie das Deaktivieren der Passphrase auf Ihrem {}"
 
-#: electrumsv/plugins/trezor/clientbase.py:134
-#: electrumsv/plugins/keepkey/clientbase.py:172
+#: electrumsv/devices/trezor/client.py:139
+#: electrumsv/devices/keepkey/client.py:113
 msgid "Confirm on your {} device to enable passphrases"
 msgstr "Bestätigen Sie das Aktivieren der Passphrase auf Ihrem {}"
 
-#: electrumsv/plugins/trezor/clientbase.py:153
-#: electrumsv/plugins/keepkey/clientbase.py:190
+#: electrumsv/devices/trezor/client.py:158
+#: electrumsv/devices/keepkey/client.py:131
 msgid "Confirm on your {} device to set a PIN"
 msgstr "Bestätigen Sie das Setzen der PIN auf Ihrem {}"
 
-#: electrumsv/plugins/trezor/clientbase.py:23
-#: electrumsv/plugins/keepkey/clientbase.py:21
+#: electrumsv/devices/trezor/client.py:27
+#: electrumsv/devices/keepkey/client.py:196
 msgid "Confirm on your {} that you want to wipe it clean"
 msgstr "Bestätigen Sie das Zurücksetzen auf Werkseinstellungen auf Ihrem {}"
 
-#: electrumsv/plugins/trezor/clientbase.py:140
-#: electrumsv/plugins/keepkey/clientbase.py:177
+#: electrumsv/devices/trezor/client.py:145
+#: electrumsv/devices/keepkey/client.py:118
 msgid "Confirm the new label on your {} device"
 msgstr "Bestätigen Sie den neuen Namen auf Ihrem {}"
 
-#: electrumsv/plugins/trezor/clientbase.py:25
-#: electrumsv/plugins/keepkey/clientbase.py:23
+#: electrumsv/devices/trezor/client.py:29
+#: electrumsv/devices/keepkey/client.py:198
 msgid "Confirm the total amount spent and the transaction fee on your {} device"
 msgstr "Bestätigen Sie den Gesamtbetrag und die Gebühr auf Ihrem {}"
 
-#: electrumsv/plugins/trezor/clientbase.py:20
-#: electrumsv/plugins/keepkey/clientbase.py:18
+#: electrumsv/devices/trezor/client.py:24
+#: electrumsv/devices/keepkey/client.py:193
 msgid "Confirm the transaction output on your {} device"
 msgstr "Bestätigen Sie den Transaktionsausgang auf Ihrem {}"
 
-#: electrumsv/plugins/trezor/clientbase.py:26
-#: electrumsv/plugins/keepkey/clientbase.py:25
+#: electrumsv/devices/trezor/client.py:30
+#: electrumsv/devices/keepkey/client.py:200
 msgid "Confirm wallet address on your {} device"
 msgstr "Bestätigen Sie die Adresse Ihrer Börse auf Ihrem {}"
 
-#: electrumsv/plugins/ledger/ledger.py:404
+#: electrumsv/devices/ledger/ledger.py:412
 msgid "Confirmed. Signing Transaction..."
 msgstr "Bestätigt. Signiere Transaktion..."
 
-#: electrumsv/gui/qt/network_dialog.py:77
+#: electrumsv/gui/qt/main_window.py:909
+msgid "Connected"
+msgstr ""
+
+#: electrumsv/gui/qt/network_dialog.py:78
 msgid "Connected node"
 msgstr "Verbundener Knoten"
 
-#: electrumsv/gui/qt/network_dialog.py:371
-#, python-format
-msgid "Connected to %d nodes."
+#: electrumsv/gui/qt/network_dialog.py:390
+msgid "Connected to {:d} servers."
 msgstr ""
 
-#: electrumsv/wallet.py:1187
-msgid "Connecting..."
-msgstr "Verbinden..."
-
-#: electrumsv/gui/qt/main_window.py:548
+#: electrumsv/gui/qt/main_window.py:533
 msgid "Contacts"
 msgstr "Kontakte"
 
-#: electrumsv/gui/qt/qrcodewidget.py:117
-#: electrumsv/gui/qt/transaction_dialog.py:113 electrumsv/gui/qt/util.py:137
+#: electrumsv/gui/qt/qrcodewidget.py:115
+#: electrumsv/gui/qt/transaction_dialog.py:114 electrumsv/gui/qt/util.py:118
 msgid "Copy"
 msgstr "Kopieren"
 
-#: electrumsv/gui/qt/request_list.py:125
+#: electrumsv/gui/qt/installwizard.py:204
+msgid "Copy Electron Cash Wallets"
+msgstr ""
+
+#: electrumsv/gui/qt/request_list.py:120
 msgid "Copy URI"
 msgstr "URI kopieren"
 
-#: electrumsv/gui/qt/util.py:142
+#: electrumsv/gui/qt/util.py:123
 msgid "Copy and Close"
 msgstr "Kopieren und Schließen"
 
-#: electrumsv/gui/qt/util.py:525
+#: electrumsv/gui/qt/transaction_dialog.py:78 electrumsv/gui/qt/util.py:551
 msgid "Copy to clipboard"
 msgstr "In Zwischenablage kopieren"
 
-#: electrumsv/gui/qt/address_list.py:177 electrumsv/gui/qt/history_list.py:177
-#: electrumsv/gui/qt/contact_list.py:76 electrumsv/gui/qt/request_list.py:123
-#: electrumsv/gui/qt/invoice_list.py:92
+#: electrumsv/gui/qt/address_list.py:200 electrumsv/gui/qt/history_list.py:177
+#: electrumsv/gui/qt/request_list.py:118 electrumsv/gui/qt/invoice_list.py:92
 msgid "Copy {}"
 msgstr "{} kopieren"
 
-#: electrumsv/base_wizard.py:133
+#: electrumsv/base_wizard.py:134
 msgid "Cosign with hardware device"
 msgstr "Mitsignieren mit Hardwarebörse"
 
-#: electrumsv/plugins/cosigner_pool/__init__.py:2
+#: electrumsv/extensions.py:59
 msgid "Cosigner Pool"
 msgstr "Mitsignierer-Pool"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:479
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:491
-msgid "Could not sign message"
-msgstr ""
-
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:453
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:469
-msgid "Could not sign message."
-msgstr ""
-
-#: electrumsv/base_wizard.py:83
+#: electrumsv/base_wizard.py:84
 msgid "Create"
 msgstr "Erstellen"
 
-#: electrumsv/base_wizard.py:123
+#: electrumsv/base_wizard.py:124
 msgid "Create a new seed"
 msgstr "Neue Seed erstellen"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:208
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:213
 msgid "Create a wallet using the current seed"
 msgstr "Eine Börse mit dem aktuellen Seed erstellen"
 
-#: electrumsv/base_wizard.py:160
+#: electrumsv/base_wizard.py:161
 msgid "Create keystore from a master key"
 msgstr "Schlüsselspeicher mit Masterschlüssel erstellen"
 
-#: electrumsv/gui/qt/util.py:187
+#: electrumsv/gui/qt/wallet_wizard.py:494
+msgid "Create new multi-signature wallet"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:485
+msgid "Create new standard wallet"
+msgstr ""
+
+#: electrumsv/gui/qt/util.py:168
 msgid "Critical Error"
 msgstr "Kritischer Fehler"
 
-#: electrumsv/gui/qt/password_dialog.py:107
+#: electrumsv/gui/qt/password_dialog.py:160
 msgid "Current Password:"
 msgstr "Aktuelles Passwort:"
 
-#: electrumsv/gui/qt/preferences.py:364
+#: electrumsv/gui/qt/preferences.py:121
 msgid "Custom Fee Rate"
 msgstr ""
 
-#: electrumsv/gui/qt/preferences.py:365
+#: electrumsv/gui/qt/preferences.py:122
 msgid "Custom Fee Rate in Satoshis per byte"
-msgstr ""
-
-#: electrumsv/gui/qt/fee_slider.py:34
-msgid "Custom rate: "
 msgstr ""
 
 #: electrumsv/i18n.py:45
@@ -813,7 +885,7 @@ msgstr "Tschechisch"
 msgid "Danish"
 msgstr "Dänisch"
 
-#: electrumsv/gui/qt/app_state.py:138
+#: electrumsv/gui/qt/app.py:174
 msgid "Dark/Light"
 msgstr "Dunkel/Hell"
 
@@ -821,15 +893,15 @@ msgstr "Dunkel/Hell"
 msgid "Date"
 msgstr "Datum"
 
-#: electrumsv/gui/qt/transaction_dialog.py:243
+#: electrumsv/gui/qt/transaction_dialog.py:254
 msgid "Date: {}"
 msgstr "Datum: {}"
 
-#: electrumsv/base_wizard.py:221
+#: electrumsv/base_wizard.py:219
 msgid "Debug message"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2382
+#: electrumsv/gui/qt/main_window.py:2408
 msgid "Decrypt"
 msgstr "Entschlüsseln"
 
@@ -837,87 +909,87 @@ msgstr "Entschlüsseln"
 msgid "Default"
 msgstr "Standard"
 
-#: electrumsv/gui/qt/network_dialog.py:239
+#: electrumsv/gui/qt/network_dialog.py:256
 msgid "Default Servers"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:526 electrumsv/gui/qt/main_window.py:1990
-#: electrumsv/gui/qt/contact_list.py:83 electrumsv/gui/qt/request_list.py:129
-#: electrumsv/gui/qt/invoice_list.py:97
+#: electrumsv/gui/qt/main_window.py:504 electrumsv/gui/qt/main_window.py:1976
+#: electrumsv/gui/qt/dialogs.py:207 electrumsv/gui/qt/contact_list.py:251
+#: electrumsv/gui/qt/request_list.py:124 electrumsv/gui/qt/invoice_list.py:97
 msgid "Delete"
 msgstr "Löschen"
 
-#: electrumsv/gui/qt/main_window.py:1984
+#: electrumsv/gui/qt/installwizard.py:385
+msgid "Delete Wallet?"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1970
 msgid "Delete invoice?"
 msgstr "Rechnung löschen?"
 
-#: electrumsv/gui/qt/main_window.py:2179
+#: electrumsv/gui/qt/main_window.py:2191
 msgid "Delete wallet file?"
 msgstr "Börsendatei löschen?"
 
-#: electrumsv/base_wizard.py:276
+#: electrumsv/base_wizard.py:270
 msgid "Derivation for {} wallet"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:911 electrumsv/gui/qt/main_window.py:1184
+#: electrumsv/gui/qt/main_window.py:997 electrumsv/gui/qt/main_window.py:1277
 #: electrumsv/gui/qt/history_list.py:71
-#: electrumsv/gui/qt/transaction_dialog.py:236
+#: electrumsv/gui/qt/transaction_dialog.py:247
 #: electrumsv/gui/qt/request_list.py:42 electrumsv/gui/qt/invoice_list.py:41
 msgid "Description"
 msgstr "Beschreibung"
 
-#: electrumsv/gui/qt/main_window.py:1181
+#: electrumsv/gui/qt/main_window.py:1274
 msgid "Description of the transaction (not mandatory)."
 msgstr "Beschreibung der Transaktion (optional)."
 
-#: electrumsv/gui/qt/address_list.py:179 electrumsv/gui/qt/utxo_list.py:115
-#: electrumsv/gui/qt/history_list.py:185 electrumsv/gui/qt/invoice_list.py:94
+#: electrumsv/gui/qt/address_list.py:202 electrumsv/gui/qt/utxo_list.py:115
+#: electrumsv/gui/qt/payment.py:785 electrumsv/gui/qt/history_list.py:185
+#: electrumsv/gui/qt/invoice_list.py:94
 msgid "Details"
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:435
-#: electrumsv/plugins/keepkey/qt_generic.py:449
+#: electrumsv/devices/trezor/qt.py:416 electrumsv/devices/keepkey/qt.py:433
 msgid "Device ID"
 msgstr "Geräte-ID"
 
-#: electrumsv/plugins/trezor/qt.py:431 electrumsv/plugins/trezor/qt.py:455
-#: electrumsv/plugins/keepkey/qt_generic.py:445
-#: electrumsv/plugins/keepkey/qt_generic.py:470
+#: electrumsv/devices/trezor/qt.py:412 electrumsv/devices/trezor/qt.py:436
+#: electrumsv/devices/keepkey/qt.py:429 electrumsv/devices/keepkey/qt.py:453
 msgid "Device Label"
 msgstr "Gerätename"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:115
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:114
 msgid "Device communication error. Please unplug and replug your Digital Bitbox."
 msgstr ""
 
-#: electrumsv/plugins/ledger/ledger.py:185
+#: electrumsv/devices/ledger/ledger.py:193
 msgid "Device not in Bitcoin Cash mode"
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/__init__.py:5
-msgid "Digital Bitbox wallet"
-msgstr "Börse der Digital Bitbox"
-
-#: electrumsv/plugins/trezor/qt.py:537
-#: electrumsv/plugins/keepkey/qt_generic.py:545
+#: electrumsv/devices/trezor/qt.py:518 electrumsv/devices/keepkey/qt.py:511
 msgid "Disable PIN"
 msgstr "PIN deaktivieren"
 
-#: electrumsv/plugins/trezor/qt.py:312
-#: electrumsv/plugins/keepkey/qt_generic.py:332
+#: electrumsv/devices/trezor/qt.py:293 electrumsv/devices/keepkey/qt.py:341
 msgid "Disable Passphrases"
 msgstr "Passphrasen deaktivieren"
 
-#: electrumsv/plugins/trezor/qt.py:313
-#: electrumsv/plugins/keepkey/qt_generic.py:333
+#: electrumsv/devices/trezor/qt.py:294 electrumsv/devices/keepkey/qt.py:342
 msgid "Disabled"
 msgstr "Deaktiviert"
 
-#: electrumsv/gui/qt/main_window.py:1285
+#: electrumsv/gui/qt/main_window.py:1319
 msgid "Display the details of your transactions before signing it."
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:256
+#: electrumsv/gui/qt/dialogs.py:120
+msgid "Do not ask me again"
+msgstr ""
+
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:261
 msgid "Do not pair"
 msgstr "Nicht verbinden"
 
@@ -925,47 +997,47 @@ msgstr "Nicht verbinden"
 msgid "Do not run code here that you don't understand.  Running bad or malicious code could lead to your coins being irreversibly lost."
 msgstr ""
 
-#: electrumsv/gui/qt/seed_dialog.py:60
+#: electrumsv/gui/qt/dialogs.py:96
+msgid "Do not show me again"
+msgstr ""
+
+#: electrumsv/gui/qt/seed_dialog.py:61
 msgid "Do not store it electronically."
 msgstr "Speichern Sie sie nicht elektronisch."
 
-#: electrumsv/base_wizard.py:120
+#: electrumsv/base_wizard.py:121
 msgid "Do you want to create a new seed, or to restore a wallet using an existing seed?"
 msgstr "Möchten Sie eine neue Seed erstellen oder wollen Sie eine Börse von einer existierenden Seed wiederherstellen?"
 
-#: electrumsv/gui/qt/installwizard.py:403
+#: electrumsv/gui/qt/installwizard.py:483
 msgid "Do you want to delete '{}'?"
 msgstr "Möchten Sie \"{}\" löschen?"
 
-#: electrumsv/gui/qt/installwizard.py:381
+#: electrumsv/gui/qt/installwizard.py:463
 msgid "Do you want to delete the old file"
 msgstr "Möchten Sie die alte Datei löschen"
 
-#: electrumsv/plugins/cosigner_pool/qt.py:214
+#: electrumsv/gui/qt/cosigner_pool.py:200
 msgid "Do you want to open it now?"
 msgstr "Möchten Sie es jetzt öffnen?"
 
-#: electrumsv/gui/qt/main_window.py:1874
+#: electrumsv/gui/qt/main_window.py:1889
 msgid "Do you want to remove {} from your wallet?"
 msgstr "Möchten Sie {} aus ihrer Geldbörse entfernen?"
 
-#: electrumsv/gui/qt/exception_window.py:104
+#: electrumsv/gui/qt/exception_window.py:108
 msgid "Do you want to send this report?"
 msgstr "Möchten Sie diese Meldung absenden?"
 
-#: electrumsv/gui/qt/main_window.py:1538
-msgid "Do you wish to continue?"
-msgstr "Wollen Sie fortfahren?"
-
-#: electrumsv/gui/qt/main_window.py:596
+#: electrumsv/gui/qt/main_window.py:580
 msgid "Documentation"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:610
+#: electrumsv/gui/qt/main_window.py:722
 msgid "Donation for {}"
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:210
+#: electrumsv/gui/qt/coinsplitting_tab.py:211
 msgid "Dust from BSV faucet"
 msgstr ""
 
@@ -973,151 +1045,123 @@ msgstr ""
 msgid "Dutch"
 msgstr "Niederländisch"
 
-#: electrumsv/gui/qt/preferences.py:367
-msgid "Edit fees manually"
-msgstr "Transaktionsgebühren manuell bearbeiten"
+#: electrumsv/gui/qt/contact_list.py:248
+msgid "Edit"
+msgstr ""
 
-#: electrumsv/gui/qt/address_list.py:181 electrumsv/gui/qt/history_list.py:182
-#: electrumsv/gui/qt/contact_list.py:80
+#: electrumsv/gui/qt/contact_list.py:290
+msgid "Edit Contact"
+msgstr ""
+
+#: electrumsv/gui/qt/address_list.py:204 electrumsv/gui/qt/history_list.py:182
 msgid "Edit {}"
 msgstr "{} bearbeiten"
 
-#: electrumsv/gui/qt/main_window.py:2871
-msgid "ElectrumSV Plugins"
-msgstr ""
-
-#: electrumsv/plugin.py:471
+#: electrumsv/device.py:149
 msgid "ElectrumSV cannot pair with your {}.\n\n"
-"Before you request bitcoins to be sent to addresses in this wallet, ensure you can pair with your device, or that you have its seed (and passphrase, if any).  Otherwise all bitcoins you receive will be unspendable."
+"Before you request bitcoins to be sent to addresses in this wallet, ensure you can pair with your device, or that you have its seed (and passphrase, if any). Otherwise all bitcoins you receive will be unspendable."
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:19
+#: electrumsv/gui/qt/coinsplitting_tab.py:20
 msgid "ElectrumSV coin splitting"
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:654
+#: electrumsv/gui/qt/installwizard.py:724
 msgid "ElectrumSV communicates with remote servers to get information about your transactions and addresses. The servers all fulfil the same purpose only differing in hardware. In most cases you simply want to let ElectrumSV pick one at random.  However if you prefer feel free to select a server manually."
 msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:297
-msgid "ElectrumSV connects to several nodes in order to download block headers and find out the longest blockchain."
+#: electrumsv/gui/qt/network_dialog.py:313
+msgid "ElectrumSV connects to several servers in order to download block headers and find out the longest blockchain."
 msgstr ""
 
-#: electrumsv/base_wizard.py:448
-msgid "ElectrumSV is generating your addresses, please wait."
+#: electrumsv/gui/qt/wallet_wizard.py:187
+msgid "ElectrumSV is a lightweight SPV wallet for Bitcoin SV."
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:34
+#: electrumsv/gui/qt/installwizard.py:40
 msgid "ElectrumSV is generating your addresses, please wait..."
 msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:308
+#: electrumsv/gui/qt/network_dialog.py:324
 msgid "ElectrumSV sends your wallet addresses to a single server, in order to receive your transaction history."
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:303
+#: electrumsv/gui/qt/installwizard.py:195
 msgid "ElectrumSV wallet"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:471
+#: electrumsv/gui/qt/main_window.py:449
 msgid "ElectrumSV was unable to copy your wallet file to the specified location."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2469 electrumsv/gui/qt/main_window.py:2479
-msgid "ElectrumSV was unable to deserialize the transaction:"
-msgstr ""
-
-#: electrumsv/gui/qt/main_window.py:2629
+#: electrumsv/gui/qt/main_window.py:2647
 msgid "ElectrumSV was unable to export your labels."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2613
+#: electrumsv/gui/qt/main_window.py:2631
 msgid "ElectrumSV was unable to import your labels."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2450
-msgid "ElectrumSV was unable to open your transaction file"
-msgstr ""
-
-#: electrumsv/gui/qt/main_window.py:2419
-msgid "ElectrumSV was unable to parse your transaction"
-msgstr ""
-
-#: electrumsv/gui/qt/main_window.py:2582
+#: electrumsv/gui/qt/main_window.py:2600
 msgid "ElectrumSV was unable to produce a private key-export."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2653
+#: electrumsv/gui/qt/main_window.py:2670
 msgid "ElectrumSV was unable to produce a transaction export."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:618
+#: electrumsv/gui/qt/main_window.py:2472 electrumsv/gui/qt/main_window.py:2483
+#: electrumsv/gui/qt/main_window.py:2492
+msgid "ElectrumSV was unable to read the transaction:"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:730
 msgid "ElectrumSV's focus is speed, with low resource usage and simplifying Bitcoin SV. You do not need to perform regular backups, because your wallet can be recovered from a secret phrase that you can memorize or write on paper. Startup times are instant because it operates in conjunction with high-performance servers that handle the most complicated parts of the Bitcoin SV system.\n\n"
 msgstr ""
 
-#: electrumsv/plugins/email_requests/__init__.py:3
-msgid "Email"
-msgstr ""
-
-#: electrumsv/plugins/email_requests/qt.py:182
-msgid "Email settings"
-msgstr "Email-Einstellungen"
-
-#: electrumsv/plugins/trezor/qt.py:214
-#: electrumsv/plugins/keepkey/qt_generic.py:242
+#: electrumsv/devices/trezor/qt.py:202 electrumsv/devices/keepkey/qt.py:118
 msgid "Enable PIN protection"
 msgstr "PIN-Schutz aktivieren"
 
-#: electrumsv/plugins/trezor/qt.py:312
-#: electrumsv/plugins/keepkey/qt_generic.py:332
+#: electrumsv/devices/trezor/qt.py:293 electrumsv/devices/keepkey/qt.py:341
 msgid "Enable Passphrases"
 msgstr "Passphrase aktivieren"
 
-#: electrumsv/gui/qt/preferences.py:416
-msgid "Enable adding an OP_RETURN output to transactions."
-msgstr ""
-
-#: electrumsv/gui/qt/preferences.py:415
-msgid "Enable adding metadata to the blockchain with OP_RETURN"
-msgstr ""
-
-#: electrumsv/plugins/trezor/qt.py:223
-#: electrumsv/plugins/keepkey/qt_generic.py:275
+#: electrumsv/devices/trezor/qt.py:211 electrumsv/devices/keepkey/qt.py:151
 msgid "Enable passphrases"
 msgstr "Passphrasen aktivieren"
 
-#: electrumsv/plugins/trezor/qt.py:313
-#: electrumsv/plugins/keepkey/qt_generic.py:333
+#: electrumsv/devices/trezor/qt.py:294 electrumsv/devices/keepkey/qt.py:342
 msgid "Enabled"
 msgstr "Aktiviert"
 
-#: electrumsv/gui/qt/main_window.py:2378
+#: electrumsv/gui/qt/main_window.py:2404
 msgid "Encrypt"
 msgstr "Verschlüsseln"
 
-#: electrumsv/gui/qt/password_dialog.py:127
+#: electrumsv/gui/qt/password_dialog.py:186
 msgid "Encrypt wallet file"
 msgstr "Datei der Geldbörse verschlüsseln"
 
-#: electrumsv/gui/qt/main_window.py:2353
+#: electrumsv/gui/qt/main_window.py:2381
 msgid "Encrypt/decrypt Message"
 msgstr "Nachricht verschlüsseln/entschlüsseln"
 
-#: electrumsv/gui/qt/address_list.py:188
+#: electrumsv/gui/qt/address_list.py:211
 msgid "Encrypt/decrypt message"
 msgstr "Nachricht ver- oder entschlüsseln"
 
-#: electrumsv/gui/qt/main_window.py:2373
+#: electrumsv/gui/qt/main_window.py:2399
 msgid "Encrypted"
 msgstr "Verschlüsselt"
 
-#: electrumsv/plugins/trezor/trezor.py:58
-#: electrumsv/plugins/keepkey/plugin.py:27
+#: electrumsv/devices/trezor/trezor.py:73
+#: electrumsv/devices/keepkey/keepkey.py:58
 msgid "Encryption and decryption are not implemented by {}"
 msgstr "Eine Ver- oder Entschlüsselung ist mit {} nicht implementiert"
 
-#: electrumsv/plugins/ledger/ledger.py:252
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:433
+#: electrumsv/devices/ledger/ledger.py:260
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:447
 msgid "Encryption and decryption are not supported for {}"
 msgstr ""
 
@@ -1125,154 +1169,165 @@ msgstr ""
 msgid "English"
 msgstr "Englisch"
 
-#: electrumsv/plugins/trezor/qt.py:144
-#: electrumsv/plugins/keepkey/qt_generic.py:169
+#: electrumsv/devices/trezor/qt.py:143 electrumsv/devices/keepkey/qt.py:286
 msgid "Enter PIN"
 msgstr "PIN eingeben"
 
-#: electrumsv/plugins/ledger/auth2fa.py:111
-#: electrumsv/plugins/ledger/auth2fa.py:139
+#: electrumsv/devices/ledger/auth2fa.py:113
+#: electrumsv/devices/ledger/auth2fa.py:141
 msgid "Enter PIN:"
 msgstr "PIN eingeben:"
 
-#: electrumsv/plugins/hw_wallet/qt.py:130
-#: electrumsv/gui/qt/password_dialog.py:64
+#: electrumsv/devices/hw_wallet/qt.py:133
+#: electrumsv/gui/qt/password_dialog.py:120
 msgid "Enter Passphrase"
 msgstr "Passphrase eingeben"
 
-#: electrumsv/gui/qt/password_dialog.py:64
-#: electrumsv/gui/qt/password_dialog.py:211
+#: electrumsv/gui/qt/password_dialog.py:120
+#: electrumsv/gui/qt/password_dialog.py:270
 msgid "Enter Password"
 msgstr "Passwort eingeben"
 
-#: electrumsv/gui/qt/installwizard.py:528
+#: electrumsv/gui/qt/installwizard.py:605
 msgid "Enter Seed"
 msgstr "Seed eingeben"
 
-#: electrumsv/gui/qt/main_window.py:451
+#: electrumsv/gui/qt/main_window.py:429
 msgid "Enter a filename for the copy of your wallet"
 msgstr "Geben Sie einen Dateinamen für die Kopie Ihrer Wallet an"
 
-#: electrumsv/plugins/trezor/qt.py:189
-#: electrumsv/plugins/keepkey/qt_generic.py:214
+#: electrumsv/devices/trezor/qt.py:177 electrumsv/devices/keepkey/qt.py:90
 msgid "Enter a label to name your device:"
 msgstr "Geben Sie einen Namen zur Beschreibung des Geräts ein:"
 
-#: electrumsv/base_wizard.py:141
+#: electrumsv/base_wizard.py:142
 msgid "Enter a list of Bitcoin addresses (this will create a watching-only wallet), or a list of private keys."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1897
+#: electrumsv/gui/qt/main_window.py:1912
 msgid "Enter a list of outputs in the 'Pay to' field."
 msgstr "Geben Sie in das \"Zahle An\"-Feld eine Liste von Ausgängen ein."
 
-#: electrumsv/plugins/trezor/clientbase.py:235
-#: electrumsv/plugins/keepkey/clientbase.py:50
+#: electrumsv/devices/trezor/client.py:240
+#: electrumsv/devices/keepkey/client.py:225
 msgid "Enter a new PIN for your {}:"
 msgstr "Geben Sie eine neue PIN für Ihr {} ein:"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:164
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:169
 msgid "Enter a new password below."
 msgstr ""
 
-#: electrumsv/plugins/trezor/clientbase.py:251
-#: electrumsv/plugins/keepkey/clientbase.py:63
+#: electrumsv/devices/trezor/client.py:256
+#: electrumsv/devices/keepkey/client.py:238
 msgid "Enter a passphrase to generate this wallet.  Each time you use this wallet your {} will prompt you for the passphrase.  If you forget the passphrase you cannot access the bitcoins in the wallet."
 msgstr "Geben Sie eine Passphrase ein, um die Börse zu generieren. Bei jeder Nutzung der Börse werden Sie nach der Passphrase gefragt. Wenn Sie sie vergessen, können Sie nie wieder auf die Bitcoins in der Börse zugreifen."
 
-#: electrumsv/gui/qt/main_window.py:2762
+#: electrumsv/gui/qt/main_window.py:2779
 msgid "Enter addresses"
 msgstr "Adressen eingeben"
 
-#: electrumsv/base_wizard.py:131
+#: electrumsv/base_wizard.py:132
 msgid "Enter cosigner key"
 msgstr "Geben Sie den Schlüssel des Mitsignierers ein"
 
-#: electrumsv/base_wizard.py:132
+#: electrumsv/base_wizard.py:133
 msgid "Enter cosigner seed"
 msgstr "Geben Sie die Seed des Mitsignierers ein"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:134
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:137
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:149
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:152
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:132
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:135
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:147
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:150
 msgid "Enter password:"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2773
+#: electrumsv/gui/qt/main_window.py:2790
 msgid "Enter private keys"
 msgstr "Private Schlüssel eingeben"
 
-#: electrumsv/gui/qt/main_window.py:2694
+#: electrumsv/gui/qt/main_window.py:2711
 msgid "Enter private keys:"
 msgstr "Private Schlüssel eingeben:"
 
-#: electrumsv/plugins/keepkey/qt_generic.py:250
+#: electrumsv/devices/keepkey/qt.py:128
 msgid "Enter the master private key beginning with xprv:"
 msgstr "Geben Sie den privaten Generalschlüssel (beginnt mit xprv) ein:"
 
-#: electrumsv/plugins/trezor/clientbase.py:256
-#: electrumsv/plugins/keepkey/clientbase.py:68
+#: electrumsv/devices/trezor/client.py:261
+#: electrumsv/devices/keepkey/client.py:243
 msgid "Enter the passphrase to unlock this wallet:"
 msgstr "Geben Sie die Passphrase ein, um die Börse zu entsperren:"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:127
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:125
 msgid "Enter the password used when the backup was created:"
 msgstr "Geben Sie das Passwort ein, mit dem das Backup erstellt wurde:"
 
-#: electrumsv/plugins/trezor/qt.py:36
+#: electrumsv/devices/trezor/qt.py:37
 msgid "Enter the recovery words by pressing the buttons according to what the device shows on its display.  You can also use your NUMPAD.\n"
 "Press BACKSPACE to go back a choice or word.\n"
 msgstr "Geben Sie die Wiederherstellungsworte ein, indem Sie die Buttons entsprechend der Anzeige auf dem Gerät betätigen. Sie können auch das Numpad verwenden.\n"
 "Verwenden Sie die Rücktaste um zum vorherigen Wort zurückzukehren.\n"
 
-#: electrumsv/gui/qt/installwizard.py:517
+#: electrumsv/gui/qt/main_window.py:2497
+msgid "Enter the transaction ID:"
+msgstr ""
+
+#: electrumsv/gui/qt/installwizard.py:594
 msgid "Enter their master private key (xprv) if you want to be able to sign for them."
 msgstr "Geben Sie den privaten Generalschlüssel (xprv) ein, wenn Sie für sie signieren wollen."
 
-#: electrumsv/plugins/keepkey/qt_generic.py:248
+#: electrumsv/devices/keepkey/qt.py:124
 msgid "Enter your BIP39 mnemonic:"
 msgstr "Geben Sie Ihr BIP39-Mnemonic ein:"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:174
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:184
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:189
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:179
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:189
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:194
 msgid "Enter your Digital Bitbox password:"
 msgstr "Geben Sie Ihr Digital-Bitbox-Passwort ein:"
 
-#: electrumsv/plugins/keepkey/qt_generic.py:262
+#: electrumsv/devices/keepkey/qt.py:138
 msgid "Enter your PIN (digits 1-9):"
 msgstr "Geben Sie Ihre PIN ein (1. - 9. Stelle):"
 
-#: electrumsv/plugins/trezor/clientbase.py:240
-#: electrumsv/plugins/keepkey/clientbase.py:55
+#: electrumsv/devices/trezor/client.py:245
+#: electrumsv/devices/keepkey/client.py:230
 msgid "Enter your current {} PIN:"
 msgstr "Geben Sie Ihre aktuelle {}-PIN ein:"
 
-#: electrumsv/gui/qt/installwizard.py:329
+#: electrumsv/gui/qt/installwizard.py:285
 msgid "Enter your password or choose another file."
 msgstr "Geben Sie Ihr Passwort ein oder wählen Sie eine andere Datei."
 
 #: electrumsv/gui/qt/coinsplitting_tab.py:166
-#: electrumsv/gui/qt/main_window.py:1623
+#: electrumsv/gui/qt/main_window.py:1639
 msgid "Enter your password to proceed"
 msgstr "Passwort eingeben um fortzufahren"
 
-#: electrumsv/base_wizard.py:268
-msgid "Enter your wallet derivation here."
+#: electrumsv/gui/qt/password_dialog.py:274
+msgid "Enter your password:"
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:210
+#: electrumsv/base_wizard.py:262
+msgid "Enter your wallet derivation here.  If you are not sure what this is, leave this field unchanged.\n"
+msgstr ""
+
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:215
 msgid "Erase the Digital Bitbox"
 msgstr "Digital-Bitbox zurücksetzen"
 
-#: electrumsv/gui/qt/app_state.py:222 electrumsv/gui/qt/app_state.py:226
-#: electrumsv/gui/qt/installwizard.py:365
-#: electrumsv/gui/qt/installwizard.py:369 electrumsv/gui/qt/util.py:183
+#: electrumsv/gui/qt/wallet_wizard.py:59 electrumsv/gui/qt/wallet_wizard.py:63
+#: electrumsv/gui/qt/label_sync.py:247 electrumsv/gui/qt/installwizard.py:336
+#: electrumsv/gui/qt/installwizard.py:340 electrumsv/gui/qt/util.py:164
+#: electrumsv/gui/qt/util.py:197
 msgid "Error"
 msgstr "Fehler"
 
-#: electrumsv/base_wizard.py:360
+#: electrumsv/gui/qt/cosigner_pool.py:213
+msgid "Error decrypting message"
+msgstr ""
+
+#: electrumsv/base_wizard.py:341
 msgid "Error: duplicate master public key"
 msgstr "Fehler: Öffentlicher Generalschlüssel doppelt vorhanden"
 
@@ -1280,48 +1335,53 @@ msgstr "Fehler: Öffentlicher Generalschlüssel doppelt vorhanden"
 msgid "Esperanto"
 msgstr ""
 
-#: electrumsv/gui/qt/app_state.py:140
+#: electrumsv/gui/qt/installwizard.py:235
+msgid "Existing Electron Cash wallets detected"
+msgstr ""
+
+#: electrumsv/gui/qt/app.py:176
 msgid "Exit ElectrumSV"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:931
+#: electrumsv/gui/qt/main_window.py:1017
 msgid "Expiration date of your request."
 msgstr "Ablaufdatum Ihrer Anfrage."
 
-#: electrumsv/gui/qt/util.py:33
+#: electrumsv/gui/qt/util.py:30
 msgid "Expired"
 msgstr "Abgelaufen"
 
-#: electrumsv/gui/qt/main_window.py:934
+#: electrumsv/gui/qt/main_window.py:1020
 msgid "Expired requests have to be deleted manually from your list, in order to free the corresponding Bitcoin SV addresses."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1972 electrumsv/gui/qt/invoice_list.py:41
+#: electrumsv/gui/qt/main_window.py:1958 electrumsv/gui/qt/invoice_list.py:41
 msgid "Expires"
 msgstr "Läuft ab"
 
-#: electrumsv/gui/qt/main_window.py:2527 electrumsv/gui/qt/main_window.py:2641
+#: electrumsv/gui/qt/main_window.py:2545 electrumsv/gui/qt/main_window.py:2659
 msgid "Export"
 msgstr "Exportieren"
 
-#: electrumsv/gui/qt/main_window.py:2633
+#: electrumsv/gui/qt/main_window.py:2651
 msgid "Export History"
 msgstr "Transaktionsverlauf exportieren"
 
-#: electrumsv/gui/qt/main_window.py:2513
+#: electrumsv/gui/qt/main_window.py:2531
 msgid "Exposing a single private key can compromise your entire wallet!"
 msgstr "Das Herausgeben eines privaten Schlüssels kann Ihre gesamte Wallet kompromittieren!"
 
-#: electrumsv/gui/qt/seed_dialog.py:75
+#: electrumsv/gui/qt/seed_dialog.py:76
 msgid "Extend this seed with custom words"
 msgstr "Den Seed mit selbst ausgewählten Wörtern verlängern"
 
-#: electrumsv/gui/qt/preferences.py:332
+#: electrumsv/gui/qt/preferences.py:74
 msgid "Extensions"
 msgstr ""
 
-#: electrumsv/plugins/trezor/trezor.py:266
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:701
+#: electrumsv/devices/ledger/ledger.py:514
+#: electrumsv/devices/trezor/trezor.py:264
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:706
 msgid "Failed to create a client for this device."
 msgstr "Konnte keinen Client für das Gerät erstellen."
 
@@ -1329,65 +1389,55 @@ msgstr "Konnte keinen Client für das Gerät erstellen."
 msgid "Failed to import file."
 msgstr ""
 
-#: electrumsv/plugins/cosigner_pool/qt.py:182
-msgid "Failed to send transaction to cosigning pool."
-msgstr ""
-
-#: electrumsv/gui/qt/main_window.py:2098
+#: electrumsv/gui/qt/main_window.py:2129
 msgid "Failed to update password"
 msgstr "Passwort konnte nicht geändert werden"
 
-#: electrumsv/gui/qt/main_window.py:1246
-#: electrumsv/gui/qt/transaction_dialog.py:262
+#: electrumsv/gui/qt/transaction_dialog.py:273
 msgid "Fee"
 msgstr "Gebühr"
 
-#: electrumsv/gui/qt/main_window.py:2966
+#: electrumsv/gui/qt/main_window.py:2922
 msgid "Fee:"
 msgstr "Gebühr:"
 
-#: electrumsv/gui/qt/preferences.py:327
-msgid "Fees"
-msgstr "Transaktionsgebühren"
-
-#: electrumsv/gui/qt/preferences.py:330
+#: electrumsv/gui/qt/preferences.py:73
 msgid "Fiat"
 msgstr ""
 
-#: electrumsv/gui/qt/preferences.py:321
+#: electrumsv/gui/qt/preferences.py:329
 msgid "Fiat currency"
 msgstr "Fiat-Währung"
 
-#: electrumsv/gui/qt/util.py:336
+#: electrumsv/gui/qt/util.py:362
 msgid "File"
 msgstr "Datei"
 
-#: electrumsv/gui/qt/main_window.py:557
+#: electrumsv/gui/qt/main_window.py:1298
+msgid "File name"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1298
+msgid "File size"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:541
 msgid "Find"
 msgstr "Suche"
 
-#: electrumsv/plugins/trezor/qt.py:434
-#: electrumsv/plugins/keepkey/qt_generic.py:448
+#: electrumsv/devices/trezor/qt.py:415 electrumsv/devices/keepkey/qt.py:432
 msgid "Firmware Version"
 msgstr "Firmware-Version"
 
-#: electrumsv/gui/qt/fee_slider.py:38
-msgid "Fixed rate: "
-msgstr ""
-
-#: electrumsv/gui/qt/network_dialog.py:92
-msgid "Follow this branch"
-msgstr "Diesem Zweig folgen"
-
-#: electrumsv/gui/qt/util.py:310
+#: electrumsv/gui/qt/util.py:336
 msgid "Format"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1899
+#: electrumsv/gui/qt/main_window.py:1914
 msgid "Format: address, amount"
 msgstr "Format: Adresse, Menge"
 
-#: electrumsv/gui/qt/address_list.py:200
+#: electrumsv/gui/qt/address_list.py:229
 msgid "Freeze"
 msgstr "Einfrieren"
 
@@ -1411,32 +1461,28 @@ msgstr ""
 msgid "French"
 msgstr "Französisch"
 
-#: electrumsv/gui/qt/main_window.py:1206
+#: electrumsv/gui/qt/main_window.py:1230
 msgid "From"
 msgstr "Von"
 
-#: electrumsv/gui/qt/installwizard.py:695
+#: electrumsv/gui/qt/installwizard.py:764
 #, python-format
 msgid "From %d cosigners"
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:298
+#: electrumsv/gui/qt/coinsplitting_tab.py:308
 msgid "Frozen coins will not be included in any split you make. You can use the Coins tab to freeze or unfreeze selected coins, and by doing so only split chosen amounts of your coins at a time.  The View menu can be used to toggle tabs."
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:223
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:228
 msgid "Full 2FA enabled. This is not supported yet."
 msgstr ""
 
-#: electrumsv/gui/qt/preferences.py:329
+#: electrumsv/gui/qt/preferences.py:71
 msgid "General"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1263
-msgid "Generally, a fee of 1.0 sats/B is a good minimal rate to ensure your transaction will make it into the next block."
-msgstr ""
-
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:231
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:236
 msgid "Generate a new random wallet"
 msgstr "Neue zufällige Börse generieren"
 
@@ -1448,48 +1494,51 @@ msgstr "Deutsch"
 msgid "Greek"
 msgstr "Griechisch"
 
-#: electrumsv/plugin.py:421
-msgid "Handler not found for"
-msgstr "Plugin-Handler nicht gefunden:"
-
-#: electrumsv/base_wizard.py:179
+#: electrumsv/base_wizard.py:180
 msgid "Hardware Keystore"
 msgstr "Hardware-Schlüsselspeicher"
 
-#: electrumsv/gui/qt/utxo_list.py:40 electrumsv/gui/qt/network_dialog.py:77
+#: electrumsv/devices/hw_wallet/qt.py:206
+msgid "Hardware Wallet"
+msgstr ""
+
+#: electrumsv/gui/qt/dialogs.py:215
+msgid "Hardware Wallet Quality"
+msgstr ""
+
+#: electrumsv/gui/qt/utxo_list.py:40 electrumsv/gui/qt/network_dialog.py:78
 msgid "Height"
 msgstr "Höhe"
 
-#: electrumsv/gui/qt/installwizard.py:644
+#: electrumsv/gui/qt/installwizard.py:714
 msgid "Here is your master public key."
 msgstr "Das ist Ihr öffentliche Generalschlüssel."
 
-#: electrumsv/gui/qt/main_window.py:269 electrumsv/gui/qt/main_window.py:561
+#: electrumsv/gui/qt/main_window.py:270 electrumsv/gui/qt/main_window.py:545
 msgid "Hide"
 msgstr "Ausblenden"
 
-#: electrumsv/gui/qt/address_dialog.py:89 electrumsv/gui/qt/main_window.py:161
+#: electrumsv/gui/qt/address_dialog.py:89 electrumsv/gui/qt/main_window.py:165
 msgid "History"
 msgstr "Transaktionen"
 
-#: electrumsv/plugins/trezor/qt.py:482
-#: electrumsv/plugins/keepkey/qt_generic.py:499
+#: electrumsv/devices/trezor/qt.py:463
 msgid "Homescreen"
 msgstr "Startbildschirm"
 
-#: electrumsv/gui/qt/network_dialog.py:142
+#: electrumsv/gui/qt/network_dialog.py:159
 msgid "Host"
 msgstr "Server"
 
-#: electrumsv/gui/qt/installwizard.py:661
+#: electrumsv/gui/qt/installwizard.py:731
 msgid "How do you want to connect to a server? "
 msgstr "Wie möchten Sie sich mit einem Server verbinden? "
 
-#: electrumsv/gui/qt/seed_dialog.py:40
+#: electrumsv/gui/qt/seed_dialog.py:41
 msgid "However, BIP39 seeds do not include a version number, which compromises compatibility with future wallet software."
 msgstr ""
 
-#: electrumsv/plugins/cosigner_pool/qt.py:201
+#: electrumsv/gui/qt/cosigner_pool.py:185
 msgid "However, hardware wallets do not support message decryption, which makes them not compatible with the current design of cosigner pool."
 msgstr "Allerdings unterstützen Hardware-Wallets keine Nachrichtenentschlüsselung, weshalb sie mit dem aktuellen Design des Cosigner-Pools nicht kompatiblen sind."
 
@@ -1497,138 +1546,179 @@ msgstr "Allerdings unterstützen Hardware-Wallets keine Nachrichtenentschlüssel
 msgid "Hungarian"
 msgstr "Ungarisch"
 
-#: electrumsv/base_wizard.py:124
+#: electrumsv/base_wizard.py:125
 msgid "I already have a seed"
 msgstr "Ich habe bereits eine Seed"
 
-#: electrumsv/gui/qt/preferences.py:331
+#: electrumsv/gui/qt/contact_list.py:390
 msgid "Identity"
 msgstr "Identität"
 
-#: electrumsv/gui/qt/network_dialog.py:227
+#: electrumsv/gui/qt/contact_list.py:388
+msgid "Identity Type"
+msgstr ""
+
+#: electrumsv/gui/qt/network_dialog.py:244
 msgid "If auto-connect is enabled, ElectrumSV will always use a server that is on the longest blockchain."
 msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:229
+#: electrumsv/gui/qt/network_dialog.py:246
 msgid "If it is disabled, you have to choose a server you want to use. ElectrumSV will warn you if your server is lagging."
 msgstr ""
 
-#: electrumsv/base_wizard.py:269
-msgid "If you are not sure what this is, leave this field unchanged."
-msgstr "Wenn Sie nicht wissen, was das ist, lassen Sie das Feld unverändert."
+#: electrumsv/gui/qt/wallet_wizard.py:464
+msgid "If the original wallet application a seed phrase came from is still being used to access the given wallet, then it is not always safe to access it in ElectrumSV while this is the case."
+msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:540
-#: electrumsv/plugins/keepkey/qt_generic.py:548
+#: electrumsv/gui/qt/main_window.py:1287
+msgid "If you attach files, the 'Pay to' field can be left blank."
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:521 electrumsv/devices/keepkey/qt.py:514
 msgid "If you disable your PIN, anyone with physical access to your {} device can spend your bitcoins."
 msgstr "Wenn Sie Ihre PIN deaktivieren, kann jeder der auf ihr {}-Gerät zugreifen kann, ihre Bitcoins ausgeben."
 
-#: electrumsv/base_wizard.py:306
+#: electrumsv/base_wizard.py:298
 msgid "If you do not know what this is, leave this field empty."
 msgstr "Wenn Sie nicht wissen, was das ist, lassen Sie das Feld leer."
 
-#: electrumsv/plugins/trezor/qt.py:32
-#: electrumsv/plugins/keepkey/qt_generic.py:34
+#: electrumsv/devices/trezor/qt.py:33 electrumsv/devices/keepkey/qt.py:61
 msgid "If you forget a passphrase you will be unable to access any bitcoins in the wallet behind it.  A passphrase is not a PIN. Only change this if you are sure you understand it."
 msgstr "Wenn Sie Ihre Passphrase vergessen haben, können Sie auf keine Bitcoins in der Börse mehr zugreifen. Eine Passphrase ist keine PIN. Setzen Sie sie nur, wenn Sie das verstehen."
 
-#: electrumsv/gui/qt/installwizard.py:538
+#: electrumsv/gui/qt/installwizard.py:615
 msgid "If you lose your seed, your money will be permanently lost."
 msgstr "Wenn Sie die Seed verlieren, ist das Geld für immer verloren."
 
-#: electrumsv/gui/qt/main_window.py:1192
-msgid "If you specify OP_RETURN text, you may leave the 'Pay to' field blank."
-msgstr ""
-
-#: electrumsv/base_wizard.py:271
-msgid "If you want the wallet to use BCH(ABC) or BSV addresses use m/44'/145'/0'"
-msgstr ""
-
-#: electrumsv/base_wizard.py:270
-msgid "If you want the wallet to use BTC addresses use m/44'/0'/0'"
-msgstr ""
-
-#: electrumsv/gui/qt/main_window.py:1085
+#: electrumsv/gui/qt/main_window.py:1142
 msgid "If you want to create new addresses, use a deterministic wallet instead."
 msgstr "Wenn Sie eine neue Adresse generieren wollen, nutzen Sie stattdessen eine deterministische Geldbörse."
 
-#: electrumsv/base_wizard.py:217
+#: electrumsv/base_wizard.py:215
 msgid "If your device is not detected on Windows, go to \"Settings\", \"Devices\", \"Connected devices\", and do \"Remove device\". Then, plug your device again."
 msgstr "Wenn Ihr Gerät unter Windows nicht erkannt wird, öffnen Sie \"Geräte\", \"Verbundene Geräte\" und wählen Sie \"Gerät entfernen\". Stecken Sie das Gerät dann wieder ein."
 
-#: electrumsv/gui/qt/main_window.py:2181
+#: electrumsv/gui/qt/main_window.py:2193
 msgid "If your wallet contains funds, make sure you have saved its seed."
 msgstr "Wenn Ihre Börse noch Mittel enthält, achten Sie darauf, dass Sie die Seed besitzen."
 
-#: electrumsv/gui/qt/main_window.py:550 electrumsv/gui/qt/main_window.py:552
-#: electrumsv/gui/qt/main_window.py:2737
+#: electrumsv/gui/qt/preferences.py:226
+msgid "Ignore unstable releases"
+msgstr ""
+
+#: electrumsv/gui/qt/dialogs.py:209
+msgid "Illegal Files Are Traceable"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:536 electrumsv/gui/qt/main_window.py:2754
 msgid "Import"
 msgstr "Importieren"
 
-#: electrumsv/base_wizard.py:140
+#: electrumsv/base_wizard.py:141
 msgid "Import Bitcoin Addresses"
 msgstr "Bitcoin-Adresse importieren"
 
-#: electrumsv/base_wizard.py:90
+#: electrumsv/base_wizard.py:91
 msgid "Import Bitcoin addresses or private keys"
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:261
+#: electrumsv/gui/qt/installwizard.py:363
 msgid "Import Electron Cash wallets"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:541 electrumsv/gui/qt/main_window.py:2762
+#: electrumsv/gui/qt/wallet_wizard.py:590
+msgid "Import Wallet From Text"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:526 electrumsv/gui/qt/main_window.py:2779
 msgid "Import addresses"
 msgstr "Adressen importieren"
 
-#: electrumsv/gui/qt/contact_list.py:70
-msgid "Import file"
-msgstr "Datei importieren"
+#: electrumsv/gui/qt/wallet_wizard.py:565
+msgid "Import hardware wallet (Digital Bitbox)"
+msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:257
+#: electrumsv/gui/qt/wallet_wizard.py:570
+msgid "Import hardware wallet (Keepkey)"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:575
+msgid "Import hardware wallet (Ledger)"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:580
+msgid "Import hardware wallet (Trezor)"
+msgstr ""
+
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:262
 msgid "Import pairing from the Digital Bitbox desktop app"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2773
+#: electrumsv/gui/qt/main_window.py:2790
 msgid "Import private keys"
 msgstr "Private Schlüssel importieren"
+
+#: electrumsv/gui/qt/wallet_wizard.py:503
+msgid "Import wallet file"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:522
+msgid "Import wallet using seed phrase (Centbee)"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:536
+msgid "Import wallet using seed phrase (HandCash)"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:550
+msgid "Import wallet using seed phrase (MoneyButton)"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:511
+msgid "Import wallet using text (any seed phrase, public keys, private keys or addresses)"
+msgstr ""
+
+#: electrumsv/gui/qt/installwizard.py:236
+msgid "Import..."
+msgstr ""
 
 #: electrumsv/exceptions.py:46
 msgid "Importing encrypted files is not supported."
 msgstr ""
 
-#: electrumsv/gui/qt/seed_dialog.py:44
+#: electrumsv/gui/qt/seed_dialog.py:45
 msgid "In addition, ElectrumSV does not verify the checksum of BIP39 seeds; make sure you type your seed correctly."
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:304
+#: electrumsv/gui/qt/coinsplitting_tab.py:314
 msgid "In order to prevent abuse, the faucet will limit how often you can obtain dust to split with. But that's okay, you can wait and split more coins. Or, if you are not concerned with your coins being linked, you can split dust from your already split coins, and use that to split further subsets."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2514
+#: electrumsv/gui/qt/main_window.py:2532
 msgid "In particular, DO NOT use 'redeem private key' services proposed by third parties."
 msgstr "Insbesondere sollten Sie NIEMALS private Schlüssel bei einem Drittanbieter einlösen (\"redeem private key\")."
 
-#: electrumsv/gui/qt/preferences.py:397
+#: electrumsv/gui/qt/preferences.py:379
 msgid "In some cases, use up to 3 change addresses in order to break up large coin amounts and obfuscate the recipient address."
 msgstr "Das kann bis zu 3 Wechselgeld-Adressen benutzen, um große Beträge zu teilen und die Empfänger-Adressen zu verschleiern."
 
-#: electrumsv/gui/qt/fee_slider.py:31
-msgid "In the next block"
-msgstr "Im nächsten Block"
-
-#: electrumsv/gui/qt/coinsplitting_tab.py:33
+#: electrumsv/gui/qt/coinsplitting_tab.py:34
 msgid "Inactive"
 msgstr ""
 
-#: electrumsv/exceptions.py:34
+#: electrumsv/gui/qt/contact_list.py:354
+msgid "Incorrect format"
+msgstr ""
+
+#: electrumsv/exceptions.py:34 electrumsv/gui/qt/installwizard.py:336
 msgid "Incorrect password"
 msgstr "Falsches Passwort"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:182
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:187
 msgid "Incorrect password entered."
 msgstr ""
 
-#: electrumsv/gui/qt/address_list.py:59
+#: electrumsv/gui/qt/address_list.py:56
 msgid "Index"
 msgstr ""
 
@@ -1636,83 +1726,77 @@ msgstr ""
 msgid "Indonesian"
 msgstr "Indonesisch"
 
-#: electrumsv/plugins/trezor/qt.py:577
-#: electrumsv/plugins/keepkey/qt_generic.py:585
-#: electrumsv/gui/qt/main_window.py:431 electrumsv/gui/qt/util.py:191
+#: electrumsv/devices/trezor/qt.py:558 electrumsv/devices/keepkey/qt.py:551
+#: electrumsv/gui/qt/main_window.py:410 electrumsv/gui/qt/util.py:172
 msgid "Information"
 msgstr ""
 
-#: electrumsv/plugins/trezor/trezor.py:187
-#: electrumsv/plugins/keepkey/plugin.py:162
+#: electrumsv/devices/trezor/trezor.py:197
+#: electrumsv/devices/keepkey/keepkey.py:232
 msgid "Initialize Device"
 msgstr "Gerät einrichten"
 
-#: electrumsv/plugins/trezor/qt.py:438
-#: electrumsv/plugins/keepkey/qt_generic.py:453
+#: electrumsv/devices/trezor/qt.py:419 electrumsv/devices/keepkey/qt.py:436
 msgid "Initialized"
 msgstr "Eingerichtet"
 
-#: electrumsv/gui/qt/main_window.py:2954
+#: electrumsv/gui/qt/main_window.py:2909
 msgid "Input amount"
 msgstr "Eingangssumme"
 
-#: electrumsv/gui/qt/main_window.py:2460
+#: electrumsv/gui/qt/main_window.py:2476
 msgid "Input raw transaction"
 msgstr "Roh-Transaktionsdaten eingeben"
 
-#: electrumsv/gui/qt/transaction_dialog.py:280
+#: electrumsv/gui/qt/transaction_dialog.py:294
 msgid "Inputs"
 msgstr "Eingänge"
 
-#: electrumsv/gui/qt/preferences.py:220
+#: electrumsv/gui/qt/preferences.py:203
 msgid "Install the zbar package to enable this."
 msgstr "Zum Aktivieren das \"zbar\"-Paket installieren."
 
-#: electrumsv/gui/qt/main_window.py:1582
+#: electrumsv/gui/qt/main_window.py:1607
 msgid "Insufficient funds"
 msgstr "Guthaben nicht ausreichend"
 
-#: electrumsv/gui/qt/main_window.py:1917
-msgid "Invalid Address"
-msgstr "Ungültige Adresse"
-
-#: electrumsv/gui/qt/main_window.py:1560
+#: electrumsv/gui/qt/main_window.py:1539
 msgid "Invalid Amount"
 msgstr "Ungültiger Betrag"
 
-#: electrumsv/gui/qt/main_window.py:2257 electrumsv/gui/qt/main_window.py:2278
+#: electrumsv/gui/qt/main_window.py:2267 electrumsv/gui/qt/main_window.py:2299
 msgid "Invalid Bitcoin SV address."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1528
+#: electrumsv/gui/qt/main_window.py:2375
+msgid "Invalid Public key"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1525
 msgid "Invalid lines found:"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1956
+#: electrumsv/gui/qt/main_window.py:1942
 msgid "Invoice"
 msgstr "Rechnung"
 
-#: electrumsv/gui/qt/main_window.py:1981
+#: electrumsv/gui/qt/main_window.py:1967
 msgid "Invoice saved as "
 msgstr "Rechnung gespeichert als "
 
-#: electrumsv/gui/qt/main_window.py:551 electrumsv/gui/qt/main_window.py:1341
+#: electrumsv/gui/qt/main_window.py:535 electrumsv/gui/qt/main_window.py:1366
 msgid "Invoices"
 msgstr "Rechnungen"
 
-#: electrumsv/gui/qt/main_window.py:2504
+#: electrumsv/gui/qt/main_window.py:2522
 msgid "It can not be \"backed up\" by simply exporting these private keys."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1261
-msgid "It is calculated from the Custom Fee Rate in preferences, but can be overridden from the manual fee edit on this form (if enabled)."
-msgstr ""
-
-#: electrumsv/plugins/cosigner_pool/__init__.py:5
+#: electrumsv/extensions.py:62
 msgid "It sends and receives partially signed transactions from/to your cosigner wallet."
 msgstr "Es sendet bzw. empfängt teilweise signierte Transaktionen von/an die Börse Ihres Mitsignierers."
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:134
+#: electrumsv/gui/qt/coinsplitting_tab.py:138
 msgid "It took too long to get the dust from the faucet."
 msgstr ""
 
@@ -1724,19 +1808,15 @@ msgstr "Italienisch"
 msgid "Japanese"
 msgstr "Japanisch"
 
-#: electrumsv/plugins/keepkey/qt_generic.py:59
+#: electrumsv/devices/keepkey/qt.py:181
 msgid "KeepKey Seed Recovery"
 msgstr "KeeyKey Seed-Sicherung"
 
-#: electrumsv/plugins/keepkey/__init__.py:6
-msgid "KeepKey wallet"
-msgstr "KeepKey Börse"
-
-#: electrumsv/gui/qt/main_window.py:1219
+#: electrumsv/gui/qt/main_window.py:1253
 msgid "Keyboard shortcut: type \"!\" to send all your coins."
 msgstr "Tastenkombination: \"!\" drücken um alle Coins zu senden."
 
-#: electrumsv/base_wizard.py:118
+#: electrumsv/base_wizard.py:119
 msgid "Keystore"
 msgstr "Schlüsselspeicher"
 
@@ -1744,25 +1824,24 @@ msgstr "Schlüsselspeicher"
 msgid "Kyrgyz"
 msgstr "Kirgisisch"
 
-#: electrumsv/gui/qt/address_list.py:59 electrumsv/gui/qt/utxo_list.py:40
+#: electrumsv/gui/qt/address_list.py:56 electrumsv/gui/qt/utxo_list.py:40
 msgid "Label"
 msgstr "Beschreibung"
 
-#: electrumsv/plugins/labels/qt.py:33
+#: electrumsv/gui/qt/label_sync.py:226
 msgid "Label Settings"
 msgstr "Labeleinstellungen"
 
-#: electrumsv/plugins/labels/__init__.py:3
+#: electrumsv/extensions.py:67
 msgid "LabelSync"
 msgstr ""
 
-#: electrumsv/plugins/labels/__init__.py:7
-msgid "Labels, transactions IDs and addresses are encrypted before they are sent to the remote server."
-msgstr "Beschreibungen, Transaktions-IDs und Adressen werden vor dem Senden verschlüsselt."
+#: electrumsv/extensions.py:71
+msgid "Labels, transactions IDs and addresses are encrypted before they are xsent to the remote server."
+msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:437
-#: electrumsv/plugins/keepkey/qt_generic.py:452
-#: electrumsv/gui/qt/preferences.py:78
+#: electrumsv/devices/trezor/qt.py:418 electrumsv/devices/keepkey/qt.py:435
+#: electrumsv/gui/qt/preferences.py:143
 msgid "Language"
 msgstr "Sprache"
 
@@ -1770,235 +1849,252 @@ msgstr "Sprache"
 msgid "Latvian"
 msgstr "Lettisch"
 
-#: electrumsv/gui/qt/installwizard.py:40
+#: electrumsv/gui/qt/installwizard.py:46
 msgid "Leave this field empty if you want to disable encryption."
 msgstr "Lassen Sie das Feld leer, um die Verschlüsselung zu deaktivieren."
 
-#: electrumsv/plugins/ledger/qt.py:50
+#: electrumsv/devices/ledger/qt.py:41
 msgid "Ledger Status"
 msgstr "Ledger-Status"
 
-#: electrumsv/plugins/ledger/auth2fa.py:48
+#: electrumsv/devices/ledger/auth2fa.py:50
 msgid "Ledger Wallet Authentication"
 msgstr "Ledger Börsenauthentifizierung"
 
-#: electrumsv/plugins/ledger/__init__.py:6
-msgid "Ledger wallet"
-msgstr "Ledger-Börse"
-
-#: electrumsv/plugins/trezor/trezor.py:168
-#: electrumsv/plugins/keepkey/plugin.py:150
+#: electrumsv/devices/trezor/trezor.py:179
+#: electrumsv/devices/keepkey/keepkey.py:220
 msgid "Let the device generate a completely new seed randomly"
 msgstr "Lassen Sie das Gerät zufällig einen völlig neuen Seed erzeugen"
 
-#: electrumsv/plugins/hw_wallet/plugin.py:91
+#: electrumsv/gui/qt/log_window.py:123
+msgid "Level:"
+msgstr ""
+
+#: electrumsv/devices/hw_wallet/plugin.py:84
 msgid "Library version for '{}' is incompatible."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1529
+#: electrumsv/gui/qt/main_window.py:1526
 msgid "Line #"
 msgstr "Zeilennummer"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:232
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:237
 msgid "Load a wallet from the micro SD card"
 msgstr "Eine Börse von der microSD-Karte laden"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:209
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:214
 msgid "Load a wallet from the micro SD card (the current seed is overwritten)"
 msgstr "Laden einer Börse von der microSD-Karte (die aktuelle Seed wird überschrieben)"
 
-#: electrumsv/gui/qt/main_window.py:2461
+#: electrumsv/gui/qt/main_window.py:2477
 msgid "Load transaction"
 msgstr "Transaktion laden"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:313
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:318
 msgid "Loading backup..."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2484
+#: electrumsv/gui/qt/log_window.py:121
+msgid "Log Category:"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:607
+msgid "Log Viewer"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:2498
 msgid "Lookup transaction"
 msgstr "Transaktion anschauen"
 
-#: electrumsv/wallet.py:70
-msgid "Low fee"
-msgstr "Niedrige Gebühr"
+#: electrumsv/gui/qt/virtual_keyboard.py:38
+msgid "Lower-case letters"
+msgstr ""
 
-#: electrumsv/plugins/trezor/trezor.py:267
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:702
+#: electrumsv/devices/ledger/ledger.py:515
+#: electrumsv/devices/trezor/trezor.py:265
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:707
 msgid "Make sure it is in the correct state."
 msgstr "Überprüfe ob es in dem richtigen Modus ist."
 
-#: electrumsv/plugins/hw_wallet/qt.py:202
-#: electrumsv/plugins/hw_wallet/plugin.py:104
+#: electrumsv/devices/hw_wallet/qt.py:217
+#: electrumsv/devices/hw_wallet/plugin.py:97
 msgid "Make sure you install it with python3"
 msgstr "Achten Sie darauf, es für Python 3 zu installieren"
 
-#: electrumsv/gui/qt/main_window.py:428
+#: electrumsv/gui/qt/main_window.py:407
 msgid "Make sure you own the seed phrase or the private keys, before you request Bitcoin SV to be sent to this wallet."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2169 electrumsv/gui/qt/installwizard.py:650
+#: electrumsv/gui/qt/main_window.py:2181 electrumsv/gui/qt/installwizard.py:720
 msgid "Master Public Key"
 msgstr "Öffentlicher Generalschlüssel"
 
-#: electrumsv/gui/qt/main_window.py:2166
+#: electrumsv/gui/qt/main_window.py:2178
 msgid "Master Public Keys"
 msgstr "Öffentliche Generalschlüssel"
 
-#: electrumsv/plugins/trezor/qt.py:246
+#: electrumsv/devices/trezor/qt.py:234
 msgid "Matrix"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1231
+#: electrumsv/gui/qt/main_window.py:1265
 msgid "Max"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2981
+#: electrumsv/gui/qt/main_window.py:2930
 msgid "Max fee exceeded"
 msgstr "Maximale Gebühr überschritten"
 
-#: electrumsv/gui/qt/main_window.py:1967
+#: electrumsv/gui/qt/main_window.py:1953
 msgid "Memo"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2300 electrumsv/gui/qt/main_window.py:2359
+#: electrumsv/gui/qt/main_window.py:2322 electrumsv/gui/qt/main_window.py:2388
+#: electrumsv/gui/qt/contact_list.py:245
 msgid "Message"
 msgstr "Nachricht"
 
-#: electrumsv/plugins/ledger/auth2fa.py:85
+#: electrumsv/devices/ledger/auth2fa.py:88
 msgid "Method:"
 msgstr "Methode:"
 
 #: electrumsv/gui/qt/coinsplitting_tab.py:161
-#: electrumsv/gui/qt/main_window.py:1602
+#: electrumsv/gui/qt/main_window.py:1627
 msgid "Mining fee"
 msgstr "Mining-Vergütung"
 
-#: electrumsv/plugins/hw_wallet/plugin.py:103
+#: electrumsv/devices/hw_wallet/plugin.py:96
 msgid "Missing libraries for {}."
 msgstr ""
 
-#: electrumsv/plugins/ledger/auth2fa.py:177
+#: electrumsv/devices/ledger/auth2fa.py:178
 msgid "Mobile - Not paired"
 msgstr "Mobilgerät - nicht verbunden"
 
-#: electrumsv/plugins/ledger/auth2fa.py:179
+#: electrumsv/devices/ledger/auth2fa.py:180
 msgid "Mobile - {}"
 msgstr "Mobilgerät - {}"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:260
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:265
 msgid "Mobile pairing options"
 msgstr "Verbindungsoptionen zum Mobilgerät"
 
-#: electrumsv/gui/qt/installwizard.py:707
+#: electrumsv/gui/qt/installwizard.py:776
 msgid "Multi-Signature Wallet"
 msgstr "Geldbörse mit mehreren Unterschriften"
 
-#: electrumsv/base_wizard.py:89
+#: electrumsv/base_wizard.py:90
 msgid "Multi-signature wallet"
 msgstr "Multisignaturbörse"
 
-#: electrumsv/plugins/ledger/auth2fa.py:113
-#: electrumsv/plugins/ledger/auth2fa.py:146
+#: electrumsv/devices/ledger/auth2fa.py:115
+#: electrumsv/devices/ledger/auth2fa.py:147
 msgid "NOT DEVICE PIN - see above"
 msgstr "Nicht die Geräte-PIN (Details oben)"
 
-#: electrumsv/gui/qt/main_window.py:2128 electrumsv/gui/qt/contact_list.py:42
+#: electrumsv/gui/qt/contact_list.py:392
 msgid "Name"
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:451
+#: electrumsv/gui/qt/contact_list.py:369
+msgid "Name already in use"
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:432 electrumsv/devices/keepkey/qt.py:449
 msgid "Name this {}.  If you have multiple devices their labels help distinguish them."
 msgstr "Benennen Sie den {}. Wenn Sie mehrere besitzen, hilft der Name, sie auseinanderzuhalten."
 
-#: electrumsv/plugins/keepkey/qt_generic.py:466
-msgid "Name this {}.  If you have mutiple devices their labels help distinguish them."
+#: electrumsv/gui/qt/contact_list.py:367
+msgid "Name too short"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2070 electrumsv/gui/qt/network_dialog.py:51
+#: electrumsv/gui/qt/main_window.py:611 electrumsv/gui/qt/network_dialog.py:53
 msgid "Network"
 msgstr "Netzwerk"
 
-#: electrumsv/gui/qt/exception_window.py:113
-#: electrumsv/gui/qt/request_list.py:56 electrumsv/gui/qt/util.py:40
+#: electrumsv/gui/qt/exception_window.py:117
+#: electrumsv/gui/qt/request_list.py:56 electrumsv/gui/qt/util.py:37
 #: electrumsv/gui/qt/invoice_list.py:55
 msgid "Never"
 msgstr "Nie"
 
-#: electrumsv/gui/qt/seed_dialog.py:58
+#: electrumsv/gui/qt/seed_dialog.py:59
 msgid "Never disclose your seed."
 msgstr "Geben Sie niemals den Seed weiter."
 
-#: electrumsv/gui/qt/seed_dialog.py:59
+#: electrumsv/gui/qt/seed_dialog.py:60
 msgid "Never type it on a website."
 msgstr "Geben Sie es niemals auf einer Webseite ein."
 
-#: electrumsv/gui/qt/main_window.py:950
+#: electrumsv/gui/qt/main_window.py:1036
 msgid "New"
 msgstr "Neu"
 
-#: electrumsv/gui/qt/main_window.py:2118 electrumsv/gui/qt/main_window.py:2120
+#: electrumsv/gui/qt/contact_list.py:292
 msgid "New Contact"
 msgstr "Neuer Kontakt"
 
-#: electrumsv/gui/qt/password_dialog.py:104
+#: electrumsv/gui/qt/password_dialog.py:157
 msgid "New Password:"
 msgstr "Neues Passwort:"
 
-#: electrumsv/gui/qt/contact_list.py:69
-msgid "New contact"
-msgstr "Neuer Kontakt"
-
-#: electrumsv/gui/qt/main_window.py:670
+#: electrumsv/gui/qt/main_window.py:776
 msgid "New transaction received: {}"
 msgstr "Neue Transaktion empfangen: {}"
 
-#: electrumsv/plugins/trezor/qt.py:311
-#: electrumsv/plugins/keepkey/qt_generic.py:331
+#: electrumsv/gui/qt/payment.py:696
+msgid "Next >>"
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:292 electrumsv/devices/keepkey/qt.py:340
 msgid "No"
 msgstr "Nein"
 
-#: electrumsv/exchange_rate.py:461
+#: electrumsv/gui/qt/installwizard.py:257
+msgid "No Electron Cash wallets detected"
+msgstr ""
+
+#: electrumsv/exchange_rate.py:407
 msgid "No data"
 msgstr "Keine Daten verfügbar"
 
-#: electrumsv/base_wizard.py:212
+#: electrumsv/base_wizard.py:210
 msgid "No exceptions encountered."
 msgstr ""
 
-#: electrumsv/base_wizard.py:215
+#: electrumsv/base_wizard.py:213
 msgid "No hardware device detected."
 msgstr "Kein Hardwaregerät erkannt."
 
-#: electrumsv/wallet.py:135
+#: electrumsv/wallet.py:126
 msgid "No inputs found. (Note that inputs need to be confirmed)"
 msgstr "Keine Inputs gefunden. (Inputs müssen bestätigt werden)"
 
-#: electrumsv/gui/qt/main_window.py:1041
+#: electrumsv/gui/qt/main_window.py:1099
 msgid "No message or amount"
 msgstr "Keine Nachricht oder Betrag"
 
-#: electrumsv/gui/qt/main_window.py:1082
+#: electrumsv/gui/qt/main_window.py:1139
 msgid "No more addresses in your wallet."
 msgstr "Es sind keine Adressen mehr in ihrer Geldbörse vorhanden."
 
-#: electrumsv/gui/qt/main_window.py:1555
+#: electrumsv/gui/qt/main_window.py:1534
 msgid "No outputs"
 msgstr "Keine Ausgänge"
 
-#: electrumsv/gui/qt/main_window.py:1037
+#: electrumsv/gui/qt/main_window.py:1095
 msgid "No receiving address"
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:573
+#: electrumsv/gui/qt/installwizard.py:650
 msgid "No transactions found for this seed"
 msgstr "Keine Transaktionen für diesen Seed gefunden"
 
-#: electrumsv/gui/qt/installwizard.py:233
+#: electrumsv/gui/qt/installwizard.py:405
 msgid "No wallets are selected / will be copied."
 msgstr ""
 
-#: electrumsv/gui/qt/preferences.py:246 electrumsv/gui/qt/network_dialog.py:360
+#: electrumsv/gui/qt/preferences.py:258 electrumsv/gui/qt/network_dialog.py:379
 msgid "None"
 msgstr "Keine Angabe"
 
@@ -2006,112 +2102,111 @@ msgstr "Keine Angabe"
 msgid "Norwegian"
 msgstr ""
 
-#: electrumsv/gui/qt/exception_window.py:117
+#: electrumsv/gui/qt/exception_window.py:121
 msgid "Not Now"
 msgstr "Später"
 
-#: electrumsv/wallet.py:72
+#: electrumsv/wallet.py:71
 msgid "Not Verified"
 msgstr "Nicht bestätigt"
 
-#: electrumsv/gui/qt/qrtextedit.py:54
+#: electrumsv/gui/qt/qrtextedit.py:53
 msgid "Not a text file"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:846 electrumsv/gui/qt/network_dialog.py:371
+#: electrumsv/gui/qt/contact_list.py:352
+msgid "Not a valid Bitcoin address"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:934 electrumsv/gui/qt/network_dialog.py:390
 msgid "Not connected"
 msgstr "Nicht verbunden"
 
-#: electrumsv/gui/qt/main_window.py:1312
+#: electrumsv/gui/qt/main_window.py:1350
 msgid "Not enough funds"
 msgstr "Zu niedriges Guthaben"
 
-#: electrumsv/wallet.py:147 electrumsv/wallet.py:150
+#: electrumsv/wallet.py:138 electrumsv/wallet.py:141
 msgid "Not enough funds on address."
 msgstr "Nicht genug verfügbare Mittel auf der Adresse."
 
-#: electrumsv/wallet.py:589
+#: electrumsv/wallet.py:550
 msgid "Not verified"
 msgstr "Nicht bestätigt"
 
-#: electrumsv/gui/qt/main_window.py:1217
+#: electrumsv/gui/qt/main_window.py:1251
 msgid "Note that if you have frozen some of your addresses, the available funds will be lower than your total balance."
 msgstr "Einige ihrer Adressen sind eingefroren, weswegen das angegebene Guthaben geringer sein könnte als ihr gesamtes Guthaben."
 
-#: electrumsv/base_wizard.py:305
+#: electrumsv/base_wizard.py:297
 msgid "Note that this is NOT your encryption password."
 msgstr "Beachte, dass dies NICHT dein Verschlüsselungspasswort ist."
 
-#: electrumsv/gui/qt/preferences.py:104
-msgid "Number of zeros displayed after the decimal point. For example, if this is set to 2, \"1.\" will be displayed as \"1.00\""
-msgstr "Anzahl der Nachkommastellen. Wenn es z.B. auf 2 steht, wird \"1,\" als \"1,00\" dargestellt."
+#: electrumsv/gui/qt/installwizard.py:256
+msgid "Nothing to import"
+msgstr ""
 
-#: electrumsv/gui/qt/util.py:149
+#: electrumsv/gui/qt/preferences.py:163
+msgid "Number of zeros displayed after the decimal point.  For example, if set to 2, \"1.\" will be displayed as \"1.00\""
+msgstr ""
+
+#: electrumsv/gui/qt/virtual_keyboard.py:40
+msgid "Numbers and symbols"
+msgstr ""
+
+#: electrumsv/gui/qt/util.py:130
 msgid "OK"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1194
-msgid "OP_RETURN"
-msgstr ""
-
-#: electrumsv/gui/qt/main_window.py:1189
-msgid "OP_RETURN data (optional)."
-msgstr ""
-
-#: electrumsv/gui/qt/main_window.py:1327 electrumsv/gui/qt/main_window.py:1387
-msgid "OP_RETURN message too large, needs to be under 220 bytes"
-msgstr ""
-
-#: electrumsv/gui/qt/coinsplitting_tab.py:35
+#: electrumsv/gui/qt/coinsplitting_tab.py:36
 msgid "Obtaining dust"
 msgstr ""
 
-#: electrumsv/gui/qt/app_state.py:174 electrumsv/gui/qt/main_window.py:812
+#: electrumsv/gui/qt/app.py:206 electrumsv/gui/qt/main_window.py:914
 msgid "Offline"
 msgstr ""
 
-#: electrumsv/base_wizard.py:220
+#: electrumsv/base_wizard.py:218
 msgid "On Linux, you might have to add a new permission to your udev rules."
 msgstr "Unter Linux müssen vermutlich neue Berechtigungen in den udev-Regeln festgelegt werden."
 
-#: electrumsv/gui/qt/main_window.py:1898
+#: electrumsv/gui/qt/paytoedit.py:101
+msgid "One or more of the addresses you have provided has been recognized as a 'cash address'. For now, this is acceptable but is recommended that you get in the habit of requesting that anyone who provides you with payment addresses do so in the form of normal Bitcoin SV addresses."
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1913
 msgid "One output per line."
 msgstr "Ein Output pro Zeile."
 
-#: electrumsv/gui/qt/preferences.py:202
+#: electrumsv/gui/qt/preferences.py:192
 msgid "Online Block Explorer"
 msgstr "Online-Blockexplorer"
 
-#: electrumsv/plugins/trezor/qt.py:565
-#: electrumsv/plugins/keepkey/qt_generic.py:573
+#: electrumsv/devices/trezor/trezor.py:56
+msgid "Only OP_RETURN scripts, with one constant push, are supported."
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:546 electrumsv/devices/keepkey/qt.py:539
 msgid "Only wipe a device if you have the recovery seed written down and the device wallet(s) are empty, otherwise the bitcoins will be lost forever."
 msgstr "Löschen Sie das Gerät nur, wenn Sie über den Wiederherstellungs-Seed verfügen oder wenn die Börse leer ist. Ansonsten sind die enthaltenen Bitcoins für immer verloren."
 
-#: electrumsv/gui/qt/main_window.py:2604
+#: electrumsv/gui/qt/main_window.py:2622
 msgid "Open labels file"
 msgstr ""
 
-#: electrumsv/plugins/cosigner_pool/qt.py:185
+#: electrumsv/gui/qt/cosigner_pool.py:157
 msgid "Open your cosigner wallet to retrieve it."
 msgstr "Öffnen Sie die Mitsignierer-Börse um sie zu empfangen."
 
-#: electrumsv/gui/qt/preferences.py:128
-msgid "OpenAlias"
-msgstr ""
-
-#: electrumsv/gui/qt/preferences.py:124
-msgid "OpenAlias record, used to receive coins and to sign payment requests."
-msgstr "OpenAlias-Eintrag, kann zum Empfangen von Coins und zum Signieren von Zahlungsanfragen verwendet werden."
-
-#: electrumsv/gui/qt/seed_dialog.py:143
+#: electrumsv/gui/qt/seed_dialog.py:163
 msgid "Options"
 msgstr "Optionen"
 
-#: electrumsv/plugins/keepkey/plugin.py:119
+#: electrumsv/devices/keepkey/keepkey.py:192
 msgid "Outdated {} firmware for device labelled {}. Please download the updated firmware from {}"
 msgstr "Veraltete Firmware {} für Gerät \"{}\" erkannt. Bitte laden Sie die aktuelle Firmware von {}"
 
-#: electrumsv/gui/qt/main_window.py:2957
+#: electrumsv/gui/qt/main_window.py:2912
 msgid "Output amount"
 msgstr "Output Betrag"
 
@@ -2119,114 +2214,127 @@ msgstr "Output Betrag"
 msgid "Output point"
 msgstr "Ausgang"
 
-#: electrumsv/gui/qt/transaction_dialog.py:287
+#: electrumsv/gui/qt/transaction_dialog.py:301
 msgid "Outputs"
 msgstr "Ausgänge"
 
-#: electrumsv/gui/qt/network_dialog.py:203
+#: electrumsv/gui/qt/network_dialog.py:220
 msgid "Overview"
 msgstr "Übersicht"
 
-#: electrumsv/plugins/trezor/qt.py:468
-#: electrumsv/plugins/keepkey/qt_generic.py:483
+#: electrumsv/devices/trezor/qt.py:449 electrumsv/devices/keepkey/qt.py:466
 msgid "PIN Protection"
 msgstr "PIN-Schutz"
 
-#: electrumsv/plugins/trezor/qt.py:473
-#: electrumsv/plugins/keepkey/qt_generic.py:488
+#: electrumsv/devices/trezor/qt.py:454 electrumsv/devices/keepkey/qt.py:471
 msgid "PIN protection is strongly recommended.  A PIN is your only protection against someone stealing your bitcoins if they obtain physical access to your {}."
 msgstr "Es wird dringend empfohlen eine PIN zu verwenden. Eine PIN ist Ihr einziger Schutz gegen Diebstahl Ihrer Bitcoins, wenn sie physischen Zugriff auf Ihr Gerät haben."
 
-#: electrumsv/plugins/trezor/qt.py:432
-#: electrumsv/plugins/keepkey/qt_generic.py:446
+#: electrumsv/devices/trezor/qt.py:413 electrumsv/devices/keepkey/qt.py:430
 msgid "PIN set"
 msgstr "PIN-Code festgelegt"
 
-#: electrumsv/gui/qt/util.py:32
+#: electrumsv/gui/qt/util.py:29
 msgid "Paid"
 msgstr "Bezahlt"
 
-#: electrumsv/plugins/ledger/auth2fa.py:88
-#: electrumsv/plugins/ledger/auth2fa.py:185
+#: electrumsv/devices/ledger/auth2fa.py:91
+#: electrumsv/devices/ledger/auth2fa.py:186
 msgid "Pair"
 msgstr "Verbinden"
 
-#: electrumsv/wallet.py:602
+#: electrumsv/wallet.py:560
 msgid "Partially signed"
 msgstr "Teilweise signiert"
 
-#: electrumsv/gui/qt/password_dialog.py:90
+#: electrumsv/gui/qt/password_dialog.py:143
 msgid "Passphrase:"
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:433
-#: electrumsv/plugins/keepkey/qt_generic.py:447
+#: electrumsv/devices/trezor/qt.py:414 electrumsv/devices/keepkey/qt.py:431
 msgid "Passphrases"
 msgstr "Passphrasen"
 
-#: electrumsv/plugins/trezor/qt.py:21
-#: electrumsv/plugins/keepkey/qt_generic.py:23
+#: electrumsv/devices/trezor/qt.py:22 electrumsv/devices/keepkey/qt.py:50
 msgid "Passphrases allow you to access new wallets, each hidden behind a particular case-sensitive passphrase."
 msgstr "Passphrasen erlauben es, beliebig viele Börsen zu nutzen, die sich hinter einer schreibungsabhängigen Passphrase verstecken."
 
-#: electrumsv/gui/qt/password_dialog.py:219
-#: electrumsv/gui/qt/main_window.py:2061
-#: electrumsv/gui/qt/network_dialog.py:262
-#: electrumsv/gui/qt/installwizard.py:297
+#: electrumsv/gui/qt/network_dialog.py:280
+#: electrumsv/gui/qt/installwizard.py:188
 msgid "Password"
 msgstr "Passwort"
 
-#: electrumsv/gui/qt/password_dialog.py:153
+#: electrumsv/gui/qt/password_dialog.py:212
 msgid "Password Strength"
 msgstr "Passwortstärke"
 
-#: electrumsv/gui/qt/main_window.py:2101
+#: electrumsv/gui/qt/main_window.py:2132
 msgid "Password is disabled, this wallet is not protected"
 msgstr "Kein Passwort vergeben, diese Geldbörse ist nicht gesichert"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:133
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:148
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:131
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:146
 msgid "Password must have at least 4 characters."
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:136
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:151
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:134
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:149
 msgid "Password must have less than 64 characters."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2100
+#: electrumsv/gui/qt/main_window.py:2131
 msgid "Password was updated successfully"
 msgstr "Passwort wurde erfolgreich aktualisiert"
 
-#: electrumsv/gui/qt/password_dialog.py:104
+#: electrumsv/gui/qt/password_dialog.py:157
 msgid "Password:"
 msgstr "Passwort:"
+
+#: electrumsv/gui/qt/contact_list.py:242
+msgid "Pay"
+msgstr ""
 
 #: electrumsv/gui/qt/invoice_list.py:96
 msgid "Pay Now"
 msgstr "Jetzt bezahlen"
 
-#: electrumsv/gui/qt/main_window.py:1172 electrumsv/gui/qt/contact_list.py:82
+#: electrumsv/gui/qt/payment.py:664
+msgid "Pay from"
+msgstr ""
+
+#: electrumsv/gui/qt/payment.py:652 electrumsv/gui/qt/main_window.py:1243
 msgid "Pay to"
 msgstr "Zahle an"
 
-#: electrumsv/gui/qt/main_window.py:1902
+#: electrumsv/gui/qt/main_window.py:1917
 msgid "Pay to many"
 msgstr "Zahle an mehrere"
 
-#: electrumsv/gui/qt/qrwindow.py:40
+#: electrumsv/gui/qt/payment.py:651
+msgid "Payee details"
+msgstr ""
+
+#: electrumsv/gui/qt/qrwindow.py:41
 msgid "Payment Request"
 msgstr "Zahlungsaufforderung"
 
-#: electrumsv/gui/qt/main_window.py:1518 electrumsv/gui/qt/main_window.py:1677
+#: electrumsv/gui/qt/payment.py:663
+msgid "Payment details"
+msgstr ""
+
+#: electrumsv/gui/qt/payment.py:676
+msgid "Payment notes"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1515 electrumsv/gui/qt/main_window.py:1697
 msgid "Payment request has expired"
 msgstr "Zahlungsanforderung ist abgelaufen"
 
-#: electrumsv/gui/qt/main_window.py:1668
+#: electrumsv/gui/qt/main_window.py:1686
 msgid "Payment sent."
 msgstr "Zahlung gesendet."
 
-#: electrumsv/gui/qt/util.py:31
+#: electrumsv/gui/qt/util.py:28
 msgid "Pending"
 msgstr "ausstehend"
 
@@ -2234,86 +2342,85 @@ msgstr "ausstehend"
 msgid "Perhaps it is encrypted..."
 msgstr ""
 
-#: electrumsv/gui/qt/exception_window.py:89
+#: electrumsv/gui/qt/exception_window.py:93
 msgid "Please briefly describe what led to the error (optional):"
 msgstr "Bitte beschreiben Sie kurz, was zum Fehler geführt hat (optional):"
 
-#: electrumsv/plugins/hw_wallet/qt.py:159
+#: electrumsv/devices/hw_wallet/qt.py:161
 msgid "Please check your {} device"
 msgstr "Bitte überprüfe dein {} Gerät"
 
-#: electrumsv/gui/qt/qrtextedit.py:53
+#: electrumsv/gui/qt/qrtextedit.py:52
 msgid "Please ensure you only import text files."
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:37
+#: electrumsv/gui/qt/installwizard.py:43
 msgid "Please enter a seed phrase or a master key (xpub or xprv):"
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:35
+#: electrumsv/gui/qt/installwizard.py:41
 msgid "Please enter a seed phrase, a master key, a list of Bitcoin addresses, or a list of private keys"
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:516
+#: electrumsv/gui/qt/wallet_wizard.py:633
+msgid "Please enter some wallet-related text above."
+msgstr ""
+
+#: electrumsv/gui/qt/installwizard.py:593
 msgid "Please enter the master public key (xpub) of your cosigner."
 msgstr "Bitte geben Sie den öffentlichen Generalschlüssel (xpub) des Mitsignierers ein."
 
-#: electrumsv/gui/qt/installwizard.py:38
+#: electrumsv/gui/qt/installwizard.py:44
 msgid "Please enter the master public key of cosigner #{}:"
 msgstr ""
 
-#: electrumsv/gui/qt/password_dialog.py:210
-#: electrumsv/gui/qt/main_window.py:1021
-msgid "Please enter your password"
-msgstr "Bitte Passwort eingeben"
-
-#: electrumsv/plugins/cosigner_pool/qt.py:207
+#: electrumsv/gui/qt/cosigner_pool.py:193
 msgid "Please enter your password to decrypt it."
 msgstr "Bitte geben Sie zum Entschlüsseln Ihr Passwort ein."
 
-#: electrumsv/gui/qt/installwizard.py:42
+#: electrumsv/gui/qt/installwizard.py:48
 msgid "Please enter your seed derivation passphrase. Note: this is NOT your encryption password. Leave this field empty if you did not use one or are unsure."
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:529
+#: electrumsv/gui/qt/installwizard.py:606
 msgid "Please enter your seed phrase in order to restore your wallet."
 msgstr "Bitte geben Sie Ihre Seed-Worte ein, um die Geldbörse wiederherzustellen."
 
-#: electrumsv/plugin.py:509
+#: electrumsv/device.py:284
 msgid "Please insert your {}.  Verify the cable is connected and that no other application is using it.\n\n"
 "Try to connect again?"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:638
+#: electrumsv/gui/qt/main_window.py:744
 msgid "Please report any bugs as issues on github:<br/>"
 msgstr "Bitte melden Sie Fehler oder Probleme bei GitHub:<br>"
 
-#: electrumsv/gui/qt/seed_dialog.py:52
+#: electrumsv/gui/qt/seed_dialog.py:53
 #, python-format
 msgid "Please save these %d words on paper (order is important). "
 msgstr ""
 
-#: electrumsv/plugin.py:521
+#: electrumsv/device.py:295
 msgid "Please select which {} device to use:"
 msgstr "Bitte wählen Sie Ihr {}-Gerät:"
 
-#: electrumsv/gui/qt/installwizard.py:645
+#: electrumsv/gui/qt/installwizard.py:715
 msgid "Please share it with your cosigners."
 msgstr "Bitte teilen Sie ihn den Mitsignierern mit."
 
-#: electrumsv/base_wizard.py:248
+#: electrumsv/base_wizard.py:243
 msgid "Please try again."
 msgstr "Bitte versuchen Sie es erneut."
 
-#: electrumsv/base_wizard.py:436
+#: electrumsv/base_wizard.py:408
 msgid "Please type it here."
 msgstr "Bitte hier eingeben."
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:358 electrumsv/gui/qt/util.py:219
+#: electrumsv/gui/qt/coinsplitting_tab.py:375 electrumsv/gui/qt/util.py:248
 msgid "Please wait"
 msgstr "Bitte warten"
 
-#: electrumsv/wallet.py:1179 electrumsv/gui/qt/installwizard.py:155
+#: electrumsv/gui/qt/installwizard.py:156
 msgid "Please wait..."
 msgstr "Bitte warten..."
 
@@ -2321,7 +2428,7 @@ msgstr "Bitte warten..."
 msgid "Polish"
 msgstr "Polnisch"
 
-#: electrumsv/gui/qt/network_dialog.py:142
+#: electrumsv/gui/qt/network_dialog.py:159
 msgid "Port"
 msgstr ""
 
@@ -2329,78 +2436,70 @@ msgstr ""
 msgid "Portuguese"
 msgstr "Portugiesisch"
 
-#: electrumsv/gui/qt/main_window.py:1190
-msgid "Posts a PERMANENT note to the Bitcoin SV blockchain as part of this transaction."
+#: electrumsv/gui/qt/main_window.py:1285
+msgid "Posts PERMANENT data to the Bitcoin SV blockchain as part of this transaction using OP_RETURN."
 msgstr ""
 
-#: electrumsv/gui/qt/preferences.py:51 electrumsv/gui/qt/main_window.py:573
-#: electrumsv/gui/qt/main_window.py:2066
+#: electrumsv/gui/qt/preferences.py:53 electrumsv/gui/qt/main_window.py:559
+#: electrumsv/gui/qt/main_window.py:615
 msgid "Preferences"
 msgstr "Einstellungen"
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:34
+#: electrumsv/gui/qt/coinsplitting_tab.py:35
 msgid "Preparing"
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:324
+#: electrumsv/gui/qt/installwizard.py:280
 msgid "Press 'Next' to create this wallet, or choose another file."
 msgstr "Drücke \"Weiter\" um diese Geldbörse zu erstellen oder wähle eine andere Datei."
 
-#: electrumsv/gui/qt/installwizard.py:333
+#: electrumsv/gui/qt/installwizard.py:289
 msgid "Press 'Next' to open this wallet."
 msgstr "Drücke \"Weiter\" um diese Geldbörse zu öffnen."
 
-#: electrumsv/plugins/ledger/auth2fa.py:135
+#: electrumsv/devices/ledger/auth2fa.py:137
 msgid "Press Enter"
 msgstr "Drücken Sie die Eingabetaste"
 
-#: electrumsv/gui/qt/main_window.py:1283
+#: electrumsv/gui/qt/main_window.py:1317
 msgid "Preview"
 msgstr "Vorschau"
 
-#: electrumsv/gui/qt/address_list.py:184 electrumsv/gui/qt/main_window.py:2227
-#: electrumsv/gui/qt/main_window.py:2232
+#: electrumsv/gui/qt/address_list.py:207 electrumsv/gui/qt/wallet_wizard.py:628
+#: electrumsv/gui/qt/main_window.py:2238 electrumsv/gui/qt/main_window.py:2242
 msgid "Private key"
 msgstr "Privater Schlüssel"
 
-#: electrumsv/gui/qt/main_window.py:2507
+#: electrumsv/gui/qt/main_window.py:2525
 msgid "Private keys"
 msgstr "Private Schlüssel"
 
-#: electrumsv/gui/qt/main_window.py:2591
+#: electrumsv/gui/qt/main_window.py:2609
 msgid "Private keys exported."
 msgstr "Private Schlüssel exportiert."
 
 #: electrumsv/gui/qt/coinsplitting_tab.py:169
-#: electrumsv/gui/qt/main_window.py:1628
+#: electrumsv/gui/qt/main_window.py:1644
 msgid "Proceed?"
 msgstr "Fortfahren?"
 
-#: electrumsv/plugins/digitalbitbox/__init__.py:4
-msgid "Provides support for Digital Bitbox hardware wallet"
-msgstr "Unterstützt Digital Bitbox Hardware-Börsen"
+#: electrumsv/gui/qt/network_dialog.py:159
+msgid "Protocol"
+msgstr ""
 
-#: electrumsv/plugins/keepkey/__init__.py:4
-msgid "Provides support for KeepKey hardware wallet"
-msgstr "Unterstützt KeepKey Hardware-Börsen"
-
-#: electrumsv/plugins/trezor/__init__.py:4
-msgid "Provides support for TREZOR hardware wallet"
-msgstr "Unterstützt Trezor Hardware-Börsen"
-
-#: electrumsv/gui/qt/network_dialog.py:205
+#: electrumsv/gui/qt/network_dialog.py:222
 msgid "Proxy"
 msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:285
+#: electrumsv/gui/qt/network_dialog.py:301
 msgid "Proxy settings apply to all connections: both ElectrumSV servers and third-party services."
 msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:260
+#: electrumsv/gui/qt/network_dialog.py:277
 msgid "Proxy user"
 msgstr "Proxy-Benutzer"
 
-#: electrumsv/gui/qt/main_window.py:2369
+#: electrumsv/gui/qt/main_window.py:2393
 msgid "Public key"
 msgstr "Public Key"
 
@@ -2408,38 +2507,34 @@ msgstr "Public Key"
 msgid "Public keys"
 msgstr "Öffentliche Schlüssel"
 
-#: electrumsv/gui/qt/main_window.py:2210
+#: electrumsv/gui/qt/main_window.py:2222
 msgid "QR code"
 msgstr "QR-Code"
 
-#: electrumsv/gui/qt/qrcodewidget.py:115
+#: electrumsv/gui/qt/qrcodewidget.py:113
 msgid "QR code copied to clipboard"
 msgstr "QR-Code in die Zwischenablage kopiert"
 
-#: electrumsv/gui/qt/qrcodewidget.py:110
+#: electrumsv/gui/qt/qrcodewidget.py:108
 msgid "QR code saved to file"
 msgstr "QR-Code in Datei gespeichert"
 
-#: electrumsv/gui/qt/installwizard.py:189
-msgid "Quit"
-msgstr "Beenden"
-
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:165
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:170
 msgid "REMEMBER THE PASSWORD!"
 msgstr ""
 
-#: electrumsv/plugins/ledger/auth2fa.py:185
+#: electrumsv/devices/ledger/auth2fa.py:186
 msgid "Re-Pair"
 msgstr "Wiederverbinden"
 
-#: electrumsv/plugins/trezor/clientbase.py:237
-#: electrumsv/plugins/keepkey/clientbase.py:52
+#: electrumsv/devices/trezor/client.py:242
+#: electrumsv/devices/keepkey/client.py:227
 msgid "Re-enter the new PIN for your {}.\n\n"
 "NOTE: the positions of the numbers have changed!"
 msgstr "Geben Sie die PIN für Ihr {} erneut ein\n\n"
 "Achtung: Die Position der Zahlen wurde geändert!"
 
-#: electrumsv/gui/qt/qrtextedit.py:40 electrumsv/gui/qt/qrtextedit.py:78
+#: electrumsv/gui/qt/qrtextedit.py:40 electrumsv/gui/qt/qrtextedit.py:75
 msgid "Read QR code"
 msgstr "QR-Code scannen"
 
@@ -2447,98 +2542,97 @@ msgstr "QR-Code scannen"
 msgid "Read file"
 msgstr "Datei lesen"
 
-#: electrumsv/gui/qt/main_window.py:163
+#: electrumsv/gui/qt/main_window.py:167
 msgid "Receive"
 msgstr "Empfangen"
 
-#: electrumsv/gui/qt/address_list.py:101
+#: electrumsv/gui/qt/address_list.py:103
 msgid "Receiving"
 msgstr "Eingehend"
 
-#: electrumsv/gui/qt/main_window.py:904
+#: electrumsv/gui/qt/main_window.py:990
 msgid "Receiving address"
 msgstr "Empfängeradresse"
 
-#: electrumsv/gui/qt/main_window.py:1168
+#: electrumsv/gui/qt/main_window.py:1239
 msgid "Recipient of the funds."
 msgstr "Empfänger des Betrags."
 
-#: electrumsv/plugins/trezor/trezor.py:169
-#: electrumsv/plugins/keepkey/plugin.py:151
+#: electrumsv/devices/trezor/trezor.py:180
+#: electrumsv/devices/keepkey/keepkey.py:221
 msgid "Recover from a seed you have previously written down"
 msgstr "Von einer zuvor aufgeschriebenen Seed wiederherstellen"
 
-#: electrumsv/gui/qt/installwizard.py:571
+#: electrumsv/gui/qt/installwizard.py:648
 msgid "Recovery successful"
 msgstr "Wiederherstellung erfolgreich"
 
-#: electrumsv/gui/qt/address_dialog.py:84 electrumsv/gui/qt/main_window.py:2236
+#: electrumsv/gui/qt/address_dialog.py:84 electrumsv/gui/qt/main_window.py:2246
 msgid "Redeem Script"
 msgstr "Redeem-Skript"
 
-#: electrumsv/gui/qt/main_window.py:1461
+#: electrumsv/gui/qt/virtual_keyboard.py:63
+msgid "Regenerate page"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:233
+msgid "Release Notes"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:220
+msgid "Release notes"
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1460
 msgid "Remove"
 msgstr "Entfernen"
 
-#: electrumsv/gui/qt/address_list.py:191
+#: electrumsv/gui/qt/address_list.py:214
 msgid "Remove from wallet"
 msgstr "Von der Börse entfernen"
 
-#: electrumsv/gui/qt/main_window.py:1933
-msgid "Remove {} from your list of contacts?"
-msgstr "{} aus der Kontaktliste entfernen?"
-
-#: electrumsv/gui/qt/main_window.py:645
+#: electrumsv/gui/qt/main_window.py:751
 msgid "Reporting Bugs"
 msgstr "Fehler melden"
 
-#: electrumsv/gui/qt/main_window.py:939
+#: electrumsv/gui/qt/main_window.py:1025
 msgid "Request expires"
 msgstr "Anfrage läuft ab"
 
-#: electrumsv/gui/qt/address_list.py:182
+#: electrumsv/gui/qt/address_list.py:205
 msgid "Request payment"
 msgstr "Zahlung anfragen"
 
-#: electrumsv/gui/qt/main_window.py:1074
+#: electrumsv/gui/qt/main_window.py:1131
 msgid "Request saved successfully"
 msgstr "Anfrage erfolgreich gespeichert"
 
-#: electrumsv/plugins/email_requests/qt.py:173
-msgid "Request sent."
-msgstr "Anfrage gesendet."
-
-#: electrumsv/gui/qt/main_window.py:916
+#: electrumsv/gui/qt/main_window.py:1002
 msgid "Requested amount"
 msgstr "Angeforderter Betrag"
 
-#: electrumsv/gui/qt/main_window.py:1959 electrumsv/gui/qt/invoice_list.py:41
+#: electrumsv/gui/qt/main_window.py:1945 electrumsv/gui/qt/invoice_list.py:41
 msgid "Requestor"
 msgstr "Antragsteller"
 
-#: electrumsv/gui/qt/main_window.py:965
+#: electrumsv/gui/qt/main_window.py:1051
 msgid "Requests"
 msgstr "Anfragen"
 
-#: electrumsv/gui/qt/installwizard.py:692
+#: electrumsv/gui/qt/installwizard.py:761
 #, python-format
 msgid "Require %d signatures"
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:491
+#: electrumsv/devices/trezor/qt.py:472
 msgid "Required package 'PIL' is not available - Please install it or use the Trezor website instead."
 msgstr "Das notwendige Paket \"PIL\" ist nicht installiert. Bitte nutzen Sie die Trezor-Webseite."
 
-#: electrumsv/gui/qt/main_window.py:2926
-msgid "Requires"
-msgstr "Benötigt"
-
-#: electrumsv/plugins/trezor/qt.py:484
-#: electrumsv/plugins/keepkey/qt_generic.py:501
+#: electrumsv/devices/trezor/qt.py:465
 msgid "Reset"
 msgstr "Zurücksetzen"
 
-#: electrumsv/gui/qt/main_window.py:2817
+#: electrumsv/gui/qt/preferences.py:65
 msgid "Restart ElectrumSV to activate your updated language setting"
 msgstr ""
 
@@ -2550,181 +2644,168 @@ msgstr "Rumänisch"
 msgid "Russian"
 msgstr "Russisch"
 
-#: electrumsv/gui/qt/preferences.py:157
-msgid "SSL certificate"
-msgstr "SSL-Zertifikat"
-
-#: electrumsv/gui/qt/preferences.py:144
-msgid "SSL certificate used to sign payment requests."
-msgstr "SSL-Zertifikat zum Signieren von Zahlungsanfragen."
-
-#: electrumsv/gui/qt/main_window.py:947 electrumsv/gui/qt/main_window.py:1982
-#: electrumsv/gui/qt/qrcodewidget.py:121
-#: electrumsv/gui/qt/transaction_dialog.py:102
+#: electrumsv/gui/qt/main_window.py:1033 electrumsv/gui/qt/main_window.py:1968
+#: electrumsv/gui/qt/qrcodewidget.py:119
+#: electrumsv/gui/qt/transaction_dialog.py:103
 msgid "Save"
 msgstr "Speichern"
 
-#: electrumsv/gui/qt/request_list.py:128
-msgid "Save as BIP70 file"
-msgstr "Als BIP70 Datei speichern"
+#: electrumsv/gui/qt/request_list.py:123
+msgid "Save as BIP270 file"
+msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1976
+#: electrumsv/gui/qt/main_window.py:1962
 msgid "Save invoice to file"
 msgstr "Rechnung als Datei speichern"
 
-#: electrumsv/plugins/labels/__init__.py:5
+#: electrumsv/extensions.py:69
 msgid "Save your wallet labels on a remote server, and synchronize them across multiple devices where you use ElectrumSV."
 msgstr ""
 
-#: electrumsv/plugins/ledger/auth2fa.py:34
+#: electrumsv/devices/ledger/auth2fa.py:36
 msgid "Scan this QR code with your LedgerWallet phone app to pair it with this Ledger device.<br>To complete pairing you will need your security card to answer a challenge."
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:239
+#: electrumsv/devices/trezor/qt.py:227
 msgid "Scrambled words"
 msgstr "Vertauschte Wörter"
 
-#: electrumsv/gui/qt/main_window.py:2149 electrumsv/gui/qt/main_window.py:2231
+#: electrumsv/gui/qt/main_window.py:2160
 msgid "Script type"
 msgstr "Skript-Typ"
 
-#: electrumsv/plugins/ledger/auth2fa.py:175
+#: electrumsv/gui/qt/wallet_wizard.py:712
+msgid "Searching for key usage.."
+msgstr ""
+
+#: electrumsv/devices/ledger/auth2fa.py:176
 msgid "Security Card Challenge"
 msgstr "Sicherheitskarten-Anfrage"
 
-#: electrumsv/gui/qt/seed_dialog.py:202 electrumsv/gui/qt/main_window.py:2068
+#: electrumsv/gui/qt/seed_dialog.py:222
 msgid "Seed"
 msgstr ""
 
-#: electrumsv/plugins/keepkey/qt_generic.py:83
+#: electrumsv/devices/keepkey/qt.py:204
 msgid "Seed Entered"
 msgstr "Seed eingegeben"
 
-#: electrumsv/gui/qt/seed_dialog.py:170
+#: electrumsv/gui/qt/seed_dialog.py:190
 msgid "Seed Type"
 msgstr "Seed-Typ"
 
-#: electrumsv/base_wizard.py:299
+#: electrumsv/base_wizard.py:291
 msgid "Seed extension"
 msgstr "Seed-Erweiterung"
 
-#: electrumsv/base_wizard.py:237
+#: electrumsv/gui/qt/wallet_wizard.py:259
+msgid "Select Wallet"
+msgstr ""
+
+#: electrumsv/base_wizard.py:232
 msgid "Select a device"
 msgstr "Gerät auswählen"
 
-#: electrumsv/gui/qt/main_window.py:2523
+#: electrumsv/gui/qt/main_window.py:2541
 msgid "Select file to export your private keys to"
 msgstr "Datei zum Export der privaten Schlüssel auswählen"
 
-#: electrumsv/gui/qt/main_window.py:2637
+#: electrumsv/gui/qt/main_window.py:2655
 msgid "Select file to export your wallet transactions to"
 msgstr "Datei zum Export der Transaktionen auswählen."
 
-#: electrumsv/gui/qt/main_window.py:2622
+#: electrumsv/gui/qt/main_window.py:2640
 msgid "Select file to save your labels"
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:235
+#: electrumsv/gui/qt/main_window.py:1557
+msgid "Select file(s)"
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:223
 msgid "Select recovery type:"
 msgstr "Wiederherstellungstyp auswählen:"
 
-#: electrumsv/gui/qt/network_dialog.py:218
+#: electrumsv/gui/qt/network_dialog.py:235
 msgid "Select server automatically"
 msgstr "Server automatisch auswählen"
 
-#: electrumsv/gui/qt/installwizard.py:660
+#: electrumsv/gui/qt/installwizard.py:730
 msgid "Select server manually"
 msgstr "Server manuell wählen"
 
-#: electrumsv/gui/qt/main_window.py:1069
+#: electrumsv/gui/qt/wallet_wizard.py:440
+msgid "Select the way in which you want to add a new wallet from the list on the left."
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1126
 msgid "Select where to save your payment request"
 msgstr "Ort zum Speichern der Zahlungsanfrage auswählen"
 
-#: electrumsv/gui/qt/transaction_dialog.py:206
+#: electrumsv/gui/qt/transaction_dialog.py:211
 msgid "Select where to save your signed transaction"
 msgstr "Datei zum Sichern der signierten Transaktion auswählen."
 
-#: electrumsv/gui/qt/preferences.py:77
+#: electrumsv/gui/qt/preferences.py:144
 msgid "Select which language is used in the GUI (after restart)."
 msgstr "Sprache der Benutzeroberfläche auswählen (erfordert Neustart)."
 
-#: electrumsv/plugins/trezor/qt.py:205
-#: electrumsv/plugins/keepkey/qt_generic.py:233
+#: electrumsv/devices/trezor/qt.py:193 electrumsv/devices/keepkey/qt.py:109
 msgid "Select your seed length:"
 msgstr "Seedlänge auswählen:"
 
-#: electrumsv/gui/qt/main_window.py:2443
+#: electrumsv/gui/qt/main_window.py:2458
 msgid "Select your transaction file"
 msgstr "Transaktionsdatei auswählen"
 
-#: electrumsv/gui/qt/main_window.py:162 electrumsv/gui/qt/main_window.py:1286
+#: electrumsv/gui/qt/main_window.py:166 electrumsv/gui/qt/main_window.py:1320
 msgid "Send"
 msgstr "Senden"
 
-#: electrumsv/gui/qt/exception_window.py:108
+#: electrumsv/gui/qt/exception_window.py:112
 msgid "Send Bug Report"
 msgstr "Fehlerbericht senden"
 
-#: electrumsv/plugins/email_requests/__init__.py:4
-msgid "Send and receive payment request with an email account"
-msgstr "Zahlungsanfrage mit einem E-Mail-Konto empfangen und senden"
-
-#: electrumsv/plugins/email_requests/qt.py:120
-msgid "Send and receive payment requests via email"
-msgstr "Zahlungsanfragen mit einem E-Mail-Konto empfangen und senden"
-
-#: electrumsv/plugins/cosigner_pool/qt.py:147
+#: electrumsv/gui/qt/transaction_dialog.py:117
 msgid "Send to cosigner"
 msgstr "An Mitsignierer senden"
 
-#: electrumsv/plugins/email_requests/qt.py:149
-msgid "Send via e-mail"
-msgstr "Per E-Mail versenden"
+#: electrumsv/gui/qt/cosigner_pool.py:168
+msgid "Sending transaction to cosigning pool..."
+msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:204
-#: electrumsv/gui/qt/network_dialog.py:235
-#: electrumsv/gui/qt/network_dialog.py:310
+#: electrumsv/gui/qt/network_dialog.py:221
+#: electrumsv/gui/qt/network_dialog.py:252
+#: electrumsv/gui/qt/network_dialog.py:326
 msgid "Server"
 msgstr ""
 
-#: electrumsv/network.py:1503
-msgid "Server did not answer"
-msgstr ""
-
-#: electrumsv/plugins/email_requests/qt.py:186
-msgid "Server hosting your email acount"
-msgstr ""
-
-#: electrumsv/gui/qt/main_window.py:825
-msgid "Server is lagging ({} blocks)"
-msgstr "Server hängt ({} Blöcke) hinterher"
-
-#: electrumsv/gui/qt/network_dialog.py:239
+#: electrumsv/gui/qt/network_dialog.py:256
 msgid "Server peers"
 msgstr "Verfügbare Server"
 
-#: electrumsv/plugins/trezor/qt.py:506
-#: electrumsv/plugins/keepkey/qt_generic.py:515
+#: electrumsv/gui/qt/main_window.py:924
+msgid "Server {} blocks behind"
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:487 electrumsv/devices/keepkey/qt.py:480
 msgid "Session Timeout"
 msgstr "Sitzungs-Timeout"
 
-#: electrumsv/plugins/trezor/qt.py:314
-#: electrumsv/plugins/keepkey/qt_generic.py:334
+#: electrumsv/devices/trezor/qt.py:295 electrumsv/devices/keepkey/qt.py:343
 msgid "Set a PIN"
 msgstr "PIN festlegen"
 
-#: electrumsv/plugins/labels/qt.py:28
-#: electrumsv/plugins/email_requests/qt.py:179
-#: electrumsv/plugins/trezor/qt.py:578
-#: electrumsv/plugins/keepkey/qt_generic.py:586
+#: electrumsv/devices/trezor/qt.py:559 electrumsv/devices/keepkey/qt.py:552
+#: electrumsv/gui/qt/label_sync.py:216
 msgid "Settings"
 msgstr "Einstellungen"
 
-#: electrumsv/gui/qt/main_window.py:269 electrumsv/gui/qt/main_window.py:561
+#: electrumsv/gui/qt/main_window.py:270 electrumsv/gui/qt/main_window.py:545
 msgid "Show"
 msgstr "Anzeigen"
 
-#: electrumsv/gui/qt/preferences.py:323
+#: electrumsv/gui/qt/preferences.py:246
 msgid "Show Fiat balance for addresses"
 msgstr "Fiat-Betrag für Adressen anzeigen"
 
@@ -2732,88 +2813,74 @@ msgstr "Fiat-Betrag für Adressen anzeigen"
 msgid "Show QR Code"
 msgstr "QR-Code zeigen"
 
-#: electrumsv/gui/qt/qrtextedit.py:14 electrumsv/gui/qt/qrtextedit.py:28
-#: electrumsv/gui/qt/transaction_dialog.py:77
+#: electrumsv/gui/qt/qrtextedit.py:16 electrumsv/gui/qt/qrtextedit.py:28
+#: electrumsv/gui/qt/transaction_dialog.py:76
 msgid "Show as QR code"
 msgstr "Als QR-Code anzeigen"
 
-#: electrumsv/gui/qt/preferences.py:369
-msgid "Show fee edit box in send tab."
-msgstr "Feld für die Gebühr im Senden-Tab zeigen."
+#: electrumsv/gui/qt/preferences.py:245
+msgid "Show historical rates"
+msgstr ""
 
-#: electrumsv/gui/qt/preferences.py:322
-msgid "Show history rates"
-msgstr "Historische Werte zeigen"
-
-#: electrumsv/plugins/ledger/qt.py:28
-msgid "Show on Ledger"
-msgstr "Auf Ledger anzeigen"
-
-#: electrumsv/plugins/trezor/qt.py:178
-#: electrumsv/plugins/keepkey/qt_generic.py:204
-#: electrumsv/plugins/digitalbitbox/qt.py:42
+#: electrumsv/gui/qt/address_list.py:223
 msgid "Show on {}"
 msgstr "Auf {} anzeigen"
 
-#: electrumsv/gui/qt/exception_window.py:84
+#: electrumsv/gui/qt/exception_window.py:88
 msgid "Show report contents"
 msgstr "Inhalt der Meldung anzeigen"
 
-#: electrumsv/gui/qt/app_state.py:136
+#: electrumsv/gui/qt/app.py:172
 msgid "Show/Hide"
 msgstr "Anzeigen/Verbergen"
 
-#: electrumsv/plugins/ledger/ledger.py:440
+#: electrumsv/devices/ledger/ledger.py:448
 msgid "Showing address ..."
 msgstr "Adresse wird angezeigt..."
 
-#: electrumsv/gui/qt/main_window.py:2316
-#: electrumsv/gui/qt/transaction_dialog.py:96
+#: electrumsv/gui/qt/main_window.py:2339
+#: electrumsv/gui/qt/transaction_dialog.py:97
 msgid "Sign"
 msgstr "Signieren"
 
-#: electrumsv/gui/qt/main_window.py:2294
+#: electrumsv/gui/qt/main_window.py:2315
 msgid "Sign/verify Message"
 msgstr "Nachricht signieren/verifizieren"
 
-#: electrumsv/gui/qt/address_list.py:186
+#: electrumsv/gui/qt/address_list.py:209
 msgid "Sign/verify message"
 msgstr "Nachricht signieren/verifizieren"
 
-#: electrumsv/gui/qt/main_window.py:1969 electrumsv/gui/qt/main_window.py:2310
+#: electrumsv/gui/qt/main_window.py:1955 electrumsv/gui/qt/main_window.py:2333
 msgid "Signature"
 msgstr "Signatur"
 
-#: electrumsv/gui/qt/main_window.py:2289
+#: electrumsv/gui/qt/main_window.py:2310
 msgid "Signature verified"
 msgstr "Signatur bestätigt"
 
-#: electrumsv/wallet.py:598
+#: electrumsv/wallet.py:556
 msgid "Signed"
 msgstr "Signiert"
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:178
-msgid "Signed transaction is unexpectedly incomplete."
-msgstr ""
-
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:594
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:602
 msgid "Signing large transaction. Please be patient ..."
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:457
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:471
 msgid "Signing message ..."
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:602
-#: electrumsv/gui/qt/main_window.py:1663
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:610
+#: electrumsv/gui/qt/main_window.py:1682
 msgid "Signing transaction..."
 msgstr "Transaktion wird signiert..."
 
-#: electrumsv/gui/qt/main_window.py:2244
+#: electrumsv/gui/qt/main_window.py:2254
 msgid "Signing with an address actually means signing with the corresponding private key, and verifying with the corresponding public key. The address you have entered does not have a unique public key, so these operations cannot be performed."
 msgstr "Mit einer Adresse zu signieren, bedeutet, mit dem zugehörigen privaten Schlüssel zu signieren und die Signatur mit dem öffentlichen Schlüssel zu prüfen. Da die eingegebene Adresse nicht über einen eindeutigen öffentlichen Schlüssel verfügt, kann die Operation nicht angewendet werden."
 
-#: electrumsv/gui/qt/transaction_dialog.py:257
+#: electrumsv/gui/qt/transaction_dialog.py:268
 msgid "Size:"
 msgstr "Größe:"
 
@@ -2825,15 +2892,23 @@ msgstr "Slowakisch"
 msgid "Slovenian"
 msgstr "Slowenisch"
 
-#: electrumsv/gui/qt/exception_window.py:78
+#: electrumsv/gui/qt/preferences.py:215
+msgid "Software Updates"
+msgstr ""
+
+#: electrumsv/gui/qt/exception_window.py:82
 msgid "Something went wrong running ElectrumSV."
 msgstr ""
 
-#: electrumsv/gui/qt/exception_window.py:75
+#: electrumsv/gui/qt/exception_window.py:79
 msgid "Sorry!"
 msgstr "Entschuldigung!"
 
-#: electrumsv/gui/qt/preferences.py:324
+#: electrumsv/gui/qt/contact_list.py:79
+msgid "Sort"
+msgstr ""
+
+#: electrumsv/gui/qt/preferences.py:329
 msgid "Source"
 msgstr "Quelle"
 
@@ -2849,86 +2924,78 @@ msgstr ""
 msgid "Spend"
 msgstr "Ausgegeben"
 
-#: electrumsv/gui/qt/address_list.py:204
+#: electrumsv/gui/qt/address_list.py:233
 msgid "Spend from"
 msgstr "Von hier senden"
 
-#: electrumsv/gui/qt/preferences.py:408
+#: electrumsv/gui/qt/preferences.py:124
 msgid "Spend only confirmed coins"
 msgstr "Nur bestätigte Coins ausgeben"
 
-#: electrumsv/gui/qt/preferences.py:409
+#: electrumsv/gui/qt/preferences.py:125
 msgid "Spend only confirmed inputs."
 msgstr "Nur bestätigte Eingänge ausgeben."
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:199
-#: electrumsv/gui/qt/coinsplitting_tab.py:291
+#: electrumsv/gui/qt/coinsplitting_tab.py:200
+#: electrumsv/gui/qt/coinsplitting_tab.py:301
 msgid "Split"
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:58
+#: electrumsv/gui/qt/coinsplitting_tab.py:59
 msgid "Splitting"
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:36
+#: electrumsv/gui/qt/coinsplitting_tab.py:37
 msgid "Splitting coins"
 msgstr ""
 
-#: electrumsv/base_wizard.py:88
+#: electrumsv/base_wizard.py:89
 msgid "Standard wallet"
 msgstr "Standard-Börse"
 
-#: electrumsv/gui/qt/network_dialog.py:303 electrumsv/gui/qt/request_list.py:42
+#: electrumsv/gui/qt/network_dialog.py:319 electrumsv/gui/qt/request_list.py:42
 #: electrumsv/gui/qt/invoice_list.py:41
 msgid "Status"
 msgstr ""
 
-#: electrumsv/gui/qt/transaction_dialog.py:238
+#: electrumsv/gui/qt/transaction_dialog.py:249
 msgid "Status:"
 msgstr ""
 
-#: electrumsv/plugins/trezor/clientbase.py:285
-#: electrumsv/plugins/keepkey/clientbase.py:77
+#: electrumsv/devices/trezor/client.py:290
+#: electrumsv/devices/keepkey/client.py:252
 msgid "Step {}/24.  Enter seed word as explained on your {}:"
 msgstr "Schritt {} von 24. Seed-Wort wie auf dem {} erklärt angeben:"
 
-#: electrumsv/gui/qt/main_window.py:2102 electrumsv/gui/qt/main_window.py:2818
+#: electrumsv/gui/qt/preferences.py:66 electrumsv/gui/qt/main_window.py:2133
 msgid "Success"
 msgstr "Erfolgreich"
 
-#: electrumsv/plugins/ledger/auth2fa.py:171
+#: electrumsv/devices/ledger/auth2fa.py:172
 msgid "Summary Text PIN (requires dongle replugging)"
 msgstr "Zusammenfassungstext-PIN (Geräte muss erneut angesteckt werden)"
 
-#: electrumsv/plugins/ledger/auth2fa.py:173
+#: electrumsv/devices/ledger/auth2fa.py:174
 msgid "Summary Text PIN is Disabled"
 msgstr "Zusammenfassungstext-PIN ist deaktiviert"
 
-#: electrumsv/plugins/keepkey/qt_generic.py:451
-msgid "Supported Coins"
-msgstr "Unterstützte Münzen"
-
-#: electrumsv/gui/qt/main_window.py:2704
+#: electrumsv/gui/qt/main_window.py:2721
 msgid "Sweep"
 msgstr "Entleeren"
 
-#: electrumsv/gui/qt/main_window.py:2690
+#: electrumsv/gui/qt/main_window.py:2707
 msgid "Sweep private keys"
 msgstr "Private Schlüssel entleeren"
 
-#: electrumsv/gui/qt/main_window.py:822
+#: electrumsv/gui/qt/main_window.py:922
 msgid "Synchronizing..."
 msgstr "Synchronisiere..."
-
-#: electrumsv/plugins/trezor/__init__.py:6
-msgid "TREZOR wallet"
-msgstr "TREZOR Wallet"
 
 #: electrumsv/i18n.py:70
 msgid "Tamil"
 msgstr "Tamilisch"
 
-#: electrumsv/gui/qt/util.py:529
+#: electrumsv/gui/qt/util.py:555
 msgid "Text copied to clipboard"
 msgstr "Der Text wurde in die Zwischenablage kopiert"
 
@@ -2940,298 +3007,342 @@ msgstr ""
 msgid "Thai"
 msgstr "Thailändisch"
 
-#: electrumsv/gui/qt/main_window.py:936
+#: electrumsv/gui/qt/main_window.py:1022
 msgid "The Bitcoin SV address never expires and will always be part of this ElectrumSV wallet."
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:206
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:211
 msgid "The Digital Bitbox is already seeded. Choose an option:"
 msgstr ""
 
-#: electrumsv/plugins/trezor/clientbase.py:245
+#: electrumsv/devices/trezor/client.py:250
 msgid "The PIN cannot be longer than 9 characters."
 msgstr "Die PIN darf nicht länger als 9 Zeichen sein."
 
-#: electrumsv/gui/qt/main_window.py:1241
-msgid "The amount of fee can be decided freely by the sender. However, transactions with low fees take more time to be processed."
-msgstr "Die Gebühr kann vom Sender frei gewählt werden. Die Verarbeitung von Transaktionen mit niedriger Gebühr dauert jedoch länger."
-
-#: electrumsv/gui/qt/main_window.py:1215
+#: electrumsv/gui/qt/main_window.py:1249
 msgid "The amount will be displayed in red if you do not have enough funds in your wallet."
 msgstr "Der Betrag wird in rot angezeigt, falls nicht genügend Geld in der Geldbörse ist."
 
-#: electrumsv/gui/qt/main_window.py:1182
+#: electrumsv/gui/qt/payment.py:220
+msgid "The balance of the selected account."
+msgstr ""
+
+#: electrumsv/base_wizard.py:264
+msgid "The default value of {} is the default derivation for {} wallets.  This matches BTC wallet addresses and most other BSV wallet software."
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1275
 msgid "The description is not sent to the recipient of the funds. It is stored in your wallet file, and displayed in the 'History' tab."
 msgstr "Die Beschreibung wird nicht an den Empfänger gesendet. Sie wird lediglich in der Geldbörse gespeichert und im Transaktionsverlauf angezeigt."
 
-#: electrumsv/gui/qt/main_window.py:1614
+#: electrumsv/gui/qt/main_window.py:1634
 msgid "The fee is less than 1000 sats/kb.  It may take a very long time to confirm."
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:400
+#: electrumsv/gui/qt/installwizard.py:480
 msgid "The file '{}' contains an incompletely created wallet.\n"
 "Do you want to complete its creation now?"
 msgstr "Die Datei '{}' enthält eine unvollständige Wallet.\n"
 "Möchten Sie jetzt vervollständigen?"
 
-#: electrumsv/gui/qt/installwizard.py:384
-#: electrumsv/gui/qt/installwizard.py:405
+#: electrumsv/gui/qt/installwizard.py:466
+#: electrumsv/gui/qt/installwizard.py:485
 msgid "The file was removed"
 msgstr "Die Datei wurde entfernt"
 
-#: electrumsv/gui/qt/main_window.py:2751
+#: electrumsv/gui/qt/main_window.py:2768
 msgid "The following addresses were added"
 msgstr "Die folgenden Adressen wurden hinzugefügt"
 
-#: electrumsv/gui/qt/preferences.py:125
-msgid "The following alias providers are available:"
-msgstr "Die folgenden Alias-Anbieter sind verfügbar:"
-
-#: electrumsv/gui/qt/main_window.py:2753
+#: electrumsv/gui/qt/main_window.py:2770
 msgid "The following inputs could not be imported"
 msgstr "Die folgenden Eingänge konnten nicht importiert werden"
 
-#: electrumsv/gui/qt/installwizard.py:389
+#: electrumsv/gui/qt/installwizard.py:470
 #, python-format
-msgid "The format of your wallet '%s' must be upgraded for ElectrumSV. This change will not be backward compatible"
+msgid "The format of your wallet '%s' must be upgraded for ElectrumSV. This change will not be backward compatible.  Proceed?"
 msgstr ""
 
-#: electrumsv/gui/qt/updater.py:141
+#: electrumsv/gui/qt/update_check.py:125
 msgid "The information about the latest version is broken."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2248
+#: electrumsv/gui/qt/main_window.py:2258
 msgid "The operation is undefined. Not just in ElectrumSV, but in general."
 msgstr ""
 
-#: electrumsv/base_wizard.py:272
-msgid "The placeholder value of {} is the default derivation for {} wallets."
-msgstr ""
-
-#: electrumsv/gui/qt/updater.py:167
+#: electrumsv/gui/qt/update_check.py:172
 msgid "The request took too long."
 msgstr ""
 
-#: electrumsv/gui/qt/qrtextedit.py:52
+#: electrumsv/gui/qt/qrtextedit.py:51
 msgid "The selected file appears to be a binary file."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:612
+#: electrumsv/gui/qt/util.py:218
+msgid "The server returned the following message, which may or may not help describe the problem.  A malicious server may return misleading messages, so act on it at your own risk.  In particular, do not download software from any links provided; the official ElectrumSV website is only https://electrumsv.io/."
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:2506
+msgid "The server was unable to locate the transaction you specified."
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:724
 msgid "The server {} has not provided a valid donation address"
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:266
+#: electrumsv/gui/qt/preferences.py:357
+msgid "The settings below only affect the wallet {}"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:632
+msgid "The text you have entered above is unrecognized."
+msgstr ""
+
+#: electrumsv/gui/qt/coinsplitting_tab.py:267
 msgid "The transaction will then be broadcast, and immediately added to your wallet history so you can see it confirmed. It will be labeled as splitting related, so you can easily identify it."
 msgstr ""
 
-#: electrumsv/gui/qt/installwizard.py:375
+#: electrumsv/gui/qt/installwizard.py:457
 msgid "The wallet '{}' contains multiple accounts, which are not supported.\n\n"
 "Do you want to split your wallet into multiple files?"
 msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:299
-msgid "This blockchain is used to verify the transactions sent by your transaction server."
-msgstr "Diese Blockchain wird genutzt, um die Transaktionen von Ihrem Transaktionsserver zu prüfen."
-
-#: electrumsv/gui/qt/installwizard.py:323
-msgid "This file does not exist."
-msgstr "Diese Datei existiert nicht."
-
-#: electrumsv/gui/qt/installwizard.py:328
-msgid "This file is encrypted."
+#: electrumsv/gui/qt/payment.py:678
+msgid "Theirs"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:932
-msgid "This information is seen by the recipient if you send them a signed payment request."
-msgstr "Diese Informationen stehen dem Empfänger einer signierten Zahlungsanforderung zur Verfügung."
-
-#: electrumsv/gui/qt/main_window.py:2498
-msgid "This is a watching-only wallet"
-msgstr "Diese Wallet kann nur gelesen werden"
-
-#: electrumsv/gui/qt/main_window.py:2263 electrumsv/gui/qt/main_window.py:2335
-msgid "This is a watching-only wallet."
-msgstr "Diese Geldbörse ist im Beobachtungsmodus."
-
-#: electrumsv/gui/qt/main_window.py:1260
-msgid "This is the fee rate that will be used for this transaction."
+#: electrumsv/gui/qt/installwizard.py:227
+msgid "There are many reasons for this, and the simplest is that if Electron Cash and ElectrumSV were to operate on the same wallet at the same time, then the wallet will most likely become corrupted. It's simpler in every way to just copy the wallet over to ElectrumSV and use a separate wallet file for each."
 msgstr ""
 
 #: electrumsv/gui/qt/network_dialog.py:315
+msgid "This blockchain is used to verify the transactions sent by your transaction server."
+msgstr "Diese Blockchain wird genutzt, um die Transaktionen von Ihrem Transaktionsserver zu prüfen."
+
+#: electrumsv/devices/ledger/qt.py:75
+msgid "This button does nothing."
+msgstr ""
+
+#: electrumsv/gui/qt/installwizard.py:245
+msgid "This feature is aimed at users who were already using Electron Cash and have existing wallets associated with it. None were detected on this computer, but if you do have some stored in places ElectrumSV does not know about you may need to copy them yourself."
+msgstr ""
+
+#: electrumsv/gui/qt/installwizard.py:279
+msgid "This file does not exist."
+msgstr "Diese Datei existiert nicht."
+
+#: electrumsv/gui/qt/installwizard.py:284
+msgid "This file is encrypted."
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1018
+msgid "This information is seen by the recipient if you send them a signed payment request."
+msgstr "Diese Informationen stehen dem Empfänger einer signierten Zahlungsanforderung zur Verfügung."
+
+#: electrumsv/gui/qt/main_window.py:2516
+msgid "This is a watching-only wallet"
+msgstr "Diese Wallet kann nur gelesen werden"
+
+#: electrumsv/gui/qt/main_window.py:2273 electrumsv/gui/qt/main_window.py:2359
+msgid "This is a watching-only wallet."
+msgstr "Diese Geldbörse ist im Beobachtungsmodus."
+
+#: electrumsv/gui/qt/coinsplitting_tab.py:338
+msgid "This is not the type of wallet that generate new addresses, and therefore it cannot be used for <br/>coin-splitting. Create a new standard wallet in ElectrumSV and send your coins there, then<br/>split them."
+msgstr ""
+
+#: electrumsv/gui/qt/network_dialog.py:331
 msgid "This is the height of your local copy of the blockchain."
 msgstr "Das ist die Höhe Ihrer lokalen Kopie der Blockchain."
 
-#: electrumsv/gui/qt/preferences.py:399
+#: electrumsv/gui/qt/preferences.py:381
 msgid "This may result in higher transactions fees."
 msgstr "Dies könnte zu höheren Transaktionsgebühren führen."
 
-#: electrumsv/gui/qt/main_window.py:427
+#: electrumsv/gui/qt/main_window.py:406
 msgid "This means you will not be able to spend Bitcoin SV with it."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1020
-msgid "This payment request will be signed."
-msgstr "Die Zahlungsanforderung wird signiert."
-
-#: electrumsv/plugins/cosigner_pool/__init__.py:4
+#: electrumsv/extensions.py:61
 msgid "This plugin facilitates the use of multi-signatures wallets."
 msgstr "Dieses Plugin vereinfacht die Nutzung von Multisignaturbörsen."
 
-#: electrumsv/gui/qt/seed_dialog.py:53
+#: electrumsv/gui/qt/dialogs.py:204
+msgid "This release includes the following changes:"
+msgstr ""
+
+#: electrumsv/gui/qt/seed_dialog.py:54
 msgid "This seed will allow you to recover your wallet in case of computer failure."
 msgstr "Mit diesem Seed lässt sich Ihre Wallet nach einem Computerausfall wiederherstellen."
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:241
+#: electrumsv/gui/qt/coinsplitting_tab.py:242
 msgid "This tab allows you to easily split the available coins in this wallet (approximately {} {}) on the Bitcoin SV chain."
 msgstr ""
 
-#: electrumsv/gui/qt/transaction_dialog.py:160
+#: electrumsv/gui/qt/transaction_dialog.py:165
 msgid "This transaction is not saved.  Close anyway?"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2197
+#: electrumsv/gui/qt/main_window.py:2209
 msgid "This wallet has no seed"
 msgstr "Diese Wallet hat keinen Seed"
 
-#: electrumsv/gui/qt/main_window.py:426
+#: electrumsv/gui/qt/main_window.py:405
 msgid "This wallet is watching-only."
 msgstr "Diese Geldbörse ist nur lesend nutzbar."
 
-#: electrumsv/gui/qt/installwizard.py:580
-msgid "This wallet was restored offline. It may contain more addresses than displayed."
-msgstr "Diese Wallet wurde offline wiederhergestellt. Sie könnte mehr Adressen als dargestellt enthalten."
-
-#: electrumsv/gui/qt/coinsplitting_tab.py:245
+#: electrumsv/gui/qt/coinsplitting_tab.py:246
 msgid "This will involve the following steps if you choose to proceed:"
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:460
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:598
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:605
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:474
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:606
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:613
 msgid "To cancel, briefly touch the blinking light or wait for the timeout."
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:289
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:315
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:294
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:320
 msgid "To cancel, briefly touch the light or wait for the timeout."
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:458
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:595
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:603
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:472
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:603
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:611
 msgid "To continue, touch the Digital Bitbox's blinking light for 3 seconds."
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:288
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:314
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:293
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:319
 msgid "To continue, touch the Digital Bitbox's light for 3 seconds."
 msgstr ""
 
-#: electrumsv/base_wizard.py:164
+#: electrumsv/base_wizard.py:165
 msgid "To create a spending wallet, please enter a master private key (xprv/yprv/zprv)."
 msgstr "Um eine vollständige Börse zu erzeugen, geben Sie einen privaten Generalschlüssel (xprv, yprv oder zprv) ein."
 
-#: electrumsv/base_wizard.py:162
+#: electrumsv/base_wizard.py:163
 msgid "To create a watching-only wallet, please enter your master public key (xpub/ypub/zpub)."
 msgstr "Um eine nur-lesende Börse zu erzeugen, geben Sie einen öffentlichen Hauptschlüssel (xpub, ypub oder zpub) ein."
 
-#: electrumsv/gui/qt/exception_window.py:81
+#: electrumsv/gui/qt/exception_window.py:85
 msgid "To help us diagnose and fix the problem, you can send us a bug report that contains useful debug information:"
 msgstr "Um uns bei der Fehlersuche und -behebung zu unterstützen, können Sie uns eine Fehlermeldung mit nützlichen Fehlerinformationen senden:"
 
-#: electrumsv/gui/qt/installwizard.py:539
+#: electrumsv/gui/qt/installwizard.py:616
 msgid "To make sure that you have properly saved your seed, please retype it here."
 msgstr "Um sicherzugehen daß Sie den Seed tatsächlich gesichert haben, bitte hier erneut eingeben."
 
-#: electrumsv/base_wizard.py:216
+#: electrumsv/base_wizard.py:267
+msgid "To match BCH wallet addresses use m/44'/145'/0'"
+msgstr ""
+
+#: electrumsv/base_wizard.py:214
 msgid "To trigger a rescan, press 'Next'."
 msgstr "Um erneut zu suchen, wählen Sie \"Weiter\"."
 
-#: electrumsv/base_wizard.py:247
+#: electrumsv/base_wizard.py:242
 msgid "To try to fix this, we will now re-pair with your device."
 msgstr "Um zu versuchen dies zu beheben, werden wir uns jetzt erneut mit Ihrem Gerät verbinden."
 
-#: electrumsv/plugins/trezor/clientbase.py:263
+#: electrumsv/gui/qt/password_dialog.py:77
+msgid "Toggle visibility"
+msgstr ""
+
+#: electrumsv/devices/trezor/client.py:268
 msgid "Too long passphrase ({} > 50 chars)."
 msgstr "Passphrase ist zu lange ({} > 50 Zeichen)."
 
-#: electrumsv/gui/qt/main_window.py:2951
+#: electrumsv/gui/qt/main_window.py:2906
 msgid "Total size"
 msgstr "Gesamtgröße"
 
-#: electrumsv/gui/qt/transaction_dialog.py:69
+#: electrumsv/gui/qt/transaction_dialog.py:68
 msgid "Transaction"
 msgstr "Transaktion"
 
-#: electrumsv/gui/qt/main_window.py:2484
-msgid "Transaction ID"
-msgstr "Transaktions-ID"
+#: electrumsv/gui/qt/main_window.py:1717
+msgid "Transaction Broadcast Error"
+msgstr ""
 
-#: electrumsv/gui/qt/transaction_dialog.py:75
+#: electrumsv/gui/qt/transaction_dialog.py:148
+msgid "Transaction ID copied to clipboard"
+msgstr ""
+
+#: electrumsv/gui/qt/transaction_dialog.py:73
 msgid "Transaction ID:"
 msgstr "Transaktions-ID"
 
-#: electrumsv/plugins/ledger/auth2fa.py:32
+#: electrumsv/gui/qt/main_window.py:2505
+msgid "Transaction Lookup Error"
+msgstr ""
+
+#: electrumsv/devices/ledger/auth2fa.py:34
 msgid "Transaction accepted by mobile phone. Waiting for confirmation."
 msgstr "Transaktion wurde vom Smartphone akzeptiert. Warte auf Bestätigung."
 
-#: electrumsv/gui/qt/transaction_dialog.py:211
+#: electrumsv/gui/qt/transaction_dialog.py:216
 msgid "Transaction saved successfully"
 msgstr ""
 
-#: electrumsv/gui/qt/transaction_dialog.py:248
+#: electrumsv/gui/qt/transaction_dialog.py:259
 msgid "Transaction unrelated to your wallet"
 msgstr "Transaktion ohne Bezug zu Ihrer Wallet"
 
-#: electrumsv/gui/qt/main_window.py:2460
+#: electrumsv/gui/qt/main_window.py:2476
 msgid "Transaction:"
 msgstr "Transaktion:"
 
-#: electrumsv/gui/qt/preferences.py:328
+#: electrumsv/gui/qt/preferences.py:72
 msgid "Transactions"
 msgstr "Transaktionen"
 
-#: electrumsv/plugins/cosigner_pool/__init__.py:6
+#: electrumsv/extensions.py:63
 msgid "Transactions are encrypted and stored on a remote server."
 msgstr "Transaktionen werden verschlüsselt und auf einem entfernten Server gespeichert."
 
-#: electrumsv/plugins/trezor/qt.py:45
+#: electrumsv/devices/trezor/qt.py:46
 msgid "Trezor Matrix Recovery"
 msgstr "Trezor Wiederherstellungsmatrix"
 
-#: electrumsv/gui/qt/updater.py:165
+#: electrumsv/gui/qt/update_check.py:170
 msgid "Try again later, or consider reporting the problem."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:643
+#: electrumsv/gui/qt/main_window.py:749
 msgid "Try to explain not only what the bug is, but how it occurs."
 msgstr "Versuchen Sie, nicht nur den Fehler zu erklären, sondern auch die Begleitumstände zu erläutern."
 
-#: electrumsv/gui/qt/address_list.py:59
+#: electrumsv/gui/qt/address_list.py:56
 msgid "Tx"
 msgstr ""
 
-#: electrumsv/gui/qt/updater.py:169
+#: electrumsv/gui/qt/update_check.py:174
 msgid "Unable to connect."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:473
+#: electrumsv/gui/qt/main_window.py:451
 msgid "Unable to create backup"
 msgstr "Sicherung konnte nicht erstellt werden"
 
-#: electrumsv/gui/qt/main_window.py:2585
+#: electrumsv/gui/qt/main_window.py:2603
 msgid "Unable to create csv"
 msgstr "Konnte CSV nicht erstellen"
 
-#: electrumsv/gui/qt/main_window.py:2655
+#: electrumsv/gui/qt/main_window.py:2672
 msgid "Unable to export history"
 msgstr "Transaktionsverlauf konnte nicht exportiert werden"
 
-#: electrumsv/gui/qt/main_window.py:2451
-msgid "Unable to read file or no transaction found"
-msgstr "Datei konnte nicht gelesen wurden, oder keine Transaktion gefunden"
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:501
+msgid "Unable to sign as Bitbox failed to provide a valid signature"
+msgstr ""
 
-#: electrumsv/wallet.py:71 electrumsv/wallet.py:591
+#: electrumsv/gui/qt/main_window.py:2110 electrumsv/gui/qt/main_window.py:2111
+msgid "Unavailable"
+msgstr ""
+
+#: electrumsv/wallet.py:70 electrumsv/wallet.py:552
 msgid "Unconfirmed"
 msgstr "Unbestätigt"
 
@@ -3239,26 +3350,26 @@ msgstr "Unbestätigt"
 msgid "Unconfirmed parent"
 msgstr "Unbestätigte Elterntransaktion"
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:187
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:192
 msgid "Unexpected error occurred."
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:131
+#: electrumsv/gui/qt/coinsplitting_tab.py:135
 msgid "Unexpected response from faucet:\n"
 "{}"
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:128
+#: electrumsv/gui/qt/coinsplitting_tab.py:132
 msgid "Unexpected response from faucet:\n"
 "{} ({})\n"
 "{}"
 msgstr ""
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:136
+#: electrumsv/gui/qt/coinsplitting_tab.py:140
 msgid "Unexpected situation. You should not even be here."
 msgstr ""
 
-#: electrumsv/gui/qt/address_list.py:198
+#: electrumsv/gui/qt/address_list.py:227
 msgid "Unfreeze"
 msgstr "Freigeben"
 
@@ -3278,106 +3389,107 @@ msgstr ""
 msgid "Unfreeze Coins"
 msgstr ""
 
-#: electrumsv/exchange_rate.py:457 electrumsv/gui/qt/main_window.py:1973
-#: electrumsv/gui/qt/transaction_dialog.py:225
+#: electrumsv/exchange_rate.py:403 electrumsv/gui/qt/main_window.py:1959
+#: electrumsv/gui/qt/main_window.py:2095
+#: electrumsv/gui/qt/transaction_dialog.py:236
 #: electrumsv/gui/qt/request_list.py:97 electrumsv/gui/qt/invoice_list.py:55
 msgid "Unknown"
 msgstr "Unbekannt"
 
-#: electrumsv/wallet.py:602
+#: electrumsv/devices/hw_wallet/qt.py:203
+msgid "Unnamed"
+msgstr ""
+
+#: electrumsv/wallet.py:560
 msgid "Unsigned"
 msgstr "Unsigniert"
 
-#: electrumsv/plugins/trezor/trezor.py:429
-msgid "Unsupported output script."
-msgstr ""
-
-#: electrumsv/gui/qt/updater.py:82
+#: electrumsv/gui/qt/update_check.py:51 electrumsv/gui/qt/main_window.py:621
 msgid "Update Check"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:631
-msgid "Update {} is available"
+#: electrumsv/gui/qt/main_window.py:667
+msgid "Updates"
 msgstr ""
 
-#: electrumsv/plugins/keepkey/plugin.py:152
+#: electrumsv/devices/keepkey/keepkey.py:222
 msgid "Upload a BIP39 mnemonic to generate the seed"
 msgstr "Laden Sie eine BIP39 Mnemonic hoch, um eine Seed zu generieren"
 
-#: electrumsv/plugins/keepkey/plugin.py:153
+#: electrumsv/devices/keepkey/keepkey.py:223
 msgid "Upload a master private key"
 msgstr "Laden Sie einen privaten Generalschlüssel hoch"
 
-#: electrumsv/gui/qt/seed_dialog.py:88
+#: electrumsv/gui/qt/virtual_keyboard.py:39
+msgid "Upper-case letters"
+msgstr ""
+
+#: electrumsv/gui/qt/seed_dialog.py:89
 msgid "Use Coin Type 145 with bip39"
 msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:278
+#: electrumsv/gui/qt/network_dialog.py:294
 msgid "Use Tor Proxy"
 msgstr "Tor-Proxy nutzen"
 
-#: electrumsv/base_wizard.py:126
+#: electrumsv/base_wizard.py:127
 msgid "Use a hardware device"
 msgstr "Ein Hardware-Gerät verwenden"
 
-#: electrumsv/gui/qt/network_dialog.py:89
-#: electrumsv/gui/qt/network_dialog.py:152
+#: electrumsv/gui/qt/network_dialog.py:93
+#: electrumsv/gui/qt/network_dialog.py:171
 msgid "Use as server"
 msgstr "Als Server nutzen"
 
-#: electrumsv/gui/qt/preferences.py:378
+#: electrumsv/gui/qt/preferences.py:360
 msgid "Use change addresses"
 msgstr "Wechselgeld-Adressen verwenden"
 
-#: electrumsv/gui/qt/preferences.py:393
+#: electrumsv/gui/qt/preferences.py:375
 msgid "Use multiple change addresses"
 msgstr "Mehrere Wechselgeld-Adressen verwenden"
 
-#: electrumsv/gui/qt/network_dialog.py:249
+#: electrumsv/gui/qt/network_dialog.py:266
 msgid "Use proxy"
 msgstr "Proxy-Server verwenden"
 
-#: electrumsv/base_wizard.py:125
+#: electrumsv/base_wizard.py:126
 msgid "Use public or private keys"
 msgstr ""
 
-#: electrumsv/gui/qt/preferences.py:145
-msgid "Use setconfig to set ssl_chain and ssl_privkey."
-msgstr "Verwenden Sie 'setconfig' um 'ssl_chain' und 'ssl_privkey' zu setzen."
-
-#: electrumsv/gui/qt/password_dialog.py:179
+#: electrumsv/gui/qt/password_dialog.py:238
 msgid "Use this dialog to add a password to your wallet."
 msgstr "Nutzen Sie diesen Dialog, um zur Geldbörse ein Passwort hinzuzufügen."
 
-#: electrumsv/gui/qt/password_dialog.py:186
+#: electrumsv/gui/qt/password_dialog.py:245
 msgid "Use this dialog to change your password."
 msgstr "Nutzen Sie diesen Dialog, um das Passwort zu ändern."
 
-#: electrumsv/gui/qt/address_list.py:109
+#: electrumsv/gui/qt/address_list.py:111
 msgid "Used"
 msgstr "Benutzt"
 
-#: electrumsv/gui/qt/main_window.py:624
+#: electrumsv/gui/qt/main_window.py:736
 msgid "Uses icons from the Icons8 icon pack (icons8.com)."
 msgstr "Verwendet Icons aus dem Icons8-Paket (icons8.com)."
 
-#: electrumsv/gui/qt/preferences.py:382
+#: electrumsv/gui/qt/preferences.py:364
 msgid "Using a different change address each time improves your privacy by making it more difficult for others to analyze your transactions."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2322
+#: electrumsv/gui/qt/main_window.py:2346
 msgid "Verify"
 msgstr "Verifizieren"
 
-#: electrumsv/plugins/ledger/auth2fa.py:29
+#: electrumsv/devices/ledger/auth2fa.py:31
 msgid "Verify the address below.<br>Type the character from your security card corresponding to the <u><b>BOLD</b></u> character."
 msgstr "Überprüfen Sie die Adresse unten.<br>Geben Sie die Zeichen Ihrer Sicherheitskarte für das <u><b>fett</u></b> gedruckte Zeichen ein."
 
-#: electrumsv/gui/qt/main_window.py:617
+#: electrumsv/gui/qt/main_window.py:729
 msgid "Version"
 msgstr ""
 
-#: electrumsv/gui/qt/preferences.py:221
+#: electrumsv/gui/qt/preferences.py:202
 msgid "Video Device"
 msgstr "Videogerät"
 
@@ -3385,73 +3497,77 @@ msgstr "Videogerät"
 msgid "Vietnamese"
 msgstr "Vietnamesisch"
 
+#: electrumsv/gui/qt/main_window.py:676 electrumsv/gui/qt/main_window.py:684
+msgid "View Pending Update"
+msgstr ""
+
 #: electrumsv/gui/qt/history_list.py:191
 msgid "View invoice"
 msgstr "Rechnung ansehen"
 
-#: electrumsv/gui/qt/address_list.py:194 electrumsv/gui/qt/history_list.py:194
-#: electrumsv/gui/qt/contact_list.py:87
+#: electrumsv/gui/qt/address_list.py:217 electrumsv/gui/qt/history_list.py:194
 msgid "View on block explorer"
 msgstr "In Blockexplorer anzeigen"
 
-#: electrumsv/extensions.py:43
-msgid "Virtual Keyboard"
+#: electrumsv/gui/qt/password_dialog.py:80
+msgid "Virtual keyboard"
 msgstr ""
 
-#: electrumsv/gui/qt/seed_dialog.py:56
+#: electrumsv/gui/qt/seed_dialog.py:57
 msgid "WARNING"
 msgstr "ACHTUNG"
 
-#: electrumsv/gui/qt/main_window.py:2512
+#: electrumsv/gui/qt/main_window.py:2530
 msgid "WARNING: ALL your private keys are secret."
 msgstr "ACHTUNG: ALLE privaten Schlüssel sind geheim."
 
-#: electrumsv/gui/qt/main_window.py:2503
+#: electrumsv/gui/qt/main_window.py:2521
 msgid "WARNING: This is a multi-signature wallet."
 msgstr "WARNUNG: Das ist eine Multisignaturbörse."
 
-#: electrumsv/gui/qt/main_window.py:1536
-msgid "WARNING: the alias \"{}\" could not be validated via an additional security check, DNSSEC, and thus may not be correct.\n"
-msgstr ""
-
-#: electrumsv/plugins/ledger/auth2fa.py:31
+#: electrumsv/devices/ledger/auth2fa.py:33
 msgid "Waiting for authentication on your mobile phone"
 msgstr "Warte auf die Authentifizierung auf dem Mobilgerät"
 
-#: electrumsv/gui/qt/installwizard.py:284
+#: electrumsv/gui/qt/preferences.py:77 electrumsv/gui/qt/installwizard.py:175
 msgid "Wallet"
 msgstr "Geldbörse"
 
-#: electrumsv/gui/qt/main_window.py:2137
+#: electrumsv/gui/qt/main_window.py:2149
 msgid "Wallet Information"
 msgstr "Börseninformationen"
 
-#: electrumsv/gui/qt/main_window.py:469
+#: electrumsv/gui/qt/main_window.py:447
 msgid "Wallet backup created"
 msgstr "Sicherung der Geldbörse erstellt"
 
-#: electrumsv/gui/qt/transaction_dialog.py:301
+#: electrumsv/gui/qt/transaction_dialog.py:315
 msgid "Wallet change address"
 msgstr "Wechselgeldadresse der Geldbörse"
 
-#: electrumsv/gui/qt/main_window.py:2687
+#: electrumsv/gui/qt/main_window.py:2704
 msgid "Wallet has no address to sweep to"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2145
+#: electrumsv/gui/qt/main_window.py:2156
 msgid "Wallet name"
 msgstr "Name der Geldbörse"
 
-#: electrumsv/gui/qt/transaction_dialog.py:298
+#: electrumsv/gui/qt/coinsplitting_tab.py:343
+msgid "Wallet not loaded, change tabs and come back."
+msgstr ""
+
+#: electrumsv/gui/qt/transaction_dialog.py:312
 msgid "Wallet receive address"
 msgstr "Empfangsadresse der Geldbörse"
 
-#: electrumsv/gui/qt/main_window.py:2147
+#: electrumsv/gui/qt/main_window.py:2158
 msgid "Wallet type"
 msgstr "Typ der Geldbörse"
 
-#: electrumsv/gui/qt/seed_dialog.py:38 electrumsv/gui/qt/main_window.py:1613
-#: electrumsv/gui/qt/transaction_dialog.py:161 electrumsv/gui/qt/util.py:179
+#: electrumsv/gui/qt/seed_dialog.py:39 electrumsv/gui/qt/main_window.py:1633
+#: electrumsv/gui/qt/transaction_dialog.py:166 electrumsv/gui/qt/util.py:160
+#: electrumsv/gui/qt/util.py:193
 msgid "Warning"
 msgstr "Achtung"
 
@@ -3459,7 +3575,7 @@ msgstr "Achtung"
 msgid "Warning!"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1090
+#: electrumsv/gui/qt/main_window.py:1147
 msgid "Warning: The next address will not be recovered automatically if you restore your wallet from seed; you may need to add it manually.\n\n"
 "This occurs because you have too many unused addresses in your wallet. To avoid this situation, use the existing addresses first.\n\n"
 "Create anyway?"
@@ -3467,376 +3583,379 @@ msgstr "Warnung: Die nächste Adresse kann nicht automatisch wiedergefunden werd
 "Dies passiert weil Sie zuviele unbenutze Adressen in Ihrer Geldbörse haben. Benutzen Sie existierende Adressen zuerst, um diese Situation zu vermeiden.\n\n"
 "Trotzdem erstellen?"
 
-#: electrumsv/extensions.py:46
-msgid "Warning: do not use this if it makes you pick a weaker password."
-msgstr "Achtung: Lassen Sie sich dadurch nicht dazu verleiten ein schwaches Passwort zu wählen."
-
-#: electrumsv/gui/qt/seed_dialog.py:43
+#: electrumsv/gui/qt/seed_dialog.py:44
 msgid "We do not guarantee that BIP39 imports will always be supported in ElectrumSV."
 msgstr ""
 
-#: electrumsv/base_wizard.py:245
+#: electrumsv/base_wizard.py:240
 msgid "We encountered an error while connecting to your device:"
 msgstr "Beim Verbinden mit dem Gerät ist ein Fehler aufgetreten:"
 
-#: electrumsv/base_wizard.py:85
+#: electrumsv/gui/qt/dialogs.py:202
+msgid "Welcome to ElectrumSV 1.2.2"
+msgstr ""
+
+#: electrumsv/base_wizard.py:86
 msgid "What kind of wallet do you want to create?"
 msgstr "Welchen Börsentyp möchten Sie erstellen?"
 
-#: electrumsv/plugins/trezor/qt.py:558
-#: electrumsv/plugins/keepkey/qt_generic.py:566
+#: electrumsv/gui/qt/contact_list.py:206
+msgid "What your contact avatar looks like."
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:539 electrumsv/devices/keepkey/qt.py:532
 msgid "Wipe Device"
 msgstr "Gerät löschen"
 
-#: electrumsv/plugins/trezor/qt.py:561
-#: electrumsv/plugins/keepkey/qt_generic.py:569
+#: electrumsv/devices/trezor/qt.py:542 electrumsv/devices/keepkey/qt.py:535
 msgid "Wipe the device, removing all data from it.  The firmware is left unchanged."
 msgstr "Löscht das Gerät, mitsamt aller Daten. Die Firmware bleibt hingegen unberührt."
 
-#: electrumsv/gui/qt/fee_slider.py:30
-msgid "Within 10 blocks"
-msgstr "Innerhalb von 10 Blöcken"
+#: electrumsv/gui/qt/paytoedit.py:107
+msgid "Within the very near future, various services and applications in the Bitcoin SV ecosystem will stop accepting 'cash addresses'. It is in your best interest to make sure you transition over to normal Bitcoin SV addresses as soon as possible, in order to ensure that you can both be paid, and also get paid."
+msgstr ""
 
-#: electrumsv/gui/qt/fee_slider.py:31
-msgid "Within 2 blocks"
-msgstr "Innerhalb von 2 Blöcken"
-
-#: electrumsv/gui/qt/fee_slider.py:30
-msgid "Within 25 blocks"
-msgstr "Innerhalb von 25 Blöcken"
-
-#: electrumsv/gui/qt/fee_slider.py:30
-msgid "Within 5 blocks"
-msgstr "Innerhalb von 5 Blöcken"
-
-#: electrumsv/plugins/trezor/clientbase.py:22
-#: electrumsv/plugins/keepkey/clientbase.py:20
+#: electrumsv/devices/trezor/client.py:26
+#: electrumsv/devices/keepkey/client.py:195
 msgid "Write down the seed word shown on your {}"
 msgstr "Schreiben Sie das Seed-Wort auf, das auf Ihrem {} gezeigt wird"
 
-#: electrumsv/base_wizard.py:348 electrumsv/base_wizard.py:356
-msgid "Wrong key type"
-msgstr "Falscher Schlüsseltyp"
-
-#: electrumsv/gui/qt/main_window.py:2291
+#: electrumsv/gui/qt/main_window.py:2312
 msgid "Wrong signature"
 msgstr "Falsche Signatur"
 
-#: electrumsv/plugins/trezor/qt.py:311
-#: electrumsv/plugins/keepkey/qt_generic.py:331
+#: electrumsv/devices/trezor/qt.py:292 electrumsv/devices/keepkey/qt.py:340
 msgid "Yes"
 msgstr "Ja"
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:114
+#: electrumsv/gui/qt/coinsplitting_tab.py:118
 msgid "You aborted the process."
 msgstr ""
 
-#: electrumsv/gui/qt/network_dialog.py:379
-msgid "You are following branch"
-msgstr "Du folgst dem Zweig"
+#: electrumsv/gui/qt/installwizard.py:384
+msgid "You already have a wallet named '{}' for ElectrumSV. Replace/overwrite it?"
+msgstr ""
 
-#: electrumsv/gui/qt/app_state.py:173
+#: electrumsv/gui/qt/app.py:205 electrumsv/gui/qt/main_window.py:1323
+#: electrumsv/gui/qt/transaction_dialog.py:230
 msgid "You are using ElectrumSV in offline mode; restart ElectrumSV if you want to get connected"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1083
+#: electrumsv/gui/qt/main_window.py:1140
 msgid "You are using a non-deterministic wallet, which cannot create new addresses."
 msgstr "Sie verwenden eine nicht-deterministische Geldbörse - damit können Sie keine neuen Adressen erstellen."
 
-#: electrumsv/gui/qt/main_window.py:1618
-msgid "You are using an OP_RETURN message. This gets permanently written to the blockchain."
-msgstr ""
-
-#: electrumsv/plugins/trezor/qt.py:495
-#: electrumsv/plugins/keepkey/qt_generic.py:504
+#: electrumsv/devices/trezor/qt.py:476
 msgid "You can set the homescreen on your device to personalize it.  You must choose a {} x {} monochrome black and white image."
 msgstr "Sie können den Startbildschirm Ihres Geräts setzen um es zu personalisieren. Dafür wird ein {}*{} Schwarzweißbild benötigt."
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:271
+#: electrumsv/gui/qt/seed_dialog.py:140
+msgid "You can simply enter a seed previously created in ElectrumSV or Electron Cash here, and when you have entered enough words, the 'Next' button will become enabled. The 'Options' can be ignored unless you know you need them due to previous special choices made when creating your seed."
+msgstr ""
+
+#: electrumsv/gui/qt/coinsplitting_tab.py:272
 msgid "You can then open Electron Cash and move your ABC coins to a different address, in order to finalise the split."
 msgstr ""
 
-#: electrumsv/plugins/digitalbitbox/digitalbitbox.py:166
+#: electrumsv/devices/digitalbitbox/digitalbitbox.py:171
 msgid "You cannot access your coins or a backup without the password."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1169
+#: electrumsv/gui/qt/contact_list.py:182
+msgid "You do not currently have any contacts."
+msgstr ""
+
+#: electrumsv/gui/qt/installwizard.py:222
+msgid "You have previously run Electron Cash and created at least one wallet with it. ElectrumSV should not be used to open these wallets directly using the 'Choose' button, and you should instead use the 'Import' button to help you copy them."
+msgstr ""
+
+#: electrumsv/gui/qt/main_window.py:1240
 msgid "You may enter a Bitcoin SV address, a label from your list of contacts (a list of completions will be proposed), or an alias (email-like address that forwards to a Bitcoin SV address)"
 msgstr ""
 
-#: electrumsv/base_wizard.py:301
+#: electrumsv/base_wizard.py:293
 msgid "You may extend your seed with custom words."
 msgstr "Sie können Ihre Seed mit eigenen Wörtern ergänzen."
 
-#: electrumsv/gui/qt/main_window.py:1900
+#: electrumsv/gui/qt/main_window.py:1915
 msgid "You may load a CSV file using the file icon."
 msgstr "Sie können mit dem Datei-Symbol eine CSV-Datei laden."
 
-#: electrumsv/base_wizard.py:198
+#: electrumsv/base_wizard.py:195
 msgid "You might have an incompatible library."
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:24
-#: electrumsv/plugins/keepkey/qt_generic.py:26
+#: electrumsv/devices/trezor/qt.py:25 electrumsv/devices/keepkey/qt.py:53
 msgid "You need to create a separate ElectrumSV wallet for each passphrase you use as they each generate different addresses.  Changing your passphrase does not lose other wallets, each is still accessible behind its own passphrase."
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:29
-#: electrumsv/plugins/keepkey/qt_generic.py:31
+#: electrumsv/gui/qt/installwizard.py:657
+msgid "You restored this wallet whilst offline, so ElectrumSV can show no transactions and will only generate the first few addresses."
+msgstr ""
+
+#: electrumsv/devices/trezor/qt.py:30 electrumsv/devices/keepkey/qt.py:58
 msgid "You should enable PIN protection.  Your PIN is the only protection for your bitcoins if your device is lost or stolen."
 msgstr "Sie sollten den PIN-Schutz aktivieren. Der PIN ist der einzige Schutz für Ihre Bitcoins, wenn das Gerät verloren geht."
 
-#: electrumsv/plugins/trezor/trezor.py:208
+#: electrumsv/gui/qt/installwizard.py:251
+msgid "You should never open your existing Electron Cash wallets directly in ElectrumSV as this can lead to them being opened in both applications at the same time, and can result in corruption."
+msgstr ""
+
+#: electrumsv/devices/trezor/trezor.py:218
 msgid "You will be asked to enter 24 words regardless of your seed's actual length.  If you enter a word incorrectly or misspell it, you cannot change it or go back - you will need to start again from the beginning.\n\n"
 "So please enter the words carefully!"
 msgstr "Sie werden aufgefordert, 24 Wörter einzugeben - ganz unabhängig von der tatsächlichen Länge Ihrer Seed.  Wenn Sie ein Wort falsch eingeben, können Sie es nicht ändern oder zurückgehen - Sie müssen von vorne anfangen.\n\n"
 "Bitte geben Sie die Wörter sorgfältig ein!"
 
-#: electrumsv/gui/qt/installwizard.py:251
+#: electrumsv/gui/qt/installwizard.py:423
 msgid "Your Electron Cash wallet directory was found. If you want ElectrumSV to import any of them on your behalf, select the ones you want copied from the list below before clicking the Next button."
 msgstr ""
 
-#: electrumsv/plugins/ledger/auth2fa.py:23
+#: electrumsv/devices/ledger/auth2fa.py:25
 msgid "Your Ledger Wallet wants to tell you a one-time PIN code.<br><br>For best security you should unplug your device, open a text editor on another computer, put your cursor into it, and plug your device into that computer. It will output a summary of the transaction being signed and a one-time PIN.<br><br>Verify the transaction summary and type the PIN code here.<br><br>Before pressing enter, plug the device back into this computer.<br>"
 msgstr "Ihr Ledger Wallet möchte Ihnen einen einmaligen PIN-Code mitteilen.<br><br>Für optimale Sicherheit sollten Sie Ihr Gerät ausstecken, einen Texteditor auf einem anderen Computer öffnen, den Cursor darauf stellen und Ihr Gerät an diesen Computer anschließen. Es wird eine Zusammenfassung der zu signierenden Transaktion und eine einmalige PIN ausgegeben.<br><br>Überprüfen Sie die Zusammenfassung der Transaktion und geben Sie den PIN-Code hier ein.<br><br>Bevor Sie Enter drücken, schließen Sie das Gerät wieder an diesen Computer an.<br>"
 
-#: electrumsv/plugins/ledger/ledger.py:73
+#: electrumsv/devices/ledger/ledger.py:79
 msgid "Your Ledger is locked. Please unlock it."
 msgstr "Ihr Ledger ist gesperrt, bitte entsperren Sie es."
 
-#: electrumsv/gui/qt/installwizard.py:380
+#: electrumsv/gui/qt/installwizard.py:462
 msgid "Your accounts have been moved to"
 msgstr "Ihre Konten wurden hierhin verschoben:"
 
-#: electrumsv/gui/qt/password_dialog.py:182
+#: electrumsv/gui/qt/password_dialog.py:241
 msgid "Your bitcoins are password protected. However, your wallet file is not encrypted."
 msgstr "Deine Bitcoins sind mit einem Passwort geschützt. Aber deine Geldbörse ist nicht verschlüsselt."
 
-#: electrumsv/gui/qt/coinsplitting_tab.py:182
+#: electrumsv/gui/qt/coinsplitting_tab.py:183
 msgid "Your coins have now been split."
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:352
-#: electrumsv/plugins/keepkey/qt_generic.py:374
+#: electrumsv/devices/trezor/qt.py:333 electrumsv/devices/keepkey/qt.py:381
 msgid "Your current ElectrumSV wallet can only be used with an empty passphrase.  You must create a separate wallet with the install wizard for other passphrases as each one generates a new set of addresses."
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1585
+#: electrumsv/gui/qt/main_window.py:1610
 msgid "Your fee is too high.  Max is 50 sat/byte."
 msgstr ""
 
-#: electrumsv/plugins/labels/qt.py:56
+#: electrumsv/gui/qt/label_sync.py:259
 msgid "Your labels have been synchronised."
 msgstr "Ihre Bezeichnungen wurden synchronisiert."
 
-#: electrumsv/gui/qt/main_window.py:2627
+#: electrumsv/gui/qt/main_window.py:2645
 msgid "Your labels were exported to"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2611
+#: electrumsv/gui/qt/main_window.py:2629
 msgid "Your labels were imported from"
 msgstr ""
 
-#: electrumsv/gui/qt/seed_dialog.py:151
+#: electrumsv/gui/qt/seed_dialog.py:171
 msgid "Your seed extension is"
 msgstr "Ihre Seed-Erweiterung lautet"
 
-#: electrumsv/base_wizard.py:302 electrumsv/base_wizard.py:435
+#: electrumsv/base_wizard.py:294 electrumsv/base_wizard.py:407
 msgid "Your seed extension must be saved together with your seed."
 msgstr "Ihre Seed-Erweiterung muss zusammen mit Ihrer Seed gespeichert werden."
 
-#: electrumsv/gui/qt/installwizard.py:537
+#: electrumsv/gui/qt/installwizard.py:614
 msgid "Your seed is important!"
 msgstr "Der Seed ist wichtig!"
 
-#: electrumsv/gui/qt/network_dialog.py:380
-msgid "Your server is on branch"
-msgstr "Dein Server ist auf dem Zweig"
-
-#: electrumsv/gui/qt/coinsplitting_tab.py:180
+#: electrumsv/gui/qt/coinsplitting_tab.py:181
 msgid "Your split coins"
 msgstr ""
 
-#: electrumsv/plugins/cosigner_pool/qt.py:184
+#: electrumsv/gui/qt/main_window.py:1718
+msgid "Your transaction was not sent: "
+msgstr ""
+
+#: electrumsv/gui/qt/cosigner_pool.py:156
 msgid "Your transaction was sent to the cosigning pool."
 msgstr "Ihre Transaktion wurde an den Cosigning-Pool gesandt."
 
-#: electrumsv/gui/qt/seed_dialog.py:205 electrumsv/gui/qt/installwizard.py:546
+#: electrumsv/gui/qt/seed_dialog.py:225 electrumsv/gui/qt/installwizard.py:623
 msgid "Your wallet generation seed is:"
 msgstr "Ihre Seed zum Generieren der Geldbörse lautet:"
 
-#: electrumsv/gui/qt/main_window.py:2657
+#: electrumsv/gui/qt/main_window.py:2674
 msgid "Your wallet history has been successfully exported."
 msgstr "Ihr Transaktionsverlauf wurde erfolgreich exportiert."
 
-#: electrumsv/gui/qt/password_dialog.py:178
+#: electrumsv/gui/qt/password_dialog.py:237
 msgid "Your wallet is not protected."
 msgstr "Deine Geldbörse ist nicht geschützt."
 
-#: electrumsv/gui/qt/password_dialog.py:185
+#: electrumsv/gui/qt/password_dialog.py:244
 msgid "Your wallet is password protected and encrypted."
 msgstr "Deine Geldbörse ist verschlüsselt und Passwortgeschützt."
 
-#: electrumsv/gui/qt/preferences.py:106
+#: electrumsv/gui/qt/payment.py:677
+msgid "Yours"
+msgstr ""
+
+#: electrumsv/gui/qt/preferences.py:162
 msgid "Zeros after decimal point"
 msgstr "Anzahl Nullen nach dem Dezimalpunkt"
 
-#: electrumsv/network.py:1590
+#: electrumsv/network.py:85
 msgid "a scriptsig is not simply data"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1316
+#: electrumsv/gui/qt/main_window.py:1354
 msgid "are frozen"
 msgstr "sind gesperrt"
 
-#: electrumsv/network.py:1568
+#: electrumsv/network.py:73
 msgid "attempt to spend an unmatured coinbase"
 msgstr ""
 
-#: electrumsv/network.py:1539
-msgid "bad server response; it is unknown whether the transaction broadcast succeeded"
-msgstr ""
-
-#: electrumsv/gui/qt/network_dialog.py:368
-#: electrumsv/gui/qt/network_dialog.py:381
+#: electrumsv/gui/qt/network_dialog.py:387
 msgid "blocks"
 msgstr "Blöcke"
 
-#: electrumsv/platform.py:66
+#: electrumsv/platform.py:67
 #, python-brace-format
 msgid "cannot import module \"{0}\" - try running \"pip3 install {1}\""
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:2162
+#: electrumsv/gui/qt/main_window.py:2174
 msgid "cosigner"
 msgstr "Mitsignierer"
 
-#: electrumsv/web.py:105
+#: electrumsv/web.py:111
 #, python-brace-format
 msgid "duplicate query key {0} in BitcoinSV URI {1}"
 msgstr ""
 
-#: electrumsv/network.py:1576
+#: electrumsv/gui/qt/wallet_wizard.py:643
+msgid "error identifying seed words"
+msgstr ""
+
+#: electrumsv/gui/qt/wallet_wizard.py:629
+msgid "error identifying text"
+msgstr ""
+
+#: electrumsv/network.py:78
 msgid "fee is absurdly high"
 msgstr ""
 
-#: electrumsv/base_wizard.py:231 electrumsv/plugin.py:523
+#: electrumsv/base_wizard.py:229 electrumsv/device.py:297
 msgid "initialized"
 msgstr "Eingerichtet"
 
-#: electrumsv/network.py:1566
+#: electrumsv/network.py:72
 msgid "insufficient fees or priority"
 msgstr ""
 
-#: electrumsv/web.py:101
+#: electrumsv/web.py:107
 msgid "invalid BitcoinSV URI: {}"
 msgstr ""
 
-#: electrumsv/network.py:1570
+#: electrumsv/network.py:75
 msgid "it already exists in the server's mempool"
 msgstr ""
 
-#: electrumsv/network.py:1572
+#: electrumsv/network.py:76
 msgid "it conflicts with one already in the server's mempool"
 msgstr ""
 
-#: electrumsv/network.py:1586
+#: electrumsv/network.py:83
 msgid "it contains a bare multisig input"
 msgstr ""
 
-#: electrumsv/network.py:1584
+#: electrumsv/network.py:82
 msgid "it contains a non-standard signature"
 msgstr ""
 
-#: electrumsv/network.py:1582
+#: electrumsv/network.py:81
 msgid "it contains an oversized script"
 msgstr ""
 
-#: electrumsv/network.py:1588
+#: electrumsv/network.py:84
 msgid "it contains more than 1 OP_RETURN input"
 msgstr ""
 
-#: electrumsv/gui/qt/util.py:316
+#: electrumsv/gui/qt/util.py:342
 msgid "json"
 msgstr ""
 
-#: electrumsv/network.py:1564
+#: electrumsv/network.py:71
 msgid "missing, already-spent, or otherwise invalid coins"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:1731
+#: electrumsv/gui/qt/main_window.py:1752
 msgid "please wait..."
 msgstr "Bitte warten..."
 
-#: electrumsv/network.py:1554
+#: electrumsv/network.py:98
 msgid "reason unknown"
 msgstr ""
 
-#: electrumsv/network.py:1578
+#: electrumsv/network.py:79
 msgid "the script fails verification"
 msgstr ""
 
-#: electrumsv/network.py:1531
-msgid "transaction broadcast failed: "
+#: electrumsv/network.py:86
+msgid "transaction is not final"
 msgstr ""
 
-#: electrumsv/network.py:1580
+#: electrumsv/network.py:80
 msgid "transaction is too large"
 msgstr ""
 
-#: electrumsv/wallet.py:914
+#: electrumsv/wallet.py:860
 msgid "unconfirmed"
 msgstr ""
 
-#: electrumsv/wallet.py:910 electrumsv/wallet.py:977
-#: electrumsv/gui/qt/transaction_dialog.py:261
-#: electrumsv/gui/qt/transaction_dialog.py:325
-#: electrumsv/gui/qt/fee_slider.py:32
+#: electrumsv/wallet.py:856 electrumsv/wallet.py:915
+#: electrumsv/gui/qt/transaction_dialog.py:272
+#: electrumsv/gui/qt/transaction_dialog.py:339
 msgid "unknown"
 msgstr "unbekannt"
 
-#: electrumsv/commands.py:849
+#: electrumsv/commands.py:820
 msgid "unknown parser {!r} (choices: {})"
 msgstr "Unbekannter Parse {!r} (Möglich sind: {})"
 
-#: electrumsv/platform.py:110
+#: electrumsv/platform.py:116
 msgid "unknown system \"{}\"; falling back to Unix.  Please report this."
 msgstr ""
 
-#: electrumsv/wallet.py:912
+#: electrumsv/wallet.py:858
 msgid "unverified"
 msgstr ""
 
-#: electrumsv/network.py:1574
+#: electrumsv/network.py:77
 msgid "use of non-standard input scripts"
 msgstr ""
 
-#: electrumsv/network.py:1561
+#: electrumsv/network.py:69
 msgid "very small \"dust\" payments"
 msgstr ""
 
-#: electrumsv/gui/qt/main_window.py:415
+#: electrumsv/gui/qt/main_window.py:394
 msgid "watching only"
 msgstr "nur lesen"
 
-#: electrumsv/base_wizard.py:231 electrumsv/plugin.py:523
+#: electrumsv/base_wizard.py:229 electrumsv/device.py:297
 msgid "wiped"
 msgstr "Gelöscht"
 
-#: electrumsv/wallet.py:586
+#: electrumsv/wallet.py:547
 msgid "{:,d} confirmations (in block {:,d})"
 msgstr ""
 
-#: electrumsv/plugins/trezor/qt.py:278
-#: electrumsv/plugins/keepkey/qt_generic.py:301
+#: electrumsv/devices/trezor/qt.py:261 electrumsv/devices/keepkey/qt.py:314
 msgid "{} Settings"
 msgstr "{} Einstellungen"
 
-#: electrumsv/gui/qt/main_window.py:666
+#: electrumsv/gui/qt/main_window.py:772
 msgid "{} new transactions received: Total amount received in the new transactions {}"
 msgstr "{} neue Transaktionen erhalten: Gesamtbetrag aller neuen Transaktionen {}"
 
-#: electrumsv/plugins/keepkey/qt_generic.py:237
+#: electrumsv/devices/keepkey/qt.py:113
 msgid "{} words"
 msgstr "{} Wörter"
 

@@ -29,7 +29,8 @@ if not os.path.exists(data_in_path):
 data_out_path = os.path.join('electrumsv', 'data', 'locale')
 if not os.path.exists(data_out_path):
     os.makedirs(data_out_path)
-cmd = 'xgettext -s --from-code UTF-8 --language Python --no-wrap -f app.fil --output='+ os.path.join(data_in_path, 'messages.pot')
+cmd = ('xgettext -s --from-code UTF-8 --language Python --no-wrap -f app.fil --output='+
+    os.path.join(data_in_path, 'messages.pot'))
 print('Generate template')
 os.system(cmd)
 
@@ -49,19 +50,22 @@ if "crowdin_api_key" in os.environ:
 if crowdin_api_key:
     # Push to Crowdin
     print('Push to Crowdin')
-    url = ('https://api.crowdin.com/api/project/' + crowdin_identifier + '/update-file?key=' + crowdin_api_key)
+    url = ('https://api.crowdin.com/api/project/' + crowdin_identifier + '/update-file?key=' +
+        crowdin_api_key)
     with open(locale_file_name, 'rb') as f:
         files = {crowdin_file_name: f}
         response = requests.request('POST', url, files=files)
     print("", "update-file:", "-"*20, response.text, "-"*20, sep="\n")
     # Build translations
     print('Build translations')
-    response = requests.request('GET', 'https://api.crowdin.com/api/project/' + crowdin_identifier + '/export?key=' + crowdin_api_key)
+    response = requests.request('GET', 'https://api.crowdin.com/api/project/' +
+        crowdin_identifier + '/export?key=' + crowdin_api_key)
     print("", "export:", "-" * 20, response.text, "-" * 20, sep="\n")
 
 if len(sys.argv) < 2:
     # Download & unzip
-    s = requests.request('GET', 'https://crowdin.com/backend/download/project/' + crowdin_identifier + '.zip').content
+    s = requests.request('GET', 'https://crowdin.com/backend/download/project/' +
+        crowdin_identifier + '.zip').content
     zfobj = zipfile.ZipFile(io.BytesIO(s))
 else:
     zfobj = zipfile.ZipFile(os.path.join(os.path.relpath(original_dir, os.getcwd()), sys.argv[1]))
@@ -89,7 +93,8 @@ for lang in os.listdir(data_in_path):
     msg_out_dir = os.path.join(data_out_path, lang, 'LC_MESSAGES')
     if not os.path.exists(msg_out_dir):
         os.makedirs(msg_out_dir)
-    cmd = 'msgfmt --output-file="{0}/electrumsv.mo" "{1}/electrumsv.po"'.format(msg_out_dir, msg_in_dir)
+    cmd = 'msgfmt --output-file="{0}/electrumsv.mo" "{1}/electrumsv.po"'.format(msg_out_dir,
+        msg_in_dir)
     print('Installing', lang)
     os.system(cmd)
 
