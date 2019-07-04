@@ -1,7 +1,7 @@
 import os.path
 from functools import partial, lru_cache
 
-from PyQt5.QtCore import Qt, QCoreApplication, QTimer
+from PyQt5.QtCore import Qt, QCoreApplication, QLocale, QTimer
 from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
 from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
-from electrumsv.i18n import _
+from electrumsv.i18n import _, languages
 from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
 from electrumsv.util import resource_path
 
@@ -662,3 +662,8 @@ def read_qt_ui(ui_name):
 @lru_cache()
 def read_QIcon(icon_basename):
     return QIcon(icon_path(icon_basename))
+
+
+def get_default_language():
+    name = QLocale.system().name()
+    return name if name in languages else 'en_UK'
