@@ -36,7 +36,7 @@ from electrumsv.platform import platform
 from electrumsv.util import timestamp_to_datetime, profiler
 import electrumsv.web as web
 
-from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon
+from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox
 
 
 TX_ICONS = [
@@ -126,8 +126,11 @@ class HistoryList(MyTreeWidget):
             super(HistoryList, self).on_doubleclick(item, column)
         else:
             tx_hash = item.data(0, Qt.UserRole)
-            tx = self.wallet.transactions.get(tx_hash)
-            self.parent.show_transaction(tx)
+            if tx_hash in self.wallet.transactions:
+                self.parent.show_transaction(self.wallet.transactions[tx_hash])
+            else:
+                MessageBox.show_error(_("The full transaction is not yet present in your wallet."+
+                    " Please try again when it has been obtained from the network."))
 
     def update_labels(self):
         root = self.invisibleRootItem()
