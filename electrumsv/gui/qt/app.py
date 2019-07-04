@@ -51,7 +51,7 @@ from .installwizard import InstallWizard, GoBack
 from .label_sync import LabelSync
 from .log_window import SVLogWindow, SVLogHandler
 from .network_dialog import NetworkDialog
-from .util import ColorScheme, read_QIcon, MessageBox
+from .util import ColorScheme, read_QIcon, MessageBox, get_default_language
 
 
 logger = logs.get_logger('app')
@@ -118,7 +118,7 @@ class SVApplication(QApplication):
         self.tray.show()
 
         # FIXME
-        set_language(app_state.config.get('language'))
+        set_language(app_state.config.get('language', get_default_language()))
 
         logs.add_handler(self.log_handler)
         self._start()
