@@ -241,7 +241,7 @@ class AddressList(MyTreeWidget):
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def encrypt_message(self, addr):
-        public_key_str = self.wallet.get_public_key(addr).to_hex() or ''
+        public_key_str = self.wallet.get_public_key(addr) or ''
         self.parent.encrypt_message(public_key_str)
 
     def keyPressEvent(self, event):
