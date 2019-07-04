@@ -239,6 +239,8 @@ class FundsSelectionWidget(QWidget):
             fiat_balance.setAlignment(Qt.AlignHCenter)
             fiat_balance.setReadOnly(True)
             hlayout2.addWidget(fiat_balance)
+        else:
+            fiat_balance = None
 
         vlayout = QVBoxLayout()
         vlayout.setSpacing(0)
