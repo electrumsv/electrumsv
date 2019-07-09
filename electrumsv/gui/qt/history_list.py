@@ -40,16 +40,16 @@ from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox
 
 
 TX_ICONS = [
-    "unconfirmed.png",
-    "unconfirmed.png",
-    "unconfirmed.png",
-    "unconfirmed.png",
-    "clock1.png",
-    "clock2.png",
-    "clock3.png",
-    "clock4.png",
-    "clock5.png",
-    "confirmed.png",
+    "unconfirmed.png", # Unverified / unconfirmed parent.
+    "unconfirmed.png", # Unverified / unconfirmed
+    "unconfirmed.png", # Unverified / mined.
+    "unconfirmed.png", # Unverified / missing.
+    "clock1.png",      # 1 confirmations.
+    "clock2.png",      # 2 confirmations.
+    "clock3.png",      # 3 confirmations.
+    "clock4.png",      # 4 confirmations.
+    "clock5.png",      # 5 confirmations.
+    "confirmed.png",   # 6 confirmations.
 ]
 
 TX_STATUS = [
@@ -209,21 +209,20 @@ class HistoryList(MyTreeWidget):
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def get_tx_status(self, tx_hash, height, conf, timestamp):
-        if conf == 0:
+        if conf == 0:                   # Unverified transactions:
             tx = self.wallet.get_transaction(tx_hash)
-            if not tx:
+            if not tx:                  # - Missing transaction.
                 return 3, _('unknown')
-            if height < 0:
+            if height < 0:              # - Unconfirmed parent.
                 status = 0
-            elif height == 0:
+            elif height == 0:           # - Unconfirmed.
                 status = 1
-            else:
+            else:                       # - Mined and unverified.
                 status = 2
-        else:
-            status = 3 + min(conf, 6)
+        else:                           # Verified transactions:
+            status = 3 + min(conf, 6)   # - Mined and verified.
         if status < len(TX_STATUS):
             status_str = TX_STATUS[status]
         else:
             status_str = format_time(timestamp, _("unknown")) if timestamp else _("unknown")
         return status, status_str
-
