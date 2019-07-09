@@ -40,16 +40,16 @@ from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox
 
 
 TX_ICONS = [
-    "unconfirmed.png",
-    "unconfirmed.png",
-    "unconfirmed.png",
-    "unconfirmed.png",
-    "clock1.png",
-    "clock2.png",
-    "clock3.png",
-    "clock4.png",
-    "clock5.png",
-    "confirmed.png",
+    "unconfirmed.png", # Unverified / unconfirmed parent.
+    "unconfirmed.png", # Unverified / unconfirmed
+    "unconfirmed.png", # Unverified / mined.
+    "unconfirmed.png", # Unverified / missing.
+    "clock1.png",      # 1 confirmations.
+    "clock2.png",      # 2 confirmations.
+    "clock3.png",      # 3 confirmations.
+    "clock4.png",      # 4 confirmations.
+    "clock5.png",      # 5 confirmations.
+    "confirmed.png",   # 6 confirmations.
 ]
 
 
