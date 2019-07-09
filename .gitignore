@@ -17,6 +17,7 @@ env/
 bin/
 /app.fil
 tmp/
+__pycache__
 
 # tox files
 .cache/
