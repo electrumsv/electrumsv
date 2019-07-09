@@ -65,12 +65,6 @@ from .web import create_URI
 
 logger = logs.get_logger("wallet")
 
-TX_STATUS = [
-    _('Unconfirmed parent'),
-    _('Unconfirmed'),
-    _('Not Verified'),
-]
-
 
 TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
                     'fee height conf timestamp')
@@ -897,24 +891,6 @@ class Abstract_Wallet:
                     labels.append(label)
             return ', '.join(labels)
         return ''
-
-    def get_tx_status(self, tx_hash, height, conf, timestamp):
-        if conf == 0:                   # Unverified transactions:
-            tx = self.transactions.get(tx_hash)
-            if not tx:                  # - Missing transaction.
-                return 3, 'unknown'
-            fee = self.tx_fees.get(tx_hash)
-            if height < 0:              # - Unconfirmed parent.
-                status = 0
-            elif height == 0:           # - Unconfirmed.
-                status = 1
-            else:                       # - Mined and unverified.
-                status = 2
-        else:                           # Verified transactions:
-            status = 3 + min(conf, 6)   # - Mined and verified.
-        time_str = format_time(timestamp, _("unknown")) if timestamp else _("unknown")
-        status_str = TX_STATUS[status] if status < len(TX_STATUS) else time_str
-        return status, status_str
 
     def dust_threshold(self):
         return dust_threshold(self.network)

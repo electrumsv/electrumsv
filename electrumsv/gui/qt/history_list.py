@@ -33,11 +33,17 @@ from PyQt5.QtWidgets import QMenu
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.platform import platform
-from electrumsv.util import timestamp_to_datetime, profiler
+from electrumsv.util import timestamp_to_datetime, profiler, format_time
 import electrumsv.web as web
 
 from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox
 
+
+TX_STATUS = [
+    _('Unconfirmed parent'),
+    _('Unconfirmed'),
+    _('Not Verified'),
+]
 
 TX_ICONS = [
     "unconfirmed.png", # Unverified / unconfirmed parent.
@@ -90,7 +96,7 @@ class HistoryList(MyTreeWidget):
             fx.history_used_spot = False
         for h_item in h:
             tx_hash, height, conf, timestamp, value, balance = h_item
-            status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)
+            status, status_str = self.get_tx_status(tx_hash, height, conf, timestamp)
             has_invoice = self.wallet.invoices.paid.get(tx_hash)
             icon = read_QIcon(TX_ICONS[status])
             v_str = self.parent.format_amount(value, True, whitespaces=True)
@@ -142,7 +148,7 @@ class HistoryList(MyTreeWidget):
             item.setText(3, label)
 
     def update_item(self, tx_hash, height, conf, timestamp):
-        status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)
+        status, status_str = self.get_tx_status(tx_hash, height, conf, timestamp)
         icon = read_QIcon(TX_ICONS[status])
         items = self.findItems(tx_hash, Qt.UserRole|Qt.MatchContains|Qt.MatchRecursive, column=1)
         if items:
@@ -196,3 +202,20 @@ class HistoryList(MyTreeWidget):
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
         menu.exec_(self.viewport().mapToGlobal(position))
+
+    def get_tx_status(self, tx_hash, height, conf, timestamp):
+        if conf == 0:                   # Unverified transactions:
+            tx = self.wallet.transactions.get(tx_hash)
+            if not tx:                  # - Missing transaction.
+                return 3, 'unknown'
+            if height < 0:              # - Unconfirmed parent.
+                status = 0
+            elif height == 0:           # - Unconfirmed.
+                status = 1
+            else:                       # - Mined and unverified.
+                status = 2
+        else:                           # Verified transactions:
+            status = 3 + min(conf, 6)   # - Mined and verified.
+        time_str = format_time(timestamp, _("unknown")) if timestamp else _("unknown")
+        status_str = TX_STATUS[status] if status < len(TX_STATUS) else time_str
+        return status, status_str
