@@ -926,16 +926,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.network_label.setText(text)
 
     def update_status(self):
-        balance_status = None
+        balance_status = False
         fiat_status = None
         if self.network and self.network.is_connected():
-            c, u, x = self.wallet.get_balance()
-            balance_status = self.get_amount_and_units(c)
+            balance_status = True
 
             # append fiat balance and price
             if app_state.fx.is_enabled():
+                c, u, x = self.wallet.get_balance()
                 fiat_status = app_state.fx.get_fiat_status(
-                    c + u + x, app_state.base_unit(), app_state.decimal_point)
+                    c, app_state.base_unit(), app_state.decimal_point)
         self.set_status_bar_balance(balance_status)
         self.set_status_bar_fiat(fiat_status)
         self.update_network_status(self.wallet)
@@ -2045,7 +2045,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         balance_widget.setLayout(hbox)
         sb.addPermanentWidget(balance_widget)
 
-        self.set_status_bar_balance(None)
+        self.set_status_bar_balance(False)
 
         self.fiat_widget = QWidget()
         self.fiat_widget.setVisible(False)
@@ -2092,17 +2092,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.setStatusBar(sb)
 
-    def set_status_bar_balance(self, status):
-        if not status or not status[0]:
+    def set_status_bar_balance(self, shown: bool) -> None:
+        if shown:
+            c, u, x = self.wallet.get_balance()
+            bsv_status, fiat_status = self.get_amount_and_units(c)
+            self.balance_bsv_label.setText(bsv_status)
+            if fiat_status:
+                self.balance_equals_label.setVisible(True)
+                self.balance_fiat_label.setVisible(True)
+                self.balance_fiat_label.setText(fiat_status)
+        else:
             self.balance_bsv_label.setText(_("Unknown"))
             self.balance_equals_label.setVisible(False)
             self.balance_fiat_label.setVisible(False)
-        else:
-            self.balance_bsv_label.setText(status[0])
-            if status[1]:
-                self.balance_equals_label.setVisible(True)
-                self.balance_fiat_label.setVisible(True)
-                self.balance_fiat_label.setText(status[1])
 
     def set_status_bar_fiat(self, status):
         if status is None:

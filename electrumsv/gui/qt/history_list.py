@@ -23,40 +23,48 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import enum
 import time
+from typing import Union
 import webbrowser
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QBrush, QColor
+from PyQt5.QtGui import QFont, QBrush, QColor, QIcon
 from PyQt5.QtWidgets import QMenu
 
 from electrumsv.app_state import app_state
+from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.i18n import _
 from electrumsv.platform import platform
 from electrumsv.util import timestamp_to_datetime, profiler, format_time
+from electrumsv.wallet import Abstract_Wallet
 import electrumsv.web as web
 
 from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox
 
 
+class TxStatus(enum.IntEnum):
+    MISSING = 0
+    UNCONFIRMED = 1
+    UNVERIFIED = 2
+    UNMATURED = 3
+    FINAL = 4
+
 TX_ICONS = [
-    "unconfirmed.png", # Unverified / unconfirmed parent.
-    "unconfirmed.png", # Unverified / unconfirmed
-    "unconfirmed.png", # Unverified / mined.
-    "unconfirmed.png", # Unverified / missing.
-    "clock1.png",      # 1 confirmations.
-    "clock2.png",      # 2 confirmations.
-    "clock3.png",      # 3 confirmations.
-    "clock4.png",      # 4 confirmations.
-    "clock5.png",      # 5 confirmations.
-    "confirmed.png",   # 6 confirmations.
+    "icons8-question-mark-96.png",      # Missing.
+    "icons8-checkmark-grey-52.png",     # Unconfirmed.
+    "icons8-checkmark-grey-52.png",     # Unverified.
+    "icons8-lock-96.png",               # Unmatured.
+    "icons8-checkmark-green-52.png",    # Confirmed / verified.
 ]
 
-TX_STATUS = [
-    _('Unconfirmed parent'),
-    _('Unconfirmed'),
-    _('Not Verified'),
-]
+TX_STATUS = {
+    TxStatus.FINAL: _('Confirmed'),
+    TxStatus.MISSING: _('Missing'),
+    TxStatus.UNCONFIRMED: _('Unconfirmed'),
+    TxStatus.UNMATURED: _('Unmatured'),
+    TxStatus.UNVERIFIED: _('Unverified'),
+}
 
 
 class HistoryList(MyTreeWidget):
@@ -99,9 +107,10 @@ class HistoryList(MyTreeWidget):
             fx.history_used_spot = False
         for h_item in h:
             tx_hash, height, conf, timestamp, value, balance = h_item
-            status, status_str = self.get_tx_status(tx_hash, height, conf, timestamp)
+            status = get_tx_status(self.wallet, tx_hash, height, conf, timestamp)
+            status_str = get_tx_desc(status, timestamp)
             has_invoice = self.wallet.invoices.paid.get(tx_hash)
-            icon = read_QIcon(TX_ICONS[status])
+            icon = get_tx_icon(status)
             v_str = self.parent.format_amount(value, True, whitespaces=True)
             balance_str = self.parent.format_amount(balance, whitespaces=True)
             label = self.wallet.get_label(tx_hash)
@@ -114,7 +123,7 @@ class HistoryList(MyTreeWidget):
 
             item = SortableTreeWidgetItem(entry)
             item.setIcon(0, icon)
-            item.setToolTip(0, str(conf) + " confirmation" + ("s" if conf != 1 else ""))
+            item.setToolTip(0, get_tx_tooltip(status, conf))
             item.setData(0, SortableTreeWidgetItem.DataRole, (status, conf))
             if has_invoice:
                 item.setIcon(3, self.invoiceIcon)
@@ -153,14 +162,15 @@ class HistoryList(MyTreeWidget):
             item.setText(3, label)
 
     def update_item(self, tx_hash, height, conf, timestamp):
-        status, status_str = self.get_tx_status(tx_hash, height, conf, timestamp)
-        icon = read_QIcon(TX_ICONS[status])
+        status = get_tx_status(self.wallet, tx_hash, height, conf, timestamp)
+        icon = get_tx_icon(status)
         items = self.findItems(tx_hash, Qt.UserRole|Qt.MatchContains|Qt.MatchRecursive, column=1)
         if items:
             item = items[0]
             item.setIcon(0, icon)
             item.setData(0, SortableTreeWidgetItem.DataRole, (status, conf))
-            item.setText(2, status_str)
+            item.setText(2, get_tx_desc(status, timestamp))
+            item.setToolTip(0, get_tx_tooltip(status, conf))
 
     def create_menu(self, position):
         self.selectedIndexes()
@@ -208,21 +218,36 @@ class HistoryList(MyTreeWidget):
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
         menu.exec_(self.viewport().mapToGlobal(position))
 
-    def get_tx_status(self, tx_hash, height, conf, timestamp):
-        if conf == 0:                   # Unverified transactions:
-            tx = self.wallet.get_transaction(tx_hash)
-            if not tx:                  # - Missing transaction.
-                return 3, _('unknown')
-            if height < 0:              # - Unconfirmed parent.
-                status = 0
-            elif height == 0:           # - Unconfirmed.
-                status = 1
-            else:                       # - Mined and unverified.
-                status = 2
-        else:                           # Verified transactions:
-            status = 3 + min(conf, 6)   # - Mined and verified.
-        if status < len(TX_STATUS):
-            status_str = TX_STATUS[status]
-        else:
-            status_str = format_time(timestamp, _("unknown")) if timestamp else _("unknown")
-        return status, status_str
+
+def get_tx_status(wallet: Abstract_Wallet, tx_hash: str, height: int, conf: int,
+        timestamp: Union[bool, int]) -> TxStatus:
+    tx = wallet.get_transaction(tx_hash)
+    if not tx:
+        return TxStatus.MISSING
+
+    if tx.is_coinbase():
+        if height + COINBASE_MATURITY > wallet.get_local_height():
+            return TxStatus.UNMATURED
+    elif conf == 0:
+        if height > 0:
+            return TxStatus.UNVERIFIED
+        return TxStatus.UNCONFIRMED
+
+    return TxStatus.FINAL
+
+def get_tx_desc(status: TxStatus, timestamp: Union[bool, int]) -> str:
+    if status in [ TxStatus.UNCONFIRMED, TxStatus.MISSING ]:
+        return TX_STATUS[status]
+    return format_time(timestamp, _("unknown")) if timestamp else _("unknown")
+
+def get_tx_tooltip(status: TxStatus, conf: int) -> str:
+    text = str(conf) + " confirmation" + ("s" if conf != 1 else "")
+    if status == TxStatus.UNMATURED:
+        text = text + "\n" + _("Unmatured")
+    elif status in TX_STATUS:
+        text = text + "\n"+ TX_STATUS[status]
+    return text
+
+def get_tx_icon(status: TxStatus) -> QIcon:
+    return read_QIcon(TX_ICONS[status])
+

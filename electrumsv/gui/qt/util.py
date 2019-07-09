@@ -20,7 +20,7 @@ dialogs = []
 
 pr_icons = {
     PR_UNPAID: "unpaid.png",
-    PR_PAID: "confirmed.png",
+    PR_PAID: "icons8-checkmark-green-52.png",
     PR_EXPIRED: "expired.png"
 }
 
