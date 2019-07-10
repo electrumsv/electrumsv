@@ -2,6 +2,7 @@ import unittest
 
 from electrumsv.i18n import _
 from electrumsv.bitcoin import COINBASE_MATURITY
+from electrumsv.util import format_time
 
 
 class MockWhatever:
@@ -86,5 +87,7 @@ class HistoryListTests(unittest.TestCase):
         for status_kind in [ TxStatus.UNCONFIRMED, TxStatus.MISSING ]:
             self.assertEqual(TX_STATUS[status_kind], get_tx_desc(status_kind, 1))
         # Otherwise the timestamp should be used.
-        self.assertEqual("1970-01-01 13:00", get_tx_desc(TxStatus.FINAL, 1))
+        time_string = format_time(1, "...")
+        self.assertNotEqual("...", time_string)
+        self.assertEqual(time_string, get_tx_desc(TxStatus.FINAL, 1))
         self.assertEqual(_("unknown"), get_tx_desc(TxStatus.FINAL, False))
