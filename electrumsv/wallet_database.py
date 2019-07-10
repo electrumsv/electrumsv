@@ -27,7 +27,6 @@ import random
 import sqlite3
 import threading
 import time
-import traceback
 from typing import Optional, Dict, Set, Iterable, List, Tuple, Union, Any
 
 import bitcoinx
