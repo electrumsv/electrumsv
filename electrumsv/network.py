@@ -455,6 +455,8 @@ class SVSession(RPCSession):
 
     def _check_minimum_version(self, minimum_version: str) -> bool:
         if type(self.version) is list:
+            logger.debug(
+                f"{self} {normalize_version(minimum_version)} {normalize_version(self.version[1])}")
             return normalize_version(minimum_version) >= normalize_version(self.version[1])
         return False
 

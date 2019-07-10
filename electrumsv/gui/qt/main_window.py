@@ -38,12 +38,12 @@ import webbrowser
 from bitcoinx import PublicKey
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl)
-from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices, QPixmap
+from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices
 from PyQt5.QtWidgets import (
     QPushButton, QMainWindow, QTabWidget, QSizePolicy, QShortcut, QFileDialog, QMenuBar,
     QMessageBox, QGridLayout, QLineEdit, QLabel, QComboBox, QHBoxLayout,
-    QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QStatusBar, QTextEdit,
-    QInputDialog, QDialog, QToolBar, QAction, QPlainTextEdit, QTreeView, QWidgetAction
+    QVBoxLayout, QWidget, QCompleter, QMenu, QTreeWidgetItem, QTextEdit,
+    QInputDialog, QDialog, QToolBar, QAction, QPlainTextEdit, QTreeView
 )
 
 import electrumsv
@@ -79,33 +79,13 @@ from .util import (
     MessageBoxMixin, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
     WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton,
     WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
-    CloseButton, CancelButton, text_dialog, filename_field, address_combo, icon_path,
+    CloseButton, CancelButton, text_dialog, filename_field, address_combo,
     update_fixed_tree_height, UntrustedMessageDialog
 )
 from .wallet_api import WalletAPI
 
 
 logger = logs.get_logger("mainwindow")
-
-
-class StatusBarButton(QPushButton):
-    def __init__(self, icon, tooltip, func):
-        QPushButton.__init__(self, icon, '')
-        self.setToolTip(tooltip)
-        self.setFlat(True)
-        self.setMaximumWidth(25)
-        self.clicked.connect(self.onPress)
-        self.func = func
-        self.setIconSize(QSize(25,25))
-
-    def onPress(self, checked=False):
-        '''Drops the unwanted PyQt5 "checked" argument'''
-        self.func()
-
-    def keyPressEvent(self, e):
-        if e.key() == Qt.Key_Return:
-            self.func()
-
 
 
 class ElectrumWindow(QMainWindow, MessageBoxMixin):
@@ -859,7 +839,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def get_amount_and_units(self, amount: int) -> Tuple[str, str]:
         bitcoin_text = self.format_amount(amount) + ' ' + app_state.base_unit()
-        fiat_text = app_state.fx.format_amount_and_units(amount)
+        if app_state.fx.is_enabled():
+            fiat_text = app_state.fx.format_amount_and_units(amount)
+        else:
+            fiat_text = ''
         return bitcoin_text, fiat_text
 
     def format_fee_rate(self, fee_rate: int) -> str:
@@ -934,8 +917,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             network_text = _("Not connected")
 
         self.set_status_bar_balance(balance_status)
-        self.set_status_bar_fiat(fiat_status)
-        self.network_label.setText(network_text)
+        self._status_bar.set_fiat_status(fiat_status)
+        self._status_bar.set_network_status(network_text)
 
     def update_wallet(self):
         self.update_status()
@@ -2022,95 +2005,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         console.updateNamespace(methods)
 
     def create_status_bar(self):
-        sb = QStatusBar()
-
-        balance_widget = QWidget()
-        balance_icon_label = QLabel("")
-        balance_icon_label.setPixmap(QPixmap(icon_path("sb_balance.png")))
-        hbox = QHBoxLayout()
-        hbox.setSpacing(2)
-        hbox.addWidget(balance_icon_label)
-        self.balance_bsv_label = QLabel("")
-        hbox.addWidget(self.balance_bsv_label)
-        self.balance_equals_label = QLabel("")
-        self.balance_equals_label.setPixmap(QPixmap(icon_path("sb_approximate")))
-        hbox.addWidget(self.balance_equals_label)
-        self.balance_fiat_label = QLabel("")
-        sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        sp.setHorizontalStretch(1)
-        self.balance_fiat_label.setSizePolicy(sp)
-        hbox.addWidget(self.balance_fiat_label)
-        balance_widget.setLayout(hbox)
-        sb.addPermanentWidget(balance_widget)
-
+        from .status_bar import StatusBar
+        self._status_bar = StatusBar(self)
         self.set_status_bar_balance(False)
-
-        self.fiat_widget = QWidget()
-        self.fiat_widget.setVisible(False)
-        estimate_icon_label = QLabel("")
-        estimate_icon_label.setPixmap(QPixmap(icon_path("sb_fiat.png")))
-        hbox = QHBoxLayout()
-        hbox.setSpacing(2)
-        hbox.addWidget(estimate_icon_label)
-        self.fiat_bsv_label = QLabel("")
-        hbox.addWidget(self.fiat_bsv_label)
-        approximate_icon_label = QLabel("")
-        approximate_icon_label.setPixmap(QPixmap(icon_path("sb_approximate")))
-        hbox.addWidget(approximate_icon_label)
-        self.fiat_value_label = QLabel("")
-        sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        sp.setHorizontalStretch(1)
-        self.fiat_value_label.setSizePolicy(sp)
-        fm = self.fiat_bsv_label.fontMetrics()
-        width = fm.width("1,000.00 CUR")
-        self.fiat_value_label.setMinimumWidth(width)
-        hbox.addWidget(self.fiat_value_label)
-        self.fiat_widget.setLayout(hbox)
-        sb.addPermanentWidget(self.fiat_widget)
-
-        network_widget = QWidget()
-        network_icon_label = QLabel("")
-        network_icon_label.setPixmap(QPixmap(icon_path("sb_network.png")))
-        hbox = QHBoxLayout()
-        hbox.setSpacing(2)
-        hbox.addWidget(network_icon_label)
-        self.network_label = QLabel("")
-        sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        sp.setHorizontalStretch(1)
-        self.network_label.setSizePolicy(sp)
-        hbox.addWidget(self.network_label)
-        network_widget.setLayout(hbox)
-        network_widget.setMinimumWidth(150)
-        sb.addPermanentWidget(network_widget)
-
-        self.search_box = QLineEdit()
-        self.search_box.textChanged.connect(self.do_search)
-        self.search_box.hide()
-        sb.addPermanentWidget(self.search_box)
-
-        self.setStatusBar(sb)
+        self.setStatusBar(self._status_bar)
 
     def set_status_bar_balance(self, shown: bool) -> None:
         if shown:
             c, u, x = self.wallet.get_balance()
             bsv_status, fiat_status = self.get_amount_and_units(c)
-            self.balance_bsv_label.setText(bsv_status)
-            if fiat_status:
-                self.balance_equals_label.setVisible(True)
-                self.balance_fiat_label.setVisible(True)
-                self.balance_fiat_label.setText(fiat_status)
         else:
-            self.balance_bsv_label.setText(_("Unknown"))
-            self.balance_equals_label.setVisible(False)
-            self.balance_fiat_label.setVisible(False)
-
-    def set_status_bar_fiat(self, status):
-        if status is None:
-            self.fiat_widget.setVisible(False)
-        else:
-            self.fiat_widget.setVisible(True)
-            self.fiat_bsv_label.setText(_("Unavailable") if status is None else status[0])
-            self.fiat_value_label.setText(_("Unavailable") if status is None else status[1])
+            bsv_status, fiat_status = _("Unknown"), None
+        self._status_bar.set_balance_status(bsv_status, fiat_status)
 
     def update_buttons_on_seed(self):
         self.send_button.setVisible(not self.wallet.is_watching_only())
