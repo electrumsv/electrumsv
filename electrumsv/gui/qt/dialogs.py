@@ -137,7 +137,8 @@ raw_release_notes = """
   * TBD.
 """
 # raw_release_notes = """
-#   * Release notes: Read <a href="https://medium.com/@roger.taylor/electrumsv-1-2-1-b6262361191">the article</a>
+#   * Release notes: Read
+#     <a href="https://medium.com/@roger.taylor/electrumsv-1-2-1-b6262361191">the article</a>
 #     on Medium, that goes into these in more detail.
 #   * Lots of other things that are yet to be added.
 # """
