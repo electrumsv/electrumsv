@@ -452,7 +452,7 @@ class Commands:
         for address, amount in outputs:
             address = Address.from_string(address)
             amount = satoshis(amount)
-            final_outputs.append((address, amount))
+            final_outputs.append(TxOutput(amount, address.to_script()))
 
         coins = self.wallet.get_spendable_coins(domain, self.config)
         tx = self.wallet.make_unsigned_transaction(coins, final_outputs, self.config,
