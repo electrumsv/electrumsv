@@ -446,13 +446,13 @@ class Commands:
     def _mktx(self, outputs, fee=None, change_addr=None, domain=None, nocheck=False,
               unsigned=False, password=None, locktime=None):
         self.nocheck = nocheck
-        change_addr = Address.from_string(change_addr)
+        change_addr = None if change_addr is None else Address.from_string(change_addr)
         domain = None if domain is None else [Address.from_string(x) for x in domain]
         final_outputs = []
         for address, amount in outputs:
             address = Address.from_string(address)
             amount = satoshis(amount)
-            final_outputs.append((address, amount))
+            final_outputs.append(TxOutput(amount, address.to_script()))
 
         coins = self.wallet.get_spendable_coins(domain, self.config)
         tx = self.wallet.make_unsigned_transaction(coins, final_outputs, self.config,
