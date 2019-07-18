@@ -133,18 +133,6 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
         raise ValueError(f'no box with name {name} found')
     return box.result(parent, wallet, **kwargs)
 
-raw_release_notes = """
-  * TBD.
-"""
-# raw_release_notes = """
-#   * Release notes: Read
-#     <a href="https://medium.com/@roger.taylor/electrumsv-1-2-1-b6262361191">the article</a>
-#     on Medium, that goes into these in more detail.
-#   * Lots of other things that are yet to be added.
-# """
-raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
-raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
-raw_release_notes += "</li>"
 
 hardware_wallet_notes = """
 <p>
@@ -192,18 +180,22 @@ works if we pretend to be Bitcoin Cash.
 
 take_care_notice = """
 <span>ElectrumSV is just a Bitcoin SV wallet, it cannot stop you from making bad decisions. Read
-<a href="https://medium.com/@roger.taylor/avoiding-coin-loss-b8bd66855369">this article</a> for
-an overview of the various risks, and the mistakes others have made resulting in the
+<a href="https://medium.com/@roger.taylor/avoiding-coin-loss-b8bd66855369">an overview
+of the various risks</a>, and the mistakes others have made resulting in the
 <font color=red><b>loss of coins</b></font>.
 Your coins are your responsibility, take care with them.</span>
 """
 
+article_text = _('All noteable changes in each release are covered in a detailed article. '
+    'You can read about <a href="%s">the changes in this release</a> if you wish.')
+changes_122_url = "https://medium.com/@roger.taylor/electrumsv-1-2-2-802b0b9b93ef"
+
 all_boxes = [
     InfoBox('welcome-ESV-1.2.2',
-            _('Welcome to ElectrumSV 1.2.2'),
+            '<b>'+ _('Welcome to ElectrumSV 1.2.2') +'</b>',
             '<p>'+ take_care_notice +'</p>'+
-            _('This release includes the following changes:') +
-            '<ul>'+ raw_release_notes +'</ul>'
+            '<p>'+ _('What has changed?') +'</p>'+
+            '<p>'+ (article_text % changes_122_url) +'</p>'
     ),
     YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Cancel"), False),
     WarningBox('illegal-files-are-traceable',

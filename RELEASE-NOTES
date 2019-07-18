@@ -36,6 +36,21 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.2.2
+  * Block explorers: Added satoshi.io and whatsonchain.com for testnet and scaling testnet.
+  * Exchange rates: Removed Kraken due to their lack of support for Bitcoin SV.
+  * User education: Some of our users do not really understand what they are doing and guess
+    their way, making mistakes and losing coins. A popup dialog has been added to point to an
+    article that gives some small tips to avoid losing those coins.
+  * Coin-splitting: At the request of Electron Cash developers we added an additional note to
+    our coin-splitting tab, in order to point out that only the coins currently in the wallet
+    are split -- any future coins are not automatically split by association.
+  * Transaction history: Confirmations are no longer indicated by custom icons, just 0-conf,
+    verification and unmatured coinbase coins.
+  * Wallet status: The balance in the status bar now allows the user to view the balance breakdown.
+    The status bar itself shows the confirmed spendable balance. The popout menu allows the users
+    to see confirmed, unconfirmed and unmatured balancces.
+
 # Release 1.2.1
   * Performance: Password protected wallet loading and saving encrypts and decrypts using AES
     encryption. Users may see faster loading and saving due to use of C functionality rather than
