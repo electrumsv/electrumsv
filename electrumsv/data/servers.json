@@ -38,5 +38,11 @@
         "s": "50002",
         "t": "50001",
         "version": "1.4"
+    },
+    "electrum.metanetchat.org": {
+        "pruning": "-",
+        "s": "50002",
+        "t": "50001",
+        "version": "1.11"
     }
 }
