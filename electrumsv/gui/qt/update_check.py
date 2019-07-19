@@ -180,7 +180,7 @@ class UpdateCheckDialog(QWidget):
             "x2: 1, y2: 0,stop: 0 #FF0350,stop: 0.4999 #FF0020,stop: 0.5 #FF0019,"+
             "stop: 1 #FF0000 );border-bottom-right-radius: 5px;"+
             "border-bottom-left-radius: 5px;border: .px solid black;}")
-        self._progressBar.setStyleSheet(style_sheet)
+        self._progressbar.setStyleSheet(style_sheet)
         self._set_progress(1.0)
 
         self._set_message(MSG_BODY_ERROR.format(error_message=message_text))
