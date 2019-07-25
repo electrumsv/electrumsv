@@ -348,7 +348,8 @@ class Abstract_Wallet:
         self.change_addresses = Address.from_strings(d.get('change', []))
 
     def is_deterministic(self):
-        return self.keystore.is_deterministic()
+        # Not all wallets have a keystore, like imported address for instance.
+        return self.keystore and self.keystore.is_deterministic()
 
     def is_hardware_wallet(self) -> bool:
         return any([ isinstance(k, Hardware_KeyStore) for k in self.get_keystores() ])
