@@ -2041,9 +2041,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.show_message(msg, title=_("Success"))
 
     def toggle_search(self):
-        self.search_box.setHidden(not self.search_box.isHidden())
-        if not self.search_box.isHidden():
-            self.search_box.setFocus(1)
+        self._status_bar.search_box.setHidden(not self._status_bar.search_box.isHidden())
+        if not self._status_bar.search_box.isHidden():
+            self._status_bar.search_box.setFocus(1)
         else:
             self.do_search('')
 
