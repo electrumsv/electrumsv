@@ -12,7 +12,7 @@ from bitcoinx import PrivateKey, PublicKey
 from electrumsv.address import Address
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import WalletStorage, FINAL_SEED_VERSION
-from electrumsv.wallet import sweep_preparations, ImportedPrivkeyWallet
+from electrumsv.wallet import ImportedAddressWallet, sweep_preparations, ImportedPrivkeyWallet
 
 from .util import setup_async, tear_down_async
 
@@ -110,6 +110,37 @@ class TestImportedPrivkeyWallet:
         address = public_key.to_address(coin=coin).to_string()
         assert wallet.pubkeys_to_address(pubkey_hex) == Address.from_string(address)
 
+class TestImportedAddressWallet:
+    def test_is_mine_with_address_present(self, tmp_storage, network):
+        coin = network.COIN
+        privkey = PrivateKey.from_random()
+        address_string = privkey.public_key.to_address(coin=coin).to_string()
+        wallet = ImportedAddressWallet.from_text(tmp_storage, address_string)
+        assert wallet.is_mine(Address.from_string(address_string))
+
+    def test_is_mine_with_address_absent(self, tmp_storage, network):
+        coin = network.COIN
+        privkey = PrivateKey.from_random()
+        address_string = privkey.public_key.to_address(coin=coin).to_string()
+        wallet = ImportedAddressWallet.from_text(tmp_storage, address_string)
+        pubkey_absent = PrivateKey.from_random().public_key
+        address_absent = Address.from_string(pubkey_absent.to_address(coin=coin).to_string())
+        assert not wallet.is_mine(address_absent)
+
+    def test_is_mine_with_public_key_present(self, tmp_storage, network):
+        coin = network.COIN
+        privkey = PrivateKey.from_random()
+        address_string = privkey.public_key.to_address(coin=coin).to_string()
+        wallet = ImportedAddressWallet.from_text(tmp_storage, address_string)
+        assert wallet.is_mine(privkey.public_key)
+
+    def test_is_mine_with_public_key_absent(self, tmp_storage, network):
+        coin = network.COIN
+        privkey = PrivateKey.from_random()
+        address_string = privkey.public_key.to_address(coin=coin).to_string()
+        wallet = ImportedAddressWallet.from_text(tmp_storage, address_string)
+        privkey_absent = PrivateKey.from_random()
+        assert not wallet.is_mine(privkey_absent.public_key)
 
 
 sweep_utxos = {

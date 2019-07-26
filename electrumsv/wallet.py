@@ -377,10 +377,14 @@ class Abstract_Wallet:
 
     def is_mine(self, address) -> bool:
         assert not isinstance(address, str)
+        if isinstance(address, PublicKey):
+            address = Address.from_P2PKH_hash(address.hash160())
         return address in self.get_addresses()
 
     def is_change(self, address) -> bool:
         assert not isinstance(address, str)
+        if isinstance(address, PublicKey):
+            address = Address.from_P2PKH_hash(address.hash160())
         return address in self.change_addresses
 
     def get_address_index(self, address) -> Tuple[bool, int]:
@@ -1495,7 +1499,7 @@ class ImportedWalletBase(Simple_Wallet):
 
     def delete_address(self, address):
         assert isinstance(address, Address)
-        if address not in self.get_addresses():
+        if not self.is_mine(address):
             return
 
         transactions_to_remove = set()  # only referred to by this address
