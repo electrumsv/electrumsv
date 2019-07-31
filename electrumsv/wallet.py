@@ -375,17 +375,23 @@ class Abstract_Wallet:
 
         return changed
 
+    # 1.2 branch cannot be upgraded to latest bitcoinx without having to deal with change to
+    # deal with any other modifications that it brings. We are just stabilising what is in
+    # this branch by add.
+    def _convert_to_address(self, address):
+        if isinstance(address, Address):
+            return address
+        if isinstance(address, PublicKey):
+            return Address.from_P2PKH_hash(address.hash160())
+        return None
+
     def is_mine(self, address) -> bool:
         assert not isinstance(address, str)
-        if isinstance(address, PublicKey):
-            address = Address.from_P2PKH_hash(address.hash160())
-        return address in self.get_addresses()
+        return self._convert_to_address(address) in self.get_addresses()
 
     def is_change(self, address) -> bool:
         assert not isinstance(address, str)
-        if isinstance(address, PublicKey):
-            address = Address.from_P2PKH_hash(address.hash160())
-        return address in self.change_addresses
+        return self._convert_to_address(address) in self.change_addresses
 
     def get_address_index(self, address) -> Tuple[bool, int]:
         try:
@@ -508,6 +514,7 @@ class Abstract_Wallet:
             is_partial = False
         for addr, value in tx.get_outputs():
             v_out += value
+            addr = self._convert_to_address(addr)
             if addr in addresses:
                 v_out_mine += value
                 is_relevant = True
@@ -870,7 +877,9 @@ class Abstract_Wallet:
                     if addr is None: continue
                     input_addresses.append(addr.to_string())
                 for addr, v in tx.get_outputs():
-                    output_addresses.append(addr.to_string())
+                    addr = self._convert_to_address(addr)
+                    if addr:
+                        output_addresses.append(addr.to_string())
                 item['input_addresses'] = input_addresses
                 item['output_addresses'] = output_addresses
             if fx:

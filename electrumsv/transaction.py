@@ -23,6 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import copyreg
 import struct
 
 from bitcoinx import (
@@ -45,6 +46,21 @@ from .util import profiler, bfh, bh2u
 NO_SIGNATURE = 'ff'
 
 logger = logs.get_logger("transaction")
+
+
+# bitcoinx PublicKey has references to cffi data, which is unpickleable.
+# We are using an outdated version of bitcoinx in this branch, so we deal with this by
+# registering a pickle adapter. This primarily enables the transaction dialog which does a
+# deepcopy which uses pickle.
+
+def _pickle_PublicKey(value):
+    return _PickledPublicKey, (value.to_bytes(),)
+
+class _PickledPublicKey:
+    def __new__(cls, pk_bytes):
+        return PublicKey.from_bytes(pk_bytes)
+
+copyreg.pickle(PublicKey, _pickle_PublicKey)
 
 
 class SerializationError(Exception):
@@ -779,10 +795,13 @@ class Transaction:
         return o
 
     def get_output_addresses(self):
+        # This is only used in contexts which expect Address instances. Conversion might be
+        # needed if the address is a PublicKey or ScriptOutput.
         return [addr for addr, val in self.get_outputs()]
 
-
     def has_address(self, addr):
+        # This expects an Address instance, and cannot accept an "output address", which might
+        # be PublicKey, Address or ScriptOutput.
         return (addr in self.get_output_addresses() or
                 addr in (tx.get("address") for tx in self.inputs()))
 

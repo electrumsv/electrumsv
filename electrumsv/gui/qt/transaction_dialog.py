@@ -347,7 +347,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         o_text.clear()
         cursor = o_text.textCursor()
         for addr, v in self.tx.get_outputs():
-            addrstr = addr.to_string()
+            # This is compatible with both PublicKey, Address and ScriptOutput.
+            addrstr = str(addr)
             cursor.insertText(addrstr, text_format(addr))
             if v is not None:
                 if len(addrstr) > 42: # for long outputs, make a linebreak.
