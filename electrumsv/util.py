@@ -564,3 +564,9 @@ def get_identified_release_signers(entry):
                     signed_names.add(signer_name)
                     break
     return signed_names
+
+
+def chunks(items, size):
+    '''Break up items, an iterable, into chunks of length size.'''
+    for i in range(0, len(items), size):
+        yield items[i: i + size]
