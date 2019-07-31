@@ -51,7 +51,8 @@ class DefaultApp(object):
         pass
 
     def run_app(self):
-        while True:
+        global app_state
+        while app_state.daemon.is_running():
             time.sleep(0.5)
 
 
