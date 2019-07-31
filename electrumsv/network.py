@@ -50,7 +50,7 @@ from .app_state import app_state
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
-from .util import JSON, normalize_version
+from .util import JSON, normalize_version, chunks
 from .networks import Net
 from .version import PACKAGE_VERSION, PROTOCOL_VERSION, PROTOCOL_VERSION_MINIMUM
 
@@ -673,36 +673,42 @@ class SVSession(RPCSession):
         Return the greatest connected height (-1 if none connected).
         Raises: DisconnectSessionError, BatchError, TaskTimeout
         '''
+        async def _request_header_batch(batch_heights):
+            nonlocal good_height
+
+            self.logger.debug(f'requesting {len(batch_heights):,d} headers '
+                              f'at heights {batch_heights}')
+            async with timeout_after(10):
+                async with self.send_batch(raise_errors=True) as batch:
+                    for height in batch_heights:
+                        batch.add_request(method,
+                                          (height, cp_height if height <= cp_height else 0))
+
+            try:
+                for result, height in zip(batch.results, batch_heights):
+                    if height <= cp_height:
+                        hex_root = result['root']
+                        branch = [hex_str_to_hash(item) for item in result['branch']]
+                        raw_header = bytes.fromhex(result['header'])
+                        self._check_header_proof(hex_root, branch, raw_header, height)
+                    else:
+                        raw_header = bytes.fromhex(result)
+                    _header, self.chain = self._connect_header(height, raw_header)
+                    good_height = height
+            except MissingHeader:
+                hex_str = hash_to_hex_str(Net.COIN.header_hash(raw_header))
+                self.logger.info(f'failed to connect at height {height:,d}, '
+                                 f'hash {hex_str} last good {good_height:,d}')
+            except (AssertionError, KeyError, TypeError, ValueError) as e:
+                raise DisconnectSessionError(f'bad {method} response: {e}')
+
         heights = sorted(set(heights))
-        self.logger.debug(f'requesting headers at heights {heights}')
         cp_height = Net.CHECKPOINT.height
         method = 'blockchain.block.header'
-
-        async with timeout_after(10):
-            async with self.send_batch(raise_errors=True) as batch:
-                for height in heights:
-                    batch.add_request(method, (height, cp_height if height <= cp_height else 0))
-
-        min_good_height = max((height for height in heights if height <= cp_height), default=-1)
         good_height = -1
-        try:
-            for result, height in zip(batch.results, heights):
-                if height <= cp_height:
-                    hex_root = result['root']
-                    branch = [hex_str_to_hash(item) for item in result['branch']]
-                    raw_header = bytes.fromhex(result['header'])
-                    self._check_header_proof(hex_root, branch, raw_header, height)
-                else:
-                    raw_header = bytes.fromhex(result)
-                _header, self.chain = self._connect_header(height, raw_header)
-                good_height = height
-        except MissingHeader:
-            hex_str = hash_to_hex_str(Net.COIN.header_hash(raw_header))
-            self.logger.info(f'failed to connect at height {height:,d}, '
-                             f'hash {hex_str} last good {good_height:,d}')
-        except (AssertionError, KeyError, TypeError, ValueError) as e:
-            raise DisconnectSessionError(f'bad {method} response: {e}')
-
+        min_good_height = max((height for height in heights if height <= cp_height), default=-1)
+        for chunk in chunks(heights, 100):
+            await _request_header_batch(chunk)
         if good_height < min_good_height:
             raise DisconnectSessionError(f'cannot connect to checkpoint', blacklist=True)
         return good_height
