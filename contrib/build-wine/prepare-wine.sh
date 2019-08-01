@@ -9,9 +9,11 @@ ZBAR_FILENAME=zbarw-20121031-setup.exe
 ZBAR_URL=https://sourceforge.net/projects/zbarw/files/$ZBAR_FILENAME/download
 ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 
-LIBUSB_FILENAME=libusb-1.0.22.7z
-LIBUSB_URL=https://prdownloads.sourceforge.net/project/libusb/libusb-1.0/libusb-1.0.22/$LIBUSB_FILENAME?download
-LIBUSB_SHA256=671f1a420757b4480e7fadc8313d6fb3cbb75ca00934c417c1efa6e77fb8779b
+# NOTE: The changes by Axel Gembe are in a different branch, master is the standard libusb
+# branch. Verify the extent of Axel's changes with the following command:
+#   git diff master f2b1128714663ab9450d222ba7f438dbe4ec9d87
+LIBUSB_REPO='https://github.com/ElectrumSV/libusb.git'
+LIBUSB_COMMIT=f2b1128714663ab9450d222ba7f438dbe4ec9d87
 
 PYINSTALLER_REPO='https://github.com/ElectrumSV/pyinstaller.git'
 PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
@@ -150,10 +152,26 @@ download_if_not_exist $NSIS_FILENAME "$NSIS_URL"
 verify_hash $NSIS_FILENAME "$NSIS_SHA256"
 wine "$PWD/$NSIS_FILENAME" /S
 
-download_if_not_exist $LIBUSB_FILENAME "$LIBUSB_URL"
-verify_hash $LIBUSB_FILENAME "$LIBUSB_SHA256"
-7z x -olibusb $LIBUSB_FILENAME -aoa
+echo "Compiling libusb ..."
+mkdir libusb
+(
+    cd libusb
+    # Shallow clone
+    git init
+    git remote add origin $LIBUSB_REPO
+    git fetch --depth 1 origin $LIBUSB_COMMIT
+    git checkout -b pinned FETCH_HEAD
+    export SOURCE_DATE_EPOCH=1530212462
+    echo "libusb_1_0_la_LDFLAGS += -Wc,-static" >> libusb/Makefile.am
+    ./bootstrap.sh || { echo "Could not bootstrap libusb" ; exit 1; }
+    host="i686-w64-mingw32"
+    LDFLAGS="-Wl,--no-insert-timestamp" ./configure \
+        --host=$host \
+        --build=x86_64-pc-linux-gnu || { echo "Could not run ./configure for libusb" ; exit 1; }
+    make -j4 || { echo "Could not build libusb" ; exit 1; }
+    ${host}-strip libusb/.libs/libusb-1.0.dll
+) || { echo "libusb build failed" ; exit 1; }
 
-cp libusb/MS32/dll/libusb-1.0.dll $WINEPREFIX/drive_c/$PYTHON_FOLDER/
+cp libusb/libusb/.libs/libusb-1.0.dll $WINEPREFIX/drive_c/$PYTHON_FOLDER/ || { echo "Could not copy libusb to its destination" ; exit 1; }
 
 echo "Wine is configured."
