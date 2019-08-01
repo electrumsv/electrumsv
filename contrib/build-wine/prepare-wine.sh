@@ -13,6 +13,9 @@ LIBUSB_FILENAME=libusb-1.0.22.7z
 LIBUSB_URL=https://prdownloads.sourceforge.net/project/libusb/libusb-1.0/libusb-1.0.22/$LIBUSB_FILENAME?download
 LIBUSB_SHA256=671f1a420757b4480e7fadc8313d6fb3cbb75ca00934c417c1efa6e77fb8779b
 
+PYINSTALLER_REPO='https://github.com/ElectrumSV/pyinstaller.git'
+PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
+
 PYTHON_VERSION=3.6.6
 
 ## These settings probably don't need change
@@ -101,8 +104,38 @@ $PYTHON -m pip install pip --upgrade
 
 $PYTHON -m pip install -r $here/../deterministic-build/requirements-binaries.txt
 
-# Install PyInstaller
-$PYTHON -m pip install pyinstaller==3.4 --no-use-pep517
+echo "Compiling PyInstaller bootloader with anti-virus false-positive protection"
+pushd $WINEPREFIX/drive_c/electrum
+GIT_COMMIT_HASH=$(git rev-parse HEAD)
+popd
+mkdir pyinstaller
+(
+    cd pyinstaller
+    # Shallow clone
+    git init
+    git remote add origin $PYINSTALLER_REPO
+    git fetch --depth 1 origin $PYINSTALLER_COMMIT
+    git checkout -b pinned FETCH_HEAD
+    rm -fv PyInstaller/bootloader/Windows-*/run*.exe || true  # Make sure EXEs that came with repo are deleted -- we rebuild them and need to detect if build failed
+    if [ ${PYI_SKIP_TAG:-0} -eq 0 ] ; then
+        echo "const char *ec_tag = \"tagged by ElectrumSV@$GIT_COMMIT_HASH\";" >> ./bootloader/src/pyi_main.c
+    else
+        warn "Skipping PyInstaller tag"
+    fi
+    pushd bootloader
+    # If switching to 64-bit Windows, edit CC= below
+    python3 ./waf all CC=i686-w64-mingw32-gcc CFLAGS="-Wno-stringop-overflow -static"
+    # Note: it's possible for the EXE to not be there if the build
+    # failed but didn't return exit status != 0 to the shell (waf bug?);
+    # So we need to do this to make sure the EXE is actually there.
+    # If we switch to 64-bit, edit this path below.
+    popd
+    [ -e PyInstaller/bootloader/Windows-32bit/runw.exe ] || { echo "Could not find runw.exe in target dir!" ; exit 1; }
+) || { echo "PyInstaller bootloader build failed" ; exit 1; }
+echo "Installing PyInstaller ..."
+$PYTHON -m pip install ./pyinstaller || { echo "PyInstaller install failed" ; exit 1; }
+
+wine "$PYHOME/scripts/pyinstaller.exe" -v || { echo "Pyinstaller installed but cannot be run." ; exit 1; }
 
 # Install ZBar
 download_if_not_exist $ZBAR_FILENAME "$ZBAR_URL"
