@@ -98,10 +98,13 @@ class KeepKeyPlugin(HW_PluginBase):
             from . import client
             import keepkeylib
             import keepkeylib.ckd_public
+            from usb1 import USBContext
             self.client_class = client.KeepKeyClient
             self.ckd_public = keepkeylib.ckd_public
             self.types = keepkeylib.client.types
             self.DEVICE_IDS = (KEEPKEY_PRODUCT_KEY,)
+            self.usb_context = USBContext()
+            self.usb_context.open()
             self.libraries_available = True
         except ImportError:
             self.libraries_available = False
@@ -116,6 +119,13 @@ class KeepKeyPlugin(HW_PluginBase):
             return "BitcoinCash"
         return "BitcoinSV"
 
+    def _libusb_enumerate(self):
+        from keepkeylib.transport_webusb import DEVICE_IDS
+        for dev in self.usb_context.getDeviceIterator(skip_on_error=True):
+            usb_id = (dev.getVendorID(), dev.getProductID())
+            if usb_id in DEVICE_IDS:
+                yield dev
+
     def _enumerate_hid(self):
         if self.libraries_available:
             from keepkeylib.transport_hid import HidTransport
@@ -125,7 +135,7 @@ class KeepKeyPlugin(HW_PluginBase):
     def _enumerate_web_usb(self):
         if self.libraries_available:
             from keepkeylib.transport_webusb import WebUsbTransport
-            return WebUsbTransport.enumerate()
+            return self._libusb_enumerate()
         return []
 
     def _get_transport(self, device):
