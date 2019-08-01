@@ -55,13 +55,12 @@ class SVMainnet(object):
 
     # A post-split SV checkpoint.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '000000203b0bc2a72e7313ac216e3c63314b8aec4be35374d66d2e0200000000000000009d14e99d'
-        '7799f2d8b62b3c745aa94514da4c831193bd057a916e1f45183600b5d001f95b11fd02180d32952e'
-    ), height=557957, prev_work=0xd54c44dbdc491c25d097bf)
+        '000000201ff55a51c860352808114e52a9b09ae65dd9156a24e75e01000000000000000033320991'
+        '190dcb5a86159e56b9ba2da6bca4e515d9dcbab6878471f8fcdf4039cd98425d7dee0518c5322529'
+    ), height=593660, prev_work=0xe5eef982b80af19dbeb052)
 
-    # Inegrate this into BitcoinX?
     VERIFICATION_BLOCK_MERKLE_ROOT = (
-        "2eb4a1d21caa056385dbedd7743878e481d26052092aba97b319a6459ff6fa1b"
+        '6acb9cf11127bd497bbebc61fca7d522d985b43be813f8710dca95351e89953e'
     )
 
     BIP44_COIN_TYPE = 0
