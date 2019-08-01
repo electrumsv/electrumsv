@@ -127,7 +127,7 @@ jobs:
       architecture: x64
   - script: |
       sudo docker pull $(imageName)
-      sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
+      sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum -e PYI_SKIP_TAG="$PYI_SKIP_TAG" --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
     displayName: 'Windows build'
     enabled: true
     continueOnError: false
