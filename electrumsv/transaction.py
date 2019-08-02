@@ -268,7 +268,10 @@ def _parse_scriptSig(d, _bytes):
         logger.error("cannot find address in input script %s", bh2u(_bytes))
         return
     x_sig = [bh2u(x[1]) for x in decoded[1:-1]]
-    m, n, x_pubkeys, pubkeys, redeemScript = _parse_redeemScript(decoded[-1][1])
+    parse_results = _parse_redeemScript(decoded[-1][1])
+    if parse_results is None:
+        return
+    m, n, x_pubkeys, pubkeys, redeemScript = parse_results
     # write result in d
     d['type'] = 'p2sh'
     d['num_sig'] = m
