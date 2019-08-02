@@ -117,12 +117,12 @@ class SVTestnet(object):
 
     # A post-split SV checkpoint.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '000000201d64d2c7c34486e209c246a24f8c28328ba296441fa6d2b22ea67d0300000000ec7b863e'
-        'fc96f7a7183ef0e0c6b65dd0dc3626c3cded68ccc7dfd06e53dbb6180c74065c2442111cda61b4ef'
-    ), height=1273000, prev_work=0x3f53f8e19733a00946)
+        '0000002029f1e3df7fda466242b9b56076792ffdb9e5d7ea51610307bc010000000000007ac1fa84'
+        'ef5f0998232fb01cd6fea2c0199e34218df2fb33e4e80e79d22b6a746994435d41c4021a208bae0a'
+    ), height=1314717, prev_work=0x62ba4d708756160950)
 
     VERIFICATION_BLOCK_MERKLE_ROOT = (
-        "2fde3bf6de5266bd7a2c65b6e6971f8aa5e7b839ee18523994309ab42a18a70c"
+        '93414acafdef2dad790c456a424a6a261b66771a3426117125d8c13a1c93f10e'
     )
 
     BIP44_COIN_TYPE = 1
@@ -176,11 +176,13 @@ class SVScalingTestnet(object):
 
     # A post-split SV checkpoint.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
-        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18',
-    ), height=0, prev_work=0)
+        '010000201b60800462c28335ae5d2a3552614ab72afbdc23f37301a06d0a03920000000079d5a7a2'
+        'a50d0b7f7da3e6ff4ceccd1591cfc2fcc1410b69bde0fac43e0409010090435d3d014f1c5af053d3'
+    ), height=23267, prev_work=0x6eb0931d6fbf0)
 
-    VERIFICATION_BLOCK_MERKLE_ROOT = None
+    VERIFICATION_BLOCK_MERKLE_ROOT = (
+        'a66bfe7bdf9f88cccf59f27f03a38f1c339a00ca4351fc77f78a1fb1dfda6696'
+    )
 
     BIP44_COIN_TYPE = 1
 
