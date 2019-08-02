@@ -36,7 +36,28 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.2.3
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-2-3-b0eb90eff509
+  * Public keys: Payment to public keys when encountered caused errors in wallet synchronisation.
+  * UI: The search functionality was completely broken and the hotkey or menu would just error
+    instead of bringing up the search box.
+  * Non-deterministic wallets: A check for the deterministicness of wallets broke if the wallet
+    was non-deterministic. This meant for example that address watching wallets broke when loading.
+  * Transaction verification: If lots of transactions had to be verified, then the verification
+    process would exit and die. And no more verification would happen.
+  * Daemons: When someone ran in daemon mode, it would leak the process and never exit because
+    of an infinite loop in the main thread.
+  * Checkpoints: The checkpoints have finally been updated in this release. For mainnet, testnet
+    and scaling testnet.
+  * Keepkey hardware wallet: The latest Keepkey firmware in conjunction with the latest Windows
+    OS upgrade 1903, broke Keepkey detection. We have incorporated a workaround from Electron
+    Cash (credit to Axel Gembe).
+  * Malware false positives: Our Windows build process now includes a customised PyInstaller
+    build that alters the bootstrap fingerprint, which in theory reduces the chance of being
+    falsely identified alongside malware that happens to use PyInstaller.
+
 # Release 1.2.2
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-2-2-802b0b9b93ef
   * Block explorers: Added satoshi.io and whatsonchain.com for testnet and scaling testnet.
   * Exchange rates: Removed Kraken due to their lack of support for Bitcoin SV.
   * User education: Some of our users do not really understand what they are doing and guess
@@ -52,6 +73,7 @@ ElectrumSV
     to see confirmed, unconfirmed and unmatured balancces.
 
 # Release 1.2.1
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-2-1-b6262361191
   * Performance: Password protected wallet loading and saving encrypts and decrypts using AES
     encryption. Users may see faster loading and saving due to use of C functionality rather than
     the fallback Python functionality, in some circumstances.

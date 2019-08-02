@@ -1,5 +1,5 @@
-PACKAGE_VERSION = '1.2.2'                          # version of the client package
-PACKAGE_DATE = '2019-07-20T20:00:00.000000+13:00'  # official timestamp for client package
+PACKAGE_VERSION = '1.2.3'                          # version of the client package
+PACKAGE_DATE = '2019-08-02T20:00:00.000000+13:00'  # official timestamp for client package
 PROTOCOL_VERSION = '1.4.2'                         # protocol version requested
 PROTOCOL_VERSION_MINIMUM = '1.4'                   # do not connect to lower than this
 
