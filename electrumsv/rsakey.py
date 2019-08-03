@@ -520,6 +520,7 @@ class RSAKey(object):
     def acceptsPassword(self):
         return False
 
+    @staticmethod
     def generate(bits):
         key = RSAKey()
         p = getRandomPrime(bits//2, False)
@@ -534,4 +535,3 @@ class RSAKey(object):
         key.dQ = key.d % (q-1)
         key.qInv = invMod(q, p)
         return key
-    generate = staticmethod(generate)

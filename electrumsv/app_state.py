@@ -41,6 +41,7 @@ from bitcoinx import Headers
 from .async_ import ASync
 from .logs import logs
 from .networks import Net
+from .simple_config import SimpleConfig
 
 
 logger = logs.get_logger("app_state")
@@ -62,7 +63,7 @@ class AppStateProxy(object):
     decimal_points = [8, 5, 2, 0]
 
     # Avoid wider dependencies by not using a reference to the config type.
-    def __init__(self, config: 'SimpleConfig', gui_kind: str) -> None:
+    def __init__(self, config: SimpleConfig, gui_kind: str) -> None:
         from electrumsv.device import DeviceMgr
         self.config = config
         self.gui_kind = gui_kind
@@ -87,7 +88,7 @@ class AppStateProxy(object):
 
     def read_headers(self) -> None:
         self.headers = Headers.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
-        for n, chain in enumerate(self.headers.chains(), start=1):
+        for n, chain in enumerate(self.headers.chains(), start=1):  # type: ignore
             logger.info(f'chain #{n}: {chain.desc()}')
 
     def base_unit(self) -> str:

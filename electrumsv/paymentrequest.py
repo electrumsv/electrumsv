@@ -222,7 +222,7 @@ class PaymentRequest:
     def to_json(self) -> str:
         d = {}
         d['network'] = 'bitcoin'
-        d['outputs'] = [ output.to_dict() for output in self.outputs ]
+        d['outputs'] = [output.to_dict() for output in self.outputs]  # type: ignore
         d['creationTimestamp'] = self.creation_timestamp
         if self.expiration_timestamp is not None:
             d['expirationTimestamp'] = self.expiration_timestamp
@@ -258,7 +258,7 @@ class PaymentRequest:
         return self.requestor if self.requestor else self.get_address()
 
     def get_verify_status(self) -> str:
-        return self.error if self.requestor else "No Signature"
+        return self.error if self.requestor else "No Signature"  # type: ignore
 
     def get_memo(self) -> str:
         return self.memo
@@ -269,7 +269,10 @@ class PaymentRequest:
     def get_outputs(self) -> List[TxOutput]:
         return [output.to_tx_output() for output in self.outputs]
 
-    def send_payment(self, transaction_hex: str, refund_address: Address) -> Tuple[bool, str]:
+    def send_payment(self,
+                     transaction_hex: str,
+                     refund_address: Address) -> Tuple[bool, Optional[str]]:
+
         if not self.payment_url:
             return False, "no url"
 
@@ -382,7 +385,7 @@ class Payment:
 class PaymentACK:
     MAXIMUM_JSON_LENGTH = 11 * 1000 * 1000
 
-    def __init__(self, payment: Payment, memo: Optional[str]=None):
+    def __init__(self, payment: Payment, memo: Optional[str] = None):
         self.payment = payment
         self.memo = memo
 
@@ -421,6 +424,7 @@ class PaymentACK:
 def get_payment_request(url: str) -> PaymentRequest:
     error = None
     response = None
+    data: Any = None
     u = urllib.parse.urlparse(url)
     if u.scheme in ['http', 'https']:
         try:
@@ -448,7 +452,7 @@ def get_payment_request(url: str) -> PaymentRequest:
             data = None
             error = "payment URL not pointing to a valid file"
     else:
-         error = f"unknown scheme {url}"
+        error = f"unknown scheme {url}"
 
     if error:
         raise Bip270Exception(error)
