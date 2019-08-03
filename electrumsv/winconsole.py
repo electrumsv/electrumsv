@@ -31,12 +31,13 @@ import os
 import sys
 
 from electrumsv.logs import logs
-
+from typing import Generator, Union
 
 STD_OUTPUT_HANDLE = -11
 FILE_TYPE_DISK = 1
 
-def _parent_process_pids() -> int:
+
+def _parent_process_pids() -> Generator[int, None, None]:
     """
     Returns all parent process PIDs, starting with the closest parent
     """
@@ -51,7 +52,9 @@ def _parent_process_pids() -> int:
         pass
 
 
-def _create_or_attach_console(attach: bool=True, create: bool=False, title: str=None) -> bool:
+def _create_or_attach_console(attach: bool=True,
+                              create: bool=False,
+                              title: str=None) -> Union[bool, None]:
     """
     First this checks if output is redirected to a file and does nothing if it is. Then it tries
     to attach to the console of any parent process and if not successful it optionally creates a
@@ -62,7 +65,7 @@ def _create_or_attach_console(attach: bool=True, create: bool=False, title: str=
     if std_out_handle > 0:
         if ctypes.windll.kernel32.GetFileType(std_out_handle) == FILE_TYPE_DISK:
             # Output is being redirected to a file, do nothing
-            return
+            return None
 
     has_console = std_out_handle > 0
 

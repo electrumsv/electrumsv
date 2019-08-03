@@ -25,6 +25,7 @@
 
 import copyreg
 import struct
+from typing import Optional
 
 from bitcoinx import (
     PublicKey, PrivateKey, Ops, hash_to_hex_str, der_signature_to_compact, InvalidSignatureError,
@@ -511,11 +512,11 @@ class Transaction:
         txin['scriptSig'] = None  # force re-serialization
         self.raw = None
 
-    def deserialize(self) -> dict:
+    def deserialize(self) -> Optional[dict]:
         if self.raw is None:
-            return
+            return None
         if self._inputs is not None:
-            return
+            return None
         d = deserialize(self.raw)
         self._inputs = d['inputs']
         self._outputs = [(x['type'], x['address'], x['value']) for x in d['outputs']]

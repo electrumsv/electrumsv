@@ -132,7 +132,7 @@ class Contacts(object):
             contacts_data.append(entry.to_list())
         self.storage.put('contacts2', [ 4, contacts_data ])
 
-    def check_identity_exists(self, system_id: IdentityCheckResult,
+    def check_identity_exists(self, system_id: IdentitySystem,
             system_data: Any) -> IdentityCheckResult:
         for entry in self._entries.values():
             for identity in entry.identities:
@@ -226,7 +226,8 @@ class Contacts(object):
         for contact in removed:
             self._on_contact_removed(contact)
 
-    def add_identity(self, contact_id: int, system_id: IdentitySystem, system_data: str) -> None:
+    def add_identity(self, contact_id: int, system_id: IdentitySystem, system_data: str) \
+            -> ContactIdentity:
         contact = self._entries[contact_id]
         identity_id = self._get_unique_identity_id(system_id, system_data)
         identity = ContactIdentity(identity_id, system_id, system_data)
