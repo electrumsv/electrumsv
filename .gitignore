@@ -34,3 +34,6 @@ xcuserdata/
 
 # Visual Studio Code
 /.vscode
+
+# MyPy
+.mypy*
