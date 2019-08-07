@@ -40,6 +40,8 @@ from .logs import logs
 from .startup import package_dir
 from .version import PACKAGE_DATE
 
+from typing import Dict, Any
+
 
 def inv_dict(d):
     return {v: k for k, v in d.items()}
@@ -74,7 +76,7 @@ class MyEncoder(json.JSONEncoder):
 
 class JSON:
 
-    classes = {}
+    classes: Dict[Any, Any] = {}
 
     @classmethod
     def register(cls, *classes):

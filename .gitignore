@@ -30,7 +30,11 @@ icons/.DS_Store/
 xcuserdata/
 
 # IntelliJ Pycharm IDE
-/.idea
+*.idea*
 
 # Visual Studio Code
 /.vscode
+.vs*
+
+# Mypy
+.mypy*
