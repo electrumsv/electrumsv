@@ -1,8 +1,7 @@
-import http
-import requests
 import threading
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QUrl
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QProgressDialog
 )
@@ -19,9 +18,7 @@ logger = logs.get_logger("coinsplitting")
 
 TX_DESC_PREFIX = _("ElectrumSV coin splitting")
 
-RESULT_DUST_TIMEOUT = -4
-RESULT_JSON_ERROR = -3
-RESULT_HTTP_FAILURE = -2
+RESULT_DUST_TIMEOUT = -2
 RESULT_DIALOG_CLOSED = -1
 RESULT_READY_FOR_SPLIT = 0
 
@@ -43,8 +40,6 @@ class CoinSplittingTab(QWidget):
     frozen_balance = None
     split_stage = STAGE_INACTIVE
     faucet_status_code = None
-    faucet_result_json = None
-    faucet_result = None
 
     intro_label = None
     splittable_balance_label = None
@@ -71,16 +66,11 @@ class CoinSplittingTab(QWidget):
     def _split_prepare_task(self):
         self.split_stage = STAGE_OBTAINING_DUST
 
-        address_text = self.receiving_address.to_string()
-        result = requests.get("{}/submit/{}".format(Net.FAUCET_URL, address_text))
-        self.faucet_result = result
-        if result.status_code != 200:
-            return RESULT_HTTP_FAILURE
+        wallet = self.window().wallet
+        wallet.set_frozen_state([ self.receiving_address ], True)
 
-        d = result.json()
-        self.faucet_result_json = d
-        if d["error"]:
-            return RESULT_JSON_ERROR
+        address_text = self.receiving_address.to_string()
+        QDesktopServices.openUrl(QUrl("{}/?addr={}".format(Net.FAUCET_URL, address_text)))
 
         # Wait for the transaction to arrive.  How long it takes before the progress bar
         # stalls (should easily cover normal expected time required).
@@ -116,24 +106,6 @@ class CoinSplittingTab(QWidget):
 
             if result == RESULT_DIALOG_CLOSED:
                 window.show_error(_("You aborted the process."))
-            elif result == RESULT_HTTP_FAILURE:
-                status_code = self.faucet_result.status_code
-                status_code_data = None
-                try:
-                    # pylint: disable=no-value-for-parameter
-                    status_code_data = http.HTTPStatus(int(status_code))
-                except ValueError:
-                    # The int() cast raises this.
-                    # A HTTPStatus lookup with no matching entry raises this.
-                    pass
-                status_code_description = ("Unknown" if status_code_data is None else
-                                           status_code_data.description)
-                status_code_name = "Unknown" if status_code_data is None else status_code_data.name
-                window.show_error(_("Unexpected response from faucet:\n{} ({})\n{}").format(
-                    status_code, status_code_name, status_code_description))
-            elif result == RESULT_JSON_ERROR:
-                window.show_error(_("Unexpected response from faucet:\n{}").format(
-                    self.faucet_result_json["message"]))
             elif result == RESULT_DUST_TIMEOUT:
                 window.show_error(_("It took too long to get the dust from the faucet."))
             else:
@@ -191,7 +163,6 @@ class CoinSplittingTab(QWidget):
         self.receiving_address = None
         self.waiting_dialog = None
         self.faucet_status_code = None
-        self.faucet_result_json = None
         self.split_stage = STAGE_INACTIVE
         logger.debug("_cleanup_tx_created")
 
@@ -247,7 +218,9 @@ class CoinSplittingTab(QWidget):
             "</p>",
             "<ol>",
             "<li>",
-            _("A small amount of SV coin will be obtained from a faucet."),
+            _("Your browser will open to a faucet that can provide you with a small amount of SV "
+            "coin. Once you have operated the faucet, and obtained it, ElectrumSV will "
+            "detect it."),
             "</li>",
             "<li>",
             _("A transaction will be constructed including your entire spendable balance "

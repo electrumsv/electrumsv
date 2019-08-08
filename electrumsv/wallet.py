@@ -1218,9 +1218,12 @@ class Abstract_Wallet:
     def get_unused_addresses(self):
         # fixme: use slots from expired requests
         domain = self.get_receiving_addresses()
-        return [addr for addr in domain
-                if not self.get_address_history(addr)
-                and addr not in self.receive_requests]
+        return [
+            addr for addr in domain
+            if not self.get_address_history(addr)
+            and addr not in self.receive_requests
+            and not self.is_frozen(addr)
+        ]
 
     def get_unused_address(self):
         addrs = self.get_unused_addresses()

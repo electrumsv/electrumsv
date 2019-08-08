@@ -208,7 +208,7 @@ class SVScalingTestnet(object):
         ),
     }
 
-    FAUCET_URL = "https://faucet.bitcoinscaling.io/"
+    FAUCET_URL = "https://faucet.bitcoinscaling.io"
     KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
     # Note: testnet allegedly supported only by unofficial firmware
     TREZOR_COIN_NAME = 'Bcash Testnet'
