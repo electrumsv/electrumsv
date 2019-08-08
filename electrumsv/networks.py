@@ -89,6 +89,10 @@ class SVMainnet(object):
             'https://satoshi.io',
             {'tx': 'tx', 'addr': 'address'},
         ),
+        'bchsvexplorer.com': (
+            'https://bchsvexplorer.com',
+            {'tx': 'tx', 'addr': 'address'},
+        ),
     }
 
     FAUCET_URL = "https://faucet.satoshisvision.network"
