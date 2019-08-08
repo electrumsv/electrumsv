@@ -345,29 +345,7 @@ class SVApplication(QApplication):
 
     def initial_dialogs(self) -> None:
         '''Suppressible dialogs that are shown when first opening the app.'''
-        dialogs.show_named('welcome-ESV-1.2.3')
-        # This needs to be reworked or removed, as non-advanced users aren't sure whether
-        # it is safe, and likely many people aren't quite sure if it should be done.
-        # old_items = []
-        # headers_path = os.path.join(app_state.config.path, 'blockchain_headers')
-        # if os.path.exists(headers_path):
-        #     old_items.append((_('the file "blockchain_headers"'), os.remove, headers_path))
-        # forks_dir = os.path.join(app_state.config.path, 'forks')
-        # if os.path.exists(forks_dir):
-        #     old_items.append((_('the directory "forks/"'), shutil.rmtree, forks_dir))
-        # if old_items:
-        #     main_text = _('Delete the following obsolete items in <br>{}?'
-        #                   .format(app_state.config.path))
-        #     info_text = '<ul>{}</ul>'.format(''.join('<li>{}</li>'.format(text)
-        #                                              for text, *rest in old_items))
-        #     if dialogs.show_named('delete-obsolete-headers', main_text=main_text,
-        #                           info_text=info_text):
-        #         try:
-        #             for _text, rm_func, *args in old_items:
-        #                 rm_func(*args)
-        #         except OSError as e:
-        #             logger.exception('deleting obsolete files')
-        #             dialogs.error_dialog(_('Error deleting files:'), info_text=str(e))
+        dialogs.show_named('welcome-ESV-1.2.4')
 
     def event_loop_started(self) -> None:
         self.cosigner_pool = CosignerPool()

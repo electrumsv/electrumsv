@@ -36,6 +36,16 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.2.4
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-2-4-c42e5d73213d
+  * Coin-splitting: A loser decided to spend time draining all the funds in the faucet that is
+    used to help people split their coins. The faucet has been changed and now you will need to
+    potentially operate a captcha on the faucet page to complete the coin-splitting process.
+  * Block explorers: Blockchair have fixed their site to use real addresses, and not the
+    cash addresses that Bitcoin Cash ABC uses. We have readded them as an option.
+  * Block explorers: Removed bchsvexplorer.com and btc.com as supported block explorers,
+    as they do not meet our policy of requiring real addresses to be used.
+
 # Release 1.2.3
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-2-3-b0eb90eff509
   * Public keys: Payment to public keys when encountered caused errors in wallet synchronisation.
