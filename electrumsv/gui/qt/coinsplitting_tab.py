@@ -87,10 +87,9 @@ class CoinSplittingTab(QWidget):
                 if time_passed >= max_time_passed_for_failure:
                     return RESULT_DUST_TIMEOUT
 
-        self.split_stage = STAGE_SPLITTING
-
         # The user needs to sign the transaction.  It can't be done in this thread.
-
+        wallet.set_frozen_state([ self.receiving_address ], False)
+        self.split_stage = STAGE_SPLITTING
         return RESULT_READY_FOR_SPLIT
 
     def _on_split_prepare_done(self, future):
@@ -123,6 +122,15 @@ class CoinSplittingTab(QWidget):
             (bitcoin.TYPE_ADDRESS, unused_address, "!")
         ]
         coins = wallet.get_utxos(None, exclude_frozen=True, mature=True, confirmed_only=False)
+        # Verify that our dust receiving address is in the available UTXOs, if it isn't, the
+        # process has failed in some unexpected way.
+        for coin in coins:
+            if coin['address'] == self.receiving_address:
+                break
+        else:
+            window.show_error(_("Error accessing dust coins for correct splitting."))
+            self._cleanup_tx_final()
+            return
         tx = wallet.make_unsigned_transaction(coins, outputs, window.config)
 
         amount = tx.output_value()
@@ -159,6 +167,10 @@ class CoinSplittingTab(QWidget):
     def _cleanup_tx_created(self):
         window = self.window()
         window.network.unregister_callback(self._on_network_event)
+
+        # This may have already been done, given that we want our split to consider the dust
+        # usabel.
+        window.wallet.set_frozen_state([ self.receiving_address ], False)
 
         self.receiving_address = None
         self.waiting_dialog = None
