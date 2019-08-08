@@ -22,6 +22,13 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+# Block explorer requirements:
+#
+# In order to be included, a block explorer must use real Bitcoin addresses, not an alternate
+# system like "cash addresses". In order to avoid user confusion, we wish to avoid showing
+# our users confusing weird addressing systems for Bitcoin SV addresses, that belong solely
+# being used by dark coins like Bitcoin Cash.
+
 import json
 
 from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet
@@ -66,12 +73,8 @@ class SVMainnet(object):
     BIP44_COIN_TYPE = 0
 
     BLOCK_EXPLORERS = {
-        'bchsvexplorer.com': (
-            'https://bchsvexplorer.com',
-            {'tx': 'tx', 'addr': 'address'},
-        ),
-        'svblox.com': (
-            'https://svblox.com',
+        'hugeblock.info': (
+            'https://hugeblock.info',
             {'tx': 'tx', 'addr': 'address'},
         ),
         'whatsonchain.com': (
@@ -81,10 +84,6 @@ class SVMainnet(object):
         'blockchair.com' : (
             'https://blockchair.com/bitcoin-sv',
             {'tx': 'transaction', 'addr': 'address'},
-        ),
-        'btc.com': (
-            'https://bsv.btc.com',
-            {'tx': '', 'addr': ''},
         ),
         'satoshi.io': (
             'https://satoshi.io',
