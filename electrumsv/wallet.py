@@ -1267,7 +1267,7 @@ class Abstract_Wallet:
             addr for addr in domain
             if not self.get_address_history(addr)
             and addr not in self.receive_requests
-            and not self.is_frozen(addr)
+            and not self.is_frozen_address(addr)
         ]
 
     def get_unused_address(self):
