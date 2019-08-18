@@ -521,8 +521,8 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     p2pkhTransaction = False
 
                 for x_pubkey in txin.x_pubkeys:
-                    if x_pubkey.to_hex() in derivations:
-                        index = derivations.get(x_pubkey.to_hex())
+                    if x_pubkey in derivations:
+                        index = derivations.get(x_pubkey)
                         inputPath = "%s/%d/%d" % (self.get_derivation(), index[0], index[1])
                         inputHash = tx.preimage_hash(txin)
                         hasharray_i = {'hash': inputHash.hex(), 'keypath': inputPath}
@@ -557,7 +557,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                             # leave it here until we activate it.
                             return '00' + push_script(Transaction.get_preimage_script(txin))
                         raise RuntimeError(f'unsupported type {type_}')
-                tx_dbb_serialized = CustomTXSerialization(tx.serialize()).serialize()
+                tx_dbb_serialized = CustomTXSerialization.from_hex(tx.serialize()).serialize()
             else:
                 # We only need this for the signing echo / verification.
                 tx_dbb_serialized = None
@@ -626,8 +626,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             # Fill signatures
             if len(dbb_signatures) != len(tx.inputs):
                 raise RuntimeError("Incorrect number of transactions signed")
-            for txin, siginfo, pre_hash in enumerate(
-                    zip(tx.inputs, dbb_signatures, inputhasharray)):
+            for txin, siginfo, pre_hash in zip(tx.inputs, dbb_signatures, inputhasharray):
                 if txin.is_complete():
                     continue
                 for pubkey_index, x_pubkey in enumerate(txin.x_pubkeys):
