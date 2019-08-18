@@ -310,19 +310,19 @@ class TrezorPlugin(HW_PluginBase):
             txinputtype.prev_index = txin.prev_idx
             txinputtype.sequence = txin.sequence
             txinputtype.amount = txin.value
-            x_pubkeys = txin.x_pubkeys
-            xpubs = [x_pubkey.bip32_extended_key_and_path() for x_pubkey in x_pubkeys]
-            signatures = txin.stripped_signatures_with_blanks()
-            multisig = self._make_multisig(txin.threshold, xpubs, signatures)
-            script_type = self.get_trezor_input_script_type(multisig is not None)
-            txinputtype = TxInputType(script_type=script_type, multisig=multisig)
+            xpubs = [x_pubkey.bip32_extended_key_and_path() for x_pubkey in txin.x_pubkeys]
+            txinputtype.multisig = self._make_multisig(txin.threshold,
+                xpubs, txin.stripped_signatures_with_blanks())
+            txinputtype.script_type = self.get_trezor_input_script_type(
+                txinputtype.multisig is not None)
             # find which key is mine
             for xpub, path in xpubs:
                 if xpub in xpub_path:
                     xpub_n = bip32_decompose_chain_string(xpub_path[xpub])
                     txinputtype.address_n = xpub_n + path
                     break
-
+            # if txin.script_sig:
+            #     txinputtype.script_sig = bytes(txin.script_sig)
             inputs.append(txinputtype)
 
         return inputs
@@ -363,10 +363,10 @@ class TrezorPlugin(HW_PluginBase):
             txoutputtype.amount = tx_output.value
             address = classify_tx_output(tx_output)
             if isinstance(address, Address):
-                txoutputtype.script_type = self.types.PAYTOADDRESS
+                txoutputtype.script_type = OutputScriptType.PAYTOADDRESS
                 txoutputtype.address = address.to_string(coin=Net.COIN)
             elif isinstance(address, OP_RETURN_Output):
-                txoutputtype.script_type = self.types.PAYTOOPRETURN
+                txoutputtype.script_type = OutputScriptType.PAYTOOPRETURN
                 txoutputtype.op_return_data = validate_op_return(tx_output)
             return txoutputtype
 
