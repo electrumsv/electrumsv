@@ -3,7 +3,7 @@ from struct import pack, unpack
 from typing import Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx import (
-    BIP32Derivation, BIP32PublicKey, PublicKey, TxOutput, pack_be_uint32, pack_list
+    BIP32Derivation, BIP32PublicKey, PublicKey, TxOutput, pack_be_uint32, pack_list, pack_le_int64
 )
 
 from electrumsv.app_state import app_state
@@ -337,17 +337,17 @@ class Ledger_KeyStore(Hardware_KeyStore):
         derivations = self.get_tx_derivations(tx)
         for txin in tx.inputs:
             for i, x_pubkey in enumerate(txin.x_pubkeys):
-                if x_pubkey.to_hex() in derivations:
+                if x_pubkey in derivations:
                     signingPos = i
-                    s = derivations.get(x_pubkey.to_hex())
+                    s = derivations.get(x_pubkey)
                     hwAddress = "{:s}/{:d}/{:d}".format(self.get_derivation()[2:], s[0], s[1])
                     break
             else:
                 self.give_error("No matching x_key for sign_transaction") # should never happen
 
             redeemScript = Transaction.get_preimage_script(txin)
-            inputs.append([txin.value, txin.prev_idx, redeemScript,
-                           txin.prev_hash, signingPos, txin.sequence])
+            inputs.append([txin.value, None, redeemScript,
+                           None, signingPos, txin.sequence])
             inputsPaths.append(hwAddress)
 
         # Concatenate all the tx outputs as binary
@@ -366,17 +366,20 @@ class Ledger_KeyStore(Hardware_KeyStore):
 
         self.handler.show_message(_("Confirm Transaction on your Ledger device..."))
         try:
-            for utxo in inputs:
+            for i, utxo in enumerate(inputs):
+                txin = tx.inputs[i]
                 sequence = int_to_hex(utxo[5], 4)
-                chipInputs.append({'value' : utxo[0], 'witness' : True, 'sequence' : sequence})
+                prevout_bytes = txin.prevout_bytes()
+                value_bytes = prevout_bytes + pack_le_int64(utxo[0])
+                chipInputs.append({'value' : value_bytes, 'witness' : True, 'sequence' : sequence})
                 redeemScripts.append(bfh(utxo[2]))
 
             # Sign all inputs
             inputIndex = 0
             rawTx = tx.serialize()
             self.get_client().enableAlternate2fa(False)
-            self.get_client().startUntrustedTransaction(True, inputIndex,
-                                                        chipInputs, redeemScripts[inputIndex])
+            self.get_client().startUntrustedTransaction(True, inputIndex, chipInputs,
+                redeemScripts[inputIndex])
             outputData = self.get_client().finalizeInputFull(txOutput)
             outputData['outputData'] = txOutput
             transactionOutput = outputData['outputData']
