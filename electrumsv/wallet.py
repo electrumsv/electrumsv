@@ -208,15 +208,14 @@ class Abstract_Wallet:
     max_change_outputs = 3
     _filter_observed_addresses = False
 
-    def __init__(self, parent_wallet: 'ParentWallet', wallet_data: Dict[str, Any]):
+    def __init__(self, parent_wallet: 'ParentWallet', wallet_data: Dict[str, Any]) -> None:
         # Prevent circular reference keeping parent and child wallets alive.
         self._parent_wallet = weakref.proxy(parent_wallet)
         self._wallet_data = wallet_data
+
         # Database Id for this child wallet.
         self._id = wallet_data["id"]
-
-        self.db = WalletData(parent_wallet.get_storage_path(), parent_wallet.tx_store_aeskey_bytes,
-            self._id)
+        self._datastore = parent_wallet.get_wallet_datastore(self._id)
 
         self.logger = logs.get_logger("wallet[{}]".format(self.name()))
         self.network = None
@@ -286,11 +285,11 @@ class Abstract_Wallet:
 
     def missing_transactions(self):
         '''Returns a set of tx_hashes.'''
-        return self.db.tx.get_unsynced_ids()
+        return self._datastore.tx.get_unsynced_ids()
 
     def unverified_transactions(self):
         '''Returns a map of tx_hash to tx_height.'''
-        results = self.db.tx.get_unverified_entries(self.get_local_height())
+        results = self._datastore.tx.get_unverified_entries(self.get_local_height())
         self.logger.debug("unverified_transactions: %r", results)
         return { t[0]: t[1].metadata.height for t in results }
 
@@ -376,13 +375,14 @@ class Abstract_Wallet:
         # paradigm. It needs to share access in that case. It is possible the parent wallet needs
         # to be the place where it is obtained. Each child wallet can hold a reference.
 
-        self.pending_txs = self.db.tx.get_transactions(TxFlags.StateSigned, TxFlags.STATE_MASK)
+        self.pending_txs = self._datastore.tx.get_transactions(TxFlags.StateSigned,
+            TxFlags.STATE_MASK)
 
         # address -> list(txid, height)
-        addr_history = self.db.misc.get_value('addr_history')
+        addr_history = self._datastore.misc.get_value('addr_history')
         self._history = self.to_Address_dict(addr_history) if addr_history is not None else {}
 
-        pruned_txo = self.db.misc.get_value('pruned_txo')
+        pruned_txo = self._datastore.misc.get_value('pruned_txo')
         if pruned_txo is None:
             self.pruned_txo = {}
         else:
@@ -390,7 +390,7 @@ class Abstract_Wallet:
 
         # Frozen addresses
         self._frozen_addresses = set([])
-        frozen_addresses = self.db.misc.get_value('frozen_addresses')
+        frozen_addresses = self._datastore.misc.get_value('frozen_addresses')
         if frozen_addresses is not None:
             self._frozen_addresses = set(Address.from_string(addr) for addr in frozen_addresses)
 
@@ -399,13 +399,13 @@ class Abstract_Wallet:
         # types of freezing are flagged independently of each other
         # and 'spendable' is defined as a coin that satisfies BOTH
         # levels of freezing.
-        frozen_coins = self.db.misc.get_value('frozen_coins')
+        frozen_coins = self._datastore.misc.get_value('frozen_coins')
         self.logger.debug("frozen_coins %r", frozen_coins)
         self._frozen_coins = (set(tuple(v) for v in frozen_coins)
             if frozen_coins is not None else set([]))
 
         # What is persisted here differs depending on the wallet type.
-        self.load_addresses(self.db.misc.get_value('addresses'))
+        self.load_addresses(self._datastore.misc.get_value('addresses'))
 
         # If there was no address history entry we can take this as representative that there
         # are no other entries because the wallet has not been saved yet. This is not the case
@@ -417,9 +417,9 @@ class Abstract_Wallet:
     def save_external_data(self):
         with self.transaction_lock:
             if self._insert:
-                save_func = self.db.misc.add
+                save_func = self._datastore.misc.add
             else:
-                save_func = self.db.misc.update
+                save_func = self._datastore.misc.update
 
             save_func('pruned_txo', [ [ list(k), v ] for (k, v) in self.pruned_txo.items() ])
             save_func('frozen_addresses',
@@ -434,36 +434,36 @@ class Abstract_Wallet:
     def get_tx_ids_for_address(self, address: Address) -> List[str]:
         address_string = address.to_string()
         tx_ids = set([])
-        for tx_id, entries in self.db.txin.get_all_entries().items():
+        for tx_id, entries in self._datastore.txin.get_all_entries().items():
             for entry in entries:
                 if entry.address_string == address_string:
                     tx_ids.add(tx_id)
-        for tx_id, entries in self.db.txout.get_all_entries().items():
+        for tx_id, entries in self._datastore.txout.get_all_entries().items():
             for entry in entries:
                 if entry.address_string == address_string:
                     tx_ids.add(tx_id)
         return tx_ids
 
     def get_txins(self, tx_id: str, address: Optional[Address]=None) -> List[DBTxInput]:
-        entries = self.db.txin.get_entries(tx_id)
+        entries = self._datastore.txin.get_entries(tx_id)
         if address is None:
             return entries
         address_string = address.to_string()
         return [ v for v in entries if v.address_string == address_string ]
 
     def get_txouts(self, tx_id: str, address: Optional[str]=None) -> List[DBTxOutput]:
-        entries = self.db.txout.get_entries(tx_id)
+        entries = self._datastore.txout.get_entries(tx_id)
         if address is None:
             return entries
         address_string = address.to_string()
         return [ v for v in entries if v.address_string == address_string ]
 
     def get_transaction(self, tx_id: str, flags: Optional[int]=None) -> Optional[Transaction]:
-        return self.db.tx.get_transaction(tx_id, flags)
+        return self._datastore.tx.get_transaction(tx_id, flags)
 
     def has_received_transaction(self, tx_id: str) -> bool:
         # At this time, this means received over the P2P network.
-        flags = self.db.tx.get_flags(tx_id)
+        flags = self._datastore.tx.get_flags(tx_id)
         return flags is not None and (flags & (TxFlags.StateSettled | TxFlags.StateCleared)) != 0
 
     def display_name(self) -> str:
@@ -553,10 +553,10 @@ class Abstract_Wallet:
         return self.get_pubkeys(*sequence)
 
     def add_verified_tx(self, tx_hash, height, timestamp, position, proof_position, proof_branch):
-        entry = self.db.tx.get_entry(tx_hash, TxFlags.StateSettled)
+        entry = self._datastore.tx.get_entry(tx_hash, TxFlags.StateSettled)
         # Ensure we are not verifying transactions multiple times.
         if entry is None:
-            entry = self.db.tx.get_entry(tx_hash)
+            entry = self._datastore.tx.get_entry(tx_hash)
             self.logger.debug("Attempting to clear unsettled tx %s %r",
                 tx_hash, entry)
             return
@@ -564,10 +564,10 @@ class Abstract_Wallet:
         # We only update a subset.
         flags = TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition
         data = TxData(height=height, timestamp=timestamp, position=position)
-        self.db.tx.update([ (tx_hash, data, None, flags | TxFlags.StateCleared) ])
+        self._datastore.tx.update([ (tx_hash, data, None, flags | TxFlags.StateCleared) ])
 
         proof = TxProof(proof_position, proof_branch)
-        self.db.tx.update_proof(tx_hash, proof)
+        self._datastore.tx.update_proof(tx_hash, proof)
 
         height, conf, timestamp = self.get_tx_height(tx_hash)
         self.logger.debug("add_verified_tx %d %d %d", height, conf, timestamp)
@@ -580,7 +580,7 @@ class Abstract_Wallet:
     def undo_verifications(self, above_height):
         '''Used by the verifier when a reorg has happened'''
         with self.lock:
-            reorg_count = self.db.tx.delete_reorged_entries(above_height)
+            reorg_count = self._datastore.tx.delete_reorged_entries(above_height)
             self.logger.info(f'removing verification of {reorg_count} transactions')
 
     def get_local_height(self):
@@ -591,7 +591,7 @@ class Abstract_Wallet:
     def get_tx_height(self, tx_hash):
         """ return the height and timestamp of a verified transaction. """
         with self.lock:
-            metadata = self.db.tx.get_metadata(tx_hash)
+            metadata = self._datastore.tx.get_metadata(tx_hash)
             assert metadata.height is not None, f"tx {tx_hash} has no height"
             if metadata.timestamp is not None:
                 conf = max(self.get_local_height() - metadata.height + 1, 0)
@@ -602,7 +602,7 @@ class Abstract_Wallet:
     def get_txpos(self, tx_hash):
         "return position, even if the tx is unverified"
         with self.lock:
-            metadata = self.db.tx.get_metadata(tx_hash)
+            metadata = self._datastore.tx.get_metadata(tx_hash)
             if metadata.timestamp is not None:
                 return metadata.height, metadata.position
             elif metadata.height is not None:
@@ -708,7 +708,7 @@ class Abstract_Wallet:
                     status = _('Unconfirmed')
                     if fee is None:
                         # We know this should be here as the transaction has been received.
-                        fee = self.db.tx.get_metadata(tx_hash).fee
+                        fee = self._datastore.tx.get_metadata(tx_hash).fee
             else:
                 status = _("Signed")
                 can_broadcast = self.network is not None
@@ -885,7 +885,7 @@ class Abstract_Wallet:
         with self.transaction_lock:
             self._update_transaction_xputs(tx_hash, tx)
             self.logger.debug("adding tx data %s", tx_hash)
-            self.db.tx.add_transaction(tx, TxFlags.StateSettled)
+            self._datastore.tx.add_transaction(tx, TxFlags.StateSettled)
 
     def apply_transactions_xputs(self, tx_hash: str, tx: Transaction) -> None:
         with self.transaction_lock:
@@ -934,9 +934,9 @@ class Abstract_Wallet:
         # We expect to be passing in existing entries as this gets recalled for a transaction
         # by the history code, and we do not filter them out above.
         if txins:
-            self.db.txin.add_entries(txins)
+            self._datastore.txin.add_entries(txins)
         if txouts:
-            self.db.txout.add_entries(txouts)
+            self._datastore.txout.add_entries(txouts)
 
     # Used by ImportedWalletBase
     def _remove_transaction(self, tx_hash: str) -> None:
@@ -949,18 +949,18 @@ class Abstract_Wallet:
 
             # add tx to pruned_txo, and undo the txi addition
             removal_txins = []
-            for txin_hash, txin in self.db.txin.get_all_entries().items():
+            for txin_hash, txin in self._datastore.txin.get_all_entries().items():
                 if txin.prevout_tx_hash == tx_hash:
                     removal_txins.append((tx_hash, txin))
                     self.pruned_txo[(txin.prevout_tx_hash, txin.prev_idx)] = txin_hash
 
             removal_txins.extend(self.get_txins(tx_hash))
             if len(removal_txins):
-                self.db.txin.delete_entries(removal_txins)
+                self._datastore.txin.delete_entries(removal_txins)
 
             removal_txouts = self.get_txouts(tx_hash)
             if len(removal_txouts):
-                self.db.txout.delete_entries(removal_txouts)
+                self._datastore.txout.delete_entries(removal_txouts)
 
     async def set_address_history(self, addr, hist, tx_fees):
         with self.lock:
@@ -974,7 +974,7 @@ class Abstract_Wallet:
                 if tx_fee is not None:
                     flags |= TxFlags.HasFee
                 updates.append((tx_hash, data, None, flags))
-            self.db.tx.update_or_add(updates)
+            self._datastore.tx.update_or_add(updates)
 
             for tx_id in set(t[0] for t in hist):
                 # if addr is new, we have to recompute txi and txo
@@ -1235,7 +1235,7 @@ class Abstract_Wallet:
     def is_confirmed_address(self, address: Address) -> bool:
         # Knowing this address has been used, is all usage finalised?
         for tx_id in self.get_tx_ids_for_address(address):
-            metadata = self.db.tx.get_cached_entry(tx_id).metadata
+            metadata = self._datastore.tx.get_cached_entry(tx_id).metadata
             if metadata.height is not None and metadata.height >= 0:
                 return True
         return False
@@ -1351,7 +1351,7 @@ class Abstract_Wallet:
         received, _sent = self._get_addr_io(address)
         l = []
         for (tx_id, _n), (_h, amount, _is_cb) in received.items():
-            tx_height = self.db.tx.get_height(tx_id)
+            tx_height = self._datastore.tx.get_height(tx_id)
             if tx_height is not None:
                 confirmations = local_height - tx_height
             else:
@@ -2047,6 +2047,10 @@ class ParentWallet:
         self._storage.put("keystores", [ ks.dump() for ks in self._keystores ])
         self._storage.put("subwallets", [ sw.dump() for sw in self._child_wallets ])
         self._storage.write()
+
+    def get_wallet_datastore(self, wallet_id: int) -> WalletData:
+        store = WalletData(self.get_storage_path(), self.tx_store_aeskey_bytes, wallet_id)
+        return store
 
     def get_next_child_wallet_id(self) -> int:
         return len(self._child_wallets)
