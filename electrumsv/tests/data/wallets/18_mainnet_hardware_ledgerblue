@@ -1,0 +1,36 @@
+{
+    "keystore": {
+        "cfg": {
+            "mode": 0,
+            "pair": ""
+        },
+        "derivation": "m/44'/145'/0'",
+        "hw_type": "ledger",
+        "label": "",
+        "type": "hardware",
+        "xpub": "xpub6CxAhMLHyWmvqSatnAmgXSWfVw76NcnbrGBLA4Dx95xnZDNVWAr4N5jhRyVNGW3ijgNyC1FjSzzvVx3hqdz8CsCACcxtMoQXHNaNx957XVk"
+    },
+    "labels": {
+        "05a57cf56fa598a473efd5ca1718938a885a0977f437369445cdfda1af167c24": "Funding for issue 127/179",
+        "10d802019ea3f266a3071abf77427582d282220404c56a53ec80e13ed7bc2962": "ElectrumSV coin splitting: Your split coins",
+        "4cc33188eb9428f72e2d42fb2d9942263e2d353b1224238f31b34572708f1b41": "Return funding for r123",
+        "6e4a9f97583394a56d30c340126a03ecb6ce73b52bfec9186dfbdbc77685f7c3": "Return funding for issue 127/179",
+        "a466730a5ad50a8032ab3646ce2982cf8d95914ae15d5297981bd610e3cedb6b": "return test funding",
+        "aa80ca6e93468cdab65bc1938ebd677e2616728389b8aae29a92fba9150b9e36": "Funded for release test.",
+        "c7487cc7a09cfc37d2e0a8b834e09b1cae9e2aaade879dc6031b9664fb160066": "ElectrumSV coin splitting: Dust from BSV faucet",
+        "f52440ce65108e7f21821e129ae16e320352506de1ae43243c50ed4d6db03600": "Return test funding"
+    },
+    "seed_version": 18,
+    "stored_height": 596161,
+    "tx_store_aeskey": "677882a28fe7860dfaed84d2f20327fd86f055d986e271a5485014852d320f98",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "standard",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

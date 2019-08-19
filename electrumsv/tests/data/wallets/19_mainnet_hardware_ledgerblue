@@ -1,0 +1,35 @@
+{
+    "keystores": [
+        {
+            "cfg": {
+                "mode": 0
+            },
+            "derivation": "m/44'/145'/0'",
+            "hw_type": "ledger",
+            "label": "",
+            "type": "hardware",
+            "xpub": "xpub6CxAhMLHyWmvqSatnAmgXSWfVw76NcnbrGBLA4Dx95xnZDNVWAr4N5jhRyVNGW3ijgNyC1FjSzzvVx3hqdz8CsCACcxtMoQXHNaNx957XVk"
+        }
+    ],
+    "seed_version": 19,
+    "subwallets": [
+        {
+            "id": 0,
+            "keystore_usage": [
+                {
+                    "index": 0
+                }
+            ],
+            "wallet_type": "standard"
+        }
+    ],
+    "tx_store_aeskey": "cdb7be1e4726d1df32a1b332e827b11caf6bd990ed7a0845ad4b8afa6b23acb1",
+    "type": "electrum/legacy",
+    "wallet_author": "ESV",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

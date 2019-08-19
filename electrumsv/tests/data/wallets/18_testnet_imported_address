@@ -1,0 +1,14 @@
+{
+    "seed_version": 18,
+    "stored_height": 1317554,
+    "tx_store_aeskey": "790fa6346bad1fdab5977fbd1fb6d8b5551f5968b81d03fe4d945d4e68c67d4a",
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "imported_addr",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

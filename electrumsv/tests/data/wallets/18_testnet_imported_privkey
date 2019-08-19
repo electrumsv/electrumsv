@@ -1,0 +1,21 @@
+{
+    "keystore": {
+        "keypairs": {
+            "02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997": "KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6"
+        },
+        "type": "imported"
+    },
+    "seed_version": 18,
+    "stored_height": 1317554,
+    "tx_store_aeskey": "23a06967f53db9dfc0bbf60081b8e5169731c2fdf1b968a2b19f6ba564fa9928",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "imported_privkey",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

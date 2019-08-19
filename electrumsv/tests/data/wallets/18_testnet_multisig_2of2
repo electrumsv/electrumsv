@@ -1,0 +1,29 @@
+{
+    "labels": {
+        "a8fff26188efc7451a2c131565a14943cdc8a7e8e15d31900c86840d5900f689": "ElectrumSV coin splitting: Dust from BSV faucet"
+    },
+    "seed_version": 18,
+    "stored_height": 1317555,
+    "tx_store_aeskey": "e7821f36b424e0be46644676abc0a71e0469262d7445da93c935ccf13453973a",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "2of2",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ],
+    "x1/": {
+        "seed": "letter input transfer alpha genre novel ignore shaft choice limit badge dismiss",
+        "type": "bip32",
+        "xprv": "tprv8ZgxMBicQKsPcw2zoJTfi6sAEVggVSzwrvbQ7mLgH1b3nDQEjvDat5itvgoHr8Ywe9BBFt9gVKDdBVxgDdQXD2R7dutSHkqm8uT3rwjiTPj",
+        "xpub": "tpubD6NzVbkrYhZ4WQ4ngx8G7WXGoXCcenBrSECBQHNyhHPSchf1NK3B4aLm6nzUhtDNQEGYeoX1DESyUZPmYxSZZ6SVw2p1Xe1Notur4FGFnoM"
+    },
+    "x2/": {
+        "type": "bip32",
+        "xprv": null,
+        "xpub": "tpubD6NzVbkrYhZ4WxaHLNvFqNJoNH54zexKEd9wQEgX2ntUNX5GvGHLsVK1nf4XrX3UWsxngjzynhzgudthkPZuVjPWHgzWogbmUqf8z45id9Q"
+    }
+}

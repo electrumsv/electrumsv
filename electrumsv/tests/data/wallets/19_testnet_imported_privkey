@@ -1,0 +1,40 @@
+{
+    "keystore": {
+        "keypairs": {
+            "02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997": "KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6"
+        },
+        "type": "imported"
+    },
+    "keystores": [
+        {
+            "keypairs": {
+                "02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997": "KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6"
+            },
+            "type": "imported"
+        }
+    ],
+    "seed_version": 19,
+    "subwallets": [
+        {
+            "id": 0,
+            "keystore_usage": [
+                {
+                    "index": 0
+                }
+            ],
+            "stored_height": 1317188,
+            "wallet_type": "imported_privkey"
+        }
+    ],
+    "tx_store_aeskey": "6c5f7255ec636d7aa20be9e1185236fc85431317e9957146e545b4bf75f74b73",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "electrum/legacy",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

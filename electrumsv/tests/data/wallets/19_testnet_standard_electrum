@@ -1,0 +1,42 @@
+{
+    "keystore": {
+        "seed": "target few lock grape horror deer salmon super office blind slender lunar",
+        "type": "bip32",
+        "xprv": "tprv8ZgxMBicQKsPdvzWTkt4iSHz78VUExgVAQ7fYcBUfHz1Yc9dkqA4JfXhN3VWEriXaayJdrE3fXmJPHntsQjfgeiBsRSofHg8f7A8qzNvkUX",
+        "xpub": "tpubD6NzVbkrYhZ4XQ2JMQYf7qx6gA1QQHsPjhiSq8Dn5ZnQP6QQPDyeVA9ZYAg76BiRQwk6TfLzCbc7RBL7mhqTk5NtbbQ2yaxjBwK7JRkwGMq"
+    },
+    "keystores": [
+        {
+            "seed": "target few lock grape horror deer salmon super office blind slender lunar",
+            "type": "bip32",
+            "xprv": "tprv8ZgxMBicQKsPdvzWTkt4iSHz78VUExgVAQ7fYcBUfHz1Yc9dkqA4JfXhN3VWEriXaayJdrE3fXmJPHntsQjfgeiBsRSofHg8f7A8qzNvkUX",
+            "xpub": "tpubD6NzVbkrYhZ4XQ2JMQYf7qx6gA1QQHsPjhiSq8Dn5ZnQP6QQPDyeVA9ZYAg76BiRQwk6TfLzCbc7RBL7mhqTk5NtbbQ2yaxjBwK7JRkwGMq"
+        }
+    ],
+    "seed_type": "standard",
+    "seed_version": 19,
+    "subwallets": [
+        {
+            "id": 0,
+            "keystore_usage": [
+                {
+                    "index": 0
+                }
+            ],
+            "labels": {},
+            "stored_height": 1317188,
+            "wallet_type": "standard"
+        }
+    ],
+    "tx_store_aeskey": "1a4f5de4cc56bc3260c1e37d6c59b8d592809eef5ad62413882b2da13c7a836a",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "electrum/legacy",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

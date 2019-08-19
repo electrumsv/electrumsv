@@ -1,0 +1,32 @@
+{
+    "keystores": [
+        {
+            "derivation": "m/44'/0'/0'",
+            "hw_type": "keepkey",
+            "label": "testkeepkey_3",
+            "type": "hardware",
+            "xpub": "xpub6CuhvA6VGL9YP9A8VWUiuRv4f5qtLQ3uWUSLxnZ8i4qbLQ7F12jVisqkNtNZLKT6qm2QUgSG9Zjy7B4SW1Nnp6Ga98GbEcX7QsDGrK6WADS"
+        }
+    ],
+    "seed_version": 19,
+    "subwallets": [
+        {
+            "id": 0,
+            "keystore_usage": [
+                {
+                    "index": 0
+                }
+            ],
+            "wallet_type": "standard"
+        }
+    ],
+    "tx_store_aeskey": "12a16cc24e32c2594daa8cdb7346d2703cc63e6cdf994bd90aa20b7d3ccda6f6",
+    "type": "electrum/legacy",
+    "wallet_author": "ESV",
+    "winpos-qt": [
+        942,
+        101,
+        840,
+        402
+    ]
+}

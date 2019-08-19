@@ -1,0 +1,31 @@
+{
+    "keystore": {
+        "derivation": "m/44'/0'/0'",
+        "hw_type": "keepkey",
+        "label": "",
+        "type": "hardware",
+        "xpub": "xpub6CuhvA6VGL9YP9A8VWUiuRv4f5qtLQ3uWUSLxnZ8i4qbLQ7F12jVisqkNtNZLKT6qm2QUgSG9Zjy7B4SW1Nnp6Ga98GbEcX7QsDGrK6WADS"
+    },
+    "labels": {
+        "44e14e2eef1482bc803d1a32d9348b4914922990dbb730fe70b8a40753aeea03": "Return funding to 'mainnet_cash'",
+        "6983eb9006dd10e5d1946daf1cb7980b0c18b009b9944d36d276a45d0fd7a4e9": "Funding for test",
+        "94a8b4fe299bd5fdcb3f086552906d49f7fc827f515e1057d6d3a321d63123b1": "Funding for test for issue 179/127",
+        "95703e3dd662fded40c8db1338db772817fac1f81d21f13104fc84b263c31ede": "Return funding",
+        "b3bac1b30c6b575846de11c10eedfaf56b288db1dd84624f0578194899e4557f": "Return funding",
+        "b95e3d34f4881ff722b9a5113235ff7f9e361e7f5fbb8178ced97b2ff2103977": "Return funding for issue 179/127",
+        "eeb535883c1bb2ed39295788eb9aca03623c97fa45ca4473175ff1bdca95201c": "return funding"
+    },
+    "seed_version": 18,
+    "stored_height": 596161,
+    "tx_store_aeskey": "ab342a3eae12ac704c3a21a447c9c84feb4433e0b3284dcae632126fa9cea103",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "standard",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

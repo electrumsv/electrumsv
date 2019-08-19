@@ -1,8 +1,10 @@
+from collections import namedtuple
+from enum import IntEnum
 import json
 import os
 import shutil
 import tempfile
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 import unittest
 
 import pytest
@@ -375,8 +377,42 @@ class TestLegacyWalletCreation:
 
 legacy_wallet_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "wallets")
 
-@pytest.mark.parametrize("wallet_filename", os.listdir(legacy_wallet_path))
-def test_legacy_wallet_loading(wallet_filename: str):
+class StorageKind(IntEnum):
+    FILE = 1
+    HYBRID = 2
+    DATABASE = 3
+
+WalletStorageInfo = namedtuple('WalletStorageInfo', ['kind', 'filename'])
+
+def _gather_categorised_wallet_paths() -> List[WalletStorageInfo]:
+    # This should group associated files for each test wallet present:
+    # - thiswalletfile / thiswalletfile.sqlite
+    # - thiswalletfile.sqlite
+    # - thiswalletfile
+    # Or the version 18/19 hybrid wallets, version >=20 wallets, and the version <17 wallets
+    filenames = set(os.listdir(legacy_wallet_path))
+    database_filenames = set([ s for s in filenames if s.endswith(".sqlite") ])
+    matches = []
+    for database_filename in database_filenames:
+        filename, _ext = os.path.splitext(database_filename)
+        if filename in filenames:
+            filenames.remove(filename)
+            matches.append(WalletStorageInfo(StorageKind.HYBRID, filename))
+        else:
+            matches.append(WalletStorageInfo(StorageKind.DATABASE, filename))
+    filenames -= database_filenames
+    for filename in filenames:
+        matches.append(WalletStorageInfo(StorageKind.FILE, filename,))
+    return matches
+
+
+@pytest.mark.parametrize("storage_info", _gather_categorised_wallet_paths())
+def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
+    # When a wallet is composed of multiple files, we need to know which to load.
+    wallet_filename = storage_info.filename
+    if storage_info.kind == StorageKind.DATABASE:
+        wallet_filename = storage_info.filename +".sqlite"
+
     source_wallet_path = os.path.join(legacy_wallet_path, wallet_filename)
     temp_dir = tempfile.mkdtemp()
     wallet_path = os.path.join(temp_dir, wallet_filename)

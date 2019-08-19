@@ -1,0 +1,21 @@
+{
+    "keystores": [],
+    "seed_version": 19,
+    "subwallets": [
+        {
+            "id": 0,
+            "stored_height": 1317189,
+            "wallet_type": "imported_addr"
+        }
+    ],
+    "tx_store_aeskey": "14f4f742131b1265dfdebc1e1cd19234d63ef60aba71895dbc7ff7902bac94f3",
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "electrum/legacy",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

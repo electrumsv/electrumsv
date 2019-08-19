@@ -1,0 +1,32 @@
+{
+    "keystores": [
+        {
+            "derivation": "m/44'/145'/0'",
+            "hw_type": "trezor",
+            "label": "trezortestt",
+            "type": "hardware",
+            "xpub": "xpub6Ciat21niZx858rtACF2uyEDXMtFXQQshVStYXbSvJFg3WG6BAdPdwrsDeXbW1xyjuybEH3wrGPTcv6JaxeGqMWRFkvo7FZuHjjEdii4vdp"
+        }
+    ],
+    "seed_version": 19,
+    "subwallets": [
+        {
+            "id": 0,
+            "keystore_usage": [
+                {
+                    "index": 0
+                }
+            ],
+            "wallet_type": "standard"
+        }
+    ],
+    "tx_store_aeskey": "f6bf5a9bdd04c2c85574862bf9cf2453f070efdf6df9c67d5dd060dd8ca8ebbe",
+    "type": "electrum/legacy",
+    "wallet_author": "ESV",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

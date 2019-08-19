@@ -1,0 +1,23 @@
+{
+    "keystore": {
+        "seed": "target few lock grape horror deer salmon super office blind slender lunar",
+        "type": "bip32",
+        "xprv": "tprv8ZgxMBicQKsPdvzWTkt4iSHz78VUExgVAQ7fYcBUfHz1Yc9dkqA4JfXhN3VWEriXaayJdrE3fXmJPHntsQjfgeiBsRSofHg8f7A8qzNvkUX",
+        "xpub": "tpubD6NzVbkrYhZ4XQ2JMQYf7qx6gA1QQHsPjhiSq8Dn5ZnQP6QQPDyeVA9ZYAg76BiRQwk6TfLzCbc7RBL7mhqTk5NtbbQ2yaxjBwK7JRkwGMq"
+    },
+    "labels": {},
+    "seed_type": "standard",
+    "seed_version": 18,
+    "stored_height": 1317555,
+    "tx_store_aeskey": "1e731da4bd814f0b47d3b5fc2a7dbe50d3d73edc3244f1bee3c998cbc4d58ce6",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "standard",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

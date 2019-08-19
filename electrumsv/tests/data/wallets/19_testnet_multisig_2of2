@@ -1,0 +1,58 @@
+{
+    "keystores": [
+        {
+            "seed": "letter input transfer alpha genre novel ignore shaft choice limit badge dismiss",
+            "type": "bip32",
+            "xprv": "tprv8ZgxMBicQKsPcw2zoJTfi6sAEVggVSzwrvbQ7mLgH1b3nDQEjvDat5itvgoHr8Ywe9BBFt9gVKDdBVxgDdQXD2R7dutSHkqm8uT3rwjiTPj",
+            "xpub": "tpubD6NzVbkrYhZ4WQ4ngx8G7WXGoXCcenBrSECBQHNyhHPSchf1NK3B4aLm6nzUhtDNQEGYeoX1DESyUZPmYxSZZ6SVw2p1Xe1Notur4FGFnoM"
+        },
+        {
+            "type": "bip32",
+            "xprv": null,
+            "xpub": "tpubD6NzVbkrYhZ4WxaHLNvFqNJoNH54zexKEd9wQEgX2ntUNX5GvGHLsVK1nf4XrX3UWsxngjzynhzgudthkPZuVjPWHgzWogbmUqf8z45id9Q"
+        }
+    ],
+    "seed_version": 19,
+    "subwallets": [
+        {
+            "id": 0,
+            "keystore_usage": [
+                {
+                    "index": 0,
+                    "name": "x1/"
+                },
+                {
+                    "index": 1,
+                    "name": "x2/"
+                }
+            ],
+            "labels": {
+                "a8fff26188efc7451a2c131565a14943cdc8a7e8e15d31900c86840d5900f689": "ElectrumSV coin splitting: Dust from BSV faucet"
+            },
+            "stored_height": 1317189,
+            "wallet_type": "2of2"
+        }
+    ],
+    "tx_store_aeskey": "2ad89aae7e1a3a92b6346d66d89ee6f91aa4d7f656a4171b0e4452e205997549",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "electrum/legacy",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ],
+    "x1/": {
+        "seed": "letter input transfer alpha genre novel ignore shaft choice limit badge dismiss",
+        "type": "bip32",
+        "xprv": "tprv8ZgxMBicQKsPcw2zoJTfi6sAEVggVSzwrvbQ7mLgH1b3nDQEjvDat5itvgoHr8Ywe9BBFt9gVKDdBVxgDdQXD2R7dutSHkqm8uT3rwjiTPj",
+        "xpub": "tpubD6NzVbkrYhZ4WQ4ngx8G7WXGoXCcenBrSECBQHNyhHPSchf1NK3B4aLm6nzUhtDNQEGYeoX1DESyUZPmYxSZZ6SVw2p1Xe1Notur4FGFnoM"
+    },
+    "x2/": {
+        "type": "bip32",
+        "xprv": null,
+        "xpub": "tpubD6NzVbkrYhZ4WxaHLNvFqNJoNH54zexKEd9wQEgX2ntUNX5GvGHLsVK1nf4XrX3UWsxngjzynhzgudthkPZuVjPWHgzWogbmUqf8z45id9Q"
+    }
+}

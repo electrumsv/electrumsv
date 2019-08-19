@@ -1,0 +1,73 @@
+{
+    "contacts2": [
+        4,
+        [
+            [
+                1,
+                "Bob",
+                [
+                    [
+                        "02e508fddd57b810187b10d211ea731d7c455e4e1f1dcbc62973d2bc5e131a2d9b",
+                        1,
+                        "02e508fddd57b810187b10d211ea731d7c455e4e1f1dcbc62973d2bc5e131a2d9b",
+                        null
+                    ]
+                ]
+            ],
+            [
+                2,
+                "Albert",
+                [
+                    [
+                        "032be6cf9476f9ce2ab2331ed444b2513efef93653e83a56db65f1e9fbf6afd3df",
+                        1,
+                        "032be6cf9476f9ce2ab2331ed444b2513efef93653e83a56db65f1e9fbf6afd3df",
+                        null
+                    ]
+                ]
+            ],
+            [
+                3,
+                "Clarke",
+                [
+                    [
+                        "035f23e7f54c3856ffdf5a0955c4e5389450987dc75dbab40f152abbf579104996",
+                        1,
+                        "035f23e7f54c3856ffdf5a0955c4e5389450987dc75dbab40f152abbf579104996",
+                        null
+                    ]
+                ]
+            ]
+        ]
+    ],
+    "keystore": {
+        "derivation": "m/44'/0'/0'",
+        "hw_type": "digitalbitbox",
+        "label": " ",
+        "type": "hardware",
+        "xpub": "xpub6CEke2P55YdmGL35MdFi8krgZ8G92qppTVGdTffacBpPhnM7QEFNjcSBGovTSjagudprG1exoxFrtynF6pvffnSYR3Bwde7ud1ACJjRXDJq"
+    },
+    "labels": {
+        "04d436482a7faff7a7252bb4771e3e129babba1055a606b6ba7dc765bee46b25": "Return funding for issue",
+        "268feb1bb9e81ca827637b96ee8bec1e7ea214bb2c789de76ddcd26fe8ca22b7": "return funding",
+        "28d2588047a3d2d358bff0aaf75844ccc623f3f5e1fa83b1df3e9cdf5da2449a": "Return r122 funding",
+        "3c8c83f033f178cdb9d7ff63a32f8cbc29b9504b2c9f9f556aba6d2e598d4794": "Return funding for r123",
+        "4efd76850f5d05926f6e653c4cfeef9c4baff721fe93a874fd66150e83b6f349": "Funding for r123 testing",
+        "a307b5b1e0d01755818ab5e954bbbcd05ec2f637e1a812b8a138fad8bfc792f5": "Funding for issue 179",
+        "ab24604acef9dfa3717193019a93146c5ca13cd797a50a52d5e29283a1add8b8": "Funding for r122 testing",
+        "f42d42ac67a16779999af19c0cca8b2181008b7d854a15e700573a08e95b0e56": "return test funding"
+    },
+    "seed_version": 18,
+    "stored_height": 596161,
+    "tx_store_aeskey": "516c7fa626fb89041b57584b2fdb6e3dc57e5a2c8374b126dc3ad16335e828b9",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 10,
+    "wallet_type": "standard",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

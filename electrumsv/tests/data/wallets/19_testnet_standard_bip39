@@ -1,0 +1,40 @@
+{
+    "keystore": {
+        "type": "bip32",
+        "xprv": "tprv8h9FU7r2xjRTiiKtpibcTijE9L5MYU4kcE8DyuQLDvW9XpamqVCmiaeE7nRAmuC6Ee2gCbVsg8ZjUn4FFVkWgMhb6wLS6t3Qd9Ue9aiyzeY",
+        "xpub": "tpubDDqHcXtH7778cBMgiNGCs8PLiMbHhoFfBXj1GRSdeCJYNJqYTt2Mu5G6HvzEw7ouzg5AjiCUt4E7D2K15qo8ejXk5TBmBqw9t9LNfRjkA6x"
+    },
+    "keystores": [
+        {
+            "type": "bip32",
+            "xprv": "tprv8h9FU7r2xjRTiiKtpibcTijE9L5MYU4kcE8DyuQLDvW9XpamqVCmiaeE7nRAmuC6Ee2gCbVsg8ZjUn4FFVkWgMhb6wLS6t3Qd9Ue9aiyzeY",
+            "xpub": "tpubDDqHcXtH7778cBMgiNGCs8PLiMbHhoFfBXj1GRSdeCJYNJqYTt2Mu5G6HvzEw7ouzg5AjiCUt4E7D2K15qo8ejXk5TBmBqw9t9LNfRjkA6x"
+        }
+    ],
+    "seed_type": "bip39",
+    "seed_version": 19,
+    "subwallets": [
+        {
+            "id": 0,
+            "keystore_usage": [
+                {
+                    "index": 0
+                }
+            ],
+            "labels": {},
+            "stored_height": 1317190,
+            "wallet_type": "standard"
+        }
+    ],
+    "tx_store_aeskey": "bea868f30214842310c51430780b127d177d50e5c8f36a03a2b36f08e3722ed4",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "electrum/legacy",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

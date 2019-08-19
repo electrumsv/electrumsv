@@ -1,0 +1,22 @@
+{
+    "keystore": {
+        "type": "bip32",
+        "xprv": "tprv8h9FU7r2xjRTiiKtpibcTijE9L5MYU4kcE8DyuQLDvW9XpamqVCmiaeE7nRAmuC6Ee2gCbVsg8ZjUn4FFVkWgMhb6wLS6t3Qd9Ue9aiyzeY",
+        "xpub": "tpubDDqHcXtH7778cBMgiNGCs8PLiMbHhoFfBXj1GRSdeCJYNJqYTt2Mu5G6HvzEw7ouzg5AjiCUt4E7D2K15qo8ejXk5TBmBqw9t9LNfRjkA6x"
+    },
+    "labels": {},
+    "seed_type": "bip39",
+    "seed_version": 18,
+    "stored_height": 1317555,
+    "tx_store_aeskey": "663784b7dffb0bf8540d3ba5703a807c47499288bab972c039f9d65ccbf786a6",
+    "use_encryption": false,
+    "wallet_author": "ESV",
+    "wallet_nonce": 1,
+    "wallet_type": "standard",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}
