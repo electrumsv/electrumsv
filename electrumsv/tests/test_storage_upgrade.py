@@ -304,7 +304,7 @@ class TestStorageUpgrade(WalletTestCase):
         self.assertFalse(storage.requires_split())
         self.assertFalse(storage.requires_upgrade())
         if expect_backup and os.path.exists(storage.path):
-            backup_path = storage._wallet_backup_pattern % (storage.path, 1)
+            backup_path = f"{storage.path}.backup.{1:d}"
             self.assertTrue(os.path.exists(backup_path),
                 f"backup file '{backup_path}' does not exist")
 

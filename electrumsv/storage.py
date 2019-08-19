@@ -25,7 +25,9 @@
 
 import ast
 import base64
+from collections import namedtuple
 import copy
+from enum import IntEnum
 import hashlib
 import json
 import os
@@ -33,7 +35,7 @@ import re
 import shutil
 import stat
 import threading
-from typing import Optional
+from typing import List, Optional
 import zlib
 
 from bitcoinx import PrivateKey, PublicKey
@@ -75,6 +77,99 @@ def multisig_type(wallet_type):
     if match:
         match = [int(x) for x in match.group(1, 2)]
     return match
+
+
+DATABASE_EXT = ".sqlite"
+
+class StorageKind(IntEnum):
+    UNKNOWN = 0
+    FILE = 1
+    HYBRID = 2
+    DATABASE = 3
+
+
+WalletStorageInfo = namedtuple('WalletStorageInfo', ['kind', 'filename'])
+
+
+def get_categorised_files(wallet_path: str) -> List[WalletStorageInfo]:
+    """
+    This categorises files based on the three different ways in which we have stored wallets.
+
+    FILE - Just the JSON file (version <= 17).
+      thiswalletfile
+    HYBRID - Partial transition from JSON file to database (version = 18 or 19).
+      thiswalletfile / thiswalletfile.sqlite
+    DATABASE - Just the database (version >= 20).
+      thiswalletfile.sqlite
+    """
+    filenames = set(s.lower() for s in os.listdir(wallet_path))
+    database_filenames = set([ s for s in filenames if s.endswith(DATABASE_EXT) ])
+    matches = []
+    for database_filename in database_filenames:
+        filename, _ext = os.path.splitext(database_filename)
+        if filename in filenames:
+            filenames.remove(filename)
+            matches.append(WalletStorageInfo(StorageKind.HYBRID, filename))
+        else:
+            matches.append(WalletStorageInfo(StorageKind.DATABASE, filename))
+    filenames -= database_filenames
+    for filename in filenames:
+        matches.append(WalletStorageInfo(StorageKind.FILE, filename))
+    return matches
+
+
+def categorise_file(wallet_filepath: str) -> WalletStorageInfo:
+    database_filepath = wallet_filepath = wallet_filepath.lower()
+    if database_filepath.endswith(DATABASE_EXT):
+        wallet_filepath = database_filepath[:-len(DATABASE_EXT)]
+    else:
+        database_filepath = wallet_filepath + DATABASE_EXT
+
+    kind = StorageKind.UNKNOWN
+    if os.path.exists(wallet_filepath):
+        kind = StorageKind.FILE
+    if os.path.exists(database_filepath):
+        if kind == StorageKind.FILE:
+            kind = StorageKind.HYBRID
+        else:
+            kind = StorageKind.DATABASE
+
+    _path, filename = os.path.split(wallet_filepath)
+    return WalletStorageInfo(kind, filename)
+
+
+def backup_wallet_files(wallet_filepath: str) -> bool:
+    info = categorise_file(wallet_filepath)
+    if info.kind == StorageKind.UNKNOWN:
+        return False
+
+    base_wallet_filepath = os.path.join(os.path.dirname(wallet_filepath), info.filename)
+    attempt = 0
+    while True:
+        attempt += 1
+        attempted_wallet_filepath = f"{base_wallet_filepath}.backup.{attempt}"
+
+        # Check if a file of the same name as the attempted database backup exists.
+        if info.kind == StorageKind.HYBRID or info.kind == StorageKind.DATABASE:
+            if os.path.exists(attempted_wallet_filepath + DATABASE_EXT):
+                continue
+        # Check if a file of the same name as the attempted file backup exists.
+        if info.kind == StorageKind.FILE or info.kind == StorageKind.HYBRID:
+            if os.path.exists(attempted_wallet_filepath):
+                continue
+
+        # No objection, the attempted backup path is acceptable.
+        break
+
+    print(f"attempt {attempt} {base_wallet_filepath}")
+    print(f"info {info}")
+    if info.kind == StorageKind.HYBRID or info.kind == StorageKind.DATABASE:
+        shutil.copyfile(
+            base_wallet_filepath + DATABASE_EXT, attempted_wallet_filepath + DATABASE_EXT)
+    if info.kind == StorageKind.FILE or info.kind == StorageKind.HYBRID:
+        shutil.copyfile(base_wallet_filepath,  attempted_wallet_filepath)
+
+    return True
 
 
 class WalletStorage:
@@ -299,7 +394,7 @@ class WalletStorage:
     def upgrade(self) -> None:
         logger.debug('upgrading wallet format')
 
-        self._backup_wallet()
+        backup_wallet_files(self.path)
         self.convert_imported()
         self.convert_wallet_type()
         self.convert_account()
@@ -313,22 +408,6 @@ class WalletStorage:
 
         self.put('seed_version', FINAL_SEED_VERSION)  # just to be sure
         self.write()
-
-    _wallet_backup_pattern = "%s.backup.%d"
-
-    def _get_wallet_backup_path(self) -> str:
-        attempt = 1
-        while True:
-            new_wallet_path = self._wallet_backup_pattern % (self.path, attempt)
-            if not os.path.exists(new_wallet_path):
-                return new_wallet_path
-            attempt += 1
-
-    def _backup_wallet(self) -> None:
-        if not self.file_exists():
-            return
-        new_wallet_path = self._get_wallet_backup_path()
-        shutil.copyfile(self.path, new_wallet_path)
 
     def convert_wallet_type(self) -> None:
         if not self._is_upgrade_method_needed(0, 13):

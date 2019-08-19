@@ -1,10 +1,8 @@
-from collections import namedtuple
-from enum import IntEnum
 import json
 import os
 import shutil
 import tempfile
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 import unittest
 
 import pytest
@@ -12,12 +10,13 @@ from bitcoinx import PrivateKey, PublicKey, Address, Script
 
 from electrumsv.keystore import from_seed, from_xpub, Old_KeyStore
 from electrumsv.networks import Net, SVMainnet, SVTestnet
-from electrumsv.storage import WalletStorage, FINAL_SEED_VERSION, multisig_type
+from electrumsv.storage import (FINAL_SEED_VERSION, get_categorised_files, multisig_type,
+    StorageKind, WalletStorage, WalletStorageInfo)
 from electrumsv.transaction import XPublicKey
 from electrumsv.wallet import (sweep_preparations, ImportedPrivkeyWallet, ImportedAddressWallet,
     Multisig_Wallet, ParentWallet, Standard_Wallet, UTXO)
 
-from .util import setup_async, tear_down_async
+from .util import setup_async, tear_down_async, TEST_WALLET_PATH
 
 
 class _TestableParentWallet(ParentWallet):
@@ -375,45 +374,14 @@ class TestLegacyWalletCreation:
         check_legacy_parent_of_multisig_wallet(parent_wallet)
 
 
-legacy_wallet_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "wallets")
-
-class StorageKind(IntEnum):
-    FILE = 1
-    HYBRID = 2
-    DATABASE = 3
-
-WalletStorageInfo = namedtuple('WalletStorageInfo', ['kind', 'filename'])
-
-def _gather_categorised_wallet_paths() -> List[WalletStorageInfo]:
-    # This should group associated files for each test wallet present:
-    # - thiswalletfile / thiswalletfile.sqlite
-    # - thiswalletfile.sqlite
-    # - thiswalletfile
-    # Or the version 18/19 hybrid wallets, version >=20 wallets, and the version <17 wallets
-    filenames = set(os.listdir(legacy_wallet_path))
-    database_filenames = set([ s for s in filenames if s.endswith(".sqlite") ])
-    matches = []
-    for database_filename in database_filenames:
-        filename, _ext = os.path.splitext(database_filename)
-        if filename in filenames:
-            filenames.remove(filename)
-            matches.append(WalletStorageInfo(StorageKind.HYBRID, filename))
-        else:
-            matches.append(WalletStorageInfo(StorageKind.DATABASE, filename))
-    filenames -= database_filenames
-    for filename in filenames:
-        matches.append(WalletStorageInfo(StorageKind.FILE, filename,))
-    return matches
-
-
-@pytest.mark.parametrize("storage_info", _gather_categorised_wallet_paths())
+@pytest.mark.parametrize("storage_info", get_categorised_files(TEST_WALLET_PATH))
 def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
     # When a wallet is composed of multiple files, we need to know which to load.
     wallet_filename = storage_info.filename
     if storage_info.kind == StorageKind.DATABASE:
         wallet_filename = storage_info.filename +".sqlite"
 
-    source_wallet_path = os.path.join(legacy_wallet_path, wallet_filename)
+    source_wallet_path = os.path.join(TEST_WALLET_PATH, wallet_filename)
     temp_dir = tempfile.mkdtemp()
     wallet_path = os.path.join(temp_dir, wallet_filename)
     shutil.copyfile(source_wallet_path, wallet_path)
@@ -451,6 +419,19 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
         check_legacy_parent_of_hardware_wallet(parent_wallet)
     else:
         raise Exception(f"unrecognised wallet file {wallet_filename}")
+
+
+def test_legacy_wallet_backup_hybrid() -> None:
+    # We only need to test for one hybrid wallet, and test permutations of backup cases against it.
+    wallet_filename = "19_testnet_standard_electrum"
+    source_wallet_path = os.path.join(TEST_WALLET_PATH, wallet_filename)
+    temp_dir = tempfile.mkdtemp()
+    wallet_path = os.path.join(temp_dir, wallet_filename)
+    shutil.copyfile(source_wallet_path, wallet_path)
+    shutil.copyfile(source_wallet_path +".sqlite", wallet_path)
+
+    # We do not care about loading the data, this is purely a test of the renaming.
+    storage = WalletStorage(source_wallet_path, manual_upgrades=True)
 
 
 class TestImportedPrivkeyWallet:
