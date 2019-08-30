@@ -23,6 +23,10 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+# TODO(rt12): Look at how the public key is stored for encryption, currently it is passed into
+#     the stores as hex. Is this the best way?
+
+
 import ast
 import base64
 from collections import namedtuple
@@ -35,7 +39,7 @@ import re
 import shutil
 import stat
 import threading
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar
 import zlib
 
 from bitcoinx import PrivateKey, PublicKey
@@ -44,19 +48,11 @@ from .bitcoin import is_address_valid
 from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
-from .util import profiler
-from .wallet_database import DBTxInput, DBTxOutput, TxData, TxFlags, WalletData, MigrationContext
+from .wallet_database import (DBTxInput, DBTxOutput, JSONKeyValueStore, MigrationContext,
+    TxData, TxFlags, WalletData)
 
 
 logger = logs.get_logger("storage")
-
-
-# seed_version is now used for the version of the wallet file
-
-OLD_SEED_VERSION = 4        # electrum versions < 2.0
-NEW_SEED_VERSION = 11       # electrum versions >= 2.0
-FINAL_SEED_VERSION = 19     # electrum >= 2.7 will set this to prevent
-                            # old versions from overwriting new format
 
 
 class ParentWalletKinds:
@@ -78,6 +74,7 @@ def multisig_type(wallet_type):
         match = [int(x) for x in match.group(1, 2)]
     return match
 
+FINAL_SEED_VERSION = 20
 
 DATABASE_EXT = ".sqlite"
 
@@ -88,7 +85,7 @@ class StorageKind(IntEnum):
     DATABASE = 3
 
 
-WalletStorageInfo = namedtuple('WalletStorageInfo', ['kind', 'filename'])
+WalletStorageInfo = namedtuple('WalletStorageInfo', ['kind', 'filename', 'wallet_filepath'])
 
 
 def get_categorised_files(wallet_path: str) -> List[WalletStorageInfo]:
@@ -102,24 +99,26 @@ def get_categorised_files(wallet_path: str) -> List[WalletStorageInfo]:
     DATABASE - Just the database (version >= 20).
       thiswalletfile.sqlite
     """
-    filenames = set(s.lower() for s in os.listdir(wallet_path))
+    filenames = set(s for s in os.listdir(wallet_path))
     database_filenames = set([ s for s in filenames if s.endswith(DATABASE_EXT) ])
     matches = []
     for database_filename in database_filenames:
         filename, _ext = os.path.splitext(database_filename)
+        wallet_filepath = os.path.join(wallet_path, filename)
         if filename in filenames:
             filenames.remove(filename)
-            matches.append(WalletStorageInfo(StorageKind.HYBRID, filename))
+            matches.append(WalletStorageInfo(StorageKind.HYBRID, filename, wallet_filepath))
         else:
-            matches.append(WalletStorageInfo(StorageKind.DATABASE, filename))
+            matches.append(WalletStorageInfo(StorageKind.DATABASE, filename, wallet_filepath))
     filenames -= database_filenames
     for filename in filenames:
-        matches.append(WalletStorageInfo(StorageKind.FILE, filename))
+        wallet_filepath = os.path.join(wallet_path, filename)
+        matches.append(WalletStorageInfo(StorageKind.FILE, filename, wallet_filepath))
     return matches
 
 
 def categorise_file(wallet_filepath: str) -> WalletStorageInfo:
-    database_filepath = wallet_filepath = wallet_filepath.lower()
+    database_filepath = wallet_filepath
     if database_filepath.endswith(DATABASE_EXT):
         wallet_filepath = database_filepath[:-len(DATABASE_EXT)]
     else:
@@ -135,7 +134,7 @@ def categorise_file(wallet_filepath: str) -> WalletStorageInfo:
             kind = StorageKind.DATABASE
 
     _path, filename = os.path.split(wallet_filepath)
-    return WalletStorageInfo(kind, filename)
+    return WalletStorageInfo(kind, filename, wallet_filepath)
 
 
 def backup_wallet_files(wallet_filepath: str) -> bool:
@@ -161,8 +160,6 @@ def backup_wallet_files(wallet_filepath: str) -> bool:
         # No objection, the attempted backup path is acceptable.
         break
 
-    print(f"attempt {attempt} {base_wallet_filepath}")
-    print(f"info {info}")
     if info.kind == StorageKind.HYBRID or info.kind == StorageKind.DATABASE:
         shutil.copyfile(
             base_wallet_filepath + DATABASE_EXT, attempted_wallet_filepath + DATABASE_EXT)
@@ -171,49 +168,299 @@ def backup_wallet_files(wallet_filepath: str) -> bool:
 
     return True
 
+StoreType = TypeVar('StoreType', bound='BaseStore')
 
-class WalletStorage:
-    def __init__(self, path, manual_upgrades=False):
-        logger.debug("wallet path '%s'", path)
-        dirname = os.path.dirname(path)
-        if not os.path.exists(dirname):
-            raise IOError(f'directory {dirname} does not exist')
-        self.manual_upgrades = manual_upgrades
-        self.lock = threading.RLock()
-        self.data = {}
-        self.path = path
-        self._file_exists = self.path and os.path.exists(self.path) and os.path.isfile(self.path)
-        self.modified = False
-        self.pubkey = None
-        if self.file_exists():
-            try:
-                with open(self.path, "r", encoding='utf-8') as f:
-                    self.raw = f.read()
-            except UnicodeDecodeError as e:
-                raise IOError("Error reading file: "+ str(e))
-            if not self.is_encrypted():
-                self.load_data(self.raw)
+class BaseStore:
+    _raw: Optional[bytes] = None
+
+    def __init__(self, path: str, pubkey: Optional[str]=None,
+            data: Optional[Dict[str, Any]]=None) -> None:
+        self._path = path
+        assert pubkey is None or type(pubkey) is str, "must be hex representation of pubkey"
+        self._pubkey = pubkey
+
+        self._data = {} if data is None else data
+        self._modified = not self.file_exists() or bool(data)
+
+        self._lock = threading.RLock()
+
+    def close(self) -> None:
+        pass
+
+    def file_exists(self):
+        # E(BTC) modified this to catch when the user selects a wallet file in the UI and
+        # then deletes it manually.. but that's a user problem, not an ESV problem.
+        return os.path.exists(self._path)
+
+    def is_primed(self) -> bool:
+        # Represents whether the data has been written at least once.
+        raise NotImplementedError
+
+    def is_encrypted(self) -> bool:
+        raise NotImplementedError
+
+    def load_data(self, s: bytes) -> None:
+        raise NotImplementedError
+
+    def read_raw_data(self) -> bytes:
+        raise NotImplementedError
+
+    def get_raw_data(self) -> Optional[bytes]:
+        return self._raw
+
+    def get_encrypted_data(self) -> Optional[bytes]:
+        return self._raw
+
+    def set_pubkey(self, pubkey: Optional[str]=None) -> None:
+        self._pubkey = pubkey
+
+    def get(self, key: str, default: Optional[Any]=None) -> Any:
+        with self._lock:
+            v = self._data.get(key)
+            if v is None:
+                v = default
+            else:
+                v = copy.deepcopy(v)
+        return v
+
+    def put(self, key: str, value: Any) -> None:
+        # Both key and value should be JSON serialisable.
+        json.dumps([ key, value ])
+
+        with self._lock:
+            if value is not None:
+                if self._data.get(key) != value:
+                    self._modified = True
+                    self._data[key] = copy.deepcopy(value)
+            elif key in self._data:
+                self._modified = True
+                self._data.pop(key)
+
+    def write(self) -> None:
+        if threading.currentThread().isDaemon():
+            logger.error('daemon thread cannot write wallet')
+            return
+
+        with self._lock:
+            if self._modified:
+                self._raw = self._write()
+                self._modified = False
+
+        logger.debug("saved '%s'", self._path)
+
+    def _write(self) -> bytes:
+        raise NotImplementedError
+
+    def requires_split(self) -> bool:
+        raise NotImplementedError
+
+    def split_accounts(self) -> Optional[List[str]]:
+        raise NotImplementedError
+
+    def requires_upgrade(self) -> bool:
+        raise NotImplementedError
+
+    def upgrade(self) -> Optional['BaseStore']:
+        raise NotImplementedError
+
+    def _is_upgrade_method_needed(self, min_version, max_version):
+        cur_version = self._get_seed_version()
+        if cur_version > max_version:
+            return False
+        elif cur_version < min_version:
+            raise Exception(
+                ('storage upgrade: unexpected version %d (should be %d-%d)'
+                 % (cur_version, min_version, max_version)))
         else:
-            # Initialise anything that needs to be in the wallet storage and immediately persisted.
-            # In the case of the aeskey, this is because the wallet saving is not guaranteed and
-            # the writes to the database are not synchronised with it.
-            tx_store_aeskey_hex = os.urandom(32).hex()
-            self.put('tx_store_aeskey', tx_store_aeskey_hex)
+            return True
 
-            # avoid new wallets getting 'upgraded'
-            self.put('wallet_author', 'ESV')
-            self.put('seed_version', FINAL_SEED_VERSION)
+    def _get_seed_version(self) -> int:
+        raise NotImplementedError
 
-    def load_data(self, s):
+    def _raise_unsupported_version(self, seed_version):
+        msg = "Your wallet has an unsupported seed version."
+        msg += '\n\nWallet file: %s' % os.path.abspath(self._path)
+        raise Exception(msg)
+
+
+
+class DatabaseStore(BaseStore):
+    _primed: bool = False
+
+    INITIAL_SEED_VERSION = 20
+
+    def __init__(self, path: str, pubkey: Optional[str]=None,
+            data: Optional[Dict[str, Any]]=None) -> None:
+        # Start from any seed version remaining in the data lump that we inherit from the upgrade
+        # from the `TextStore`. Otherwise we should default to the latest seed version for new
+        # database stores, or whatever is currently persisted for existing database stores.
+        seed_version = 0
+        if data is not None and "seed_version" in data:
+            seed_version = data.pop("seed_version")
+
+        super().__init__(path, pubkey=pubkey, data=data)
+
+        # This table is unencrypted. If anything is to be encrypted in it, it is encrypted
+        # manually before storage.
+        initial_aeskey = None
+        storage_group_id = -1
+        self._db_values = JSONKeyValueStore("Storage", path, initial_aeskey, storage_group_id)
+
+        version_data = self._db_values.get("seed_version")
+        if version_data is None:
+            # A new database store, either for a freshly created wallet, or updated from a
+            # text store.
+            self._set_seed_version(seed_version or FINAL_SEED_VERSION)
+        else:
+            # An existing database store we are loading.
+            self._primed = True
+            self._set_seed_version(version_data)
+
+    def close(self) -> None:
+        # NOTE(rt12): Strictly speaking this just ensures that things are released and deallocated
+        # for now. This ensures that the object gets garbage collected in a deterministic manner
+        # which means that for instance the unit tests can rely on the database being closed
+        # given knowledge of the resources in use, and their lifetime.
+        # See: WalletStorage.close
+        self._db_values.close()
+
+    def file_exists(self):
+        # E(BTC) modified this to catch when the user selects a wallet file in the UI and
+        # then deletes it manually.. but that's a user problem, not an ESV problem.
+        db_path = JSONKeyValueStore.get_db_path(self._path)
+        return os.path.exists(db_path)
+
+    def _get_seed_version(self) -> int:
+        seed_version = self._db_values.get("seed_version")
+        assert seed_version is not None
+        return seed_version
+
+    def _set_seed_version(self, seed_version: Optional[int]) -> None:
+        assert seed_version is not None
+        self._db_values.set("seed_version", seed_version)
+
+    @classmethod
+    def from_text_store(cls: Type[StoreType], store: 'TextStore') -> StoreType:
+        data = copy.deepcopy(store._data)
+        # Only fully updated text stores can upgrade to a database store.
+        assert data.get("seed_version") == DatabaseStore.INITIAL_SEED_VERSION
+        new_store = cls(store._path, store._pubkey, data)
+        # We could defer writing to the caller, as an upgrade call should be followed by
+        # a write, but the database file gets created regardless and should be created with
+        # written initial state (which comes from the data).
+        new_store.write()
+        return new_store
+
+    def read_raw_data(self) -> bytes:
+        self._raw = self._db_values.get_value("jsondata")
+        assert self._raw is not None
+        return self._raw
+
+    def is_primed(self) -> bool:
+        "Whether data has been written to the storage yet."
+        return self._primed
+
+    def is_encrypted(self) -> bool:
+        assert self._raw is not None
         try:
-            self.data = json.loads(s)
+            return self._raw[0:4] == b'BIE1'
+        except:
+            return False
+
+    def load_data(self, s: bytes) -> None:
+        self._data = json.loads(s)
+
+    def _write(self) -> bytes:
+        records: List[Tuple[str, bytes]] = []
+
+        # We pack as JSON before encrypting, so can't just put in the generic key value store,
+        # as that is unencrypted and would just be JSON values in the DB.
+
+        s = json.dumps(self._data, indent=4, sort_keys=True)
+        if self._pubkey:
+            c = zlib.compress(s.encode())
+            raw = PublicKey.from_hex(self._pubkey).encrypt_message(c)
+        else:
+            raw = s.encode()
+        records.append(("jsondata", raw))
+
+        if self._primed:
+            self._db_values.update_many(records)
+        else:
+            self._db_values.add_many(records)
+            self._primed = True
+
+        return raw
+
+    def requires_split(self) -> bool:
+        return False
+
+    def requires_upgrade(self) -> bool:
+        if self.file_exists():
+            seed_version = self._get_seed_version()
+            # Detect if we were given a file that should have been given to TextStore.
+            if seed_version <= TextStore.FINAL_SEED_VERSION:
+                raise IncompatibleWalletError(
+                    "This wallet should have been loaded as TEXT or HYBRID")
+            # Detect if the wallet is a not yet upgraded DATABASE wallet.
+            if seed_version < FINAL_SEED_VERSION:
+                # Check if ESV was forked, or EC(BCH) or E(BTC) adopted our database changes.
+                if self.get('wallet_author') == 'ESV':
+                    return True
+                raise IncompatibleWalletError("This wallet was not created in ElectrumSV")
+        return False
+
+    def upgrade(self: StoreType) -> Optional[StoreType]:
+        # NOTE(rt12): Loading the database migrates the table structure automatically. However
+        # we will likely want to extend this to adjust table column contents, like the JSON
+        # lump structure.
+        return None
+
+
+class TextStore(BaseStore):
+    # seed_version is used for the version of the wallet file
+    OLD_SEED_VERSION = 4        # electrum versions < 2.0
+    NEW_SEED_VERSION = 11       # electrum versions >= 2.0
+    FINAL_SEED_VERSION = 19     # electrum >= 2.7 will set this to prevent
+                                # old versions from overwriting new format
+
+    def read_raw_data(self) -> bytes:
+        try:
+            with open(self._path, "rb") as f:
+                self._raw = f.read()
+            # Ensure it can be decoded.
+            self._raw.decode('utf8')
+        except UnicodeDecodeError as e:
+            raise IOError("Error reading file: "+ str(e))
+        return self._raw
+
+    def is_primed(self) -> bool:
+        "Whether data has been written to the storage yet."
+        return self.file_exists()
+
+    def is_encrypted(self) -> bool:
+        assert self._raw is not None
+        try:
+            return base64.b64decode(self._raw)[0:4] == b'BIE1'
+        except:
+            return False
+
+    def get_encrypted_data(self) -> Optional[bytes]:
+        data = self.get_raw_data()
+        if data is not None:
+            data = base64.b64decode(data)
+        return data
+
+    def load_data(self, s: bytes) -> None:
+        try:
+            self._data = json.loads(s)
         except:
             try:
-                d = ast.literal_eval(s)
+                d = ast.literal_eval(s.decode('utf8'))
                 labels = d.get('labels', {})
             except Exception as e:
-                raise IOError("Cannot read wallet file '%s'" % self.path)
-            self.data = {}
+                raise IOError("Cannot read wallet file '%s'" % self._path)
+            self._data = {}
             for key, value in d.items():
                 try:
                     json.dumps(key)
@@ -221,138 +468,62 @@ class WalletStorage:
                 except:
                     logger.error('Failed to convert label to json format %s', key)
                     continue
-                self.data[key] = value
+                self._data[key] = value
 
-        if not self.manual_upgrades:
-            if self.requires_split():
-                raise Exception("This wallet has multiple accounts and must be split")
-            if self.requires_upgrade():
-                self.upgrade()
+    def _write(self) -> bytes:
+        seed_version = self._get_seed_version()
+        raw = json.dumps(self._data, indent=4, sort_keys=True)
+        if self._pubkey:
+            c = zlib.compress(raw.encode())
+            raw = PublicKey.from_hex(self._pubkey).encrypt_message_to_base64(c)
 
-    def is_encrypted(self):
-        try:
-            return base64.b64decode(self.raw)[0:4] == b'BIE1'
-        except:
-            return False
-
-    def file_exists(self):
-        """
-        We preserve the existence of the file, in order to detect the case where the user selects
-        a wallet, and then goes into the folder and deletes it unbeknownst to ElectrumSV.
-        """
-        return self._file_exists
-
-    @staticmethod
-    def get_eckey_from_password(password):
-        secret = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), b'', iterations=1024)
-        return PrivateKey.from_arbitrary_bytes(secret)
-
-    def decrypt(self, password):
-        ec_key = self.get_eckey_from_password(password)
-        if self.raw:
-            s = zlib.decompress(ec_key.decrypt_message(self.raw))
-        else:
-            s = None
-        self.pubkey = ec_key.public_key.to_hex()
-        s = s.decode('utf8')
-        self.load_data(s)
-
-    def set_password(self, password: Optional[str]) -> None:
-        self.put('use_encryption', bool(password))
-        if password:
-            ec_key = self.get_eckey_from_password(password)
-            self.pubkey = ec_key.public_key.to_hex()
-        else:
-            self.pubkey = None
-
-    def get(self, key, default=None):
-        with self.lock:
-            v = self.data.get(key)
-            if v is None:
-                v = default
-            else:
-                v = copy.deepcopy(v)
-        return v
-
-    def put(self, key, value):
-        try:
-            json.dumps(key)
-            json.dumps(value)
-        except:
-            logger.error("json error: cannot save %s", key)
-            return
-        with self.lock:
-            if value is not None:
-                if self.data.get(key) != value:
-                    self.modified = True
-                    self.data[key] = copy.deepcopy(value)
-            elif key in self.data:
-                self.modified = True
-                self.data.pop(key)
-
-    @profiler
-    def write(self):
-        with self.lock:
-            self._write()
-
-    def _write(self):
-        if threading.currentThread().isDaemon():
-            logger.error('daemon thread cannot write wallet')
-            return
-        if not self.modified:
-            return
-        s = json.dumps(self.data, indent=4, sort_keys=True)
-        if self.pubkey:
-            c = zlib.compress(s.encode())
-            s = PublicKey.from_hex(self.pubkey).encrypt_message_to_base64(c)
-
-        temp_path = "%s.tmp.%s" % (self.path, os.getpid())
+        temp_path = "%s.tmp.%s" % (self._path, os.getpid())
         with open(temp_path, "w", encoding='utf-8') as f:
-            f.write(s)
+            f.write(raw)
             f.flush()
             os.fsync(f.fileno())
 
-        mode = os.stat(self.path).st_mode if self.file_exists() else stat.S_IREAD | stat.S_IWRITE
-        # perform atomic write on POSIX systems
-        try:
-            os.rename(temp_path, self.path)
-        except:
-            os.remove(self.path)
-            os.rename(temp_path, self.path)
-        os.chmod(self.path, mode)
-        self._file_exists = True
-        self.raw = s
-        logger.debug("saved '%s'", self.path)
-        self.modified = False
+        mode = os.stat(self._path).st_mode if self.file_exists() else stat.S_IREAD | stat.S_IWRITE
+        os.replace(temp_path, self._path)
+        os.chmod(self._path, mode)
 
-    def requires_split(self):
+        return raw.encode()
+
+    def requires_split(self) -> bool:
         d = self.get('accounts', {})
         return len(d) > 1
 
-    def split_accounts(self):
-        result = []
+    def split_accounts(self) -> Optional[List[str]]:
+        result: List[str] = []
         # backward compatibility with old wallets
         d = self.get('accounts', {})
         if len(d) < 2:
-            return
+            return None
         wallet_type = self.get('wallet_type')
         if wallet_type == 'old':
             assert len(d) == 2
-            storage1 = WalletStorage(self.path + '.deterministic')
-            storage1.data = copy.deepcopy(self.data)
+            data1 = copy.deepcopy(self._data)
+            storage1 = WalletStorage(self._path + '.deterministic', data=data1,
+                storage_kind=StorageKind.FILE)
             storage1.put('accounts', {'0': d['0']})
             storage1.upgrade()
             storage1.write()
-            storage2 = WalletStorage(self.path + '.imported')
-            storage2.data = copy.deepcopy(self.data)
+            storage1.close()
+
+            data2 = copy.deepcopy(self._data)
+            storage2 = WalletStorage(self._path + '.imported', data=data2,
+                storage_kind=StorageKind.FILE)
             storage2.put('accounts', {'/x': d['/x']})
             storage2.put('seed', None)
             storage2.put('seed_version', None)
             storage2.put('master_public_key', None)
             storage2.put('wallet_type', 'imported')
+            storage2.write()
             storage2.upgrade()
             storage2.write()
-            result = [storage1.path, storage2.path]
+            storage2.close()
+
+            result = [storage1.get_path(), storage2.get_path()]
         elif wallet_type in ['bip44', 'trezor', 'keepkey', 'ledger', 'btchip', 'digitalbitbox']:
             mpk = self.get('master_public_keys')
             for k in d.keys():
@@ -361,71 +532,104 @@ class WalletStorage:
                 if x.get("pending"):
                     continue
                 xpub = mpk["x/%d'"%i]
-                new_path = self.path + '.' + k
-                storage2 = WalletStorage(new_path)
-                storage2.data = copy.deepcopy(self.data)
+                new_path = self._path + '.' + k
+                data2 = copy.deepcopy(self._data)
+                storage2 = WalletStorage(new_path, data=data2, storage_kind=StorageKind.FILE)
                 # save account, derivation and xpub at index 0
                 storage2.put('accounts', {'0': x})
                 storage2.put('master_public_keys', {"x/0'": xpub})
                 storage2.put('derivation', bip44_derivation(k))
+                storage2.write()
                 storage2.upgrade()
                 storage2.write()
+                storage2.close()
+
                 result.append(new_path)
         else:
             raise Exception("This wallet has multiple accounts and must be split")
         return result
 
-    def requires_upgrade(self) -> None:
+    def requires_upgrade(self) -> bool:
         if self.file_exists():
-            seed_version = self.get_seed_version()
+            seed_version = self._get_seed_version()
             # The version at which we should retain compatibility with Electrum and Electron Cash
             # if they upgrade their wallets using this versioning system correctly.
             if seed_version <= 17:
                 return True
             # Versions above the compatible seed version, which may conflict with versions those
             # other wallets use.
-            if seed_version < FINAL_SEED_VERSION:
+            if seed_version < self.FINAL_SEED_VERSION:
                 # We flag our upgraded wallets past seed version 17 with 'wallet_author' = 'ESV'.
                 if self.get('wallet_author') == 'ESV':
                     return True
                 raise IncompatibleWalletError
         return False
 
-    def upgrade(self) -> None:
-        logger.debug('upgrading wallet format')
+    def upgrade(self) -> Optional[BaseStore]:
+        self._convert_imported()
+        self._convert_wallet_type()
+        self._convert_account()
+        self._convert_version_13_b()
+        self._convert_version_14()
+        self._convert_version_15()
+        self._convert_version_16()
+        self._convert_version_17()
+        self._convert_version_18()
+        self._convert_version_19()
+        self._convert_version_20()
 
-        backup_wallet_files(self.path)
-        self.convert_imported()
-        self.convert_wallet_type()
-        self.convert_account()
-        self.convert_version_13_b()
-        self.convert_version_14()
-        self.convert_version_15()
-        self.convert_version_16()
-        self.convert_version_17()
-        self.convert_version_18()
-        self.convert_version_19()
+        database_wallet_path = self._path + DATABASE_EXT
+        assert os.path.exists(database_wallet_path)
+        assert not os.path.exists(self._path)
 
-        self.put('seed_version', FINAL_SEED_VERSION)  # just to be sure
-        self.write()
+        return DatabaseStore.from_text_store(self)
 
-    def convert_wallet_type(self) -> None:
+    def _convert_imported(self) -> None:
+        if not self._is_upgrade_method_needed(0, 13):
+            return
+
+        # '/x' is the internal ID for imported accounts
+        d = self.get('accounts', {}).get('/x', {}).get('imported',{})
+        if not d:
+            return # False
+        addresses = []
+        keypairs = {}
+        for addr, v in d.items():
+            pubkey, privkey = v
+            if privkey:
+                keypairs[pubkey] = privkey
+            else:
+                addresses.append(addr)
+        if addresses and keypairs:
+            raise Exception('mixed addresses and privkeys')
+        elif addresses:
+            self.put('addresses', addresses)
+            self.put('accounts', None)
+        elif keypairs:
+            self.put('wallet_type', 'standard')
+            self.put('key_type', 'imported')
+            self.put('keypairs', keypairs)
+            self.put('accounts', None)
+        else:
+            raise Exception('no addresses or privkeys')
+
+    def _convert_wallet_type(self) -> None:
         if not self._is_upgrade_method_needed(0, 13):
             return
 
         wallet_type = self.get('wallet_type')
         if wallet_type == 'btchip': wallet_type = 'ledger'
         if self.get('keystore') or self.get('x1/') or wallet_type=='imported':
-            return False
+            return # False
         assert not self.requires_split()
-        seed_version = self.get_seed_version()
+        seed_version = self._get_seed_version()
         seed = self.get('seed')
         xpubs = self.get('master_public_keys')
         xprvs = self.get('master_private_keys', {})
         mpk = self.get('master_public_key')
         keypairs = self.get('keypairs')
         key_type = self.get('key_type')
-        if seed_version == OLD_SEED_VERSION or wallet_type == 'old':
+        if seed_version == self.OLD_SEED_VERSION or wallet_type == 'old':
             d = {
                 'type': 'old',
                 'seed': seed,
@@ -488,7 +692,8 @@ class WalletStorage:
                     d['seed'] = seed
                 self.put(key, d)
         else:
-            raise Exception('Unable to tell wallet type. Is this even a wallet file?')
+            raise Exception(
+                f'Unable to tell wallet type "{wallet_type}". Is this even a wallet file?')
         # remove junk
         self.put('master_public_key', None)
         self.put('master_public_keys', None)
@@ -498,7 +703,13 @@ class WalletStorage:
         self.put('keypairs', None)
         self.put('key_type', None)
 
-    def convert_version_13_b(self):
+    def _convert_account(self) -> None:
+        if not self._is_upgrade_method_needed(0, 13):
+            return
+
+        self.put('accounts', None)
+
+    def _convert_version_13_b(self) -> None:
         # version 13 is ambiguous, and has an earlier and a later structure
         if not self._is_upgrade_method_needed(0, 13):
             return
@@ -506,7 +717,7 @@ class WalletStorage:
         if self.get('wallet_type') == 'standard':
             if self.get('keystore').get('type') == 'imported':
                 pubkeys = self.get('keystore').get('keypairs').keys()
-                d = {'change': []}
+                d: Dict[str, List[str]] = {'change': []}
                 receiving_addresses = []
                 for pubkey in pubkeys:
                     addr = PublicKey.from_hex(pubkey).to_address(coin=Net.COIN).to_string()
@@ -517,7 +728,7 @@ class WalletStorage:
 
         self.put('seed_version', 13)
 
-    def convert_version_14(self):
+    def _convert_version_14(self) -> None:
         # convert imported wallets for 3.0
         if not self._is_upgrade_method_needed(13, 13):
             return
@@ -546,12 +757,12 @@ class WalletStorage:
                 self.put('wallet_type', 'imported')
         self.put('seed_version', 14)
 
-    def convert_version_15(self):
+    def _convert_version_15(self) -> None:
         if not self._is_upgrade_method_needed(14, 14):
             return
         self.put('seed_version', 15)
 
-    def convert_version_16(self):
+    def _convert_version_16(self) -> None:
         # fixes issue #3193 for imported address wallets
         # also, previous versions allowed importing any garbage as an address
         #       which we now try to remove, see pr #3191
@@ -579,9 +790,9 @@ class WalletStorage:
             remove_from_list('frozen_addresses')
 
         if self.get('wallet_type') == 'imported':
-            addresses = self.get('addresses')
+            addresses: Dict[str, Any] = self.get('addresses')
             assert isinstance(addresses, dict)
-            addresses_new = dict()
+            addresses_new: Dict[str, Any] = {}
             for address, details in addresses.items():
                 if not is_address_valid(address):
                     remove_address(address)
@@ -594,7 +805,7 @@ class WalletStorage:
 
         self.put('seed_version', 16)
 
-    def convert_version_17(self):
+    def _convert_version_17(self) -> None:
         if not self._is_upgrade_method_needed(16, 16):
             return
         if self.get('wallet_type') == 'imported':
@@ -606,7 +817,7 @@ class WalletStorage:
 
         self.put('seed_version', 17)
 
-    def convert_version_18(self):
+    def _convert_version_18(self) -> None:
         if not self._is_upgrade_method_needed(17, 17):
             return
 
@@ -622,7 +833,7 @@ class WalletStorage:
             self.put('tx_store_aeskey', tx_store_aeskey_hex)
         tx_store_aeskey = bytes.fromhex(tx_store_aeskey_hex)
 
-        db = WalletData(self.path, tx_store_aeskey, 0)
+        db = WalletData(self._path, tx_store_aeskey, 0)
 
         # Transaction-related data.
         tx_map_in = self.get('transactions', {})
@@ -634,7 +845,7 @@ class WalletStorage:
                   for addr_history in _history.values()
                   for tx_hash, tx_height in addr_history}
 
-        to_add = []
+        to_add1 = []
         for tx_id, tx in tx_map_in.items():
             payload = bytes.fromhex(str(tx))
             fee = tx_fees.get(tx_id, None)
@@ -646,21 +857,21 @@ class WalletStorage:
                 timestamp = position = None
                 height = hh_map.get(tx_id)
             tx_data = TxData(height=height, fee=fee, position=position, timestamp=timestamp)
-            to_add.append((tx_id, tx_data, payload, flags))
-        if len(to_add):
-            db.tx_store.add_many(to_add)
+            to_add1.append((tx_id, tx_data, payload, flags))
+        if len(to_add1):
+            db.tx_store.add_many(to_add1)
 
         # Address/utxo related data.
         txi = self.get('txi', {})
-        to_add = []
+        to_add2 = []
         for tx_hash, address_entry in txi.items():
             for address_string, output_values in address_entry.items():
                 for prevout_key, amount in output_values:
                     prevout_tx_hash, prev_idx = prevout_key.split(":")
                     txin = DBTxInput(address_string, prevout_tx_hash, int(prev_idx), amount)
-                    to_add.append((tx_hash, txin))
-        if len(to_add):
-            db.txin_store.add_entries(to_add)
+                    to_add2.append((tx_hash, txin))
+        if len(to_add2):
+            db.txin_store.add_entries(to_add2)
 
         txo = self.get('txo', {})
         to_add = []
@@ -711,7 +922,7 @@ class WalletStorage:
         self.put('wallet_author', 'ESV')
         self.put('seed_version', 18)
 
-    def convert_version_19(self):
+    def _convert_version_19(self) -> None:
         if not self._is_upgrade_method_needed(18, 18):
             return
 
@@ -766,76 +977,38 @@ class WalletStorage:
 
         # Convert the database to designate child wallets.
         tx_store_aeskey = bytes.fromhex(self.get('tx_store_aeskey'))
-        WalletData(self.path, tx_store_aeskey, subwallet_id, MigrationContext(18, 19))
+        WalletData(self._path, tx_store_aeskey, subwallet_id, MigrationContext(18, 19))
 
         self.put('seed_version', 19)
 
-    def convert_imported(self):
-        if not self._is_upgrade_method_needed(0, 13):
+    def _convert_version_20(self) -> None:
+        if not self._is_upgrade_method_needed(19, 19):
             return
 
-        # '/x' is the internal ID for imported accounts
-        d = self.get('accounts', {}).get('/x', {}).get('imported',{})
-        if not d:
-            return False
-        addresses = []
-        keypairs = {}
-        for addr, v in d.items():
-            pubkey, privkey = v
-            if privkey:
-                keypairs[pubkey] = privkey
-            else:
-                addresses.append(addr)
-        if addresses and keypairs:
-            raise Exception('mixed addresses and privkeys')
-        elif addresses:
-            self.put('addresses', addresses)
-            self.put('accounts', None)
-        elif keypairs:
-            self.put('wallet_type', 'standard')
-            self.put('key_type', 'imported')
-            self.put('keypairs', keypairs)
-            self.put('accounts', None)
-        else:
-            raise Exception('no addresses or privkeys')
+        # Remove the TEXT file, as the store is now database-only.
+        assert os.path.exists(self._path + DATABASE_EXT)
+        # The only case where the file will not exist is where we upgraded from split accounts,
+        os.remove(self._path)
 
-    def convert_account(self):
-        if not self._is_upgrade_method_needed(0, 13):
-            return
+        # Setting this will ensure this store cannot write the TEXT file again.
+        self.put('seed_version', 20)
 
-        self.put('accounts', None)
-
-    def _is_upgrade_method_needed(self, min_version, max_version):
-        cur_version = self.get_seed_version()
-        if cur_version > max_version:
-            return False
-        elif cur_version < min_version:
-            raise Exception(
-                ('storage upgrade: unexpected version %d (should be %d-%d)'
-                 % (cur_version, min_version, max_version)))
-        else:
-            return True
-
-    def get_action(self):
-        if not self.file_exists():
-            return 'new'
-
-    def get_seed_version(self):
+    def _get_seed_version(self) -> int:
         seed_version = self.get('seed_version')
         if not seed_version:
-            seed_version = (OLD_SEED_VERSION if len(self.get('master_public_key','')) == 128
-                            else NEW_SEED_VERSION)
-        if seed_version > FINAL_SEED_VERSION:
-            raise RuntimeError('This version of ElectrumSV is too old to open this wallet')
-        if seed_version >=12:
+            seed_version = (self.OLD_SEED_VERSION if len(self.get('master_public_key','')) == 128
+                else self.NEW_SEED_VERSION)
+        if seed_version > self.FINAL_SEED_VERSION:
+            raise IncompatibleWalletError("TEXT store has DATABASE store version")
+        if seed_version >= 12:
             return seed_version
-        if seed_version not in [OLD_SEED_VERSION, NEW_SEED_VERSION]:
-            self.raise_unsupported_version(seed_version)
+        if seed_version not in (self.OLD_SEED_VERSION, self.NEW_SEED_VERSION):
+            self._raise_unsupported_version(seed_version)
         return seed_version
 
-    def raise_unsupported_version(self, seed_version):
+    def _raise_unsupported_version(self, seed_version: int) -> None:
         msg = "Your wallet has an unsupported seed version."
-        msg += '\n\nWallet file: %s' % os.path.abspath(self.path)
+        msg += '\n\nWallet file: %s' % os.path.abspath(self._path)
         if seed_version in [5, 7, 8, 9, 10, 14]:
             msg += "\n\nTo open this wallet, try 'git checkout seed_v%d'"%seed_version
         if seed_version == 6:
@@ -853,3 +1026,137 @@ class WalletStorage:
                 msg += ("\nPlease open this file with Electrum 1.9.8, and move "
                         "your coins to a new wallet.")
         raise Exception(msg)
+
+
+class WalletStorage:
+    _store: BaseStore
+
+    def __init__(self, path: str, manual_upgrades: bool=False,
+            data: Optional[Dict[str, Any]]=None,
+            storage_kind: StorageKind=StorageKind.UNKNOWN) -> None:
+        logger.debug("wallet path '%s'", path)
+        dirname = os.path.dirname(path)
+        if not os.path.exists(dirname):
+            raise IOError(f'directory {dirname} does not exist')
+
+        storage_info = categorise_file(path)
+        if storage_kind == StorageKind.UNKNOWN:
+            storage_kind = storage_info.kind
+        # Take the chance to normalise the wallet filename (remove any extension).
+        if storage_info.kind == StorageKind.DATABASE:
+            path = storage_info.wallet_filepath
+
+        self._manual_upgrades = manual_upgrades
+        self._path = path
+
+        store: Optional[BaseStore] = None
+        if storage_kind == StorageKind.UNKNOWN:
+            store = DatabaseStore(path, data=data)
+            self._set_store(store)
+
+            # Initialise anything that needs to be in the wallet storage and immediately persisted.
+            # In the case of the aeskey, this is because the wallet saving is not guaranteed and
+            # the writes to the database are not synchronised with it.
+            tx_store_aeskey_hex = os.urandom(32).hex()
+            self.put('tx_store_aeskey', tx_store_aeskey_hex)
+
+            self.put('wallet_author', 'ESV')
+            self.put('seed_version', FINAL_SEED_VERSION)
+        else:
+            is_unsaved_file = (storage_kind == StorageKind.FILE and not os.path.exists(path) and \
+                data is not None)
+            assert data is None or is_unsaved_file
+            if storage_kind == StorageKind.FILE or storage_kind == StorageKind.HYBRID:
+                store = TextStore(path, data=data)
+            else:
+                store = DatabaseStore(path)
+            self._set_store(store)
+
+            # Unsaved files already have explicit unpersisted data. Note that no upgrade will be
+            # performed on them, regardless of the value of `manual_upgrades`.
+            if not is_unsaved_file:
+                raw = self._store.read_raw_data()
+                if not self._store.is_encrypted():
+                    self.load_data(raw)
+
+    def close(self) -> None:
+        # NOTE(rt12): Strictly speaking this just ensures that things are released and deallocated
+        # for now. This ensures that the object gets garbage collected in a deterministic manner
+        # which means that for instance the unit tests can rely on the database being closed
+        # given knowledge of the resources in use, and their lifetime.
+        # See: DatabaseStore.close
+        self._store.close()
+
+        del self.get
+        del self.put
+        del self.write
+        del self.requires_split
+        del self.split_accounts
+        del self.requires_upgrade
+        del self.file_exists
+        del self.is_encrypted
+
+    def get_path(self) -> str:
+        return self._path
+
+    def load_data(self, raw: bytes) -> None:
+        self._store.load_data(raw)
+        self._load_data()
+
+    def _load_data(self) -> None:
+        if not self._manual_upgrades:
+            if self.requires_split():
+                raise Exception("This wallet has multiple accounts and must be split")
+            if self.requires_upgrade():
+                self.upgrade()
+
+    @staticmethod
+    def get_eckey_from_password(password: str) -> PrivateKey:
+        secret = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), b'', iterations=1024)
+        return PrivateKey.from_arbitrary_bytes(secret)
+
+    def decrypt(self, password: str) -> None:
+        ec_key = self.get_eckey_from_password(password)
+        encrypted_data = self._store.get_encrypted_data()
+        assert type(encrypted_data) is bytes
+        raw = zlib.decompress(ec_key.decrypt_message(encrypted_data))
+
+        pubkey = ec_key.public_key.to_hex()
+        self._store.set_pubkey(pubkey)
+
+        self.load_data(raw)
+
+    def set_password(self, password: Optional[str]) -> None:
+        self.put('use_encryption', bool(password))
+        if password:
+            ec_key = self.get_eckey_from_password(password)
+            pubkey = ec_key.public_key.to_hex()
+        else:
+            pubkey = None
+        self._store.set_pubkey(pubkey)
+
+    def _set_store(self, store: StoreType) -> None:
+        self._store = store
+
+        self.get = store.get
+        self.put = store.put
+        self.write = store.write
+        self.requires_split = store.requires_split
+        self.split_accounts = store.split_accounts
+        self.requires_upgrade = store.requires_upgrade
+        self.file_exists = store.file_exists
+        self.is_encrypted = store.is_encrypted
+
+    def upgrade(self) -> None:
+        logger.debug('upgrading wallet format')
+        backup_wallet_files(self._path)
+
+        # The store can change if the old kind of store was obsoleted. We upgrade through
+        # obsoleted kinds of stores to the final in-use kind of store.
+        while True:
+            new_store = self._store.upgrade()
+            if new_store is not None:
+                self._set_store(new_store)
+                if new_store.requires_upgrade():
+                    continue
+            break

@@ -306,7 +306,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 if len(esv_wallet_names):
                     wallet_name = esv_wallet_names[0]
             if wallet_name is None:
-                wallet_name = os.path.basename(self.storage.path)
+                wallet_name = os.path.basename(self.storage.get_path())
             self.name_e.setText(wallet_name)
 
         button.clicked.connect(_on_choose)
@@ -450,7 +450,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         return False
 
     def run_and_get_wallet(self):
-        path = self.storage.path
+        path = self.storage.get_path()
         if self.storage.requires_split():
             msg = _("The wallet '{}' contains multiple accounts, which are not supported.\n\n"
                     "Do you want to split your wallet into multiple files?").format(path)
@@ -475,7 +475,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             self.parent_wallet = ParentWallet(self.storage)
             return self.parent_wallet
 
-        action = self.storage.get_action()
+        action = None if self.storage.file_exists() else 'new'
         if action and action != 'new':
             msg = _("The file '{}' contains an incompletely created wallet.\n"
                     "Do you want to complete its creation now?").format(path)

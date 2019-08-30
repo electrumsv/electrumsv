@@ -21,7 +21,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-
 def plugin_class(gui_kind: str):
     if gui_kind == 'qt':
         from .qt import Plugin

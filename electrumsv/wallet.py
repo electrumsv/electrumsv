@@ -2034,10 +2034,10 @@ class ParentWallet:
             self._child_wallets[subwallet_id] = self._create_child_wallet(subwallet_data)
 
     def name(self) -> str:
-        return os.path.basename(self._storage.path)
+        return os.path.basename(self._storage.get_path())
 
     def get_storage_path(self) -> str:
-        return self._storage.path
+        return self._storage.get_path()
 
     def get_storage(self) -> WalletStorage:
         return self._storage
