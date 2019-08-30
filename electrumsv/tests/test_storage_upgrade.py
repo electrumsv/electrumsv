@@ -288,23 +288,26 @@ class TestStorageUpgrade(WalletTestCase):
         storage.write()
 
         if accounts == 1:
-            self.assertFalse(storage.requires_split())
+            self.assertFalse(storage._store.requires_split())
             if storage.requires_upgrade():
                 storage.upgrade()
                 self._sanity_check_upgraded_storage(storage, expect_backup=True)
         else:
-            self.assertTrue(storage.requires_split())
+            self.assertTrue(storage._store.requires_split())
             new_paths = storage.split_accounts()
             self.assertEqual(accounts, len(new_paths))
             for new_path in new_paths:
                 new_storage = WalletStorage(new_path, manual_upgrades=False)
                 self._sanity_check_upgraded_storage(new_storage, expect_backup=False)
+                new_storage.close()
+
+        storage.close()
 
     def _sanity_check_upgraded_storage(self, storage, expect_backup=False):
-        self.assertFalse(storage.requires_split())
-        self.assertFalse(storage.requires_upgrade())
-        if expect_backup and os.path.exists(storage.path):
-            backup_path = f"{storage.path}.backup.{1:d}"
+        self.assertFalse(storage._store.requires_split())
+        self.assertFalse(storage._store.requires_upgrade())
+        if expect_backup and os.path.exists(storage.get_path()):
+            backup_path = f"{storage.get_path()}.backup.{1:d}"
             self.assertTrue(os.path.exists(backup_path),
                 f"backup file '{backup_path}' does not exist")
 

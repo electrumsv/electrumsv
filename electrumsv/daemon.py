@@ -258,8 +258,6 @@ class Daemon(DaemonThread):
             return
         if storage.requires_upgrade():
             return
-        if storage.get_action():
-            return
 
         parent_wallet = ParentWallet(storage)
         self.start_wallet(parent_wallet)

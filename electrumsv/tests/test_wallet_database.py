@@ -1,4 +1,5 @@
 import os
+import pytest
 import tempfile
 import unittest
 
@@ -27,18 +28,19 @@ tx_hex_2 = ("010000000113529b6e34ceebfa3911c569b568ef48b95cc25d4c5c6a5b2435d30c9
     "8ac00000000")
 
 
-class TestBaseWalletStore(unittest.TestCase):
-    def setUp(self):
+class TestBaseWalletStore:
+    def setup_method(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        db_filename = os.path.join(self.temp_dir.name, "test")
+        db_filename = os.path.join(self.temp_dir.name, "testbws")
         aeskey_hex = "6fce243e381fe158b5e6497c6deea5db5fbc1c6f5659176b9c794379f97269b4"
         aeskey = bytes.fromhex(aeskey_hex)
         self.store = wallet_database.BaseWalletStore(None, db_filename, aeskey, 0)
 
         self.tx_id = os.urandom(32).hex()
 
-    def tearDown(self):
-        pass
+    def teardown_method(self, method):
+        self.store.close()
+        self.store = None
 
     def test_encrypt(self):
         data_hex = ("31d4e7921ec6692dd5b155799af530ad58cc9c86663d76356e9cce817f834f73b90e53e"+
@@ -47,7 +49,7 @@ class TestBaseWalletStore(unittest.TestCase):
             "7e42566f7c8bd6ffcf7863bbab7392fa035a97c48dd28f365f71043c9ed92")
         data_bytes = bytes.fromhex(data_hex)
         encrypted_bytes = self.store._encrypt(data_bytes)
-        self.assertEqual(encrypted_hex, encrypted_bytes.hex())
+        assert encrypted_hex == encrypted_bytes.hex()
 
     def test_decrypt(self):
         data_hex = ("31d4e7921ec6692dd5b155799af530ad58cc9c86663d76356e9cce817f834f73b90e53e"+
@@ -56,220 +58,452 @@ class TestBaseWalletStore(unittest.TestCase):
             "7e42566f7c8bd6ffcf7863bbab7392fa035a97c48dd28f365f71043c9ed92")
         encrypted_bytes = bytes.fromhex(encrypted_hex)
         decrypted_bytes = self.store._decrypt(encrypted_bytes)
-        self.assertEqual(decrypted_bytes.hex(), data_hex)
+        assert decrypted_bytes.hex() == data_hex
 
 
-class _GKVTestableStore(wallet_database.GenericKeyValueStore):
+class StoreTimestampMixin:
     timestamp = 0
 
     def _get_current_timestamp(self) -> int:
         return self.timestamp
 
 
-class TestGenericKeyValueStore(unittest.TestCase):
+class _GenericKeyValueStore(StoreTimestampMixin, wallet_database.GenericKeyValueStore):
+    pass
+
+
+class _ObjectKeyValueStore(StoreTimestampMixin, wallet_database.ObjectKeyValueStore):
+    pass
+
+
+TEST_TABLE_NAME = "test_table"
+TEST_AESKEY = bytes.fromhex("6fce243e381fe158b5e6497c6deea5db5fbc1c6f5659176b9c794379f97269b4")
+
+class TestJSONKeyValueStore:
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
-        db_filename = os.path.join(cls.temp_dir.name, "test")
-        table_name = "test_table"
-        aeskey_hex = "6fce243e381fe158b5e6497c6deea5db5fbc1c6f5659176b9c794379f97269b4"
-        aeskey = bytes.fromhex(aeskey_hex)
-        cls.store = _GKVTestableStore(table_name, db_filename, aeskey, 0)
+        db_path = os.path.join(cls.temp_dir.name, "test")
+
+        cls.db_values = wallet_database.JSONKeyValueStore(TEST_TABLE_NAME, db_path, TEST_AESKEY, 0)
 
     @classmethod
-    def tearDownClass(cls):
+    def teardown_class(cls) -> None:
+        cls.db_values.close()
+        del cls.db_values
+
+    def test_get_nonexistent(self) -> None:
+        assert self.db_values.get("nonexistent") is None
+
+
+class TestGenericKeyValueStore:
+    @classmethod
+    def setup_class(cls):
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_filename = os.path.join(cls.temp_dir.name, "testgks")
+        cls.store = _GenericKeyValueStore(TEST_TABLE_NAME, db_filename, TEST_AESKEY, 0)
+
+    @classmethod
+    def teardown_class(cls):
+        cls.store.close()
         cls.store = None
         cls.temp_dir = None
 
-    def setUp(self):
+    def setup_method(self):
         db = self.store._get_db()
         db.execute(f"DELETE FROM {self.store._table_name}")
         db.commit()
 
         self.store._fetch_write_timestamp()
 
-    def tearDown(self):
-        pass
-
     def test_add(self):
-        k = os.urandom(10).hex()
+        k = os.urandom(10)
         v = os.urandom(10)
 
-        self.assertEqual(self.store.get_write_timestamp(), 0)
+        assert self.store.get_write_timestamp() == 0
 
         self.store.timestamp = 1
         self.store.add(k, v)
 
-        self.assertEqual(self.store.get_write_timestamp(), 1)
+        assert self.store.get_write_timestamp() == 1
 
         row = self.store.get_row(k)
-        self.assertIsNotNone(row)
-        self.assertEqual(len(row), 4)
-        self.assertEqual(row[0], v) # ByteData
-        self.assertIsNotNone(row[1]) # DateCreated
-        self.assertEqual(row[1], row[2]) # DateCreated == DateUpdated
-        self.assertIsNone(row[3]) # DateDeleted
+        assert row is not None
+        assert len(row) == 4
+        assert row[0] ==  v # ByteData
+        assert row[1] is not None # DateCreated
+        assert row[1] == row[2] # DateCreated == DateUpdated
+        assert row[3] is None # DateDeleted
 
-    def test_get(self):
-        k = os.urandom(10).hex()
-        v = os.urandom(10)
-        self.store.add(k, v)
-        byte_data = self.store.get_value(k)
-        self.assertIsNotNone(byte_data)
-        self.assertEqual(byte_data, v)
+    def test_add_many(self):
+        kvs = [ (os.urandom(10), os.urandom(10)) for i in range(10) ]
+
+        assert self.store.get_write_timestamp() == 0
+
+        self.store.timestamp = 1
+        self.store.add_many(kvs)
+
+        assert self.store.get_write_timestamp() == 1
+
+        kvs2 = self.store.get_many_values([ k for (k, v) in kvs ])
+        assert len(kvs) == len(kvs2)
+        for t in kvs:
+            assert t in kvs2
+
+    def test_update_many(self) -> None:
+        original_values = {}
+        for i in range(10):
+            k = os.urandom(10)
+            v1 = os.urandom(10)
+            self.store.add(k, v1)
+            original_values[k] = v1
+
+        new_values = original_values.copy()
+        for k in original_values.keys():
+            new_values[k] = os.urandom(10)
+        self.store.update_many(new_values.items())
+
+        rows = self.store.get_all()
+        assert len(rows) == len(new_values)
+        for row in rows:
+            assert row[0] in new_values
 
     def test_update(self):
-        k = os.urandom(10).hex()
+        k = os.urandom(10)
         v1 = os.urandom(10)
 
         self.store.timestamp = 1
         self.store.add(k, v1)
 
-        self.assertEqual(self.store.get_write_timestamp(), 1)
+        assert self.store.get_write_timestamp() == 1
 
         v2 = os.urandom(10)
         self.store.timestamp = 2
         self.store.update(k, v2)
 
-        self.assertEqual(self.store.get_write_timestamp(), 2)
+        assert self.store.get_write_timestamp() == 2
 
         row = self.store.get_row(k)
-        self.assertIsNotNone(row)
-        self.assertEqual(len(row), 4)
-        self.assertEqual(row[0], v2) # ByteData
-        self.assertIsNotNone(row[1])
-        self.assertIsNotNone(row[2])
-        self.assertNotEqual(row[1], row[2]) # DateCreated != DateUpdated
-        self.assertIsNone(row[3]) # DateDeleted
+        assert row is not None
+        assert len(row) == 4
+        assert row[0] == v2 # ByteData
+        assert row[1] is not None
+        assert row[2] is not None
+        assert row[1] != row[2] # DateCreated != DateUpdated
+        assert row[3] is  None # DateDeleted
+
+    def test_get(self):
+        k = os.urandom(10)
+        v = os.urandom(10)
+        self.store.add(k, v)
+        byte_data = self.store.get_value(k)
+        assert byte_data is not None
+        assert byte_data == v
 
     def test_delete(self):
-        k = os.urandom(10).hex()
+        k = os.urandom(10)
         v = os.urandom(10)
 
         self.store.timestamp = 1
         self.store.add(k, v)
 
-        self.assertEqual(self.store.get_write_timestamp(), 1)
+        assert self.store.get_write_timestamp() == 1
 
         self.store.timestamp = 2
         self.store.delete(k)
 
         row = self.store.get_row(k)
-        self.assertIsNotNone(row)
-        self.assertEqual(len(row), 4)
-        self.assertEqual(row[0], v) # ByteData
-        self.assertIsNotNone(row[1]) # DateCreated
-        self.assertIsNotNone(row[2]) # DateUpdated
-        self.assertEqual(row[1], row[2]) # DateCreated == DateUpdated
-        self.assertIsNotNone(row[3]) # DateDeleted
-        self.assertNotEqual(row[1], row[3]) # DateCreated != DateDeleted
+        assert row is not None
+        assert len(row) == 4
+        assert row[0] == v # ByteData
+        assert row[1] is not None # DateCreated
+        assert row[2] is not None # DateUpdated
+        assert row[1] == row[2] # DateCreated == DateUpdated
+        assert row[3] is not None # DateDeleted
+        assert row[1] != row[3] # DateCreated != DateDeleted
 
-        self.assertEqual(self.store.get_write_timestamp(), 2)
+        assert self.store.get_write_timestamp() == 2
+
+    def test_delete_value(self):
+        k = os.urandom(10)
+        v = os.urandom(10)
+
+        self.store.timestamp = 1
+        self.store.add(k, v)
+
+        assert self.store.get_write_timestamp() ==  1
+
+        self.store.timestamp = 2
+
+        # If the value is incorrect, the entry is untouched.
+        self.store.delete_value(k, os.urandom(10))
+        row = self.store.get_row(k)
+        assert row[3] is None # DateDeleted
+
+        # If the value is correct, the entry is deleted.
+        self.store.delete_value(k, v)
+        row = self.store.get_row(k)
+        assert row is not None
+        assert len(row) == 4
+        assert row[0] == v # ByteData
+        assert row[1] is not None # DateCreated
+        assert row[2] is not None # DateUpdated
+        assert row[1] == row[2] # DateCreated == DateUpdated
+        assert row[3] is not None # DateDeleted
+        assert row[1] != row[3] # DateCreated != DateDeleted
+
+        assert self.store.get_write_timestamp() == 2
+
+    @pytest.mark.parametrize("variations,count", ((0, 0), (1, 3), (2, 3)))
+    def test__delete_duplicates(self, variations, count) -> None:
+        for i in range(variations):
+            k = os.urandom(10)
+            v = os.urandom(10)
+            for i in range(count):
+                self.store.add(k, v)
+        # 1 other.
+        self.store.add(os.urandom(10), os.urandom(10))
+
+        rows = self.store.get_all()
+        assert len(rows) == (variations * count) + 1
+
+        self.store._delete_duplicates()
+
+        rows = self.store.get_all()
+        assert len(rows) == variations + 1
 
 
-class TestTransactionInputStore(unittest.TestCase):
+class TestObjectKeyValueStore:
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         cls.temp_dir = tempfile.TemporaryDirectory()
-        db_filename = os.path.join(cls.temp_dir.name, "test")
-        table_name = "test_table"
-        aeskey_hex = "6fce243e381fe158b5e6497c6deea5db5fbc1c6f5659176b9c794379f97269b4"
-        aeskey = bytes.fromhex(aeskey_hex)
-        cls.store = wallet_database.TransactionInputStore(db_filename, aeskey, 0)
+        db_filename = os.path.join(cls.temp_dir.name, "testokvs")
+        cls.store = _ObjectKeyValueStore(TEST_TABLE_NAME, db_filename, TEST_AESKEY,
+            0)
 
     @classmethod
-    def tearDownClass(cls):
+    def teardown_class(cls):
+        cls.store.close()
         cls.store = None
         cls.temp_dir = None
 
-    def setUp(self):
+    def setup_method(self):
         db = self.store._get_db()
         db.execute(f"DELETE FROM {self.store._table_name}")
         db.commit()
 
         self.store._fetch_write_timestamp()
 
-    def tearDown(self):
-        pass
+    def test__encrypt_key(self) -> None:
+        v = self.store._encrypt_key("my_key")
+        assert v == b'\xdaGh\xa5\xe95\x93z\xc3\xc7|\xd1\x904O\xee'
 
-    def test_pack_unpack(self):
+    def test__decrypt_key(self) -> None:
+        v = self.store._decrypt_key(b'\xdaGh\xa5\xe95\x93z\xc3\xc7|\xd1\x904O\xee')
+        assert v == "my_key"
+
+    def test_get_all(self) -> None:
+        added_entries = []
+        for i in range(10):
+            k = str(i)
+            v = [ i ] * i
+            self.store.add(k, v)
+            added_entries.append((k, v))
+
+        all_entries = self.store.get_all()
+        assert all_entries == added_entries
+
+    def test_get_row(self) -> None:
+        d = {}
+        for i in range(10):
+            k = str(i)
+            v = [ i ] * i
+            self.store.add(k, v)
+            d[k] = v
+
+        row = self.store.get_row("5")
+        assert row is not None
+
+        value, date_created, date_updated, date_deleted = row
+        assert value == d["5"]
+        assert date_created is not None
+        assert date_created == date_updated
+        assert date_deleted is None
+
+    def test_update(self) -> None:
+        d = {}
+        for i in range(10):
+            k = str(i)
+            v = [ i ] * i
+            self.store.add(k, v)
+            d[k] = v
+
+        # Ensure that the update timestamp differs from the create timestamp.
+        self.store.timestamp += 1
+
+        new_value = [ 1,2,3,4,5 ]
+        self.store.update("5", new_value)
+
+        for i in range(10):
+            k = str(i)
+            row = self.store.get_row(k)
+            assert row is not None
+
+            value, date_created, date_updated, date_deleted = row
+            assert date_created is not None
+            assert date_updated is not None
+            if i == 5:
+                # The updated value will be the altered one we need to explicitly check for.
+                assert value == new_value
+                assert date_created < date_updated
+            else:
+                assert value == d[k]
+                assert date_created == date_updated
+            assert date_deleted is None
+
+    def test_delete_value(self) -> None:
+        d = {}
+        for i in range(10):
+            k = str(i)
+            v = [ i ] * i
+            self.store.add(k, v)
+            d[k] = v
+
+        # Ensure that the update timestamp differs from the create timestamp.
+        self.store.timestamp += 1
+
+        self.store.delete_value("5", d["5"])
+
+        for i in range(10):
+            k = str(i)
+            row = self.store.get_row(k)
+            assert row is not None
+
+            value, date_created, date_updated, date_deleted = row
+            assert date_created is not None
+            assert date_updated is not None
+            assert date_created == date_updated
+            if i == 5:
+                # The updated value will be the altered one we need to explicitly check for.
+                assert date_deleted is not None
+                assert date_deleted > date_created
+            else:
+                assert value == d[k]
+                assert date_deleted is None
+
+
+class TestTransactionInputStore:
+    @classmethod
+    def setup_class(cls):
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_filename = os.path.join(cls.temp_dir.name, "testtis")
+        table_name = "test_table"
+        aeskey_hex = "6fce243e381fe158b5e6497c6deea5db5fbc1c6f5659176b9c794379f97269b4"
+        aeskey = bytes.fromhex(aeskey_hex)
+        cls.store = wallet_database.TransactionInputStore(db_filename, aeskey, 0)
+
         address_string = "address_string1"
         prevout_tx_hash = "prevout_tx_hash1"
         prev_idx = 20
         amount = 5555
-        txin1 = DBTxInput(address_string, prevout_tx_hash, prev_idx, amount)
-        packed_raw = self.store._pack_value(txin1)
+        cls.txin1 = DBTxInput(address_string, prevout_tx_hash, prev_idx, amount)
+
+    @classmethod
+    def teardown_class(cls):
+        cls.store.close()
+        cls.store = None
+        cls.temp_dir = None
+
+    def setup_method(self):
+        db = self.store._get_db()
+        db.execute(f"DELETE FROM {self.store._table_name}")
+        db.commit()
+
+        self.store._fetch_write_timestamp()
+
+    def test_pack_unpack(self):
+        packed_raw = self.store._pack_value(self.txin1)
         address_string2, prevout_tx_hash2, prev_idx2, amount2 = self.store._unpack_value(
             packed_raw)
-        self.assertEqual(txin1.address_string, address_string2)
-        self.assertEqual(txin1.prevout_tx_hash, prevout_tx_hash2)
-        self.assertEqual(txin1.prev_idx, prev_idx2)
-        self.assertEqual(txin1.amount, amount2)
+        assert self.txin1.address_string == address_string2
+        assert self.txin1.prevout_tx_hash == prevout_tx_hash2
+        assert self.txin1.prev_idx == prev_idx2
+        assert self.txin1.amount == amount2
+
+    def test_pack_unpack_invalid_version(self):
+        # This is a version 0 packed format, which does not exist.
+        packed_bytes = b'\x00\x0faddress_string1\x10prevout_tx_hash1\x14\xfd\xb3\x15'
+        with pytest.raises(wallet_database.DataPackingError):
+            self.store._unpack_value(packed_bytes)
 
     def test_unpack_version_1(self):
         packed_hex = "010f616464726573735f737472696e673110707265766f75745f74785f686173683114fdb315"
         packed_raw = bytes.fromhex(packed_hex)
         address_string2, prevout_tx_hash2, prev_idx2, amount2 = self.store._unpack_value(
             packed_raw)
-        self.assertEqual("address_string1", address_string2)
-        self.assertEqual("prevout_tx_hash1", prevout_tx_hash2)
-        self.assertEqual(20, prev_idx2)
-        self.assertEqual(5555, amount2)
+        assert "address_string1" == address_string2
+        assert "prevout_tx_hash1" == prevout_tx_hash2
+        assert 20 == prev_idx2
+        assert 5555 == amount2
 
 
-class TestTransactionOutputStore(unittest.TestCase):
+class TestTransactionOutputStore:
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         cls.temp_dir = tempfile.TemporaryDirectory()
-        db_filename = os.path.join(cls.temp_dir.name, "test")
+        db_filename = os.path.join(cls.temp_dir.name, "testtos")
         table_name = "test_table"
         aeskey_hex = "6fce243e381fe158b5e6497c6deea5db5fbc1c6f5659176b9c794379f97269b4"
         aeskey = bytes.fromhex(aeskey_hex)
         cls.store = wallet_database.TransactionOutputStore(db_filename, aeskey, 0)
 
+        address_string1 = "12345"
+        out_tx_n1 = 20
+        amount1 = 5555
+        is_coinbase1 = False
+        cls.txout1 = DBTxOutput(address_string1, out_tx_n1, amount1, is_coinbase1)
+
     @classmethod
-    def tearDownClass(cls):
+    def teardown_class(cls):
+        cls.store.close()
         cls.store = None
         cls.temp_dir = None
 
-    def setUp(self):
+    def setup_method(self):
         db = self.store._get_db()
         db.execute(f"DELETE FROM {self.store._table_name}")
         db.commit()
 
         self.store._fetch_write_timestamp()
 
-    def tearDown(self):
-        pass
-
     def test_pack_unpack(self):
-        address_string1 = "12345"
-        out_tx_n1 = 20
-        amount1 = 5555
-        is_coinbase1 = False
-        txout1 = DBTxOutput(address_string1, out_tx_n1, amount1, is_coinbase1)
-        packed_raw = self.store._pack_value(txout1)
+        packed_raw = self.store._pack_value(self.txout1)
         txout2 = self.store._unpack_value(packed_raw)
-        self.assertEqual(txout1.address_string, txout2.address_string)
-        self.assertEqual(txout1.out_tx_n, txout2.out_tx_n)
-        self.assertEqual(txout1.amount, txout2.amount)
-        self.assertEqual(txout1.is_coinbase, txout2.is_coinbase)
+        assert self.txout1.address_string == txout2.address_string
+        assert self.txout1.out_tx_n == txout2.out_tx_n
+        assert self.txout1.amount == txout2.amount
+        assert self.txout1.is_coinbase == txout2.is_coinbase
+
+    def test_pack_unpack_invalid_version(self) -> None:
+        packed_bytes = b'\x00\x0512345\x14\xfd\xb3\x15\x00'
+        with pytest.raises(wallet_database.DataPackingError):
+            self.store._unpack_value(packed_bytes)
 
     def test_unpack_version_1(self):
         packed_hex = "0105313233343514fdb31500"
         packed_raw = bytes.fromhex(packed_hex)
         address_string2, out_tx_n2, amount2, is_coinbase2 = self.store._unpack_value(packed_raw)
-        self.assertEqual("12345", address_string2)
-        self.assertEqual(20, out_tx_n2)
-        self.assertEqual(5555, amount2)
-        self.assertEqual(False, is_coinbase2)
+        assert "12345" == address_string2
+        assert 20 == out_tx_n2
+        assert 5555 == amount2
+        assert is_coinbase2 is False
 
 
-class TestTransactionStore(unittest.TestCase):
+class TestTransactionStore:
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         cls.temp_dir = tempfile.TemporaryDirectory()
-        db_filename = os.path.join(cls.temp_dir.name, "test")
+        db_filename = os.path.join(cls.temp_dir.name, "testts")
         aeskey_hex = "6fce243e381fe158b5e6497c6deea5db5fbc1c6f5659176b9c794379f97269b4"
         aeskey = bytes.fromhex(aeskey_hex)
         cls.store = wallet_database.TransactionStore(db_filename, aeskey, 0)
@@ -277,17 +511,15 @@ class TestTransactionStore(unittest.TestCase):
         cls.tx_id = os.urandom(32).hex()
 
     @classmethod
-    def tearDownClass(cls):
+    def teardown_class(cls):
+        cls.store.close()
         cls.store = None
         cls.temp_dir = None
 
-    def setUp(self):
+    def setup_method(self):
         db = self.store._get_db()
         db.execute(f"DELETE FROM {self.store._table_name}")
         db.commit()
-
-    def tearDown(self):
-        pass
 
     def test_create_db_passive(self):
         # This has already run on TransactionStore creation. We test that it does not error being
@@ -295,13 +527,13 @@ class TestTransactionStore(unittest.TestCase):
         self.store._db_create(self.store._get_db())
 
     def test_has_for_missing_transaction(self):
-        self.assertFalse(self.store.has(self.tx_id))
+        assert not self.store.has(self.tx_id)
 
     def test_has_for_existing_transaction(self):
         metadata = TxData()
         bytedata = os.urandom(100)
         self.store.add(self.tx_id, metadata, bytedata)
-        self.assertTrue(self.store.has(self.tx_id))
+        assert self.store.has(self.tx_id)
 
     def test_data_serialization(self):
         test_cases = [
@@ -320,10 +552,15 @@ class TestTransactionStore(unittest.TestCase):
         for data1 in test_cases:
             raw, flags = self.store._pack_data(data1, TxFlags.METADATA_FIELD_MASK)
             data2 = self.store._unpack_data(raw, flags)
-            self.assertEqual(data1.fee, data2.fee)
-            self.assertEqual(data1.height, data2.height)
-            self.assertEqual(data1.position, data2.position)
-            self.assertEqual(data1.timestamp, data2.timestamp)
+            assert data1.fee == data2.fee
+            assert data1.height == data2.height
+            assert data1.position == data2.position
+            assert data1.timestamp == data2.timestamp
+
+    def test_unpack_data_version_invalid_version(self):
+        with pytest.raises(wallet_database.DataPackingError):
+            packed_bytes = bytes.fromhex("0001020000")
+            self.store._unpack_data(packed_bytes, TxFlags.HasFee | TxFlags.HasHeight)
 
     def test_data_unpack_version_1(self):
         for hex, data, flags in [
@@ -333,17 +570,17 @@ class TestTransactionStore(unittest.TestCase):
         ]:
             raw = bytes.fromhex(hex)
             unpacked_data = self.store._unpack_data(raw, flags)
-            self.assertEqual(data.height, unpacked_data.height)
-            self.assertEqual(data.fee, unpacked_data.fee)
-            self.assertEqual(data.position, unpacked_data.position)
-            self.assertEqual(data.timestamp, unpacked_data.timestamp)
+            assert data.height == unpacked_data.height
+            assert data.fee == unpacked_data.fee
+            assert data.position == unpacked_data.position
+            assert data.timestamp == unpacked_data.timestamp
 
     def test_proof_serialization(self):
         proof1 = TxProof(position=10, branch=[ os.urandom(32) for i in range(10) ])
         raw = self.store._pack_proof(proof1)
         proof2 = self.store._unpack_proof(raw)
-        self.assertEqual(proof1.position, proof2.position)
-        self.assertEqual(proof1.branch, proof2.branch)
+        assert proof1.position == proof2.position
+        assert proof1.branch == proof2.branch
 
     def test_add(self):
         bytedata_1 = os.urandom(10)
@@ -354,11 +591,11 @@ class TestTransactionStore(unittest.TestCase):
 
         # Check the state is correct, all states should be the same code path.
         flags = self.store.get_flags(tx_id)
-        self.assertEqual(TxFlags.StateDispatched, flags & TxFlags.STATE_MASK)
+        assert TxFlags.StateDispatched == flags & TxFlags.STATE_MASK
 
         metadata_2, bytedata_2, flags2 = self.store.get(tx_id)
-        self.assertEqual(metadata_1, metadata_2)
-        self.assertEqual(bytedata_1, bytedata_2)
+        assert metadata_1 == metadata_2
+        assert bytedata_1 == bytedata_2
 
     def test_add_many(self):
         to_add = []
@@ -371,7 +608,7 @@ class TestTransactionStore(unittest.TestCase):
         self.store.add_many(to_add)
         existing_tx_ids = self.store.get_ids()
         added_tx_ids = set(t[0] for t in to_add)
-        self.assertEqual(added_tx_ids, existing_tx_ids)
+        assert added_tx_ids == existing_tx_ids
 
     def test_update(self):
         bytedata = os.urandom(10)
@@ -384,8 +621,8 @@ class TestTransactionStore(unittest.TestCase):
         self.store.update(tx_id, metadata_update, bytedata)
 
         metadata_get, bytedata_get, flags = self.store.get(tx_id)
-        self.assertEqual(metadata_update, metadata_get)
-        self.assertEqual(bytedata, bytedata_get)
+        assert metadata_update == metadata_get
+        assert bytedata == bytedata_get
 
     def test_update_many(self):
         to_add = []
@@ -406,8 +643,8 @@ class TestTransactionStore(unittest.TestCase):
         for tx_id_get, metadata_get, bytedata_get, flags_get in self.store.get_many():
             for update_tx_id, update_metadata, update_tx_bytes, update_flags in to_update:
                 if update_tx_id == tx_id_get:
-                    self.assertEqual(metadata_get, update_metadata)
-                    self.assertEqual(bytedata_get, update_tx_bytes)
+                    assert metadata_get == update_metadata
+                    assert bytedata_get == update_tx_bytes
                     continue
 
     def test_update_flags(self):
@@ -420,7 +657,7 @@ class TestTransactionStore(unittest.TestCase):
         # Verify the field flags are assigned correctly on the add.
         expected_flags = TxFlags.HasFee | TxFlags.HasHeight | TxFlags.HasByteData
         flags = self.store.get_flags(tx_id)
-        self.assertEqual(expected_flags, flags)
+        assert expected_flags == flags
 
         flags = TxFlags.StateReceived
         mask = TxFlags.METADATA_FIELD_MASK | TxFlags.HasByteData | TxFlags.HasProofData
@@ -429,8 +666,8 @@ class TestTransactionStore(unittest.TestCase):
         # Verify the state flag is correctly added via the mask.
         flags_get = self.store.get_flags(tx_id)
         expected_flags |= TxFlags.StateReceived
-        self.assertEqual(expected_flags, flags_get,
-            f"{TxFlags.to_repr(expected_flags)} != {TxFlags.to_repr(flags_get)}")
+        assert expected_flags == flags_get, \
+            f"{TxFlags.to_repr(expected_flags)} != {TxFlags.to_repr(flags_get)}"
 
         flags = TxFlags.StateReceived
         mask = TxFlags.Unset
@@ -438,7 +675,7 @@ class TestTransactionStore(unittest.TestCase):
 
         # Verify the state flag is correctly set via the mask.
         flags = self.store.get_flags(tx_id)
-        self.assertEqual(TxFlags.StateReceived, flags)
+        assert TxFlags.StateReceived == flags
 
     def test_delete(self):
         tx_bytes = os.urandom(10)
@@ -446,9 +683,9 @@ class TestTransactionStore(unittest.TestCase):
         tx_id = bitcoinx.hash_to_hex_str(tx_hash_bytes)
         data = TxData(height=1, fee=2, position=None, timestamp=None)
         self.store.add(tx_id, data, tx_bytes)
-        self.assertTrue(self.store.has(tx_id))
+        assert self.store.has(tx_id)
         self.store.delete(tx_id)
-        self.assertFalse(self.store.has(tx_id))
+        assert not self.store.has(tx_id)
 
     def test_delete_many(self):
         to_add = []
@@ -461,10 +698,10 @@ class TestTransactionStore(unittest.TestCase):
         self.store.add_many(to_add)
         add_ids = set(t[0] for t in to_add)
         get_ids = self.store.get_ids()
-        self.assertEqual(add_ids, get_ids)
+        assert add_ids == get_ids
         self.store.delete_many(add_ids)
         get_ids = self.store.get_ids()
-        self.assertEqual(0, len(get_ids))
+        assert 0 == len(get_ids)
 
     def test_get_all_pending(self):
         get_tx_ids = set([])
@@ -476,7 +713,7 @@ class TestTransactionStore(unittest.TestCase):
             self.store.add(tx_id, metadata, bytedata)
             get_tx_ids.add(tx_id)
         result_tx_ids = self.store.get_ids()
-        self.assertEqual(get_tx_ids, result_tx_ids)
+        assert get_tx_ids == result_tx_ids
 
     def test_get(self):
         bytedata = os.urandom(10)
@@ -484,14 +721,89 @@ class TestTransactionStore(unittest.TestCase):
         tx_id = bitcoinx.hash_to_hex_str(tx_hash_bytes)
         metadata = TxData(height=1, fee=2, position=None, timestamp=None)
         self.store.add(tx_id, metadata, bytedata)
-        self.assertTrue(self.store.has(tx_id))
-        self.assertIsNotNone(self.store.get(tx_id)[0])
 
-        self.assertIsNone(self.store.get(tx_id, TxFlags.HasPosition, TxFlags.HasPosition))
-        self.assertIsNotNone(self.store.get(tx_id, TxFlags.Unset, TxFlags.HasPosition))
+        assert self.store.has(tx_id)
+        assert self.store.get(tx_id)[0] is not None
+        assert self.store.get(tx_id, TxFlags.HasPosition, TxFlags.HasPosition) is None
+        assert self.store.get(tx_id, TxFlags.Unset, TxFlags.HasPosition) is not None
+        assert self.store.get(tx_id, TxFlags.HasFee, TxFlags.HasFee) is not None
+        assert self.store.get(tx_id, TxFlags.Unset, TxFlags.HasFee) is None
 
-        self.assertIsNotNone(self.store.get(tx_id, TxFlags.HasFee, TxFlags.HasFee))
-        self.assertIsNone(self.store.get(tx_id, TxFlags.Unset, TxFlags.HasFee))
+    def test_get_metadata(self) -> None:
+        bytedata = os.urandom(10)
+        tx_hash_bytes = bitcoinx.double_sha256(bytedata)
+        tx_id = bitcoinx.hash_to_hex_str(tx_hash_bytes)
+        metadata = TxData(height=1, fee=2, position=None, timestamp=None)
+        self.store.add(tx_id, metadata, bytedata)
+
+        rowdata = self.store.get_metadata(tx_id)
+        assert rowdata is not None
+        metadata = rowdata[0]
+        assert metadata is not None
+
+        assert metadata.height == 1
+        assert metadata.fee == 2
+        assert metadata.position is None
+        assert metadata.timestamp is None
+
+    def test_get_metadata_many(self) -> None:
+        # We're going to add five matches and look for two of them, checking that we do not match
+        # unwanted rows.
+        all_tx_ids = []
+        for i in range(5):
+            bytedata = os.urandom(10)
+            tx_hash_bytes = bitcoinx.double_sha256(bytedata)
+            tx_id = bitcoinx.hash_to_hex_str(tx_hash_bytes)
+            metadata = TxData(height=i*100, fee=i*1000, position=None, timestamp=None)
+            self.store.add(tx_id, metadata, bytedata)
+            all_tx_ids.append(tx_id)
+
+        # We also ask for a dud tx_id that won't get matched.
+        select_tx_ids = [ all_tx_ids[0], all_tx_ids[3], "12121212" ]
+        rowdatas = self.store.get_metadata_many(tx_ids=select_tx_ids)
+        # Check that the two valid matches are there and their values match the projected values.
+        assert len(rowdatas) == 2
+        for rowdata in rowdatas:
+            tx_id = rowdata[0]
+            metadata = rowdata[1]
+            rowidx = all_tx_ids.index(tx_id)
+            assert metadata.height == rowidx * 100
+            assert metadata.fee == rowidx * 1000
+            assert metadata.position is None
+            assert metadata.timestamp is None
+
+    def test_update_metadata_many(self) -> None:
+        # We're going to add five matches and look for two of them, checking that we do not match
+        # unwanted rows.
+        all_tx_ids = []
+        for i in range(5):
+            bytedata = os.urandom(10)
+            tx_hash_bytes = bitcoinx.double_sha256(bytedata)
+            tx_id = bitcoinx.hash_to_hex_str(tx_hash_bytes)
+            metadata = TxData(height=i*100, fee=i*1000, position=None, timestamp=None)
+            self.store.add(tx_id, metadata, bytedata)
+            all_tx_ids.append(tx_id)
+
+        updates = []
+        for i in range(5):
+            tx_id = all_tx_ids[i]
+            metadata = TxData(height=i*200, fee=i*2000, position=None, timestamp=None)
+            updates.append((tx_id, metadata, TxFlags.HasHeight | TxFlags.HasFee))
+        self.store.update_metadata_many(updates)
+
+        # We also ask for a dud tx_id that won't get matched.
+        select_tx_ids = [ all_tx_ids[0], all_tx_ids[3], "12121212" ]
+        rowdatas = self.store.get_metadata_many(tx_ids=select_tx_ids)
+        # Check that the two valid matches are there and their values match the projected values.
+        assert len(rowdatas) == 2
+        for rowdata in rowdatas:
+            tx_id = rowdata[0]
+            metadata = rowdata[1]
+            rowidx = all_tx_ids.index(tx_id)
+            assert metadata.height == rowidx * 200
+            assert metadata.fee == rowidx * 2000
+            assert metadata.position is None
+            assert metadata.timestamp is None
 
     def test_get_many(self):
         to_add = []
@@ -505,24 +817,24 @@ class TestTransactionStore(unittest.TestCase):
 
         # Test the first "add" id is matched.
         matches = self.store.get_many(tx_ids=[to_add[0][0]])
-        self.assertEqual(to_add[0][0], matches[0][0])
+        assert to_add[0][0] == matches[0][0]
 
         # Test no id is matched.
         matches = self.store.get_many(tx_ids=["aaaa"])
-        self.assertEqual(0, len(matches))
+        assert 0 == len(matches)
 
         # Test flag and mask combinations.
         matches = self.store.get_many(flags=TxFlags.HasFee)
-        self.assertEqual(10, len(matches))
+        assert 10 == len(matches)
 
         matches = self.store.get_many(flags=TxFlags.Unset, mask=TxFlags.HasHeight)
-        self.assertEqual(10, len(matches))
+        assert 10 == len(matches)
 
         matches = self.store.get_many(flags=TxFlags.HasFee, mask=TxFlags.HasFee)
-        self.assertEqual(10, len(matches))
+        assert 10 == len(matches)
 
         matches = self.store.get_many(flags=TxFlags.Unset, mask=TxFlags.HasFee)
-        self.assertEqual(0, len(matches))
+        assert 0 == len(matches)
 
     def test_proof(self):
         bytedata = os.urandom(10)
@@ -536,35 +848,33 @@ class TestTransactionStore(unittest.TestCase):
         proof = TxProof(position1, merkle_branch1)
         self.store.update_proof(tx_id, proof)
 
-        with self.assertRaises(wallet_database.MissingRowError):
+        with pytest.raises(wallet_database.MissingRowError):
             self.store.get_proof(self.tx_id)
 
         position2, merkle_branch2 = self.store.get_proof(tx_id)
-        self.assertEqual(position1, position2)
-        self.assertEqual(merkle_branch1, merkle_branch2)
+        assert position1 == position2
+        assert merkle_branch1 == merkle_branch2
 
 
-class TestTxCache(unittest.TestCase):
+class TestTxCache:
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         cls.temp_dir = tempfile.TemporaryDirectory()
-        db_filename = os.path.join(cls.temp_dir.name, "test")
+        db_filename = os.path.join(cls.temp_dir.name, "testtxc")
         aeskey_hex = "6fce243e381fe158b5e6497c6deea5db5fbc1c6f5659176b9c794379f97269b4"
         aeskey = bytes.fromhex(aeskey_hex)
         cls.store = wallet_database.TransactionStore(db_filename, aeskey, 0)
 
     @classmethod
-    def tearDownClass(cls):
+    def teardown_class(cls):
+        cls.store.close()
         cls.store = None
         cls.temp_dir = None
 
-    def setUp(self):
+    def setup_method(self):
         db = self.store._get_db()
         db.execute(f"DELETE FROM {self.store._table_name}")
         db.commit()
-
-    def tearDown(self):
-        pass
 
     def test_entry_visible(self):
         cache = TxCache(self.store)
@@ -580,7 +890,7 @@ class TestTxCache(unittest.TestCase):
         ]
         for i, (flag_bits, flags, mask, result) in enumerate(combos):
             actual_result = cache._entry_visible(flag_bits, flags, mask)
-            self.assertEqual(result, actual_result, str(combos[i]))
+            assert result == actual_result, str(combos[i])
 
     def test_add_missing_transaction(self):
         cache = TxCache(self.store)
@@ -590,31 +900,30 @@ class TestTxCache(unittest.TestCase):
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
 
         cache.add_missing_transaction(tx_id_1, 100, 94)
-        self.assertTrue(cache.is_cached(tx_id_1))
+        assert cache.is_cached(tx_id_1)
         entry = cache.get_entry(tx_id_1)
-        self.assertEqual(TxFlags.HasFee | TxFlags.HasHeight,
-            entry.flags & TxFlags.METADATA_FIELD_MASK)
-        self.assertIsNone(entry.bytedata)
+        assert TxFlags.HasFee | TxFlags.HasHeight, entry.flags & TxFlags.METADATA_FIELD_MASK
+        assert entry.bytedata is None
 
         tx_bytes_2 = bytes.fromhex(tx_hex_2)
         tx_hash_bytes_2 = bitcoinx.double_sha256(tx_bytes_2)
         tx_id_2 = bitcoinx.hash_to_hex_str(tx_hash_bytes_2)
 
         cache.add_missing_transaction(tx_id_2, 200)
-        self.assertTrue(cache.is_cached(tx_id_2))
+        assert cache.is_cached(tx_id_2)
         entry = cache.get_entry(tx_id_2)
-        self.assertEqual(TxFlags.HasHeight, entry.flags & TxFlags.METADATA_FIELD_MASK)
-        self.assertIsNone(entry.bytedata)
+        assert TxFlags.HasHeight == entry.flags & TxFlags.METADATA_FIELD_MASK
+        assert entry.bytedata is None
 
     def test_add_transaction(self):
         cache = TxCache(self.store)
 
         tx = Transaction.from_hex(tx_hex_1)
         cache.add_transaction(tx)
-        self.assertTrue(cache.is_cached(tx.txid()))
+        assert cache.is_cached(tx.txid())
         entry = cache.get_entry(tx.txid())
-        self.assertEqual(TxFlags.HasByteData, entry.flags & TxFlags.HasByteData)
-        self.assertIsNotNone(entry.bytedata)
+        assert TxFlags.HasByteData == entry.flags & TxFlags.HasByteData
+        assert entry.bytedata is not None
 
     def test_add_transaction_update(self):
         cache = TxCache(self.store)
@@ -624,15 +933,15 @@ class TestTxCache(unittest.TestCase):
             None, TxFlags.StateCleared ]
         cache.add([ data ])
         entry = cache.get_entry(tx.txid())
-        self.assertIsNotNone(entry)
-        self.assertEqual(TxFlags.StateCleared, entry.flags & TxFlags.StateCleared)
+        assert entry is not None
+        assert TxFlags.StateCleared == entry.flags & TxFlags.StateCleared
 
         cache.add_transaction(tx, TxFlags.StateSettled)
 
         entry = cache.get_entry(tx.txid())
-        self.assertIsNotNone(entry)
-        self.assertIsNotNone(entry.bytedata)
-        self.assertEqual(TxFlags.StateSettled, entry.flags & TxFlags.StateSettled)
+        assert entry is not None
+        assert entry.bytedata is not None
+        assert TxFlags.StateSettled == entry.flags & TxFlags.StateSettled
 
     def test_add_then_update(self):
         cache = TxCache(self.store)
@@ -641,20 +950,19 @@ class TestTxCache(unittest.TestCase):
         tx_id_1 = bitcoinx.hash_to_hex_str(bitcoinx.double_sha256(bytedata_1))
         metadata_1 = TxData(position=11)
         cache.add([ (tx_id_1, metadata_1, bytedata_1, TxFlags.StateDispatched) ])
-        self.assertTrue(cache.is_cached(tx_id_1))
+        assert cache.is_cached(tx_id_1)
         entry = cache.get_entry(tx_id_1)
-        self.assertEqual(TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.StateDispatched,
-            entry.flags)
-        self.assertIsNotNone(entry.bytedata)
+        assert TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.StateDispatched == entry.flags
+        assert entry.bytedata is not None
 
         metadata_2 = TxData(fee=10, height=88)
         propagate_flags = TxFlags.HasFee | TxFlags.HasHeight
         cache.update([ (tx_id_1, metadata_2, None, propagate_flags | TxFlags.HasPosition) ])
         entry = cache.get_entry(tx_id_1)
         expected_flags = propagate_flags | TxFlags.StateDispatched | TxFlags.HasByteData
-        self.assertEqual(expected_flags, entry.flags,
-            f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(entry.flags)}")
-        self.assertIsNotNone(entry.bytedata)
+        assert expected_flags == entry.flags, \
+            f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(entry.flags)}"
+        assert entry.bytedata is not None
 
     def test_update_or_add(self):
         cache = TxCache(self.store)
@@ -665,10 +973,10 @@ class TestTxCache(unittest.TestCase):
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
         metadata_1 = TxData()
         cache.update_or_add([ (tx_id_1, metadata_1, bytedata_1, TxFlags.StateCleared) ])
-        self.assertTrue(cache.is_cached(tx_id_1))
+        assert cache.is_cached(tx_id_1)
         entry = cache.get_entry(tx_id_1)
-        self.assertEqual(TxFlags.HasByteData | TxFlags.StateCleared, entry.flags)
-        self.assertIsNotNone(entry.bytedata)
+        assert TxFlags.HasByteData | TxFlags.StateCleared == entry.flags
+        assert entry.bytedata is not None
 
         # Update.
         metadata_2 = TxData(position=22)
@@ -678,12 +986,12 @@ class TestTxCache(unittest.TestCase):
         store_flags = self.store.get_flags(tx_id_1)
         # State flags if present get set in an update otherwise they remain the same.
         expected_flags = TxFlags.HasPosition | TxFlags.HasByteData | TxFlags.StateDispatched
-        self.assertEqual(expected_flags, store_flags,
-            f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(store_flags)}")
-        self.assertEqual(expected_flags, entry.flags,
-            f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(entry.flags)}")
-        self.assertEqual(bytedata_1, entry.bytedata)
-        self.assertEqual(metadata_2.position, entry.metadata.position)
+        assert expected_flags == store_flags, \
+            f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(store_flags)}"
+        assert expected_flags == entry.flags, \
+            f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(entry.flags)}"
+        assert bytedata_1 == entry.bytedata
+        assert metadata_2.position == entry.metadata.position
 
     def test_update_flags(self):
         cache = TxCache(self.store)
@@ -693,21 +1001,20 @@ class TestTxCache(unittest.TestCase):
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
         data = TxData(position=11)
         cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateDispatched) ])
-        self.assertTrue(cache.is_cached(tx_id_1))
+        assert cache.is_cached(tx_id_1)
         entry = cache.get_entry(tx_id_1)
-        self.assertEqual(TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.StateDispatched,
-            entry.flags)
-        self.assertIsNotNone(entry.bytedata)
+        assert TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.StateDispatched == entry.flags
+        assert entry.bytedata is not None
 
         cache.update_flags(tx_id_1, TxFlags.StateCleared, TxFlags.HasByteData|TxFlags.HasProofData)
         entry = cache.get_entry(tx_id_1)
         store_flags = self.store.get_flags(tx_id_1)
         expected_flags = TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.StateCleared
-        self.assertEqual(expected_flags, store_flags,
-            f"{TxFlags.to_repr(expected_flags)} != {TxFlags.to_repr(store_flags)}")
-        self.assertEqual(expected_flags, entry.flags,
-            f"{TxFlags.to_repr(expected_flags)} != {TxFlags.to_repr(entry.flags)}")
-        self.assertIsNotNone(entry.bytedata)
+        assert expected_flags == store_flags, \
+            f"{TxFlags.to_repr(expected_flags)} != {TxFlags.to_repr(store_flags)}"
+        assert expected_flags == entry.flags, \
+            f"{TxFlags.to_repr(expected_flags)} != {TxFlags.to_repr(entry.flags)}"
+        assert entry.bytedata is not None
 
     def test_delete(self):
         cache = TxCache(self.store)
@@ -717,27 +1024,27 @@ class TestTxCache(unittest.TestCase):
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
         data = TxData(position=11)
         cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateDispatched) ])
-        self.assertTrue(self.store.has(tx_id_1))
-        self.assertTrue(cache.is_cached(tx_id_1))
+        assert self.store.has(tx_id_1)
+        assert cache.is_cached(tx_id_1)
 
         cache.delete(tx_id_1)
-        self.assertFalse(self.store.has(tx_id_1))
-        self.assertFalse(cache.is_cached(tx_id_1))
+        assert not self.store.has(tx_id_1)
+        assert not cache.is_cached(tx_id_1)
 
     def test_get_flags(self):
         cache = TxCache(self.store)
 
-        self.assertIsNone(cache.get_flags(os.urandom(10).hex()))
+        assert cache.get_flags(os.urandom(10).hex()) is None
 
         tx_bytes_1 = bytes.fromhex(tx_hex_1)
         tx_hash_bytes_1 = bitcoinx.double_sha256(tx_bytes_1)
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
         data = TxData(position=11)
         cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateDispatched) ])
-        self.assertTrue(cache.is_cached(tx_id_1))
+        assert cache.is_cached(tx_id_1)
 
-        self.assertEqual(TxFlags.StateDispatched | TxFlags.HasByteData | TxFlags.HasPosition,
-            cache.get_flags(tx_id_1))
+        assert TxFlags.StateDispatched | TxFlags.HasByteData | TxFlags.HasPosition == \
+            cache.get_flags(tx_id_1)
 
     def test_get_metadata(self):
         # Verify that getting a non-cached stored entry's metadata will only load the metadata.
@@ -748,14 +1055,14 @@ class TestTxCache(unittest.TestCase):
 
         cache = TxCache(self.store)
         metadata_get = cache.get_metadata(tx_id)
-        self.assertEqual(metadata_set.height, metadata_get.height)
-        self.assertEqual(metadata_set.fee, metadata_get.fee)
-        self.assertEqual(metadata_set.position, metadata_get.position)
-        self.assertEqual(metadata_set.timestamp, metadata_get.timestamp)
+        assert metadata_set.height == metadata_get.height
+        assert metadata_set.fee == metadata_get.fee
+        assert metadata_set.position == metadata_get.position
+        assert metadata_set.timestamp == metadata_get.timestamp
 
         entry = cache.get_cached_entry(tx_id)
-        self.assertTrue(entry.is_metadata_cached())
-        self.assertFalse(entry.is_bytedata_cached())
+        assert entry.is_metadata_cached()
+        assert not entry.is_bytedata_cached()
 
     def test_get_transaction_after_metadata(self):
         bytedata_set = os.urandom(10)
@@ -765,18 +1072,18 @@ class TestTxCache(unittest.TestCase):
 
         cache = TxCache(self.store)
         metadata_get = cache.get_metadata(tx_id)
-        self.assertIsNotNone(metadata_get)
+        assert metadata_get is not None
 
         cached_entry_1 = cache.get_cached_entry(tx_id)
-        self.assertTrue(cached_entry_1.is_metadata_cached())
-        self.assertFalse(cached_entry_1.is_bytedata_cached())
+        assert cached_entry_1.is_metadata_cached()
+        assert not cached_entry_1.is_bytedata_cached()
 
         entry = cache.get_entry(tx_id)
-        self.assertTrue(entry.is_metadata_cached())
-        self.assertTrue(entry.is_bytedata_cached())
+        assert entry.is_metadata_cached()
+        assert entry.is_bytedata_cached()
 
         cached_entry_2 = cache.get_cached_entry(tx_id)
-        self.assertEqual(entry, cached_entry_2)
+        assert entry == cached_entry_2
 
     def test_get_transaction(self):
         bytedata = bytes.fromhex(tx_hex_1)
@@ -787,8 +1094,8 @@ class TestTxCache(unittest.TestCase):
 
         cache = TxCache(self.store)
         tx = cache.get_transaction(tx_id)
-        self.assertIsNotNone(tx)
-        self.assertEqual(tx_id, tx.txid())
+        assert tx is not None
+        assert tx_id == tx.txid()
 
     def test_get_transactions(self):
         tx_ids = []
@@ -802,8 +1109,8 @@ class TestTxCache(unittest.TestCase):
 
         cache = TxCache(self.store)
         for (tx_id, tx) in cache.get_transactions(tx_ids=tx_ids):
-            self.assertIsNotNone(tx)
-            self.assertIn(tx.txid(), tx_ids)
+            assert tx is not None
+            assert tx.txid() in  tx_ids
 
     def test_get_entry(self):
         cache = TxCache(self.store)
@@ -815,10 +1122,10 @@ class TestTxCache(unittest.TestCase):
         cache.add([ (tx_id_1, data, bytedata_1, TxFlags.StateCleared) ])
 
         entry = cache.get_entry(tx_id_1, TxFlags.StateDispatched)
-        self.assertIsNone(entry)
+        assert entry is None
 
         entry = cache.get_entry(tx_id_1, TxFlags.StateCleared)
-        self.assertIsNotNone(entry)
+        assert entry is not None
 
     def test_get_height(self):
         cache = TxCache(self.store)
@@ -829,13 +1136,13 @@ class TestTxCache(unittest.TestCase):
         metadata_1 = TxData(height=11)
         cache.add([ (tx_id_1, metadata_1, bytedata_1, TxFlags.StateCleared) ])
 
-        self.assertEqual(11, cache.get_height(tx_id_1))
+        assert 11 == cache.get_height(tx_id_1)
 
         cache.update_flags(tx_id_1, TxFlags.StateSettled)
-        self.assertEqual(11, cache.get_height(tx_id_1))
+        assert 11 == cache.get_height(tx_id_1)
 
         cache.update_flags(tx_id_1, TxFlags.StateReceived)
-        self.assertIsNone(cache.get_height(tx_id_1))
+        assert cache.get_height(tx_id_1) is None
 
     def test_get_unsynced_ids(self):
         cache = TxCache(self.store)
@@ -847,13 +1154,13 @@ class TestTxCache(unittest.TestCase):
         cache.add([ (tx_id_1, metadata_1, None, TxFlags.StateCleared) ])
 
         results = cache.get_unsynced_ids()
-        self.assertEqual(1, len(results))
+        assert 1 == len(results)
 
         metadata_2 = TxData()
         cache.update([ (tx_id_1, metadata_2, bytedata_1, TxFlags.HasByteData) ])
 
         results = cache.get_unsynced_ids()
-        self.assertEqual(0, len(results))
+        assert 0 == len(results)
 
     def test_get_unverified_entries_too_high(self):
         cache = TxCache(self.store)
@@ -865,7 +1172,7 @@ class TestTxCache(unittest.TestCase):
         cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateCleared) ])
 
         results = cache.get_unverified_entries(100)
-        self.assertEqual(0, len(results))
+        assert 0 == len(results)
 
     def test_get_unverified_entries(self):
         cache = TxCache(self.store)
@@ -878,15 +1185,15 @@ class TestTxCache(unittest.TestCase):
         cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateCleared) ])
 
         results = cache.get_unverified_entries(10)
-        self.assertEqual(0, len(results))
+        assert 0 == len(results)
 
         results = cache.get_unverified_entries(11)
-        self.assertEqual(1, len(results))
+        assert 1 == len(results)
 
 
-class TestXputCache(unittest.TestCase):
+class TestXputCache:
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_filename_txin = os.path.join(cls.temp_dir.name, "test_txin")
         db_filename_txout = os.path.join(cls.temp_dir.name, "test_txout")
@@ -896,21 +1203,20 @@ class TestXputCache(unittest.TestCase):
         cls.txout_store = wallet_database.TransactionOutputStore(db_filename_txout, aeskey, 0)
 
     @classmethod
-    def tearDownClass(cls):
+    def teardown_class(cls):
+        cls.txin_store.close()
         cls.txin_store = None
+        cls.txout_store.close()
         cls.txout_store = None
         cls.temp_dir = None
 
-    def setUp(self):
+    def setup_method(self):
         for store in (self.txin_store, self.txout_store):
             db = store._get_db()
             db.execute(f"DELETE FROM {store._table_name}")
             db.commit()
 
             store._fetch_write_timestamp()
-
-    def tearDown(self):
-        pass
 
     def test_cache_with_preload(self):
         tx_id = os.urandom(10).hex()
@@ -921,9 +1227,9 @@ class TestXputCache(unittest.TestCase):
             tx_store.add_entries([ (tx_id, tx_xput) ])
 
             cache = wallet_database.TxXputCache(tx_store, "teststore")
-            self.assertTrue(tx_id in cache._cache)
-            self.assertEqual(1, len(cache._cache[tx_id]))
-            self.assertEqual(tx_xput, cache._cache[tx_id][0])
+            assert tx_id in cache._cache
+            assert 1 == len(cache._cache[tx_id])
+            assert tx_xput == cache._cache[tx_id][0]
 
     def test_cache_get_entries(self):
         tx_id = os.urandom(10).hex()
@@ -935,8 +1241,33 @@ class TestXputCache(unittest.TestCase):
             cache = wallet_database.TxXputCache(tx_store, "teststore")
             entries = cache.get_entries(tx_id)
 
-            self.assertEqual(1, len(entries))
-            self.assertEqual(tx_xput, entries[0])
+            assert 1 == len(entries)
+            assert tx_xput == entries[0]
+
+        # Look up a tx_id that does not exist.
+        entries = cache.get_entries(reversed(tx_id))
+        assert 0 == len(entries)
+
+    def test_cache_get_all_entries(self):
+        all_tx_ids = []
+        for i in range(5):
+            tx_id = os.urandom(10).hex()
+            all_tx_ids.append(tx_id)
+            tx_input = DBTxInput("address_string", "hash", 10, 10)
+            tx_output = DBTxOutput("address_string", 10, 10, False)
+
+            for tx_xput, tx_store in ((tx_input, self.txin_store), (tx_output, self.txout_store)):
+                tx_store.add_entries([ (tx_id, tx_xput) ])
+
+        for tx_xput, tx_store in ((tx_input, self.txin_store), (tx_output, self.txout_store)):
+            cache = wallet_database.TxXputCache(tx_store, "teststore")
+            entries = cache.get_all_entries()
+            assert len(entries) == 5
+
+            expected_tx_ids = all_tx_ids[:]
+            for entry_tx_id in entries:
+                expected_tx_ids.remove(entry_tx_id)
+            assert len(expected_tx_ids) == 0
 
     def test_cache_add(self):
         tx_id = os.urandom(10).hex()
@@ -948,14 +1279,14 @@ class TestXputCache(unittest.TestCase):
             cache.add_entries([ (tx_id, tx_xput) ])
 
             # Check the caching layer has the entry.
-            self.assertTrue(tx_id in cache._cache)
-            self.assertEqual(1, len(cache._cache[tx_id]))
-            self.assertEqual(tx_xput, cache._cache[tx_id][0])
+            assert tx_id in cache._cache
+            assert 1 == len(cache._cache[tx_id])
+            assert tx_xput == cache._cache[tx_id][0]
 
             # Check the store has the entry.
             entries = tx_store.get_entries(tx_id)
-            self.assertEqual(1, len(entries))
-            self.assertEqual(tx_xput, entries[0])
+            assert 1 == len(entries)
+            assert tx_xput == entries[0]
 
     def test_cache_delete(self):
         tx_id = os.urandom(10).hex()
@@ -968,8 +1299,8 @@ class TestXputCache(unittest.TestCase):
             cache.delete_entries([ (tx_id, tx_xput) ])
 
             # Check the caching layer no longer has the entry.
-            self.assertEqual(0, len(cache._cache[tx_id]))
+            assert 0 == len(cache._cache[tx_id])
 
             # Check the store no longer has the entry.
             entries = tx_store.get_entries(tx_id)
-            self.assertEqual(0, len(entries))
+            assert 0 == len(entries)

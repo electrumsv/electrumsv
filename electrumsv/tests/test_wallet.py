@@ -33,6 +33,10 @@ class MockStorage:
             return self.tx_store_aeskey_hex
         return default
 
+    def get_path(self) -> str:
+        return self.path
+
+
 def setUpModule():
     setup_async()
 
@@ -63,15 +67,12 @@ class FakeSynchronizer(object):
 
 
 class WalletTestCase(unittest.TestCase):
-
     def setUp(self):
-        super(WalletTestCase, self).setUp()
         self.user_dir = tempfile.mkdtemp()
 
         self.wallet_path = os.path.join(self.user_dir, "somewallet")
 
     def tearDown(self):
-        super(WalletTestCase, self).tearDown()
         shutil.rmtree(self.user_dir)
 
 
@@ -87,26 +88,6 @@ class TestWalletStorage(WalletTestCase):
         storage = WalletStorage(self.wallet_path, manual_upgrades=True)
         self.assertEqual("b", storage.get("a"))
         self.assertEqual("d", storage.get("c"))
-
-    def test_write_dictionary_to_file(self):
-
-        storage = WalletStorage(self.wallet_path)
-
-        some_dict = {
-            "a": "b",
-            "c": "d",
-            "seed_version": FINAL_SEED_VERSION,
-            "tx_store_aeskey": storage.get("tx_store_aeskey"),
-            "wallet_author": "ESV"}
-
-        for key, value in some_dict.items():
-            storage.put(key, value)
-        storage.write()
-
-        contents = ""
-        with open(self.wallet_path, "r") as f:
-            contents = f.read()
-        self.assertEqual(some_dict, json.loads(contents))
 
 
 def check_legacy_parent_of_standard_wallet(parent_wallet: ParentWallet,

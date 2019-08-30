@@ -87,7 +87,7 @@ class BaseWizard(object):
         self.run(action, *args)
 
     def new(self) -> None:
-        name = os.path.basename(self.storage.path)
+        name = os.path.basename(self.storage.get_path())
         title = _("Create") + ' ' + name
         message = '\n'.join([
             _("What kind of wallet do you want to create?")
