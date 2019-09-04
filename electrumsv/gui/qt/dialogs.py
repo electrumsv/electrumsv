@@ -143,7 +143,7 @@ raw_release_notes += "</li>"
 
 take_care_notice = """
 <span>ElectrumSV is just a Bitcoin SV wallet, it cannot stop you from making bad decisions. Read
-<a href="https://medium.com/@roger.taylor/avoiding-coin-loss-b8bd66855369">this article</a> for
+<a style="color:green;" href="https://medium.com/@roger.taylor/avoiding-coin-loss-b8bd66855369">this article</a> for
 an overview of the various risks, and the mistakes others have made resulting in the
 <font color=red><b>loss of coins</b></font>.
 Your coins are your responsibility, take care with them.</span>
