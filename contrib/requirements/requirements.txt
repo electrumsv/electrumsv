@@ -1,5 +1,6 @@
 pyaes>=0.1a1
-requests
+requests>=2.22.0
+certifi
 qrcode
 dnspython
 ecdsa
