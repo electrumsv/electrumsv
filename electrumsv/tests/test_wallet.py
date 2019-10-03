@@ -33,6 +33,10 @@ class MockStorage:
             return self.tx_store_aeskey_hex
         return default
 
+    def is_encrypted(self) -> bool:
+        return False
+
+
 def setUpModule():
     setup_async()
 
@@ -110,7 +114,8 @@ class TestWalletStorage(WalletTestCase):
 
 
 def check_legacy_parent_of_standard_wallet(parent_wallet: ParentWallet,
-        seed_words: Optional[str]=None, is_bip39: bool=False) -> None:
+        seed_words: Optional[str]=None, is_bip39: bool=False,
+        password: Optional[str]=None) -> None:
     assert len(parent_wallet.get_child_wallets()) == 1
     child_wallet: Standard_Wallet = parent_wallet.get_child_wallets()[0]
 
@@ -120,6 +125,13 @@ def check_legacy_parent_of_standard_wallet(parent_wallet: ParentWallet,
     assert len(child_keystores) == 1
     assert parent_keystores[0] is child_keystores[0]
 
+    keystore_encrypted = parent_wallet.has_password()
+    if keystore_encrypted:
+        assert password is not None
+        assert not child_keystores[0].has_seed() or child_keystores[0].get_seed(password)
+        assert type(child_keystores[0].get_passphrase(password)) is str
+        assert child_keystores[0].get_master_private_key(password)
+
     keystore_data = parent_keystores[0].dump()
     entry_count = 4
     if is_bip39:
@@ -128,6 +140,7 @@ def check_legacy_parent_of_standard_wallet(parent_wallet: ParentWallet,
     assert keystore_data['type'] == 'bip32'
     assert 'xpub' in keystore_data
     assert 'xprv' in keystore_data
+    assert "encrypted" not in parent_wallet.name() or keystore_encrypted
     if is_bip39:
         assert "seed" not in keystore_data
     else:
@@ -394,9 +407,10 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
     # else:
     #     raise Exception(f"unable to identify wallet network for {wallet_filename}")
 
+    password = "123456"
     storage = WalletStorage(wallet_path)
     if "passworded" in wallet_filename:
-        storage.decrypt("123456")
+        storage.decrypt(password)
 
     try:
         parent_wallet = ParentWallet(storage)
@@ -408,7 +422,8 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
 
     if "standard" in wallet_filename:
         is_bip39 = "bip39" in wallet_filename
-        check_legacy_parent_of_standard_wallet(parent_wallet, is_bip39=is_bip39)
+        check_legacy_parent_of_standard_wallet(parent_wallet, is_bip39=is_bip39,
+            password=password)
     elif "imported_privkey" in wallet_filename:
         check_legacy_parent_of_imported_privkey_wallet(parent_wallet)
     elif "imported_address" in wallet_filename:

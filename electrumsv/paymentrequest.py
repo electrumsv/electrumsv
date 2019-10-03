@@ -30,6 +30,7 @@ from typing import Any, List, Optional, Tuple, Dict
 import urllib.parse
 
 from bitcoinx import TxOutput, Script, Address, classify_output_script
+import certifi
 import requests
 
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
@@ -50,7 +51,7 @@ ACK_HEADERS = {
 }
 
 # Used for requests.
-ca_path = requests.certs.where()
+ca_path = certifi.where()
 
 
 # status of payment requests

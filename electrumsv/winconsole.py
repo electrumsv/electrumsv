@@ -30,6 +30,8 @@ import ctypes
 import os
 import sys
 
+assert sys.platform == 'win32'
+
 from electrumsv.logs import logs
 from typing import Generator, Union
 
