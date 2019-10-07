@@ -38,7 +38,7 @@ import weakref
 import webbrowser
 
 from bitcoinx import PublicKey, Script, Address, P2PKH_Address, TxOutput
-from bitcoinx import OP_RETURN   # pylint: disable=no-name-in-module
+from bitcoinx import OP_RETURN, OP_FALSE   # pylint: disable=no-name-in-module
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl)
 from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices
@@ -1414,7 +1414,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             for file_path in file_paths:
                 with open(file_path, "rb") as f:
                     data_chunks.append(f.read())
-            script = (Script() << OP_RETURN).push_many(data_chunks)
+            script = (Script() << OP_FALSE << OP_RETURN).push_many(data_chunks)
             return [TxOutput(0, script)]
         return []
 
