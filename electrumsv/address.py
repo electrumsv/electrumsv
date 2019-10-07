@@ -137,6 +137,7 @@ class ScriptOutput(namedtuple("ScriptAddressTuple", "script")):
     @classmethod
     def as_op_return(self, data_chunks):
         script = bytearray()
+        script.append(Ops.OP_FALSE)
         script.append(Ops.OP_RETURN)
         for data_bytes in data_chunks:
             script.extend(Script.push_data(data_bytes))
