@@ -1662,15 +1662,12 @@ class TxCache:
             # rows with relevant height, but all the metadata is cached anyway so not an issue.
             store_updates = []
             for (tx_id, entry) in self.get_metadatas(fetch_flags, fetch_mask):
-                print("DETEL", tx_id, entry)
                 if entry.metadata.height > reorg_height:
                     # Update the cached version to match the changes we are going to apply.
                     entry.flags = (entry.flags & unverify_mask) | TxFlags.StateSettled
                     entry.metadata = TxData(0, 0, 0, entry.metadata.fee)
-                    print("DETEL__PLUS", tx_id, entry, TxFlags.to_repr(entry.flags))
                     store_updates.append((tx_id, entry.metadata, entry.flags))
             if len(store_updates):
-                print("DETEL__UPDATE", store_updates)
                 self._store.update_metadata_many(store_updates)
             return len(store_updates)
 
