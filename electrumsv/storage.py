@@ -558,7 +558,7 @@ class TextStore(BaseStore):
                 return True
             # Versions above the compatible seed version, which may conflict with versions those
             # other wallets use.
-            if seed_version < self.FINAL_SEED_VERSION:
+            if seed_version < TextStore.FINAL_SEED_VERSION + 1:
                 # We flag our upgraded wallets past seed version 17 with 'wallet_author' = 'ESV'.
                 if self.get('wallet_author') == 'ESV':
                     return True

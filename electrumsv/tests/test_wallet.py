@@ -11,7 +11,7 @@ from bitcoinx import PrivateKey, PublicKey, Address, Script
 from electrumsv.keystore import from_seed, from_xpub, Old_KeyStore
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import (get_categorised_files, multisig_type,
-    StorageKind, WalletStorage, WalletStorageInfo)
+    StorageKind, WalletStorage, WalletStorageInfo, DATABASE_EXT)
 from electrumsv.transaction import XPublicKey
 from electrumsv.wallet import (sweep_preparations, ImportedPrivkeyWallet, ImportedAddressWallet,
     Multisig_Wallet, ParentWallet, Standard_Wallet, UTXO)
@@ -370,14 +370,17 @@ class TestLegacyWalletCreation:
 @pytest.mark.parametrize("storage_info", get_categorised_files(TEST_WALLET_PATH))
 def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
     # When a wallet is composed of multiple files, we need to know which to load.
-    wallet_filename = storage_info.filename
-    if storage_info.kind == StorageKind.DATABASE:
-        wallet_filename = storage_info.filename +".sqlite"
+    wallet_filenames = []
+    if storage_info.kind != StorageKind.DATABASE:
+        wallet_filenames.append(storage_info.filename)
+    if storage_info.kind in (StorageKind.DATABASE, StorageKind.HYBRID):
+        wallet_filenames.append(storage_info.filename + DATABASE_EXT)
 
-    source_wallet_path = os.path.join(TEST_WALLET_PATH, wallet_filename)
     temp_dir = tempfile.mkdtemp()
-    wallet_path = os.path.join(temp_dir, wallet_filename)
-    shutil.copyfile(source_wallet_path, wallet_path)
+    for _wallet_filename in wallet_filenames:
+        source_wallet_path = os.path.join(TEST_WALLET_PATH, _wallet_filename)
+        wallet_path = os.path.join(temp_dir, _wallet_filename)
+        shutil.copyfile(source_wallet_path, wallet_path)
 
     # net = None
     # if "testnet" in wallet_filename:
@@ -386,6 +389,9 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
     #     net = SVMainnet
     # else:
     #     raise Exception(f"unable to identify wallet network for {wallet_filename}")
+
+    wallet_filename = storage_info.filename
+    wallet_path = os.path.join(temp_dir, wallet_filename)
 
     password = "123456"
     storage = WalletStorage(wallet_path)
