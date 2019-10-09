@@ -265,10 +265,11 @@ class Abstract_Wallet:
         parent_wallet.add_child_wallet(instance)
         return instance
 
-    def _open_database(self, close_existing: bool=False) -> None:
-        if close_existing:
-            self._datastore.close()
+    def _open_database(self) -> None:
         self._datastore = self._parent_wallet.get_wallet_datastore(self._id)
+
+    def _close_database(self) -> None:
+        self._datastore.close()
 
     def is_wrapped_legacy_wallet(self):
         return True
@@ -1148,7 +1149,7 @@ class Abstract_Wallet:
         if all_index is None:
             # Let the coin chooser select the coins to spend
             max_change = self.max_change_outputs if self.multiple_change else 1
-            coin_chooser = coinchooser.CoinChooserRandom()
+            coin_chooser = coinchooser.CoinChooserPrivacy()
             tx = coin_chooser.make_tx(inputs, outputs, change_addrs[:max_change],
                                       fee_estimator, self.dust_threshold())
         else:
@@ -1223,6 +1224,7 @@ class Abstract_Wallet:
             self._wallet_data['stored_height'] = self.get_local_height()
             self.network = None
         self.save_external_data()
+        self._datastore.close()
 
     def can_export(self) -> bool:
         return not self.is_watching_only() and hasattr(self.get_keystore(), 'get_private_key')
@@ -1535,7 +1537,7 @@ class Abstract_Wallet:
     def _add_new_addresses(self, addresses: Iterable[Address], for_change: bool=False):
         assert all(isinstance(address, Address) for address in addresses)
         if addresses:
-            self.logger.debug("_add_new_addresses: %s", [a.to_string() for a in addresses])
+            # self.logger.debug("_add_new_addresses: %s", [a.to_string() for a in addresses])
             with self._new_addresses_lock:
                 self._new_addresses.extend(addresses)
             self._new_addresses_event.set()
@@ -1941,11 +1943,14 @@ class Multisig_Wallet(Deterministic_Wallet):
     # generic m of n
     gap_limit = 20
 
+    TYPE_BARE = "bare"
+    TYPE_P2SH = "p2sh"
+
     def __init__(self, parent_wallet: 'ParentWallet', wallet_data: Dict[str, Any]) -> None:
+        self.txin_type = wallet_data.get('txin_type', self.TYPE_P2SH)
         self.wallet_type = wallet_data.get('wallet_type')
         self.m, self.n = multisig_type(self.wallet_type)
         Deterministic_Wallet.__init__(self, parent_wallet, wallet_data)
-        self.txin_type = 'p2sh'
 
     def get_pubkeys(self, c, i):
         return self.derive_pubkeys(c, i)
@@ -2012,6 +2017,7 @@ class ParentWallet:
     def __init__(self, storage: WalletStorage,
             creation_type: Optional[str]=None) -> None:
         self._storage = storage
+        self._db_context = storage.get_db_context()
         self._logger = logs.get_logger(f"wallet[{self.name()}]")
 
         self.tx_store_aeskey_bytes = bytes.fromhex(self._storage.get('tx_store_aeskey'))
@@ -2024,9 +2030,15 @@ class ParentWallet:
         return klass(storage, ParentWalletKinds.LEGACY)
 
     def move_to(self, new_path: str) -> None:
-        self._storage.move_to(new_path)
         for child_wallet in self._child_wallets:
-            child_wallet._open_database(close_existing=True)
+            child_wallet._close_database()
+        self._db_context = None
+
+        self._storage.move_to(new_path)
+
+        self._db_context = self._storage.get_db_context()
+        for child_wallet in self._child_wallets:
+            child_wallet._open_database()
 
     def load_state(self, creation_type: Optional[str]=None) -> None:
         self._type = self._storage.get("type", creation_type)
@@ -2061,7 +2073,7 @@ class ParentWallet:
         self._storage.write()
 
     def get_wallet_datastore(self, wallet_id: int) -> WalletData:
-        return WalletData(self.get_storage_path(), self.tx_store_aeskey_bytes, wallet_id)
+        return WalletData(self._db_context, self.tx_store_aeskey_bytes, wallet_id)
 
     def get_next_child_wallet_id(self) -> int:
         return len(self._child_wallets)
@@ -2169,6 +2181,7 @@ class ParentWallet:
         for wallet in self.get_child_wallets():
             wallet.stop()
         self._storage.write()
+        self._storage.close()
 
     def create_gui_handlers(self, window: 'ElectrumWindow') -> None:
         for wallet in self.get_child_wallets():

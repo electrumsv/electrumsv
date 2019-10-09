@@ -291,6 +291,14 @@ def _match_decoded(decoded, to_match):
     return True
 
 
+def _extract_multisig_pattern(decoded):
+    m = decoded[0][0] - Ops.OP_1 + 1
+    n = decoded[-2][0] - Ops.OP_1 + 1
+    op_m = Ops.OP_1 + m - 1
+    op_n = Ops.OP_1 + n - 1
+    return m, n, [ op_m ] + [Ops.OP_PUSHDATA4]*n + [ op_n, Ops.OP_CHECKMULTISIG ]
+
+
 def _parse_script_sig(script, kwargs):
     try:
         decoded = list(_script_GetOp(script))
@@ -324,14 +332,11 @@ def _parse_script_sig(script, kwargs):
     if not _match_decoded(decoded, match):
         logger.error("cannot find address in input script %s", bh2u(script))
         return
+
     nested_script = decoded[-1][1]
     dec2 = [ x for x in _script_GetOp(nested_script) ]
     x_pubkeys = [XPublicKey(x[1]) for x in dec2[1:-2]]
-    m = dec2[0][0] - Ops.OP_1 + 1
-    n = dec2[-2][0] - Ops.OP_1 + 1
-    op_m = Ops.OP_1 + m - 1
-    op_n = Ops.OP_1 + n - 1
-    match_multisig = [ op_m ] + [Ops.OP_PUSHDATA4]*n + [ op_n, Ops.OP_CHECKMULTISIG ]
+    m, n, match_multisig = _extract_multisig_pattern(dec2)
     if not _match_decoded(dec2, match_multisig):
         logger.error("cannot find address in input script %s", bh2u(script))
         return

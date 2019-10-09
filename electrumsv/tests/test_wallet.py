@@ -17,6 +17,7 @@ from electrumsv.storage import (get_categorised_files, multisig_type,
 from electrumsv.transaction import XPublicKey
 from electrumsv.wallet import (sweep_preparations, ImportedPrivkeyWallet, ImportedAddressWallet,
     Multisig_Wallet, ParentWallet, Standard_Wallet, UTXO)
+from electrumsv.wallet_database import DatabaseContext
 
 from .util import setup_async, tear_down_async, TEST_WALLET_PATH
 
@@ -40,6 +41,9 @@ class MockStorage:
 
     def get_path(self) -> str:
         return self.path
+
+    def get_db_context(self):
+        return DatabaseContext(self.path)
 
 
 def setUpModule():

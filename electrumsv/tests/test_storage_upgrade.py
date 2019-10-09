@@ -353,6 +353,8 @@ class TestStorageUpgrade(WalletTestCase):
         # Generically check that all parent keystores are in use.
         self.assertEqual(len(parent_wallet._keystores), len(keystore_indexes))
 
+        parent_wallet.stop()
+
     def _load_storage_from_json_string(self, wallet_json, manual_upgrades=True):
         with open(self.wallet_path, "w") as f:
             f.write(wallet_json)

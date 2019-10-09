@@ -38,7 +38,7 @@ import re
 import shutil
 import stat
 import threading
-from typing import Any, Dict, List, Optional, Type, TypeVar
+from typing import Any, Dict, List, Optional, Type, TypeVar, cast
 import zlib
 
 from bitcoinx import PrivateKey, PublicKey
@@ -50,7 +50,7 @@ from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
 from .wallet_database import (DBTxInput, DBTxOutput, JSONKeyValueStore, MigrationContext,
-    TxData, WalletData)
+    TxData, WalletData, DatabaseContext)
 
 
 logger = logs.get_logger("storage")
@@ -168,11 +168,11 @@ class BaseStore:
 
         self._lock = threading.RLock()
 
-    def move_to(self, new_path: str) -> None:
-        raise NotImplementedError
-
     def close(self) -> None:
         pass
+
+    def set_path(self, new_path: str) -> None:
+        self._path = new_path
 
     def get_path(self) -> str:
         return self._path
@@ -289,7 +289,7 @@ class DatabaseStore(BaseStore):
 
         super().__init__(path, pubkey=pubkey, data=data)
 
-        self._open_database()
+        self.open_database()
 
         version_data = self._db_values.get("seed_version")
         if version_data is None:
@@ -301,30 +301,28 @@ class DatabaseStore(BaseStore):
             self._primed = True
             self._set_seed_version(version_data)
 
-    def move_to(self, new_path: str) -> None:
-        assert os.path.exists(new_path + DATABASE_EXT)
-
-        self._path = new_path
-        self._open_database(close_existing=True)
-
     def close(self) -> None:
-        # NOTE(rt12): Strictly speaking this just ensures that things are released and deallocated
-        # for now. This ensures that the object gets garbage collected in a deterministic manner
-        # which means that for instance the unit tests can rely on the database being closed
-        # given knowledge of the resources in use, and their lifetime.
-        # See: WalletStorage.close
-        self._db_values.close()
+        self.close_database()
 
-    def _open_database(self, close_existing=False) -> None:
-        if close_existing:
-            self._db_values.close()
+    def set_path(self, new_path: str) -> None:
+        assert os.path.exists(new_path + DATABASE_EXT)
+        super().set_path(new_path)
 
+    def open_database(self) -> None:
         # This table is unencrypted. If anything is to be encrypted in it, it is encrypted
         # manually before storage.
+        self._db_context = DatabaseContext(self._path)
         initial_aeskey = None
         storage_group_id = -1
-        self._db_values = JSONKeyValueStore("Storage", self._path, initial_aeskey,
+        self._db_values = JSONKeyValueStore("Storage", self._db_context, initial_aeskey,
             storage_group_id)
+
+    def close_database(self) -> None:
+        self._db_values.close()
+
+        # Wait for the database to finish writing, and verify that the context has been fully
+        # released by all stores that make use of it.
+        self._db_context.close()
 
     def _get_seed_version(self) -> int:
         seed_version = self._db_values.get("seed_version")
@@ -408,7 +406,6 @@ class DatabaseStore(BaseStore):
         # lump structure.
         seed_version = self._get_seed_version()
         if seed_version < 21:
-            print("UPGRADE", seed_version)
             self._set_seed_version(FINAL_SEED_VERSION)
         return None
 
@@ -830,7 +827,8 @@ class TextStore(BaseStore):
             self.put('tx_store_aeskey', tx_store_aeskey_hex)
         tx_store_aeskey = bytes.fromhex(tx_store_aeskey_hex)
 
-        db = WalletData(self._path, tx_store_aeskey, 0)
+        db_context = DatabaseContext(self._path)
+        db = WalletData(db_context, tx_store_aeskey, 0)
 
         # Transaction-related data.
         tx_map_in = self.get('transactions', {})
@@ -919,6 +917,9 @@ class TextStore(BaseStore):
         self.put('wallet_author', 'ESV')
         self.put('seed_version', 18)
 
+        db.close()
+        db_context.close()
+
     def _convert_version_19(self) -> None:
         if not self._is_upgrade_method_needed(18, 18):
             return
@@ -974,7 +975,11 @@ class TextStore(BaseStore):
 
         # Convert the database to designate child wallets.
         tx_store_aeskey = bytes.fromhex(self.get('tx_store_aeskey'))
-        WalletData(self._path, tx_store_aeskey, subwallet_id, MigrationContext(18, 19))
+
+        db_context = DatabaseContext(self._path)
+        db = WalletData(db_context, tx_store_aeskey, subwallet_id, MigrationContext(18, 19))
+        db.close()
+        db_context.close()
 
         self.put('seed_version', 19)
 
@@ -1027,6 +1032,7 @@ class TextStore(BaseStore):
 
 class WalletStorage:
     _store: BaseStore
+    _is_closed: bool = False
 
     def __init__(self, path: str, manual_upgrades: bool=False,
             data: Optional[Dict[str, Any]]=None,
@@ -1077,6 +1083,12 @@ class WalletStorage:
                     self.load_data(raw)
 
     def move_to(self, new_path: str) -> None:
+        db_store = cast(DatabaseStore, self._store)
+
+        # At this point, anything that shares the database context, or database file, should
+        # have relinquished it. This should be the final action in closing the database.
+        db_store.close_database()
+
         # This does not remove the original database file. The move refers to the switch over
         # to the copy as the underlying store.
         if new_path.lower().endswith(DATABASE_EXT):
@@ -1087,9 +1099,14 @@ class WalletStorage:
         # NOTE(rt12): Everything keeps the extensionless path. Need to consider if it makes it
         # easier to keep the full path, and refactor accordingly.
         self._path = new_path
-        self._store.move_to(new_path)
+
+        db_store.set_path(new_path)
+        db_store.open_database()
 
     def close(self) -> None:
+        if self._is_closed:
+            return
+
         # NOTE(rt12): Strictly speaking this just ensures that things are released and deallocated
         # for now. This ensures that the object gets garbage collected in a deterministic manner
         # which means that for instance the unit tests can rely on the database being closed
@@ -1104,6 +1121,8 @@ class WalletStorage:
         del self.split_accounts
         del self.requires_upgrade
         del self.is_encrypted
+
+        self._is_closed = True
 
     def get_path(self) -> str:
         return self._store.get_path()
@@ -1145,6 +1164,9 @@ class WalletStorage:
         self._store.set_pubkey(pubkey)
 
     def _set_store(self, store: StoreType) -> None:
+        # This should only be called on `WalletStorage` creation or during the upgrade process
+        # as one type of store transitions to another type. This will ensure that any object
+        # using this object, will post-creation/post-upgrade have a static store to work with.
         self._store = store
 
         self.get = store.get
@@ -1162,14 +1184,16 @@ class WalletStorage:
         # The store can change if the old kind of store was obsoleted. We upgrade through
         # obsoleted kinds of stores to the final in-use kind of store.
         while True:
-            print(f"upgrade {self._store}")
             new_store = self._store.upgrade()
             if new_store is not None:
                 self._set_store(new_store)
-                print(f"new_store.requires_upgrade {new_store.requires_upgrade()}")
                 if new_store.requires_upgrade():
                     continue
             break
+
+    def get_db_context(self) -> DatabaseContext:
+        db_store = cast(DatabaseStore, self._store)
+        return db_store._db_context
 
     @classmethod
     def files_are_matched_by_path(klass, path: str) -> StorageKind:

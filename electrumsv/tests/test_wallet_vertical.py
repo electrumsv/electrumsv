@@ -9,6 +9,7 @@ from electrumsv.bitcoin import seed_type, address_from_string
 from electrumsv import keystore
 from electrumsv import storage
 from electrumsv import wallet
+from electrumsv import wallet_database
 
 from .util import setup_async, tear_down_async
 
@@ -37,6 +38,9 @@ class MockStorage:
 
     def get_path(self):
         return self.path
+
+    def get_db_context(self):
+        return wallet_database.DatabaseContext(self.path)
 
 
 class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
