@@ -24,7 +24,7 @@
 '''Platform-specific customization for ElectrumSV'''
 
 import os
-import platform
+import platform as os_platform
 import sys
 
 from electrumsv.i18n import _
@@ -103,7 +103,7 @@ class Windows(Platform):
 
 
 def _detect():
-    system = platform.system()
+    system = os_platform.system()
     if system == 'Darwin':
         cls = Darwin
     elif system == 'Linux':

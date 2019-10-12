@@ -30,6 +30,7 @@ from typing import Any, List, Optional, Tuple, Union, Dict
 import urllib.parse
 
 from bitcoinx import Script, P2PKH_Script
+import certifi
 import requests
 
 from . import address
@@ -52,7 +53,7 @@ ACK_HEADERS = {
 }
 
 # Used for requests.
-ca_path = requests.certs.where()
+ca_path = certifi.where()
 
 
 # status of payment requests
