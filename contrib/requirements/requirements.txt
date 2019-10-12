@@ -3,7 +3,7 @@ requests>=2.22.0
 certifi
 qrcode
 dnspython
-ecdsa
+ecdsa>=0.13.3
 jsonrpclib-pelix
 aiorpcX>=0.18.0,<0.19
 python-dateutil>=2.8.0
