@@ -133,13 +133,7 @@ def show_named(name, *, parent=None, parent_wallet=None, **kwargs):
         raise ValueError(f'no box with name {name} found')
     return box.result(parent, parent_wallet, **kwargs)
 
-raw_release_notes = """
-  * Wallets: The wallet format has changed and when you open your wallet it will be backed up
-    and upgraded. This is an alpha level change that will change further before final release.
-"""
-raw_release_notes = raw_release_notes.replace("  * ", "<li>", 1)
-raw_release_notes = raw_release_notes.replace("  * ", "</li><li>")
-raw_release_notes += "</li>"
+article_uri = "https://medium.com/@roger.taylor/electrumsv-1-3-0a1-unstable-2f24c104979e"
 
 take_care_notice = """
 <span>ElectrumSV is just a Bitcoin SV wallet, it cannot stop you from making bad decisions. Read
@@ -153,8 +147,8 @@ all_boxes = [
     InfoBox('welcome-ESV-1.3.0a1',
             _('Welcome to ElectrumSV 1.3.0a1'),
             '<p>'+ take_care_notice +'</p>'+
-            _('This release includes the following changes:') +
-            '<ul>'+ raw_release_notes +'</ul>'
+            '<p>You can read about the changes included in this release, in the '+
+            f'<a href="{article_uri}">release guide</a> we have written.</p>'
     ),
     YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Cancel"), False),
     WarningBox('illegal-files-are-traceable',

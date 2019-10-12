@@ -37,8 +37,17 @@ at first, to yourself, to confirm the network is processing your transactions as
 ElectrumSV
 -----------
 # Release 1.3.0a1
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-0a1-unstable-2f24c104979e
+    It is advised you read the linked guide for a definitive source of information about what
+    has changes in this release. Entries in this list are added by developers who make changes
+    and are more intended as an overview, for use in the more approachable release guide.
   * Wallets: The wallet format has changed and when you open your wallet it will be backed up
     and upgraded. This is an alpha level change that will change further before final release.
+    Wallets will migrate from a JSON-based file, to an sqlite-based database.
+  * Keys: Wallets can now have multiple sets of keys, and multiple sub-wallets. Sub-wallets
+    can in theory share parent keys, and derive distinct spaces using them for their own use.
+  * User interface: The user interface has had minor changes to facilitate access and usage of
+    sub-wallets. We currently only create one sub-wallet, so the changes are superficial so far.
 
 # Release 1.2.1
   * Windows: Previously running the ElectrumSV application on Windows would not allow easy access
