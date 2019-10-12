@@ -103,7 +103,7 @@ def command(s):
             if c.requires_wallet and parent_wallet is None:
                 raise Exception("Wallet not loaded. Use 'electrum-sv daemon load_wallet'")
             if (c.requires_password and password is None and
-                    parent_wallet.storage.get('use_encryption') and not kwargs.get("unsigned")):
+                    parent_wallet.has_password() and not kwargs.get("unsigned")):
                 return {'error': 'Password required' }
             return func(*args, **kwargs)
         return func_wrapper

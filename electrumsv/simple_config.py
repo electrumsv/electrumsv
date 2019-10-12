@@ -231,7 +231,7 @@ class SimpleConfig:
 
     def save_last_wallet(self, wallet):
         if self.get('wallet_path') is None:
-            path = wallet.storage.get_path()
+            path = wallet.get_storage_path()
             self.set_key('gui_last_wallet', path)
 
     def max_fee_rate(self):

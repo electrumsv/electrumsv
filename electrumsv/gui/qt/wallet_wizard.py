@@ -234,13 +234,10 @@ class ReleaseNotesPage(QWizardPage):
 
         # TODO: Relocate the release note text from dialogs.
         # TODO: Make it look better and more readable, currently squashed horizontally.
-        from .dialogs import raw_release_notes
-        notes_text = raw_release_notes.replace(
-            "</li><li>", "<br/><br/>").replace("</li>", "").replace("<li>", "")
 
         widget = QTextBrowser()
         widget.setAcceptRichText(True)
-        widget.setHtml(notes_text)
+        widget.setHtml("...")
 
         layout = QVBoxLayout()
         layout.addWidget(widget)

@@ -370,7 +370,7 @@ class PreferencesDialog(QDialog):
             usechange_result = state == Qt.Checked
             if wallet.use_change != usechange_result:
                 wallet.use_change = usechange_result
-                wallet.storage.put('use_change', wallet.use_change)
+                wallet.put('use_change', wallet.use_change)
                 multiple_cb.setEnabled(wallet.use_change)
         usechange_cb.stateChanged.connect(on_usechange)
 
@@ -386,7 +386,7 @@ class PreferencesDialog(QDialog):
             multiple = state == Qt.Checked
             if wallet.multiple_change != multiple:
                 wallet.multiple_change = multiple
-                wallet.storage.put('multiple_change', multiple)
+                wallet.put('multiple_change', multiple)
         multiple_cb.stateChanged.connect(on_multiple)
 
         return [

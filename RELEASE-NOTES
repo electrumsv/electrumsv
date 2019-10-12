@@ -39,7 +39,7 @@ ElectrumSV
 # Release 1.3.0a1
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-0a1-unstable-2f24c104979e
     It is advised you read the linked guide for a definitive source of information about what
-    has changes in this release. Entries in this list are added by developers who make changes
+    has changed in this release. Entries in this list are added by developers who make changes
     and are more intended as an overview, for use in the more approachable release guide.
   * Wallets: The wallet format has changed and when you open your wallet it will be backed up
     and upgraded. This is an alpha level change that will change further before final release.

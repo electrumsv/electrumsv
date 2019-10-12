@@ -168,7 +168,7 @@ def init_cmdline(config_options, server):
     if cmdname in ['payto', 'paytomany'] and config.get('broadcast'):
         cmd.requires_network = True
 
-    # instanciate wallet for command-line
+    # instantiate wallet for command-line
     storage = WalletStorage(config.get_wallet_path())
 
     if cmd.requires_wallet and not storage.file_exists():
