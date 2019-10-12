@@ -9,11 +9,8 @@ ZBAR_FILENAME=zbarw-20121031-setup.exe
 ZBAR_URL=https://sourceforge.net/projects/zbarw/files/$ZBAR_FILENAME/download
 ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 
-# NOTE: The changes by Axel Gembe are in a different branch, master is the standard libusb
-# branch. Verify the extent of Axel's changes with the following command:
-#   git diff master f2b1128714663ab9450d222ba7f438dbe4ec9d87
-LIBUSB_REPO='https://github.com/ElectrumSV/libusb.git'
-LIBUSB_COMMIT=f2b1128714663ab9450d222ba7f438dbe4ec9d87
+LIBUSB_REPO='https://github.com/libusb/libusb.git'
+LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 
 PYINSTALLER_REPO='https://github.com/ElectrumSV/pyinstaller.git'
 PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
