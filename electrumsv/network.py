@@ -1103,10 +1103,7 @@ class Network:
         logger.info(f'main server: {main_server}; proxy: {proxy}')
         return main_server, proxy
 
-    async def _request_transactions(self, wallet):
-        missing_hashes = wallet.missing_transactions()
-        if not missing_hashes:
-            return False
+    async def _request_transactions(self, wallet, missing_hashes) -> bool:
         wallet.request_count += len(missing_hashes)
         wallet.progress_event.set()
         had_timeout = False
@@ -1153,10 +1150,7 @@ class Network:
                 return server
             await sleep(10)
 
-    async def _request_proofs(self, wallet):
-        wanted_map = wallet.unverified_transactions()
-        if not wanted_map:
-            return False
+    async def _request_proofs(self, wallet, wanted_map):
         had_timeout = False
         session = await self._main_session()
         session.logger.debug(f'requesting {len(wanted_map)} proofs')
@@ -1194,17 +1188,30 @@ class Network:
 
     async def _monitor_txs(self, wallet):
         '''Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError'''
+        # When the wallet receives notification of new transactions, it signals that this
+        # monitoring loop should awaken. The loop retrieves all outstanding transaction data and
+        # proofs in parallel. However, the prerequisite for needing a proof for a transaction is
+        # first having it's data. So after fetching transactions, it becomes necessary to fetch
+        # proofs again, and loop at least twice. So this loop only blocks if it knows for sure
+        # there are no outstanding needs for either transaction data or proof.
         while True:
+            # The set of transactions we know about, but lack the actual transaction data for.
+            wanted_tx_map = wallet.missing_transactions()
+            # The set of transactions we have data for, but not proof for.
+            wanted_proof_map = wallet.unverified_transactions()
+
+            coros = []
+            if wanted_tx_map:
+                coros.append(self._request_transactions(wallet, wanted_tx_map))
+            if wanted_proof_map:
+                coros.append(self._request_proofs(wallet, wanted_proof_map))
+            if not coros:
+                await wallet.txs_changed_event.wait()
+                wallet.txs_changed_event.clear()
+
             async with TaskGroup() as group:
-                tasks = (
-                    await group.spawn(self._request_transactions(wallet)),
-                    await group.spawn(self._request_proofs(wallet)),
-                )
-            # Try again if a request timed out
-            if any(task.result() for task in tasks):
-                continue
-            await wallet.txs_changed_event.wait()
-            wallet.txs_changed_event.clear()
+                for coro in coros:
+                    await group.spawn(coro)
 
     async def _monitor_new_addresses(self, wallet):
         '''Raises: RPCError, TaskTimeout'''
