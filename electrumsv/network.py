@@ -873,6 +873,10 @@ class SVSession(RPCSession):
             return
 
         session = app_state.daemon.network.main_session()
+        if not session:
+            logger.debug("No main session, unable to unsubscribe wallet")
+            return
+
         if not session._check_minimum_version("1.4.2"):
             logger.debug("Server is below version 1.4.2, and does not support unsubscribing")
             return
