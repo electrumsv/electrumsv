@@ -930,18 +930,18 @@ class TestTxCache:
 
         tx = Transaction.from_hex(tx_hex_1)
         data = [ tx.txid(), TxData(height=1295924,timestamp=1555296290,position=4,fee=None),
-            None, TxFlags.StateCleared ]
+            None, TxFlags.StateSettled ]
         cache.add([ data ])
         entry = cache.get_entry(tx.txid())
         assert entry is not None
-        assert TxFlags.StateCleared == entry.flags & TxFlags.StateCleared
+        assert TxFlags.StateSettled == entry.flags & TxFlags.StateSettled
 
-        cache.add_transaction(tx, TxFlags.StateSettled)
+        cache.add_transaction(tx, TxFlags.StateCleared)
 
         entry = cache.get_entry(tx.txid())
         assert entry is not None
         assert entry.bytedata is not None
-        assert TxFlags.StateSettled == entry.flags & TxFlags.StateSettled
+        assert TxFlags.StateCleared == entry.flags & TxFlags.StateCleared
 
     def test_add_then_update(self):
         cache = TxCache(self.store)
@@ -972,10 +972,10 @@ class TestTxCache:
         tx_hash_bytes_1 = bitcoinx.double_sha256(bytedata_1)
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
         metadata_1 = TxData()
-        cache.update_or_add([ (tx_id_1, metadata_1, bytedata_1, TxFlags.StateCleared) ])
+        cache.update_or_add([ (tx_id_1, metadata_1, bytedata_1, TxFlags.StateSettled) ])
         assert cache.is_cached(tx_id_1)
         entry = cache.get_entry(tx_id_1)
-        assert TxFlags.HasByteData | TxFlags.StateCleared == entry.flags
+        assert TxFlags.HasByteData | TxFlags.StateSettled == entry.flags
         assert entry.bytedata is not None
 
         # Update.
@@ -1006,10 +1006,10 @@ class TestTxCache:
         assert TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.StateDispatched == entry.flags
         assert entry.bytedata is not None
 
-        cache.update_flags(tx_id_1, TxFlags.StateCleared, TxFlags.HasByteData|TxFlags.HasProofData)
+        cache.update_flags(tx_id_1, TxFlags.StateSettled, TxFlags.HasByteData|TxFlags.HasProofData)
         entry = cache.get_entry(tx_id_1)
         store_flags = self.store.get_flags(tx_id_1)
-        expected_flags = TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.StateCleared
+        expected_flags = TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.StateSettled
         assert expected_flags == store_flags, \
             f"{TxFlags.to_repr(expected_flags)} != {TxFlags.to_repr(store_flags)}"
         assert expected_flags == entry.flags, \
@@ -1119,12 +1119,12 @@ class TestTxCache:
         tx_hash_bytes_1 = bitcoinx.double_sha256(bytedata_1)
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
         data = TxData(position=11)
-        cache.add([ (tx_id_1, data, bytedata_1, TxFlags.StateCleared) ])
+        cache.add([ (tx_id_1, data, bytedata_1, TxFlags.StateSettled) ])
 
         entry = cache.get_entry(tx_id_1, TxFlags.StateDispatched)
         assert entry is None
 
-        entry = cache.get_entry(tx_id_1, TxFlags.StateCleared)
+        entry = cache.get_entry(tx_id_1, TxFlags.StateSettled)
         assert entry is not None
 
     def test_get_height(self):
@@ -1134,11 +1134,11 @@ class TestTxCache:
         tx_hash_bytes_1 = bitcoinx.double_sha256(bytedata_1)
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
         metadata_1 = TxData(height=11)
-        cache.add([ (tx_id_1, metadata_1, bytedata_1, TxFlags.StateCleared) ])
+        cache.add([ (tx_id_1, metadata_1, bytedata_1, TxFlags.StateSettled) ])
 
         assert 11 == cache.get_height(tx_id_1)
 
-        cache.update_flags(tx_id_1, TxFlags.StateSettled)
+        cache.update_flags(tx_id_1, TxFlags.StateCleared)
         assert 11 == cache.get_height(tx_id_1)
 
         cache.update_flags(tx_id_1, TxFlags.StateReceived)
@@ -1151,7 +1151,7 @@ class TestTxCache:
         tx_hash_bytes_1 = bitcoinx.double_sha256(bytedata_1)
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
         metadata_1 = TxData(height=11)
-        cache.add([ (tx_id_1, metadata_1, None, TxFlags.StateCleared) ])
+        cache.add([ (tx_id_1, metadata_1, None, TxFlags.StateSettled) ])
 
         results = cache.get_unsynced_ids()
         assert 1 == len(results)
@@ -1169,7 +1169,7 @@ class TestTxCache:
         tx_hash_bytes_1 = bitcoinx.double_sha256(tx_bytes_1)
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
         data = TxData(height=11, position=22)
-        cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateCleared) ])
+        cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateSettled) ])
 
         results = cache.get_unverified_entries(100)
         assert 0 == len(results)
@@ -1182,7 +1182,7 @@ class TestTxCache:
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
 
         data = TxData(height=11)
-        cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateCleared) ])
+        cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateSettled) ])
 
         results = cache.get_unverified_entries(10)
         assert 0 == len(results)
@@ -1200,7 +1200,7 @@ class TestTxCache:
         tx_id_y1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_y1)
 
         data_y1 = TxData(height=common_height+1, timestamp=22, position=33, fee=44)
-        cache.add([ (tx_id_y1, data_y1, tx_bytes_y1, TxFlags.StateCleared) ])
+        cache.add([ (tx_id_y1, data_y1, tx_bytes_y1, TxFlags.StateSettled) ])
 
         # Add the transaction that would be reset but is below the common height.
         tx_bytes_n1 = bytes.fromhex(tx_hex_1) + b"n1"
@@ -1208,7 +1208,7 @@ class TestTxCache:
         tx_id_n1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_n1)
 
         data_n1 = TxData(height=common_height-1, timestamp=22, position=33, fee=44)
-        cache.add([ (tx_id_n1, data_n1, tx_bytes_n1, TxFlags.StateCleared) ])
+        cache.add([ (tx_id_n1, data_n1, tx_bytes_n1, TxFlags.StateSettled) ])
 
         # Add the transaction that would be reset but is the common height.
         tx_bytes_n2 = bytes.fromhex(tx_hex_1) + b"n2"
@@ -1216,7 +1216,7 @@ class TestTxCache:
         tx_id_n2 = bitcoinx.hash_to_hex_str(tx_hash_bytes_n2)
 
         data_n2 = TxData(height=common_height, timestamp=22, position=33, fee=44)
-        cache.add([ (tx_id_n2, data_n2, tx_bytes_n2, TxFlags.StateCleared) ])
+        cache.add([ (tx_id_n2, data_n2, tx_bytes_n2, TxFlags.StateSettled) ])
 
         # Add a canary transaction that should remain untouched due to non-cleared state.
         tx_bytes_n3 = bytes.fromhex(tx_hex_2)
@@ -1238,7 +1238,7 @@ class TestTxCache:
         assert 0 == y1.metadata.timestamp
         assert 0 == y1.metadata.position
         assert data_y1.fee == y1.metadata.fee
-        assert TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasFee == y1.flags, \
+        assert TxFlags.StateCleared | TxFlags.HasByteData | TxFlags.HasFee == y1.flags, \
             TxFlags.to_repr(y1.flags)
 
         expected_flags = (TxFlags.HasByteData | TxFlags.HasTimestamp | TxFlags.HasFee |
@@ -1250,7 +1250,7 @@ class TestTxCache:
         assert data_n1.timestamp == n1.metadata.timestamp
         assert data_n1.position == n1.metadata.position
         assert data_n1.fee == n1.metadata.fee
-        assert TxFlags.StateCleared | expected_flags == n1.flags, TxFlags.to_repr(n1.flags)
+        assert TxFlags.StateSettled | expected_flags == n1.flags, TxFlags.to_repr(n1.flags)
 
         # Skipped, canary common height.
         n2 = [ m[1] for m in metadatas if m[0] == tx_id_n2 ][0]
@@ -1258,7 +1258,7 @@ class TestTxCache:
         assert data_n2.timestamp == n2.metadata.timestamp
         assert data_n2.position == n2.metadata.position
         assert data_n2.fee == n2.metadata.fee
-        assert TxFlags.StateCleared | expected_flags == n2.flags, TxFlags.to_repr(n2.flags)
+        assert TxFlags.StateSettled | expected_flags == n2.flags, TxFlags.to_repr(n2.flags)
 
         # Skipped, canary non-cleared.
         n3 = [ m[1] for m in metadatas if m[0] == tx_id_n3 ][0]

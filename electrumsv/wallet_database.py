@@ -719,9 +719,9 @@ class TxFlags(enum.IntEnum):
     HasProofData = 1 << 13
 
     # A transaction received over the p2p network which is unconfirmed and in the mempool.
-    StateSettled = 1 << 20
+    StateCleared = 1 << 20
     # A transaction received over the p2p network which is confirmed and known to be in a block.
-    StateCleared = 1 << 21
+    StateSettled = 1 << 21
     # A transaction received from another party which is unknown to the p2p network.
     StateReceived = 1 << 22
     # A transaction you have not sent or given to anyone else, but are with-holding and are
@@ -731,7 +731,7 @@ class TxFlags(enum.IntEnum):
     StateDispatched = 1 << 24
 
     METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition | HasTimestamp)
-    STATE_MASK = (StateCleared | StateDispatched | StateReceived | StateSettled | StateSigned)
+    STATE_MASK = (StateSettled | StateDispatched | StateReceived | StateCleared | StateSigned)
     MASK = 0xFFFFFFFF
 
     def __repr__(self):
@@ -1331,7 +1331,7 @@ class TxCache:
         # TODO: Consider setting state based on height.
         self.add([ (tx_id, TxData(height=height, fee=fee), None, TxFlags.Unset) ])
 
-    def add_transaction(self, tx: Transaction, flags: Optional[int]=TxFlags.Unset) -> None:
+    def add_transaction(self, tx: Transaction, flags: Optional[TxFlags]=TxFlags.Unset) -> None:
         tx_id = tx.txid()
         tx_hex = str(tx)
         bytedata = bytes.fromhex(tx_hex)
@@ -1635,7 +1635,7 @@ class TxCache:
         return results
 
     def get_height(self, tx_id: str) -> Optional[int]:
-        entry = self.get_entry(tx_id, mask=TxFlags.StateCleared|TxFlags.StateSettled)
+        entry = self.get_entry(tx_id, mask=TxFlags.StateSettled|TxFlags.StateCleared)
         return entry.metadata.height if entry is not None else None
 
     def get_unsynced_ids(self) -> List[str]:
@@ -1652,8 +1652,8 @@ class TxCache:
         return [ t for t in results if 0 < t[1].metadata.height <= watermark_height ]
 
     def delete_reorged_entries(self, reorg_height: int) -> None:
-        fetch_flags = TxFlags.StateCleared
-        fetch_mask = TxFlags.StateCleared
+        fetch_flags = TxFlags.StateSettled
+        fetch_mask = TxFlags.StateSettled
         unverify_mask = ~(TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition |
             TxFlags.HasProofData | TxFlags.STATE_MASK)
 
@@ -1664,7 +1664,7 @@ class TxCache:
             for (tx_id, entry) in self.get_metadatas(fetch_flags, fetch_mask):
                 if entry.metadata.height > reorg_height:
                     # Update the cached version to match the changes we are going to apply.
-                    entry.flags = (entry.flags & unverify_mask) | TxFlags.StateSettled
+                    entry.flags = (entry.flags & unverify_mask) | TxFlags.StateCleared
                     entry.metadata = TxData(0, 0, 0, entry.metadata.fee)
                     store_updates.append((tx_id, entry.metadata, entry.flags))
             if len(store_updates):

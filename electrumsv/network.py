@@ -54,6 +54,7 @@ from .transaction import Transaction
 from .util import JSON, protocol_tuple, version_string, chunks
 from .networks import Net
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
+from .wallet_database import TxFlags
 
 
 logger = logs.get_logger("network")
@@ -1129,7 +1130,7 @@ class Network:
                     logger.exception(e)
                     logger.error(f'fetching transaction {tx_hash}: {e}')
                 else:
-                    wallet.add_transaction(tx_hash, tx)
+                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared)
                     self.trigger_callback('new_transaction', tx, wallet)
         return had_timeout
 

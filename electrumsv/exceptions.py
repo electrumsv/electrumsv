@@ -59,3 +59,8 @@ class UserQuit(Exception):
 
 class Bip270Exception(Exception):
     pass
+
+
+class UnknownTransactionException(Exception):
+    pass
+

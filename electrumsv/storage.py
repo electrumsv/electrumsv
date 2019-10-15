@@ -850,10 +850,10 @@ class TextStore(BaseStore):
             payload = bytes.fromhex(str(tx))
             fee = tx_fees.get(tx_id, None)
             if tx_id in tx_verified:
-                flags = TxFlags.StateCleared
+                flags = TxFlags.StateSettled
                 height, timestamp, position = tx_verified[tx_id]
             else:
-                flags = TxFlags.StateSettled
+                flags = TxFlags.StateCleared
                 timestamp = position = None
                 height = hh_map.get(tx_id)
             tx_data = TxData(height=height, fee=fee, position=position, timestamp=timestamp)

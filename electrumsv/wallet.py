@@ -53,7 +53,8 @@ from .app_state import app_state
 from .bitcoin import COINBASE_MATURITY
 from .contacts import Contacts
 from .crypto import sha256d
-from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
+from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword,
+    UnknownTransactionException)
 from .i18n import _
 from .keystore import (load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore,
     KeyStore)
@@ -464,7 +465,7 @@ class Abstract_Wallet:
     def has_received_transaction(self, tx_id: str) -> bool:
         # At this time, this means received over the P2P network.
         flags = self._datastore.tx.get_flags(tx_id)
-        return flags is not None and (flags & (TxFlags.StateSettled | TxFlags.StateCleared)) != 0
+        return flags is not None and (flags & (TxFlags.StateCleared | TxFlags.StateSettled)) != 0
 
     def display_name(self) -> str:
         # TODO: ACCOUNTS: Allow user to change this.
@@ -553,7 +554,7 @@ class Abstract_Wallet:
         return self.get_pubkeys(*sequence)
 
     def add_verified_tx(self, tx_hash, height, timestamp, position, proof_position, proof_branch):
-        entry = self._datastore.tx.get_entry(tx_hash, TxFlags.StateSettled)
+        entry = self._datastore.tx.get_entry(tx_hash, TxFlags.StateCleared)
         # Ensure we are not verifying transactions multiple times.
         if entry is None:
             entry = self._datastore.tx.get_entry(tx_hash)
@@ -564,7 +565,7 @@ class Abstract_Wallet:
         # We only update a subset.
         flags = TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition
         data = TxData(height=height, timestamp=timestamp, position=position)
-        self._datastore.tx.update([ (tx_hash, data, None, flags | TxFlags.StateCleared) ])
+        self._datastore.tx.update([ (tx_hash, data, None, flags | TxFlags.StateSettled) ])
 
         proof = TxProof(proof_position, proof_branch)
         self._datastore.tx.update_proof(tx_hash, proof)
@@ -876,16 +877,18 @@ class Abstract_Wallet:
         assert isinstance(address, Address)
         return self._history.get(address, [])
 
-    def add_pending_transaction(self, tx_hash: str, tx: Transaction) -> None:
-        with self.transaction_lock:
-            # freeze the inputs.
-            pass
-
-    def add_transaction(self, tx_hash: str, tx: Transaction) -> None:
+    def add_transaction(self, tx_hash: str, tx: Transaction, flag: TxFlags) -> None:
         with self.transaction_lock:
             self._update_transaction_xputs(tx_hash, tx)
-            self.logger.debug("adding tx data %s", tx_hash)
-            self._datastore.tx.add_transaction(tx, TxFlags.StateSettled)
+            self.logger.debug("adding tx data %s (flags: %s)", tx_hash, TxFlags.to_repr(flag))
+            self._datastore.tx.add_transaction(tx, flag)
+
+    def set_transaction_state(self, tx_hash: str, flag: TxFlags) -> bool:
+        """ raises UnknownTransactionException """
+        with self.transaction_lock:
+            if not self._datastore.tx.is_cached(tx_hash):
+                raise UnknownTransactionException(f"tx {tx_hash} unknown")
+            self._datastore.tx.update_flags(tx_hash, flag)
 
     def apply_transactions_xputs(self, tx_hash: str, tx: Transaction) -> None:
         with self.transaction_lock:
