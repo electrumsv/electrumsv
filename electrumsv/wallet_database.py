@@ -20,7 +20,6 @@ is out of date.
 
 from abc import ABC, abstractmethod
 from collections import namedtuple
-import enum
 from io import BytesIO
 import json
 import random
@@ -31,6 +30,7 @@ from typing import Optional, Dict, Set, Iterable, List, Tuple, Union, Any
 
 import bitcoinx
 
+from .constants import DATABASE_EXT, TxFlags
 from .logs import logs
 from .transaction import Transaction
 
@@ -155,7 +155,9 @@ class BaseWalletStore:
 
     @staticmethod
     def get_db_path(wallet_path: str) -> str:
-        return wallet_path +".sqlite"
+        if not wallet_path.endswith(DATABASE_EXT):
+            wallet_path += DATABASE_EXT
+        return wallet_path
 
     def _get_db(self) -> sqlite3.Connection:
         thread_id = threading.get_ident()
@@ -702,65 +704,6 @@ TxData.__new__.__defaults__ = (None, None, None, None)
 class TxProof(namedtuple("TxProofTuple", "position branch")):
     pass
 
-
-class TxFlags(enum.IntEnum):
-    Unset = 0
-
-    # TxData() packed into Transactions.MetaData:
-    HasFee = 1 << 4
-    HasHeight = 1 << 5
-    HasPosition = 1 << 6
-    HasTimestamp = 1 << 7
-
-    # TODO: Evaluate whether maintaining these is more effort than it's worth.
-    # Reflects Transactions.ByteData contains a value:
-    HasByteData = 1 << 12
-    # Reflects Transactions.ProofData contains a value:
-    HasProofData = 1 << 13
-
-    # A transaction received over the p2p network which is unconfirmed and in the mempool.
-    StateCleared = 1 << 20
-    # A transaction received over the p2p network which is confirmed and known to be in a block.
-    StateSettled = 1 << 21
-    # A transaction received from another party which is unknown to the p2p network.
-    StateReceived = 1 << 22
-    # A transaction you have not sent or given to anyone else, but are with-holding and are
-    # considering the inputs it uses frozen. """
-    StateSigned = 1 << 23
-    # A transaction you have given to someone else, and are considering the inputs it uses frozen.
-    StateDispatched = 1 << 24
-
-    METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition | HasTimestamp)
-    STATE_MASK = (StateSettled | StateDispatched | StateReceived | StateCleared | StateSigned)
-    MASK = 0xFFFFFFFF
-
-    def __repr__(self):
-        return f"TxFlags({self.name})"
-
-    @staticmethod
-    def to_repr(bitmask: int):
-        if bitmask is None:
-            return repr(bitmask)
-
-        # Handle existing values.
-        try:
-            return f"TxFlags({TxFlags(bitmask).name})"
-        except ValueError:
-            pass
-
-        # Handle bit flags.
-        mask = TxFlags.StateDispatched
-        names = []
-        while mask > 0:
-            value = bitmask & mask
-            if value == mask:
-                try:
-                    names.append(TxFlags(value).name)
-                except ValueError:
-                    pass
-            mask >>= 1
-
-        return f"TxFlags({'|'.join(names)})"
 
 
 class TransactionStore(BaseWalletStore):
@@ -1687,6 +1630,12 @@ class WalletData:
         self.tx_cache = TxCache(self.tx_store)
         self.txin_cache = TxXputCache(self.txin_store, "txins")
         self.txout_cache = TxXputCache(self.txout_store, "txouts")
+
+    def close(self) -> None:
+        self.tx_store.close()
+        self.txin_store.close()
+        self.txout_store.close()
+        self.misc_store.close()
 
     @property
     def tx(self) -> TransactionStore:

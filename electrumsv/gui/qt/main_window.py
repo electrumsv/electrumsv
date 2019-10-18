@@ -38,7 +38,7 @@ import weakref
 import webbrowser
 
 from bitcoinx import PublicKey, Script, Address, P2PKH_Address, TxOutput
-from bitcoinx import OP_RETURN, OP_FALSE   # pylint: disable=no-name-in-module
+from bitcoinx import OP_RETURN, OP_FALSE # pylint: disable=no-name-in-module
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl)
 from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices
@@ -53,6 +53,7 @@ import electrumsv
 from electrumsv import bitcoin, commands, keystore, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN, is_address_valid
+from electrumsv.constants import TxFlags, DATABASE_EXT
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -65,7 +66,7 @@ from electrumsv.transaction import (
 )
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, format_fee_satoshis,
-    get_update_check_dates, get_identified_release_signers, profiler
+    get_update_check_dates, get_identified_release_signers, profiler, get_wallet_name_from_path
 )
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import sweep_preparations, Abstract_Wallet, ParentWallet
@@ -456,10 +457,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.config.set_key('recently_open', recent)
         self.recently_visited_menu.clear()
 
-        basenames = [os.path.basename(path) for path in recent]
-        counts = Counter(basenames)
-        pairs = sorted((basename if counts[basename] == 1 else path, path)
-                       for basename, path in zip(basenames, recent))
+        wallet_names = [get_wallet_name_from_path(path) for path in recent]
+        counts = Counter(wallet_names)
+        pairs = sorted((wallet_name if counts[wallet_name] == 1 else path, path)
+                       for wallet_name, path in zip(wallet_names, recent))
         for menu_text, path in pairs:
             self.recently_visited_menu.addAction(menu_text, partial(self.app.new_window, path))
         self.recently_visited_menu.setEnabled(bool(pairs))
@@ -474,12 +475,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_error(str(e))
             return
         i = 1
+        existing_filenames = [ filename.lower() for filename in os.listdir(wallet_folder) ]
         while True:
             filename = "wallet_%d" % i
-            if filename in os.listdir(wallet_folder):
-                i += 1
-            else:
+            if filename + DATABASE_EXT not in existing_filenames:
                 break
+            i += 1
         full_path = os.path.join(wallet_folder, filename)
         self.app.start_new_window(full_path, None)
 
@@ -1627,7 +1628,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     self.show_transaction(tx)
                     self.do_clear()
                 else:
-                    self.broadcast_transaction(tx, tx_desc)
+                    self.broadcast_transaction(self._send_wallet, tx, tx_desc)
         self.sign_tx_with_password(tx, sign_done, password)
 
     @protected
@@ -1656,7 +1657,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         window = window or self
         WaitingDialog(window, _('Signing transaction...'), sign_tx, on_done=on_done)
 
-    def broadcast_transaction(self, tx, tx_desc, success_text=None, window=None):
+    def broadcast_transaction(self, wallet: Abstract_Wallet, tx: Transaction,
+            tx_desc: Optional[str], success_text: Optional[str]=None, window=None) -> Optional[str]:
         if success_text is None:
             success_text = _('Payment sent.')
         window = window or self
@@ -1679,8 +1681,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     self._send_wallet.invoices.set_paid(pr, tx.txid())
                     self._send_wallet.invoices.save()
                     self.payment_request = None
-                return None
+                return
             else:
+                # wallet.set_transaction_state(tx.txid(), TxFlags.StateDispatched)
                 return self.network.broadcast_transaction_and_wait(tx)
 
         def on_done(future):

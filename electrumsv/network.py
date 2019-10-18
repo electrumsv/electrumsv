@@ -48,13 +48,13 @@ from bitcoinx import (
 
 from .app_state import app_state
 from .bitcoin import scripthash_hex
+from .constants import TxFlags
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
 from .util import JSON, protocol_tuple, version_string, chunks
 from .networks import Net
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
-from .wallet_database import TxFlags
 
 
 logger = logs.get_logger("network")

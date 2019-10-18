@@ -159,7 +159,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.update()
 
     def do_broadcast(self):
-        self.main_window.broadcast_transaction(self.tx, self.desc, window=self)
+        self.main_window.broadcast_transaction(self.wallet, self.tx, self.desc, window=self)
         self.saved = True
         self.update()
 

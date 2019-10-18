@@ -227,7 +227,7 @@ class SVApplication(QApplication):
         # Show network dialog if config does not exist
         if app_state.daemon.network and app_state.config.get('auto_connect') is None:
             try:
-                wizard = InstallWizard(None)
+                wizard = InstallWizard()
                 wizard.init_network(app_state.daemon.network)
                 wizard.terminate()
             except Exception as e:
@@ -286,7 +286,7 @@ class SVApplication(QApplication):
             try:
                 parent_wallet = app_state.daemon.load_wallet(path, None)
                 if not parent_wallet:
-                    wizard = InstallWizard(None)
+                    wizard = InstallWizard()
                     try:
                         if wizard.select_storage(path, is_startup=is_startup):
                             parent_wallet = wizard.run_and_get_wallet()

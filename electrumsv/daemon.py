@@ -39,7 +39,7 @@ from .logs import logs
 from .network import Network
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
-from .util import json_decode, DaemonThread, to_string, random_integer
+from .util import json_decode, DaemonThread, to_string, random_integer, get_wallet_name_from_path
 from .version import PACKAGE_VERSION
 from .wallet import ParentWallet
 
@@ -247,9 +247,9 @@ class Daemon(DaemonThread):
         if path in self.wallets:
             wallet = self.wallets[path]
             return wallet
-        storage = WalletStorage(path, manual_upgrades=True)
-        if not storage.file_exists():
+        if not WalletStorage.files_are_matched_by_path(path):
             return
+        storage = WalletStorage(path, manual_upgrades=True)
         if storage.is_encrypted():
             if not password:
                 return
@@ -291,7 +291,7 @@ class Daemon(DaemonThread):
             parent_wallet = self.wallets.get(path)
             if parent_wallet is None:
                 return {'error': 'Wallet "%s" is not loaded. Use "electrum-sv daemon load_wallet"'
-                        % os.path.basename(path)}
+                        % get_wallet_name_from_path(path)}
         else:
             parent_wallet = None
         # arguments passed to function

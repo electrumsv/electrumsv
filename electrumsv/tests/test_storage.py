@@ -8,14 +8,14 @@ import zlib
 from bitcoinx import PrivateKey
 from unittest.mock import patch
 
+from electrumsv.constants import DATABASE_EXT, StorageKind
 from electrumsv.storage import (backup_wallet_files, categorise_file, get_categorised_files,
-    BaseStore, DatabaseStore, StorageKind, TextStore, WalletStorageInfo, DATABASE_EXT,
-    IncompatibleWalletError, WalletStorage)
+    BaseStore, DatabaseStore, TextStore, WalletStorageInfo, IncompatibleWalletError, WalletStorage)
 
 from .util import TEST_WALLET_PATH
 
 
-FILE_SUFFIXES = [ "", ".sqlite" ]
+FILE_SUFFIXES = [ "", DATABASE_EXT ]
 
 # This tests with a path, and without. With the db suffix, and without. And that the kind, filename
 # and wallet_filepath values are correct.
@@ -131,6 +131,7 @@ def test_store_is_encrypted_true(store_class) -> None:
     (DatabaseStore, AssertionError)))
 def test_store_read_raw_data(store_class, exc_class) -> None:
     wallet_path = tempfile.mktemp()
+    print(f"wallet_path {wallet_path}")
     store = store_class(wallet_path)
     # No write operation has been done yet on the store.
     with pytest.raises(exc_class):
@@ -215,7 +216,7 @@ def test_database_store_from_text_store_initial_version(data) -> None:
 # Shared logic for following version init/set unit tests.
 def _check_database_store_version_init_set(db_store) -> None:
     # The database file is created when it is opened, not on first write, as is the case with text.
-    assert db_store.file_exists()
+    assert os.path.exists(db_store.get_path())
 
     # Verify that the seed version is not stored in the JSON lump, but independently.
     assert db_store.get("seed_version") is None, "seed version leaked into JSON lump"
@@ -289,6 +290,14 @@ def test_database_store_version_requires_upgrade_esv_wallet() -> None:
 def test_store_modified_file_nonexistent(store_class):
     wallet_path = tempfile.mktemp()
     store = store_class(wallet_path)
+    assert store._modified is False
+
+# Test the nuances of BaseStore._modified, whether it gets correctly initialised in the different
+# scenarios.
+@pytest.mark.parametrize("store_class", (BaseStore, TextStore, DatabaseStore))
+def test_store_modified_file_nonexistent_with_data(store_class):
+    wallet_path = tempfile.mktemp()
+    store = store_class(wallet_path, data={"a": 1})
     assert store._modified is True
 
 
@@ -319,14 +328,14 @@ def test_text_store__raise_unsupported_version() -> None:
 
 
 
-def test_wallet_storage_path_nonexistent() -> None:
+def test_wallet_storage_json_path_nonexistent_errors() -> None:
     base_storage_path = tempfile.mkdtemp()
     nonexistent_storage_path = os.path.join(base_storage_path, "nonexistent", "walletfile")
 
     with pytest.raises(OSError):
         storage = WalletStorage(nonexistent_storage_path)
 
-def test_wallet_storage_new() -> None:
+def test_wallet_storage_database_nonexistent_creates() -> None:
     base_storage_path = tempfile.mkdtemp()
     wallet_filepath = os.path.join(base_storage_path, "walletfile")
     storage = WalletStorage(wallet_filepath)

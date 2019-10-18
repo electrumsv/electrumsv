@@ -31,7 +31,6 @@ import ast
 import base64
 from collections import namedtuple
 import copy
-from enum import IntEnum
 import hashlib
 import json
 import os
@@ -45,23 +44,17 @@ import zlib
 from bitcoinx import PrivateKey, PublicKey
 
 from .bitcoin import is_address_valid
+from .constants import StorageKind, DATABASE_EXT, TxFlags, ParentWalletKinds
+from .exceptions import IncompatibleWalletError
 from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
 from .wallet_database import (DBTxInput, DBTxOutput, JSONKeyValueStore, MigrationContext,
-    TxData, TxFlags, WalletData)
+    TxData, WalletData)
 
 
 logger = logs.get_logger("storage")
 
-
-class ParentWalletKinds:
-    MULTI_ACCOUNT = "electrumsv/multi-account"
-    LEGACY = "electrum/legacy"
-
-
-class IncompatibleWalletError(Exception):
-    pass
 
 
 def multisig_type(wallet_type):
@@ -75,15 +68,6 @@ def multisig_type(wallet_type):
     return match
 
 FINAL_SEED_VERSION = 20
-
-DATABASE_EXT = ".sqlite"
-
-class StorageKind(IntEnum):
-    UNKNOWN = 0
-    FILE = 1
-    HYBRID = 2
-    DATABASE = 3
-
 
 WalletStorageInfo = namedtuple('WalletStorageInfo', ['kind', 'filename', 'wallet_filepath'])
 
@@ -161,9 +145,11 @@ def backup_wallet_files(wallet_filepath: str) -> bool:
         break
 
     if info.kind == StorageKind.HYBRID or info.kind == StorageKind.DATABASE:
+        print(f"BACKUP.A {attempted_wallet_filepath + DATABASE_EXT}")
         shutil.copyfile(
             base_wallet_filepath + DATABASE_EXT, attempted_wallet_filepath + DATABASE_EXT)
     if info.kind == StorageKind.FILE or info.kind == StorageKind.HYBRID:
+        print(f"BACKUP.B {attempted_wallet_filepath}")
         shutil.copyfile(base_wallet_filepath,  attempted_wallet_filepath)
 
     return True
@@ -180,17 +166,18 @@ class BaseStore:
         self._pubkey = pubkey
 
         self._data = {} if data is None else data
-        self._modified = not self.file_exists() or bool(data)
+        self._modified = bool(data)
 
         self._lock = threading.RLock()
+
+    def move_to(self, new_path: str) -> None:
+        raise NotImplementedError
 
     def close(self) -> None:
         pass
 
-    def file_exists(self):
-        # E(BTC) modified this to catch when the user selects a wallet file in the UI and
-        # then deletes it manually.. but that's a user problem, not an ESV problem.
-        return os.path.exists(self._path)
+    def get_path(self) -> str:
+        return self._path
 
     def is_primed(self) -> bool:
         # Represents whether the data has been written at least once.
@@ -242,7 +229,7 @@ class BaseStore:
             return
 
         with self._lock:
-            if self._modified:
+            if self._modified or not self.is_primed():
                 self._raw = self._write()
                 self._modified = False
 
@@ -286,6 +273,7 @@ class BaseStore:
 
 class DatabaseStore(BaseStore):
     _primed: bool = False
+    _db_values: JSONKeyValueStore
 
     INITIAL_SEED_VERSION = 20
 
@@ -300,11 +288,7 @@ class DatabaseStore(BaseStore):
 
         super().__init__(path, pubkey=pubkey, data=data)
 
-        # This table is unencrypted. If anything is to be encrypted in it, it is encrypted
-        # manually before storage.
-        initial_aeskey = None
-        storage_group_id = -1
-        self._db_values = JSONKeyValueStore("Storage", path, initial_aeskey, storage_group_id)
+        self._open_database()
 
         version_data = self._db_values.get("seed_version")
         if version_data is None:
@@ -316,6 +300,12 @@ class DatabaseStore(BaseStore):
             self._primed = True
             self._set_seed_version(version_data)
 
+    def move_to(self, new_path: str) -> None:
+        assert os.path.exists(new_path + DATABASE_EXT)
+
+        self._path = new_path
+        self._open_database(close_existing=True)
+
     def close(self) -> None:
         # NOTE(rt12): Strictly speaking this just ensures that things are released and deallocated
         # for now. This ensures that the object gets garbage collected in a deterministic manner
@@ -324,11 +314,16 @@ class DatabaseStore(BaseStore):
         # See: WalletStorage.close
         self._db_values.close()
 
-    def file_exists(self):
-        # E(BTC) modified this to catch when the user selects a wallet file in the UI and
-        # then deletes it manually.. but that's a user problem, not an ESV problem.
-        db_path = JSONKeyValueStore.get_db_path(self._path)
-        return os.path.exists(db_path)
+    def _open_database(self, close_existing=False) -> None:
+        if close_existing:
+            self._db_values.close()
+
+        # This table is unencrypted. If anything is to be encrypted in it, it is encrypted
+        # manually before storage.
+        initial_aeskey = None
+        storage_group_id = -1
+        self._db_values = JSONKeyValueStore("Storage", self._path, initial_aeskey,
+            storage_group_id)
 
     def _get_seed_version(self) -> int:
         seed_version = self._db_values.get("seed_version")
@@ -355,6 +350,9 @@ class DatabaseStore(BaseStore):
         self._raw = self._db_values.get_value("jsondata")
         assert self._raw is not None
         return self._raw
+
+    def get_path(self) -> str:
+        return self._path + DATABASE_EXT
 
     def is_primed(self) -> bool:
         "Whether data has been written to the storage yet."
@@ -396,18 +394,17 @@ class DatabaseStore(BaseStore):
         return False
 
     def requires_upgrade(self) -> bool:
-        if self.file_exists():
-            seed_version = self._get_seed_version()
-            # Detect if we were given a file that should have been given to TextStore.
-            if seed_version <= TextStore.FINAL_SEED_VERSION:
-                raise IncompatibleWalletError(
-                    "This wallet should have been loaded as TEXT or HYBRID")
-            # Detect if the wallet is a not yet upgraded DATABASE wallet.
-            if seed_version < FINAL_SEED_VERSION:
-                # Check if ESV was forked, or EC(BCH) or E(BTC) adopted our database changes.
-                if self.get('wallet_author') == 'ESV':
-                    return True
-                raise IncompatibleWalletError("This wallet was not created in ElectrumSV")
+        seed_version = self._get_seed_version()
+        # Detect if we were given a file that should have been given to TextStore.
+        if seed_version <= TextStore.FINAL_SEED_VERSION:
+            raise IncompatibleWalletError(
+                "This wallet should have been loaded as TEXT or HYBRID")
+        # Detect if the wallet is a not yet upgraded DATABASE wallet.
+        if seed_version < FINAL_SEED_VERSION:
+            # Check if ESV was forked, or EC(BCH) or E(BTC) adopted our database changes.
+            if self.get('wallet_author') == 'ESV':
+                return True
+            raise IncompatibleWalletError("This wallet was not created in ElectrumSV")
         return False
 
     def upgrade(self: StoreType) -> Optional[StoreType]:
@@ -435,8 +432,9 @@ class TextStore(BaseStore):
         return self._raw
 
     def is_primed(self) -> bool:
-        "Whether data has been written to the storage yet."
-        return self.file_exists()
+        "Whether any data has ever been written to the storage."
+        # We should only inherit existing text stores, not create new ones.
+        return os.path.exists(self._path)
 
     def is_encrypted(self) -> bool:
         assert self._raw is not None
@@ -483,7 +481,8 @@ class TextStore(BaseStore):
             f.flush()
             os.fsync(f.fileno())
 
-        mode = os.stat(self._path).st_mode if self.file_exists() else stat.S_IREAD | stat.S_IWRITE
+        file_exists = os.path.exists(self._path)
+        mode = os.stat(self._path).st_mode if file_exists else stat.S_IREAD | stat.S_IWRITE
         os.replace(temp_path, self._path)
         os.chmod(self._path, mode)
 
@@ -550,19 +549,18 @@ class TextStore(BaseStore):
         return result
 
     def requires_upgrade(self) -> bool:
-        if self.file_exists():
-            seed_version = self._get_seed_version()
-            # The version at which we should retain compatibility with Electrum and Electron Cash
-            # if they upgrade their wallets using this versioning system correctly.
-            if seed_version <= 17:
+        seed_version = self._get_seed_version()
+        # The version at which we should retain compatibility with Electrum and Electron Cash
+        # if they upgrade their wallets using this versioning system correctly.
+        if seed_version <= 17:
+            return True
+        # Versions above the compatible seed version, which may conflict with versions those
+        # other wallets use.
+        if seed_version < TextStore.FINAL_SEED_VERSION + 1:
+            # We flag our upgraded wallets past seed version 17 with 'wallet_author' = 'ESV'.
+            if self.get('wallet_author') == 'ESV':
                 return True
-            # Versions above the compatible seed version, which may conflict with versions those
-            # other wallets use.
-            if seed_version < TextStore.FINAL_SEED_VERSION + 1:
-                # We flag our upgraded wallets past seed version 17 with 'wallet_author' = 'ESV'.
-                if self.get('wallet_author') == 'ESV':
-                    return True
-                raise IncompatibleWalletError
+            raise IncompatibleWalletError
         return False
 
     def upgrade(self) -> Optional[BaseStore]:
@@ -1079,6 +1077,19 @@ class WalletStorage:
                 if not self._store.is_encrypted():
                     self.load_data(raw)
 
+    def move_to(self, new_path: str) -> None:
+        # This does not remove the original database file. The move refers to the switch over
+        # to the copy as the underlying store.
+        if new_path.lower().endswith(DATABASE_EXT):
+            new_path = new_path[:-len(DATABASE_EXT)]
+
+        shutil.copyfile(self.get_path(), new_path + DATABASE_EXT)
+
+        # NOTE(rt12): Everything keeps the extensionless path. Need to consider if it makes it
+        # easier to keep the full path, and refactor accordingly.
+        self._path = new_path
+        self._store.move_to(new_path)
+
     def close(self) -> None:
         # NOTE(rt12): Strictly speaking this just ensures that things are released and deallocated
         # for now. This ensures that the object gets garbage collected in a deterministic manner
@@ -1093,11 +1104,10 @@ class WalletStorage:
         del self.requires_split
         del self.split_accounts
         del self.requires_upgrade
-        del self.file_exists
         del self.is_encrypted
 
     def get_path(self) -> str:
-        return self._path
+        return self._store.get_path()
 
     def load_data(self, raw: bytes) -> None:
         self._store.load_data(raw)
@@ -1144,7 +1154,6 @@ class WalletStorage:
         self.requires_split = store.requires_split
         self.split_accounts = store.split_accounts
         self.requires_upgrade = store.requires_upgrade
-        self.file_exists = store.file_exists
         self.is_encrypted = store.is_encrypted
 
     def upgrade(self) -> None:
@@ -1160,3 +1169,7 @@ class WalletStorage:
                 if new_store.requires_upgrade():
                     continue
             break
+
+    @classmethod
+    def files_are_matched_by_path(klass, path: str) -> StorageKind:
+        return categorise_file(path).kind != StorageKind.UNKNOWN

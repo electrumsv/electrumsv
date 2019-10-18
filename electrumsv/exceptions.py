@@ -64,3 +64,5 @@ class Bip270Exception(Exception):
 class UnknownTransactionException(Exception):
     pass
 
+class IncompatibleWalletError(Exception):
+    pass

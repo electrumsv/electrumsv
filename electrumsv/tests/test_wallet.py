@@ -8,10 +8,11 @@ import unittest
 import pytest
 from bitcoinx import PrivateKey, PublicKey, Address, Script
 
+from electrumsv.constants import DATABASE_EXT, StorageKind
 from electrumsv.keystore import from_seed, from_xpub, Old_KeyStore
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import (get_categorised_files, multisig_type,
-    StorageKind, WalletStorage, WalletStorageInfo, DATABASE_EXT)
+    WalletStorage, WalletStorageInfo)
 from electrumsv.transaction import XPublicKey
 from electrumsv.wallet import (sweep_preparations, ImportedPrivkeyWallet, ImportedAddressWallet,
     Multisig_Wallet, ParentWallet, Standard_Wallet, UTXO)
@@ -429,7 +430,7 @@ def test_legacy_wallet_backup_hybrid() -> None:
     temp_dir = tempfile.mkdtemp()
     wallet_path = os.path.join(temp_dir, wallet_filename)
     shutil.copyfile(source_wallet_path, wallet_path)
-    shutil.copyfile(source_wallet_path +".sqlite", wallet_path)
+    shutil.copyfile(source_wallet_path + DATABASE_EXT, wallet_path)
 
     # We do not care about loading the data, this is purely a test of the renaming.
     storage = WalletStorage(source_wallet_path, manual_upgrades=True)

@@ -1,5 +1,7 @@
 import os
 import shutil
+import tempfile
+from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal, QEventLoop, QRect
 from PyQt5.QtGui import QPalette, QPen, QPainter, QPixmap
@@ -18,7 +20,7 @@ from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
 from electrumsv.util import get_electron_cash_user_dir
-from electrumsv.wallet import ParentWallet
+from electrumsv.wallet import ParentWallet, Abstract_Wallet
 
 from .network_dialog import NetworkChoiceLayout
 from .password_dialog import PasswordLayout, PW_NEW, PasswordLineEdit
@@ -116,9 +118,10 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
     accept_signal = pyqtSignal()
     synchronized_signal = pyqtSignal(str)
 
-    def __init__(self, storage):
-        BaseWizard.__init__(self, storage)
+    def __init__(self):
+        BaseWizard.__init__(self)
         QDialog.__init__(self, None)
+
         self.setWindowTitle('ElectrumSV')
         self.language_for_seed = app_state.config.get('language')
         self.setMinimumSize(600, 420)
@@ -164,7 +167,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         vbox.addLayout(self.template_hbox)
         return vbox
 
-    def select_storage(self, path, is_startup=False):
+    def select_storage(self, initial_path: str, is_startup=False):
         if is_startup:
             self._copy_electron_cash_wallets()
 
@@ -254,41 +257,50 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 ec_import_button.setToolTip(_("Nothing to import"))
                 ec_import_label.setText(_("No Electron Cash wallets detected"))
 
-        self.storage = WalletStorage(path, manual_upgrades=True)
-        wallet_folder = os.path.dirname(path)
+        if WalletStorage.files_are_matched_by_path(initial_path):
+            self._storage_existing = WalletStorage(initial_path, manual_upgrades=True)
 
-        def _on_choose():
+        wallet_folder = os.path.dirname(initial_path)
+
+        def _on_choose() -> None:
             path, __ = QFileDialog.getOpenFileName(self, "Select your wallet file", wallet_folder)
             if path:
                 self.name_e.setText(path)
 
-        def _on_filename(filename):
+        def _on_filename(filename: str) -> None:
+            pw = False
+            self._storage_existing = None
+
             # A relative path will be relative to the folder we offered in the choose dialog.
             # An absolute path will not get joined to the dialog folder (no-op).
             path = os.path.join(wallet_folder, filename)
-            try:
-                self.storage = WalletStorage(path, manual_upgrades=True)
-                self.next_button.setEnabled(True)
-            except IOError:
-                self.storage = None
-                self.next_button.setEnabled(False)
-            if self.storage:
-                if not self.storage.file_exists():
-                    msg =_("This file does not exist.") + '\n' \
-                          + _("Press 'Next' to create this wallet, or choose another file.")
-                    pw = False
-                elif self.storage.file_exists() and self.storage.is_encrypted():
-                    msg = '\n'.join([
-                        _("This file is encrypted."),
-                        _('Enter your password or choose another file.'),
-                    ])
-                    pw = True
+            if WalletStorage.files_are_matched_by_path(path):
+                try:
+                    self._storage_existing = WalletStorage(path, manual_upgrades=True)
+                except IOError:
+                    self.next_button.setEnabled(False)
+                    msg = _('Cannot read file')
                 else:
-                    msg = _("Press 'Next' to open this wallet.")
-                    pw = False
+                    self.next_button.setEnabled(True)
+                    if self._storage_existing.is_encrypted():
+                        msg = '\n'.join([
+                            _("This file is encrypted."),
+                            _('Enter your password or choose another file.'),
+                        ])
+                        pw = True
+                    else:
+                        msg = _("Press 'Next' to open this wallet.")
             else:
-                msg = _('Cannot read file')
-                pw = False
+                msg =_("This file does not exist.")
+                if os.access(wallet_folder, os.W_OK):
+                    self.next_button.setEnabled(True)
+                    msg += "\n"+ _("Press 'Next' to create this wallet, or choose another file.")
+                    self._path_new = path
+                else:
+                    self.next_button.setEnabled(False)
+                    msg += "\n" + _("You do not have write access "+
+                        "to this folder to create a new wallet.")
+
             self.msg_label.setText(msg)
             if pw:
                 self.pw_label.show()
@@ -298,16 +310,18 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
                 self.pw_label.hide()
                 self.pw_e.hide()
 
-        def _update_selected_wallet(skip_pick_most_recent=False):
-            wallet_name = None
-            if (is_startup and not skip_pick_most_recent and
-                (self.storage is None or not self.storage.file_exists())):
+        def _update_selected_wallet(skip_pick_most_recent: bool=False) -> None:
+            wallet_filename = None
+            if is_startup and not skip_pick_most_recent and self._storage_existing is None:
                 esv_wallet_names = self._list_user_wallets(esv_wallets_dir)
                 if len(esv_wallet_names):
-                    wallet_name = esv_wallet_names[0]
-            if wallet_name is None:
-                wallet_name = os.path.basename(self.storage.get_path())
-            self.name_e.setText(wallet_name)
+                    wallet_filename = esv_wallet_names[0]
+            if wallet_filename is None:
+                if self._storage_existing is not None:
+                    wallet_filename = os.path.basename(self._storage_existing.get_path())
+                else:
+                    wallet_filename = os.path.basename(initial_path)
+            self.name_e.setText(wallet_filename)
 
         button.clicked.connect(_on_choose)
         self.name_e.textChanged.connect(_on_filename)
@@ -318,16 +332,16 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         _update_selected_wallet(skip_pick_most_recent=True)
 
         while True:
-            if self.storage.file_exists() and not self.storage.is_encrypted():
+            if self._storage_existing is not None and not self._storage_existing.is_encrypted():
                 break
             if self.loop.exec_() != 2:  # 2 = next
                 return
-            if not self.storage.file_exists():
+            if self._storage_existing is None:
                 break
-            if self.storage.file_exists() and self.storage.is_encrypted():
+            if self._storage_existing is not None and self._storage_existing.is_encrypted():
                 password = self.pw_e.text()
                 try:
-                    self.storage.decrypt(password)
+                    self._storage_existing.decrypt(password)
                     self.pw_e.setText('')
                     break
                 except DecryptionError:
@@ -351,6 +365,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         esv_wallets_dir = os.path.join(app_state.config.electrum_path(), "wallets")
         if len(self._list_user_wallets(esv_wallets_dir)) > 0:
             return
+
         ec_wallets_dir = get_electron_cash_user_dir(esv_wallets_dir)
         ec_wallet_count = len(self._list_user_wallets(ec_wallets_dir))
         # If the user does not have Electron Cash wallets to copy, there's no point in offering.
@@ -449,54 +464,64 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
             return True
         return False
 
-    def run_and_get_wallet(self):
-        path = self.storage.get_path()
-        if self.storage.requires_split():
-            msg = _("The wallet '{}' contains multiple accounts, which are not supported.\n\n"
-                    "Do you want to split your wallet into multiple files?").format(path)
-            if not MessageBox.question(msg):
-                return
-            file_list = '\n'.join(self.storage.split_accounts())
-            msg = (_('Your accounts have been moved to') + ':\n' + file_list + '\n\n' +
-                   _('Do you want to delete the old file') + ':\n' + path)
-            if self.question(msg):
-                os.remove(path)
-                self.show_warning(_('The file was removed'))
-            return
-
-        if self.storage.requires_upgrade():
-            msg = _("The format of your wallet '%s' must be upgraded for ElectrumSV. "
-                    "This change will not be backward compatible, "+
-                    "and your existing wallet will be backed up. Proceed?") % path
-            if not MessageBox.question(msg):
-                return
-            self.storage.upgrade()
-
-            self.parent_wallet = ParentWallet(self.storage)
-            return self.parent_wallet
-
-        action = None if self.storage.file_exists() else 'new'
-        if action and action != 'new':
-            msg = _("The file '{}' contains an incompletely created wallet.\n"
-                    "Do you want to complete its creation now?").format(path)
-            if not MessageBox.question(msg):
-                if MessageBox.question(_("Do you want to delete '{}'?").format(path)):
+    def run_and_get_wallet(self) -> Optional[Abstract_Wallet]:
+        # NOTE(rt12): This used to have unused code related to resuming incompletely created
+        # wallets. This is worth supporting, but not at this stage where we will eventually
+        # rewrite for a new wallet wizard and multiple accounts and legacy wallets so on.
+        if self._storage_existing is not None:
+            path = self._storage_existing.get_path()
+            if self._storage_existing.requires_split():
+                msg = _("The wallet '{}' contains multiple accounts, which are not supported.\n\n"
+                        "Do you want to split your wallet "
+                        "into multiple files?").format(path)
+                if not MessageBox.question(msg):
+                    return
+                file_list = '\n'.join(self._storage_existing.split_accounts())
+                msg = (_('Your accounts have been moved to') + ':\n' + file_list + '\n\n' +
+                    _('Do you want to delete the old file') + ':\n' + path)
+                if self.question(msg):
+                    # We know that this will be the only relevant path and will not require
+                    # extensions, as it predates the use of the database.
                     os.remove(path)
                     self.show_warning(_('The file was removed'))
                 return
-            self.show()
-        if action:
-            # self.parent_wallet is set in run, unless they go back.
-            self.run(action)
-            if action == "new" and self.parent_wallet:
-               # We forceably save new wallets in order to get the initial state synced on disk
-                # that the user can both find it if ESV crashes, and that the externally referenced
-                # and encrypted data has synchronised persisted keys
-                self.parent_wallet.save_storage()
-            return self.parent_wallet
 
-        self.parent_wallet = ParentWallet(self.storage)
-        return self.parent_wallet
+            if self._storage_existing.requires_upgrade():
+                msg = _("The format of your wallet '%s' must be upgraded for ElectrumSV. "
+                        "This change will not be backward compatible, "+
+                        "and your existing wallet will be backed up. Proceed?") % path
+                if not MessageBox.question(msg):
+                    return
+                self._storage_existing.upgrade()
+
+            self._parent_wallet = ParentWallet(self._storage_existing)
+        else:
+            assert self._path_new is not None, "user should have selected storage already"
+
+            wallet_filename = os.path.basename(self._path_new)
+            # Make a temporary directory as securely as possible, where the new wallet will be
+            # created.
+            creation_path = tempfile.mkdtemp()
+            try:
+                path_new = os.path.join(creation_path, wallet_filename)
+                self._storage_new = WalletStorage(path_new)
+                # Ensure the path is full and includes the extension.
+                path_new = self._storage_new.get_path()
+
+                self.run("new")
+
+                if self._parent_wallet is not None:
+                    self._parent_wallet.save_storage()
+
+                if self._parent_wallet is not None:
+                    self._parent_wallet.move_to(self._path_new)
+                else:
+                    # We want to make sure we are not keeping the database open, before deleting.
+                    self._storage_new.close()
+                    del self._storage_new
+            finally:
+                shutil.rmtree(creation_path)
+        return self._parent_wallet
 
     def finished(self):
         """Called in hardware client wrapper, in order to close popups."""

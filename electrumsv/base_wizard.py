@@ -23,7 +23,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os
 from typing import Optional, Any, List, Tuple
 
 from bitcoinx import bip32_is_valid_chain_string
@@ -31,14 +30,15 @@ from bitcoinx import bip32_is_valid_chain_string
 from . import bitcoin
 from . import keystore
 from .app_state import app_state
+from .constants import WalletTypes
 from .device import DeviceInfo
 from .i18n import _
 from .keystore import bip44_derivation_cointype, KeyStore
 from .logs import logs
 from .storage import WalletStorage
+from .util import get_wallet_name_from_path
 from .wallet import (
-    ParentWallet, ImportedAddressWallet, ImportedPrivkeyWallet, Multisig_Wallet,
-    WalletTypes, Standard_Wallet
+    ParentWallet, ImportedAddressWallet, ImportedPrivkeyWallet, Multisig_Wallet, Standard_Wallet
 )
 
 
@@ -49,11 +49,14 @@ DeviceList = List[Tuple[str, DeviceInfo]]
 
 
 class BaseWizard(object):
-    def __init__(self, storage: WalletStorage) -> None:
+    _path_new_target: Optional[str] = None
+    _storage_existing: Optional[WalletStorage] = None
+    _storage_new: Optional[WalletStorage] = None
+    _parent_wallet: Optional[ParentWallet] = None
+
+    def __init__(self) -> None:
         super(BaseWizard, self).__init__()
 
-        self.storage = storage
-        self.parent_wallet: Optional[ParentWallet] = None
         self.stack: List[Any] = []
         self.plugin: Optional[Any] = None
         self.keystores: List[KeyStore] = []
@@ -87,8 +90,9 @@ class BaseWizard(object):
         self.run(action, *args)
 
     def new(self) -> None:
-        name = os.path.basename(self.storage.get_path())
-        title = _("Create") + ' ' + name
+        assert self._storage_new is not None
+        wallet_name = get_wallet_name_from_path(self._storage_new.get_path())
+        title = _("Create") + ' ' + wallet_name
         message = '\n'.join([
             _("What kind of wallet do you want to create?")
         ])
@@ -150,14 +154,15 @@ class BaseWizard(object):
                              is_valid=v, allow_multi=True)
 
     def on_import(self, text: str) -> None:
+        assert self._storage_new is not None
         if keystore.is_address_list(text):
-            self.parent_wallet = ParentWallet.as_legacy_wallet_container(self.storage)
-            ImportedAddressWallet.from_text(self.parent_wallet, text)
+            self._parent_wallet = ParentWallet.as_legacy_wallet_container(self._storage_new)
+            ImportedAddressWallet.from_text(self._parent_wallet, text)
 
             self.request_password(run_next=self.on_password)
         elif keystore.is_private_key_list(text):
-            self.parent_wallet = ParentWallet.as_legacy_wallet_container(self.storage)
-            legacy_wallet = ImportedPrivkeyWallet.from_text(self.parent_wallet, text)
+            self._parent_wallet = ParentWallet.as_legacy_wallet_container(self._storage_new)
+            legacy_wallet = ImportedPrivkeyWallet.from_text(self._parent_wallet, text)
             # We grab references to these, as we will be encrypting them if a password is set.
             self.keystores = legacy_wallet.get_keystores()
 
@@ -374,23 +379,24 @@ class BaseWizard(object):
             self.on_password(None)
 
     def on_password(self, password: Optional[str]) -> None:
+        assert self._storage_new is not None
         if self.wallet_type == 'standard':
-            self.parent_wallet = ParentWallet.as_legacy_wallet_container(self.storage)
-            keystore_usage = self.parent_wallet.add_keystore(self.keystores[0].dump())
-            Standard_Wallet.create_within_parent(self.parent_wallet,
+            self._parent_wallet = ParentWallet.as_legacy_wallet_container(self._storage_new)
+            keystore_usage = self._parent_wallet.add_keystore(self.keystores[0].dump())
+            Standard_Wallet.create_within_parent(self._parent_wallet,
                 keystore_usage=[ keystore_usage ])
         elif self.wallet_type == 'multisig':
-            self.parent_wallet = ParentWallet.as_legacy_wallet_container(self.storage)
+            self._parent_wallet = ParentWallet.as_legacy_wallet_container(self._storage_new)
             keystore_usages = []
             for i, k in enumerate(self.keystores):
-                keystore_usage = self.parent_wallet.add_keystore(k.dump())
+                keystore_usage = self._parent_wallet.add_keystore(k.dump())
                 keystore_usage['name'] = f'x{i+1}/'
                 keystore_usages.append(keystore_usage)
-            Multisig_Wallet.create_within_parent(self.parent_wallet,
+            Multisig_Wallet.create_within_parent(self._parent_wallet,
                 keystore_usage=keystore_usages, wallet_type=self.multisig_type)
 
-        if self.parent_wallet is not None and password:
-            self.parent_wallet.set_initial_password(password)
+        if self._parent_wallet is not None and password:
+            self._parent_wallet.set_initial_password(password)
 
     def show_xpub_and_add_cosigners(self, xpub) -> None:
         self.show_xpub_dialog(xpub=xpub, run_next=lambda x: self.run('choose_keystore'))

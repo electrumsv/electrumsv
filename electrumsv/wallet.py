@@ -51,6 +51,7 @@ from . import coinchooser
 from . import paymentrequest
 from .app_state import app_state
 from .bitcoin import COINBASE_MATURITY
+from .constants import TxFlags, ParentWalletKinds
 from .contacts import Contacts
 from .crypto import sha256d
 from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword,
@@ -62,22 +63,17 @@ from .logs import logs
 from .networks import Net
 from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
-from .storage import multisig_type, WalletStorage, ParentWalletKinds
+from .storage import multisig_type, WalletStorage
 from .transaction import (
     Transaction, classify_tx_output, tx_output_to_display_text, XPublicKey, NO_SIGNATURE,
     XTxInput
 )
-from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxFlags, TxData, TxProof
-from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
+from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxData, TxProof
+from .util import (profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime,
+    get_wallet_name_from_path)
 from .web import create_URI
 
 logger = logs.get_logger("wallet")
-
-
-class WalletTypes:
-    STANDARD = "standard"
-    MULTISIG = "multisig"
-    IMPORTED = "imported"
 
 
 TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
@@ -216,7 +212,7 @@ class Abstract_Wallet:
 
         # Database Id for this child wallet.
         self._id = wallet_data["id"]
-        self._datastore = parent_wallet.get_wallet_datastore(self._id)
+        self._open_database()
 
         self.logger = logs.get_logger("wallet[{}]".format(self.name()))
         self.network = None
@@ -268,6 +264,11 @@ class Abstract_Wallet:
         instance = klass(parent_wallet, wallet_data)
         parent_wallet.add_child_wallet(instance)
         return instance
+
+    def _open_database(self, close_existing: bool=False) -> None:
+        if close_existing:
+            self._datastore.close()
+        self._datastore = self._parent_wallet.get_wallet_datastore(self._id)
 
     def is_wrapped_legacy_wallet(self):
         return True
@@ -1316,6 +1317,7 @@ class Abstract_Wallet:
     def sign_transaction(self, tx: Transaction, password: str) -> None:
         if self.is_watching_only():
             return
+
         # hardware wallets require extra info
         if any([(isinstance(k, Hardware_KeyStore) and k.can_sign(tx))
                 for k in self.get_keystores()]):
@@ -1327,6 +1329,11 @@ class Abstract_Wallet:
                     k.sign_transaction(tx, password)
             except UserCancelled:
                 continue
+
+        # Track all the transactions we sign so that we know whether our UTXOs are allocated for
+        # use or not.
+        tx_id = tx.txid()
+        # self.add_transaction(tx_id, tx, TxFlags.StateSigned)
 
     def get_unused_addresses(self):
         # fixme: use slots from expired requests
@@ -2006,7 +2013,7 @@ class ParentWallet:
     _type: Optional[str] = None
 
     def __init__(self, storage: WalletStorage,
-            creation_type: Optional[ParentWalletKinds]=None) -> None:
+            creation_type: Optional[str]=None) -> None:
         self._storage = storage
         self._logger = logs.get_logger(f"wallet[{self.name()}]")
 
@@ -2019,7 +2026,12 @@ class ParentWallet:
     def as_legacy_wallet_container(klass, storage: WalletStorage) -> 'ParentWallet':
         return klass(storage, ParentWalletKinds.LEGACY)
 
-    def load_state(self, creation_type: Optional[ParentWalletKinds]=None) -> None:
+    def move_to(self, new_path: str) -> None:
+        self._storage.move_to(new_path)
+        for child_wallet in self._child_wallets:
+            child_wallet._open_database(close_existing=True)
+
+    def load_state(self, creation_type: Optional[str]=None) -> None:
         self._type = self._storage.get("type", creation_type)
         assert creation_type is None or self._type == creation_type, \
             f"Parent wallet type conflict, got: {self._type}, expected: {creation_type}"
@@ -2037,7 +2049,7 @@ class ParentWallet:
             self._child_wallets[subwallet_id] = self._create_child_wallet(subwallet_data)
 
     def name(self) -> str:
-        return os.path.basename(self._storage.get_path())
+        return get_wallet_name_from_path(self.get_storage_path())
 
     def get_storage_path(self) -> str:
         return self._storage.get_path()
@@ -2052,8 +2064,8 @@ class ParentWallet:
         self._storage.write()
 
     def get_wallet_datastore(self, wallet_id: int) -> WalletData:
-        store = WalletData(self.get_storage_path(), self.tx_store_aeskey_bytes, wallet_id)
-        return store
+        print(f"get_wallet_datastore {self.get_storage_path()}")
+        return WalletData(self.get_storage_path(), self.tx_store_aeskey_bytes, wallet_id)
 
     def get_next_child_wallet_id(self) -> int:
         return len(self._child_wallets)

@@ -5,12 +5,13 @@ import os
 from typing import Optional, Tuple, List
 
 import aiorpcx
-from bitcoinx import Script, TxOutput, OP_RETURN, OP_FALSE
+from bitcoinx import Script, TxOutput
+from bitcoinx import OP_RETURN, OP_FALSE # pylint: disable=no-name-in-module
 
 from electrumsv.app_state import app_state
-from electrumsv.crypto import sha256d
 from electrumsv.logs import logs
 from electrumsv.transaction import Transaction
+from electrumsv.util import get_wallet_name_from_path
 from electrumsv.wallet import Abstract_Wallet
 
 
@@ -35,7 +36,7 @@ class LocalRPCFunctions:
         esv_wallets_dir = os.path.join(app_state.config.electrum_path(), "wallets")
         wallet_path = os.path.join(esv_wallets_dir, wallet_name)
         wallet_path = os.path.normpath(wallet_path)
-        if wallet_name != os.path.basename(wallet_path):
+        if wallet_name != get_wallet_name_from_path(wallet_path):
             raise RPCError("wallet_name must not be a path")
         if not os.path.exists(wallet_path):
             raise RPCError(f"{wallet_path}: wallet_name does not exist")

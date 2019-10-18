@@ -64,9 +64,11 @@ def prompt_password(prompt, confirm=True):
 def run_non_RPC(config):
     cmdname = config.get('cmd')
 
-    storage = WalletStorage(config.get_wallet_path())
-    if storage.file_exists():
-        sys.exit("Error: Remove the existing wallet first!")
+    wallet_path = config.get_wallet_path()
+    if WalletStorage.files_are_matched_by_path(wallet_path):
+        sys.exit("Error: wallet name in use at given path")
+
+    storage = WalletStorage(wallet_path)
 
     def password_dialog():
         return prompt_password("Password (hit return if you do not wish to encrypt your wallet):")
@@ -125,18 +127,19 @@ def run_non_RPC(config):
               "you will not be able to restore your wallet.")
 
     parent_wallet.save_storage()
-    print("Wallet saved in '%s'" % parent_wallet.get_storage_path())
+    print(f"Wallet saved in '{parent_wallet.get_storage_path()}'")
     sys.exit(0)
 
 
 def init_daemon(config_options):
     config = SimpleConfig(config_options)
-    storage = WalletStorage(config.get_wallet_path())
-    if not storage.file_exists():
+    wallet_path = config.get_wallet_path()
+    if not WalletStorage.files_are_matched_by_path(wallet_path):
         print("Error: Wallet file not found.")
         print("Type 'electrum-sv create' to create a new wallet, "
               "or provide a path to a wallet with the -w option")
         sys.exit(0)
+    storage = WalletStorage(wallet_path)
     if storage.is_encrypted():
         if 'wallet_password' in config_options:
             print('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
@@ -168,14 +171,15 @@ def init_cmdline(config_options, server):
     if cmdname in ['payto', 'paytomany'] and config.get('broadcast'):
         cmd.requires_network = True
 
-    # instantiate wallet for command-line
-    storage = WalletStorage(config.get_wallet_path())
-
-    if cmd.requires_wallet and not storage.file_exists():
+    wallet_path = config.get_wallet_path()
+    if cmd.requires_wallet and not WalletStorage.files_are_matched_by_path(wallet_path):
         print("Error: Wallet file not found.")
         print("Type 'electrum-sv create' to create a new wallet, "
               "or provide a path to a wallet with the -w option")
         sys.exit(0)
+
+    # instantiate wallet for command-line
+    storage = WalletStorage(wallet_path)
 
     # important warning
     if cmd.name in ['getprivatekeys']:
@@ -212,7 +216,11 @@ def run_offline_command(config, config_options):
     cmd = known_commands[cmdname]
     password = config_options.get('password')
     if cmd.requires_wallet:
-        storage = WalletStorage(config.get_wallet_path())
+        wallet_path = config.get_wallet_path()
+        if not WalletStorage.files_are_matched_by_path(wallet_path):
+            print("Error: wallet does not exist at given path")
+            sys.exit(1)
+        storage = WalletStorage(wallet_path)
         if storage.is_encrypted():
             storage.decrypt(password)
         parent_wallet = ParentWallet(storage)

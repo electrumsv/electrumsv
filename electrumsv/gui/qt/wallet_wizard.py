@@ -23,8 +23,9 @@ from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage
-from electrumsv import wallet_support
+from electrumsv.util import get_wallet_name_from_path
 from electrumsv.version import PACKAGE_VERSION
+from electrumsv import wallet_support
 
 from .password_dialog import PasswordDialog
 from .util import icon_path, read_QIcon
@@ -342,7 +343,7 @@ class SelectWalletWizardPage(QWizardPage):
     def _get_recently_opened_wallets(self):
         return [
             {
-                'name': os.path.basename(file_path),
+                'name': get_wallet_name_from_path(file_path),
                 'path': file_path,
                 'is_encrypted': WalletStorage(file_path, manual_upgrades=True).is_encrypted,
             }

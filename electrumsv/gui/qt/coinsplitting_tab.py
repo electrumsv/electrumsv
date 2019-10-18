@@ -164,7 +164,7 @@ class CoinSplittingTab(QWidget):
                     dialog.exec()
                 else:
                     extra_text = _("Your split coins")
-                    window.broadcast_transaction(tx, f"{TX_DESC_PREFIX}: {extra_text}",
+                    window.broadcast_transaction(wallet, tx, f"{TX_DESC_PREFIX}: {extra_text}",
                                                 success_text=_("Your coins have now been split."))
             self._cleanup_tx_final()
         window.sign_tx_with_password(tx, sign_done, password)

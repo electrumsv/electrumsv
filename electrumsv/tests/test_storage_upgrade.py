@@ -2,7 +2,8 @@ import os
 import shutil
 import tempfile
 
-from electrumsv.storage import WalletStorage, multisig_type
+from electrumsv.constants import DATABASE_EXT
+from electrumsv.storage import WalletStorage, multisig_type, categorise_file
 from electrumsv.wallet import ParentWallet
 
 from electrumsv.tests.test_wallet import WalletTestCase
@@ -290,26 +291,34 @@ class TestStorageUpgrade(WalletTestCase):
         if accounts == 1:
             self.assertFalse(storage._store.requires_split())
             if storage.requires_upgrade():
+                original_path = storage.get_path()
                 storage.upgrade()
-                self._sanity_check_upgraded_storage(storage, expect_backup=True)
+                self._sanity_check_upgraded_storage(storage, original_path, expect_backup=True)
         else:
             self.assertTrue(storage._store.requires_split())
             new_paths = storage.split_accounts()
             self.assertEqual(accounts, len(new_paths))
             for new_path in new_paths:
                 new_storage = WalletStorage(new_path, manual_upgrades=False)
-                self._sanity_check_upgraded_storage(new_storage, expect_backup=False)
+                self._sanity_check_upgraded_storage(new_storage, new_path, expect_backup=False)
                 new_storage.close()
 
         storage.close()
 
-    def _sanity_check_upgraded_storage(self, storage, expect_backup=False):
+    def _sanity_check_upgraded_storage(self, storage: WalletStorage, original_path: str,
+            expect_backup=False):
         self.assertFalse(storage._store.requires_split())
         self.assertFalse(storage._store.requires_upgrade())
-        if expect_backup and os.path.exists(storage.get_path()):
-            backup_path = f"{storage.get_path()}.backup.{1:d}"
+
+        # wallet_path = storage.get_path()
+        if expect_backup: # and os.path.exists(wallet_path):
+            info = categorise_file(original_path)
+            base_wallet_filepath = os.path.join(os.path.dirname(original_path), info.filename)
+            backup_path = f"{base_wallet_filepath}.backup.{1:d}"
+            if original_path.endswith(DATABASE_EXT):
+                original_path += DATABASE_EXT
             self.assertTrue(os.path.exists(backup_path),
-                f"backup file '{backup_path}' does not exist")
+                f"backup file '{backup_path}' does not exist, for {original_path}")
 
         self._sanity_check_upgraded_wallet(storage)
 

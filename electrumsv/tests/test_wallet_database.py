@@ -1,14 +1,14 @@
 import os
 import pytest
 import tempfile
-import unittest
 
 import bitcoinx
 
+from electrumsv.constants import TxFlags
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv import wallet_database
-from electrumsv.wallet_database import TxFlags, TxData, TxCache, TxProof, DBTxInput, DBTxOutput
+from electrumsv.wallet_database import TxData, TxCache, TxProof, DBTxInput, DBTxOutput
 
 logs.set_level("debug")
 

@@ -532,6 +532,9 @@ def setup_thread_excepthook():
     threading.Thread.__init__ = init
 
 
+def get_wallet_name_from_path(wallet_path: str) -> str:
+    return os.path.splitext(os.path.basename(wallet_path))[0]
+
 def versiontuple(v):
     return tuple(int(x) for x in v.split("."))
 
