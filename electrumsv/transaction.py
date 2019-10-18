@@ -74,7 +74,7 @@ class XPublicKey:
             self.raw = raw if isinstance(raw, bytes) else bytes.fromhex(raw)
             self.to_public_key()
         except (ValueError, AssertionError):
-            raise ValueError(f'invalid XPublicKey: {raw}')
+            raise ValueError(f'invalid XPublicKey: {raw!r}')
 
     def __eq__(self, other) -> bool:
         return isinstance(other, XPublicKey) and self.raw == other.raw
