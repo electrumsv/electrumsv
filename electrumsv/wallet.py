@@ -643,7 +643,7 @@ class Abstract_Wallet:
         is_mine = False
         is_pruned = False
         is_partial = False
-        v_in = v_out = v_out_mine = 0
+        v_in_mine = v_out = v_out_mine = 0
         for txin in tx.inputs:
             addr = txin.address
             if addr in addresses:
@@ -658,7 +658,7 @@ class Abstract_Wallet:
                 if value is None:
                     is_pruned = True
                 else:
-                    v_in += value
+                    v_in_mine += value
             else:
                 is_partial = True
         if not is_mine:
@@ -669,24 +669,13 @@ class Abstract_Wallet:
             if addr in addresses:
                 v_out_mine += tx_output.value
                 is_relevant = True
-        if is_pruned:
-            # some inputs are mine:
+        v = v_out_mine - v_in_mine
+        if not is_mine or is_pruned or is_partial:
+            # None or only some inputs are mine, but not all
             fee = None
-            if is_mine:
-                v = v_out_mine - v_out
-            else:
-                # no input is mine
-                v = v_out_mine
         else:
-            v = v_out_mine - v_in
-            if is_partial:
-                # some inputs are mine, but not all
-                fee = None
-            else:
-                # all inputs are mine
-                fee = v_in - v_out
-        if not is_mine:
-            fee = None
+            # all inputs are mine
+            fee = v_in_mine - v_out
         return is_relevant, is_mine, v, fee
 
     # Only called from the history ui dialog.
