@@ -914,11 +914,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 text += f' {response_count:,d}/{request_count:,d}'
             else:
                 server_height = self.network.get_server_height()
-                server_lag = self.network.get_local_height() - server_height
-                if server_lag > 1:
-                    text = _("Server {} blocks behind").format(server_lag)
+                if server_height == 0:
+                    text = _("Not connected")
                 else:
-                    text = _("Connected")
+                    server_lag = self.network.get_local_height() - server_height
+                    if server_lag > 1:
+                        text = _("Server {} blocks behind").format(server_lag)
+                    else:
+                        text = _("Connected")
         self._status_bar.set_network_status(text)
 
     def update_status(self):
@@ -2006,6 +2009,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from .status_bar import StatusBar
         self._status_bar = StatusBar(self)
         self.set_status_bar_balance(False)
+        self._update_network_status()
         self.setStatusBar(self._status_bar)
 
     def set_status_bar_balance(self, shown: bool) -> None:
