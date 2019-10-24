@@ -28,7 +28,7 @@ from electrumsv.i18n import _
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QWidget
 from bitcoinx import Address
 
-from electrumsv.wallet import ParentWallet
+from electrumsv.wallet import Abstract_Wallet
 
 from .util import WindowModalDialog, ButtonsLineEdit, ColorScheme, Buttons, CloseButton
 from .history_list import HistoryList
@@ -36,15 +36,12 @@ from .qrtextedit import ShowQRTextEdit
 
 
 class AddressDialog(WindowModalDialog):
-    def __init__(self, parent: QWidget, parent_wallet: ParentWallet, address: Address) -> None:
+    def __init__(self, parent: QWidget, wallet: Abstract_Wallet, address: Address) -> None:
         assert isinstance(address, Address)
         WindowModalDialog.__init__(self, parent, _("Address"))
         self.address = address
         self.parent = parent
         self.config = parent.config
-        self.parent_wallet = parent_wallet
-        wallet = parent_wallet.get_wallet_for_address(address)
-        assert wallet is not None
         self.wallet = wallet
         self.app = parent.app
         self.saved = True
@@ -91,7 +88,7 @@ class AddressDialog(WindowModalDialog):
             vbox.addWidget(redeem_e)
 
         vbox.addWidget(QLabel(_("History")))
-        self.hw = HistoryList(self.parent, wallet)
+        self.hw = HistoryList(self.parent, self.wallet)
         self.hw.get_domain = self.get_domain
         vbox.addWidget(self.hw)
 
