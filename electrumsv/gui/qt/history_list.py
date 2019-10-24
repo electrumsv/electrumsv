@@ -350,7 +350,7 @@ class HistoryView(QSplitter):
         self._history_list.update()
 
     def update_tx_headers(self) -> None:
-        self._history_list.update_headers()
+        self._history_list.refresh_headers()
 
     def update_tx_labels(self) -> None:
         self._history_list.update_labels()
