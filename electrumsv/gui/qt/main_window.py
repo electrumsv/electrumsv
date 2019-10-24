@@ -831,14 +831,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def format_amount_and_units(self, amount):
         text = self.format_amount(amount) + ' ' + app_state.base_unit()
-        x = app_state.fx.format_amount_and_units(amount)
-        if text and x:
-            text += ' (%s)'%x
+        if app_state.fx and app_state.fx.is_enabled():
+            x = app_state.fx.format_amount_and_units(amount)
+            if text and x:
+                text += ' (%s)'%x
         return text
 
     def get_amount_and_units(self, amount: int) -> Tuple[str, str]:
         bitcoin_text = self.format_amount(amount) + ' ' + app_state.base_unit()
-        if app_state.fx.is_enabled():
+        if app_state.fx and app_state.fx.is_enabled():
             fiat_text = app_state.fx.format_amount_and_units(amount)
         else:
             fiat_text = ''
