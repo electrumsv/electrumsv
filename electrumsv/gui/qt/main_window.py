@@ -926,11 +926,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._status_bar.set_network_status(text)
 
     def update_status(self):
-        balance_status = False
         fiat_status = None
         if self.network and self.network.is_connected():
-            balance_status = True
-
             # append fiat balance and price
             if app_state.fx.is_enabled():
                 balance = 0
@@ -939,7 +936,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     balance += c
                 fiat_status = app_state.fx.get_fiat_status(
                     balance, app_state.base_unit(), app_state.decimal_point)
-        self.set_status_bar_balance(balance_status)
+        self.set_status_bar_balance(True)
         self._status_bar.set_fiat_status(fiat_status)
 
     @profiler
@@ -2009,7 +2006,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def create_status_bar(self):
         from .status_bar import StatusBar
         self._status_bar = StatusBar(self)
-        self.set_status_bar_balance(False)
+        self.set_status_bar_balance(True)
         self._update_network_status()
         self.setStatusBar(self._status_bar)
 
