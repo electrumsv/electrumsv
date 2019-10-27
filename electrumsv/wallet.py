@@ -921,7 +921,7 @@ class Abstract_Wallet:
             if next_tx_hash is not None:
                 self.pruned_txo.pop((tx_hash, n))
 
-                txin = DBTxInput(address.to_string(), tx_hash, n, tx_output.value)
+                txin = DBTxInput(address.to_string(coin=Net.COIN), tx_hash, n, tx_output.value)
                 txins.append((next_tx_hash, txin))
 
         # We expect to be passing in existing entries as this gets recalled for a transaction
