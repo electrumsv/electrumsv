@@ -11,7 +11,7 @@ is out of date.
 """
 
 from abc import ABC, abstractmethod
-from collections import namedtuple
+from collections import namedtuple, deque
 from io import BytesIO
 import json
 import queue
@@ -22,10 +22,10 @@ import time
 from typing import Optional, Dict, Set, Iterable, List, Tuple, Union, Any, Callable
 
 import bitcoinx
-
 from .constants import DATABASE_EXT, TxFlags
 from .logs import logs
 from .transaction import Transaction
+from .wallet import UTXO
 
 
 __all__ = [
@@ -1814,6 +1814,106 @@ class TxCache:
             return len(store_updates)
 
 
+class UTXOCache:
+    """A 'smarter' version of a deque with additional 'update_cache' and 'rewind_cache' methods.
+
+    The benefit of the utxo cache is to avoid needless iteration over all addresses to re-calculate
+    utxo set (for every transaction that is created).
+
+    UTXO fields:
+    - value
+    - script_pubkey
+    - tx_hash
+    - out_index
+    - height
+    - address
+    - is_coinbase
+    """
+
+    def __init__(self, utxos: List[UTXO] = []):
+        self.utxos = deque(utxos)
+        self._lock = threading.Lock()
+
+    def __getattr__(self, attr):
+        if attr in dir(deque) and not attr.startswith('__'):
+            return getattr(self.utxos, attr)
+        else:
+            return self.attr
+
+    def __dir__(self):
+        attributes = []
+        attributes.extend([attrs for attrs in dir(deque) if not attrs.startswith('__')])
+        attributes.extend(self.__dict__.keys())
+        return attributes
+
+    def __repr__(self):
+        return f"UTXOCache({list(self.utxos)})"
+
+    def __eq__(self, other):
+        # deque comparison to equivalent list should return True
+        if isinstance(other, list):
+            return list(self.utxos) == other
+        else:
+            return self.utxos == other
+
+    def __len__(self):
+        return self.utxos.__len__()
+
+    def utxos_from_txouts(self, tx: Transaction, tx_cache_entry: TxCacheEntry,
+                          reversed_order: bool = False) -> List[UTXO]:
+        """Takes a StateCleared transaction and transforms the outputs to a list of UTXOs"""
+
+        new_utxos = []
+        for index, output in enumerate(tx.outputs()):
+            type_, address, value = output
+            if "OP_RETURN" in str(address):
+                continue
+
+            new_utxo = UTXO(value=value,
+                            script_pubkey=output.script,
+                            tx_hash=tx.txid(),
+                            out_index=index,
+                            height=tx_cache_entry.metadata.height,
+                            address=address,
+                            is_coinbase=tx.is_coinbase())
+            new_utxos.append(new_utxo)
+        # We want oldest and lowest value --> leftmost in self.utxo_cache
+        sorted_new_utxos = sorted(new_utxos, key=lambda k: (k['value'], -k['height']),
+                                  reverse=reversed_order)
+        return sorted_new_utxos
+
+    def update_utxo_cache(self, tx: Transaction, tx_cache_entry: TxCacheEntry) -> None:
+        """This should only be called after tx reaches StateCleared."""
+
+        # TODO - Assert StateCleared
+        # TODO - Ensure efficient way of obtaining tx_cache_entry for caller
+        self._logger.debug(f"updating utxo cache for {tx.txid()}")
+        with self._lock:
+            # Discard used utxos
+            for input in tx.inputs():
+                # Search left side of deque for match. Necessary vs popleft() because
+                # async broadcasting --> cannot assume FIFO ordering. In general will
+                # find a match after only a few iterations.
+                indices_for_deletion = []
+                for index, utxo in enumerate(self.utxos):
+                    if utxo.tx_hash == input['prevout_hash']:
+                        # avoids 'mutating deque during iteration'
+                        indices_for_deletion.append(index)
+                        continue
+                for index in indices_for_deletion:
+                    del (self.utxo_cache[index])
+
+            # Add new utxos to cache
+            new_utxos = self.utxos_from_txouts(tx, tx_cache_entry)
+            self.utxo_cache.extend(new_utxos)
+
+    def rewind_utxo_cache(self, tx: Transaction):
+        """In the case of a chain reorg (e.g. of empty blocks) in which transaction regresses from:
+        StateCleared --> StateDispatched, we must 'rewind' the utxo cache to reflect this."""
+        with self._lock:
+            raise NotImplementedError
+
+
 class WalletData:
     def __init__(self, db_context: DatabaseContext, aeskey: bytes, subwallet_id: int,
             migration_context: Optional[MigrationContext]=None) -> None:
@@ -1829,6 +1929,7 @@ class WalletData:
         self.tx_cache = TxCache(self.tx_store)
         self.txin_cache = TxXputCache(self.txin_store, "txins")
         self.txout_cache = TxXputCache(self.txout_store, "txouts")
+        self.utxo_cache = UTXOCache()
 
     def close(self) -> None:
         self.tx_store.close()
@@ -1847,6 +1948,10 @@ class WalletData:
     @property
     def txout(self) -> TxXputCache:
         return self.txout_cache
+
+    @property
+    def utxos(self) -> UTXOCache:
+        return self.utxo_cache
 
     @property
     def misc(self) -> ObjectKeyValueStore:
