@@ -15,9 +15,11 @@ from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import (get_categorised_files, multisig_type,
     WalletStorage, WalletStorageInfo)
 from electrumsv.transaction import XPublicKey
-from electrumsv.wallet import (sweep_preparations, ImportedPrivkeyWallet, ImportedAddressWallet,
-    Multisig_Wallet, ParentWallet, Standard_Wallet, UTXO)
-from electrumsv.wallet_database import DatabaseContext
+from electrumsv.wallet import (sweep_preparations,
+        ImportedPrivkeyWallet, ImportedAddressWallet,
+        Multisig_Wallet, ParentWallet, Standard_Wallet
+)
+from electrumsv.wallet_database import DatabaseContext, UTXO
 
 from .util import setup_async, tear_down_async, TEST_WALLET_PATH
 

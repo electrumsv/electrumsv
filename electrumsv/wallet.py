@@ -28,7 +28,6 @@
 #   - Multisig_Wallet: several keystores, P2SH
 
 from collections import defaultdict, namedtuple
-import attr
 import copy
 import errno
 import itertools
@@ -43,8 +42,7 @@ import weakref
 from aiorpcx import run_in_thread
 from bitcoinx import (
     PrivateKey, PublicKey, P2MultiSig_Output, Address, hash160, P2SH_Address,
-    TxOutput, classify_output_script, P2PKH_Address, P2PK_Output, Script,
-    hex_str_to_hash, hash_to_hex_str, sha256,
+    TxOutput, P2PK_Output, hash_to_hex_str, sha256,
 )
 
 from . import coinchooser
@@ -65,10 +63,9 @@ from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type, WalletStorage
 from .transaction import (
-    Transaction, classify_tx_output, tx_output_to_display_text, XPublicKey, NO_SIGNATURE,
-    XTxInput
+    Transaction, classify_tx_output, tx_output_to_display_text, XPublicKey, NO_SIGNATURE
 )
-from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxData, TxProof
+from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxData, TxProof, UTXO
 from .util import (profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime,
     get_wallet_name_from_path)
 from .web import create_URI
@@ -78,59 +75,6 @@ logger = logs.get_logger("wallet")
 
 TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
                     'fee height conf timestamp')
-
-
-@attr.s(slots=True, cmp=False, hash=False)
-class UTXO:
-    value = attr.ib()
-    script_pubkey = attr.ib()
-    # This is currently a hex string
-    tx_hash = attr.ib()
-    out_index = attr.ib()
-    height = attr.ib()
-    address = attr.ib()
-    # To determine if matured and spendable
-    is_coinbase = attr.ib()
-
-    def __eq__(self, other):
-        return isinstance(other, UTXO) and self.key() == other.key()
-
-    def __hash__(self):
-        return hash(self.key())
-
-    def key(self):
-        return (self.tx_hash, self.out_index)
-
-    def key_str(self):
-        return ':'.join((self.tx_hash, str(self.out_index)))
-
-    def to_tx_input(self):
-        kind = classify_output_script(self.script_pubkey, Net.COIN)
-        if isinstance(kind, P2PKH_Address):
-            threshold = 1
-            # _add_input_sig_info() will replace with public key
-            x_pubkeys = [XPublicKey('fd' + self.script_pubkey.to_hex())]
-        elif isinstance(kind, P2SH_Address):
-            # _add_input_sig_info() will replace with public key
-            threshold = 0
-            x_pubkeys = []
-        elif isinstance(kind, P2PK_Output):
-            threshold = 1
-            x_pubkeys = [XPublicKey(kind.public_key.to_bytes())]
-        else:
-            raise RuntimeError(f'cannot spend {self}')
-
-        return XTxInput(
-            prev_hash=hex_str_to_hash(self.tx_hash),
-            prev_idx=self.out_index,
-            script_sig=Script(),
-            sequence=0xffffffff,
-            value=self.value,
-            x_pubkeys=x_pubkeys,
-            address=self.address,
-            threshold=threshold,
-            signatures=[NO_SIGNATURE] * len(x_pubkeys),
-        )
 
 
 def dust_threshold(network):
@@ -784,14 +728,80 @@ class Abstract_Wallet:
                     u -= amount
         return c, u, x
 
-    def get_spendable_coins(self, domain, config, isInvoice = False):
+    def get_spendable_coins_cached(self, config, isInvoice=False):
+        # address level freezing mechanics not supported with caching
+        confirmed_only = config.get('confirmed_only', False)
+        if isInvoice:
+            confirmed_only = True
+        return self.get_utxos_cached(exclude_frozen=True, mature=True,
+                                     confirmed_only=confirmed_only)
+
+    def get_spendable_coins(self, domain, config, isInvoice=False):
         confirmed_only = config.get('confirmed_only', False)
         if isInvoice:
             confirmed_only = True
         return self.get_utxos(domain, exclude_frozen=True, mature=True,
                               confirmed_only=confirmed_only)
 
-    def get_utxos(self, domain=None, exclude_frozen=False, mature=False, confirmed_only=False):
+    def get_utxos_cached(self, exclude_frozen=False, mature=True, confirmed_only=False):
+        """As an interim measure (until persisted in database), the cache should be loaded once per
+        session. Address level freezing mechanics are NOT supported (due to massive performance costs).
+
+        1) Utxos are added from StateCleared transactions. (reorgs that regress this state should
+        result in removal again - but this is expected to be rare.)
+        2) The utxo cache should only empty when all wallet coins are spent.
+        """
+        # TODO = add tests for mature vs not (have to track is_coinbase - don't allow into cache)
+
+        # Fast Track
+        if exclude_frozen is False and mature is True and confirmed_only is False:
+            if len(self._datastore.utxos) != 0:
+                return self._datastore.utxos
+            else:
+                coins = sorted(
+                    self.get_utxos(domain=None, exclude_frozen=False, mature=True,
+                                   confirmed_only=False),
+                    key=lambda k: (k.height, -k.value),
+                    reverse=True
+                )
+                # TODO - is this adding a list inside of a list?
+                self._datastore.utxos.add_many(coins)
+                if len(self._datastore.utxos) == 0:
+                    raise NotEnoughFunds("Either all utxos are frozen or your wallet is out of coins.")
+
+                return self._datastore.utxos
+
+        utxos = self.get_utxos_cached(exclude_frozen=False, mature=True, confirmed_only=False)
+
+        # Fast track + exclude_frozen --> still fast if using oldest / largest utxos 1st
+        if exclude_frozen is True and mature is True and confirmed_only is False:
+            """more efficient algo for filtering out frozen utxos due to ordering of utxos"""
+
+            frozen_utxos = []
+            for frozen in self._frozen_coins:
+                for utxo in utxos:
+                    if frozen == utxo.key():
+                        frozen_utxos.append(utxo)
+                        continue
+
+            return self._datastore.utxos.filter_frozen_utxos(frozen_utxos, utxos)
+
+        else:
+            # Fall back to full, slow filtering
+            mempool_height = self.get_local_height() + 1
+
+            def is_spendable_utxo(utxo):
+                if exclude_frozen and self.is_frozen_utxo(utxo):
+                    return False
+                if confirmed_only and utxo.height <= 0:
+                    return False
+                # A coin is spendable at height (utxo.height + COINBASE_MATURITY)
+                if mature and utxo.is_coinbase and mempool_height < utxo.height + COINBASE_MATURITY:
+                    return False
+                return True
+            return [utxo for utxo in utxos if is_spendable_utxo(utxo)]
+
+    def get_utxos(self, domain=None, exclude_frozen=False, mature=True, confirmed_only=False):
         '''Note exclude_frozen=True checks for BOTH address-level and coin-level frozen status. '''
         if domain is None:
             domain = self.get_addresses()
@@ -815,7 +825,7 @@ class Abstract_Wallet:
     def dummy_address(self):
         return self.get_receiving_addresses()[0]
 
-    def get_addresses(self):
+    def get_addresses(self) -> List[Address]:
         return self.get_receiving_addresses() + self.get_change_addresses()
 
     def get_observed_addresses(self):
@@ -862,6 +872,10 @@ class Abstract_Wallet:
             uu += u
             xx += x
         return cc, uu, xx
+
+    def get_address_history(self, address: Address) -> List[List]:
+        assert isinstance(address, Address)
+        return self._history.get(address, [])
 
     def add_transaction(self, tx_hash: str, tx: Transaction, flag: TxFlags) -> None:
         with self.transaction_lock:
@@ -1202,15 +1216,24 @@ class Abstract_Wallet:
             return True
         return False
 
-    def set_frozen_coin_state(self, utxos, freeze) -> None:
+    def remove_frozen_coins(self, utxos: List[UTXO]) -> None:
+        self._frozen_coins.difference_update(utxo.key() for utxo in utxos)
+
+    def set_frozen_coin_state(self, utxos: List[UTXO], freeze: bool) -> None:
         '''Set frozen state of the COINS to FREEZE, True or False.  Note that coin-level freezing
         is set/unset independent of address-level freezing, however both must be satisfied for
         a coin to be defined as spendable.
+
+        Also removes or adds back utxos from the self._datastore.utxos cache.
         '''
         if freeze:
             self._frozen_coins.update(utxo.key() for utxo in utxos)
+            if self._datastore.utxos:
+                self._datastore.utxos.remove_frozen_utxos(utxos)
         else:
             self._frozen_coins.difference_update(utxo.key() for utxo in utxos)
+            if self._datastore.utxos:
+                self._datastore.utxos.add_unfrozen_utxos(utxos)
 
     def start(self, network):
         self.network = network
@@ -1619,7 +1642,7 @@ class ImportedWalletBase(Simple_Wallet):
     def get_fingerprint(self):
         return ''
 
-    def get_receiving_addresses(self):
+    def get_receiving_addresses(self) -> List[Address]:
         return self.get_addresses()
 
     def get_change_addresses(self):
@@ -1802,10 +1825,10 @@ class Deterministic_Wallet(Abstract_Wallet):
     def has_seed(self) -> bool:
         return self.get_keystore().has_seed()
 
-    def get_receiving_addresses(self):
+    def get_receiving_addresses(self) -> List[Address]:
         return self.receiving_addresses
 
-    def get_change_addresses(self):
+    def get_change_addresses(self) -> List[Address]:
         return self.change_addresses
 
     def get_seed(self, password: Optional[str]) -> str:

@@ -1131,6 +1131,11 @@ class Network:
                     logger.error(f'fetching transaction {tx_hash}: {e}')
                 else:
                     wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared)
+
+                    # Add new StateCleared coins to utxo cache + remove redundant frozen coins
+                    tx_entry = wallet._datastore.tx.get_entry(tx_hash, mask=TxFlags.StateCleared)
+                    wallet._datastore.utxos.add_from_tx_entry(tx_entry)
+
                     self.trigger_callback('new_transaction', tx, wallet)
         return had_timeout
 

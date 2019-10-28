@@ -21,11 +21,14 @@ import threading
 import time
 from typing import Optional, Dict, Set, Iterable, List, Tuple, Union, Any, Callable
 
+import attr
 import bitcoinx
+from bitcoinx import classify_output_script, P2PKH_Address, P2SH_Address, P2PK_Output, hex_str_to_hash, Script
+
+from electrumsv.transaction import XPublicKey, XTxInput, NO_SIGNATURE
 from .constants import DATABASE_EXT, TxFlags
 from .logs import logs
 from .transaction import Transaction
-from .wallet import UTXO
 
 
 __all__ = [
@@ -1814,20 +1817,73 @@ class TxCache:
             return len(store_updates)
 
 
+@attr.s(slots=True, cmp=False, hash=False)
+class UTXO:
+    value = attr.ib()
+    script_pubkey = attr.ib()
+    # This is currently a hex string
+    tx_hash = attr.ib()
+    out_index = attr.ib()
+    height = attr.ib()
+    address = attr.ib()
+    # To determine if matured and spendable
+    is_coinbase = attr.ib()
+
+    def __eq__(self, other):
+        return isinstance(other, UTXO) and self.key() == other.key()
+
+    def __hash__(self):
+        return hash(self.key())
+
+    def key(self):
+        return (self.tx_hash, self.out_index)
+
+    def key_str(self):
+        return ':'.join((self.tx_hash, str(self.out_index)))
+
+    def to_tx_input(self):
+        kind = classify_output_script(self.script_pubkey)
+        if isinstance(kind, P2PKH_Address):
+            threshold = 1
+            # _add_input_sig_info() will replace with public key
+            x_pubkeys = [XPublicKey('fd' + self.script_pubkey.to_hex())]
+        elif isinstance(kind, P2SH_Address):
+            # _add_input_sig_info() will replace with public key
+            threshold = 0
+            x_pubkeys = []
+        elif isinstance(kind, P2PK_Output):
+            threshold = 1
+            x_pubkeys = [XPublicKey(kind.public_key.to_bytes())]
+        else:
+            raise RuntimeError(f'cannot spend {self}')
+
+        return XTxInput(
+            prev_hash=hex_str_to_hash(self.tx_hash),
+            prev_idx=self.out_index,
+            script_sig=Script(),
+            sequence=0xffffffff,
+            value=self.value,
+            x_pubkeys=x_pubkeys,
+            address=self.address,
+            threshold=threshold,
+            signatures=[NO_SIGNATURE] * len(x_pubkeys),
+        )
+
+
 class UTXOCache:
-    """A 'smarter' version of a deque with additional 'update_cache' and 'rewind_cache' methods.
+    """A 'smarter' version of a deque with additional utility methods. Avoids needless iteration
+    over all addresses to re-calculate utxo set (for every transaction created).
 
-    The benefit of the utxo cache is to avoid needless iteration over all addresses to re-calculate
-    utxo set (for every transaction that is created).
+    Note: 'get_spendable_coins' used by the GUI re-calculates utxos every time so there is no
+    risk of "cache invalidation" type issues.
 
-    UTXO fields:
-    - value
-    - script_pubkey
-    - tx_hash
-    - out_index
-    - height
-    - address
-    - is_coinbase
+    Whereas 'get_spendable_coins_cached' requires freezing / unfreezing coins for every transaction
+    *created* / every failed broadcast respectively. The set_frozen_coin_state() has been modified
+    to update the cache correctly as long as these steps are followed.
+
+    Because setting coins to frozen removes them from the cache, there could be cases where
+    (if there is only 1 utxo in the cache - the cache will momentarily empty as it waits for the
+    incoming 'StateCleared' transaction from the network to refill the cache.
     """
 
     def __init__(self, utxos: List[UTXO] = []):
@@ -1838,31 +1894,36 @@ class UTXOCache:
         if attr in dir(deque) and not attr.startswith('__'):
             return getattr(self.utxos, attr)
         else:
-            return self.attr
+            return attr
 
     def __dir__(self):
         attributes = []
         attributes.extend([attrs for attrs in dir(deque) if not attrs.startswith('__')])
         attributes.extend(self.__dict__.keys())
+        attributes.extend([attr for attr in self.__class__.__dict__.keys()
+                           if not attr.startswith('__')])
         return attributes
 
     def __repr__(self):
         return f"UTXOCache({list(self.utxos)})"
 
     def __eq__(self, other):
-        # deque comparison to equivalent list should return True
         if isinstance(other, list):
             return list(self.utxos) == other
         else:
             return self.utxos == other
 
     def __len__(self):
-        return self.utxos.__len__()
+        return len(self.utxos)
 
-    def utxos_from_txouts(self, tx: Transaction, tx_cache_entry: TxCacheEntry,
-                          reversed_order: bool = False) -> List[UTXO]:
+    def __iter__(self):
+        return self.utxos.__iter__()
+
+    @staticmethod
+    def extract_utxos_from_tx_entry(tx_cache_entry: TxCacheEntry,
+                                    reversed_order: bool = False) -> List[UTXO]:
         """Takes a StateCleared transaction and transforms the outputs to a list of UTXOs"""
-
+        tx = tx_cache_entry.transaction
         new_utxos = []
         for index, output in enumerate(tx.outputs()):
             type_, address, value = output
@@ -1877,41 +1938,76 @@ class UTXOCache:
                             address=address,
                             is_coinbase=tx.is_coinbase())
             new_utxos.append(new_utxo)
-        # We want oldest and lowest value --> leftmost in self.utxo_cache
+
         sorted_new_utxos = sorted(new_utxos, key=lambda k: (k['value'], -k['height']),
                                   reverse=reversed_order)
         return sorted_new_utxos
 
-    def update_utxo_cache(self, tx: Transaction, tx_cache_entry: TxCacheEntry) -> None:
+    def add_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> None:
         """This should only be called after tx reaches StateCleared."""
 
-        # TODO - Assert StateCleared
-        # TODO - Ensure efficient way of obtaining tx_cache_entry for caller
+        assert(tx_cache_entry.flags | TxFlags.StateCleared), "Only StateCleared transactions " \
+                                                             "should be added to utxo cache."
+        # re-calculates tx object from bytedata but simplifies function signatures
+        tx = tx_cache_entry.transaction
         self._logger.debug(f"updating utxo cache for {tx.txid()}")
         with self._lock:
-            # Discard used utxos
-            for input in tx.inputs():
-                # Search left side of deque for match. Necessary vs popleft() because
-                # async broadcasting --> cannot assume FIFO ordering. In general will
-                # find a match after only a few iterations.
-                indices_for_deletion = []
-                for index, utxo in enumerate(self.utxos):
-                    if utxo.tx_hash == input['prevout_hash']:
-                        # avoids 'mutating deque during iteration'
-                        indices_for_deletion.append(index)
-                        continue
-                for index in indices_for_deletion:
-                    del (self.utxo_cache[index])
-
             # Add new utxos to cache
-            new_utxos = self.utxos_from_txouts(tx, tx_cache_entry)
-            self.utxo_cache.extend(new_utxos)
+            new_utxos = self.extract_utxos_from_tx_entry(tx_cache_entry)
+            self.utxos.extend(new_utxos)
 
-    def rewind_utxo_cache(self, tx: Transaction):
-        """In the case of a chain reorg (e.g. of empty blocks) in which transaction regresses from:
-        StateCleared --> StateDispatched, we must 'rewind' the utxo cache to reflect this."""
+    def undo_add_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> None:
+        """In the case of a chain reorg in which transaction regresses from
+        StateCleared --> StateDispatched, we must 'undo' the addition to cache."""
         with self._lock:
             raise NotImplementedError
+
+    def _remove_utxos(self, utxos_for_removal):
+        """Removes frozen utxos from cache"""
+        with self._lock:
+            indices_for_deletion = []
+            for frozen in utxos_for_removal:
+                for index, utxo in enumerate(self.utxos):
+                    if frozen == utxo:
+                        indices_for_deletion.append(index)
+                        break
+            for index in indices_for_deletion:
+                del(self.utxos[index])
+
+    @staticmethod
+    def filter_frozen_utxos(frozen_utxos, utxo_cache):
+        """Removes frozen utxos from cache"""
+        indices_for_deletion = []
+        for frozen in frozen_utxos:
+            for index, utxo in enumerate(utxo_cache):
+                if frozen == utxo:
+                    indices_for_deletion.append(index)
+                    break
+        for index in indices_for_deletion:
+            del(utxo_cache.utxos[index])
+        return utxo_cache.utxos
+
+    def _undo_remove_utxos(self, utxos_to_add_back):
+        """Adds back utxos that have been unfrozen"""
+        with self._lock:
+            # avoid duplicate additions
+            if utxos_to_add_back not in self.utxos:
+                coins = self.utxos.extendleft(utxos_to_add_back)
+                # We can afford the performance cost of maintaining ordering - because rare event
+                self.utxos = sorted(coins,
+                                    key=lambda k: (k.height, -k.value),
+                                    reverse=True)
+
+    def remove_frozen_utxos(self, frozen_utxos):
+        """Removes frozen utxos from cache"""
+        self._remove_utxos(frozen_utxos)
+
+    def add_unfrozen_utxos(self, unfrozen_utxos: List[UTXO]):
+        self._undo_remove_utxos(unfrozen_utxos)
+
+    def add_many(self, utxos: List[UTXO]):
+        with self._lock:
+            self.utxos.extend(utxos)
 
 
 class WalletData:
