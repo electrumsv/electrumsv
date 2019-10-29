@@ -5,7 +5,7 @@ from unittest import mock
 
 from bitcoinx import Address
 
-from electrumsv import bitcoin
+from electrumsv.bitcoin import seed_type, address_from_string
 from electrumsv import keystore
 from electrumsv import storage
 from electrumsv import wallet
@@ -82,7 +82,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
 
     def test_electrum_seed_standard(self):
         seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
-        self.assertEqual(bitcoin.seed_type(seed_words), 'standard')
+        self.assertEqual(seed_type(seed_words), 'standard')
 
         ks = keystore.from_seed(seed_words, '', False)
 
@@ -94,13 +94,13 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         w = self._create_standard_wallet(ks)
 
         self.assertEqual(w.get_receiving_addresses()[0],
-                         Address.from_string('1NNkttn1YvVGdqBW4PR6zvc3Zx3H5owKRf'))
+                         address_from_string('1NNkttn1YvVGdqBW4PR6zvc3Zx3H5owKRf'))
         self.assertEqual(w.get_change_addresses()[0],
-                         Address.from_string('1KSezYMhAJMWqFbVFB2JshYg69UpmEXR4D'))
+                         address_from_string('1KSezYMhAJMWqFbVFB2JshYg69UpmEXR4D'))
 
     def test_electrum_seed_old(self):
         seed_words = 'powerful random nobody notice nothing important anyway look away hidden message over'
-        self.assertEqual(bitcoin.seed_type(seed_words), 'old')
+        self.assertEqual(seed_type(seed_words), 'old')
 
         ks = keystore.from_seed(seed_words, '', False)
 
@@ -112,9 +112,9 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         w = self._create_standard_wallet(ks)
 
         self.assertEqual(w.get_receiving_addresses()[0],
-                         Address.from_string('1FJEEB8ihPMbzs2SkLmr37dHyRFzakqUmo'))
+                         address_from_string('1FJEEB8ihPMbzs2SkLmr37dHyRFzakqUmo'))
         self.assertEqual(w.get_change_addresses()[0],
-                         Address.from_string('1KRW8pH6HFHZh889VDq6fEKvmrsmApwNfe'))
+                         address_from_string('1KRW8pH6HFHZh889VDq6fEKvmrsmApwNfe'))
 
     def test_bip39_seed_bip44_standard(self):
         seed_words = 'treat dwarf wealth gasp brass outside high rent blood crowd make initial'
@@ -129,13 +129,13 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         w = self._create_standard_wallet(ks)
 
         self.assertEqual(w.get_receiving_addresses()[0],
-                         Address.from_string('16j7Dqk3Z9DdTdBtHcCVLaNQy9MTgywUUo'))
+                         address_from_string('16j7Dqk3Z9DdTdBtHcCVLaNQy9MTgywUUo'))
         self.assertEqual(w.get_change_addresses()[0],
-                         Address.from_string('1GG5bVeWgAp5XW7JLCphse14QaC4qiHyWn'))
+                         address_from_string('1GG5bVeWgAp5XW7JLCphse14QaC4qiHyWn'))
 
     def test_electrum_multisig_seed_standard(self):
         seed_words = 'blast uniform dragon fiscal ensure vast young utility dinosaur abandon rookie sure'
-        self.assertEqual(bitcoin.seed_type(seed_words), 'standard')
+        self.assertEqual(seed_type(seed_words), 'standard')
 
         ks1 = keystore.from_seed(seed_words, '', True)
         self._check_seeded_keystore_sanity(ks1)
@@ -148,8 +148,8 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
 
         w = self._create_multisig_wallet(ks1, ks2)
 
-        self.assertEqual(w.get_receiving_addresses()[0], Address.from_string('32ji3QkAgXNz6oFoRfakyD3ys1XXiERQYN'))
-        self.assertEqual(w.get_change_addresses()[0], Address.from_string('36XWwEHrrVCLnhjK5MrVVGmUHghr9oWTN1'))
+        self.assertEqual(w.get_receiving_addresses()[0], address_from_string('32ji3QkAgXNz6oFoRfakyD3ys1XXiERQYN'))
+        self.assertEqual(w.get_change_addresses()[0], address_from_string('36XWwEHrrVCLnhjK5MrVVGmUHghr9oWTN1'))
 
     def test_bip39_multisig_seed_bip45_standard(self):
         seed_words = 'treat dwarf wealth gasp brass outside high rent blood crowd make initial'
@@ -166,6 +166,6 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         w = self._create_multisig_wallet(ks1, ks2)
 
         self.assertEqual(w.get_receiving_addresses()[0],
-                         Address.from_string('3H3iyACDTLJGD2RMjwKZcCwpdYZLwEZzKb'))
+                         address_from_string('3H3iyACDTLJGD2RMjwKZcCwpdYZLwEZzKb'))
         self.assertEqual(w.get_change_addresses()[0],
-                         Address.from_string('31hyfHrkhNjiPZp1t7oky5CGNYqSqDAVM9'))
+                         address_from_string('31hyfHrkhNjiPZp1t7oky5CGNYqSqDAVM9'))

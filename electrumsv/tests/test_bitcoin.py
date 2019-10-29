@@ -1,11 +1,10 @@
 import base64
 from bitcoinx import (
     PublicKey, Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check, is_minikey,
-    Address
 )
 
 from electrumsv.bitcoin import (
-    is_new_seed, is_old_seed, var_int, op_push, seed_type,
+    is_new_seed, is_old_seed, var_int, op_push, seed_type, address_from_string,
     push_script, int_to_hex, is_address_valid, scripthash_hex
 )
 from electrumsv.crypto import sha256d
@@ -22,7 +21,7 @@ from . import FAST_TESTS
 
 
 def address_to_script(addr):
-    return Address.from_string(addr).to_script_bytes().hex()
+    return address_from_string(addr).to_script_bytes().hex()
 
 
 def needs_test_with_all_aes_implementations(func):
@@ -383,7 +382,7 @@ class Test_keyImport(SequentialTestCase):
 
     def test_address_to_scripthash(self):
         for priv_details in self.priv_pub_addr:
-            sh = scripthash_hex(Address.from_string(priv_details['address']))
+            sh = scripthash_hex(address_from_string(priv_details['address']))
             self.assertEqual(priv_details['scripthash'], sh)
 
     def test_is_minikey(self):

@@ -4,7 +4,7 @@ import sys
 
 from electrumsv.network import Network
 from electrumsv.util import json_encode
-from electrumsv.address import Address
+from electrumsv.bitcoin import address_from_string
 
 try:
     addr = sys.argv[1]
@@ -14,6 +14,6 @@ except Exception:
 
 n = Network()
 n.start()
-sh = Address.from_string(addr).to_scripthash_hex()
+sh = address_from_string(addr).to_scripthash_hex()
 h = n.synchronous_get(('blockchain.scripthash.get_history',[sh]))
 print(json_encode(h))

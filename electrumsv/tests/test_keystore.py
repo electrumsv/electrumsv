@@ -1,12 +1,13 @@
 import pytest
 
-from bitcoinx import PrivateKey, PublicKey, Address
+from bitcoinx import PrivateKey, PublicKey
 
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.keystore import (
     Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed,
     from_master_key, from_seed
 )
+from electrumsv.bitcoin import address_from_string
 from electrumsv.crypto import pw_encode
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.transaction import XPublicKey
@@ -179,19 +180,19 @@ class TestImported_KeyStore:
 
     def test_get_addresses(self):
         assert imported_keystore.get_addresses() == [
-            Address.from_string(addr) for addr in (
+            address_from_string(addr) for addr in (
                 '1KXf5PUHNaV42jE9NbJFPKhGGN1fSSGJNK', '1LoVGDgRs9hTfTNJNuXKSpywcbdvwRXpmK'
             )
         ]
 
     def test_address_to_pubkey(self):
-        addr = Address.from_string('1KXf5PUHNaV42jE9NbJFPKhGGN1fSSGJNK')
+        addr = address_from_string('1KXf5PUHNaV42jE9NbJFPKhGGN1fSSGJNK')
         pubkey = imported_keystore.address_to_pubkey(addr)
         assert pubkey.to_hex() == (
             '04e7dd15b4271f8308ff52ad3d3e472b652e78a2c5bc6ed10250a543d28c0128894ae'
             '863d086488e6773c4589be93a1793f685dd3f1e8a1f1b390b23470f7d1095'
         )
-        addr = Address.from_string('1JYPZWn7YbJJ8LpNknU1EVxs3JXuVzc7Rd')
+        addr = address_from_string('1JYPZWn7YbJJ8LpNknU1EVxs3JXuVzc7Rd')
         assert imported_keystore.address_to_pubkey(addr) is None
 
     def test_check_password(self):

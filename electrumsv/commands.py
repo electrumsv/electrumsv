@@ -34,16 +34,17 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from bitcoinx import (
-    PrivateKey, PublicKey, Address, P2MultiSig_Output, P2SH_Address, hash160, TxOutput,
+    PrivateKey, PublicKey, P2MultiSig_Output, P2SH_Address, hash160, TxOutput,
     hex_str_to_hash, Script,
 )
 
 from .app_state import app_state
-from .bitcoin import COIN, scripthash_hex, is_address_valid
+from .bitcoin import COIN, scripthash_hex, address_from_string, is_address_valid
 from .crypto import hash_160
 from .exchange_rate import FxTask
 from .i18n import _
 from .logs import logs
+from .networks import Net
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .transaction import Transaction, XPublicKey, XTxInput, NO_SIGNATURE
 from .util import bh2u, format_satoshis, json_decode, to_bytes
@@ -197,7 +198,7 @@ class Commands:
         """Return the transaction history of any address. Note: This is a
         walletless server query, results are not checked by SPV.
         """
-        sh = scripthash_hex(Address.from_string(address))
+        sh = scripthash_hex(address_from_string(address))
         return self.network.request_and_wait('blockchain.scripthash.get_history', [sh])
 
     @command('w')
@@ -216,7 +217,7 @@ class Commands:
         """Returns the UTXO list of any address. Note: This
         is a walletless server query, results are not checked by SPV.
         """
-        sh = scripthash_hex(Address.from_string(address))
+        sh = scripthash_hex(address_from_string(address))
         return self.network.request_and_wait('blockchain.scripthash.listunspent', [sh])
 
     @command('')
@@ -256,7 +257,7 @@ class Commands:
             )
 
         inputs = [to_tx_input(txin) for txin in inputs]
-        outputs = [TxOutput(output['value'], Address.from_string(output['address']).to_script())
+        outputs = [TxOutput(output['value'], address_from_string(output['address']).to_script())
                    for output in outputs]
         tx = Transaction.from_io(inputs, outputs, locktime=locktime)
         tx.sign(keypairs)
@@ -298,20 +299,20 @@ class Commands:
         public_keys = [PublicKey.from_hex(pubkey) for pubkey in sorted(pubkeys)]
         output = P2MultiSig_Output(public_keys, threshold)
         redeem_script = output.to_script_bytes()
-        address = P2SH_Address(hash160(redeem_script)).to_string()
+        address = P2SH_Address(hash160(redeem_script), Net.COIN).to_string()
         return {'address':address, 'redeemScript':redeem_script.hex()}
 
     @command('w')
     def freeze(self, account_id: int, address: str):
         """Freeze address. Freeze the funds at one of your wallet\'s addresses"""
-        address = Address.from_string(address)
+        address = address_from_string(address)
         wallet = self.parent_wallet.get_wallet_for_account(account_id)
         return wallet.set_frozen_state([address], True)
 
     @command('w')
     def unfreeze(self, account_id: int, address: str):
         """Unfreeze address. Unfreeze the funds at one of your wallet\'s address"""
-        address = Address.from_string(address)
+        address = address_from_string(address)
         wallet = self.parent_wallet.get_wallet_for_account(account_id)
         return wallet.set_frozen_state([address], False)
 
@@ -321,7 +322,7 @@ class Commands:
         wallet addresses."""
         wallet = self.parent_wallet.get_wallet_for_account(account_id)
         def get_pk(address):
-            address = Address.from_string(address)
+            address = address_from_string(address)
             return wallet.export_private_key(address, password)
 
         if isinstance(address, str):
@@ -332,7 +333,7 @@ class Commands:
     @command('w')
     def ismine(self, account_id: int, address: str) -> bool:
         """Check if address is in wallet. Return true if and only address is in wallet"""
-        address = Address.from_string(address)
+        address = address_from_string(address)
         wallet = self.parent_wallet.get_wallet_for_account(account_id)
         return wallet.is_mine(address)
 
@@ -350,7 +351,7 @@ class Commands:
     @command('w')
     def getpubkeys(self, account_id: int, address: str):
         """Return the public keys for a wallet address. """
-        address = Address.from_string(address)
+        address = address_from_string(address)
         wallet = self.parent_wallet.get_wallet_for_account(account_id)
         return wallet.get_public_keys(address)
 
@@ -371,7 +372,7 @@ class Commands:
         """Return the balance of any address. Note: This is a walletless
         server query, results are not checked by SPV.
         """
-        sh = scripthash_hex(Address.from_string(address))
+        sh = scripthash_hex(address_from_string(address))
         out = self.network.request_and_wait('blockchain.scripthash.get_balance', [sh])
         out["confirmed"] =  str(Decimal(out["confirmed"])/COIN)
         out["unconfirmed"] =  str(Decimal(out["unconfirmed"])/COIN)
@@ -436,7 +437,7 @@ class Commands:
         tx_fee = satoshis(fee)
         privkeys = privkey.split()
         self.nocheck = nocheck
-        addr = Address.from_string(destination)
+        addr = address_from_string(destination)
         tx = sweep(privkeys, self.network, self.config, addr, tx_fee, imax)
         return tx.as_dict() if tx else None
 
@@ -444,7 +445,7 @@ class Commands:
     def signmessage(self, account_id, address, message, password=None):
         """Sign a message with a key. Use quotes if your message contains
         whitespaces"""
-        address = Address.from_string(address)
+        address = address_from_string(address)
         wallet = self.parent_wallet.get_wallet_for_account(account_id)
         sig = wallet.sign_message(address, message, password)
         return base64.b64encode(sig).decode('ascii')
@@ -458,11 +459,11 @@ class Commands:
             nocheck=False, unsigned=False, password=None, locktime=None):
         wallet = self.parent_wallet.get_wallet_for_account(account_id)
         self.nocheck = nocheck
-        change_addr = None if change_addr is None else Address.from_string(change_addr)
-        domain = None if domain is None else [Address.from_string(x) for x in domain]
+        change_addr = None if change_addr is None else address_from_string(change_addr)
+        domain = None if domain is None else [address_from_string(x) for x in domain]
         final_outputs = []
         for address, amount in outputs:
-            address = Address.from_string(address)
+            address = address_from_string(address)
             amount = satoshis(amount)
             final_outputs.append(TxOutput(amount, address.to_script()))
 
@@ -588,7 +589,7 @@ class Commands:
     def getrequest(self, account_id: int, key: str) -> Dict[str, Any]:
         """Return a payment request"""
         wallet = self.parent_wallet.get_wallet_for_account(account_id)
-        r = wallet.get_payment_request(Address.from_string(key), self.config)
+        r = wallet.get_payment_request(address_from_string(key), self.config)
         if not r:
             raise Exception("Request not found")
         return self._format_request(r)
@@ -679,7 +680,7 @@ class Commands:
                 logger.debug('Got Response for %s', address)
             except Exception as e:
                 logger.error("exception processing response %s", e)
-        h = scripthash_hex(Address.from_string(address))
+        h = scripthash_hex(address_from_string(address))
         self.network.send([('blockchain.scripthash.subscribe', [h])], callback)
         return True
 

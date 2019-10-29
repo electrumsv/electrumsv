@@ -3,13 +3,13 @@ import os
 import time
 import unittest
 
-from bitcoinx import P2PKH_Address
+from bitcoinx import P2PKH_Address, Bitcoin
 
 from electrumsv import paymentrequest
 
 
 PKH_HEX = "8b2b1e60ccf6c206f1fde862897cd61be5f2a021"
-PKH_ADDRESS = P2PKH_Address(bytes.fromhex(PKH_HEX))
+PKH_ADDRESS = P2PKH_Address(bytes.fromhex(PKH_HEX), Bitcoin)
 P2PKH_SCRIPT = PKH_ADDRESS.to_script()
 
 TRANSACTION_HEX = ("0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c"+
@@ -23,7 +23,7 @@ TRANSACTION_HEX = ("0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb98
 
 def _generate_address():
     pkh_bytes = os.urandom(20)
-    return P2PKH_Address(pkh_bytes)
+    return P2PKH_Address(pkh_bytes, Bitcoin)
 
 
 

@@ -26,6 +26,7 @@
 from bitcoinx import Ops, hash_to_hex_str, sha256, Address
 
 from .crypto import hmac_oneshot
+from .networks import Net
 from .util import bfh, bh2u, assert_bytes, to_bytes
 from . import version
 
@@ -209,9 +210,12 @@ def msg_magic(message):
     length = bfh(var_int(len(message)))
     return b"\x18Bitcoin Signed Message:\n" + length + message
 
+def address_from_string(address):
+    return Address.from_string(address, Net.COIN)
+
 def is_address_valid(address):
     try:
-        Address.from_string(address)
+        address_from_string(address)
         return True
     except ValueError:
         return False

@@ -52,7 +52,7 @@ from PyQt5.QtWidgets import (
 import electrumsv
 from electrumsv import bitcoin, commands, keystore, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import COIN, is_address_valid
+from electrumsv.bitcoin import COIN, is_address_valid, address_from_string
 from electrumsv.constants import DATABASE_EXT #, TxFlags
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
@@ -697,7 +697,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         server = self.network.main_server
         addr = server.state.donation_address
         if is_address_valid(addr):
-            addr = Address.from_string(addr)
+            addr = address_from_string(addr)
             self.pay_to_URI(web.create_URI(addr, 0, _('Donation for {}').format(server.host)))
         else:
             self.show_error(_('The server {} has not provided a valid donation address')
@@ -2118,7 +2118,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         address  = address.text().strip()
         message = message.toPlainText().strip()
         try:
-            addr = Address.from_string(address)
+            addr = address_from_string(address)
         except:
             self.show_message(_('Invalid Bitcoin SV address.'))
             return
@@ -2150,7 +2150,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def do_verify(self, address, message, signature):
         try:
-            address = Address.from_string(address.text().strip()).to_string()
+            address = address_from_string(address.text().strip()).to_string()
         except:
             self.show_message(_('Invalid Bitcoin SV address.'))
             return

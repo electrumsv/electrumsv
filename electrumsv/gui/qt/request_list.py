@@ -25,8 +25,8 @@
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
-from bitcoinx import Address
 
+from electrumsv.bitcoin import address_from_string
 from electrumsv.i18n import _
 from electrumsv.util import format_time, age
 from electrumsv.paymentrequest import PR_UNKNOWN
@@ -77,7 +77,7 @@ class RequestList(MyTreeWidget):
 
         # update the receive address if necessary
         current_address_string = self.parent.receive_address_e.text().strip()
-        current_address = (Address.from_string(current_address_string)
+        current_address = (address_from_string(current_address_string)
                            if len(current_address_string) else None)
         domain = self.wallet.get_receiving_addresses()
         addr = self.wallet.get_unused_address()

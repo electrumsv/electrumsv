@@ -30,10 +30,11 @@ from decimal import Decimal
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFontMetrics, QTextCursor
 from PyQt5.QtWidgets import QCompleter, QPlainTextEdit
-from bitcoinx import cashaddr, Script, Address, TxOutput
+from bitcoinx import cashaddr, Script, TxOutput
 
 from .qrtextedit import ScanQRTextEdit
 
+from electrumsv.bitcoin import address_from_string
 from electrumsv.i18n import _
 from electrumsv.web import is_URI
 
@@ -138,7 +139,7 @@ class PayToEdit(ScanQRTextEdit):
 
     def _parse_address(self, line):
         address = self._parse_address_text(line)
-        return Address.from_string(address)
+        return address_from_string(address)
 
     def _parse_amount(self, x):
         if x.strip() == '!':

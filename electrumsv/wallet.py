@@ -50,7 +50,7 @@ from bitcoinx import (
 from . import coinchooser
 from . import paymentrequest
 from .app_state import app_state
-from .bitcoin import COINBASE_MATURITY
+from .bitcoin import COINBASE_MATURITY, address_from_string
 from .constants import TxFlags, ParentWalletKinds
 from .contacts import Contacts
 from .crypto import sha256d
@@ -105,7 +105,7 @@ class UTXO:
         return ':'.join((self.tx_hash, str(self.out_index)))
 
     def to_tx_input(self):
-        kind = classify_output_script(self.script_pubkey)
+        kind = classify_output_script(self.script_pubkey, Net.COIN)
         if isinstance(kind, P2PKH_Address):
             threshold = 1
             # _add_input_sig_info() will replace with public key
@@ -242,7 +242,7 @@ class Abstract_Wallet:
         # load requests
         requests = wallet_data.get('payment_requests', {})
         for key, req in requests.items():
-            req['address'] = Address.from_string(key)
+            req['address'] = address_from_string(key)
         self.receive_requests = {req['address']: req
                                  for req in requests.values()}
 
@@ -331,7 +331,7 @@ class Abstract_Wallet:
     @classmethod
     def to_Address_dict(cls, d):
         '''Convert a dict of strings to a dict of Adddress objects.'''
-        return {Address.from_string(text): value for text, value in d.items()}
+        return {address_from_string(text): value for text, value in d.items()}
 
     @classmethod
     def from_Address_dict(cls, d):
@@ -394,7 +394,7 @@ class Abstract_Wallet:
         self._frozen_addresses = set([])
         frozen_addresses = self._datastore.misc.get_value('frozen_addresses')
         if frozen_addresses is not None:
-            self._frozen_addresses = set(Address.from_string(addr) for addr in frozen_addresses)
+            self._frozen_addresses = set(address_from_string(addr) for addr in frozen_addresses)
 
         # Frozen coins (UTXOs) -- note that we have 2 independent
         # levels of "freezing": address-level and coin-level.  The two
@@ -487,9 +487,9 @@ class Abstract_Wallet:
     def load_addresses(self, data: dict) -> None:
         if data is None:
             data = {}
-        self.receiving_addresses = [Address.from_string(addr)
+        self.receiving_addresses = [address_from_string(addr)
                                     for addr in data.get('receiving', [])]
-        self.change_addresses = [Address.from_string(addr)
+        self.change_addresses = [address_from_string(addr)
                                  for addr in data.get('change', [])]
 
     def is_deterministic(self):
@@ -575,7 +575,7 @@ class Abstract_Wallet:
         self.logger.debug("add_verified_tx %d %d %d", height, conf, timestamp)
         self.network.trigger_callback('verified', tx_hash, height, conf, timestamp)
 
-        addresses = [ Address.from_string(entry.address_string)
+        addresses = [ address_from_string(entry.address_string)
             for entry in self.get_txins(tx_hash) ]
         self._check_used_addresses(addresses)
 
@@ -911,8 +911,7 @@ class Abstract_Wallet:
         for n, tx_output in enumerate(tx.outputs):
             address = classify_tx_output(tx_output)
             if isinstance(address, Address) and self.is_mine(address):
-                txout = DBTxOutput(address.to_string(coin=Net.COIN), n,
-                                   tx_output.value, is_coinbase)
+                txout = DBTxOutput(address.to_string(), n, tx_output.value, is_coinbase)
                 txouts.append((tx_hash, txout))
                 addresses.add(address)
 
@@ -921,7 +920,7 @@ class Abstract_Wallet:
             if next_tx_hash is not None:
                 self.pruned_txo.pop((tx_hash, n))
 
-                txin = DBTxInput(address.to_string(coin=Net.COIN), tx_hash, n, tx_output.value)
+                txin = DBTxInput(address.to_string(), tx_hash, n, tx_output.value)
                 txins.append((next_tx_hash, txin))
 
         # We expect to be passing in existing entries as this gets recalled for a transaction
@@ -1488,7 +1487,7 @@ class Abstract_Wallet:
 
     def remove_payment_request(self, addr, config):
         if isinstance(addr, str):
-            addr = Address.from_string(addr)
+            addr = address_from_string(addr)
         if addr not in self.receive_requests:
             return False
         r = self.receive_requests.pop(addr)
@@ -1656,7 +1655,7 @@ class ImportedAddressWallet(ImportedWalletBase):
     def from_text(cls: Type[T], parent_wallet: 'ParentWallet', text: str) -> T:
         wallet = cls.create_within_parent(parent_wallet)
         for address in text.split():
-            wallet.import_address(Address.from_string(address))
+            wallet.import_address(address_from_string(address))
         # Avoid adding addresses twice in network.py
         wallet._new_addresses.clear()
         return wallet
@@ -1671,7 +1670,7 @@ class ImportedAddressWallet(ImportedWalletBase):
         assert type(data) is list or data is None, str(data)
         if data is None:
             data = []
-        self.addresses = [Address.from_string(addr) for addr in data]
+        self.addresses = [address_from_string(addr) for addr in data]
 
     def save_addresses(self) -> list:
         return [addr.to_string() for addr in self.addresses]
@@ -1759,7 +1758,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         pubkey = self.get_keystore().import_privkey(sec, pw)
         self._parent_wallet.save_storage()
         address_str = pubkey.to_address(coin=Net.COIN).to_string()
-        self._add_new_addresses([Address.from_string(address_str)])
+        self._add_new_addresses([address_from_string(address_str)])
         return address_str
 
     def export_private_key(self, address, password):
@@ -1777,7 +1776,7 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
     def pubkeys_to_address(self, pubkey):
         pubkey = PublicKey.from_hex(pubkey)
         if pubkey in self.get_keystore().keypairs:
-            return Address.from_string(pubkey.to_address(coin=Net.COIN).to_string())
+            return address_from_string(pubkey.to_address(coin=Net.COIN).to_string())
 
 
 class Deterministic_Wallet(Abstract_Wallet):
@@ -1944,7 +1943,7 @@ class Multisig_Wallet(Deterministic_Wallet):
 
     def pubkeys_to_address(self, pubkeys):
         redeem_script = self.pubkeys_to_redeem_script(pubkeys)
-        return P2SH_Address(hash160(redeem_script))
+        return P2SH_Address(hash160(redeem_script), Net.COIN)
 
     def pubkeys_to_redeem_script(self, pubkeys):
         assert all(isinstance(pubkey, str) for pubkey in pubkeys)

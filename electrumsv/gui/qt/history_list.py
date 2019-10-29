@@ -41,7 +41,7 @@ from PyQt5.QtWidgets import (QDialog, QListWidget, QListWidgetItem, QMenu, QSpli
     QVBoxLayout, QGridLayout, QLabel, QTextEdit)
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import COINBASE_MATURITY
+from electrumsv.bitcoin import COINBASE_MATURITY, address_from_string
 from electrumsv.i18n import _
 from electrumsv.platform import platform
 from electrumsv.util import timestamp_to_datetime, profiler, format_time
@@ -550,7 +550,7 @@ class HistoryView(QSplitter):
 
         title, msg = _('Import addresses'), _("Enter addresses")
         def import_addr(addr):
-            if wallet.import_address(Address.from_string(addr)):
+            if wallet.import_address(address_from_string(addr)):
                 return addr
             return ''
         self._main_window._do_import(title, msg, import_addr)

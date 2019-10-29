@@ -35,6 +35,7 @@ import requests
 
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .logs import logs
+from .networks import Net
 from .util import bfh
 
 
@@ -78,7 +79,7 @@ class Output:
         self.amount = amount
 
     def address(self):
-        return classify_output_script(self.script)
+        return classify_output_script(self.script, Net.COIN)
 
     def to_tx_output(self):
         return TxOutput(self.amount, self.script)

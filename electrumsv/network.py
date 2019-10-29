@@ -1232,7 +1232,7 @@ class Network:
             addresses = await wallet.used_addresses()
             session = await self._main_session()
             if len(addresses) < 5:
-                address_strings = [a.to_string(coin=Net.COIN) for a in addresses]
+                address_strings = [a.to_string() for a in addresses]
                 session.logger.info(
                     f'unsubscribing from used addresses for {wallet}: {address_strings}')
             else:

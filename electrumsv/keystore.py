@@ -366,7 +366,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         self.xpub = xprv.public_key.to_extended_key_string()
 
     def add_xprv_from_seed(self, bip32_seed, derivation):
-        xprv = BIP32PrivateKey.from_seed(bip32_seed, coin=Net.COIN)
+        xprv = BIP32PrivateKey.from_seed(bip32_seed, Net.COIN)
         for n in bip32_decompose_chain_string(derivation):
             xprv = xprv.child_safe(n)
         self.add_xprv(xprv)

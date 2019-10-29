@@ -384,7 +384,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             outputData['outputData'] = txOutput
             transactionOutput = outputData['outputData']
             if outputData['confirmationNeeded']:
-                outputData['address'] = output.to_string(coin=Net.COIN)
+                outputData['address'] = output.to_string()
                 self.handler.finished()
                 # the authenticate dialog and returns pin
                 pin = self.handler.get_auth(self, outputData)

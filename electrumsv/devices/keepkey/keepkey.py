@@ -402,7 +402,7 @@ class KeepKeyPlugin(HW_PluginBase):
                 address = classify_tx_output(tx_output)
                 if isinstance(address, Address):
                     txoutputtype.script_type = self.types.PAYTOADDRESS
-                    txoutputtype.address = address.to_string(coin=Net.COIN)
+                    txoutputtype.address = address.to_string()
                 elif isinstance(address, OP_RETURN_Output):
                     txoutputtype.script_type = self.types.PAYTOOPRETURN
                     txoutputtype.op_return_data = bytes(tx_output.script_pubkey)[2:]

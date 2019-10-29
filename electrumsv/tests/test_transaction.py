@@ -1,10 +1,10 @@
 import pytest
 
 from bitcoinx import (
-    PrivateKey, PublicKey, Tx, Script, Address, TxOutput, bip32_key_from_string,
-    P2PKH_Address, P2SH_Address, hash160
+    Address, PrivateKey, PublicKey, Tx, Script, TxOutput, bip32_key_from_string, hash160, Bitcoin
 )
 
+from electrumsv.bitcoin import address_from_string
 from electrumsv.keystore import Old_KeyStore, BIP32_KeyStore
 from electrumsv.transaction import XPublicKey, Transaction, NO_SIGNATURE
 from electrumsv.util import bh2u
@@ -30,9 +30,9 @@ class TestTransaction:
         assert txin.value == 20112600
         assert txin.signatures == [NO_SIGNATURE]
         assert txin.x_pubkeys == [XPublicKey('ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300')]
-        assert txin.address == Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN')
+        assert txin.address == address_from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN')
         assert txin.threshold == 1
-        assert tx.outputs == [TxOutput(20112408, Address.from_string(
+        assert tx.outputs == [TxOutput(20112408, address_from_string(
             '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())]
         assert tx.locktime == 507231
 
@@ -49,9 +49,9 @@ class TestTransaction:
         assert txin.sequence == 4294967294
         assert txin.signatures == [bytes.fromhex('3044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f4688541')]
         assert txin.x_pubkeys == [XPublicKey('03b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166')]
-        assert txin.address == Address.from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN')
+        assert txin.address == address_from_string('13Vp8Y3hD5Cb6sERfpxePz5vGJizXbWciN')
         assert txin.threshold == 1
-        assert tx.outputs == [TxOutput(20112408, Address.from_string(
+        assert tx.outputs == [TxOutput(20112408, address_from_string(
             '1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())]
         assert tx.locktime == 507231
         assert tx.as_dict() == {'hex': signed_blob, 'complete': True}
@@ -63,7 +63,7 @@ class TestTransaction:
 
     def test_parse_xpub(self):
         res = XPublicKey('fe4e13b0f311a55b8a5db9a32e959da9f011b131019d4cebe6141b9e2c93edcbfc0954c358b062a9f94111548e50bde5847a3096b8b7872dcffadb0e9579b9017b01000200').to_address()
-        assert res == Address.from_string('19h943e4diLc68GXW7G75QNe2KWuMu7BaJ')
+        assert res == address_from_string('19h943e4diLc68GXW7G75QNe2KWuMu7BaJ')
 
     def test_version_field(self):
         tx = Transaction.from_hex(v2_blob)
@@ -312,8 +312,9 @@ class TestXPublicKey:
          '3BDvP5dDhJHpdZs393GUUnRiNwCj3C3GF4'
         ),
     ))
-    def test_addresses(self, raw_hex, address, coin):
-        address = Address.from_string(address)
+    def test_addresses(self, raw_hex, address):
+        coin = Bitcoin
+        address = Address.from_string(address, coin)
         address._coin = coin
         x_pubkey = XPublicKey(raw_hex)
         assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)

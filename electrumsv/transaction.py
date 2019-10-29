@@ -51,13 +51,13 @@ logger = logs.get_logger("transaction")
 def classify_tx_output(tx_output: TxOutput):
     # This returns a P2PKH_Address, P2SH_Address, P2PK_Output, OP_RETURN_Output,
     # P2MultiSig_Output or Unknown_Output
-    return classify_output_script(tx_output.script_pubkey)
+    return classify_output_script(tx_output.script_pubkey, Net.COIN)
 
 
 def tx_output_to_display_text(tx_output: TxOutput):
     kind = classify_tx_output(tx_output)
     if isinstance(kind, Address):
-        text = kind.to_string(coin=Net.COIN)
+        text = kind.to_string()
     elif isinstance(kind, P2PK_Output):
         text = kind.public_key.hex()
     else:
@@ -132,9 +132,8 @@ class XPublicKey:
         if kind == 0xfe:
             return self._old_keystore_public_key()
         assert kind == 0xfd
-        result = classify_output_script(Script(self.raw[1:]))
+        result = classify_output_script(Script(self.raw[1:]), Net.COIN)
         assert isinstance(result, Address)
-        result = (result.__class__)(result.hash160(), coin=Net.COIN)
         return result
 
     def to_public_key_hex(self):
@@ -338,7 +337,7 @@ def _parse_script_sig(script, kwargs):
         return
     kwargs['x_pubkeys'] = x_pubkeys
     kwargs['threshold'] = m
-    kwargs['address'] = P2SH_Address(hash160(multisig_script(x_pubkeys, m)))
+    kwargs['address'] = P2SH_Address(hash160(multisig_script(x_pubkeys, m)), Net.COIN)
     kwargs['signatures'] = [x[1] for x in decoded[1:-1]]
     return
 

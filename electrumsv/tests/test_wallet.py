@@ -6,8 +6,9 @@ from typing import Dict, Optional
 import unittest
 
 import pytest
-from bitcoinx import PrivateKey, PublicKey, Address, Script
+from bitcoinx import PrivateKey, PublicKey, Script
 
+from electrumsv.bitcoin import address_from_string
 from electrumsv.constants import DATABASE_EXT, StorageKind
 from electrumsv.keystore import from_seed, from_xpub, Old_KeyStore
 from electrumsv.networks import Net, SVMainnet, SVTestnet
@@ -383,16 +384,11 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
         wallet_path = os.path.join(temp_dir, _wallet_filename)
         shutil.copyfile(source_wallet_path, wallet_path)
 
-    # net = None
-    # if "testnet" in wallet_filename:
-    #     net = SVTestnet
-    # elif "mainnet" in wallet_filename:
-    #     net = SVMainnet
-    # else:
-    #     raise Exception(f"unable to identify wallet network for {wallet_filename}")
-
     wallet_filename = storage_info.filename
     wallet_path = os.path.join(temp_dir, wallet_filename)
+
+    if "testnet" in wallet_filename:
+        Net.set_to(SVTestnet)
 
     password = "123456"
     storage = WalletStorage(wallet_path)
@@ -422,6 +418,9 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
     else:
         raise Exception(f"unrecognised wallet file {wallet_filename}")
 
+    if "testnet" in wallet_filename:
+        Net.set_to(SVMainnet)
+
 
 def test_legacy_wallet_backup_hybrid() -> None:
     # We only need to test for one hybrid wallet, and test permutations of backup cases against it.
@@ -447,7 +446,7 @@ class TestImportedPrivkeyWallet:
         public_key = privkey.public_key
         pubkey_hex = public_key.to_hex()
         address = public_key.to_address(coin=coin).to_string()
-        assert wallet.pubkeys_to_address(pubkey_hex) == Address.from_string(address)
+        assert wallet.pubkeys_to_address(pubkey_hex) == address_from_string(address)
 
 
 
@@ -497,7 +496,7 @@ result_S = (
              tx_hash='9f2c45a12db0144909b5db269415f7319179105982ac70ed80d76ea79d923ebf',
              out_index=0,
              height=437146,
-             address=Address.from_string('1KXf5PUHNaV42jE9NbJFPKhGGN1fSSGJNK'),
+             address=address_from_string('1KXf5PUHNaV42jE9NbJFPKhGGN1fSSGJNK'),
              is_coinbase=False)
     ],
     {
@@ -515,7 +514,7 @@ result_K = (
              tx_hash='bcf7ae875b585e00a61055372c1e99046b20f5fbfcd8659959afb6f428326bfa',
              out_index=1,
              height=500000,
-             address=Address.from_string('1LoVGDgRs9hTfTNJNuXKSpywcbdvwRXpmK'),
+             address=address_from_string('1LoVGDgRs9hTfTNJNuXKSpywcbdvwRXpmK'),
              is_coinbase=False),
         UTXO(value=1804376,
              script_pubkey=Script.from_hex('4104d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0aac'),

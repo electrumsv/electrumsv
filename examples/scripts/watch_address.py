@@ -5,10 +5,10 @@ import time
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.network import Network
 from electrumsv.util import json_encode
-from electrumsv.address import Address
+from electrumsv.bitcoin import address_from_string
 
 try:
-    addr = Address.from_string(sys.argv[1])
+    addr = address_from_string(sys.argv[1])
 except Exception:
     print("usage: watch_address <bitcoin_address>")
     sys.exit(1)
