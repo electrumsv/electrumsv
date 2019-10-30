@@ -181,15 +181,22 @@ class SVScalingTestnet(object):
 
     COIN = BitcoinScalingTestnet
 
-    # A post-split SV checkpoint.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '010000201b60800462c28335ae5d2a3552614ab72afbdc23f37301a06d0a03920000000079d5a7a2'
-        'a50d0b7f7da3e6ff4ceccd1591cfc2fcc1410b69bde0fac43e0409010090435d3d014f1c5af053d3'
-    ), height=23267, prev_work=0x6eb0931d6fbf0)
+        '00000020e00cb24913995b9db004e06a016e99128c862b6ad075ec259164219e00000000432acae3'
+        '6979a88471935a3fb891bf462a017204e834e7eef034c10540e70db47abab45dffff001d117e9185'
+    ), height=2500, prev_work=0x6f4cd3b9b05b4)
 
     VERIFICATION_BLOCK_MERKLE_ROOT = (
-        'a66bfe7bdf9f88cccf59f27f03a38f1c339a00ca4351fc77f78a1fb1dfda6696'
+        '2a9310d4af21e92d20e6f2aaeabc54d8c0b5d5e74a1278ffcd4c9ba47cffe422'
     )
+
+    # Use the following for a chain reset. Also set _need_checkpoint_headers to False
+    # CHECKPOINT = CheckPoint(bytes.fromhex(
+    #     '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
+    #     '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
+    # ), height=0, prev_work=0)
+    #
+    # VERIFICATION_BLOCK_MERKLE_ROOT = None
 
     BIP44_COIN_TYPE = 1
 
