@@ -33,8 +33,6 @@ import time
 from typing import Union, Optional
 import webbrowser
 
-from bitcoinx import Address
-
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QBrush, QFont, QIcon, QColor
 from PyQt5.QtWidgets import (QDialog, QListWidget, QListWidgetItem, QMenu, QSplitter, QWidget,
