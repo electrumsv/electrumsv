@@ -2,7 +2,6 @@ from collections import defaultdict
 
 from bitcoinx import (
     Ops, bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string, Address,
-    OP_RETURN_Output,
 )
 
 from electrumsv.app_state import app_state
@@ -45,16 +44,6 @@ except Exception as e:
 TIM_NEW, TIM_RECOVER = range(2)
 
 TREZOR_PRODUCT_KEY = 'Trezor'
-
-
-def validate_op_return(tx_output):
-    script = bytes(tx_output.script_pubkey)
-    if not (script[0] == Ops.OP_RETURN and
-            script[1] == len(script) - 2 and script[1] <= 75):
-        raise ValueError(_("Only OP_RETURN scripts, with one constant push, are supported."))
-    if tx_output.value:
-        raise ValueError(_("Amount for OP_RETURN output must be zero."))
-    return script[2:]
 
 
 class TrezorKeyStore(Hardware_KeyStore):
@@ -365,9 +354,6 @@ class TrezorPlugin(HW_PluginBase):
             if isinstance(address, Address):
                 txoutputtype.script_type = OutputScriptType.PAYTOADDRESS
                 txoutputtype.address = address.to_string()
-            elif isinstance(address, OP_RETURN_Output):
-                txoutputtype.script_type = OutputScriptType.PAYTOOPRETURN
-                txoutputtype.op_return_data = validate_op_return(tx_output)
             return txoutputtype
 
         outputs = []
