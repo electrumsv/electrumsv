@@ -105,6 +105,9 @@ class TestJSONKeyValueStore:
         self.db_values.set("A", "C")
         assert self.db_values.get("A") == "C"
 
+        values = self.db_values.get_many_values([ "A" ])
+        assert len(values) == 1
+
 
 class TestGenericKeyValueStoreNonUnique:
     @classmethod

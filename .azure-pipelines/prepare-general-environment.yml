@@ -4,7 +4,7 @@ parameters:
 steps:
 - script: |
     sudo apt-get update
-    sudo apt-get install libusb-1.0-0-dev libudev-dev
+    sudo apt-get install libusb-1.0-0-dev libudev-dev libsqlite3-0 sqlite3
     python3 -m pip install -r contrib/deterministic-build/requirements.txt
     python3 -m pip install -r contrib/deterministic-build/requirements-hw.txt
     python3 -m pip install -r contrib/deterministic-build/requirements-binaries.txt

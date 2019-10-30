@@ -362,6 +362,9 @@ class GenericKeyValueStore(BaseWalletStore):
 
     @tprofiler
     def add(self, key: str, value: bytes) -> None:
+        return self._add(key, value)
+
+    def _add(self, key: str, value: bytes) -> None:
         assert type(value) is bytes
         ekey = self._encrypt_key(key)
         evalue = self._encrypt(value)
@@ -451,27 +454,39 @@ class GenericKeyValueStore(BaseWalletStore):
         if not self.has_unique_keys():
             raise InvalidUpsertError(key)
 
-        assert type(value) is bytes
-        ekey = self._encrypt_key(key)
-        evalue = self._encrypt(value)
-        timestamp = self._get_current_timestamp()
-        self._write_timestamp = timestamp
-        db = self._get_db()
-        db.execute(self._UPSERT_SQL, [self._group_id, ekey, evalue, timestamp, timestamp])
-        db.commit()
-        self._logger.debug("upsert '%s'", key)
+        # Some operating systems like Linux effectively lock the sqlite version to something
+        # very old, like 3.11.0.
+        if sqlite3.sqlite_version_info > (3, 24, 0):
+            assert type(value) is bytes
+            ekey = self._encrypt_key(key)
+            evalue = self._encrypt(value)
+            timestamp = self._get_current_timestamp()
+            self._write_timestamp = timestamp
+            db = self._get_db()
+            db.execute(self._UPSERT_SQL, [self._group_id, ekey, evalue, timestamp, timestamp])
+            db.commit()
+            self._logger.debug("upsert '%s'", key)
+        else:
+            assert self.has_unique_keys()
+            if self._update(key, value) == 0:
+                self._add(key, value)
 
     @tprofiler
-    def update(self, key: str, value: bytes) -> None:
+    def update(self, key: str, value: bytes) -> int:
+        return self._update(key, value)
+
+    def _update(self, key: str, value: bytes) -> int:
         assert type(value) is bytes
         ekey = self._encrypt_key(key)
         evalue = self._encrypt(value)
         timestamp = self._get_current_timestamp()
         self._write_timestamp = timestamp
         db = self._get_db()
-        db.execute(self._UPDATE_SQL, [evalue, timestamp, self._group_id, ekey])
+        cursor = db.execute(self._UPDATE_SQL, [evalue, timestamp, self._group_id, ekey])
+        update_count = cursor.rowcount
         db.commit()
-        self._logger.debug("updated '%s'", key)
+        self._logger.debug("updated '%s' for %d rows", key, update_count)
+        return update_count
 
     @tprofiler
     def update_many(self, entries: Iterable[Tuple[str, bytes]]) -> None:
