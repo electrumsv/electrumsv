@@ -38,7 +38,7 @@ import re
 import shutil
 import stat
 import threading
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar
+from typing import Any, Dict, List, Optional, Type, TypeVar
 import zlib
 
 from bitcoinx import PrivateKey, PublicKey
@@ -67,7 +67,7 @@ def multisig_type(wallet_type):
         match = [int(x) for x in match.group(1, 2)]
     return match
 
-FINAL_SEED_VERSION = 20
+FINAL_SEED_VERSION = 21
 
 WalletStorageInfo = namedtuple('WalletStorageInfo', ['kind', 'filename', 'wallet_filepath'])
 
@@ -145,11 +145,9 @@ def backup_wallet_files(wallet_filepath: str) -> bool:
         break
 
     if info.kind == StorageKind.HYBRID or info.kind == StorageKind.DATABASE:
-        print(f"BACKUP.A {attempted_wallet_filepath + DATABASE_EXT}")
         shutil.copyfile(
             base_wallet_filepath + DATABASE_EXT, attempted_wallet_filepath + DATABASE_EXT)
     if info.kind == StorageKind.FILE or info.kind == StorageKind.HYBRID:
-        print(f"BACKUP.B {attempted_wallet_filepath}")
         shutil.copyfile(base_wallet_filepath,  attempted_wallet_filepath)
 
     return True
@@ -197,6 +195,9 @@ class BaseStore:
 
     def get_encrypted_data(self) -> Optional[bytes]:
         return self._raw
+
+    def _set_seed_version(self, seed_version: Optional[int]) -> None:
+        raise NotImplementedError
 
     def set_pubkey(self, pubkey: Optional[str]=None) -> None:
         self._pubkey = pubkey
@@ -369,8 +370,6 @@ class DatabaseStore(BaseStore):
         self._data = json.loads(s)
 
     def _write(self) -> bytes:
-        records: List[Tuple[str, bytes]] = []
-
         # We pack as JSON before encrypting, so can't just put in the generic key value store,
         # as that is unencrypted and would just be JSON values in the DB.
 
@@ -380,13 +379,9 @@ class DatabaseStore(BaseStore):
             raw = PublicKey.from_hex(self._pubkey).encrypt_message(c)
         else:
             raw = s.encode()
-        records.append(("jsondata", raw))
 
-        if self._primed:
-            self._db_values.update_many(records)
-        else:
-            self._db_values.add_many(records)
-            self._primed = True
+        self._db_values.set("jsondata", raw)
+        self._primed = True
 
         return raw
 
@@ -411,6 +406,10 @@ class DatabaseStore(BaseStore):
         # NOTE(rt12): Loading the database migrates the table structure automatically. However
         # we will likely want to extend this to adjust table column contents, like the JSON
         # lump structure.
+        seed_version = self._get_seed_version()
+        if seed_version < 21:
+            print("UPGRADE", seed_version)
+            self._set_seed_version(FINAL_SEED_VERSION)
         return None
 
 
@@ -1163,9 +1162,11 @@ class WalletStorage:
         # The store can change if the old kind of store was obsoleted. We upgrade through
         # obsoleted kinds of stores to the final in-use kind of store.
         while True:
+            print(f"upgrade {self._store}")
             new_store = self._store.upgrade()
             if new_store is not None:
                 self._set_store(new_store)
+                print(f"new_store.requires_upgrade {new_store.requires_upgrade()}")
                 if new_store.requires_upgrade():
                     continue
             break

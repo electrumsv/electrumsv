@@ -10,7 +10,8 @@ from unittest.mock import patch
 
 from electrumsv.constants import DATABASE_EXT, StorageKind
 from electrumsv.storage import (backup_wallet_files, categorise_file, get_categorised_files,
-    BaseStore, DatabaseStore, TextStore, WalletStorageInfo, IncompatibleWalletError, WalletStorage)
+    BaseStore, DatabaseStore, TextStore, WalletStorageInfo, IncompatibleWalletError, WalletStorage,
+    FINAL_SEED_VERSION)
 
 from .util import TEST_WALLET_PATH
 
@@ -214,33 +215,33 @@ def test_database_store_from_text_store_initial_version(data) -> None:
         DatabaseStore.from_text_store(text_store)
 
 # Shared logic for following version init/set unit tests.
-def _check_database_store_version_init_set(db_store) -> None:
+def _check_database_store_version_init_set(db_store, seed_version) -> None:
     # The database file is created when it is opened, not on first write, as is the case with text.
     assert os.path.exists(db_store.get_path())
 
     # Verify that the seed version is not stored in the JSON lump, but independently.
     assert db_store.get("seed_version") is None, "seed version leaked into JSON lump"
     # Verify that the seed version is really present independently.
-    assert db_store._get_seed_version() == DatabaseStore.INITIAL_SEED_VERSION
+    assert db_store._get_seed_version() == seed_version
 
-    db_store._set_seed_version(DatabaseStore.INITIAL_SEED_VERSION + 1)
-    assert db_store._get_seed_version() == DatabaseStore.INITIAL_SEED_VERSION + 1
+    db_store._set_seed_version(FINAL_SEED_VERSION + 1)
+    assert db_store._get_seed_version() == FINAL_SEED_VERSION + 1
     # Verify that the new seed version is still not stored in the JSON lump, but independently.
     assert db_store.get("seed_version") is None, "seed version leaked into JSON lump"
     # Verify that the new seed version is really present independently.
-    assert db_store._get_seed_version() == DatabaseStore.INITIAL_SEED_VERSION + 1
+    assert db_store._get_seed_version() == FINAL_SEED_VERSION + 1
 
 def test_database_store_from_text_store_version_init_set() -> None:
     wallet_path = tempfile.mktemp()
     text_store = TextStore(wallet_path, data={ "seed_version": DatabaseStore.INITIAL_SEED_VERSION })
     # Verify that the seed version is accepted (no assertion hit).
     db_store = DatabaseStore.from_text_store(text_store)
-    _check_database_store_version_init_set(db_store)
+    _check_database_store_version_init_set(db_store, DatabaseStore.INITIAL_SEED_VERSION)
 
 def test_database_store_version_init_set() -> None:
     wallet_path = tempfile.mktemp()
     db_store = DatabaseStore(wallet_path)
-    _check_database_store_version_init_set(db_store)
+    _check_database_store_version_init_set(db_store, FINAL_SEED_VERSION)
 
 def test_database_store_requires_split() -> None:
     wallet_path = tempfile.mktemp()
@@ -341,7 +342,7 @@ def test_wallet_storage_database_nonexistent_creates() -> None:
     storage = WalletStorage(wallet_filepath)
     assert type(storage._store) is DatabaseStore
     assert storage.get("wallet_author") == "ESV"
-    assert storage.get("seed_version") == DatabaseStore.INITIAL_SEED_VERSION
+    assert storage.get("seed_version") == FINAL_SEED_VERSION
     key = storage.get("tx_store_aeskey")
     assert type(key) is str
 

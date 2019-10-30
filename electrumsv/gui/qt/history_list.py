@@ -548,7 +548,8 @@ class HistoryView(QSplitter):
 
         title, msg = _('Import addresses'), _("Enter addresses")
         def import_addr(addr):
-            if wallet.import_address(address_from_string(addr)):
-                return addr
-            return ''
+            address = address_from_string(addr)
+            if wallet.import_address(address):
+                return address
+            return None
         self._main_window._do_import(title, msg, import_addr)

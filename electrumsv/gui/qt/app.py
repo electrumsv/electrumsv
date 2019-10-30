@@ -75,7 +75,7 @@ class SVApplication(QApplication):
     # Signals need to be on a QObject
     create_new_window_signal = pyqtSignal(str, object)
     cosigner_received_signal = pyqtSignal(object, object)
-    labels_changed_signal = pyqtSignal(object)
+    labels_changed_signal = pyqtSignal(object, object)
     window_opened_signal = pyqtSignal(object)
     window_closed_signal = pyqtSignal(object)
     # Async tasks
@@ -117,7 +117,7 @@ class SVApplication(QApplication):
         self._build_tray_menu()
         self.tray.show()
 
-        # FIXME
+        # FIXME Fix what.. what needs to be fixed here?
         set_language(app_state.config.get('language', get_default_language()))
 
         logs.add_handler(self.log_handler)
@@ -137,6 +137,7 @@ class SVApplication(QApplication):
         self.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
         self.base_unit_changed.connect(partial(self._signal_all, 'on_base_unit_changed'))
         self.fiat_history_changed.connect(partial(self._signal_all, 'on_fiat_history_changed'))
+        # Toggling of showing addresses in the fiat preferences.
         self.fiat_balance_changed.connect(partial(self._signal_all, 'on_fiat_balance_changed'))
         self.update_check_signal.connect(partial(self._signal_all, 'on_update_check'))
         ColorScheme.update_from_widget(QWidget())

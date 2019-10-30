@@ -103,6 +103,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     network_signal = pyqtSignal(str, object)
     history_updated_signal = pyqtSignal()
     network_status_signal = pyqtSignal()
+    addresses_updated_signal = pyqtSignal(object)
+    addresses_created_signal = pyqtSignal(object, object)
 
     def __init__(self, parent_wallet: ParentWallet):
         QMainWindow.__init__(self)
@@ -232,20 +234,30 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # set initial message
             self.console.showMessage(self.network.main_server.state.banner)
             self.network.register_callback(self.on_quotes, ['on_quotes'])
-            self.network.register_callback(self.on_history, ['on_history'])
+            self.network.register_callback(self._on_history, ['on_history'])
+            self.network.register_callback(self._on_addresses_updated, ['on_addresses_updated'])
+            self.network.register_callback(self._on_addresses_created, ['on_addresses_created'])
             self.new_fx_quotes_signal.connect(self.on_fx_quotes)
             self.new_fx_history_signal.connect(self.on_fx_history)
 
         self.load_wallet()
         self.app.timer.timeout.connect(self.timer_actions)
 
-    def on_history(self, b):
+    def _on_addresses_created(self, event_name: str, addresses: Iterable[Address],
+            is_change: bool=False) -> None:
+        # logger.debug("_on_addresses_created %s %s", [a.to_string() for a in addresses], is_change)
+        self.addresses_created_signal.emit(addresses, is_change)
+
+    def _on_addresses_updated(self, event_name: str, addresses: Iterable[Address]) -> None:
+        # logger.debug("_on_addresses_updated %s", [ a.to_string() for a in addresses ])
+        self.addresses_updated_signal.emit(addresses)
+
+    def _on_history(self, b):
         self.new_fx_history_signal.emit()
 
     def on_fx_history(self):
         self.history_view.update_tx_headers()
         self.history_view.update_tx_list()
-        self.address_list.update()
         # inform things like address_dialog that there's a new history
         self.history_updated_signal.emit()
 
@@ -350,11 +362,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def load_wallet(self):
         parent_wallet = self.parent_wallet
-        self.logger = logs.get_logger("mainwindow[{}]".format(parent_wallet.name()))
+        self.logger = logs.get_logger(f"mainwindow[{parent_wallet.name()}]")
         self.update_recently_visited(parent_wallet.get_storage_path())
         # address used to create a dummy transaction and estimate transaction fee
         self.history_view.update_tx_list()
-        self.address_list.update()
         self.utxo_list.update()
         self.need_update.set()
         # Once GUI has been initialized check if we want to announce something since the
@@ -927,6 +938,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def update_status(self):
         fiat_status = None
+        # Display if offline. Display if online. Do not display if synchronizing.
         if self.network and self.network.is_connected():
             # append fiat balance and price
             if app_state.fx.is_enabled():
@@ -946,10 +958,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 not self.network.is_connected()):
             self.update_tabs()
 
-    def update_tabs(self):
+    def update_tabs(self, *args):
         self.history_view.update_tx_list()
         self.request_list.update()
-        self.address_list.update()
         self.utxo_list.update()
         self.contact_list.update()
         self.invoice_list.update()
@@ -1106,8 +1117,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                                                message, expiration)
         self._receive_wallet.add_payment_request(req, self.config)
         self.request_list.update()
-        if self._addresses_wallet is self._receive_wallet:
-            self.address_list.update()
+        # The existence of the address in the payment request index changes it's state (not unused).
+        if self._addresses_wallet is self._receive_wallet and self.address_list is not None:
+            self.address_list.update_addresses([ self.receive_address ])
         self.save_request_button.setEnabled(False)
 
     def view_and_paste(self, title, msg, data):
@@ -1825,7 +1837,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def set_frozen_state(self, child_wallet: Abstract_Wallet, addrs: Iterable[Address],
             freeze: bool) -> None:
         child_wallet.set_frozen_state(addrs, freeze)
-        self.address_list.update()
+        if self.address_list is not None:
+            self.address_list.update_frozen_addresses(addrs, freeze)
         self.utxo_list.update()
         self.update_fee()
 
@@ -1858,20 +1871,21 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.address_list = l = AddressList(self, self.parent_wallet.get_default_wallet())
         return self.create_list_tab(l)
 
-    def create_utxo_tab(self):
+    def create_utxo_tab(self) -> None:
         from .utxo_list import UTXOList
         self.utxo_list = l = UTXOList(self, self.parent_wallet.get_default_wallet())
         return self.create_list_tab(l)
 
-    def create_contacts_tab(self):
+    def create_contacts_tab(self) -> None:
         self.contact_list = l = ContactList(self._api, self)
         return self.create_list_tab(l)
 
-    def remove_address(self, addr):
+    def remove_address(self, address: Address) -> None:
         if self.question(_("Do you want to remove {} from your wallet?"
-                           .format(addr.to_string()))):
-            self._addresses_wallet.delete_address(addr)
-            self.address_list.update()
+                           .format(address.to_string()))):
+            self._addresses_wallet.delete_address(address)
+            if self.address_list is not None:
+                self.address_list.remove_addresses([ address ])
             self.history_view.update_tx_list()
             self.history_updated_signal.emit()
             self.clear_receive_tab()
@@ -1887,7 +1901,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.show_send_tab()
         self.update_fee()
 
-    def paytomany(self):
+    def paytomany(self) -> None:
         self.show_send_tab()
         self.payto_e.paytomany()
         msg = '\n'.join([
@@ -2377,16 +2391,21 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         labelsFile = self.getOpenFileName(_("Open labels file"), "*.json")
         if not labelsFile: return
+
         try:
             with open(labelsFile, 'r') as f:
                 data = f.read()
-            for key, value in json.loads(data).items():
+            updates = json.loads(data).items()
+            for key, value in updates:
                 wallet.set_label(key, value)
             self.show_message(_("Your labels were imported from") + " '%s'" % str(labelsFile))
         except (IOError, os.error) as reason:
             self.show_critical(_("ElectrumSV was unable to import your labels.") + "\n" +
                                str(reason))
-        self.address_list.update()
+
+        if self.address_list is not None:
+            self.address_list.update_labels(wallet, list(updates))
+
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
 
@@ -2526,11 +2545,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 bad.append(key)
                 continue
         if good:
-            self.show_message(_("The following addresses were added") + ':\n' + '\n'.join(good))
+            self.show_message(_("The following addresses were added") + ':\n' +
+                '\n'.join(address.to_string() for address in good))
         if bad:
             self.show_critical(_("The following inputs could not be imported") +
                                ':\n'+ '\n'.join(bad))
-        self.address_list.update()
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
 
@@ -2540,7 +2559,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def on_num_zeros_changed(self):
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
-        self.address_list.update()
 
     def on_fiat_ccy_changed(self):
         '''Called when the user changes fiat currency in preferences.'''
@@ -2550,8 +2568,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.history_view.update_tx_headers()
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
-        self.address_list.refresh_headers()
-        self.address_list.update()
         self.update_status()
 
     def on_base_unit_changed(self):
@@ -2560,19 +2576,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
         self.request_list.update()
-        self.address_list.update()
         for edit, amount in zip(edits, amounts):
             edit.setAmount(amount)
         self.update_status()
         for tx_dialog in self.tx_dialogs:
             tx_dialog.update()
 
+    # App event broadcast to all wallet windows.
     def on_fiat_history_changed(self):
         self.history_view.update_tx_headers()
 
+    # App event broadcast to all wallet windows.
     def on_fiat_balance_changed(self):
-        self.address_list.refresh_headers()
-        self.address_list.update()
+        pass
 
     def preferences_dialog(self):
         dialog = PreferencesDialog(self.parent_wallet)
@@ -2628,6 +2644,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Should be no side-effects in this function relating to file access past this point.
         if self.qr_window:
             self.qr_window.close()
+
+        if self.address_list:
+            self.address_list.clean_up()
 
         for wallet in self.parent_wallet.get_child_wallets():
             for keystore in wallet.get_keystores():

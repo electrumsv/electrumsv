@@ -116,7 +116,6 @@ MSG_BUTTON_CANCEL = "Cancel"
 class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     accept_signal = pyqtSignal()
-    synchronized_signal = pyqtSignal(str)
 
     def __init__(self):
         BaseWizard.__init__(self)

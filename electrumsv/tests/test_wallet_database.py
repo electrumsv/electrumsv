@@ -71,6 +71,9 @@ class StoreTimestampMixin:
 class _GenericKeyValueStore(StoreTimestampMixin, wallet_database.GenericKeyValueStore):
     pass
 
+class _GenericKeyValueStoreNonUnique(StoreTimestampMixin, wallet_database.GenericKeyValueStore):
+    def has_unique_keys(self) -> bool:
+        return False
 
 class _ObjectKeyValueStore(StoreTimestampMixin, wallet_database.ObjectKeyValueStore):
     pass
@@ -94,6 +97,52 @@ class TestJSONKeyValueStore:
 
     def test_get_nonexistent(self) -> None:
         assert self.db_values.get("nonexistent") is None
+
+    def test_upsert(self) -> None:
+        self.db_values.set("A", "B")
+        assert self.db_values.get("A") == "B"
+
+        self.db_values.set("A", "C")
+        assert self.db_values.get("A") == "C"
+
+
+class TestGenericKeyValueStoreNonUnique:
+    @classmethod
+    def setup_class(cls):
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_filename = os.path.join(cls.temp_dir.name, "testgks")
+        cls.store = _GenericKeyValueStoreNonUnique(TEST_TABLE_NAME, db_filename, TEST_AESKEY, 0)
+
+    @classmethod
+    def teardown_class(cls):
+        cls.store.close()
+        cls.store = None
+        cls.temp_dir = None
+
+    def setup_method(self):
+        db = self.store._get_db()
+        db.execute(f"DELETE FROM {self.store._table_name}")
+        db.commit()
+
+        self.store._fetch_write_timestamp()
+
+    @pytest.mark.parametrize("variations,count", ((0, 0), (1, 3), (2, 3)))
+    def test__delete_duplicates(self, variations, count) -> None:
+        for i in range(variations):
+            k = os.urandom(10)
+            v = os.urandom(10)
+            for i in range(count):
+                self.store.add(k, v)
+        # 1 other.
+        self.store.add(os.urandom(10), os.urandom(10))
+
+        rows = self.store.get_all()
+        assert len(rows) == (variations * count) + 1
+
+        self.store._delete_duplicates()
+
+        rows = self.store.get_all()
+        assert len(rows) == variations + 1
 
 
 class TestGenericKeyValueStore:
@@ -253,24 +302,6 @@ class TestGenericKeyValueStore:
         assert row[1] != row[3] # DateCreated != DateDeleted
 
         assert self.store.get_write_timestamp() == 2
-
-    @pytest.mark.parametrize("variations,count", ((0, 0), (1, 3), (2, 3)))
-    def test__delete_duplicates(self, variations, count) -> None:
-        for i in range(variations):
-            k = os.urandom(10)
-            v = os.urandom(10)
-            for i in range(count):
-                self.store.add(k, v)
-        # 1 other.
-        self.store.add(os.urandom(10), os.urandom(10))
-
-        rows = self.store.get_all()
-        assert len(rows) == (variations * count) + 1
-
-        self.store._delete_duplicates()
-
-        rows = self.store.get_all()
-        assert len(rows) == variations + 1
 
 
 class TestObjectKeyValueStore:

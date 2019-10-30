@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import QAbstractItemView, QMenu
 from .util import SortableTreeWidgetItem, MyTreeWidget, ColorScheme
 from electrumsv.i18n import _
 from electrumsv.platform import platform
+from electrumsv.util import profiler
 from electrumsv.wallet import Abstract_Wallet
 
 
@@ -48,6 +49,10 @@ class UTXOList(MyTreeWidget):
         self.monospace_font = QFont(platform.monospace_font)
 
     def on_update(self):
+        self._on_update_utxo_list()
+
+    @profiler
+    def _on_update_utxo_list(self):
         prev_selection = self.get_selected() # cache previous selection, if any
         wallet_id = self.wallet.get_id()
         self.clear()

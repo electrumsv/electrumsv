@@ -640,7 +640,7 @@ class SVSession(RPCSession):
             self.logger.warning(f'history status mismatch {hstatus} vs {status} for {address}')
 
         for wallet in wallets:
-            await wallet.set_address_history(address, history, tx_fees)
+            await wallet.set_address_history(script_hash, address, history, tx_fees)
 
     async def _main_server_batch(self):
         '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''

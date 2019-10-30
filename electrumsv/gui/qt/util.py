@@ -1,8 +1,8 @@
 import os.path
 from functools import partial, lru_cache
-from typing import Optional
+from typing import Optional, Any
 
-from PyQt5.QtCore import Qt, QCoreApplication, QLocale, QTimer
+from PyQt5.QtCore import Qt, QCoreApplication, QLocale, QTimer, QModelIndex
 from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
 from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
@@ -695,6 +695,12 @@ def read_qt_ui(ui_name):
 def read_QIcon(icon_basename):
     return QIcon(icon_path(icon_basename))
 
+def get_source_index(model_index: QModelIndex, klass: Any):
+    model = model_index.model()
+    while model is not None and not isinstance(model, klass):
+        model_index = model.mapToSource(model_index)
+        model = model_index.model()
+    return model_index
 
 def get_default_language():
     name = QLocale.system().name()

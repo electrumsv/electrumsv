@@ -91,6 +91,9 @@ class MissingRowError(Exception):
 class InvalidDataError(Exception):
     pass
 
+class InvalidUpsertError(Exception):
+    pass
+
 
 class MigrationContext(namedtuple("MigrationContextTuple",
         "source_version target_version")):
@@ -141,9 +144,10 @@ class BaseWalletStore:
         self._set_table_name(table_name)
 
         db = self._get_db()
-        self._db_create(db)
         if migration_context is not None:
             self._db_migrate(db, migration_context)
+        else:
+            self._db_create(db)
         db.commit()
 
         self._fetch_write_timestamp()
@@ -280,9 +284,13 @@ class GenericKeyValueStore(BaseWalletStore):
 
         super().__init__(table_name, wallet_path, aeskey, group_id, migration_context)
 
+    def has_unique_keys(self) -> bool:
+        return True
+
     def _set_table_name(self, table_name: str) -> None:
         super()._set_table_name(table_name)
 
+        # NOTE(rt12): The unique constraint is required for the upsert to work.
         self._CREATE_TABLE_SQL = ("CREATE TABLE IF NOT EXISTS "+ table_name +" ("+
                 "Key BLOB,"+
                 "GroupId INT DEFAULT 0,"+
@@ -291,6 +299,8 @@ class GenericKeyValueStore(BaseWalletStore):
                 "DateUpdated INTEGER,"+
                 "DateDeleted INTEGER DEFAULT NULL"+
             ")")
+        self._CREATE_INDEX_SQL = ("CREATE UNIQUE INDEX IF NOT EXISTS idx_"+ table_name +"_unique "+
+            "ON "+ table_name +"(Key, GroupId)")
         self._CREATE_SQL = ("INSERT INTO "+ table_name +" "+
             "(GroupId, Key, ByteData, DateCreated, DateUpdated) VALUES (?, ?, ?, ?, ?)")
         self._READ_SQL = ("SELECT ByteData FROM "+ table_name +" "+
@@ -302,6 +312,8 @@ class GenericKeyValueStore(BaseWalletStore):
             "WHERE GroupId=? AND Key=?")
         self._UPDATE_SQL = ("UPDATE "+ table_name +" SET ByteData=?, DateUpdated=? "+
             "WHERE GroupId=? AND DateDeleted IS NULL AND Key=?")
+        self._UPSERT_SQL = (self._CREATE_SQL +" ON CONFLICT(Key, GroupId) DO UPDATE "+
+            "SET ByteData=excluded.ByteData, DateUpdated=excluded.DateUpdated")
         self._DELETE_SQL = ("UPDATE "+ table_name +" SET DateDeleted=? "+
             "WHERE GroupId=? AND DateDeleted IS NULL AND Key=?")
         self._DELETE_VALUE_SQL = ("UPDATE "+ table_name +" SET DateDeleted=? "+
@@ -309,6 +321,8 @@ class GenericKeyValueStore(BaseWalletStore):
 
     def _db_create(self, db: sqlite3.Connection) -> None:
         db.execute(self._CREATE_TABLE_SQL)
+        if self.has_unique_keys():
+            db.execute(self._CREATE_INDEX_SQL)
 
     def _db_migrate(self, db: sqlite3.Connection, context: MigrationContext) -> None:
         if context.source_version == 18 and context.target_version == 19:
@@ -321,6 +335,9 @@ class GenericKeyValueStore(BaseWalletStore):
                     f"ALTER TABLE {self.get_table_name()} ADD COLUMN GroupId INTEGER DEFAULT 0")
                 self._logger.debug(
                     f"_db_migrate: added 'GroupId' column to '{self.get_table_name()}' table")
+        elif context.source_version == 20 and context.target_version == 21:
+            if self.has_unique_keys():
+                db.execute(self._CREATE_INDEX_SQL)
         else:
             raise Exception("Asked to migrate unexpected versions", context)
 
@@ -430,6 +447,21 @@ class GenericKeyValueStore(BaseWalletStore):
         return None
 
     @tprofiler
+    def upsert(self, key: str, value: bytes) -> None:
+        if not self.has_unique_keys():
+            raise InvalidUpsertError(key)
+
+        assert type(value) is bytes
+        ekey = self._encrypt_key(key)
+        evalue = self._encrypt(value)
+        timestamp = self._get_current_timestamp()
+        self._write_timestamp = timestamp
+        db = self._get_db()
+        db.execute(self._UPSERT_SQL, [self._group_id, ekey, evalue, timestamp, timestamp])
+        db.commit()
+        self._logger.debug("upsert '%s'", key)
+
+    @tprofiler
     def update(self, key: str, value: bytes) -> None:
         assert type(value) is bytes
         ekey = self._encrypt_key(key)
@@ -521,13 +553,9 @@ class JSONKeyValueStore(StringKeyMixin, GenericKeyValueStore):
         return value if db_value is None else json.loads(db_value)
 
     def set(self, key: str, value: Any) -> None:
-        byte_value = json.dumps(value).encode()
-
-        # TODO: DB: There is no underlying set/upsert operation.
-        if self.get_value(key) is None:
-            self.add(key, byte_value)
-        else:
-            self.update(key, byte_value)
+        if type(value) is not bytes:
+            value = json.dumps(value).encode()
+        self.upsert(key, value)
 
 
 StoreObject = Union[list, dict]
@@ -564,6 +592,9 @@ class ObjectKeyValueStore(GenericKeyValueStore):
             return self._unpack_value(row[0]), row[1], row[2], row[3]
         return None
 
+    def set(self, key: str, value: StoreObject) -> None:
+        super().upsert(key, self._pack_value(value))
+
     def update(self, key: str, value: StoreObject) -> None:
         super().update(key, self._pack_value(value))
 
@@ -598,6 +629,9 @@ class TransactionInputStore(HexKeyMixin, EncryptedKeyMixin, GenericKeyValueStore
     def __init__(self, wallet_path: str, aeskey: Optional[bytes],
             group_id: int, migration_context: Optional[MigrationContext]=None) -> None:
         super().__init__("TransactionInputs", wallet_path, aeskey, group_id, migration_context)
+
+    def has_unique_keys(self) -> bool:
+        return False
 
     @staticmethod
     def _pack_value(txin: DBTxInput) -> bytes:
@@ -649,6 +683,9 @@ class TransactionOutputStore(HexKeyMixin, EncryptedKeyMixin, GenericKeyValueStor
     def __init__(self, wallet_path: str, aeskey: Optional[bytes],
             group_id: int, migration_context: Optional[MigrationContext]=None) -> None:
         super().__init__("TransactionOutputs", wallet_path, aeskey, group_id, migration_context)
+
+    def has_unique_keys(self) -> bool:
+        return False
 
     @staticmethod
     def _pack_value(txout: DBTxOutput) -> bytes:

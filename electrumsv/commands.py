@@ -423,7 +423,7 @@ class Commands:
                     "Try to create a new wallet with that key.")
         try:
             addr = wallet.import_private_key(privkey, password)
-            out = "Keypair imported: " + addr
+            out = "Keypair imported: " + addr.to_string()
         except Exception as e:
             out = "Error: " + str(e)
         return out
