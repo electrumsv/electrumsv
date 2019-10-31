@@ -9,7 +9,7 @@ It should be possible using these dates to quickly ascertain whether the indexed
 is out of date.
 
 """
-
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import namedtuple, deque
 from io import BytesIO
@@ -1796,7 +1796,7 @@ class TxCache:
                  TxFlags.HasHeight)
         return [ t for t in results if 0 < t[1].metadata.height <= watermark_height ]
 
-    def delete_reorged_entries(self, reorg_height: int) -> None:
+    def delete_reorged_entries(self, reorg_height: int) -> int:
         fetch_flags = TxFlags.StateSettled
         fetch_mask = TxFlags.StateSettled
         unverify_mask = ~(TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition |
@@ -1831,6 +1831,21 @@ class UTXO:
 
     def __eq__(self, other):
         return isinstance(other, UTXO) and self.key() == other.key()
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __lt__(self, other):
+        return self.value < other.value
+
+    def __gt__(self, other):
+        return self.value > other.value
+
+    def __le__(self, other):
+        return self.value <= other.value
+
+    def __ge__(self, other):
+        return self.value >= other.value
 
     def __hash__(self):
         return hash(self.key())
@@ -1871,19 +1886,13 @@ class UTXO:
 
 
 class UTXOCache:
-    """A 'smarter' version of a deque with additional utility methods. Avoids needless iteration
-    over all addresses to re-calculate utxo set (for every transaction created).
+    """A 'smarter' version of a deque with additional utility methods. Avoids needless
+    re-calculation utxo set (for every transaction).
 
-    Note: 'get_spendable_coins' used by the GUI re-calculates utxos every time so there is no
-    risk of "cache invalidation" type issues.
-
-    Whereas 'get_spendable_coins_cached' requires freezing / unfreezing coins for every transaction
-    *created* / every failed broadcast respectively. The set_frozen_coin_state() has been modified
-    to update the cache correctly as long as these steps are followed.
-
-    Because setting coins to frozen removes them from the cache, there could be cases where
-    (if there is only 1 utxo in the cache - the cache will momentarily empty as it waits for the
-    incoming 'StateCleared' transaction from the network to refill the cache.
+    Freezing / unfreezing mechanics can be employed and if utxos are frozen + consumed
+    from 'left side' of deque, this will still be (close to O(1)) fast but for optimal performance, utxos
+    can be removed / added back to the cache --> obviating the need for passing this filtering
+    parameter into the 'get_utxos_cached' function.
     """
 
     def __init__(self, utxos: List[UTXO] = []):
@@ -1905,6 +1914,8 @@ class UTXOCache:
         return attributes
 
     def __repr__(self):
+        if self.utxos is None:
+            return "UTXOCache([])"
         return f"UTXOCache({list(self.utxos)})"
 
     def __eq__(self, other):
@@ -1913,11 +1924,23 @@ class UTXOCache:
         else:
             return self.utxos == other
 
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
     def __len__(self):
         return len(self.utxos)
 
     def __iter__(self):
         return self.utxos.__iter__()
+
+    def __getitem__(self):
+        return self.utxos.__getitem__()
+
+    def __setitem__(self):
+        return self.utxos.__setitem__()
+
+    def __delitem__(self):
+        return self.utxos.__delitem__()
 
     @staticmethod
     def extract_utxos_from_tx_entry(tx_cache_entry: TxCacheEntry,
@@ -1939,9 +1962,10 @@ class UTXOCache:
                             is_coinbase=tx.is_coinbase())
             new_utxos.append(new_utxo)
 
-        sorted_new_utxos = sorted(new_utxos, key=lambda k: (k['value'], -k['height']),
-                                  reverse=reversed_order)
-        return sorted_new_utxos
+        #sorted_new_utxos = new_utxos, key=lambda k: (k['value'], -k['height']),
+        #                          reverse=reversed_order
+        #return sorted_new_utxos
+        return new_utxos
 
     def add_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> None:
         """This should only be called after tx reaches StateCleared."""
@@ -1962,48 +1986,69 @@ class UTXOCache:
         with self._lock:
             raise NotImplementedError
 
-    def _remove_utxos(self, utxos_for_removal):
+    def remove_utxos(self, utxos_for_removal: Optional[List[UTXO], UTXOCache]) -> None:
         """Removes frozen utxos from cache"""
         with self._lock:
-            indices_for_deletion = []
+            matched_utxos = []
             for frozen in utxos_for_removal:
                 for index, utxo in enumerate(self.utxos):
                     if frozen == utxo:
-                        indices_for_deletion.append(index)
+                        matched_utxos.append(utxo)
                         break
-            for index in indices_for_deletion:
-                del(self.utxos[index])
+            for utxo in matched_utxos:
+                self.utxos.remove(utxo)
 
-    @staticmethod
-    def filter_frozen_utxos(frozen_utxos, utxo_cache):
-        """Removes frozen utxos from cache"""
-        indices_for_deletion = []
-        for frozen in frozen_utxos:
-            for index, utxo in enumerate(utxo_cache):
-                if frozen == utxo:
-                    indices_for_deletion.append(index)
-                    break
-        for index in indices_for_deletion:
-            del(utxo_cache.utxos[index])
-        return utxo_cache.utxos
-
-    def _undo_remove_utxos(self, utxos_to_add_back):
+    def undo_remove_utxos(self, utxos_to_add_back) -> None:
         """Adds back utxos that have been unfrozen"""
         with self._lock:
             # avoid duplicate additions
-            if utxos_to_add_back not in self.utxos:
-                coins = self.utxos.extendleft(utxos_to_add_back)
+            if len(utxos_to_add_back) == 0 or utxos_to_add_back is None:
+                return
+
+            elif utxos_to_add_back not in self.utxos:
+                self.utxos.extendleft(utxos_to_add_back)
                 # We can afford the performance cost of maintaining ordering - because rare event
-                self.utxos = sorted(coins,
-                                    key=lambda k: (k.height, -k.value),
-                                    reverse=True)
+                # self.utxos = sorted(self.utxos,
+                #                    key=lambda k: (k.height, -k.value),
+                #                    reverse=True)
+
+    @staticmethod
+    def get_frozen_utxos(frozen_set: Set[Tuple[str, int]],
+                         utxo_cache: UTXOCache) -> Union[List[UTXO]]:
+
+        if len(frozen_set) == 0:
+            return []
+        else:
+            frozen_utxos = []
+            for frozen in frozen_set:
+                for utxo in utxo_cache:
+                    if frozen == utxo.key():
+                        frozen_utxos.append(utxo)
+                        break
+            return frozen_utxos
+
+    @staticmethod
+    def filter_frozen_utxos(frozen_utxos: List[UTXO], utxo_cache: UTXOCache) -> UTXOCache:
+        """Returns filtered utxo cache (without frozen utxos)"""
+        if len(frozen_utxos) == 0:
+            return utxo_cache
+        else:
+            utxos_for_removal = []
+            for frozen in frozen_utxos:
+                for utxo in utxo_cache:
+                    if frozen == utxo:
+                        utxos_for_removal.append(utxo)
+                        break
+            for utxo in utxos_for_removal:
+                utxo_cache.remove(utxo)
+            return utxo_cache
 
     def remove_frozen_utxos(self, frozen_utxos):
         """Removes frozen utxos from cache"""
-        self._remove_utxos(frozen_utxos)
+        self.remove_utxos(frozen_utxos)
 
     def add_unfrozen_utxos(self, unfrozen_utxos: List[UTXO]):
-        self._undo_remove_utxos(unfrozen_utxos)
+        self.undo_remove_utxos(unfrozen_utxos)
 
     def add_many(self, utxos: List[UTXO]):
         with self._lock:
