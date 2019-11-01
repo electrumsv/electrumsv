@@ -1,6 +1,7 @@
 import os
 import pytest
 import tempfile
+from typing import Tuple, Optional, List
 
 import bitcoinx
 
@@ -8,7 +9,8 @@ from electrumsv.constants import TxFlags
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv import wallet_database
-from electrumsv.wallet_database import TxData, TxCache, TxProof, DBTxInput, DBTxOutput
+from electrumsv.wallet_database import (TxData, TxCache, TxCacheEntry, TxProof, DBTxInput,
+    DBTxOutput)
 
 logs.set_level("debug")
 
@@ -890,6 +892,11 @@ class TestTransactionStore:
         assert merkle_branch1 == merkle_branch2
 
 
+class MockTransactionStore:
+    def update_proof(self, tx_id: str, proof: TxProof) -> None:
+        raise NotImplementedError
+
+
 class TestTxCache:
     @classmethod
     def setup_class(cls):
@@ -1160,6 +1167,165 @@ class TestTxCache:
 
         entry = cache.get_entry(tx_id_1, TxFlags.StateSettled)
         assert entry is not None
+
+    # No complete cache of metadata, tx_id in cache, store not hit.
+    def test_get_entry_cached_already(self) -> None:
+        mock_store = MockTransactionStore()
+        cache = TxCache(mock_store, cache_metadata=False)
+        assert not cache._all_metadata_cached
+
+        # Verify that we do not hit the store for our cached entry.
+        our_entry = TxCacheEntry(TxData(position=11), TxFlags.HasPosition)
+        cache.set_cache_entries({ "tx_id": our_entry })
+        their_entry = cache.get_entry("tx_id")
+        assert our_entry is their_entry
+
+    # No complete cache of metadata, tx_id not in cache, store hit.
+    def test_get_entry_cached_on_demand(self) -> None:
+        metadata = TxData(position=11)
+        flags = TxFlags.HasPosition
+        def _get(*args) -> Tuple[TxData, Optional[bytes], TxFlags]:
+            nonlocal metadata, flags
+            return metadata, None, flags
+
+        mock_store = MockTransactionStore()
+        mock_store.get = _get
+
+        cache = TxCache(mock_store, cache_metadata=False)
+        assert not cache._all_metadata_cached
+        their_entry = cache.get_entry("tx_id")
+        assert their_entry.metadata == metadata
+        assert their_entry.flags == flags
+
+    # No complete cache of metadata, tx_id in cache, no bytedata cached, store hit for bytedata.
+    def test_get_entry_cached_already_have_uncached_bytedata(self) -> None:
+        metadata = TxData(position=11)
+        flags = TxFlags.HasPosition | TxFlags.HasByteData
+        bytedata = b'123456'
+        def _get(*args) -> Tuple[TxData, Optional[bytes], TxFlags]:
+            nonlocal metadata, bytedata, flags
+            return metadata, bytedata, flags
+        def _validate_transaction_bytes(*args) -> bool:
+            return True
+
+        mock_store = MockTransactionStore()
+        mock_store.get = _get
+        cache = TxCache(mock_store, cache_metadata=False)
+        cache._validate_transaction_bytes = _validate_transaction_bytes
+        assert not cache._all_metadata_cached
+
+        our_entry = TxCacheEntry(metadata, flags, is_bytedata_cached=False)
+        cache.set_cache_entries({ "tx_id": our_entry })
+
+        # We explicitly filter for non-bytedata fields. This will not trigger the fetching of
+        # bytedata from the store into the cache.
+        their_entry = cache.get_entry("tx_id", TxFlags.HasPosition, TxFlags.HasPosition)
+        assert our_entry is their_entry
+
+        # This explicitly requests the bytedata and will fetch it from the store.
+        their_entry = cache.get_entry("tx_id", TxFlags.HasByteData, TxFlags.HasByteData)
+        assert their_entry.metadata == metadata
+        assert their_entry.bytedata == bytedata
+        assert their_entry.flags == flags
+
+        del cache._cache["tx_id"]
+
+        # This explicitly requests unfiltered entries and will fetch bytedata from the store.
+        their_entry = cache.get_entry("tx_id")
+        assert their_entry.metadata == metadata
+        assert their_entry.bytedata == bytedata
+        assert their_entry.flags == flags
+
+    # No complete cache of metadata, tx_id in cache, no bytedata cached, store hit for bytedata.
+    def test_get_entries_cached_already_have_uncached_bytedata(self) -> None:
+        metadata = TxData(position=11)
+        flags = TxFlags.HasPosition | TxFlags.HasByteData
+        bytedata = b'123456'
+        def _get_many(*args) -> List[Tuple[str, Tuple[TxData, Optional[bytes], TxFlags]]]:
+            nonlocal metadata, bytedata, flags
+            return [ ("tx_id", metadata, bytedata, flags) ]
+        def _validate_transaction_bytes(*args) -> bool:
+            return True
+
+        mock_store = MockTransactionStore()
+        mock_store.get_many = _get_many
+        cache = TxCache(mock_store, cache_metadata=False)
+        cache._validate_transaction_bytes = _validate_transaction_bytes
+        assert not cache._all_metadata_cached
+
+        our_entry = TxCacheEntry(metadata, flags, is_bytedata_cached=False)
+        cache.set_cache_entries({ "tx_id": our_entry })
+
+        # We explicitly filter for non-bytedata fields. This will not trigger the fetching of
+        # bytedata from the store into the cache.
+        their_entries = cache.get_entries(TxFlags.HasPosition, TxFlags.HasPosition, [ "tx_id" ])
+        assert our_entry is their_entries[0][1]
+
+        # This explicitly requests the bytedata and will fetch it from the store.
+        their_entries = cache.get_entries(TxFlags.HasByteData, TxFlags.HasByteData, [ "tx_id" ])
+        their_entry = their_entries[0][1]
+        assert their_entry.metadata == metadata
+        assert their_entry.bytedata == bytedata
+        assert their_entry.flags == flags
+
+        del cache._cache["tx_id"]
+
+        # This explicitly requests unfiltered entries and will fetch bytedata from the store.
+        their_entries = cache.get_entries(tx_ids=[ "tx_id" ])
+        their_entry = their_entries[0][1]
+        assert their_entry.metadata == metadata
+        assert their_entry.bytedata == bytedata
+        assert their_entry.flags == flags
+
+    # No complete cache of metadata, tx_id in cache, no bytedata cached, store hit for bytedata.
+    def test_get_entries_all_metadata_cached_already_have_uncached_bytedata(self) -> None:
+        metadata = TxData(position=11)
+        flags = TxFlags.HasPosition | TxFlags.HasByteData
+        bytedata = b'123456'
+        def _get_metadata_many(*args) -> List[Tuple[str, TxData, int]]:
+            nonlocal metadata, bytedata, flags
+            return [ ("tx_id", metadata, flags) ]
+        def _get_many(_flags: TxFlags, _mask: TxFlags,
+                _tx_ids: List[str]) -> List[Tuple[str, TxData, Optional[bytes], TxFlags]]:
+            nonlocal metadata, bytedata, flags
+            assert "tx_id" in _tx_ids
+            return [ ("tx_id", metadata, bytedata, flags) ]
+        def _validate_transaction_bytes(*args) -> bool:
+            return True
+
+        mock_store = MockTransactionStore()
+        mock_store.get_metadata_many = _get_metadata_many
+        mock_store.get_many = _get_many
+        cache = TxCache(mock_store, cache_metadata=True)
+        assert cache._all_metadata_cached
+        assert "tx_id" in cache._cache
+        cache._validate_transaction_bytes = _validate_transaction_bytes
+
+        # We explicitly filter for non-bytedata fields. This will not trigger the fetching of
+        # bytedata from the store into the cache.
+        their_entries = cache.get_entries(TxFlags.HasPosition, TxFlags.HasPosition, [ "tx_id" ])
+        their_entry = their_entries[0][1]
+        assert their_entry.metadata == metadata
+        assert their_entry.bytedata is None
+        assert their_entry.flags == flags
+        bytedataless_entry = their_entry
+
+        # This explicitly requests the bytedata and will fetch it from the store.
+        their_entries = cache.get_entries(TxFlags.HasByteData, TxFlags.HasByteData, [ "tx_id" ])
+        their_entry = their_entries[0][1]
+        assert their_entry.metadata == metadata
+        assert their_entry.bytedata == bytedata
+        assert their_entry.flags == flags
+
+        # Reset the cache entry back to the bytedata-less entry.
+        cache._cache["tx_id"] = bytedataless_entry
+
+        # This explicitly requests unfiltered entries and will fetch bytedata from the store.
+        their_entries = cache.get_entries(tx_ids=[ "tx_id" ])
+        their_entry = their_entries[0][1]
+        assert their_entry.metadata == metadata
+        assert their_entry.bytedata == bytedata
+        assert their_entry.flags == flags
 
     def test_get_height(self):
         cache = TxCache(self.store)

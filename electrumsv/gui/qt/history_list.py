@@ -239,11 +239,10 @@ class HistoryList(MyTreeWidget):
 
 def get_tx_status(wallet: Abstract_Wallet, tx_hash: str, height: int, conf: int,
         timestamp: Union[bool, int]) -> TxStatus:
-    tx = wallet.get_transaction(tx_hash)
-    if not tx:
+    if not wallet.have_transaction_data(tx_hash):
         return TxStatus.MISSING
 
-    if tx.is_coinbase():
+    if wallet.is_coinbase_transaction(tx_hash):
         if height + COINBASE_MATURITY > wallet.get_local_height():
             return TxStatus.UNMATURED
     elif conf == 0:

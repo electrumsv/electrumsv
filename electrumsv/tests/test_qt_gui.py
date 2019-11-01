@@ -18,13 +18,12 @@ class HistoryListTests(unittest.TestCase):
         from electrumsv.gui.qt.history_list import TxStatus, get_tx_status
 
         wallet = MockWhatever()
-        tx = MockWhatever()
-        def _is_coinbase() -> bool:
+        def _is_coinbase_transaction(tx_id: str) -> bool:
             return False
-        tx.is_coinbase = _is_coinbase
-        def _get_transaction(tx_hash: str) -> MockWhatever:
-            return tx
-        wallet.get_transaction = _get_transaction
+        def _have_transaction_data(tx_hash: str) -> bool:
+            return True
+        wallet.have_transaction_data = _have_transaction_data
+        wallet.is_coinbase_transaction = _is_coinbase_transaction
         local_height = 1000
         def _get_local_height() -> int:
             return local_height
@@ -60,13 +59,12 @@ class HistoryListTests(unittest.TestCase):
         from electrumsv.gui.qt.history_list import TxStatus, get_tx_status
 
         wallet = MockWhatever()
-        tx = MockWhatever()
-        def _is_coinbase() -> bool:
+        def _is_coinbase_transaction(tx_id: str) -> bool:
             return True
-        tx.is_coinbase = _is_coinbase
-        def _get_transaction(tx_hash: str) -> MockWhatever:
-            return tx
-        wallet.get_transaction = _get_transaction
+        def _have_transaction_data(tx_hash: str) -> bool:
+            return True
+        wallet.have_transaction_data = _have_transaction_data
+        wallet.is_coinbase_transaction = _is_coinbase_transaction
         local_height = 1000
         def _get_local_height() -> int:
             return local_height

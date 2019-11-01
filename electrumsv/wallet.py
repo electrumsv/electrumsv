@@ -377,9 +377,6 @@ class Abstract_Wallet:
         # paradigm. It needs to share access in that case. It is possible the parent wallet needs
         # to be the place where it is obtained. Each child wallet can hold a reference.
 
-        self.pending_txs = self._datastore.tx.get_transactions(TxFlags.StateSigned,
-            TxFlags.STATE_MASK)
-
         # address -> list(txid, height)
         addr_history = self._datastore.misc.get_value('addr_history')
         self._history = self.to_Address_dict(addr_history) if addr_history is not None else {}
@@ -446,6 +443,16 @@ class Abstract_Wallet:
         if address_string is None:
             address_string = address.to_string()
         return [ v for v in entries if v.address_string == address_string ]
+
+    def is_coinbase_transaction(self, tx_id: str) -> bool:
+        # TODO(rt12): This is not as accurate as it needs to be. It only notes if the transaction
+        # does coinbase outputs to the wallet, not if the transaction has a coinbase input in
+        # general.
+        tx_outs = self.get_txouts(tx_id)
+        return len(tx_outs) and tx_outs[0].is_coinbase
+
+    def have_transaction_data(self, tx_id: str) -> bool:
+        return self._datastore.tx.have_transaction_data(tx_id)
 
     def get_transaction(self, tx_id: str, flags: Optional[int]=None) -> Optional[Transaction]:
         return self._datastore.tx.get_transaction(tx_id, flags)
@@ -974,9 +981,10 @@ class Abstract_Wallet:
 
             for tx_id in set(t[0] for t in hist):
                 # if addr is new, we have to recompute txi and txo
-                tx = self.get_transaction(tx_id)
-                if (tx is not None and not len(self.get_txins(tx_id, address)) and
-                        not len(self.get_txouts(tx_id, address))):
+                if self._datastore.tx.have_transaction_data(tx_id) and \
+                        not len(self.get_txins(tx_id, address)) and \
+                        not len(self.get_txouts(tx_id, address)):
+                    tx = self.get_transaction(tx_id)
                     self.apply_transactions_xputs(tx_id, tx)
 
         self.txs_changed_event.set()
@@ -2053,7 +2061,6 @@ class ParentWallet:
         self._storage.write()
 
     def get_wallet_datastore(self, wallet_id: int) -> WalletData:
-        print(f"get_wallet_datastore {self.get_storage_path()}")
         return WalletData(self.get_storage_path(), self.tx_store_aeskey_bytes, wallet_id)
 
     def get_next_child_wallet_id(self) -> int:
