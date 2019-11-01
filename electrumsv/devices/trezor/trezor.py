@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from bitcoinx import (
-    Ops, bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string, Address,
+    bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string, Address,
 )
 
 from electrumsv.app_state import app_state
