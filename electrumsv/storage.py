@@ -1174,3 +1174,9 @@ class WalletStorage:
     @classmethod
     def files_are_matched_by_path(klass, path: str) -> StorageKind:
         return categorise_file(path).kind != StorageKind.UNKNOWN
+
+    @classmethod
+    def canonical_path(klass, database_filepath: str) -> str:
+        if not database_filepath.lower().endswith(DATABASE_EXT):
+            database_filepath += "."+ DATABASE_EXT
+        return database_filepath
