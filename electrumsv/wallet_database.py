@@ -23,7 +23,9 @@ from typing import Optional, Dict, Set, Iterable, List, Tuple, Union, Any, Calla
 
 import attr
 import bitcoinx
-from bitcoinx import classify_output_script, P2PKH_Address, P2SH_Address, P2PK_Output, hex_str_to_hash, Script
+from bitcoinx import (
+    classify_output_script, P2PKH_Address, P2SH_Address, P2PK_Output, hex_str_to_hash, Script
+)
 
 from electrumsv.transaction import XPublicKey, XTxInput, NO_SIGNATURE
 from .constants import DATABASE_EXT, TxFlags
@@ -1898,6 +1900,7 @@ class UTXOCache:
     def __init__(self, utxos: List[UTXO] = []):
         self.utxos = deque(utxos)
         self._lock = threading.Lock()
+        self.logger = logs.get_logger(f"utxo-cache")
 
     def __getattr__(self, attr):
         if attr in dir(deque) and not attr.startswith('__'):
@@ -1942,39 +1945,36 @@ class UTXOCache:
     def __delitem__(self):
         return self.utxos.__delitem__()
 
-    @staticmethod
-    def extract_utxos_from_tx_entry(tx_cache_entry: TxCacheEntry,
-                                    reversed_order: bool = False) -> List[UTXO]:
+    def extract_utxos_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> List[UTXO]:
         """Takes a StateCleared transaction and transforms the outputs to a list of UTXOs"""
-        tx = tx_cache_entry.transaction
+        # TODO - add tests
+
         new_utxos = []
-        for index, output in enumerate(tx.outputs()):
-            type_, address, value = output
-            if "OP_RETURN" in str(address):
+        for index, output in enumerate(tx_cache_entry.transaction.outputs):
+
+            if output.script_pubkey.to_asm().find('OP_RETURN') != -1:
                 continue
 
-            new_utxo = UTXO(value=value,
-                            script_pubkey=output.script,
-                            tx_hash=tx.txid(),
+            new_utxo = UTXO(value=output.value,
+                            script_pubkey=output.script_pubkey,
+                            tx_hash=tx_cache_entry.transaction.txid(),
                             out_index=index,
                             height=tx_cache_entry.metadata.height,
-                            address=address,
-                            is_coinbase=tx.is_coinbase())
+                            address=classify_output_script(script=output.script_pubkey),
+                            is_coinbase=tx_cache_entry.transaction.is_coinbase())
+            self.logger.debug(f"extracted utxo: {new_utxo}")
             new_utxos.append(new_utxo)
 
-        #sorted_new_utxos = new_utxos, key=lambda k: (k['value'], -k['height']),
-        #                          reverse=reversed_order
-        #return sorted_new_utxos
         return new_utxos
 
     def add_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> None:
         """This should only be called after tx reaches StateCleared."""
-
+        # TODO - add tests
         assert(tx_cache_entry.flags | TxFlags.StateCleared), "Only StateCleared transactions " \
                                                              "should be added to utxo cache."
         # re-calculates tx object from bytedata but simplifies function signatures
         tx = tx_cache_entry.transaction
-        self._logger.debug(f"updating utxo cache for {tx.txid()}")
+        self.logger.debug(f"updating utxo cache for {tx.txid()}")
         with self._lock:
             # Add new utxos to cache
             new_utxos = self.extract_utxos_from_tx_entry(tx_cache_entry)
@@ -2007,10 +2007,6 @@ class UTXOCache:
 
             elif utxos_to_add_back not in self.utxos:
                 self.utxos.extendleft(utxos_to_add_back)
-                # We can afford the performance cost of maintaining ordering - because rare event
-                # self.utxos = sorted(self.utxos,
-                #                    key=lambda k: (k.height, -k.value),
-                #                    reverse=True)
 
     @staticmethod
     def get_frozen_utxos(frozen_set: Set[Tuple[str, int]],
