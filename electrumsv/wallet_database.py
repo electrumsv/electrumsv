@@ -1314,13 +1314,20 @@ class TxCache:
         return (entry_flags & mask) == flags
 
     @staticmethod
-    def _adjust_field_flags(data: TxData, flags: int) -> int:
+    def _adjust_field_flags(data: TxData, flags: TxFlags) -> TxFlags:
         flags &= ~TxFlags.METADATA_FIELD_MASK
         flags |= TxFlags.HasFee if data.fee is not None else 0
         flags |= TxFlags.HasHeight if data.height is not None else 0
         flags |= TxFlags.HasPosition if data.position is not None else 0
         flags |= TxFlags.HasTimestamp if data.timestamp is not None else 0
         return flags
+
+    @staticmethod
+    def _validate_new_flags(flags: TxFlags) -> None:
+        # All current states are expected to have bytedata.
+        if (flags & TxFlags.STATE_MASK) == 0 or (flags & TxFlags.HasByteData) != 0:
+            return
+        raise InvalidDataError(f"setting uncleared state without bytedata {flags}")
 
     def add_missing_transaction(self, tx_id: str, height: int, fee: Optional[int]=None) -> None:
         # TODO: Consider setting state based on height.
@@ -1345,6 +1352,7 @@ class TxCache:
                 flags |= TxFlags.HasByteData
             assert ((add_flags & TxFlags.METADATA_FIELD_MASK) == 0 or
                 flags == add_flags), f"{TxFlags.to_repr(flags)} != {TxFlags.to_repr(add_flags)}"
+            self._validate_new_flags(flags)
             self._cache[tx_id] = TxCacheEntry(metadata, flags, bytedata)
             assert bytedata is None or self._cache[tx_id].is_bytedata_cached(), \
                 "bytedata not flagged as cached"
@@ -1355,7 +1363,7 @@ class TxCache:
         with self._lock:
             self._update(updates)
 
-    def _update(self, updates: List[Tuple[str, TxData, Optional[bytes], int]],
+    def _update(self, updates: List[Tuple[str, TxData, Optional[bytes], TxFlags]],
             update_all: bool=True) -> Set[str]:
         # NOTE: This does not set state flags at this time, from update flags.
         # We would need to pass in a per-row mask for that to work, perhaps.
@@ -1385,7 +1393,9 @@ class TxCache:
                 new_flags |= flags & TxFlags.STATE_MASK
             else:
                 new_flags |= entry.flags & TxFlags.STATE_MASK
-            if new_bytedata is not None:
+            if new_bytedata is None:
+                new_flags &= ~TxFlags.HasByteData
+            else:
                 new_flags |= TxFlags.HasByteData
             if (entry.metadata == new_metadata and entry.bytedata == new_bytedata and
                     entry.flags == new_flags):
@@ -1394,6 +1404,7 @@ class TxCache:
                     entry.is_bytedata_cached())
                 skipped_update_ids.add(tx_id)
             else:
+                self._validate_new_flags(new_flags)
                 is_full_entry = entry.is_bytedata_cached() or new_bytedata is not None
                 new_entry = TxCacheEntry(new_metadata, new_flags, new_bytedata,
                     entry.time_loaded, is_full_entry)
@@ -1421,6 +1432,8 @@ class TxCache:
                 self._add([ t for t in upadds if t[0] not in updated_ids ])
 
     def update_flags(self, tx_id: str, flags: int, mask: Optional[int]=None) -> None:
+        # This is an odd function. It logical ors metadata flags, but replaces the other
+        # flags losing their values.
         if mask is None:
             mask = TxFlags.METADATA_FIELD_MASK
         else:
@@ -1429,6 +1442,7 @@ class TxCache:
         with self._lock:
             entry = self._get_entry(tx_id)
             entry.flags = (entry.flags & mask) | (flags & ~TxFlags.METADATA_FIELD_MASK)
+            self._validate_new_flags(entry.flags)
             self._store.update_flags(tx_id, flags, mask)
 
     def delete(self, tx_id: str):

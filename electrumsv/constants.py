@@ -83,3 +83,9 @@ class TxFlags(IntEnum):
             mask >>= 1
 
         return f"TxFlags({'|'.join(names)})"
+
+
+# All these states can only be set if there is transaction data present.
+TRANSACTION_FLAGS = (TxFlags.StateSettled, TxFlags.StateDispatched, TxFlags.StateReceived,
+    TxFlags.StateCleared, TxFlags.StateSigned)
+

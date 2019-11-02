@@ -5,7 +5,7 @@ from typing import Tuple, Optional, List
 
 import bitcoinx
 
-from electrumsv.constants import TxFlags
+from electrumsv.constants import TxFlags, TRANSACTION_FLAGS
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv import wallet_database
@@ -971,11 +971,11 @@ class TestTxCache:
 
         tx = Transaction.from_hex(tx_hex_1)
         data = [ tx.txid(), TxData(height=1295924,timestamp=1555296290,position=4,fee=None),
-            None, TxFlags.StateSettled ]
+            None, TxFlags.Unset ]
         cache.add([ data ])
         entry = cache.get_entry(tx.txid())
         assert entry is not None
-        assert TxFlags.StateSettled == entry.flags & TxFlags.StateSettled
+        assert TxFlags.Unset == entry.flags & TxFlags.STATE_MASK
 
         cache.add_transaction(tx, TxFlags.StateCleared)
 
@@ -1071,6 +1071,24 @@ class TestTxCache:
         cache.delete(tx_id_1)
         assert not self.store.has(tx_id_1)
         assert not cache.is_cached(tx_id_1)
+
+    def test_uncleared_bytedata_requirements(self) -> None:
+        cache = TxCache(self.store)
+
+        tx_bytes_1 = bytes.fromhex(tx_hex_1)
+        tx_hash_bytes_1 = bitcoinx.double_sha256(tx_bytes_1)
+        tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
+        data = TxData(position=11)
+        for state_flag in TRANSACTION_FLAGS:
+            with pytest.raises(wallet_database.InvalidDataError):
+                cache.add([ (tx_id_1, data, None, state_flag) ])
+
+        cache.add([ (tx_id_1, data, tx_bytes_1, TxFlags.StateSigned) ])
+
+        # We are applying a clearing of the bytedata, this should be invalid given uncleared.
+        for state_flag in TRANSACTION_FLAGS:
+            with pytest.raises(wallet_database.InvalidDataError):
+                cache.update([ (tx_id_1, data, None, state_flag | TxFlags.HasByteData) ])
 
     def test_get_flags(self):
         cache = TxCache(self.store)
@@ -1338,10 +1356,10 @@ class TestTxCache:
 
         assert 11 == cache.get_height(tx_id_1)
 
-        cache.update_flags(tx_id_1, TxFlags.StateCleared)
+        cache.update_flags(tx_id_1, TxFlags.StateCleared, TxFlags.HasByteData)
         assert 11 == cache.get_height(tx_id_1)
 
-        cache.update_flags(tx_id_1, TxFlags.StateReceived)
+        cache.update_flags(tx_id_1, TxFlags.StateReceived, TxFlags.HasByteData)
         assert cache.get_height(tx_id_1) is None
 
     def test_get_unsynced_ids(self):
@@ -1351,7 +1369,7 @@ class TestTxCache:
         tx_hash_bytes_1 = bitcoinx.double_sha256(bytedata_1)
         tx_id_1 = bitcoinx.hash_to_hex_str(tx_hash_bytes_1)
         metadata_1 = TxData(height=11)
-        cache.add([ (tx_id_1, metadata_1, None, TxFlags.StateSettled) ])
+        cache.add([ (tx_id_1, metadata_1, None, TxFlags.Unset) ])
 
         results = cache.get_unsynced_ids()
         assert 1 == len(results)
