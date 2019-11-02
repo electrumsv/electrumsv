@@ -37,7 +37,7 @@ from typing import Iterable, Tuple, Optional
 import weakref
 import webbrowser
 
-from bitcoinx import PublicKey, Script, Address, P2PKH_Address, TxOutput
+from bitcoinx import PublicKey, Script, Address, P2PKH_Address, TxOutput, hash_to_hex_str
 from bitcoinx import OP_RETURN, OP_FALSE # pylint: disable=no-name-in-module
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl)
@@ -53,7 +53,7 @@ import electrumsv
 from electrumsv import bitcoin, commands, keystore, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN, is_address_valid, address_from_string
-from electrumsv.constants import DATABASE_EXT #, TxFlags
+from electrumsv.constants import DATABASE_EXT, TxFlags
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -1697,8 +1697,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     self.payment_request = None
                 return
             else:
-                # wallet.set_transaction_state(tx.txid(), TxFlags.StateDispatched)
-                return self.network.broadcast_transaction_and_wait(tx)
+                result = self.network.broadcast_transaction_and_wait(tx)
+
+                # Success --> StateDispatched
+                if result == tx.txid():
+                    self.logger.debug(f'broadcast_tx in main_window successful '
+                                      f'broadcast for: {result}')
+                    self.logger.debug(f'setting transaction to StateDispatched...')
+                    #                 f'and removing used utxos from cache...')
+                    wallet.set_transaction_state(tx.txid(), (TxFlags.StateDispatched | TxFlags.HasByteData))
+                    #used_utxo_keys = [(hash_to_hex_str(input.prev_hash), input.prev_idx) for input in tx.inputs]
+                    #wallet._datastore.utxos.remove_utxos_by_key(used_utxo_keys)
+                return result
 
         def on_done(future):
             # GUI thread

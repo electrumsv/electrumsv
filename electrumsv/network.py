@@ -43,8 +43,8 @@ from aiorpcx import (
 )
 from bitcoinx import (
     MissingHeader, IncorrectBits, InsufficientPoW, hex_str_to_hash, hash_to_hex_str,
-    sha256, double_sha256
-)
+    sha256, double_sha256,
+    classify_output_script)
 
 from .app_state import app_state
 from .bitcoin import scripthash_hex
@@ -1130,11 +1130,9 @@ class Network:
                     logger.exception(e)
                     logger.error(f'fetching transaction {tx_hash}: {e}')
                 else:
-                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared)
-
-                    # Add new StateCleared coins to utxo cache + remove redundant frozen coins
-                    tx_entry = wallet._datastore.tx.get_entry(tx_hash, mask=TxFlags.StateCleared)
-                    wallet._datastore.utxos.add_from_tx_entry(tx_entry)
+                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared)  # Add to TxCache
+                    wallet.handle_incoming_payments(tx, tx_hash)  # Add to UTXOCache
+                    wallet.handle_outgoing_payments(tx)  # Cleanup Frozen coins
 
                     self.trigger_callback('new_transaction', tx, wallet)
         return had_timeout

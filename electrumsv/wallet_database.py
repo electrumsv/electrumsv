@@ -12,6 +12,7 @@ is out of date.
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import namedtuple, deque
+from copy import deepcopy
 from io import BytesIO
 import json
 import queue
@@ -26,6 +27,7 @@ import bitcoinx
 from bitcoinx import (
     classify_output_script, P2PKH_Address, P2SH_Address, P2PK_Output, hex_str_to_hash, Script
 )
+from electrumsv.networks import Net
 
 from electrumsv.transaction import XPublicKey, XTxInput, NO_SIGNATURE
 from .constants import DATABASE_EXT, TxFlags
@@ -1859,7 +1861,7 @@ class UTXO:
         return ':'.join((self.tx_hash, str(self.out_index)))
 
     def to_tx_input(self):
-        kind = classify_output_script(self.script_pubkey)
+        kind = classify_output_script(self.script_pubkey, Net.COIN)
         if isinstance(kind, P2PKH_Address):
             threshold = 1
             # _add_input_sig_info() will replace with public key
@@ -1947,8 +1949,7 @@ class UTXOCache:
 
     def extract_utxos_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> List[UTXO]:
         """Takes a StateCleared transaction and transforms the outputs to a list of UTXOs"""
-        # TODO - add tests
-
+        # TODO - think about thread lock requirements
         new_utxos = []
         for index, output in enumerate(tx_cache_entry.transaction.outputs):
 
@@ -1960,7 +1961,7 @@ class UTXOCache:
                             tx_hash=tx_cache_entry.transaction.txid(),
                             out_index=index,
                             height=tx_cache_entry.metadata.height,
-                            address=classify_output_script(script=output.script_pubkey),
+                            address=classify_output_script(output.script_pubkey, Net.COIN),
                             is_coinbase=tx_cache_entry.transaction.is_coinbase())
             self.logger.debug(f"extracted utxo: {new_utxo}")
             new_utxos.append(new_utxo)
@@ -1968,8 +1969,8 @@ class UTXOCache:
         return new_utxos
 
     def add_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> None:
-        """This should only be called after tx reaches StateCleared."""
-        # TODO - add tests
+        """This should only be called after tx reaches StateCleared
+        and only for incoming payments. (Called by handle_incoming_payments)"""
         assert(tx_cache_entry.flags | TxFlags.StateCleared), "Only StateCleared transactions " \
                                                              "should be added to utxo cache."
         # re-calculates tx object from bytedata but simplifies function signatures
@@ -1985,6 +1986,14 @@ class UTXOCache:
         StateCleared --> StateDispatched, we must 'undo' the addition to cache."""
         with self._lock:
             raise NotImplementedError
+
+    def remove_utxos_by_key(self, keys: Set[Tuple[str, int]]) -> None:
+        with self._lock:
+            for key in keys:
+                for utxo in self.utxos:
+                    if key == utxo.key():
+                        self.utxos.remove(utxo)
+                        break
 
     def remove_utxos(self, utxos_for_removal: Optional[List[UTXO], UTXOCache]) -> None:
         """Removes frozen utxos from cache"""
@@ -2012,6 +2021,10 @@ class UTXOCache:
     def get_frozen_utxos(frozen_set: Set[Tuple[str, int]],
                          utxo_cache: UTXOCache) -> Union[List[UTXO]]:
 
+        # Deepcopy is a bad (temporary) solution - needs a thread lock
+        # but without this, it has errors under heavy load because
+        # "frozen set" is referencing an object constantly in flux...
+        frozen_set = deepcopy(frozen_set)
         if len(frozen_set) == 0:
             return []
         else:

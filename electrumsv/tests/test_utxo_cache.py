@@ -1,11 +1,36 @@
+import threading
 import unittest
 from electrumsv.wallet import Standard_Wallet
 from electrumsv.wallet_database import UTXO, UTXOCache, DBTxOutput
-from bitcoinx import Address, Script
+from bitcoinx import CheckPoint, Address, Script, BitcoinTestnet
+
+
+class SVTestnet(object):
+
+    ADDRTYPE_P2PKH = 111
+    ADDRTYPE_P2SH = 196
+    NAME = 'testnet'
+    WIF_PREFIX = 0xef
+
+    COIN = BitcoinTestnet
+
+    BIP44_COIN_TYPE = 1
+
+
+class _CurrentNetMeta(type):
+
+    def __getattr__(cls, attr):
+        return getattr(cls._net, attr)
+
+
+class Net(metaclass=_CurrentNetMeta):
+
+    _net = SVTestnet
+
 
 ADDRESSES = [
-    Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmou'),
-    Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr'),
+    Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmou', Net.COIN),
+    Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr', Net.COIN),
 ]
 
 FROZEN_COINS = {('dde980dd85e34e7ab2ba09f4e3408323c84132fe7ec1ac1fdfb9bd0a953601f2', 1),
@@ -14,7 +39,8 @@ FROZEN_COINS = {('dde980dd85e34e7ab2ba09f4e3408323c84132fe7ec1ac1fdfb9bd0a953601
 FROZEN_ADDRESSES = set({})
 
 SPENDABLE_UTXOS = [
-    UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr'),
+    UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr',
+                                     Net.COIN),
          height=1329528,
          is_coinbase=False,
          out_index=0,
@@ -22,7 +48,8 @@ SPENDABLE_UTXOS = [
                               b'\xac'),
          tx_hash='8aed908726dc878fb7316fc4f11054dbc69b6ac8b206d3fca5a7412d7e9e458d',
          value=7782292),
-    UTXO(address=Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmou'),
+    UTXO(address=Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmou',
+                                     Net.COIN),
          height=1329527,
          is_coinbase=False,
          out_index=0,
@@ -32,7 +59,8 @@ SPENDABLE_UTXOS = [
          value=3000000)
 ]
 
-ALL_UTXOS = [UTXO(address=Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmou'),
+ALL_UTXOS = [UTXO(address=Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmou',
+                                              Net.COIN),
                   height=1329527,
                   is_coinbase=False,
                   out_index=0,
@@ -40,7 +68,8 @@ ALL_UTXOS = [UTXO(address=Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmo
                                          b'\x0e\xed\x9a\xb4\xf3\x88\xac'),
                   tx_hash='76d5bfabe40ca6cbd315b04aa24b68fdd8179869fd1c3501d5a88a980c61c1bf',
                   value=3000000),
-             UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr'),
+             UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr',
+                                              Net.COIN),
                   height=1329528,
                   is_coinbase=False,
                   out_index=0,
@@ -48,7 +77,8 @@ ALL_UTXOS = [UTXO(address=Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmo
                                          b'\x12\x88\xac'),
                   tx_hash='8aed908726dc878fb7316fc4f11054dbc69b6ac8b206d3fca5a7412d7e9e458d',
                   value=7782292),
-             UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr'),
+             UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr',
+                                              Net.COIN),
                   height=1329528,
                   is_coinbase=False,
                   out_index=0,
@@ -56,7 +86,8 @@ ALL_UTXOS = [UTXO(address=Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmo
                                          b'\x12\x88\xac'),
                   tx_hash='7fb5e74c98957fdcd645b5e42ef959d4a20e8dd7b23a9d911159a0ed4f059bb8',
                   value=98768),
-             UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr'),
+             UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr',
+                                              Net.COIN),
                   height=1329529,
                   is_coinbase=False,
                   out_index=1,
@@ -128,6 +159,8 @@ class MockWallet(Standard_Wallet):
         self.config = {'confirmed_only': False}
         self.network = MockNetwork()
         self._history = HISTORY
+        self.lock = threading.RLock()
+        self.transaction_lock = threading.RLock()
 
     def get_receiving_addresses(self):
         return ADDRESSES
@@ -200,7 +233,8 @@ class TestUTXOCache(unittest.TestCase):
     def test_undo_remove_utxos(self):
         """Adds back utxos that have been unfrozen"""
         self.mockwallet_instance.get_utxos_cached(exclude_frozen=True)  # load cache
-        utxos_to_add_back = self.mockwallet_instance._datastore.utxos.get_frozen_utxos(FROZEN_COINS, ALL_UTXOS)
+        utxos_to_add_back = self.mockwallet_instance._datastore.utxos.get_frozen_utxos(FROZEN_COINS,
+                                                                                       ALL_UTXOS)
 
         # add back coins that were not spent or unfrozen due to failed broadcast
         self.mockwallet_instance._datastore.utxos.undo_remove_utxos(utxos_to_add_back)
