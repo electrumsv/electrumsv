@@ -9,7 +9,6 @@ It should be possible using these dates to quickly ascertain whether the indexed
 is out of date.
 
 """
-from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import namedtuple, deque
 from copy import deepcopy
@@ -37,7 +36,7 @@ from .transaction import Transaction
 
 __all__ = [
     "MissingRowError", "DataPackingError", "TransactionStore", "TransactionInputStore",
-    "TransactionOutputStore",
+    "TransactionOutputStore", "UTXOCache", "UTXO"
 ]
 
 def max_sql_variables():
@@ -822,8 +821,8 @@ class TransactionOutputStore(HexKeyMixin, EncryptedKeyMixin, GenericKeyValueStor
 
 class TxData(namedtuple("TxDataTuple", "height timestamp position fee")):
     def __repr__(self):
-        return (f"TxData(height={self.height},timestamp={self.timestamp},"+
-            f"position={self.position},fee={self.fee})")
+        return (f"TxData(height={self.height},timestamp={self.timestamp}," +
+                f"position={self.position},fee={self.fee})")
 
 # namedtuple defaults do not get added until 3.7, and are not available in 3.6, so we set them
 # indirectly to be compatible by both.
@@ -832,7 +831,6 @@ TxData.__new__.__defaults__ = (None, None, None, None)
 
 class TxProof(namedtuple("TxProofTuple", "position branch")):
     pass
-
 
 
 class TransactionStore(BaseWalletStore):
@@ -1328,8 +1326,12 @@ class TxCacheEntry:
         return self._transaction
 
     def __repr__(self):
-        return (f"TxCacheEntry({self.metadata}, {TxFlags.to_repr(self.flags)}, "
-            f"{byte_repr(self.bytedata)}, {self._is_bytedata_cached})")
+        return "TxCacheEntry(%r, %r, %r, %r)" % (self.metadata, TxFlags.to_repr(self.flags),
+                                                 byte_repr(self.bytedata), self._is_bytedata_cached)
+
+    def __str__(self):
+        return "TxCacheEntry(%r, %r, %r, %r)" % (self.metadata, TxFlags.to_repr(self.flags),
+                byte_repr(self.bytedata), self._is_bytedata_cached)
 
 
 class TxCache:
@@ -1889,63 +1891,30 @@ class UTXO:
         )
 
 
-class UTXOCache:
-    """A 'smarter' version of a deque with additional utility methods. Avoids needless
-    re-calculation utxo set (for every transaction).
+class UTXOCache(deque):
+    """Avoids needless re-calculation of utxo set (for every transaction).
 
     Freezing / unfreezing mechanics can be employed and if utxos are frozen + consumed
     from 'left side' of deque, this will still be (close to O(1)) fast but for optimal performance, utxos
-    can be removed / added back to the cache --> obviating the need for passing this filtering
-    parameter into the 'get_utxos_cached' function.
+    can be removed / added back to the cache in lieu of freezing / unfreezing.
     """
 
-    def __init__(self, utxos: List[UTXO] = []):
-        self.utxos = deque(utxos)
+    def __init__(self, utxos: List[UTXO] = (), maxlen=None):
+        deque.__init__(self, utxos, maxlen=maxlen)
+
         self._lock = threading.Lock()
-        self.logger = logs.get_logger(f"utxo-cache")
-
-    def __getattr__(self, attr):
-        if attr in dir(deque) and not attr.startswith('__'):
-            return getattr(self.utxos, attr)
-        else:
-            return attr
-
-    def __dir__(self):
-        attributes = []
-        attributes.extend([attrs for attrs in dir(deque) if not attrs.startswith('__')])
-        attributes.extend(self.__dict__.keys())
-        attributes.extend([attr for attr in self.__class__.__dict__.keys()
-                           if not attr.startswith('__')])
-        return attributes
-
-    def __repr__(self):
-        if self.utxos is None:
-            return "UTXOCache([])"
-        return f"UTXOCache({list(self.utxos)})"
+        self.logger = logs.get_logger("utxo-cache")
 
     def __eq__(self, other):
         if isinstance(other, list):
-            return list(self.utxos) == other
-        else:
-            return self.utxos == other
+            return all(
+                x == y
+                for x, y in zip(self, other)
+            )
+        return super().__eq__(other)
 
     def __ne__(self, other):
         return not self.__eq__(other)
-
-    def __len__(self):
-        return len(self.utxos)
-
-    def __iter__(self):
-        return self.utxos.__iter__()
-
-    def __getitem__(self):
-        return self.utxos.__getitem__()
-
-    def __setitem__(self):
-        return self.utxos.__setitem__()
-
-    def __delitem__(self):
-        return self.utxos.__delitem__()
 
     def extract_utxos_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> List[UTXO]:
         """Takes a StateCleared transaction and transforms the outputs to a list of UTXOs"""
@@ -1963,7 +1932,7 @@ class UTXOCache:
                             height=tx_cache_entry.metadata.height,
                             address=classify_output_script(output.script_pubkey, Net.COIN),
                             is_coinbase=tx_cache_entry.transaction.is_coinbase())
-            self.logger.debug(f"extracted utxo: {new_utxo}")
+            self.logger.debug("extracted utxo: %s", new_utxo)
             new_utxos.append(new_utxo)
 
         return new_utxos
@@ -1971,15 +1940,15 @@ class UTXOCache:
     def add_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> None:
         """This should only be called after tx reaches StateCleared
         and only for incoming payments. (Called by handle_incoming_payments)"""
-        assert(tx_cache_entry.flags | TxFlags.StateCleared), "Only StateCleared transactions " \
+        assert tx_cache_entry.flags & TxFlags.StateCleared, "Only StateCleared transactions " \
                                                              "should be added to utxo cache."
         # re-calculates tx object from bytedata but simplifies function signatures
         tx = tx_cache_entry.transaction
-        self.logger.debug(f"updating utxo cache for {tx.txid()}")
+        self.logger.debug("updating utxo cache for %s", tx.txid())
         with self._lock:
             # Add new utxos to cache
             new_utxos = self.extract_utxos_from_tx_entry(tx_cache_entry)
-            self.utxos.extend(new_utxos)
+            self.extend(new_utxos)
 
     def undo_add_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> None:
         """In the case of a chain reorg in which transaction regresses from
@@ -1990,36 +1959,40 @@ class UTXOCache:
     def remove_utxos_by_key(self, keys: Set[Tuple[str, int]]) -> None:
         with self._lock:
             for key in keys:
-                for utxo in self.utxos:
+                for utxo in self:
                     if key == utxo.key():
-                        self.utxos.remove(utxo)
+                        self.remove(utxo)
                         break
 
-    def remove_utxos(self, utxos_for_removal: Optional[List[UTXO], UTXOCache]) -> None:
+    def remove_utxos(self, utxos_for_removal) -> None:
         """Removes frozen utxos from cache"""
         with self._lock:
             matched_utxos = []
             for frozen in utxos_for_removal:
-                for index, utxo in enumerate(self.utxos):
+                for index, utxo in enumerate(self):
                     if frozen == utxo:
                         matched_utxos.append(utxo)
                         break
             for utxo in matched_utxos:
-                self.utxos.remove(utxo)
+                self.remove(utxo)
 
     def undo_remove_utxos(self, utxos_to_add_back) -> None:
         """Adds back utxos that have been unfrozen"""
         with self._lock:
-            # avoid duplicate additions
             if len(utxos_to_add_back) == 0 or utxos_to_add_back is None:
                 return
 
-            elif utxos_to_add_back not in self.utxos:
-                self.utxos.extendleft(utxos_to_add_back)
+            # avoid duplicate additions
+            elif utxos_to_add_back not in self:
+                # extendleft because the idea is to keep the deque ordered
+                # and pop used utxos from left, append new utxos to right side.
+                # to 'undo' this operation in case of failed broadcast,
+                # we must appendleft or extendleft
+                self.extendleft(utxos_to_add_back)
 
     @staticmethod
     def get_frozen_utxos(frozen_set: Set[Tuple[str, int]],
-                         utxo_cache: UTXOCache) -> Union[List[UTXO]]:
+                         utxo_cache) -> Union[List[UTXO]]:
 
         # Deepcopy is a bad (temporary) solution - needs a thread lock
         # but without this, it has errors under heavy load because
@@ -2037,20 +2010,20 @@ class UTXOCache:
             return frozen_utxos
 
     @staticmethod
-    def filter_frozen_utxos(frozen_utxos: List[UTXO], utxo_cache: UTXOCache) -> UTXOCache:
+    def filter_frozen_utxos(frozen_utxos: List[UTXO], utxo_cache):
         """Returns filtered utxo cache (without frozen utxos)"""
         if len(frozen_utxos) == 0:
             return utxo_cache
-        else:
-            utxos_for_removal = []
-            for frozen in frozen_utxos:
-                for utxo in utxo_cache:
-                    if frozen == utxo:
-                        utxos_for_removal.append(utxo)
-                        break
-            for utxo in utxos_for_removal:
-                utxo_cache.remove(utxo)
-            return utxo_cache
+
+        utxos_for_removal = []
+        for frozen in frozen_utxos:
+            for utxo in utxo_cache:
+                if frozen == utxo:
+                    utxos_for_removal.append(utxo)
+                    break
+        for utxo in utxos_for_removal:
+            utxo_cache.remove(utxo)
+        return utxo_cache
 
     def remove_frozen_utxos(self, frozen_utxos):
         """Removes frozen utxos from cache"""
@@ -2061,7 +2034,7 @@ class UTXOCache:
 
     def add_many(self, utxos: List[UTXO]):
         with self._lock:
-            self.utxos.extend(utxos)
+            self.extend(utxos)
 
 
 class WalletData:

@@ -273,9 +273,6 @@ class Abstract_Wallet:
         return (self._synchronized_event.is_set() and
                 not (self.network and self.missing_transactions()))
 
-    def load_utxo_cache(self):
-        self._datastore.utxos.get_spendable_coins_cached()
-
     @classmethod
     def to_Address_dict(cls, d):
         '''Convert a dict of strings to a dict of Adddress objects.'''
@@ -415,7 +412,8 @@ class Abstract_Wallet:
 
         output_addresses = []
         for output in tx.outputs:
-            output_addresses.append(classify_output_script(script=output.script_pubkey, coin=Net.COIN))
+            output_addresses.append(classify_output_script(script=output.script_pubkey,
+                                                           coin=Net.COIN))
 
         if output_addresses in self.receiving_addresses:
             # Add new StateCleared coins to utxo cache + remove redundant frozen coins
@@ -427,12 +425,12 @@ class Abstract_Wallet:
         keys = [(hash_to_hex_str(input.prev_hash), input.prev_idx) for
                 input in tx.inputs]
 
-        logger.debug(f'cleaning up redundant frozen coins where applicable for: {keys}')
-        logger.debug(f'frozen coins before: {self._frozen_coins}')
+        logger.debug('cleaning up redundant frozen coins where applicable for: %s' % keys)
+        logger.debug('frozen coins before: %r' % self._frozen_coins)
 
         for key in keys:
             self._frozen_coins.discard(key)
-            logger.debug(f'frozen coins after: {self._frozen_coins}')
+            logger.debug('frozen coins after: %r' % self._frozen_coins)
 
     def display_name(self) -> str:
         # TODO: ACCOUNTS: Allow user to change this.
@@ -525,13 +523,13 @@ class Abstract_Wallet:
 
         # Ensure we are not verifying transactions multiple times.
         if entry is None:
-            # We have a proof now so regardless what TxState is, we can 'upgrade' it to StateSettled.
+            # We have proof now so regardless what TxState is, we can 'upgrade' it to StateSettled.
             # This rests on the commitment that any of the following four tx States *will*
             # Have tx bytedata i.e. "HasByteData" flag is set.
             possible_states = (TxFlags.StateSigned | TxFlags.StateDispatched |
                                TxFlags.StateCleared | TxFlags.StateReceived)
             entry = self._datastore.tx.get_entry(tx_hash, flags=possible_states)
-            self.logger.debug(f"Fast_tracking entry to StateSettled: {entry}")
+            self.logger.debug("Fast_tracking entry to StateSettled: %r", entry)
 
         # We only update a subset.
         flags = TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition
@@ -540,9 +538,9 @@ class Abstract_Wallet:
 
         proof = TxProof(proof_position, proof_branch)
         self._datastore.tx.update_proof(tx_hash, proof)
-        self.logger.debug(f"final tx_entry after updating proof: \n"
-                          f"entry: {self._datastore.tx.get_entry(tx_hash)}\n"
-                          f"cached entry: {self._datastore.tx.get_cached_entry(tx_hash)}")
+        self.logger.debug("final tx_entry after updating proof: entry: %r cached entry: %r",
+                          self._datastore.tx.get_entry(tx_hash),
+                          self._datastore.tx.get_cached_entry(tx_hash))
 
         height, conf, timestamp = self.get_tx_height(tx_hash)
         self.logger.debug("add_verified_tx %d %d %d", height, conf, timestamp)
@@ -780,7 +778,8 @@ class Abstract_Wallet:
     def get_utxos_cached(self, exclude_frozen=False, mature=True,
                          confirmed_only=False) -> UTXOCache:
         """As an interim measure (until persisted in database), the cache should be loaded once per
-        session. Address level freezing mechanics are NOT supported (due to massive performance costs).
+        session. Address level freezing mechanics are NOT supported (due to massive performance
+        costs).
 
         1) Utxos are added from StateCleared transactions. (reorgs that regress this state should
         result in removal again - but this is expected to be rare.)
@@ -811,26 +810,25 @@ class Abstract_Wallet:
         utxos = self.get_utxos_cached(exclude_frozen=False, mature=True, confirmed_only=False)
 
         # Fast track + exclude_frozen
-        if exclude_frozen is True and mature is True and confirmed_only is False:
+        if exclude_frozen and mature and not confirmed_only:
             """if utxos are frozen + consumed from 'left side' of deque, this will still be fast"""
-            # Avoids mutating cache - instead we just transform it each time
+
             frozen_utxos = self._datastore.utxos.get_frozen_utxos(self._frozen_coins, utxos)
             return self._datastore.utxos.filter_frozen_utxos(frozen_utxos, utxos)
 
-        else:
-            # Fall back to full, slow filtering (but still faster than iterating over all addresses)
-            mempool_height = self.get_local_height() + 1
+        # Fall back to full, slow filtering (but still faster than iterating over all addresses)
+        mempool_height = self.get_local_height() + 1
 
-            def is_spendable_utxo(utxo):
-                if exclude_frozen and self.is_frozen_utxo(utxo):
-                    return False
-                if confirmed_only and utxo.height <= 0:
-                    return False
-                # A coin is spendable at height (utxo.height + COINBASE_MATURITY)
-                if mature and utxo.is_coinbase and mempool_height < utxo.height + COINBASE_MATURITY:
-                    return False
-                return True
-            return UTXOCache([utxo for utxo in utxos if is_spendable_utxo(utxo)])
+        def is_spendable_utxo(utxo):
+            if exclude_frozen and self.is_frozen_utxo(utxo):
+                return False
+            if confirmed_only and utxo.height <= 0:
+                return False
+            # A coin is spendable at height (utxo.height + COINBASE_MATURITY)
+            if mature and utxo.is_coinbase and mempool_height < utxo.height + COINBASE_MATURITY:
+                return False
+            return True
+        return UTXOCache([utxo for utxo in utxos if is_spendable_utxo(utxo)])
 
     def get_utxos(self, domain=None, exclude_frozen=False, mature=True,
                   confirmed_only=False) -> List[UTXO]:
@@ -1005,10 +1003,6 @@ class Abstract_Wallet:
                 self._datastore.txout.delete_entries(
                     [ (tx_hash, tx_xput) for tx_xput in removal_txouts ])
 
-    def get_address_history(self, address: Address):
-        assert isinstance(address, Address)
-        return self._history.get(address, [])
-
     async def set_address_history(self, script_hash: str, address: Address,
             hist: Dict[str, List[Tuple[str, int]]], tx_fees: Dict[str, int]):
         # We got here by scanning new / "observed addresses"
@@ -1034,39 +1028,35 @@ class Abstract_Wallet:
                     flags |= TxFlags.HasFee
                 updates.append((tx_hash, data, None, flags))
 
-            # If HasByteData --> StateCleared
-            # fast-tracks Signed, Dispatched, Received transactions
-            entry = self._datastore.tx.get_entry(tx_hash)
-            self._datastore.tx.update_or_add(updates)
-
-            if entry and (entry.flags & TxFlags.HasByteData) and not \
-                    (entry.flags & TxFlags.StateSettled) and not \
-                    (entry.flags & TxFlags.StateCleared):
-                self.logger.debug(f"set_address_history: fast-tracking via 'new address pathway'...\n"
-                                  f"adding transaction to TxCacheEntry: {entry}\n"
-                                  f"utxos: {self._datastore.utxos}\n"
-                                  f"frozen: {self._frozen_coins}")
-                self.add_transaction(tx_hash, entry.transaction, TxFlags.StateCleared)  # Add to TxCache
-                self.handle_incoming_payments(entry.transaction, tx_hash)  # Add to UTXOCache
-                self.handle_outgoing_payments(entry.transaction)  # Cleanup Frozen coins
-
-                self.logger.debug(f"after adding to TxCacheEntry: {self._datastore.tx.get_entry(tx_hash)}\n"
-                                  f"utxos: {self._datastore.utxos}\n"
-                                  f"frozen: {self._frozen_coins}")
+                entry = self._datastore.tx.get_entry(tx_hash)
+                self._datastore.tx.update_or_add(updates)
 
             for tx_id in set(t[0] for t in hist):
-                # if addr is new, we have to recompute txi and txo
-                if self._datastore.tx.have_transaction_data(tx_id) and \
-                        not len(self.get_txins(tx_id, address)) and \
-                        not len(self.get_txouts(tx_id, address)):
-                    tx = self.get_transaction(tx_id)
-                    self.apply_transactions_xputs(tx_id, tx)
+                if self._datastore.tx.have_transaction_data(tx_id):
+                    entry = self._datastore.tx.get_entry(tx_id)
+                    # if addr is new, we have to recompute txi and txo
+                if len(self.get_txins(tx_id, address)) and len(self.get_txouts(tx_id, address)):
+                    self.apply_transactions_xputs(tx_id, entry.transaction)
+
+                # if StateSigned | StateDispatched | StateReceived update --> StateCleared
+                if entry is not None and \
+                        entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
+                    self.logger.debug("updating incoming tx --> StateCleared. Before: %s ", entry)
+                    self.set_transaction_state(tx_id, TxFlags.StateCleared | TxFlags.HasByteData)
+                    self.logger.debug("After update: %s ",  self._datastore.tx.get_entry(tx_id))
+
+                    self.logger.debug("Before utxo and frozen coin cleanup: %s, frozen coins: %s",
+                                      self._datastore.utxos, self._frozen_coins)
+                    self.handle_incoming_payments(entry.transaction, tx_hash)  # Add to UTXOCache
+                    self.handle_outgoing_payments(entry.transaction)  # Cleanup Frozen coins
+                    self.logger.debug("After utxo and frozen coin cleanup: %s, frozen coins: %s ",
+                                      self._datastore.utxos, self._frozen_coins)
 
         self.txs_changed_event.set()
         # --> awakens network._monitor_txs loop
         # Any transactions that do not 'HasByteData' --> "missing_transactions" pool
         # to get ByteData and only then do they upgrade --> StateCleared
-        await self._trigger_synchronization()  # ? rename to 'maintain_addresses_gap'?)
+        await self._trigger_synchronization()
 
     def get_history(self, domain=None):
         # get domain

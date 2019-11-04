@@ -37,7 +37,7 @@ from typing import Iterable, Tuple, Optional
 import weakref
 import webbrowser
 
-from bitcoinx import PublicKey, Script, Address, P2PKH_Address, TxOutput, hash_to_hex_str
+from bitcoinx import PublicKey, Script, Address, P2PKH_Address, TxOutput
 from bitcoinx import OP_RETURN, OP_FALSE # pylint: disable=no-name-in-module
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QSize, QStringListModel, QTimer, QUrl)
@@ -1705,8 +1705,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                                       f'broadcast for: {result}')
                     self.logger.debug(f'setting transaction to StateDispatched...')
                     #                 f'and removing used utxos from cache...')
-                    wallet.set_transaction_state(tx.txid(), (TxFlags.StateDispatched | TxFlags.HasByteData))
-                    #used_utxo_keys = [(hash_to_hex_str(input.prev_hash), input.prev_idx) for input in tx.inputs]
+                    wallet.set_transaction_state(tx.txid(),
+                                                 (TxFlags.StateDispatched | TxFlags.HasByteData))
+                    #used_utxo_keys = [(hash_to_hex_str(input.prev_hash),
+                    # input.prev_idx) for input in tx.inputs]
                     #wallet._datastore.utxos.remove_utxos_by_key(used_utxo_keys)
                 return result
 
