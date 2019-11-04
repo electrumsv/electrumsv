@@ -1895,8 +1895,8 @@ class UTXOCache(deque):
     """Avoids needless re-calculation of utxo set (for every transaction).
 
     Freezing / unfreezing mechanics can be employed and if utxos are frozen + consumed
-    from 'left side' of deque, this will still be (close to O(1)) fast but for optimal performance, utxos
-    can be removed / added back to the cache in lieu of freezing / unfreezing.
+    from 'left side' of deque, this will still be (close to O(1)) fast but for optimal performance,
+    utxos can be removed / added back to the cache in lieu of freezing / unfreezing.
     """
 
     def __init__(self, utxos: List[UTXO] = (), maxlen=None):

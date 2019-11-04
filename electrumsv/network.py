@@ -43,8 +43,8 @@ from aiorpcx import (
 )
 from bitcoinx import (
     MissingHeader, IncorrectBits, InsufficientPoW, hex_str_to_hash, hash_to_hex_str,
-    sha256, double_sha256,
-    classify_output_script)
+    sha256, double_sha256
+)
 
 from .app_state import app_state
 from .bitcoin import scripthash_hex

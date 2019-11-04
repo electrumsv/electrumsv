@@ -811,8 +811,7 @@ class Abstract_Wallet:
 
         # Fast track + exclude_frozen
         if exclude_frozen and mature and not confirmed_only:
-            """if utxos are frozen + consumed from 'left side' of deque, this will still be fast"""
-
+            # if utxos are frozen + consumed from 'left side' of deque, this will still be fast
             frozen_utxos = self._datastore.utxos.get_frozen_utxos(self._frozen_coins, utxos)
             return self._datastore.utxos.filter_frozen_utxos(frozen_utxos, utxos)
 
