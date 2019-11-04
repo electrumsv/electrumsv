@@ -586,6 +586,8 @@ class AddressList(QTableView):
             else:
                 self._logger.error("_on_update_check action %s not applied", action)
 
+        self.resizeRowsToContents()
+
     def _on_addresses_created(self, addresses: Iterable[Address], is_change: bool=False) -> None:
         flags = EventFlags.ADDRESS_ADDED
         if is_change:
@@ -614,8 +616,6 @@ class AddressList(QTableView):
         receiving_addresses = self._wallet.get_receiving_addresses()[:]
         change_addresses = self._wallet.get_change_addresses()[:]
 
-        was_empty = len(self._data) == 0
-
         for address in addresses:
             # See if we already know if it is change or receiving.
             event_flags = state[address] & EventFlags.TYPE_MASK
@@ -633,11 +633,6 @@ class AddressList(QTableView):
                     is_change = False
                     n = receiving_addresses.index(address)
             self._base_model.add_line(self._create_address_entry(address, is_change, n=n))
-
-        # If the table was empty, it is possible that the rows have not been resized to contents
-        # yet, because there were no contents. So detect and apply the resize.
-        if was_empty:
-            self.resizeRowsToContents()
 
     def _update_addresses(self, addresses: List[Address], state: Dict[Address, EventFlags]) -> None:
         self._logger.debug("_update_addresses %d", len(addresses))
