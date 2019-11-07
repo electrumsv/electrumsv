@@ -534,6 +534,7 @@ class Abstract_Wallet:
         # We only update a subset.
         flags = TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition
         data = TxData(height=height, timestamp=timestamp, position=position)
+
         self._datastore.tx.update([ (tx_hash, data, None, flags | TxFlags.StateSettled) ])
 
         proof = TxProof(proof_position, proof_branch)
@@ -1027,29 +1028,30 @@ class Abstract_Wallet:
                     flags |= TxFlags.HasFee
                 updates.append((tx_hash, data, None, flags))
 
-                entry = self._datastore.tx.get_entry(tx_hash)
                 self._datastore.tx.update_or_add(updates)
 
             for tx_id in set(t[0] for t in hist):
-                if self._datastore.tx.have_transaction_data(tx_id):
+                has_tx_data = self._datastore.tx.have_transaction_data(tx_id)
+                if has_tx_data:
                     entry = self._datastore.tx.get_entry(tx_id)
-                    # if addr is new, we have to recompute txi and txo
-                if len(self.get_txins(tx_id, address)) and len(self.get_txouts(tx_id, address)):
-                    self.apply_transactions_xputs(tx_id, entry.transaction)
-
                 # if StateSigned | StateDispatched | StateReceived update --> StateCleared
-                if entry is not None and \
-                        entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
+                if has_tx_data and entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
                     self.logger.debug("updating incoming tx --> StateCleared. Before: %s ", entry)
                     self.set_transaction_state(tx_id, TxFlags.StateCleared | TxFlags.HasByteData)
-                    self.logger.debug("After update: %s ",  self._datastore.tx.get_entry(tx_id))
-
+                    self.logger.debug("After update: %s ", self._datastore.tx.get_entry(tx_id))
                     self.logger.debug("Before utxo and frozen coin cleanup: %s, frozen coins: %s",
                                       self._datastore.utxos, self._frozen_coins)
                     self.handle_incoming_payments(entry.transaction, tx_hash)  # Add to UTXOCache
                     self.handle_outgoing_payments(entry.transaction)  # Cleanup Frozen coins
                     self.logger.debug("After utxo and frozen coin cleanup: %s, frozen coins: %s ",
                                       self._datastore.utxos, self._frozen_coins)
+
+                    # else let it flow through to the "monitor_txs" loop and be dealt with
+                    # by the "missing_transactions pool"... (for txs without "HasByteData)
+
+                # if addr is new, we have to recompute txi and txo
+                if len(self.get_txins(tx_id, address)) and len(self.get_txouts(tx_id, address)):
+                    self.apply_transactions_xputs(tx_id, entry.transaction)
 
         self.txs_changed_event.set()
         # --> awakens network._monitor_txs loop

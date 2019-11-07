@@ -1130,7 +1130,8 @@ class Network:
                     logger.exception(e)
                     logger.error(f'fetching transaction {tx_hash}: {e}')
                 else:
-                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared)  # Add to TxCache
+                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared |
+                                           TxFlags.HasByteData)  # Add to TxCache
                     wallet.handle_incoming_payments(tx, tx_hash)  # Add to UTXOCache
                     wallet.handle_outgoing_payments(tx)  # Cleanup Frozen coins
 
