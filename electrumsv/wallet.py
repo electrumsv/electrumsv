@@ -409,28 +409,30 @@ class Abstract_Wallet:
 
     def handle_incoming_payments(self, tx, tx_hash):
         # Determine if this is an incoming payment and add new utxos to cache
+        with self.transaction_lock:
+            output_addresses = []
+            for output in tx.outputs:
+                output_addresses.append(classify_output_script(script=output.script_pubkey,
+                                                               coin=Net.COIN))
 
-        output_addresses = []
-        for output in tx.outputs:
-            output_addresses.append(classify_output_script(script=output.script_pubkey,
-                                                           coin=Net.COIN))
-
-        if output_addresses in self.receiving_addresses:
-            # Add new StateCleared coins to utxo cache + remove redundant frozen coins
-            tx_entry = self._datastore.tx.get_entry(tx_hash, mask=TxFlags.StateCleared)
-            self._datastore.utxos.add_from_tx_entry(tx_entry)
+            if output_addresses in self.receiving_addresses:
+                # Add new StateCleared coins to utxo cache + remove redundant frozen coins
+                tx_entry = self._datastore.tx.get_cached_entry(tx_hash, mask=TxFlags.StateCleared)
+                self._datastore.utxos.add_from_tx_entry(tx_hash, tx, tx_entry)
 
     def handle_outgoing_payments(self, tx):
         # If inputs are our own -> Cleanup frozen coins
-        keys = [(hash_to_hex_str(input.prev_hash), input.prev_idx) for
-                input in tx.inputs]
 
-        logger.debug('cleaning up redundant frozen coins where applicable for: %s' % keys)
-        logger.debug('frozen coins before: %r' % self._frozen_coins)
+        with self.transaction_lock:
+            keys = [(hash_to_hex_str(input.prev_hash), input.prev_idx) for
+                    input in tx.inputs]
 
-        for key in keys:
-            self._frozen_coins.discard(key)
-            logger.debug('frozen coins after: %r' % self._frozen_coins)
+            logger.debug('cleaning up redundant frozen coins where applicable for: %s' % keys)
+            logger.debug('frozen coins before: %r' % self._frozen_coins)
+
+            for key in keys:
+                self._frozen_coins.discard(key)
+                logger.debug('frozen coins after: %r' % self._frozen_coins)
 
     def display_name(self) -> str:
         # TODO: ACCOUNTS: Allow user to change this.
@@ -787,71 +789,73 @@ class Abstract_Wallet:
         2) The utxo cache should only empty when all wallet coins are spent.
         """
         # Fast Track
-        if exclude_frozen is False and mature is True and confirmed_only is False:
-            if len(self._datastore.utxos) != 0:
-                return self._datastore.utxos
-            else:
-                # Sorting requirements of dapps and 3rd parties could vary markedly e.g. for
-                # The GUI / SPV - it may be that we want --> Benford's law? Therefore I have
-                # ommitted (costly) sorting from this function.
-                #coins = sorted(
-                #    self.get_utxos(domain=None, exclude_frozen=False, mature=True,
-                #                   confirmed_only=False),
-                #    key=lambda k: (k.height, k.value),
-                #    reverse=True
-                #)
-                coins = self.get_utxos(domain=None, exclude_frozen=False, mature=True,
-                                       confirmed_only=False)
-                self._datastore.utxos.add_many(coins)
-                if len(self._datastore.utxos) == 0:
-                    raise NotEnoughFunds("Either all utxos are frozen or wallet is out of coins.")
+        with self.transaction_lock:
+            if exclude_frozen is False and mature is True and confirmed_only is False:
+                if len(self._datastore.utxos) != 0:
+                    return self._datastore.utxos
+                else:
+                    # Sorting requirements of dapps and 3rd parties could vary markedly e.g. for
+                    # The GUI / SPV - it may be that we want --> Benford's law? Therefore I have
+                    # ommitted (costly) sorting from this function.
+                    #coins = sorted(
+                    #    self.get_utxos(domain=None, exclude_frozen=False, mature=True,
+                    #                   confirmed_only=False),
+                    #    key=lambda k: (k.height, k.value),
+                    #    reverse=True
+                    #)
+                    coins = self.get_utxos(domain=None, exclude_frozen=False, mature=True,
+                                           confirmed_only=False)
+                    self._datastore.utxos.add_many(coins)
+                    if len(self._datastore.utxos) == 0:
+                        raise NotEnoughFunds("Either all utxos are frozen or wallet is out of coins.")
 
-                return self._datastore.utxos
+                    return self._datastore.utxos
 
-        utxos = self.get_utxos_cached(exclude_frozen=False, mature=True, confirmed_only=False)
+            utxos = self.get_utxos_cached(exclude_frozen=False, mature=True, confirmed_only=False)
 
-        # Fast track + exclude_frozen
-        if exclude_frozen and mature and not confirmed_only:
-            # if utxos are frozen + consumed from 'left side' of deque, this will still be fast
-            frozen_utxos = self._datastore.utxos.get_frozen_utxos(self._frozen_coins, utxos)
-            return self._datastore.utxos.filter_frozen_utxos(frozen_utxos, utxos)
+            # Fast track + exclude_frozen
+            if exclude_frozen and mature and not confirmed_only:
+                # if utxos are frozen + consumed from 'left side' of deque, this will still be fast
+                frozen_utxos = self._datastore.utxos.get_frozen_utxos(self._frozen_coins, utxos)
+                return self._datastore.utxos.filter_frozen_utxos(frozen_utxos, utxos)
 
-        # Fall back to full, slow filtering (but still faster than iterating over all addresses)
-        mempool_height = self.get_local_height() + 1
+            # Fall back to full, slow filtering (but still faster than iterating over all addresses)
+            mempool_height = self.get_local_height() + 1
 
-        def is_spendable_utxo(utxo):
-            if exclude_frozen and self.is_frozen_utxo(utxo):
-                return False
-            if confirmed_only and utxo.height <= 0:
-                return False
-            # A coin is spendable at height (utxo.height + COINBASE_MATURITY)
-            if mature and utxo.is_coinbase and mempool_height < utxo.height + COINBASE_MATURITY:
-                return False
-            return True
-        return UTXOCache([utxo for utxo in utxos if is_spendable_utxo(utxo)])
+            def is_spendable_utxo(utxo):
+                if exclude_frozen and self.is_frozen_utxo(utxo):
+                    return False
+                if confirmed_only and utxo.height <= 0:
+                    return False
+                # A coin is spendable at height (utxo.height + COINBASE_MATURITY)
+                if mature and utxo.is_coinbase and mempool_height < utxo.height + COINBASE_MATURITY:
+                    return False
+                return True
+            return UTXOCache([utxo for utxo in utxos if is_spendable_utxo(utxo)])
 
     def get_utxos(self, domain=None, exclude_frozen=False, mature=True,
                   confirmed_only=False) -> List[UTXO]:
         '''Note exclude_frozen=True checks for BOTH address-level and coin-level frozen status. '''
-        if domain is None:
-            domain = self.get_addresses()
-        if exclude_frozen:
-            domain = set(domain) - self._frozen_addresses
+        with self.transaction_lock:
+            if domain is None:
+                domain = self.get_addresses()
+            if exclude_frozen:
+                domain = set(domain) - self._frozen_addresses
 
-        mempool_height = self.get_local_height() + 1
+            mempool_height = self.get_local_height() + 1
 
-        def is_spendable_utxo(utxo):
-            if exclude_frozen and self.is_frozen_utxo(utxo):
-                return False
-            if confirmed_only and utxo.height <= 0:
-                return False
-            # A coin is spendable at height (utxo.height + COINBASE_MATURITY)
-            if mature and utxo.is_coinbase and mempool_height < utxo.height + COINBASE_MATURITY:
-                return False
-            return True
+            def is_spendable_utxo(utxo):
+                if exclude_frozen and self.is_frozen_utxo(utxo):
+                    return False
+                if confirmed_only and utxo.height <= 0:
+                    return False
+                # A coin is spendable at height (utxo.height + COINBASE_MATURITY)
+                if mature and utxo.is_coinbase and mempool_height < utxo.height + COINBASE_MATURITY:
+                    return False
+                return True
 
-        return [utxo for addr in domain for utxo in self._get_addr_utxos(addr)
-                if is_spendable_utxo(utxo)]
+            return [utxo for addr in domain for utxo in self._get_addr_utxos(addr)
+                    if is_spendable_utxo(utxo)]
 
     def dummy_address(self):
         return self.get_receiving_addresses()[0]
@@ -1271,7 +1275,8 @@ class Abstract_Wallet:
         return False
 
     def remove_frozen_coins(self, utxos: List[UTXO]) -> None:
-        self._frozen_coins.difference_update(utxo.key() for utxo in utxos)
+        with self.transaction_lock:
+            self._frozen_coins.difference_update(utxo.key() for utxo in utxos)
 
     def set_frozen_coin_state(self, utxos: List[UTXO], freeze: bool) -> None:
         '''Set frozen state of the COINS to FREEZE, True or False.  Note that coin-level freezing
@@ -1280,10 +1285,11 @@ class Abstract_Wallet:
 
         Also removes or adds back utxos from the self._datastore.utxos cache.
         '''
-        if freeze:
-            self._frozen_coins.update(utxo.key() for utxo in utxos)
-        else:
-            self._frozen_coins.difference_update(utxo.key() for utxo in utxos)
+        with self.transaction_lock:
+            if freeze:
+                self._frozen_coins.update(utxo.key() for utxo in utxos)
+            else:
+                self._frozen_coins.difference_update(utxo.key() for utxo in utxos)
 
     def start(self, network):
         self.network = network

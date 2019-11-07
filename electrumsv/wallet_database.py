@@ -24,7 +24,8 @@ from typing import Optional, Dict, Set, Iterable, List, Tuple, Union, Any, Calla
 import attr
 import bitcoinx
 from bitcoinx import (
-    classify_output_script, P2PKH_Address, P2SH_Address, P2PK_Output, hex_str_to_hash, Script
+    classify_output_script, P2PKH_Address, P2SH_Address, P2PK_Output, hex_str_to_hash, Script,
+    OP_RETURN_Output
 )
 from electrumsv.networks import Net
 
@@ -1916,39 +1917,37 @@ class UTXOCache(deque):
     def __ne__(self, other):
         return not self.__eq__(other)
 
-    def extract_utxos_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> List[UTXO]:
+    def extract_utxos_from_tx_entry(self, txid: str, tx: Transaction,
+                                    tx_cache_entry: TxCacheEntry) -> List[UTXO]:
         """Takes a StateCleared transaction and transforms the outputs to a list of UTXOs"""
         # TODO - think about thread lock requirements
         new_utxos = []
-        for index, output in enumerate(tx_cache_entry.transaction.outputs):
-
-            if output.script_pubkey.to_asm().find('OP_RETURN') != -1:
-                continue
-
-            new_utxo = UTXO(value=output.value,
-                            script_pubkey=output.script_pubkey,
-                            tx_hash=tx_cache_entry.transaction.txid(),
-                            out_index=index,
-                            height=tx_cache_entry.metadata.height,
-                            address=classify_output_script(output.script_pubkey, Net.COIN),
-                            is_coinbase=tx_cache_entry.transaction.is_coinbase())
-            self.logger.debug("extracted utxo: %s", new_utxo)
-            new_utxos.append(new_utxo)
+        for index, output in enumerate(tx.outputs):
+            is_data_carrier = isinstance(classify_output_script(output.script_pubkey, Net.COIN),
+                                         OP_RETURN_Output)
+            if not is_data_carrier:
+                new_utxo = UTXO(value=output.value,
+                                script_pubkey=output.script_pubkey,
+                                tx_hash=txid,
+                                out_index=index,
+                                height=tx_cache_entry.metadata.height,
+                                address=classify_output_script(output.script_pubkey, Net.COIN),
+                                is_coinbase=tx.is_coinbase())
+                self.logger.debug("extracted utxo: %s", new_utxo)
+                new_utxos.append(new_utxo)
 
         return new_utxos
 
-    def add_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> None:
+    def add_from_tx_entry(self, tx: Transaction, tx_cache_entry: TxCacheEntry) -> None:
         """This should only be called after tx reaches StateCleared
         and only for incoming payments. (Called by handle_incoming_payments)"""
         assert tx_cache_entry.flags & TxFlags.StateCleared, "Only StateCleared transactions " \
                                                              "should be added to utxo cache."
-        # re-calculates tx object from bytedata but simplifies function signatures
-        tx = tx_cache_entry.transaction
+
         self.logger.debug("updating utxo cache for %s", tx.txid())
-        with self._lock:
-            # Add new utxos to cache
-            new_utxos = self.extract_utxos_from_tx_entry(tx_cache_entry)
-            self.extend(new_utxos)
+        # Add new utxos to cache
+        new_utxos = self.extract_utxos_from_tx_entry(txid, tx, tx_cache_entry)
+        self.extend(new_utxos)
 
     def undo_add_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> None:
         """In the case of a chain reorg in which transaction regresses from
@@ -1957,47 +1956,38 @@ class UTXOCache(deque):
             raise NotImplementedError
 
     def remove_utxos_by_key(self, keys: Set[Tuple[str, int]]) -> None:
-        with self._lock:
-            for key in keys:
-                for utxo in self:
-                    if key == utxo.key():
-                        self.remove(utxo)
-                        break
+        for key in keys:
+            for utxo in self:
+                if key == utxo.key():
+                    self.remove(utxo)
+                    break
 
     def remove_utxos(self, utxos_for_removal) -> None:
         """Removes frozen utxos from cache"""
-        with self._lock:
-            matched_utxos = []
-            for frozen in utxos_for_removal:
-                for index, utxo in enumerate(self):
-                    if frozen == utxo:
-                        matched_utxos.append(utxo)
-                        break
-            for utxo in matched_utxos:
-                self.remove(utxo)
+        matched_utxos = []
+        for frozen in utxos_for_removal:
+            for index, utxo in enumerate(self):
+                if frozen == utxo:
+                    matched_utxos.append(utxo)
+                    break
+        for utxo in matched_utxos:
+            self.remove(utxo)
 
     def undo_remove_utxos(self, utxos_to_add_back) -> None:
         """Adds back utxos that have been unfrozen"""
-        with self._lock:
-            if len(utxos_to_add_back) == 0 or utxos_to_add_back is None:
-                return
+        if len(utxos_to_add_back) == 0 or utxos_to_add_back is None:
+            return
 
-            # avoid duplicate additions
-            elif utxos_to_add_back not in self:
-                # extendleft because the idea is to keep the deque ordered
-                # and pop used utxos from left, append new utxos to right side.
-                # to 'undo' this operation in case of failed broadcast,
-                # we must appendleft or extendleft
-                self.extendleft(utxos_to_add_back)
+        # avoid duplicate additions
+        elif utxos_to_add_back not in self:
+            # extendleft because the idea is to keep the deque ordered
+            # and pop used utxos from left, append new utxos to right side.
+            # to 'undo' this operation in case of failed broadcast,
+            # we must appendleft or extendleft
+            self.extendleft(utxos_to_add_back)
 
-    @staticmethod
-    def get_frozen_utxos(frozen_set: Set[Tuple[str, int]],
+    def get_frozen_utxos(self, frozen_set: Set[Tuple[str, int]],
                          utxo_cache) -> Union[List[UTXO]]:
-
-        # Deepcopy is a bad (temporary) solution - needs a thread lock
-        # but without this, it has errors under heavy load because
-        # "frozen set" is referencing an object constantly in flux...
-        frozen_set = deepcopy(frozen_set)
         if len(frozen_set) == 0:
             return []
         else:
