@@ -1477,7 +1477,7 @@ class TxCache:
             ]
             self._store.update_many(update_entries)
 
-        return set([ t[0] for t in actual_updates ]) | set(skipped_update_ids)
+        return set(actual_updates) | set(skipped_update_ids)
 
     def update_or_add(self, upadds: List[Tuple[str, TxData, Optional[bytes], int]]) -> None:
         # We do not require that all updates are applied, because the subset that do not
@@ -1486,6 +1486,7 @@ class TxCache:
             updated_ids = self._update(upadds, update_all=False)
             if len(updated_ids) != len(upadds):
                 self._add([ t for t in upadds if t[0] not in updated_ids ])
+            return updated_ids
 
     def update_flags(self, tx_id: str, flags: int, mask: Optional[int]=None) -> None:
         # This is an odd function. It logical ors metadata flags, but replaces the other

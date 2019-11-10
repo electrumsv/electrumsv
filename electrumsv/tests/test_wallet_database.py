@@ -1004,7 +1004,7 @@ class TestTxCache:
 
         # Update.
         metadata_2 = TxData(position=22)
-        cache.update_or_add([
+        updated_ids = cache.update_or_add([
             (tx_id_1, metadata_2, None, TxFlags.HasPosition | TxFlags.StateDispatched) ])
         entry = cache.get_entry(tx_id_1)
         store_flags = self.store.get_flags(tx_id_1)
@@ -1016,6 +1016,7 @@ class TestTxCache:
             f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(entry.flags)}"
         assert bytedata_1 == entry.bytedata
         assert metadata_2.position == entry.metadata.position
+        assert updated_ids == set([ tx_id_1 ])
 
     def test_update_flags(self):
         cache = TxCache(self.store)
