@@ -382,7 +382,7 @@ class Test_keyImport(SequentialTestCase):
 
     def test_address_to_scripthash(self):
         for priv_details in self.priv_pub_addr:
-            sh = scripthash_hex(address_from_string(priv_details['address']))
+            sh = scripthash_hex(address_from_string(priv_details['address']).to_script())
             self.assertEqual(priv_details['scripthash'], sh)
 
     def test_is_minikey(self):

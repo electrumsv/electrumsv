@@ -184,9 +184,9 @@ class TrezorClientSV:
         """Returns '1' for Trezor One, 'T' for Trezor T."""
         return self.features.model
 
-    def show_address(self, address_str, script_type, multisig=None):
+    def show_address(self, derivation_text: str, script_type, multisig=None):
         coin_name = self.plugin.get_coin_name()
-        address_n = bip32_decompose_chain_string(address_str)
+        address_n = bip32_decompose_chain_string(derivation_text)
         with self.run_flow():
             return trezorlib.btc.get_address(
                 self.client,

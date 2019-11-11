@@ -26,7 +26,7 @@ import base64
 import os
 import hashlib
 import hmac
-from typing import Union
+from typing import Optional, Union
 
 import pyaes
 
@@ -119,7 +119,7 @@ def pw_encode(data: str, password: Union[bytes, str]) -> str:
     return EncodeAES_base64(secret, to_bytes(data, "utf8")).decode('utf8')
 
 
-def pw_decode(data: str, password: Union[bytes, str]) -> str:
+def pw_decode(data: str, password: Optional[Union[bytes, str]]) -> str:
     if password is None:
         return data
     secret = sha256d(password)

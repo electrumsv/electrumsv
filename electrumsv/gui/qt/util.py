@@ -1,12 +1,12 @@
 import os.path
 from functools import partial, lru_cache
-from typing import Optional, Any
+from typing import Any, Optional, TYPE_CHECKING
 
 from PyQt5.QtCore import Qt, QCoreApplication, QLocale, QTimer, QModelIndex
 from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
 from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
-    QRadioButton, QFileDialog, QStyledItemDelegate, QTreeWidget, QButtonGroup, QComboBox,
+    QRadioButton, QFileDialog, QStyledItemDelegate, QTreeWidget, QButtonGroup,
     QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem,
 )
 from PyQt5.uic import loadUi
@@ -16,6 +16,8 @@ from electrumsv.i18n import _, languages
 from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
 from electrumsv.util import resource_path
 
+if TYPE_CHECKING:
+    from .main_window import ElectrumWindow
 
 dialogs = []
 
@@ -319,16 +321,6 @@ class ChoicesLayout(object):
     def selected_index(self):
         return self.group.checkedId()
 
-def address_combo(addresses):
-    addr_combo = QComboBox()
-    addr_combo.addItems(addr.to_string() for addr in addresses)
-    addr_combo.setCurrentIndex(0)
-
-    hbox = QHBoxLayout()
-    hbox.addWidget(QLabel(_('Address to sweep to:')))
-    hbox.addWidget(addr_combo)
-    return hbox, addr_combo
-
 
 def filename_field(config, defaultname, select_msg):
     vbox = QVBoxLayout()
@@ -382,11 +374,11 @@ class ElectrumItemDelegate(QStyledItemDelegate):
 
 class MyTreeWidget(QTreeWidget):
 
-    def __init__(self, parent, create_menu, headers, stretch_column=None,
-                 editable_columns=None):
+    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow', create_menu, headers,
+            stretch_column=None, editable_columns=None):
         QTreeWidget.__init__(self, parent)
-        self.parent = parent
-        self.config = self.parent.config
+        self._main_window = main_window
+        self.config = self._main_window.config
         self.stretch_column = stretch_column
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(create_menu)
@@ -477,11 +469,13 @@ class MyTreeWidget(QTreeWidget):
 
     def on_edited(self, item, column, prior):
         '''Called only when the text actually changes'''
-        wallet_id, key = item.data(0, Qt.UserRole)
-        text = item.text(column)
-        wallet = self.parent.parent_wallet.get_wallet_for_account(wallet_id)
-        wallet.set_label(key, text)
-        self.parent.history_view.update_tx_labels()
+        text = item.text(column).strip()
+        if text == "":
+            text = None
+        account_id, tx_hash = item.data(0, Qt.UserRole)
+        account = self._main_window._wallet.get_account(account_id)
+        account.set_transaction_label(tx_hash, text)
+        self._main_window.history_view.update_tx_labels()
 
     def update(self):
         # Defer updates if editing
@@ -662,18 +656,20 @@ def protected(func):
     An empty input is passed as the empty string.'''
     def request_password(self, *args, **kwargs):
         main_window = self
-        if 'wallet_id' in kwargs:
+        if 'main_window' in kwargs:
+            main_window = kwargs['main_window']
+        elif 'wallet_id' in kwargs:
             main_window = app_state.app.get_wallet_window_by_id(kwargs['wallet_id'])
 
         parent = main_window.top_level_window()
         password: Optional[str] = None
-        while main_window.parent_wallet.has_password():
+        while True:
             password = main_window.password_dialog(parent=parent)
             if password is None:
                 # User cancelled password input
                 return
             try:
-                main_window.parent_wallet.check_password(password)
+                main_window._wallet.check_password(password)
                 break
             except Exception as e:
                 main_window.show_error(str(e), parent=parent)

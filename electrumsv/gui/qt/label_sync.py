@@ -26,12 +26,13 @@ import base64
 from functools import partial
 import json
 import hashlib
+import os
 import requests
 import threading
-from typing import Any
+from typing import Any, Optional
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QMessageBox, QPushButton
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QMessageBox, QPushButton, QFileDialog
 
 from electrumsv.app_state import app_state
 from electrumsv.crypto import aes_decrypt_with_iv, aes_encrypt_with_iv
@@ -39,7 +40,7 @@ from electrumsv.exceptions import UserCancelled
 from electrumsv.extensions import label_sync
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.wallet import Abstract_Wallet
+from electrumsv.wallet import AbstractAccount
 
 from electrumsv.gui.qt.util import Buttons, EnterButton, WindowModalDialog, OkButton
 
@@ -47,54 +48,88 @@ from electrumsv.gui.qt.util import Buttons, EnterButton, WindowModalDialog, OkBu
 logger = logs.get_logger("labels")
 
 
-class LabelSync(object):
+# Label sync only currently works for addresses and transactions. It needs several pieces of
+# work before it can be re-enabled:
+# - Labels are now only tracked for keys and transactions that exist. This means that if someone
+#   does a sync, unlike before where there was a dictionary that was not required to map to
+#   existing entries, any entries that are for unknown entries will be lost without special
+#   handling.
+# - Addresses cannot be mapped to keys, unless we enumerate all existing keys. Any labels for
+#   addresses we cannot find through enumeration, will similarly be lost without special handling.
+#   If we modify this to take labels from keys, the code should perhaps instead map the label
+#   to the masterkey fingerprint combined with the derivation path. However, this still leaves
+#   room for the presence of unsynced keys.
+# - There is no per-account storage for "wallet_nonce" to be get/set from/to.
+DISABLE_INTEGRATION = True
 
+class LabelSync(object):
     def __init__(self):
         self.target_host = 'labels.electrum.org'
-        self.wallets = {}
+        self._accounts = {}
         app_state.app.window_opened_signal.connect(self.window_opened)
         app_state.app.window_closed_signal.connect(self.window_closed)
 
-    def encode(self, wallet, msg):
-        password, iv, wallet_id = self.wallets[wallet]
+    def encode(self, account: AbstractAccount, msg):
+        password, iv, account_id = self._accounts[account]
         encrypted = aes_encrypt_with_iv(password, iv, msg.encode('utf8'))
         return base64.b64encode(encrypted).decode()
 
-    def decode(self, wallet, message):
-        password, iv, wallet_id = self.wallets[wallet]
+    def decode(self, account: AbstractAccount, message):
+        password, iv, wallet_id = self._accounts[account]
         decoded = base64.b64decode(message)
         decrypted = aes_decrypt_with_iv(password, iv, decoded)
         return decrypted.decode('utf8')
 
-    def get_nonce(self, wallet):
+    def get_nonce(self, account : AbstractAccount) -> int:
         # nonce is the nonce to be used with the next change
-        nonce = wallet.get('wallet_nonce', None)
+        if DISABLE_INTEGRATION:
+            return 1
+        # TODO BACKLOG there is no working account get/set
+        nonce = account.get('wallet_nonce', None)
         if nonce is None:
             nonce = 1
-            self.set_nonce(wallet, nonce)
+            self.set_nonce(account, nonce)
         return nonce
 
-    def set_nonce(self, wallet, nonce):
-        logger.debug("set {} nonce to {}".format(wallet.name(), nonce))
-        wallet.put("wallet_nonce", nonce)
+    def set_nonce(self, account: AbstractAccount, nonce: int) -> None:
+        logger.debug("set {} nonce to {}".format(account.name(), nonce))
+        # TODO BACKLOG there is no working account get/set
+        account.put("wallet_nonce", nonce)
 
-    def set_label(self, wallet, item, label):
-        if wallet not in self.wallets:
+    def set_transaction_label(self, account: AbstractAccount, tx_hash: bytes, text: str) -> None:
+        if DISABLE_INTEGRATION:
+            return
+        label_key = tx_hash
+        assert label_key != tx_hash, "Label sync transaction support not implemented"
+        # label_key = "tx:"+ hash_to_hex_str(tx_hash)
+        self._set_label(account, label_key, text)
+
+    def set_keyinstance_label(self, account: AbstractAccount, key_id: int, text: str) -> None:
+        if DISABLE_INTEGRATION:
+            return
+        # TODO(rt12) BACKLOG if this is going to be made to work, it needs to fetch the
+        # fingerprint and derivation data, or something equivalent.
+        label_key = key_id # "key:"+ key_id
+        assert label_key != key_id, "Label sync key instance support not implemented"
+        self._set_label(account, label_key, text)
+
+    def _set_label(self, account: AbstractAccount, item, label) -> None:
+        if account not in self._accounts:
             return
         if not item:
             return
-        nonce = self.get_nonce(wallet)
-        wallet_id = self.wallets[wallet][2]
+        nonce = self.get_nonce(account)
+        wallet_id = self._accounts[account][2]
         bundle = {"walletId": wallet_id,
-                  "walletNonce": nonce,
-                  "externalId": self.encode(wallet, item),
-                  "encryptedLabel": self.encode(wallet, label)}
+                "walletNonce": nonce,
+                "externalId": self.encode(account, item),
+                "encryptedLabel": self.encode(account, label)}
         t = threading.Thread(target=self.do_request_safe,
-                             args=["POST", "/label", False, bundle])
+                            args=["POST", "/label", False, bundle])
         t.setDaemon(True)
         t.start()
         # Caller will write the wallet
-        self.set_nonce(wallet, nonce + 1)
+        self.set_nonce(account, nonce + 1)
 
     def do_request(self, method, url = "/labels", is_batch=False, data=None):
         url = 'https://' + self.target_host + url
@@ -118,31 +153,36 @@ class LabelSync(object):
         except Exception:
             logger.exception('requesting labels')
 
-    def push_thread(self, wallet):
-        wallet_data = self.wallets.get(wallet, None)
-        if not wallet_data:
-            raise Exception('Wallet {} not loaded'.format(wallet))
-        wallet_id = wallet_data[2]
+    def push_thread(self, account) -> None:
+        assert not DISABLE_INTEGRATION
+
+        account_data = self._accounts.get(account, None)
+        if not account_data:
+            raise Exception('Account {} not loaded'.format(account))
+        wallet_id = account_data[2]
         bundle = {"labels": [],
-                  "walletId": wallet_id,
-                  "walletNonce": self.get_nonce(wallet)}
-        for key, value in wallet.labels.items():
+                "walletId": wallet_id,
+                "walletNonce": self.get_nonce(account)}
+        # TODO(rt12) BACKLOG there is no account.labels any more. IT needs to iterate over
+        # transaction and keyinstance labels.
+        for key, value in account.labels.items():
             try:
-                encoded_key = self.encode(wallet, key)
-                encoded_value = self.encode(wallet, value)
-            except:
+                encoded_key = self.encode(account, key)
+                encoded_value = self.encode(account, value)
+            except Exception:
                 logger.error('cannot encode %r %r', key, value)
                 continue
             bundle["labels"].append({'encryptedLabel': encoded_value,
-                                     'externalId': encoded_key})
+                                    'externalId': encoded_key})
         self.do_request("POST", "/labels", True, bundle)
 
-    def pull_thread(self, wallet, force):
-        wallet_data = self.wallets.get(wallet, None)
-        if not wallet_data:
-            raise Exception('Wallet {} not loaded'.format(wallet))
-        wallet_id = wallet_data[2]
-        nonce = 1 if force else self.get_nonce(wallet) - 1
+    def pull_thread(self, account: AbstractAccount, force: bool) -> Optional[Any]:
+        account_data = self._accounts.get(account, None)
+        if not account_data:
+            raise Exception('Account {} not loaded'.format(account))
+
+        wallet_id = account_data[2]
+        nonce = 1 if force else self.get_nonce(account) - 1
         logger.debug(f"asking for labels since nonce {nonce}")
         response = self.do_request("GET", ("/labels/since/%d/for/%s" % (nonce, wallet_id) ))
         if response["labels"] is None:
@@ -151,57 +191,69 @@ class LabelSync(object):
         result = {}
         for label in response["labels"]:
             try:
-                key = self.decode(wallet, label["externalId"])
-                value = self.decode(wallet, label["encryptedLabel"])
-            except:
+                key = self.decode(account, label["externalId"])
+                value = self.decode(account, label["encryptedLabel"])
+            except Exception:
                 continue
             try:
                 json.dumps(key)
                 json.dumps(value)
-            except:
+            except Exception:
                 logger.error(f'no json {key}')
                 continue
             result[key] = value
 
+        logger.info(f"received {len(result):,d} labels")
+
         updates = {}
         for key, value in result.items():
-            if force or not wallet.labels.get(key):
+            # TODO(rt12) BACKLOG there is no account.labels any more.
+            if force or not account.labels.get(key):
                 updates[key] = value
+
+        if DISABLE_INTEGRATION:
+            return updates
+
         if len(updates):
-            wallet.labels.update(updates)
+            # TODO(rt12) BACKLOG there is no account.put or account storage at this time, or
+            # even `account.labels`.
+            account.labels.update(updates)
+            # do not write to disk because we're in a daemon thread. The handed off writing to
+            # the sqlite writer thread would achieve this.
+            account.put('labels', account.labels)
+        self.set_nonce(account, response["nonce"] + 1)
+        self.on_pulled(account, updates)
 
-        logger.info(f"received {len(response):,d} labels")
-        # do not write to disk because we're in a daemon thread
-        wallet.put('labels', wallet.labels)
-        self.set_nonce(wallet, response["nonce"] + 1)
-        self.on_pulled(wallet, updates)
-
-    def pull_thread_safe(self, wallet, force):
+    def pull_thread_safe(self, account: AbstractAccount, force: bool) -> None:
         try:
-            self.pull_thread(wallet, force)
+            self.pull_thread(account, force)
         except Exception as e:
             logger.exception('could not retrieve labels')
 
-    def start_wallet(self, wallet):
-        nonce = self.get_nonce(wallet)
-        logger.debug("wallet %s nonce is %s", wallet.name(), nonce)
-        mpk = wallet.get_fingerprint()
+    def start_account(self, account: AbstractAccount) -> None:
+        nonce = self.get_nonce(account)
+        logger.debug("Account %s nonce is %s", account.name(), nonce)
+        mpk = ''.join(sorted(account.get_master_public_keys()))
         if not mpk:
             return
         mpk = mpk.encode('ascii')
         password = hashlib.sha1(mpk).hexdigest()[:32].encode('ascii')
         iv = hashlib.sha256(password).digest()[:16]
         wallet_id = hashlib.sha256(mpk).hexdigest()
-        self.wallets[wallet] = (password, iv, wallet_id)
+        self._accounts[account] = (password, iv, wallet_id)
+
+        if DISABLE_INTEGRATION:
+            return
+
         # If there is an auth token we can try to actually start syncing
-        t = threading.Thread(target=self.pull_thread_safe, args=(wallet, False))
+        t = threading.Thread(target=self.pull_thread_safe, args=(account, False))
         t.setDaemon(True)
         t.start()
 
-    def stop_wallet(self, wallet):
-        self.wallets.pop(wallet, None)
+    def stop_account(self, account: AbstractAccount) -> None:
+        self._accounts.pop(account, None)
 
-    def on_enabled_changed(self):
+    def on_enabled_changed(self) -> None:
         if label_sync.is_enabled():
             for window in app_state.app.windows:
                 self.window_opened(window)
@@ -212,12 +264,12 @@ class LabelSync(object):
     def window_opened(self, window):
         if label_sync.is_enabled():
             app_state.app.labels_changed_signal.connect(window.update_tabs)
-            for wallet in window.parent_wallet.get_child_wallets():
-                self.start_wallet(wallet)
+            for account in window._wallet.get_accounts():
+                self.start_account(account)
 
     def window_closed(self, window):
-        for wallet in window.parent_wallet.get_child_wallets():
-            self.stop_wallet(wallet)
+        for account in window._wallet.get_accounts():
+            self.stop_account(account)
 
     def settings_widget(self, *args):
         return EnterButton(_('Settings'), partial(self.settings_dialog, *args))
@@ -229,14 +281,15 @@ class LabelSync(object):
         button.clicked.connect(on_clicked)
         return button
 
-    def settings_dialog(self, prefs_window, wallet):
+    def settings_dialog(self, prefs_window, account: AbstractAccount):
         d = WindowModalDialog(prefs_window, _("Label Settings"))
         hbox = QHBoxLayout()
         hbox.addWidget(QLabel("Label sync options:"))
-        upload = self.threaded_button("Force upload", d, self.push_thread, wallet)
-        download = self.threaded_button("Force download", d, self.pull_thread, wallet, True)
         vbox = QVBoxLayout()
-        vbox.addWidget(upload)
+        if not DISABLE_INTEGRATION:
+            upload = self.threaded_button("Force upload", d, self.push_thread, account)
+            vbox.addWidget(upload)
+        download = self.threaded_button("Force download", d, self.pull_thread, account, True)
         vbox.addWidget(download)
         hbox.addLayout(vbox)
         vbox = QVBoxLayout(d)
@@ -245,8 +298,9 @@ class LabelSync(object):
         vbox.addLayout(Buttons(OkButton(d)))
         return bool(d.exec_())
 
-    def on_pulled(self, wallet: Abstract_Wallet, updates: Any) -> None:
-        app_state.app.labels_changed_signal.emit(wallet, updates)
+    def on_pulled(self, account: AbstractAccount, updates: Any) -> None:
+        app_state.app.labels_changed_signal.emit(account._wallet.get_storage_path(),
+            account.get_id(), updates)
 
     def on_exception(self, dialog, exception):
         if not isinstance(exception, UserCancelled):
@@ -255,15 +309,30 @@ class LabelSync(object):
             d.setWindowModality(Qt.WindowModal)
             d.exec_()
 
-    def run_in_thread(self, dialog, button, func, *args):
+    def run_in_thread(self, dialog, button, func, *args) -> Any:
         def on_done(future):
             button.setEnabled(True)
             try:
-                future.result()
+                data = future.result()
             except Exception as exc:
                 self.on_exception(dialog, exc)
             else:
-                dialog.show_message(_("Your labels have been synchronised."))
+                if DISABLE_INTEGRATION:
+                    if data is None:
+                        dialog.show_message(_("No labels were present."))
+                    else:
+                        filename = 'electrumsv_labelsync_labels.json'
+                        directory = os.path.expanduser('~')
+                        path = os.path.join(directory, filename)
+                        filename, __ = QFileDialog.getSaveFileName(dialog,
+                            _('Enter a filename for the copy of your labels'), path, "*.json")
+                        if not filename:
+                            return
+                        json_text = json.dumps(data)
+                        with open(filename) as f:
+                            f.write(json_text)
+                else:
+                    dialog.show_message(_("Your labels have been synchronised."))
 
         button.setEnabled(False)
         app_state.app.run_in_thread(func, *args, on_done=on_done)

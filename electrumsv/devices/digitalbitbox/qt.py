@@ -1,9 +1,7 @@
 from typing import cast
 
-from bitcoinx import Address
-
 from electrumsv.keystore import Hardware_KeyStore
-from electrumsv.wallet import Abstract_Wallet
+from electrumsv.wallet import AbstractAccount
 
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase, HandlerWindow
 from .digitalbitbox import DigitalBitboxPlugin
@@ -16,13 +14,15 @@ class Plugin(DigitalBitboxPlugin, QtPluginBase):
     def create_handler(self, window: HandlerWindow) -> QtHandlerBase:
         return DigitalBitbox_Handler(window)
 
-    def show_address(self, wallet: Abstract_Wallet, address: Address) -> None:
+    def show_key(self, account: AbstractAccount, keyinstance_id: int) -> None:
         if not self.is_mobile_paired():
             return
 
-        keystore = cast(Hardware_KeyStore, wallet.get_keystore())
-        change, index = wallet.get_address_index(address)
-        keypath = '%s/%d/%d' % (keystore.derivation, change, index)
+        keystore = cast(Hardware_KeyStore, account.get_keystore())
+        derivation_path = account.get_derivation_path(keyinstance_id)
+        assert derivation_path is not None
+        subpath = '/'.join(str(x) for x in derivation_path)
+        keypath = f"{keystore.derivation}/{subpath}"
         xpub = self.get_client(keystore)._get_xpub(keypath)
         verify_request_payload = {
             "type": 'p2pkh',

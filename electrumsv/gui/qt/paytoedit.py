@@ -23,21 +23,23 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import re
 import time
 from decimal import Decimal
+from typing import List
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFontMetrics, QTextCursor
 from PyQt5.QtWidgets import QCompleter, QPlainTextEdit
-from bitcoinx import cashaddr, Script, TxOutput
+from bitcoinx import cashaddr, Script
 
 from .qrtextedit import ScanQRTextEdit
 
-from electrumsv.bitcoin import address_from_string
+from electrumsv.bitcoin import string_to_script_template
 from electrumsv.i18n import _
+from electrumsv.transaction import XTxOutput
 from electrumsv.web import is_URI
 
+from .main_window import ElectrumWindow
 from . import util
 
 RE_ALIAS = '^(.*?)\s*\<([0-9A-Za-z:]{26,})\>$'
@@ -49,20 +51,20 @@ class PayToEdit(ScanQRTextEdit):
     ''' timestamp indicating when the user was last warned about using cash addresses. '''
     last_cashaddr_warning = None
 
-    def __init__(self, win):
+    def __init__(self, main_window: ElectrumWindow) -> None:
         ScanQRTextEdit.__init__(self)
-        self.win = win
-        self.amount_edit = win.amount_e
+        self._main_window = main_window
+        self.amount_edit = main_window.amount_e
         self.document().contentsChanged.connect(self.update_size)
         self.heightMin = 0
         self.heightMax = 150
         self.c = None
         self.textChanged.connect(self._on_text_changed)
-        self.outputs = []
+        self.outputs: List[XTxOutput] = []
         self.errors = []
         self.is_pr = False
         self.is_alias = False
-        self.scan_f = win.pay_to_URI
+        self.scan_f = main_window.pay_to_URI
         self.update_size()
         self.payto_address = None
 
@@ -85,11 +87,10 @@ class PayToEdit(ScanQRTextEdit):
         cash addresses are not in the future for BSV. Anyone who uses one should be warned that
         they are being phased out, in order to encourage them to pre-emptively move on.
         '''
-        address_text = self._parse_address_text(address_text)
         # We only care if it is decoded, as this will be a cash address.
         try:
             cashaddr.decode(address_text)
-        except:
+        except Exception:
             return
 
         last_check_time = PayToEdit.last_cashaddr_warning
@@ -112,34 +113,24 @@ class PayToEdit(ScanQRTextEdit):
                 )
             util.MessageBox.show_warning(message, title=_("Cash address warning"))
 
-    def _parse_tx_output(self, line):
+    def _parse_tx_output(self, line: str) -> XTxOutput:
         x, y = line.split(',')
         script = self._parse_output(x)
         if not isinstance(script, Script):  # An Address object
             script = script.to_script()
         amount = self._parse_amount(y)
-        return TxOutput(amount, script)
+        return XTxOutput(amount, script)
 
     def _parse_output(self, x):
         try:
             address = self._parse_address(x)
             self._show_cashaddr_warning(x)
             return address
-        except:
+        except Exception:
             return Script.from_asm(x)
 
-    def _parse_address_text(self, line):
-        '''
-        This checks to see if the address is in the form of a contact, with name and address,
-        and if so, extracts the address. Otherwise the line is assumed to be the address.
-        '''
-        r = line.strip()
-        m = re.match(RE_ALIAS, r)
-        return m.group(2) if m else r
-
-    def _parse_address(self, line):
-        address = self._parse_address_text(line)
-        return address_from_string(address)
+    def _parse_address(self, text: str):
+        return string_to_script_template(text)
 
     def _parse_amount(self, x):
         if x.strip() == '!':
@@ -163,17 +154,17 @@ class PayToEdit(ScanQRTextEdit):
                 return
             try:
                 self.payto_address = self._parse_output(data)
-            except:
+            except Exception:
                 pass
             if self.payto_address:
-                self.win.lock_amount(False)
+                self._main_window.lock_amount(False)
                 return
 
         is_max = False
         for i, line in enumerate(lines):
             try:
                 tx_output = self._parse_tx_output(line)
-            except:
+            except Exception:
                 self.errors.append((i, line.strip()))
                 continue
 
@@ -183,15 +174,15 @@ class PayToEdit(ScanQRTextEdit):
             else:
                 total += tx_output.value
 
-        self.win.is_max = is_max
+        self._main_window.is_max = is_max
         self.outputs = outputs
         self.payto_address = None
 
-        if self.win.is_max:
-            self.win.do_update_fee()
+        if self._main_window.is_max:
+            self._main_window.do_update_fee()
         else:
             self.amount_edit.setAmount(total if outputs else None)
-            self.win.lock_amount(total or len(lines)>1)
+            self._main_window.lock_amount(total or len(lines)>1)
 
     def get_errors(self):
         return self.errors
@@ -207,7 +198,7 @@ class PayToEdit(ScanQRTextEdit):
                 amount = self.amount_edit.get_amount()
 
             addr = self.payto_address
-            self.outputs = [TxOutput(amount, addr.to_script())]
+            self.outputs = [XTxOutput(amount, addr.to_script())]
 
         return self.outputs[:]
 

@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import cast, Sequence, Union
 
 from bitcoinx import (
     bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string, Address,
@@ -11,7 +12,8 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output
+from electrumsv.transaction import classify_tx_output, XTxOutput, Transaction
+from electrumsv.wallet import MultisigAccount, StandardAccount
 
 from ..hw_wallet import HW_PluginBase
 from ..hw_wallet.plugin import LibraryFoundButUnusable
@@ -44,6 +46,8 @@ except Exception as e:
 TIM_NEW, TIM_RECOVER = range(2)
 
 TREZOR_PRODUCT_KEY = 'Trezor'
+
+ValidWalletTypes = Union[StandardAccount, MultisigAccount]
 
 
 class TrezorKeyStore(Hardware_KeyStore):
@@ -259,36 +263,39 @@ class TrezorPlugin(HW_PluginBase):
         else:
             return InputScriptType.SPENDADDRESS
 
-    def sign_transaction(self, keystore, tx, xpub_path):
+    def sign_transaction(self, keystore: TrezorKeyStore, tx, xpub_path):
         client = self.get_client(keystore)
         inputs = self.tx_inputs(tx, xpub_path)
-        outputs = self.tx_outputs(keystore.get_derivation(), tx)
+        outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx)
         details = SignTx(lock_time=tx.locktime)
         signatures, _ = client.sign_tx(self.get_coin_name(), inputs, outputs, details=details,
                                        prev_txes=defaultdict(TransactionType))
         tx.update_signatures(signatures)
 
-    def show_address(self, wallet, address):
-        keystore = wallet.get_keystore()
+    def show_key(self, account: ValidWalletTypes, keyinstance_id: int) -> None:
+        keystore = cast(TrezorKeyStore, account.get_keystore())
         client = self.get_client(keystore)
-        deriv_suffix = wallet.get_address_index(address)
-        derivation = keystore.derivation
-        address_path = "%s/%d/%d"%(derivation, *deriv_suffix)
+        derivation_path = account.get_derivation_path(keyinstance_id)
+        assert derivation_path is not None
+        subpath = '/'.join(str(x) for x in derivation_path)
+        derivation_text = f"{keystore.derivation}/{subpath}"
 
         # prepare multisig, if available:
-        xpubs = wallet.get_master_public_keys()
+        xpubs = account.get_master_public_keys()
         if len(xpubs) > 1:
-            pubkeys = [pubkey.to_hex() for pubkey in wallet.get_public_keys(address)]
+            account = cast(MultisigAccount, account)
+            pubkeys = [pubkey.to_hex() for pubkey in
+                account.get_public_keys_for_id(keyinstance_id)]
             # sort xpubs using the order of pubkeys
             sorted_pairs = sorted(zip(pubkeys, xpubs))
             multisig = self._make_multisig(
-                wallet.m,
-                [(xpub, deriv_suffix) for _, xpub in sorted_pairs])
+                account.m,
+                [(xpub, derivation_path) for _, xpub in sorted_pairs])
         else:
             multisig = None
 
         script_type = self.get_trezor_input_script_type(multisig is not None)
-        client.show_address(address_path, script_type, multisig)
+        client.show_address(derivation_text, script_type, multisig)
 
     def tx_inputs(self, tx, xpub_path):
         inputs = []
@@ -306,7 +313,7 @@ class TrezorPlugin(HW_PluginBase):
             # find which key is mine
             for xpub, path in xpubs:
                 if xpub in xpub_path:
-                    xpub_n = bip32_decompose_chain_string(xpub_path[xpub])
+                    xpub_n = tuple(bip32_decompose_chain_string(xpub_path[xpub]))
                     txinputtype.address_n = xpub_n + path
                     break
             # if txin.script_sig:
@@ -330,11 +337,13 @@ class TrezorPlugin(HW_PluginBase):
             signatures=signatures,
             m=m)
 
-    def tx_outputs(self, derivation, tx):
+    def tx_outputs(self, keystore: TrezorKeyStore, derivation: str, tx: Transaction):
+        account_derivation = tuple(bip32_decompose_chain_string(derivation))
+        keystore_fingerprint = keystore.get_fingerprint()
 
-        def create_output_by_derivation():
-            deriv = bip32_decompose_chain_string("m/%d/%d" % index)
-            multisig = self._make_multisig(m, [(xpub, deriv) for xpub in xpubs])
+        def create_output_by_derivation(key_derivation: Sequence[int], xpubs,
+                m: int) -> TxOutputType:
+            multisig = self._make_multisig(m, [(xpub, key_derivation) for xpub in xpubs])
             if multisig is None:
                 script_type = OutputScriptType.PAYTOADDRESS
             else:
@@ -342,11 +351,11 @@ class TrezorPlugin(HW_PluginBase):
             return TxOutputType(
                 multisig=multisig,
                 amount=tx_output.value,
-                address_n=bip32_decompose_chain_string(derivation + "/%d/%d" % index),
+                address_n=account_derivation + key_derivation,
                 script_type=script_type
             )
 
-        def create_output_by_address():
+        def create_output_by_address(tx_output: XTxOutput) -> TxOutputType:
             txoutputtype = TxOutputType()
             txoutputtype.amount = tx_output.value
             address = classify_tx_output(tx_output)
@@ -356,14 +365,11 @@ class TrezorPlugin(HW_PluginBase):
             return txoutputtype
 
         outputs = []
-
-        for tx_output, info in zip(tx.outputs, tx.output_info):
-            if info:
-                # Send derivations of addresses in our wallet
-                index, xpubs, m = info
-                txoutputtype = create_output_by_derivation()
+        for i, tx_output in enumerate(tx.outputs):
+            if tx.output_info is not None and keystore_fingerprint in tx.output_info[i]:
+                output_info = tx.output_info[i][keystore_fingerprint]
+                txoutputtype = create_output_by_derivation(*output_info)
             else:
-                txoutputtype = create_output_by_address()
+                txoutputtype = create_output_by_address(tx_output)
             outputs.append(txoutputtype)
-
         return outputs

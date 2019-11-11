@@ -19,7 +19,7 @@ class ShowQRTextEdit(ButtonsTextEdit):
         from .qrcodewidget import QRDialog
         try:
             s = str(self.toPlainText())
-        except:
+        except Exception:
             s = self.toPlainText()
         QRDialog(s).exec_()
 

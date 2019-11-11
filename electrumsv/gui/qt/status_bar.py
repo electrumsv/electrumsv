@@ -21,8 +21,8 @@ class BalancePopup(QWidget):
         grid_layout.addWidget(QLabel(_('Unmatured')), 2, 0, 1, 1)
 
         cc = uu = xx = 0
-        for wallet in main_window.parent_wallet.get_child_wallets():
-            c, u, x = wallet.get_balance()
+        for account in main_window._wallet.get_accounts():
+            c, u, x = account.get_balance()
             cc += c
             uu += u
             xx += x
@@ -124,7 +124,7 @@ class StatusBar(QStatusBar):
         self.addPermanentWidget(network_widget)
 
         self.search_box = QLineEdit()
-        # self.search_box.textChanged.connect(self.do_search)
+        self.search_box.textChanged.connect(main_window.do_search)
         self.search_box.hide()
         self.addPermanentWidget(self.search_box)
 

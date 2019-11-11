@@ -13,11 +13,13 @@ import re
 import requests
 import struct
 import time
+from typing import Any, Dict, List, TYPE_CHECKING
 
 from bitcoinx import PublicKey, compact_signature_to_der, bip32_key_from_string
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import push_script, msg_magic
+from electrumsv.bitcoin import push_script, msg_magic, compose_chain_string
+from electrumsv.constants import ScriptType
 from electrumsv.crypto import (sha256d, EncodeAES_base64, EncodeAES_bytes, DecodeAES_bytes,
     hmac_oneshot)
 from electrumsv.exceptions import UserCancelled
@@ -35,6 +37,11 @@ try:
     DIGIBOX = True
 except ImportError as e:
     DIGIBOX = False
+
+if TYPE_CHECKING:
+    from electrumsv.wallet_database.tables import MasterKeyRow
+    from electrumsv.gui.qt.account_wizard import AccountWizard
+
 
 logger = logs.get_logger("plugin.bitbox")
 
@@ -65,7 +72,7 @@ class DigitalBitbox_Client():
         if self.opened:
             try:
                 self.dbb_hid.close()
-            except:
+            except Exception:
                 pass
         self.opened = False
 
@@ -422,9 +429,8 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
     hw_type = 'digitalbitbox'
     device = 'DigitalBitbox'
 
-
-    def __init__(self, d):
-        Hardware_KeyStore.__init__(self, d)
+    def __init__(self, data: Dict[str, Any], row: 'MasterKeyRow') -> None:
+        Hardware_KeyStore.__init__(self, data, row)
         self.force_watching_only = False
         self.maxInputs = 14 # maximum inputs per single sign command
 
@@ -503,27 +509,26 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             self.give_error(e)
         return sig
 
-
-    def sign_transaction(self, tx, password):
+    def sign_transaction(self, tx: Transaction, password: str):
         if tx.is_complete():
             return
 
         try:
             p2pkhTransaction = True
-            derivations = self.get_tx_derivations(tx)
             inputhasharray = []
             hasharray = []
             pubkeyarray = []
 
             # Build hasharray from inputs
             for txin in tx.inputs:
-                if txin.type() != 'p2pkh':
+                if txin.type() != ScriptType.P2PKH:
                     p2pkhTransaction = False
 
                 for x_pubkey in txin.x_pubkeys:
-                    if x_pubkey in derivations:
-                        index = derivations.get(x_pubkey)
-                        inputPath = "%s/%d/%d" % (self.get_derivation(), index[0], index[1])
+                    if self.is_signature_candidate(x_pubkey):
+                        key_derivation = x_pubkey.bip32_path()
+                        assert len(key_derivation) == 2
+                        inputPath = "%s/%d/%d" % (self.get_derivation(), *key_derivation)
                         inputHash = tx.preimage_hash(txin)
                         hasharray_i = {'hash': inputHash.hex(), 'keypath': inputPath}
                         hasharray.append(hasharray_i)
@@ -532,14 +537,18 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 else:
                     self.give_error("No matching x_key for sign_transaction") # should never happen
 
-            # Build pubkeyarray from output_info
-            for info in tx.output_info:
-                if info is not None:
-                    index, xpubs, m = info
-                    changePath = self.get_derivation() + "/%d/%d" % index
-                    changePubkey = self.derive_pubkey(index[0], index[1])
-                    pubkeyarray_i = {'pubkey': changePubkey.to_hex(), 'keypath': changePath}
-                    pubkeyarray.append(pubkeyarray_i)
+            # Build pubkeyarray from annotated change outputs.
+            # The user is on their own if they have unannotated non-change self-outputs.
+            for txout in tx.outputs:
+                if txout.x_pubkeys:
+                    for xpubkey in [ xpk for xpk in txout.x_pubkeys
+                            if self.is_signature_candidate(xpk) ]:
+                        key_path_text = compose_chain_string(xpubkey.derivation_path())[1:]
+                        changePath = self.get_derivation() + key_path_text # "/1/0", no "m"
+                        pubkeyarray.append({
+                            'pubkey': xpubkey.to_public_key().to_hex(),
+                            'keypath': changePath,
+                        })
 
             # Special serialization of the unsigned transaction for
             # the mobile verification app.
@@ -549,9 +558,9 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     @classmethod
                     def input_script(self, txin, estimate_size=False):
                         type_ = txin.type()
-                        if type_ == 'p2pkh':
+                        if type_ == ScriptType.P2PKH:
                             return Transaction.get_preimage_script(txin)
-                        if type_ == 'p2sh':
+                        if type_ == ScriptType.MULTISIG_P2SH:
                             # Multisig verification has partial support, but is
                             # disabled. This is the expected serialization though, so we
                             # leave it here until we activate it.
@@ -563,21 +572,22 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 tx_dbb_serialized = None
 
             # Build sign command
-            dbb_signatures = []
+            dbb_signatures: List[Dict[str, Any]] = []
             steps = math.ceil(1.0 * len(hasharray) / self.maxInputs)
             for step in range(int(steps)):
                 hashes = hasharray[step * self.maxInputs : (step + 1) * self.maxInputs]
 
-                msg = {
+                msg_data: Dict[str, Any] = {
                     "sign": {
                         "data": hashes,
                         "checkpub": pubkeyarray,
                     },
                 }
                 if tx_dbb_serialized is not None:
-                    msg["sign"]["meta"] = sha256d(tx_dbb_serialized).hex()
-                msg = json.dumps(msg).encode('ascii')
-                dbb_client = self.plugin.get_client(self)
+                    msg_data["sign"]["meta"] = sha256d(tx_dbb_serialized).hex()
+                msg = json.dumps(msg_data).encode('ascii')
+                assert self.plugin is not None
+                dbb_client: DigitalBitbox_Client = self.plugin.get_client(self)
 
                 if not dbb_client.is_paired():
                     raise Exception("Could not sign transaction.")
@@ -688,8 +698,7 @@ class DigitalBitboxPlugin(HW_PluginBase):
         else:
             return None
 
-
-    def setup_device(self, device_info, wizard):
+    def setup_device(self, device_info, wizard: 'AccountWizard') -> None:
         device_id = device_info.device.id_
         client = app_state.device_manager.client_by_id(device_id)
         if client is None:
@@ -699,10 +708,8 @@ class DigitalBitboxPlugin(HW_PluginBase):
         client.setupRunning = True
         client.get_master_public_key("m/44'/0'")
 
-
     def is_mobile_paired(self):
         return 'encryptionprivkey' in self.digitalbitbox_config
-
 
     def comserver_post_notification(self, payload):
         assert self.is_mobile_paired(), "unexpected mobile pairing error"

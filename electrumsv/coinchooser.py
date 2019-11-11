@@ -26,11 +26,11 @@
 from collections import defaultdict, namedtuple
 from math import floor, log10
 
-from bitcoinx import TxOutput, sha256
+from bitcoinx import sha256
 
 from .bitcoin import COIN
 from .logs import logs
-from .transaction import Transaction
+from .transaction import Transaction, XTxOutput
 from .exceptions import NotEnoughFunds
 
 
@@ -154,24 +154,22 @@ class CoinChooserBase:
 
         return amounts
 
-    def change_outputs(self, tx, change_addrs, fee_estimator, dust_threshold):
-        amounts = self.change_amounts(tx, len(change_addrs), fee_estimator,
-                                      dust_threshold)
+    def change_outputs(self, tx, change_outs, fee_estimator, dust_threshold):
+        amounts = self.change_amounts(tx, len(change_outs), fee_estimator, dust_threshold)
         assert min(amounts) >= 0
-        assert len(change_addrs) >= len(amounts)
+        assert len(change_outs) >= len(amounts)
         # If change is above dust threshold after accounting for the
         # size of the change output, add it to the transaction.
         dust = sum(amount for amount in amounts if amount < dust_threshold)
         amounts = [amount for amount in amounts if amount >= dust_threshold]
-        change = [TxOutput(amount, addr.to_script())
-                  for addr, amount in zip(change_addrs, amounts)]
+        change = [XTxOutput(amount, out.script_pubkey, out.script_type, out.x_pubkeys)
+                  for out, amount in zip(change_outs, amounts)]
         logger.debug('change %s', change)
         if dust:
             logger.debug('not keeping dust %s', dust)
         return change, dust
 
-    def make_tx(self, coins, outputs, change_addrs, fee_estimator,
-                dust_threshold):
+    def make_tx(self, coins, outputs, change_outs, fee_estimator, dust_threshold):
         '''Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
         the transaction) it is kept, otherwise none is sent and it is
@@ -204,7 +202,7 @@ class CoinChooserBase:
         # This takes a count of change outputs and returns a tx fee;
         # each pay-to-bitcoin-address output serializes as 34 bytes
         fee = lambda count: fee_estimator(tx_size + count * 34)
-        change, dust = self.change_outputs(tx, change_addrs, fee, dust_threshold)
+        change, dust = self.change_outputs(tx, change_outs, fee, dust_threshold)
         tx.outputs.extend(change)
 
         logger.debug("using %d inputs", len(tx.inputs))
@@ -263,7 +261,7 @@ class CoinChooserPrivacy(CoinChooserRandom):
     '''
 
     def keys(self, coins):
-        return [coin.address for coin in coins]
+        return [coin.script_sig for coin in coins]
 
     def penalty_func(self, tx):
         out_values = [output.value for output in tx.outputs]

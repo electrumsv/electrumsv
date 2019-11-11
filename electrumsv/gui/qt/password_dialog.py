@@ -23,6 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import enum
 import math
 import re
 
@@ -33,7 +34,7 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.i18n import _
-from electrumsv.wallet import ParentWallet
+from electrumsv.wallet import Wallet
 
 from .virtual_keyboard import VirtualKeyboard
 from .util import (
@@ -59,7 +60,10 @@ def check_password_strength(password):
     return password_strength[min(3, int(score))]
 
 
-PW_NEW, PW_CHANGE, PW_PASSPHRASE = range(0, 3)
+class PasswordAction(enum.IntEnum):
+    NEW = 0
+    CHANGE = 1
+    PASSPHRASE = 2
 
 
 class PasswordLineEdit(QWidget):
@@ -120,12 +124,12 @@ class PasswordLayout(object):
 
     titles = [_("Enter Password"), _("Change Password"), _("Enter Passphrase")]
 
-    def __init__(self, parent_wallet, msg, kind, OK_button) -> None:
+    def __init__(self, wallet, msg, kind, state_change_cb) -> None:
         self.pw = PasswordLineEdit()
         self.new_pw = PasswordLineEdit()
         self.conf_pw = PasswordLineEdit()
         self.kind = kind
-        self.OK_button = OK_button
+        self._state_change_cb = state_change_cb
 
         vbox = QVBoxLayout()
         label = QLabel(msg + "\n")
@@ -137,7 +141,7 @@ class PasswordLayout(object):
         grid.setColumnMinimumWidth(1, 100)
         grid.setColumnStretch(1,1)
 
-        if kind == PW_PASSPHRASE:
+        if kind == PasswordAction.PASSPHRASE:
             vbox.addWidget(label)
             msgs = [_('Passphrase:'), _('Confirm Passphrase:')]
         else:
@@ -153,16 +157,16 @@ class PasswordLayout(object):
             logo_grid.addWidget(label, 0, 1, 1, 2)
             vbox.addLayout(logo_grid)
 
-            m1 = _('New Password:') if kind == PW_CHANGE else _('Password:')
-            msgs = [m1, _('Confirm Password:')]
-            if parent_wallet and parent_wallet.has_password():
+            if kind != PasswordAction.NEW:
                 pwlabel = QLabel(_('Current Password:'))
                 pwlabel.setAlignment(Qt.AlignTop)
                 grid.addWidget(pwlabel, 0, 0)
                 grid.addWidget(self.pw, 0, 1)
-                lockfile = "lock.png"
-            else:
-                lockfile = "unlock.png"
+
+            m1 = _('New Password:') if kind == PasswordAction.CHANGE else _('Password:')
+            msgs = [m1, _('Confirm Password:')]
+
+            lockfile = "lock.png"
             logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(36))
 
         label0 = QLabel(msgs[0])
@@ -177,14 +181,14 @@ class PasswordLayout(object):
         vbox.addLayout(grid)
 
         # Password Strength Label
-        if kind != PW_PASSPHRASE:
+        if kind != PasswordAction.PASSPHRASE:
             self.pw_strength = QLabel()
             grid.addWidget(self.pw_strength, 3, 0, 1, 2)
             self.new_pw.textChanged.connect(self.pw_changed)
 
         def enable_OK():
             ok = self.new_pw.text() == self.conf_pw.text()
-            OK_button.setEnabled(ok)
+            self._state_change_cb(ok)
         self.new_pw.textChanged.connect(enable_OK)
         self.conf_pw.textChanged.connect(enable_OK)
 
@@ -209,34 +213,27 @@ class PasswordLayout(object):
         self.pw_strength.setText(label)
 
     def old_password(self):
-        if self.kind == PW_CHANGE:
+        if self.kind == PasswordAction.CHANGE:
             return self.pw.text() or None
         return None
 
     def new_password(self):
         pw = self.new_pw.text()
         # Empty passphrases are fine and returned empty.
-        if pw == "" and self.kind != PW_PASSPHRASE:
+        if pw == "" and self.kind != PasswordAction.PASSPHRASE:
             pw = None
         return pw
 
 
 class ChangePasswordDialog(WindowModalDialog):
-    def __init__(self, parent: QWidget, parent_wallet: ParentWallet) -> None:
+    def __init__(self, parent: QWidget, wallet: Wallet) -> None:
         WindowModalDialog.__init__(self, parent)
-        is_encrypted = parent_wallet.is_encrypted()
-        if not parent_wallet.has_password():
-            msg = _('Your wallet is not protected.')
-            msg += ' ' + _('Use this dialog to add a password to your wallet.')
-        else:
-            if not is_encrypted:
-                msg = _('Your bitcoins are password protected. However, your wallet file '
-                        'is not encrypted.')
-            else:
-                msg = _('Your wallet is password protected and encrypted.')
-            msg += ' ' + _('Use this dialog to change your password.')
         OK_button = OkButton(self)
-        self.playout = PasswordLayout(parent_wallet, msg, PW_CHANGE, OK_button)
+        def state_change_cb(state: bool) -> None:
+            OK_button.setEnabled(state)
+        msg = _('Your wallet is password protected.')
+        msg += ' ' + _('Use this dialog to change your password.')
+        self.playout = PasswordLayout(wallet, msg, PasswordAction.CHANGE, state_change_cb)
         self.setWindowTitle(self.playout.title())
         vbox = QVBoxLayout(self)
         vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)

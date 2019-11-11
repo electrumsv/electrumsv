@@ -289,7 +289,7 @@ def read_user_config(path):
         with open(config_path, "r", encoding='utf-8') as f:
             data = f.read()
         result = JSON.loads(data)
-    except:
+    except Exception:
         logger.error("Cannot read config file %s.", config_path)
         return {}
     if not type(result) is dict:

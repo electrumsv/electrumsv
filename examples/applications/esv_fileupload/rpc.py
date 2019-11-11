@@ -12,7 +12,7 @@ from electrumsv.app_state import app_state
 from electrumsv.logs import logs
 from electrumsv.transaction import Transaction
 from electrumsv.util import get_wallet_name_from_path
-from electrumsv.wallet import Abstract_Wallet
+from electrumsv.wallet import AbstractAccount
 
 
 class RPCError(Exception):
@@ -42,7 +42,7 @@ class LocalRPCFunctions:
             raise RPCError(f"{wallet_path}: wallet_name does not exist")
         return wallet_path
 
-    def _get_wallet(self, wallet_name: str) -> Abstract_Wallet:
+    def _get_wallet(self, wallet_name: str) -> AbstractAccount:
         if type(wallet_name) is not str:
             raise RPCError("wallet_name is not a string")
         wallet_path = self._get_wallet_path(wallet_name)
@@ -71,11 +71,11 @@ class LocalRPCFunctions:
             coin_count: Optional[int]=25) -> str:
         wallet = self._get_wallet(wallet_name)
 
-        confirmed_coins = wallet.get_spendable_coins(None, {'confirmed_only': True})
+        confirmed_coins = wallet.get_spendable_coins({'confirmed_only': True})
         if len(confirmed_coins) > 3:
             return jsonrpclib.Fault(50, "confirmed-coins-exist", len(confirmed_coins))
 
-        all_coins = wallet.get_spendable_coins(None, {})
+        all_coins = wallet.get_spendable_coins({})
         confirmed_coins = list(c for c in all_coins if c['height'] >= 0 and c['value'] > 10000000)
         to_split_coin = None
         if len(confirmed_coins):
@@ -84,10 +84,10 @@ class LocalRPCFunctions:
 
         if to_split_coin is not None and len(all_coins) < coin_count:
             additional_count = coin_count - len(all_coins)
-            unused_addresses = wallet.get_unused_addresses()
+            unused_addresses = wallet.get_unused_addresses_REPLACE()
             if len(unused_addresses) < additional_count:
-                wallet.create_new_addresses(False, additional_count)
-                unused_addresses = wallet.get_unused_addresses()
+                assert False, "need to create more addresses, TODO"
+                unused_addresses = wallet.get_unused_addresses_REPLACE()
 
             dispersal_value = to_split_coin['value'] - 2000
             outputs = []
@@ -114,7 +114,7 @@ class LocalRPCFunctions:
             pushdatas.append(pushdata_bytes)
 
         domain = None
-        confirmed_coins = wallet.get_spendable_coins(None, {'confirmed_only': True})
+        confirmed_coins = wallet.get_spendable_coins({'confirmed_only': True})
         script = (Script() << OP_FALSE << OP_RETURN).push_many(pushdatas)
         outputs = [TxOutput(0, script)]
         tx = wallet.make_unsigned_transaction(confirmed_coins, outputs, app_state.config)
@@ -140,7 +140,7 @@ class LocalRPCFunctions:
             print("raising rpc error", e.code, e.message)
             raise e
         if tx.is_complete() and wallet_name and wallet_memo:
-            wallet.set_label(tx_id, wallet_memo)
+            wallet.set_transaction_label(tx.hash(), wallet_memo)
         return tx_id
 
     def get_transaction_state(self, tx_id: Optional[str]=None,

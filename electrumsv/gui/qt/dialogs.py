@@ -45,7 +45,7 @@ class BoxBase(object):
         self.info_text = info_text
         self.display_frequency = frequency or self.display_frequency
 
-    def result(self, parent, parent_wallet, **kwargs):
+    def result(self, parent, wallet, **kwargs):
         '''Return the result of the suppressible box.  If this is saved in the configuration
         then the saved value is returned, otherwise the user is asked.'''
         if self.name in self.last_shown:
@@ -54,16 +54,16 @@ class BoxBase(object):
                 return value
 
         key = f'suppress_{self.name}'
-        if parent_wallet:
-            value = parent_wallet.get_storage().get(key, None)
+        if wallet:
+            value = wallet.get_storage().get(key, None)
         else:
             value = app_state.config.get(key, None)
 
         if value is None:
             set_it, value = self.show_dialog(parent, **kwargs)
             if set_it and value is not None:
-                if parent_wallet:
-                    parent_wallet.get_storage().put(key, value)
+                if wallet:
+                    wallet.get_storage().put(key, value)
                 else:
                     app_state.config.set_key(key, value, True)
 
@@ -127,11 +127,11 @@ class YesNoBox(BoxBase):
         return cb.isChecked(), dialog.clickedButton() is yes_button
 
 
-def show_named(name, *, parent=None, parent_wallet=None, **kwargs):
+def show_named(name, *, parent=None, wallet=None, **kwargs):
     box = all_boxes_by_name.get(name)
     if not box:
         raise ValueError(f'no box with name {name} found')
-    return box.result(parent, parent_wallet, **kwargs)
+    return box.result(parent, wallet, **kwargs)
 
 article_uri = "https://medium.com/@roger.taylor/electrumsv-1-3-0a1-unstable-2f24c104979e"
 

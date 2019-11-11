@@ -3,8 +3,8 @@ import shutil
 import tempfile
 
 from electrumsv.constants import DATABASE_EXT
-from electrumsv.storage import WalletStorage, multisig_type, categorise_file
-from electrumsv.wallet import ParentWallet
+from electrumsv.storage import WalletStorage, categorise_file
+from electrumsv.wallet import Wallet, MultisigAccount, ImportedAddressAccount
 
 from electrumsv.tests.test_wallet import WalletTestCase
 
@@ -285,21 +285,21 @@ class TestStorageUpgrade(WalletTestCase):
         shutil.rmtree(cls.electrum_sv_path)
 
     def _upgrade_storage(self, wallet_json, accounts=1):
-        storage = self._load_storage_from_json_string(wallet_json, manual_upgrades=True)
+        storage = self._load_storage_from_json_string(wallet_json)
         storage.write()
 
         if accounts == 1:
             self.assertFalse(storage._store.requires_split())
             if storage.requires_upgrade():
                 original_path = storage.get_path()
-                storage.upgrade()
+                storage.upgrade(False, 'password')
                 self._sanity_check_upgraded_storage(storage, original_path, expect_backup=True)
         else:
             self.assertTrue(storage._store.requires_split())
-            new_paths = storage.split_accounts()
+            new_paths = storage.split_accounts(False, 'password')
             self.assertEqual(accounts, len(new_paths))
             for new_path in new_paths:
-                new_storage = WalletStorage(new_path, manual_upgrades=False)
+                new_storage = WalletStorage(new_path)
                 self._sanity_check_upgraded_storage(new_storage, new_path, expect_backup=False)
                 new_storage.close()
 
@@ -325,38 +325,28 @@ class TestStorageUpgrade(WalletTestCase):
     def _sanity_check_upgraded_wallet(self, storage):
         # We're going to verify that the parent wrapped legacy wallet has migrated it's
         # keystores to the right place, and it's references are valid.
-        parent_wallet = ParentWallet(storage)
-        child_wallets = parent_wallet.get_child_wallets()
+        wallet = Wallet(storage)
+        accounts = wallet.get_accounts()
 
-        # These are all legacy wallets, so one child wallet wrapped in the parent wallet.
-        self.assertEqual(len(child_wallets), 1)
+        # These are all legacy wallets, so one account wrapped in the parent wallet.
+        self.assertEqual(len(accounts), 1)
 
         keystore_indexes = {}
-        for child_wallet in child_wallets:
+        for account in accounts:
             # Verify that the wallet has the expected number of keystores.
-            keystores = child_wallet.get_keystores()
-            mn = multisig_type(child_wallet.wallet_type)
-            if mn is None:
-                if child_wallet.wallet_type == "imported_addr":
-                    self.assertEqual(len(keystores), 0)
-                else:
-                    self.assertEqual(len(keystores), 1)
+            keystores = account.get_keystores()
+            if isinstance(account, MultisigAccount):
+                self.assertEqual(len(keystores), account.n)
+            elif isinstance(account, ImportedAddressAccount):
+                self.assertEqual(len(keystores), 0)
             else:
-                self.assertEqual(len(keystores), mn[1])
+                self.assertEqual(len(keystores), 1)
 
-            # Verify that the number of used keystores are the same number that exists.
-            for keystore_usage in child_wallet._get_keystore_usage():
-                # Verify that each index is valid.
-                self.assertLess(keystore_usage['index'], len(parent_wallet.get_keystores()))
-                keystore_indexes[keystore_usage['index']] = True
+        wallet.stop()
 
-        # Generically check that all parent keystores are in use.
-        self.assertEqual(len(parent_wallet._keystores), len(keystore_indexes))
-
-        parent_wallet.stop()
-
-    def _load_storage_from_json_string(self, wallet_json, manual_upgrades=True):
+    def _load_storage_from_json_string(self, wallet_json):
         with open(self.wallet_path, "w") as f:
             f.write(wallet_json)
-        storage = WalletStorage(self.wallet_path, manual_upgrades=manual_upgrades)
+        storage = WalletStorage(self.wallet_path)
+        storage._store.attempt_load_data()
         return storage

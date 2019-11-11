@@ -34,24 +34,23 @@ from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import pyqtSignal, QObject, QTimer
 from PyQt5.QtGui import QGuiApplication
-from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget
+from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QDialog
 
 from electrumsv.app_state import app_state
 from electrumsv.contacts import ContactEntry, ContactIdentity
-from electrumsv.exceptions import UserCancelled, UserQuit
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
-from electrumsv.wallet import Abstract_Wallet, ParentWallet
+from electrumsv.wallet import AbstractAccount, Wallet
 
 from . import dialogs
 from .cosigner_pool import CosignerPool
 from .main_window import ElectrumWindow
 from .exception_window import Exception_Hook
-from .installwizard import InstallWizard, GoBack
 from .label_sync import LabelSync
 from .log_window import SVLogWindow, SVLogHandler
 from .network_dialog import NetworkDialog
-from .util import ColorScheme, read_QIcon, MessageBox, get_default_language
+from .util import ColorScheme, read_QIcon, get_default_language
+from .wallet_wizard import WalletWizard
 
 
 logger = logs.get_logger('app')
@@ -75,7 +74,7 @@ class SVApplication(QApplication):
     # Signals need to be on a QObject
     create_new_window_signal = pyqtSignal(str, object)
     cosigner_received_signal = pyqtSignal(object, object)
-    labels_changed_signal = pyqtSignal(object, object)
+    labels_changed_signal = pyqtSignal(object, object, object)
     window_opened_signal = pyqtSignal(object)
     window_closed_signal = pyqtSignal(object)
     # Async tasks
@@ -151,13 +150,13 @@ class SVApplication(QApplication):
             window.close()
 
     def close_window(self, window):
-        app_state.daemon.stop_wallet_at_path(window.parent_wallet.get_storage_path())
+        app_state.daemon.stop_wallet_at_path(window._wallet.get_storage_path())
         self.windows.remove(window)
         self.window_closed_signal.emit(window)
         self._build_tray_menu()
         # save wallet path of last open window
         if not self.windows:
-            app_state.config.save_last_wallet(window.parent_wallet)
+            app_state.config.save_last_wallet(window._wallet)
             self._last_window_closed()
 
     def _build_tray_menu(self):
@@ -169,7 +168,7 @@ class SVApplication(QApplication):
             m = self.tray.contextMenu()
             m.clear()
         for window in self.windows:
-            submenu = m.addMenu(window.parent_wallet.name())
+            submenu = m.addMenu(window._wallet.name())
             submenu.addAction(_("Show/Hide"), window.show_or_hide)
             submenu.addAction(_("Close"), window.close)
         m.addAction(_("Dark/Light"), self._toggle_tray_icon)
@@ -226,28 +225,35 @@ class SVApplication(QApplication):
 
     def _maybe_choose_server(self):
         # Show network dialog if config does not exist
-        if app_state.daemon.network and app_state.config.get('auto_connect') is None:
-            try:
-                wizard = InstallWizard()
-                wizard.init_network(app_state.daemon.network)
-                wizard.terminate()
-            except Exception as e:
-                if not isinstance(e, (UserCancelled, GoBack)):
-                    logger.exception("")
-                self.quit()
+        pass
+        # if app_state.daemon.network and app_state.config.get('auto_connect') is None:
+        #     raise NotImplementedError
+            # try:
+            #     wizard = InstallWizard()
+            #     wizard.init_network(app_state.daemon.network)
+            #     wizard.terminate()
+            # except Exception as e:
+            #     if not isinstance(e, (UserCancelled, GoBack)):
+            #         logger.exception("")
+            #     self.quit()
 
-    def on_label_change(self, wallet: Abstract_Wallet, name: str, text: str) -> None:
-        self.label_sync.set_label(wallet, name, text)
+    def on_transaction_label_change(self, account: AbstractAccount, tx_hash: bytes,
+            text: str) -> None:
+        self.label_sync.set_transaction_label(account, tx_hash, text)
 
-    def _create_window_for_wallet(self, parent_wallet: ParentWallet):
-        w = ElectrumWindow(parent_wallet)
+    def on_keyinstance_label_change(self, account: AbstractAccount, key_id: int,
+            text: str) -> None:
+        self.label_sync.set_keyinstance_label(account, key_id, text)
+
+    def _create_window_for_wallet(self, wallet: Wallet):
+        w = ElectrumWindow(wallet)
         self.windows.append(w)
         self._build_tray_menu()
-        self._register_wallet_events(parent_wallet)
+        self._register_wallet_events(wallet)
         self.window_opened_signal.emit(w)
         return w
 
-    def _register_wallet_events(self, wallet: ParentWallet) -> None:
+    def _register_wallet_events(self, wallet: Wallet) -> None:
         wallet.contacts._on_contact_added = self._on_contact_added
         wallet.contacts._on_contact_removed = self._on_contact_removed
         wallet.contacts._on_identity_added = self._on_identity_added
@@ -267,12 +273,12 @@ class SVApplication(QApplication):
 
     def get_wallet_window(self, path: str) -> Optional[ElectrumWindow]:
         for w in self.windows:
-            if w.parent_wallet.get_storage_path() == path:
+            if w._wallet.get_storage_path() == path:
                 return w
 
     def get_wallet_window_by_id(self, wallet_id: int) -> Optional[ElectrumWindow]:
         for w in self.windows:
-            for child_wallet in w.parent_wallet.get_child_wallets():
+            for child_wallet in w._wallet.get_accounts():
                 if child_wallet.get_id() == wallet_id:
                     return w
 
@@ -280,37 +286,20 @@ class SVApplication(QApplication):
         '''Raises the window for the wallet if it is open.  Otherwise
         opens the wallet and creates a new window for it.'''
         for w in self.windows:
-            if w.parent_wallet.get_storage_path() == path:
+            if w._wallet.get_storage_path() == path:
                 w.bring_to_top()
                 break
         else:
-            try:
-                parent_wallet = app_state.daemon.load_wallet(path, None)
-                if not parent_wallet:
-                    wizard = InstallWizard()
-                    try:
-                        if wizard.select_storage(path, is_startup=is_startup):
-                            parent_wallet = wizard.run_and_get_wallet()
-                    except UserQuit:
-                        pass
-                    except UserCancelled:
-                        pass
-                    except GoBack as e:
-                        logger.error('[start_new_window] Exception caught (GoBack) %s', e)
-                    finally:
-                        wizard.terminate()
-                    if not parent_wallet:
-                        return
-                    app_state.daemon.start_wallet(parent_wallet)
-            except Exception as e:
-                logger.exception("")
-                error_str = str(e)
-                if '2fa' in error_str:
-                    error_str = _('2FA wallets are not supported')
-                msg = '\n'.join((_('Cannot load wallet "{}"').format(path), error_str))
-                MessageBox.show_error(msg)
+            wizard_window = WalletWizard(path, is_startup=is_startup)
+            result = wizard_window.run()
+            if result != QDialog.Accepted:
+                # Clean up?
                 return
-            w = self._create_window_for_wallet(parent_wallet)
+
+            wallet_path = wizard_window.get_wallet_path()
+            wallet = app_state.daemon.load_wallet(wallet_path)
+            assert wallet is not None
+            w = self._create_window_for_wallet(wallet)
         if uri:
             w.pay_to_URI(uri)
         w.bring_to_top()

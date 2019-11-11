@@ -26,18 +26,21 @@
 import json
 import os
 import time
-from typing import Any, List, Optional, Tuple, Dict
+from typing import Any, List, Optional, Tuple, Dict, TYPE_CHECKING
 import urllib.parse
 
-from bitcoinx import TxOutput, Script, Address, classify_output_script
+from bitcoinx import TxOutput, Script, classify_output_script
 import certifi
 import requests
 
+from .constants import RECEIVING_SUBPATH
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .logs import logs
 from .networks import Net
-from .util import bfh
 
+
+if TYPE_CHECKING:
+    from electrumsv.wallet import AbstractAccount
 
 logger = logs.get_logger("paymentrequest")
 
@@ -271,16 +274,18 @@ class PaymentRequest:
     def get_outputs(self) -> List[TxOutput]:
         return [output.to_tx_output() for output in self.outputs]
 
-    def send_payment(self,
-                     transaction_hex: str,
-                     refund_address: Address) -> Tuple[bool, Optional[str]]:
+    def send_payment(self, account: 'AbstractAccount',
+            transaction_hex: str) -> Tuple[bool, Optional[str]]:
 
         if not self.payment_url:
             return False, "no url"
 
+        refund_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
+        script_template = account.get_script_template_for_id(refund_key.keyinstance_id)
+
         payment_memo = "Paid using ElectrumSV"
         payment = Payment(self.merchant_data, transaction_hex, [], payment_memo)
-        payment.refund_outputs.append(Output(refund_address.to_script()))
+        payment.refund_outputs.append(Output(script_template.to_script()))
 
         parsed_url = urllib.parse.urlparse(self.payment_url)
         response = self._make_request(parsed_url.geturl(), payment.to_json())
@@ -498,13 +503,13 @@ class InvoiceStore(object):
     def load(self, d):
         for k, v in d.items():
             try:
-                pr = PaymentRequest(bfh(v.get('hex')))
+                pr = PaymentRequest(bytes.fromhex(v.get('hex')))
                 pr.tx = v.get('txid')
                 pr.requestor = v.get('requestor')
                 self.invoices[k] = pr
                 if pr.tx:
                     self.paid[pr.tx] = k
-            except:
+            except Exception:
                 continue
 
     def import_file(self, path):

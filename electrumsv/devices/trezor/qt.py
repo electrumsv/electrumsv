@@ -255,6 +255,9 @@ class Plugin(TrezorPlugin, QtPlugin):
     icon_paired = "icons8-usb-connected-80.png"
     icon_unpaired = "icons8-usb-disconnected-80.png"
 
+    def create_handler(self, window: HandlerWindow) -> QtHandlerBase:
+        return QtPlugin.create_handler(self, window)
+
 
 class SettingsDialog(WindowModalDialog):
     '''This dialog doesn't require a device be paired with a wallet.
@@ -382,8 +385,8 @@ class SettingsDialog(WindowModalDialog):
             invoke_client('set_pin', remove=True)
 
         def wipe_device():
-            wallets = window.parent_wallet.get_wallets_for_keystore(keystore)
-            if sum(wallet.get_balance() for wallet in wallets):
+            accounts = window._wallet.get_accounts_for_keystore(keystore)
+            if sum(sum(account.get_balance()) for account in accounts):
                 title = _("Confirm Device Wipe")
                 msg = _("Are you SURE you want to wipe the device?\n"
                         "Your wallet still has bitcoins in it!")

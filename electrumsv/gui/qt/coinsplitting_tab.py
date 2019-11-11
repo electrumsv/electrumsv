@@ -8,10 +8,11 @@ from PyQt5.QtWidgets import (
 from bitcoinx import TxOutput
 
 from electrumsv.app_state import app_state
+from electrumsv.constants import ADDRESSABLE_SCRIPT_TYPES, RECEIVING_SUBPATH
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.wallet import Abstract_Wallet
+from electrumsv.wallet import AbstractAccount
 
 from . import util
 
@@ -36,7 +37,7 @@ STAGE_NAMES = {
 }
 
 class CoinSplittingTab(QWidget):
-    receiving_address = None
+    receiving_script_template = None
     unfrozen_balance = None
     frozen_balance = None
     split_stage = STAGE_INACTIVE
@@ -51,16 +52,23 @@ class CoinSplittingTab(QWidget):
     new_transaction_cv = None
     split_button = None
 
-    def get_wallet(self) -> Abstract_Wallet:
+    def get_account(self) -> AbstractAccount:
         window = self.window()
-        return window.parent_wallet.get_default_wallet()
+        account = window._wallet.get_default_account()
+        assert account is not None
+        return account
 
     def _on_split_button_clicked(self):
         self.split_button.setText(_("Splitting") +"...")
         self.split_button.setEnabled(False)
 
         window = self.window()
-        self.receiving_address = self.get_wallet().get_unused_address()
+        account = self.get_account()
+
+        # At this point we know we should get a key that is addressable.
+        unused_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
+        self.receiving_script_template = account.get_script_template_for_id(
+            unused_key.keyinstance_id)
         self.split_stage = STAGE_PREPARING
         self.new_transaction_cv = threading.Condition()
 
@@ -71,10 +79,9 @@ class CoinSplittingTab(QWidget):
     def _split_prepare_task(self, our_dialog: 'SplitWaitingDialog'):
         self.split_stage = STAGE_OBTAINING_DUST
 
-        wallet = self.get_wallet()
-        wallet.set_frozen_state([ self.receiving_address ], True)
+        account = self.get_account()
 
-        address_text = self.receiving_address.to_string()
+        address_text = self.receiving_script_template.to_string()
         QDesktopServices.openUrl(QUrl("{}/?addr={}".format(Net.FAUCET_URL, address_text)))
 
         # Wait for the transaction to arrive.  How long it takes before the progress bar
@@ -95,7 +102,8 @@ class CoinSplittingTab(QWidget):
                 time_passed += 0.1
 
         # The user needs to sign the transaction.  It can't be done in this thread.
-        wallet.set_frozen_state([ self.receiving_address ], False)
+        # TODO(rt12) no longer viable, needs to be replaced
+        # account.set_frozen_state([ self.receiving_script_template ], False)
         self.split_stage = STAGE_SPLITTING
         return RESULT_READY_FOR_SPLIT
 
@@ -126,25 +134,27 @@ class CoinSplittingTab(QWidget):
         finally:
             self._cleanup_tx_created()
 
-    def _ask_send_split_transaction(self):
+    def _ask_send_split_transaction(self) -> None:
         window = self.window()
-        wallet = self.get_wallet()
+        account = self.get_account()
 
-        unused_address = wallet.get_unused_address()
-        outputs = [
-            TxOutput(all, unused_address.to_script())
-        ]
-        coins = wallet.get_utxos(None, exclude_frozen=True, mature=True, confirmed_only=False)
+        coins = account.get_utxos(exclude_frozen=True, mature=True)
         # Verify that our dust receiving address is in the available UTXOs, if it isn't, the
         # process has failed in some unexpected way.
         for coin in coins:
-            if coin['address'] == self.receiving_address:
+            if coin['address'] == self.receiving_script_template:
                 break
         else:
             window.show_error(_("Error accessing dust coins for correct splitting."))
             self._cleanup_tx_final()
             return
-        tx = wallet.make_unsigned_transaction(coins, outputs, window.config)
+
+        unused_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
+        script = account.get_script_for_id(unused_key.keyinstance_id)
+        outputs = [
+            TxOutput(all, script)
+        ]
+        tx = account.make_unsigned_transaction(coins, outputs, window.config)
 
         amount = tx.output_value()
         fee = tx.get_fee()
@@ -154,25 +164,18 @@ class CoinSplittingTab(QWidget):
             _("Mining fee") + ": " + window.format_amount_and_units(fee),
         ]
 
-        if wallet.has_password():
-            msg.append("")
-            msg.append(_("Enter your password to proceed"))
-            password = window.password_dialog('\n'.join(msg))
-        else:
-            msg.append(_('Proceed?'))
-            password = None
-            if not window.question('\n'.join(msg)):
-                self._cleanup_tx_final()
-                return
+        msg.append("")
+        msg.append(_("Enter your password to proceed"))
+        password = window.password_dialog('\n'.join(msg))
 
         def sign_done(success):
             if success:
                 if not tx.is_complete():
-                    dialog = self.window().show_transaction(tx)
+                    dialog = self.window().show_transaction(account, tx)
                     dialog.exec()
                 else:
                     extra_text = _("Your split coins")
-                    window.broadcast_transaction(wallet, tx, f"{TX_DESC_PREFIX}: {extra_text}",
+                    window.broadcast_transaction(account, tx, f"{TX_DESC_PREFIX}: {extra_text}",
                                                 success_text=_("Your coins have now been split."))
             self._cleanup_tx_final()
         window.sign_tx_with_password(tx, sign_done, password)
@@ -183,10 +186,11 @@ class CoinSplittingTab(QWidget):
 
         # This may have already been done, given that we want our split to consider the dust
         # usabel.
-        wallet = self.get_wallet()
-        wallet.set_frozen_state([ self.receiving_address ], False)
+        account = self.get_account()
+        # TODO(rt12) replace with viable unfreezing
+        # account.set_frozen_state([ self.receiving_script_template ], False)
 
-        self.receiving_address = None
+        self.receiving_script_template = None
         self.waiting_dialog = None
         self.faucet_status_code = None
         self.split_stage = STAGE_INACTIVE
@@ -197,15 +201,15 @@ class CoinSplittingTab(QWidget):
         self.split_button.setEnabled(True)
 
     def _on_network_event(self, event, *args):
-        selected_wallet = self.get_wallet()
+        selected_account = self.get_account()
         if event == 'new_transaction':
-            tx, wallet = args
-            if wallet is selected_wallet: # filter out tx's not for this wallet
-                our_script = self.receiving_address.to_script_bytes()
+            tx, account = args
+            if account is selected_account: # filter out tx's not for this account
+                our_script = self.receiving_script_template.to_script_bytes()
                 for tx_output in tx.outputs:
                     if tx_output.script_pubkey == our_script:
                         extra_text = _("Dust from BSV faucet")
-                        wallet.set_label(tx.txid(), f"{TX_DESC_PREFIX}: {extra_text}")
+                        account.set_transaction_label(tx.hash(), f"{TX_DESC_PREFIX}: {extra_text}")
                         break
 
                 # Notify the progress dialog task thread.
@@ -214,12 +218,11 @@ class CoinSplittingTab(QWidget):
 
     def update_balances(self):
         window = self.window()
-        wallet = self.get_wallet()
-        parent_wallet = window.parent_wallet
+        wallet = window._wallet
+        account = self.get_account()
 
-        self.unfrozen_balance = wallet.get_balance(exclude_frozen_coins=True,
-                                                   exclude_frozen_addresses=True)
-        self.frozen_balance = wallet.get_frozen_balance()
+        self.unfrozen_balance = account.get_balance(exclude_frozen_coins=True)
+        self.frozen_balance = account.get_frozen_balance()
 
         unfrozen_confirmed, unfrozen_unconfirmed, _unfrozen_unmature = self.unfrozen_balance
         _frozen_confirmed, _frozen_unconfirmed, _frozen_unmature = self.frozen_balance
@@ -236,7 +239,7 @@ class CoinSplittingTab(QWidget):
             _("As of the November 2018 hard-fork, Bitcoin Cash split into Bitcoin ABC "
               "and Bitcoin SV."),
             " ",
-            _("This tab allows you to easily split the available coins in this wallet "
+            _("This tab allows you to easily split the available coins in this account "
               "(approximately {} {}) on the Bitcoin SV chain.".format(
                   splittable_amount_text, unit_text)),
             " ",
@@ -251,20 +254,19 @@ class CoinSplittingTab(QWidget):
             "<li>",
             _("A transaction will be constructed including your entire spendable balance "
               "combined with the new known SV coin from the faucet, to be sent back into "
-              "this wallet."),
+              "this account."),
             "</li>",
         ]
-        if parent_wallet.has_password():
-            text.extend([
-                "<li>",
-                _("As this wallet is password protected, you will be prompted to "
-                  "enter your password to sign the transaction."),
-                "</li>",
-            ])
+        text.extend([
+            "<li>",
+            _("As this account is password protected, you will be prompted to "
+                "enter your password to sign the transaction."),
+            "</li>",
+        ])
         text.extend([
             "<li>",
             _("The transaction will then be broadcast, and immediately added to your "
-              "wallet history so you can see it confirmed. It will be labeled as splitting "
+              "account history so you can see it confirmed. It will be labeled as splitting "
               "related, so you can easily identify it."),
             "</li>",
             "<li>",
@@ -273,8 +275,8 @@ class CoinSplittingTab(QWidget):
             "</li>",
             "</ol>",
             "<p>",
-            _("<b>This will only split the coins currently available in this wallet.</b> "
-              "While any further coins you send to your wallet are included in the overall "
+            _("<b>This will only split the coins currently available in this account.</b> "
+              "While any further coins you send to your account are included in the overall "
               "balance, if they were unsplit before sending, they remain unsplit on arrival. "
               "It it your responsibility to ensure you know if you are sending unsplit coins "
               "and what the repercussions are. If in doubt, click split and be sure."),
@@ -284,11 +286,15 @@ class CoinSplittingTab(QWidget):
         self.intro_label.setText("".join(text))
 
     def update_layout(self):
-        disabled_text = None
         window = self.window()
-        if hasattr(window, "parent_wallet"):
-            wallet = self.get_wallet()
-            if wallet.is_deterministic():
+        disabled_text = None
+        if not hasattr(window, "_wallet"):
+            disabled_text = _("Account not loaded, change tabs and come back.")
+
+        if disabled_text is None:
+            account = self.get_account()
+            script_type = account.get_default_script_type()
+            if account.is_deterministic() and script_type in ADDRESSABLE_SCRIPT_TYPES:
                 grid = QGridLayout()
                 grid.setColumnStretch(0, 1)
                 grid.setColumnStretch(4, 1)
@@ -335,12 +341,10 @@ class CoinSplittingTab(QWidget):
 
                 self.update_balances()
             else:
-                disabled_text = _("This is not the type of wallet that generate new addresses, "+
+                disabled_text = _("This is not the type of account that generates new addresses, "+
                         "and therefore it cannot be used for <br/>coin-splitting. Create a new "+
-                        "standard wallet in ElectrumSV and send your coins there, then<br/>split "+
+                        "standard account in ElectrumSV and send your coins there, then<br/>split "+
                         "them.")
-        else:
-            disabled_text = _("Wallet not loaded, change tabs and come back.")
 
         if disabled_text is not None:
             label = QLabel(disabled_text)
@@ -349,7 +353,7 @@ class CoinSplittingTab(QWidget):
             hbox.addWidget(label, 0, Qt.AlignHCenter | Qt.AlignVCenter)
 
             vbox = QVBoxLayout()
-            vbox.addLayout(hbox )
+            vbox.addLayout(hbox)
 
         # If the tab is already laid out, it's current layout needs to be
         # reparented/removed before we can replace it.

@@ -25,8 +25,5 @@ def plugin_class(gui_kind: str):
     if gui_kind == 'qt':
         from .qt import Plugin
         return Plugin
-    elif gui_kind == 'cmdline':
-        from .digitalbitbox import DigitalBitboxPlugin
-        return DigitalBitboxPlugin
     else:
         raise ValueError(f'gui kind {gui_kind} not supported')

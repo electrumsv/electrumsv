@@ -22,24 +22,26 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import enum
+from io import BytesIO
 import struct
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import attr
 from bitcoinx import (
     PublicKey, PrivateKey, bip32_key_from_string, base58_encode_check,
     Ops, der_signature_to_compact, InvalidSignatureError,
     Script, push_int, push_item, hash_to_hex_str,
-    Address, P2PKH_Address, P2SH_Address, P2PK_Output,
+    Address, P2PK_Output,
     Tx, TxInput, TxOutput, SigHash, classify_output_script,
-    read_le_uint32, read_varbytes, read_le_int32, read_le_int64, read_list,
-    pack_byte, pack_le_int32, pack_le_uint32, pack_le_int64, pack_list, unpack_le_uint16,
-    double_sha256, hash160
+    read_le_uint32, read_le_int32, read_list,
+    pack_byte, pack_le_int32, pack_le_uint32, pack_list, unpack_le_uint16,
+    double_sha256, BIP32PublicKey, hash160, P2SH_Address, read_varbytes, read_le_int64
 )
 
+from .constants import ScriptType
 from .networks import Net
 from .logs import logs
-from .util import bfh, bh2u
-
 
 NO_SIGNATURE = b'\xff'
 dummy_public_key = PublicKey.from_bytes(bytes(range(3, 36)))
@@ -65,189 +67,272 @@ def tx_output_to_display_text(tx_output: TxOutput):
     return text, kind
 
 
+class XPublicKeyType(enum.IntEnum):
+    UNKNOWN = 0
+    OLD = 1
+    BIP32 = 2
+    PRIVATE_KEY = 3
+
+
 class XPublicKey:
+    """
+    This is responsible for keeping the abstracted form of the public key, where relevant
+    so that anything signing can reconcile where the public key comes from. It applies to
+    three types of keystore, imported private keys, BIP32 and the old style.
+    """
 
-    def __init__(self, raw) -> None:
-        if not isinstance(raw, (bytes, str)):
-            raise TypeError(f'raw {raw} must be bytes or a string')
-        try:
-            self.raw = raw if isinstance(raw, bytes) else bytes.fromhex(raw)
-            self.to_public_key()
-        except (ValueError, AssertionError):
-            raise ValueError(f'invalid XPublicKey: {raw!r}')
+    _old_mpk: Optional[bytes] = None
+    _bip32_xpub: Optional[str] = None
+    _derivation_path: Optional[Sequence[int]] = None
+    _pubkey_bytes: Optional[bytes] = None
 
-    def __eq__(self, other) -> bool:
-        return isinstance(other, XPublicKey) and self.raw == other.raw
+    def __init__(self, **kwargs) -> None:
+        if "pubkey_bytes" in kwargs:
+            assert isinstance(kwargs["pubkey_bytes"], bytes)
+            self._pubkey_bytes = kwargs["pubkey_bytes"]
+        elif "bip32_xpub" in kwargs:
+            assert isinstance(kwargs["bip32_xpub"], str)
+            self._bip32_xpub = kwargs["bip32_xpub"]
+            self._derivation_path = tuple(kwargs["derivation_path"])
+        elif "old_mpk" in kwargs:
+            assert isinstance(kwargs["old_mpk"], bytes)
+            self._old_mpk = kwargs["old_mpk"]
+            self._derivation_path = tuple(kwargs["derivation_path"])
+        else:
+            raise ValueError(f'invalid XPublicKey: {kwargs!r}')
+        self.to_public_key()
 
-    def __hash__(self) -> int:
-        return hash(self.raw) + 1
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'XPublicKey':
+        kwargs = data.copy()
+        if "pubkey_bytes" in kwargs:
+            kwargs["pubkey_bytes"] = bytes.fromhex(kwargs["pubkey_bytes"])
+        if "old_mpk" in kwargs:
+            kwargs["old_mpk"] = bytes.fromhex(kwargs["old_mpk"])
+        return cls(**kwargs)
 
-    def _bip32_public_key(self):
-        extended_key, path = self.bip32_extended_key_and_path()
-        result = bip32_key_from_string(extended_key)
-        for n in path:
-            result = result.child(n)
-        return result
+    @classmethod
+    def from_bytes(cls, raw: bytes) -> 'XPublicKey':
+        """ In addition to importing public keys, we also support the legacy Electrum
+        serialisation, except for the case of addresses. """
+        kwargs: Dict[str, Any] = {}
+        kind = raw[0]
+        if kind in {0x02, 0x03, 0x04}:
+            kwargs['pubkey_bytes'] = raw
+        elif kind == 0xff:
+            # 83 is 79 + 2 + 2.
+            assert len(raw) == 83, f"got {len(raw)}"
+            kwargs["bip32_xpub"] = base58_encode_check(raw[1:79])
+            kwargs["derivation_path"] = tuple(unpack_le_uint16(raw[n: n+2])[0]
+                for n in (79, 81))
+        elif kind == 0xfe:
+            assert len(raw) == 69
+            kwargs["old_mpk"] = raw[1:65]  # The public key bytes without the 0x04 prefix
+            kwargs["derivation_path"] = tuple(unpack_le_uint16(raw[n: n+2])[0] for n in (65, 67))
+        else:
+            kwargs["extended_kind"] = hex(raw[0])
+        return cls(**kwargs)
 
-    def _old_keystore_public_key(self):
-        mpk, path = self.old_keystore_mpk_and_path()
-        mpk = PublicKey.from_bytes(pack_byte(4) + mpk)
-        delta = double_sha256(f'{path[1]}:{path[0]}:'.encode() + self.raw[1:65])
-        return mpk.add(delta)
+    @classmethod
+    def from_hex(cls, text: str) -> 'XPublicKey':
+        raw = bytes.fromhex(text)
+        return cls.from_bytes(raw)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {}
+        if self._pubkey_bytes is not None:
+            d["pubkey_bytes"] = self._pubkey_bytes.hex()
+        if self._old_mpk is not None:
+            d["old_mpk"] = self._old_mpk.hex()
+            d["derivation_path"] = self._derivation_path
+        if self._bip32_xpub is not None:
+            d["bip32_xpub"] = self._bip32_xpub
+            d["derivation_path"] = self._derivation_path
+        return d
 
     def to_bytes(self) -> bytes:
-        return self.raw
+        return self.to_public_key().to_bytes()
 
-    def to_hex(self) -> str:
-        return self.raw.hex()
+    def __eq__(self, other) -> bool:
+        return (isinstance(other, XPublicKey) and self._pubkey_bytes == other._pubkey_bytes and
+            self._old_mpk == other._old_mpk and self._bip32_xpub == other._bip32_xpub and
+            self._derivation_path == other._derivation_path)
 
-    def kind(self):
-        return self.raw[0]
+    def __hash__(self) -> int:
+        # This just needs to be unique for dictionary indexing.
+        return hash((self._pubkey_bytes, self._old_mpk, self._bip32_xpub, self._derivation_path))
+
+    def kind(self) -> XPublicKeyType:
+        if self._bip32_xpub is not None:
+            return XPublicKeyType.BIP32
+        elif self._old_mpk is not None:
+            return XPublicKeyType.OLD
+        elif self._pubkey_bytes is not None:
+            return XPublicKeyType.PRIVATE_KEY
+        return XPublicKeyType.UNKNOWN
+
+    def derivation_path(self) -> Sequence[int]:
+        assert self._derivation_path is not None
+        return self._derivation_path
 
     def is_bip32_key(self) -> bool:
-        return self.kind() == 0xff
+        return self._bip32_xpub is not None
 
-    def bip32_extended_key(self):
-        assert len(self.raw) == 83    # 1 + 78 + 2 + 2
-        assert self.is_bip32_key()
-        return base58_encode_check(self.raw[1:79])
+    def bip32_extended_key(self) -> str:
+        assert self._bip32_xpub is not None
+        return self._bip32_xpub
 
-    def bip32_extended_key_and_path(self):
-        extended_key = self.bip32_extended_key()
-        return extended_key, [unpack_le_uint16(self.raw[n: n+2])[0] for n in (79, 81)]
+    def bip32_path(self) -> Sequence[int]:
+        assert self._bip32_xpub is not None and self._derivation_path is not None
+        return self._derivation_path
 
-    def old_keystore_mpk_and_path(self):
-        assert len(self.raw) == 69
-        assert self.kind() == 0xfe
-        mpk = self.raw[1:65]  # The public key bytes without the 0x04 prefix
-        return mpk, [unpack_le_uint16(self.raw[n: n+2])[0] for n in (65, 67)]
+    def bip32_extended_key_and_path(self) -> Tuple[str, Sequence[int]]:
+        assert self._bip32_xpub is not None and self._derivation_path is not None
+        return self._bip32_xpub, self._derivation_path
 
-    def to_public_key(self):
+    def old_keystore_mpk_and_path(self) -> Tuple[bytes, Sequence[int]]:
+        assert self._old_mpk is not None and self._derivation_path is not None
+        return self._old_mpk, self._derivation_path
+
+    def to_public_key(self) -> Union[BIP32PublicKey, PublicKey]:
         '''Returns a PublicKey instance or an Address instance.'''
         kind = self.kind()
-        if kind in {0x02, 0x03, 0x04}:
-            return PublicKey.from_bytes(self.raw)
-        if kind == 0xff:
-            return self._bip32_public_key()
-        if kind == 0xfe:
-            return self._old_keystore_public_key()
-        assert kind == 0xfd
-        result = classify_output_script(Script(self.raw[1:]), Net.COIN)
-        assert isinstance(result, Address)
-        return result
+        if self._pubkey_bytes is not None:
+            return PublicKey.from_bytes(self._pubkey_bytes)
+        elif self._bip32_xpub is not None:
+            assert self._derivation_path is not None
+            result = bip32_key_from_string(self._bip32_xpub)
+            for n in self._derivation_path:
+                result = result.child(n)
+            return result
+        elif self._old_mpk is not None:
+            assert self._derivation_path is not None
+            path = self._derivation_path
+            pubkey = PublicKey.from_bytes(pack_byte(4) + self._old_mpk)
+            # pylint: disable=unsubscriptable-object
+            delta = double_sha256(f'{path[1]}:{path[0]}:'.encode() + self._old_mpk)
+            return pubkey.add(delta)
+        raise ValueError("invalid key data")
 
-    def to_public_key_hex(self):
-        # Only used for the pubkeys array
-        public_key = self.to_public_key()
-        if isinstance(public_key, Address):
-            return public_key.to_script_bytes().hex()
-        return public_key.to_hex()
+    def to_address(self) -> Address:
+        return self.to_public_key().to_address(coin=Net.COIN)
 
-    def to_address(self):
-        result = self.to_public_key()
-        if not isinstance(result, Address):
-            result = result.to_address(coin=Net.COIN)
-        return result
+    def is_compressed(self) -> bool:
+        if self._bip32_xpub:
+            return True
+        # pylint: disable=unsubscriptable-object
+        if self._pubkey_bytes is not None and self._pubkey_bytes[0] != 0x04:
+            return True
+        return False
 
-    def is_compressed(self):
-        return self.kind() not in (0x04, 0xfe)
-
-    def __repr__(self):
-        return f"XPublicKey('{self.raw.hex()}')"
+    def __repr__(self) -> str:
+        return (f"XPublicKey(xpub={self._bip32_xpub!r}, old_mpk={self._old_mpk!r}), "
+            f"path={self._derivation_path!r}, "
+            f"pubkey={self._pubkey_bytes.hex() if self._pubkey_bytes is not None else None!r}")
 
 
 @attr.s(slots=True, repr=False)
 class XTxInput(TxInput):
     '''An extended bitcoin transaction input.'''
-    value = attr.ib()
-    x_pubkeys = attr.ib()
-    address = attr.ib()
-    threshold = attr.ib()
-    signatures = attr.ib()
+    value: int = attr.ib(default=0)
+    x_pubkeys: List[XPublicKey] = attr.ib(default=attr.Factory(list))
+    threshold: int = attr.ib(default=0)
+    signatures: List[bytes] = attr.ib(default=attr.Factory(list))
+    script_type: ScriptType = attr.ib(default=ScriptType.NONE)
 
     @classmethod
-    def read(cls, read):
+    def read_extended(cls, read):
         prev_hash = read(32)
         prev_idx = read_le_uint32(read)
         script_sig = Script(read_varbytes(read))
         sequence = read_le_uint32(read)
-        kwargs = {'x_pubkeys': [], 'address': None, 'threshold': 0, 'signatures': []}
+        kwargs = {'x_pubkeys': [], 'threshold': 0, 'signatures': []}
         if prev_hash != bytes(32):
-            _parse_script_sig(script_sig.to_bytes(), kwargs)
+            parse_script_sig(script_sig.to_bytes(), kwargs)
+            if 'address' in kwargs:
+                del kwargs['address']
         result = cls(prev_hash, prev_idx, script_sig, sequence, value=0, **kwargs)
         if not result.is_complete():
             result.value = read_le_int64(read)
         return result
 
-    def _realize_script_sig(self, x_pubkeys, signatures):
-        type_ = self.type()
-        if type_ == 'p2pk':
+    def _realize_script_sig(self, x_pubkeys: List[XPublicKey], signatures: List[bytes]) -> Script:
+        if self.script_type == ScriptType.P2PK:
             return Script(push_item(signatures[0]))
-        if type_ == 'p2pkh':
+        elif self.script_type == ScriptType.P2PKH:
             return Script(push_item(signatures[0]) + push_item(x_pubkeys[0].to_bytes()))
-        if type_ == 'p2sh':
+        elif self.script_type == ScriptType.MULTISIG_P2SH:
             parts = [pack_byte(Ops.OP_0)]
             parts.extend(push_item(signature) for signature in signatures)
             nested_script = multisig_script(x_pubkeys, self.threshold)
             parts.append(push_item(nested_script))
             return Script(b''.join(parts))
-        return self.script_sig
+        elif self.script_type == ScriptType.MULTISIG_BARE:
+            parts = [pack_byte(Ops.OP_0)]
+            parts.extend(push_item(signature) for signature in signatures)
+            return Script(b''.join(parts))
+        raise ValueError(f"unable to realize script {self.script_type}")
+        # return self.script_sig
 
-    def to_bytes(self):
-        if self.is_complete():
-            x_pubkeys = [x_pubkey.to_public_key() for x_pubkey in self.x_pubkeys]
-            signatures = self.signatures_present()
-            self.script_sig = self._realize_script_sig(x_pubkeys, signatures)
-            return super().to_bytes()
-        else:
+    def to_bytes(self) -> bytes:
+        if self.x_pubkeys:
             self.script_sig = self._realize_script_sig(self.x_pubkeys, self.signatures)
-            return super().to_bytes() + pack_le_int64(self.value)
+        return super().to_bytes()
 
-    def signatures_present(self):
+    def signatures_present(self) -> List[bytes]:
         '''Return a list of all signatures that are present.'''
         return [sig for sig in self.signatures if sig != NO_SIGNATURE]
 
-    def is_complete(self):
+    def is_complete(self) -> bool:
         '''Return true if this input has all signatures present.'''
         return len(self.signatures_present()) >= self.threshold
 
-    def stripped_signatures_with_blanks(self):
+    def stripped_signatures_with_blanks(self) -> List[bytes]:
         '''Strips the sighash byte.'''
         return [b'' if sig == NO_SIGNATURE else sig[:-1] for sig in self.signatures]
 
-    def unused_x_pubkeys(self):
+    def unused_x_pubkeys(self) -> List[XPublicKey]:
         if self.is_complete():
             return []
         return [x_pubkey for x_pubkey, signature in zip(self.x_pubkeys, self.signatures)
                 if signature == NO_SIGNATURE]
 
-    def estimated_size(self):
+    def estimated_size(self) -> int:
         '''Return an estimated of serialized input size in bytes.'''
         saved_script_sig = self.script_sig
         x_pubkeys = [x_pubkey.to_public_key() for x_pubkey in self.x_pubkeys]
         signatures = [dummy_signature] * self.threshold
         self.script_sig = self._realize_script_sig(x_pubkeys, signatures)
-        size = len(TxInput.to_bytes(self))   # base class implementation
+        size = self.size()
         self.script_sig = saved_script_sig
         return size
 
-    def type(self):
-        if isinstance(self.address, P2PKH_Address):
-            return 'p2pkh'
-        if isinstance(self.address, P2SH_Address):
-            return 'p2sh'
-        if isinstance(self.address, PublicKey):
-            return 'p2pk'
-        if self.is_coinbase():
-            return 'coinbase'
-        return 'unknown'
+    def size(self) -> int:
+        return len(TxInput.to_bytes(self))   # base class implementation
 
-    def __repr__(self):
+    def type(self) -> ScriptType:
+        if self.is_coinbase():
+            return ScriptType.COINBASE
+        return self.script_type
+
+    def __repr__(self) -> str:
         return (
             f'XTxInput(prev_hash="{hash_to_hex_str(self.prev_hash)}", prev_idx={self.prev_idx}, '
             f'script_sig="{self.script_sig}", sequence={self.sequence}), value={self.value} '
-            f'x_pubkeys={self.x_pubkeys}, address={self.address}, '
-            f'threshold={self.threshold}'
+            f'threshold={self.threshold}, '
+            f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys})'
+        )
+
+@attr.s(slots=True, repr=False)
+class XTxOutput(TxOutput):
+    '''An extended bitcoin transaction output.'''
+    script_type: ScriptType = attr.ib(default=ScriptType.NONE)
+    x_pubkeys: List[XPublicKey] = attr.ib(default=attr.Factory(list))
+
+    def __repr__(self):
+        return (
+            f'XTxOutput(value={self.value}, script_pubkey="{self.script_pubkey}", '
+            f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys})'
         )
 
 
@@ -299,12 +384,12 @@ def _extract_multisig_pattern(decoded):
     return m, n, [ op_m ] + [Ops.OP_PUSHDATA4]*n + [ op_n, Ops.OP_CHECKMULTISIG ]
 
 
-def _parse_script_sig(script, kwargs):
+def parse_script_sig(script: bytes, kwargs: Dict[str, Any]) -> None:
     try:
         decoded = list(_script_GetOp(script))
     except Exception:
         # coinbase transactions raise an exception
-        logger.exception("cannot find address in input script %s", bh2u(script))
+        logger.exception("cannot find address in input script %s", script.hex())
         return
 
     # P2PK
@@ -313,6 +398,7 @@ def _parse_script_sig(script, kwargs):
         item = decoded[0][1]
         kwargs['signatures'] = [item]
         kwargs['threshold'] = 1
+        kwargs['script_type'] = ScriptType.P2PK
         return
 
     # P2PKH inputs push a signature (around seventy bytes) and then their public key
@@ -320,26 +406,28 @@ def _parse_script_sig(script, kwargs):
     match = [ Ops.OP_PUSHDATA4, Ops.OP_PUSHDATA4 ]
     if _match_decoded(decoded, match):
         sig = decoded[0][1]
-        x_pubkey = XPublicKey(decoded[1][1])
+        x_pubkey = XPublicKey.from_bytes(decoded[1][1])
         kwargs['signatures'] = [sig]
         kwargs['threshold'] = 1
         kwargs['x_pubkeys'] = [x_pubkey]
+        kwargs['script_type'] = ScriptType.P2PKH
         kwargs['address'] = x_pubkey.to_address()
         return
 
     # p2sh transaction, m of n
     match = [ Ops.OP_0 ] + [ Ops.OP_PUSHDATA4 ] * (len(decoded) - 1)
     if not _match_decoded(decoded, match):
-        logger.error("cannot find address in input script %s", bh2u(script))
+        logger.error("cannot find address in input script %s", script.hex())
         return
 
     nested_script = decoded[-1][1]
     dec2 = [ x for x in _script_GetOp(nested_script) ]
-    x_pubkeys = [XPublicKey(x[1]) for x in dec2[1:-2]]
+    x_pubkeys = [XPublicKey.from_bytes(x[1]) for x in dec2[1:-2]]
     m, n, match_multisig = _extract_multisig_pattern(dec2)
     if not _match_decoded(dec2, match_multisig):
-        logger.error("cannot find address in input script %s", bh2u(script))
+        logger.error("cannot find address in input script %s", script.hex())
         return
+    kwargs['script_type'] = ScriptType.MULTISIG_P2SH
     kwargs['x_pubkeys'] = x_pubkeys
     kwargs['threshold'] = m
     kwargs['address'] = P2SH_Address(hash160(multisig_script(x_pubkeys, m)), Net.COIN)
@@ -360,26 +448,27 @@ def multisig_script(x_pubkeys, threshold):
     return b''.join(parts)
 
 
-def tx_from_str(txt):
+def txdict_from_str(txt: str) -> Dict[str, Any]:
     "Takes json or hexadecimal, returns a hexadecimal string."
     import json
     txt = txt.strip()
     if not txt:
         raise ValueError("empty string")
     try:
-        bfh(txt)
-        is_hex = True
-    except:
-        is_hex = False
-    if is_hex:
-        return txt
-    tx_dict = json.loads(str(txt))
-    assert "hex" in tx_dict.keys()
-    return tx_dict["hex"]
+        bytes.fromhex(txt)
+        return { "hex": txt }
+    except Exception:
+        pass
+    tx_dict = json.loads(txt)
+    assert "hex" in tx_dict
+    return tx_dict
 
 
 
+@attr.s(slots=True)
 class Transaction(Tx):
+    description: Optional[str] = attr.ib(default=None)
+    output_info: Optional[List[Dict[bytes, Any]]] = attr.ib(default=None)
 
     SIGHASH_FORKID = 0x40
 
@@ -393,7 +482,17 @@ class Transaction(Tx):
         return cls(
             read_le_int32(read),
             read_list(read, XTxInput.read),
-            read_list(read, TxOutput.read),
+            read_list(read, XTxOutput.read),
+            read_le_uint32(read),
+        )
+
+    @classmethod
+    def read_extended(cls, read):
+        '''Overridden to specialize reading the inputs.'''
+        return cls(
+            read_le_int32(read),
+            read_list(read, XTxInput.read_extended),
+            read_list(read, XTxOutput.read),
             read_le_uint32(read),
         )
 
@@ -401,9 +500,13 @@ class Transaction(Tx):
         return b''.join((
             pack_le_int32(self.version),
             pack_list(self.inputs, XTxInput.to_bytes),
-            pack_list(self.outputs, TxOutput.to_bytes),
+            pack_list(self.outputs, XTxOutput.to_bytes),
             pack_le_uint32(self.locktime),
         ))
+
+    @classmethod
+    def from_extended_bytes(cls, raw: bytes) -> 'Transaction':
+        return cls.read_extended(BytesIO(raw).read)
 
     def __str__(self):
         return self.serialize()
@@ -451,17 +554,18 @@ class Transaction(Tx):
                     break
 
     @classmethod
-    def get_preimage_script(self, txin):
+    def get_preimage_script(self, txin) -> str:
         _type = txin.type()
-        if _type == 'p2pkh':
-            return txin.address.to_script_bytes().hex()
-        elif _type == 'p2sh':
-            pubkeys = [x_pubkey.to_public_key() for x_pubkey in txin.x_pubkeys]
-            return multisig_script(pubkeys, txin.threshold).hex()
-        elif _type == 'p2pk':
+        if _type == ScriptType.P2PKH:
             x_pubkey = txin.x_pubkeys[0]
-            output = P2PK_Output(x_pubkey.to_public_key())
-            return output.to_script_bytes().hex()
+            script = x_pubkey.to_public_key().P2PKH_script()
+            return script.to_bytes().hex()
+        elif _type == ScriptType.MULTISIG_P2SH or _type == ScriptType.MULTISIG_BARE:
+            return multisig_script(txin.x_pubkeys, txin.threshold).hex()
+        elif _type == ScriptType.P2PK:
+            x_pubkey = txin.x_pubkeys[0]
+            script = x_pubkey.to_public_key().P2PK_script()
+            return script.to_bytes().hex()
         else:
             raise RuntimeError('Unknown txin type', _type)
 
@@ -471,7 +575,7 @@ class Transaction(Tx):
         self.outputs.sort(key = lambda output: (output.value, output.script_pubkey.to_bytes()))
 
     @classmethod
-    def nHashType(cls):
+    def nHashType(cls) -> int:
         '''Hash type in hex.'''
         return 0x01 | cls.SIGHASH_FORKID
 
@@ -479,36 +583,44 @@ class Transaction(Tx):
         input_index = self.inputs.index(txin)
         script_code = bytes.fromhex(self.get_preimage_script(txin))
         sighash = SigHash(self.nHashType())
+        # Original BTC algorithm: https://en.bitcoin.it/wiki/OP_CHECKSIG
+        # Current algorithm: https://github.com/moneybutton/bips/blob/master/bip-0143.mediawiki
         return self.signature_hash(input_index, txin.value, script_code, sighash=sighash)
 
-    def serialize(self):
+    def serialize(self) -> str:
         return self.to_bytes().hex()
 
-    def txid(self):
+    def txid(self) -> Optional[str]:
         '''A hexadecimal string if complete, otherwise None.'''
         if self.is_complete():
             return hash_to_hex_str(self.hash())
         return None
 
-    def input_value(self):
+    def input_value(self) -> int:
         return sum(txin.value for txin in self.inputs)
 
-    def output_value(self):
+    def output_value(self) -> int:
         return sum(output.value for output in self.outputs)
 
-    def get_fee(self):
+    def get_fee(self) -> int:
         return self.input_value() - self.output_value()
 
-    def estimated_size(self):
+    def size(self) -> int:
+        if self.is_complete():
+            return len(self.to_bytes())
+        else:
+            return self.estimated_size()
+
+    def estimated_size(self) -> int:
         '''Return an estimated tx size in bytes.'''
         saved_inputs = self.inputs
-        self.inputs = []
+        self.inputs: List[XTxInput] = []
         size_without_inputs = len(self.to_bytes())
         self.inputs = saved_inputs
         input_size = sum(txin.estimated_size() for txin in self.inputs)
         return size_without_inputs + input_size
 
-    def signature_count(self):
+    def signature_count(self) -> Tuple[int, int]:
         r = 0
         s = 0
         for txin in self.inputs:
@@ -517,30 +629,75 @@ class Transaction(Tx):
             r += txin.threshold
         return s, r
 
-    def sign(self, keypairs):
+    def sign(self, keypairs: Dict[XPublicKey, Tuple[bytes, bool]]) -> None:
         assert all(isinstance(key, XPublicKey) for key in keypairs)
         for txin in self.inputs:
             if txin.is_complete():
                 continue
             for j, x_pubkey in enumerate(txin.x_pubkeys):
-                if x_pubkey in keypairs.keys():
+                if x_pubkey in keypairs:
                     logger.debug("adding signature for %s", x_pubkey)
-                    sec, compressed = keypairs.get(x_pubkey)
-                    txin.signatures[j] = self.sign_txin(txin, sec)
-                    if x_pubkey.kind() == 0xfd:
-                        pubkey_bytes = PrivateKey(sec).public_key.to_bytes(compressed=compressed)
-                        txin.x_pubkeys[j] = XPublicKey(pubkey_bytes)
+                    sec, compressed = keypairs[x_pubkey]
+                    txin.signatures[j] = self._sign_txin(txin, sec)
         logger.debug("is_complete %s", self.is_complete())
 
-    def sign_txin(self, txin, privkey_bytes):
+    def _sign_txin(self, txin: XTxInput, privkey_bytes: bytes) -> bytes:
         pre_hash = self.preimage_hash(txin)
         privkey = PrivateKey(privkey_bytes)
         sig = privkey.sign(pre_hash, None)
         return sig + pack_byte(self.nHashType())
 
-    def as_dict(self):
-        out = {
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Transaction':
+        version = data.get('version', 0)
+        tx = cls.from_hex(data['hex'])
+        if version == 1:
+            input_data: Optional[Dict[str, Any]] = data.get('inputs')
+            if input_data is not None:
+                assert len(tx.inputs) == len(input_data)
+                for i, txin in enumerate(tx.inputs):
+                    txin.script_type = ScriptType(input_data[i]['script_type'])
+                    txin.threshold = int(input_data[i]['threshold'])
+                    txin.value = int(input_data[i]['value'])
+                    txin.signatures = [ bytes.fromhex(v) for v in input_data[i]['signatures'] ]
+                    txin.x_pubkeys = [ XPublicKey.from_dict(v) for v in input_data[i]['x_pubkeys']]
+            output_data: Optional[Dict[str, Any]] = data.get('outputs')
+            if output_data is not None:
+                assert len(tx.outputs) == len(output_data)
+                for i, txout in enumerate(tx.outputs):
+                    txout.script_type = ScriptType(output_data[i]['script_type'])
+                    txout.x_pubkeys = [ XPublicKey.from_dict(v)
+                        for v in output_data[i]['x_pubkeys']]
+            if 'description' in data:
+                tx.description = str(data['description'])
+        assert tx.is_complete() == data["complete"]
+        return tx
+
+    def to_dict(self, force_signing_metadata: bool=False) -> Dict[str, Any]:
+        out: Dict[str, Any] = {
+            'version': 1,
             'hex': self.to_hex(),
             'complete': self.is_complete(),
         }
+        if self.description:
+            out['description'] = self.description
+        if force_signing_metadata or not out['complete']:
+            out['inputs'] = []
+            for txin in self.inputs:
+                input_entry: Dict[str, Any] = {}
+                input_entry['script_type'] = txin.script_type
+                input_entry['threshold'] = txin.threshold
+                input_entry['value'] = txin.value
+                input_entry['signatures'] = [ sig.hex() for sig in txin.signatures ]
+                input_entry['x_pubkeys'] = [ xpk.to_dict() for xpk in txin.x_pubkeys ]
+                out['inputs'].append(input_entry)
+            output_data = []
+            if any(len(o.x_pubkeys) for o in self.outputs):
+                for txout in self.outputs:
+                    output_entry: Dict[str, Any] = {}
+                    output_entry['script_type'] = txout.script_type
+                    output_entry['x_pubkeys'] = [ xpk.to_dict() for xpk in txout.x_pubkeys ]
+                    output_data.append(output_entry)
+            if len(output_data):
+                out['outputs'] = output_data
         return out

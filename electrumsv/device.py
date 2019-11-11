@@ -25,11 +25,16 @@
 from collections import namedtuple
 import threading
 import time
+from typing import Dict, Any, TYPE_CHECKING
 
 from .app_state import app_state
 from .i18n import _
 from .exceptions import UserCancelled
 from .logs import logs
+
+if TYPE_CHECKING:
+    from electrumsv.keystore import KeyStore
+    from electrumsv.wallet_database.tables import KeyInstanceRow
 
 
 logger = logs.get_logger("devices")
@@ -169,9 +174,9 @@ class DeviceMgr:
             logger.debug("loaded %s", device_kind)
         return self.plugins[device_kind]
 
-    def create_keystore(self, d):
-        plugin = self.get_plugin(d['hw_type'])
-        return plugin.create_keystore(d)
+    def create_keystore(self, data: Dict[str, Any], row: 'KeyInstanceRow') -> 'KeyStore':
+        plugin = self.get_plugin(data['hw_type'])
+        return plugin.create_keystore(data, row)
 
     def supported_devices(self):
         '''Returns a dictionary.  Keys are all supported device kinds; the value is

@@ -1,17 +1,13 @@
 # ...
 from enum import IntEnum
 
-
 ## Wallet
 
+# NOTE(rt12) remove when base wizard is removed.
 class WalletTypes:
     STANDARD = "standard"
     MULTISIG = "multisig"
     IMPORTED = "imported"
-
-class ParentWalletKinds:
-    MULTI_ACCOUNT = "electrumsv/multi-account"
-    LEGACY = "electrum/legacy"
 
 ## Wallet storage
 
@@ -24,6 +20,8 @@ class StorageKind(IntEnum):
 ## Wallet database
 
 DATABASE_EXT = ".sqlite"
+MIGRATION_FIRST = 22
+MIGRATION_CURRENT = 22
 
 class TxFlags(IntEnum):
     Unset = 0
@@ -32,12 +30,7 @@ class TxFlags(IntEnum):
     HasFee = 1 << 4
     HasHeight = 1 << 5
     HasPosition = 1 << 6
-    HasTimestamp = 1 << 7
-
-    # TODO: Evaluate whether maintaining these is more effort than it's worth.
-    # Reflects Transactions.ByteData contains a value:
     HasByteData = 1 << 12
-    # Reflects Transactions.ProofData contains a value:
     HasProofData = 1 << 13
 
     # A transaction received over the p2p network which is unconfirmed and in the mempool.
@@ -52,7 +45,7 @@ class TxFlags(IntEnum):
     # A transaction you have given to someone else, and are considering the inputs it uses frozen.
     StateDispatched = 1 << 24
 
-    METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition | HasTimestamp)
+    METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition)
     STATE_MASK = (StateSettled | StateDispatched | StateReceived | StateCleared | StateSigned)
     STATE_UNCLEARED_MASK = (StateDispatched | StateReceived | StateSigned)
     STATE_BROADCAST_MASK = (StateSettled | StateCleared)
@@ -90,3 +83,66 @@ class TxFlags(IntEnum):
 # All these states can only be set if there is transaction data present.
 TRANSACTION_FLAGS = (TxFlags.StateSettled, TxFlags.StateDispatched, TxFlags.StateReceived,
     TxFlags.StateCleared, TxFlags.StateSigned)
+
+
+class ScriptType(IntEnum):
+    NONE = 0
+    COINBASE = 1
+    P2PKH = 2
+    P2PK = 3
+    MULTISIG_P2SH = 4
+    MULTISIG_BARE = 5
+    MULTISIG_ACCUMULATOR = 6
+
+ADDRESSABLE_SCRIPT_TYPES = (ScriptType.P2PKH, ScriptType.MULTISIG_P2SH)
+
+
+class DerivationType(IntEnum):
+    ELECTRUM_OLD = 1
+    ELECTRUM_MULTISIG = 2
+    BIP32 = 3
+    BIP32_SUBPATH = 4
+    IMPORTED = 5
+    HARDWARE = 6
+    PUBLIC_KEY_HASH = 7
+    PUBLIC_KEY = 8
+    PRIVATE_KEY = 9
+    SCRIPT_HASH = 10
+
+
+RECEIVING_SUBPATH = (0,)
+CHANGE_SUBPATH = (1,)
+
+
+class KeyInstanceFlag(IntEnum):
+    NONE = 0
+
+    # This key should be loaded and managed appropriately.
+    IS_ACTIVE = 1 << 0
+    # This key has been given out to an external party.
+    IS_ALLOCATED = 1 << 1
+
+    # The user explicitly set this key to be active. It is not intended that the management
+    # mark it inactive without good reason.
+    USER_SET_ACTIVE = 1 << 8
+
+    # The mask used to load the subset of keys that are actively cached by accounts.
+    CACHE_MASK = IS_ACTIVE
+    ACTIVE_MASK = IS_ACTIVE | USER_SET_ACTIVE
+
+
+class TransactionOutputFlag(IntEnum):
+    NONE = 0
+
+    # If the UTXO is in a local or otherwise unconfirmed transaction.
+    IS_ALLOCATED = 1 << 1
+    # If the UTXO is in a confirmed transaction.
+    IS_SPENT = 1 << 2
+    # If the UTXO is marked as not to be used. It should not be allocated if unallocated, and
+    # if allocated then ideally we might extend this to prevent further dispatch in any form.
+    IS_FROZEN = 1 << 3
+    IS_COINBASE = 1 << 4
+
+    USER_SET_FROZEN = 1 << 8
+
+    FROZEN_MASK = IS_FROZEN | USER_SET_FROZEN

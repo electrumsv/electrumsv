@@ -70,7 +70,7 @@ class MyEncoder(json.JSONEncoder):
     def default(self, o): # pylint: disable=method-hidden
         from .transaction import Transaction
         if isinstance(o, Transaction):
-            return o.as_dict()
+            return o.to_dict()
         return super(MyEncoder, self).default(o)
 
 
@@ -180,7 +180,7 @@ def json_encode(obj):
 def json_decode(x):
     try:
         return json.loads(x, parse_float=Decimal)
-    except:
+    except Exception:
         return x
 
 
@@ -354,7 +354,7 @@ def format_fee_satoshis(fee, num_zeros=0):
 def timestamp_to_datetime(timestamp):
     try:
         return datetime.fromtimestamp(timestamp)
-    except:
+    except Exception:
         return None
 
 def format_time(timestamp, default_text):
@@ -435,7 +435,7 @@ def parse_json(message):
         return None, message
     try:
         j = json.loads(message[0:n].decode('utf8'))
-    except:
+    except Exception:
         j = None
     return j, message[n+1:]
 

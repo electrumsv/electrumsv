@@ -110,7 +110,7 @@ class Contacts(object):
         self._entries = {}
         self.storage = storage
 
-        data = storage.get('contacts2', None)
+        data = storage.get('contacts2')
         if data is not None:
             version, contacts_data = data
             if version < 4:

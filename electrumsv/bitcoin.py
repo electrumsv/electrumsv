@@ -23,8 +23,14 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from bitcoinx import Ops, hash_to_hex_str, sha256, Address
+from typing import Sequence, Union
 
+from bitcoinx import (Ops, hash_to_hex_str, sha256, Address, classify_output_script,
+    OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address, Script,
+    Unknown_Output)
+
+
+from .bip276 import bip276_decode, bip276_encode, PREFIX_SCRIPT
 from .crypto import hmac_oneshot
 from .networks import Net
 from .util import bfh, bh2u, assert_bytes, to_bytes
@@ -201,10 +207,27 @@ def base_decode(v, length, base):
 
 ########### end pywallet functions #######################
 
-def scripthash_hex(item):
-    if isinstance(item, Address):
-        item = item.to_script_bytes()
-    return hash_to_hex_str(sha256(bytes(item)))
+ScriptTemplate = Union[OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_Address,
+    P2SH_Address, Unknown_Output]
+
+def script_template_to_string(template: ScriptTemplate, bip276: bool=False) -> str:
+    if not bip276 and isinstance(template, Address):
+        return template.to_string()
+    return bip276_encode(PREFIX_SCRIPT, template.to_script_bytes(), Net.BIP276_VERSION)
+
+def string_to_script_template(text: str) -> ScriptTemplate:
+    # raises bip276.ChecksumMismatchError
+    if text.startswith(PREFIX_SCRIPT):
+        prefix, version, network, data = bip276_decode(text, Net.BIP276_VERSION)
+        assert network == Net.BIP276_VERSION, "incompatible network"
+        return classify_output_script(Script(data), Net.COIN)
+    return Address.from_string(text, Net.COIN)
+
+def scripthash_bytes(script: Script) -> bytes:
+    return sha256(bytes(script))
+
+def scripthash_hex(item: Script) -> str:
+    return hash_to_hex_str(scripthash_bytes(item))
 
 def msg_magic(message):
     length = bfh(var_int(len(message)))
@@ -219,3 +242,20 @@ def is_address_valid(address):
         return True
     except ValueError:
         return False
+
+HARDENED = 1 << 31
+
+def compose_chain_string(derivation: Sequence[int]) -> str:
+    '''Given a list of unsigned integers return a chain string.
+
+       For example:  [1, 0x80000002, 0x80000003, 0] -> m/1/2'/3'/0
+                     []                              -> m
+    '''
+    result = "m"
+    for value in derivation:
+        result += "/"
+        if value > HARDENED:
+            result += str(value - HARDENED) +"'"
+        else:
+            result += str(value)
+    return result

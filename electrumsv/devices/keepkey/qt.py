@@ -395,8 +395,8 @@ class SettingsDialog(WindowModalDialog):
             invoke_client('set_pin', remove=True)
 
         def wipe_device():
-            wallets = window.parent_wallet.get_wallets_for_keystore(keystore)
-            if sum(wallet.get_balance() for wallet in wallets):
+            accounts = window._wallet.get_accounts_for_keystore(keystore)
+            if sum(sum(account.get_balance()) for account in accounts):
                 title = _("Confirm Device Wipe")
                 msg = _("Are you SURE you want to wipe the device?\n"
                         "Your wallet still has bitcoins in it!")

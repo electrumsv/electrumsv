@@ -27,7 +27,7 @@
 from functools import partial
 from queue import Queue
 import threading
-from typing import Union, Optional
+from typing import Optional
 
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QAction
@@ -37,15 +37,14 @@ from electrumsv.exceptions import UserCancelled
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.i18n import _
 
-from electrumsv.gui.qt.installwizard import InstallWizard
 from electrumsv.gui.qt.main_window import ElectrumWindow
-from electrumsv.gui.qt.password_dialog import PasswordDialog, PW_PASSPHRASE, PasswordLineEdit
+from electrumsv.gui.qt.password_dialog import PasswordDialog, PasswordAction, PasswordLineEdit
 from electrumsv.gui.qt.util import (
     WindowModalDialog, Buttons, OkButton, CancelButton, WWLabel, read_QIcon,
 )
 
 
-HandlerWindow = Union[ElectrumWindow, InstallWizard]
+HandlerWindow = ElectrumWindow
 
 
 # The trickiest thing about this handler was getting windows properly
@@ -134,7 +133,7 @@ class QtHandlerBase(QObject):
         # If confirm is true, require the user to enter the passphrase twice
         parent = self.top_level_window()
         if confirm:
-            d = PasswordDialog(parent, None, msg, PW_PASSPHRASE)
+            d = PasswordDialog(parent, None, msg, PasswordAction.PASSPHRASE)
             confirmed, p, passphrase = d.run()
         else:
             d = WindowModalDialog(parent, _("Enter Passphrase"))
@@ -208,8 +207,8 @@ class QtPluginBase(object):
 
     def replace_gui_handler(self, window: ElectrumWindow, keystore: Hardware_KeyStore):
         handler = self.create_handler(window)
-        keystore.handler = handler
-        keystore.plugin = self
+        keystore.handler = handler # type: ignore
+        keystore.plugin = self # type: ignore
 
         action_label = _('Unnamed')
         if keystore.label and keystore.label.strip():
@@ -249,4 +248,5 @@ class QtPluginBase(object):
         try:
             self.show_settings_dialog(window, keystore)
         except Exception as e:
+            assert keystore.handler is not None
             keystore.handler.show_error(str(e))

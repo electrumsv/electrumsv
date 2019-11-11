@@ -31,21 +31,18 @@ import os
 import sys
 import time
 
-from electrumsv import daemon, keystore, web
+from electrumsv import daemon, web
 from electrumsv.app_state import app_state, AppStateProxy, DefaultApp
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.logs import logs
-from electrumsv.mnemonic import Mnemonic
-from electrumsv.network import Network
 from electrumsv.networks import Net, SVTestnet, SVScalingTestnet
 from electrumsv.platform import platform
 from electrumsv.simple_config import SimpleConfig
 from electrumsv import startup
 from electrumsv.storage import WalletStorage
 from electrumsv.util import json_encode, json_decode, setup_thread_excepthook
-from electrumsv.wallet import (ImportedAddressWallet, ImportedPrivkeyWallet, ParentWallet,
-    Standard_Wallet)
+from electrumsv.wallet import Wallet
 
 
 # get password routine
@@ -62,73 +59,40 @@ def prompt_password(prompt, confirm=True):
 
 
 def run_non_RPC(config):
-    cmdname = config.get('cmd')
+    # TODO(rt12) BACKLOG re-enable at a later tiem.
+    sys.exit("Not currently supported, create an issue on github")
 
-    wallet_path = config.get_wallet_path()
-    if WalletStorage.files_are_matched_by_path(wallet_path):
-        sys.exit("Error: wallet name in use at given path")
+    # cmdname = config.get('cmd')
 
-    storage = WalletStorage(wallet_path)
+    # wallet_path = config.get_wallet_path()
+    # if WalletStorage.files_are_matched_by_path(wallet_path):
+    #     sys.exit("Error: wallet name in use at given path")
 
-    def password_dialog():
-        return prompt_password("Password (hit return if you do not wish to encrypt your wallet):")
+    # storage = WalletStorage(wallet_path)
 
-    if cmdname == 'restore':
-        text = config.get('text').strip()
-        passphrase = config.get('passphrase', '')
-        password = password_dialog() if keystore.is_private(text) else None
+    # def password_dialog():
+    #     return prompt_password("Password (hit return if you do not wish to encrypt your wallet):")
 
-        parent_wallet = ParentWallet.as_legacy_wallet_container(storage)
-        if keystore.is_address_list(text):
-            legacy_wallet = ImportedAddressWallet.from_text(parent_wallet, text)
-        elif keystore.is_private_key_list(text):
-            legacy_wallet = ImportedPrivkeyWallet.from_text(parent_wallet, text)
-        else:
-            if keystore.is_seed(text):
-                k = keystore.from_seed(text, passphrase, False)
-            elif keystore.is_master_key(text):
-                k = keystore.from_master_key(text)
-            else:
-                sys.exit("Error: Seed or key not recognized")
+    # if cmdname == 'create':
+    #     password = password_dialog().strip()
+    #     if not password:
+    #         sys.exit("Error: wallet creation requires a password")
 
-            keystore_usage = parent_wallet.add_keystore(k.dump())
-            Standard_Wallet.create_within_parent(parent_wallet, keystore_usage=[ keystore_usage ])
+    #     passphrase = config.get('passphrase', '')
+    #     seed_type = 'standard'
+    #     seed = Mnemonic('en').make_seed(seed_type)
+    #     k = keystore.from_seed(seed, passphrase)
 
-        if password:
-            parent_wallet.update_password(None, password)
+    #     wallet = Wallet(storage)
+    #     keystore_usage = wallet.create_masterkey_from_keystore(k.dump())
+    #     StandardAccount.create_within_wallet(wallet, keystore_usage=[ keystore_usage ])
+    #     wallet.update_password(password)
+    # else:
+    #     sys.exit("Error: unrecognised command")
 
-        if not config.get('offline'):
-            network = Network()
-            network.add_wallet(parent_wallet)
-            print("Recovering wallet...")
-            parent_wallet.synchronize()
-            msg = ("Recovery successful" if parent_wallet.has_usage()
-                   else "Found no history for this wallet")
-        else:
-            msg = ("This wallet was restored offline. "
-                   "It may contain more addresses than displayed.")
-        print(msg)
-
-    elif cmdname == 'create':
-        password = password_dialog()
-        passphrase = config.get('passphrase', '')
-        seed_type = 'standard'
-        seed = Mnemonic('en').make_seed(seed_type)
-        k = keystore.from_seed(seed, passphrase, False)
-
-        parent_wallet = ParentWallet.as_legacy_wallet_container(storage)
-        keystore_usage = parent_wallet.add_keystore(k.dump())
-        Standard_Wallet.create_within_parent(parent_wallet, keystore_usage=[ keystore_usage ])
-
-        parent_wallet.update_password(None, password)
-        parent_wallet.synchronize()
-        print("Your wallet generation seed is:\n\"%s\"" % seed)
-        print("Please keep it in a safe place; if you lose it, "
-              "you will not be able to restore your wallet.")
-
-    parent_wallet.save_storage()
-    print(f"Wallet saved in '{parent_wallet.get_storage_path()}'")
-    sys.exit(0)
+    # wallet.save_storage()
+    # print(f"Wallet saved in '{wallet.get_storage_path()}'")
+    # sys.exit(0)
 
 
 def init_daemon(config_options):
@@ -140,19 +104,16 @@ def init_daemon(config_options):
               "or provide a path to a wallet with the -w option")
         sys.exit(0)
     storage = WalletStorage(wallet_path)
-    if storage.is_encrypted():
-        if 'wallet_password' in config_options:
-            print('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
-            password = config_options['wallet_password']
-        elif config.get('password'):
-            password = config.get('password')
-        else:
-            password = prompt_password('Password:', False)
-            if not password:
-                print("Error: Password required")
-                sys.exit(1)
+    if 'wallet_password' in config_options:
+        print('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
+        password = config_options['wallet_password']
+    elif config.get('password'):
+        password = config.get('password')
     else:
-        password = None
+        password = prompt_password('Password:', False)
+        if not password:
+            print("Error: Password required")
+            sys.exit(1)
     config_options['password'] = password
 
 
@@ -189,9 +150,7 @@ def init_cmdline(config_options, server):
               "proposed by third parties.", file=sys.stderr)
 
     # commands needing password
-    if ((cmd.requires_wallet and storage.is_encrypted() and server is None)
-        or (cmd.requires_password
-            and (storage.get('use_encryption') or storage.is_encrypted()))):
+    if cmd.requires_wallet and server is None or cmd.requires_password:
         if config.get('password'):
             password = config.get('password')
         else:
@@ -221,17 +180,14 @@ def run_offline_command(config, config_options):
             print("Error: wallet does not exist at given path")
             sys.exit(1)
         storage = WalletStorage(wallet_path)
-        if storage.is_encrypted():
-            storage.decrypt(password)
-        parent_wallet = ParentWallet(storage)
+        wallet = Wallet(storage)
     else:
-        parent_wallet = None
-    # check password
-    if cmd.requires_password and parent_wallet.has_password():
+        wallet = None
+    if cmd.requires_password:
         try:
-            parent_wallet.check_password(password)
+            wallet.check_password(password)
         except InvalidPassword:
-            print("Error: This password does not decode this wallet.")
+            print("Error: This password cannot access the wallet's private data.")
             sys.exit(1)
     if cmd.requires_network:
         print("Warning: running command offline")
@@ -244,12 +200,12 @@ def run_offline_command(config, config_options):
     kwargs = {}
     for x in cmd.options:
         kwargs[x] = (config_options.get(x) if x in ['password', 'new_password'] else config.get(x))
-    cmd_runner = Commands(config, parent_wallet, None)
+    cmd_runner = Commands(config, wallet, None)
     func = getattr(cmd_runner, cmd.name)
     result = func(*args, **kwargs)
     # save wallet
-    if parent_wallet:
-        parent_wallet.save_storage()
+    if wallet:
+        wallet.save_storage()
     return result
 
 
@@ -375,7 +331,9 @@ def main():
         if portable_base_path is None:
             # Default to the same directory the 'electrum-sv' script is in.
             portable_base_path = os.path.dirname(os.path.realpath(sys.argv[0]))
-        config_options['electrum_sv_path'] = os.path.join(portable_base_path, 'electrum_sv_data')
+        if 'electrum_sv_path' not in config_options:
+            config_options['electrum_sv_path'] = os.path.join(portable_base_path,
+                'electrum_sv_data')
 
     if config_options.get('file_logging'):
         if config_options.get('portable'):

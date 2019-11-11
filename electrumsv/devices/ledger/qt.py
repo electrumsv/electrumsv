@@ -21,6 +21,7 @@ class Plugin(LedgerPlugin, QtPluginBase):
         return Ledger_Handler(window)
 
     def show_settings_dialog(self, window: ElectrumWindow, keystore: Hardware_KeyStore) -> None:
+        assert keystore.handler is not None
         keystore.handler.setup_dialog()
 
 

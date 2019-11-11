@@ -1,24 +1,27 @@
 import hashlib
 from struct import pack, unpack
-from typing import Optional, Tuple, TYPE_CHECKING, Any
+from typing import Any, cast, Dict, Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx import (
-    BIP32Derivation, BIP32PublicKey, PublicKey, TxOutput, pack_be_uint32, pack_list, pack_le_int64
+    BIP32Derivation, BIP32PublicKey, PublicKey, pack_be_uint32, pack_list, pack_le_int64
 )
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import int_to_hex
+from electrumsv.bitcoin import compose_chain_string, int_to_hex
+from electrumsv.constants import ScriptType
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import Transaction, classify_tx_output
-from electrumsv.util import bfh, versiontuple
+from electrumsv.transaction import Transaction, classify_tx_output, XTxOutput
+from electrumsv.util import versiontuple
+from electrumsv.wallet import AbstractAccount
 
 from ..hw_wallet import HW_PluginBase
 
 if TYPE_CHECKING:
     from .qt import Ledger_Handler
+    from electrumsv.wallet_database.tables import MasterKeyRow
 
 try:
     import hid
@@ -208,17 +211,17 @@ class Ledger_KeyStore(Hardware_KeyStore):
     hw_type = 'ledger'
     device = 'Ledger'
 
-    def __init__(self, d):
-        Hardware_KeyStore.__init__(self, d)
+    def __init__(self, data: Dict[str, Any], row: 'MasterKeyRow') -> None:
+        Hardware_KeyStore.__init__(self, data, row)
         # Errors and other user interaction is done through the wallet's
         # handler.  The handler is per-window and preserved across
         # device reconnects
         self.force_watching_only = False
         self.signing = False
-        self.cfg = d.get('cfg', {'mode':0})
+        self.cfg = data.get('cfg', {'mode':0})
 
-    def dump(self):
-        obj = Hardware_KeyStore.dump(self)
+    def to_derivation_data(self) -> Dict[str, Any]:
+        obj = super().to_derivation_data()
         obj['cfg'] = self.cfg
         return obj
 
@@ -251,13 +254,6 @@ class Ledger_KeyStore(Hardware_KeyStore):
             finally:
                 self.signing = False
         return wrapper
-
-    def address_id_stripped(self, address):
-        # Strip the leading "m/"
-        change, index = self.get_address_index(address)
-        derivation = self.derivation
-        address_path = "{:s}/{:d}/{:d}".format(derivation, change, index)
-        return address_path[2:]
 
     def decrypt_message(self, pubkey, message, password):
         raise RuntimeError(_('Encryption and decryption are not supported for {}').format(
@@ -329,18 +325,17 @@ class Ledger_KeyStore(Hardware_KeyStore):
         self.get_client() # prompt for the PIN before displaying the dialog if necessary
 
         # Sanity check
-        is_p2sh = any(txin.type() == 'p2sh' for txin in tx.inputs)
-        if is_p2sh and not all(txin.type() == 'p2sh' for txin in tx.inputs):
+        is_p2sh = any(txin.type() == ScriptType.MULTISIG_P2SH for txin in tx.inputs)
+        if is_p2sh and not all(txin.type() == ScriptType.MULTISIG_P2SH for txin in tx.inputs):
             self.give_error("P2SH / regular input mixed in same transaction not supported")
 
         # Fetch inputs of the transaction to sign
-        derivations = self.get_tx_derivations(tx)
         for txin in tx.inputs:
             for i, x_pubkey in enumerate(txin.x_pubkeys):
-                if x_pubkey in derivations:
+                if self.is_signature_candidate(x_pubkey):
                     signingPos = i
-                    s = derivations.get(x_pubkey)
-                    hwAddress = "{:s}/{:d}/{:d}".format(self.get_derivation()[2:], s[0], s[1])
+                    key_derivation = x_pubkey.bip32_path()
+                    inputPath = "%s/%d/%d" % (self.get_derivation()[2:], *key_derivation)
                     break
             else:
                 self.give_error("No matching x_key for sign_transaction") # should never happen
@@ -348,17 +343,21 @@ class Ledger_KeyStore(Hardware_KeyStore):
             redeemScript = Transaction.get_preimage_script(txin)
             inputs.append([txin.value, None, redeemScript,
                            None, signingPos, txin.sequence])
-            inputsPaths.append(hwAddress)
+            inputsPaths.append(inputPath)
 
         # Concatenate all the tx outputs as binary
-        txOutput = pack_list(tx.outputs, TxOutput.to_bytes)
+        txOutput = pack_list(tx.outputs, XTxOutput.to_bytes)
 
         # Recognize outputs - only one output and one change is authorized
         if not is_p2sh:
-            for tx_output, info in zip(tx.outputs, tx.output_info):
+            keystore_fingerprint = self.get_fingerprint()
+            # TODO(rt12) BACKLOG this does nothing, it seems half-finished.
+            for tx_output, output_metadatas in zip(tx.outputs, tx.output_info):
+                info = output_metadatas.get(keystore_fingerprint)
                 if (info is not None) and len(tx.outputs) != 1:
-                    index, xpubs, m = info
-                    changePath = self.get_derivation()[2:] + "/{:d}/{:d}".format(*index)
+                    key_derivation, xpubs, m = info
+                    key_subpath = compose_chain_string(key_derivation)[1:]
+                    changePath = self.get_derivation()[2:] + key_subpath
                     changeAmount = tx_output.value
                 else:
                     output = classify_tx_output(tx_output)
@@ -372,7 +371,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
                 prevout_bytes = txin.prevout_bytes()
                 value_bytes = prevout_bytes + pack_le_int64(utxo[0])
                 chipInputs.append({'value' : value_bytes, 'witness' : True, 'sequence' : sequence})
-                redeemScripts.append(bfh(utxo[2]))
+                redeemScripts.append(bytes.fromhex(utxo[2]))
 
             # Sign all inputs
             inputIndex = 0
@@ -421,14 +420,15 @@ class Ledger_KeyStore(Hardware_KeyStore):
         tx.raw = tx.serialize()
 
     @set_and_unset_signing
-    def show_address(self, sequence):
+    def show_address(self, derivation_subpath: str) -> None:
         client = self.get_client()
         # prompt for the PIN before displaying the dialog if necessary
-        address_path = self.get_derivation()[2:] + "/{:d}/{:d}".format(*sequence)
+        address_path = self.get_derivation()[2:] +"/"+ derivation_subpath
+        assert self.handler is not None
         self.handler.show_message(_("Showing address ..."))
         try:
             client.getWalletPublicKey(address_path, showOnScreen=True)
-        except:
+        except Exception:
             pass
         finally:
             self.handler.finished()
@@ -509,6 +509,9 @@ class LedgerPlugin(HW_PluginBase):
             client.checkDevice()
         return client
 
-    def show_address(self, wallet, address):
-        sequence = wallet.get_address_index(address)
-        wallet.get_keystore().show_address(sequence)
+    def show_key(self, account: AbstractAccount, keyinstance_id: int) -> None:
+        derivation_path = account.get_derivation_path(keyinstance_id)
+        assert derivation_path is not None
+        subpath = '/'.join(str(x) for x in derivation_path)
+        keystore = cast(Ledger_KeyStore, account.get_keystore())
+        keystore.show_address(subpath)

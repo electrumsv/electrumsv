@@ -23,9 +23,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# TODO(rt12): Look at how the public key is stored for encryption, currently it is passed into
-#     the stores as hex. Is this the best way?
-
 
 import ast
 import base64
@@ -39,36 +36,44 @@ import shutil
 import stat
 import threading
 import time
-from typing import Any, Dict, List, Optional, Type, TypeVar, cast
+from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Set, Sequence, Tuple,
+    Type, TypeVar)
 import zlib
 
-from bitcoinx import PrivateKey, PublicKey
+from bitcoinx import PrivateKey, PublicKey, hex_str_to_hash, hash_to_hex_str
+from bitcoinx.address import P2PKH_Address, P2SH_Address
 
-from .bitcoin import is_address_valid
-from .constants import StorageKind, DATABASE_EXT, TxFlags, ParentWalletKinds
+from .bitcoin import is_address_valid, address_from_string
+from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, RECEIVING_SUBPATH,
+    ScriptType, StorageKind, TxFlags, TransactionOutputFlag, KeyInstanceFlag)
+from .crypto import pw_encode
 from .exceptions import IncompatibleWalletError
 from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
-from .wallet_database import (DBTxInput, DBTxOutput, JSONKeyValueStore, MigrationContext,
-    TxData, WalletData, DatabaseContext)
+from .transaction import Transaction, classify_tx_output, parse_script_sig
+from .wallet_database import (AccountTable, TxData, DatabaseContext, migration,
+    TransactionTable, MasterKeyTable, KeyInstanceTable, TransactionDeltaTable,
+    TransactionOutputTable, WalletDataTable)
+from .wallet_database.tables import (AccountRow, KeyInstanceRow, MasterKeyRow,
+    TransactionDeltaRow, TransactionOutputRow, TransactionRow, WalletDataRow)
 
 
 logger = logs.get_logger("storage")
 
 
 
-def multisig_type(wallet_type):
+def multisig_type(wallet_type) -> Optional[Tuple[int, int]]:
     '''If wallet_type is mofn multi-sig, return [m, n],
     otherwise return None.'''
-    if not wallet_type:
-        return None
-    match = re.match(r'(\d+)of(\d+)', wallet_type)
-    if match:
-        match = [int(x) for x in match.group(1, 2)]
-    return match
+    if wallet_type:
+        match = re.match(r'(\d+)of(\d+)', wallet_type)
+        if match:
+            result = tuple(int(x) for x in match.group(1, 2))
+            return cast(Tuple[int, int], result)
+    return None
 
-FINAL_SEED_VERSION = 21
+FINAL_SEED_VERSION = 22
 
 WalletStorageInfo = namedtuple('WalletStorageInfo', ['kind', 'filename', 'wallet_filepath'])
 
@@ -80,8 +85,10 @@ def get_categorised_files(wallet_path: str) -> List[WalletStorageInfo]:
     FILE - Just the JSON file (version <= 17).
       thiswalletfile
     HYBRID - Partial transition from JSON file to database (version = 18 or 19).
-      thiswalletfile / thiswalletfile.sqlite
-    DATABASE - Just the database (version >= 20).
+      thiswalletfile / thiswalletfile.sqlite. We do not support these. They were an interim
+      development branch step. These will be dropped entirely after some transition period
+      has passed.
+    DATABASE - Just the database (version >= 22).
       thiswalletfile.sqlite
     """
     filenames = set(s for s in os.listdir(wallet_path))
@@ -134,39 +141,34 @@ def backup_wallet_files(wallet_filepath: str) -> bool:
         attempted_wallet_filepath = f"{base_wallet_filepath}.backup.{attempt}"
 
         # Check if a file of the same name as the attempted database backup exists.
-        if info.kind == StorageKind.HYBRID or info.kind == StorageKind.DATABASE:
+        if info.kind == StorageKind.DATABASE:
             if os.path.exists(attempted_wallet_filepath + DATABASE_EXT):
                 continue
         # Check if a file of the same name as the attempted file backup exists.
-        if info.kind == StorageKind.FILE or info.kind == StorageKind.HYBRID:
+        if info.kind == StorageKind.FILE:
             if os.path.exists(attempted_wallet_filepath):
                 continue
 
         # No objection, the attempted backup path is acceptable.
         break
 
-    if info.kind == StorageKind.HYBRID or info.kind == StorageKind.DATABASE:
+    if info.kind == StorageKind.DATABASE:
         shutil.copyfile(
             base_wallet_filepath + DATABASE_EXT, attempted_wallet_filepath + DATABASE_EXT)
-    if info.kind == StorageKind.FILE or info.kind == StorageKind.HYBRID:
+    if info.kind == StorageKind.FILE:
         shutil.copyfile(base_wallet_filepath,  attempted_wallet_filepath)
 
     return True
 
-StoreType = TypeVar('StoreType', bound='BaseStore')
 
-class BaseStore:
-    _raw: Optional[bytes] = None
+StoreType = TypeVar('StoreType', bound='AbstractStore')
 
-    def __init__(self, path: str, pubkey: Optional[str]=None,
-            data: Optional[Dict[str, Any]]=None) -> None:
+class AbstractStore:
+    def __init__(self, path: str, data: Optional[Dict[str, Any]]=None) -> None:
         assert not path.endswith(DATABASE_EXT)
         self._path = path
-        assert pubkey is None or type(pubkey) is str, "must be hex representation of pubkey"
-        self._pubkey = pubkey
 
         self._data = {} if data is None else data
-        self._modified = bool(data)
 
         self._lock = threading.RLock()
 
@@ -179,30 +181,8 @@ class BaseStore:
     def get_path(self) -> str:
         return self._path
 
-    def is_primed(self) -> bool:
-        # Represents whether the data has been written at least once.
+    def attempt_load_data(self) -> bool:
         raise NotImplementedError
-
-    def is_encrypted(self) -> bool:
-        raise NotImplementedError
-
-    def load_data(self, s: bytes) -> None:
-        raise NotImplementedError
-
-    def read_raw_data(self) -> bytes:
-        raise NotImplementedError
-
-    def get_raw_data(self) -> Optional[bytes]:
-        return self._raw
-
-    def get_encrypted_data(self) -> Optional[bytes]:
-        return self._raw
-
-    def _set_seed_version(self, seed_version: Optional[int]) -> None:
-        raise NotImplementedError
-
-    def set_pubkey(self, pubkey: Optional[str]=None) -> None:
-        self._pubkey = pubkey
 
     def get(self, key: str, default: Optional[Any]=None) -> Any:
         with self._lock:
@@ -220,11 +200,18 @@ class BaseStore:
         with self._lock:
             if value is not None:
                 if self._data.get(key) != value:
-                    self._modified = True
+                    is_update = key in self._data
                     self._data[key] = copy.deepcopy(value)
+                    self._on_value_modified(key, self._data[key], is_update)
             elif key in self._data:
-                self._modified = True
                 self._data.pop(key)
+                self._on_value_deleted(key)
+
+    def _on_value_modified(self, key: str, value: Any, is_update: bool) -> None:
+        raise NotImplementedError
+
+    def _on_value_deleted(self, key: str) -> None:
+        raise NotImplementedError
 
     def write(self) -> None:
         if threading.currentThread().isDaemon():
@@ -232,76 +219,46 @@ class BaseStore:
             return
 
         with self._lock:
-            if self._modified or not self.is_primed():
-                self._raw = self._write()
-                self._modified = False
+            self._write()
 
         logger.debug("saved '%s'", self._path)
 
-    def _write(self) -> bytes:
+    def _write(self) -> None:
         raise NotImplementedError
 
     def requires_split(self) -> bool:
         raise NotImplementedError
 
-    def split_accounts(self) -> Optional[List[str]]:
+    def split_accounts(self, has_password: bool, new_password: str) -> Optional[List[str]]:
         raise NotImplementedError
 
     def requires_upgrade(self) -> bool:
         raise NotImplementedError
 
-    def upgrade(self) -> Optional['BaseStore']:
+    def upgrade(self, has_password: bool, new_password: str) -> Optional['AbstractStore']:
         raise NotImplementedError
 
-    def _is_upgrade_method_needed(self, min_version, max_version):
-        cur_version = self._get_seed_version()
-        if cur_version > max_version:
-            return False
-        elif cur_version < min_version:
-            raise Exception(
-                ('storage upgrade: unexpected version %d (should be %d-%d)'
-                 % (cur_version, min_version, max_version)))
-        else:
-            return True
-
-    def _get_seed_version(self) -> int:
+    def _get_version(self) -> int:
         raise NotImplementedError
 
-    def _raise_unsupported_version(self, seed_version):
-        msg = "Your wallet has an unsupported seed version."
-        msg += '\n\nWallet file: %s' % os.path.abspath(self._path)
-        raise Exception(msg)
 
+class DatabaseStore(AbstractStore):
+    _db_context: DatabaseContext
+    _table: WalletDataTable
 
+    INITIAL_MIGRATION = 22
+    CURRENT_MIGRATION = 22
 
-class DatabaseStore(BaseStore):
-    _primed: bool = False
-    _db_values: JSONKeyValueStore
+    def __init__(self, path: str) -> None:
+        super().__init__(path)
 
-    INITIAL_SEED_VERSION = 20
-
-    def __init__(self, path: str, pubkey: Optional[str]=None,
-            data: Optional[Dict[str, Any]]=None) -> None:
-        # Start from any seed version remaining in the data lump that we inherit from the upgrade
-        # from the `TextStore`. Otherwise we should default to the latest seed version for new
-        # database stores, or whatever is currently persisted for existing database stores.
-        seed_version = 0
-        if data is not None and "seed_version" in data:
-            seed_version = data.pop("seed_version")
-
-        super().__init__(path, pubkey=pubkey, data=data)
-
+        database_already_exists = os.path.exists(self.get_path())
+        if not database_already_exists:
+            # The database does not exist. Create it.
+            from .wallet_database.migration import create_database_file
+            create_database_file(path)
         self.open_database()
-
-        version_data = self._db_values.get("seed_version")
-        if version_data is None:
-            # A new database store, either for a freshly created wallet, or updated from a
-            # text store.
-            self._set_seed_version(seed_version or FINAL_SEED_VERSION)
-        else:
-            # An existing database store we are loading.
-            self._primed = True
-            self._set_seed_version(version_data)
+        self.attempt_load_data()
 
     def close(self) -> None:
         self.close_database()
@@ -314,116 +271,72 @@ class DatabaseStore(BaseStore):
         # This table is unencrypted. If anything is to be encrypted in it, it is encrypted
         # manually before storage.
         self._db_context = DatabaseContext(self._path)
-        initial_aeskey = None
-        storage_group_id = -1
-        self._db_values = JSONKeyValueStore("Storage", self._db_context, initial_aeskey,
-            storage_group_id)
+        self._table = WalletDataTable(self._db_context)
 
     def close_database(self) -> None:
-        self._db_values.close()
+        self._table.close()
 
         # Wait for the database to finish writing, and verify that the context has been fully
         # released by all stores that make use of it.
         self._db_context.close()
 
-    def _get_seed_version(self) -> int:
-        return self._seed_version
-
-    def _set_seed_version(self, seed_version: Optional[int]) -> None:
-        assert seed_version is not None
-        self._seed_version = seed_version
-        self._db_values.set("seed_version", seed_version)
-
     @classmethod
-    def from_text_store(cls: Type[StoreType], store: 'TextStore') -> StoreType:
-        data = copy.deepcopy(store._data)
+    def from_text_store(cls: Type['DatabaseStore'], text_store: 'TextStore') -> 'DatabaseStore':
         # Only fully updated text stores can upgrade to a database store.
-        assert data.get("seed_version") == DatabaseStore.INITIAL_SEED_VERSION
-        new_store = cls(store._path, store._pubkey, data)
-        # We could defer writing to the caller, as an upgrade call should be followed by
-        # a write, but the database file gets created regardless and should be created with
-        # written initial state (which comes from the data).
-        new_store.write()
-        return new_store
-
-    def read_raw_data(self) -> bytes:
-        self._raw = self._db_values.get_value("jsondata")
-        assert self._raw is not None
-        return self._raw
+        data = text_store._data.copy()
+        assert text_store._data.pop("seed_version", -1) == DatabaseStore.INITIAL_MIGRATION
+        return cls(text_store._path)
 
     def get_path(self) -> str:
         return self._path + DATABASE_EXT
 
-    def is_primed(self) -> bool:
-        "Whether data has been written to the storage yet."
-        return self._primed
+    def attempt_load_data(self) -> bool:
+        self._data = {}
+        for row in self._table.read():
+            self._data[row[0]] = row[1]
+        return True
 
-    def is_encrypted(self) -> bool:
-        assert self._raw is not None
-        try:
-            return self._raw[0:4] == b'BIE1'
-        except:
-            return False
-
-    def load_data(self, s: bytes) -> None:
-        self._data = json.loads(s)
-
-    def _write(self) -> bytes:
-        # We pack as JSON before encrypting, so can't just put in the generic key value store,
-        # as that is unencrypted and would just be JSON values in the DB.
-
-        s = json.dumps(self._data, indent=4, sort_keys=True)
-        if self._pubkey:
-            c = zlib.compress(s.encode())
-            raw = PublicKey.from_hex(self._pubkey).encrypt_message(c)
+    def _on_value_modified(self, key: str, value: Any, is_update: bool) -> None:
+        # Queued write, we do not wait for it to complete. Closing the DB context will wait.
+        if is_update:
+            self._table.update([ WalletDataRow(key, value) ])
         else:
-            raw = s.encode()
+            self._table.create([ WalletDataRow(key, value) ])
 
-        completion_event = threading.Event()
-        def _wait_for_completion() -> None:
-            completion_event.set()
+    def _on_value_deleted(self, key: str) -> None:
+        # Queued write, we do not wait for it to complete. Closing the DB context will wait.
+        self._table.delete(key)
 
-        self._db_values.set("jsondata", raw, completion_callback=_wait_for_completion)
-        completion_event.wait()
-
-        self._primed = True
-        return raw
+    def _write(self) -> None:
+        pass
 
     def requires_split(self) -> bool:
         return False
 
     def requires_upgrade(self) -> bool:
-        seed_version = self._get_seed_version()
-        # Detect if we were given a file that should have been given to TextStore.
-        if seed_version <= TextStore.FINAL_SEED_VERSION:
-            raise IncompatibleWalletError(
-                "This wallet should have been loaded as TEXT or HYBRID")
-        # Detect if the wallet is a not yet upgraded DATABASE wallet.
-        if seed_version < FINAL_SEED_VERSION:
-            # Check if ESV was forked, or EC(BCH) or E(BTC) adopted our database changes.
-            if self.get('wallet_author') == 'ESV':
-                return True
-            raise IncompatibleWalletError("This wallet was not created in ElectrumSV")
-        return False
+        return self.get("migration") < DatabaseStore.CURRENT_MIGRATION
 
-    def upgrade(self: StoreType) -> Optional[StoreType]:
-        # NOTE(rt12): Loading the database migrates the table structure automatically. However
-        # we will likely want to extend this to adjust table column contents, like the JSON
-        # lump structure.
-        seed_version = self._get_seed_version()
-        if seed_version < 21:
-            self._set_seed_version(FINAL_SEED_VERSION)
+    def upgrade(self: StoreType, has_password: bool, new_password: str) -> Optional[StoreType]:
+        from .wallet_database.migration import update_database_file
+        update_database_file(self._path)
+        assert DatabaseStore.CURRENT_MIGRATION == self.get("migration")
         return None
 
 
-class TextStore(BaseStore):
+class TextStore(AbstractStore):
+    _raw: Optional[bytes] = None
+
     # seed_version is used for the version of the wallet file
     OLD_SEED_VERSION = 4        # electrum versions < 2.0
     NEW_SEED_VERSION = 11       # electrum versions >= 2.0
-    FINAL_SEED_VERSION = 19     # electrum >= 2.7 will set this to prevent
+    FINAL_SEED_VERSION = 17     # electrum >= 2.7 will set this to prevent
                                 # old versions from overwriting new format
 
-    def read_raw_data(self) -> bytes:
+    def __init__(self, path: str, data: Optional[Dict[str, Any]]=None) -> None:
+        super().__init__(path, data)
+        self._modified = bool(data)
+
+    def _read_raw_data(self) -> Any:
         try:
             with open(self._path, "rb") as f:
                 self._raw = f.read()
@@ -442,21 +355,32 @@ class TextStore(BaseStore):
         assert self._raw is not None
         try:
             return base64.b64decode(self._raw)[0:4] == b'BIE1'
-        except:
+        except Exception:
             return False
 
-    def get_encrypted_data(self) -> Optional[bytes]:
-        data = self.get_raw_data()
-        if data is not None:
-            data = base64.b64decode(data)
-        return data
+    def decrypt(self, password: str) -> bytes:
+        assert self._raw is not None
+        ec_key = WalletStorage.get_eckey_from_password(password)
+        encrypted_data = base64.b64decode(self._raw)
+        return zlib.decompress(ec_key.decrypt_message(encrypted_data))
 
-    def load_data(self, s: bytes) -> None:
+    def attempt_load_data(self) -> bool:
+        data = self._read_raw_data()
+        assert type(data) is bytes
+        if not self.is_encrypted():
+            self.load_data(data)
+            return True
+        return False
+
+    def _set_data(self, data: Dict[str, Any]) -> None:
+        self._data = data
+
+    def load_data(self, data: Any) -> None:
         try:
-            self._data = json.loads(s)
-        except:
+            self._data = json.loads(data)
+        except Exception:
             try:
-                d = ast.literal_eval(s.decode('utf8'))
+                d = ast.literal_eval(data.decode('utf8'))
                 labels = d.get('labels', {})
             except Exception as e:
                 raise IOError("Cannot read wallet file '%s'" % self._path)
@@ -465,36 +389,39 @@ class TextStore(BaseStore):
                 try:
                     json.dumps(key)
                     json.dumps(value)
-                except:
+                except Exception:
                     logger.error('Failed to convert label to json format %s', key)
                     continue
                 self._data[key] = value
 
-    def _write(self) -> bytes:
-        seed_version = self._get_seed_version()
-        raw = json.dumps(self._data, indent=4, sort_keys=True)
-        if self._pubkey:
-            c = zlib.compress(raw.encode())
-            raw = PublicKey.from_hex(self._pubkey).encrypt_message_to_base64(c)
+    def _on_value_modified(self, key: str, value: Any, is_update: bool) -> None:
+        self._modified = True
 
-        temp_path = "%s.tmp.%s" % (self._path, os.getpid())
-        with open(temp_path, "w", encoding='utf-8') as f:
-            f.write(raw)
-            f.flush()
-            os.fsync(f.fileno())
+    def _on_value_deleted(self, key: str) -> None:
+        self._modified = True
 
-        file_exists = os.path.exists(self._path)
-        mode = os.stat(self._path).st_mode if file_exists else stat.S_IREAD | stat.S_IWRITE
-        os.replace(temp_path, self._path)
-        os.chmod(self._path, mode)
+    def _write(self) -> None:
+        if self._modified or not self.is_primed():
+            seed_version = self._get_version()
+            raw = json.dumps(self._data, indent=4, sort_keys=True)
+            temp_path = "%s.tmp.%s" % (self._path, os.getpid())
+            with open(temp_path, "w", encoding='utf-8') as f:
+                f.write(raw)
+                f.flush()
+                os.fsync(f.fileno())
 
-        return raw.encode()
+            file_exists = os.path.exists(self._path)
+            mode = os.stat(self._path).st_mode if file_exists else stat.S_IREAD | stat.S_IWRITE
+            os.replace(temp_path, self._path)
+            os.chmod(self._path, mode)
+
+            self._modified = False
 
     def requires_split(self) -> bool:
         d = self.get('accounts', {})
         return len(d) > 1
 
-    def split_accounts(self) -> Optional[List[str]]:
+    def split_accounts(self, has_password: bool, new_password: str) -> Optional[List[str]]:
         result: List[str] = []
         # backward compatibility with old wallets
         d = self.get('accounts', {})
@@ -504,23 +431,21 @@ class TextStore(BaseStore):
         if wallet_type == 'old':
             assert len(d) == 2
             data1 = copy.deepcopy(self._data)
-            storage1 = WalletStorage(self._path + '.deterministic', data=data1,
-                storage_kind=StorageKind.FILE)
+            storage1 = WalletStorage.from_file_data(self._path + '.deterministic', data1)
             storage1.put('accounts', {'0': d['0']})
-            storage1.upgrade()
+            storage1.upgrade(has_password, new_password)
             storage1.write()
             storage1.close()
 
             data2 = copy.deepcopy(self._data)
-            storage2 = WalletStorage(self._path + '.imported', data=data2,
-                storage_kind=StorageKind.FILE)
+            storage2 = WalletStorage.from_file_data(self._path + '.imported', data2)
             storage2.put('accounts', {'/x': d['/x']})
             storage2.put('seed', None)
             storage2.put('seed_version', None)
             storage2.put('master_public_key', None)
             storage2.put('wallet_type', 'imported')
             storage2.write()
-            storage2.upgrade()
+            storage2.upgrade(has_password, new_password)
             storage2.write()
             storage2.close()
 
@@ -535,13 +460,13 @@ class TextStore(BaseStore):
                 xpub = mpk["x/%d'"%i]
                 new_path = self._path + '.' + k
                 data2 = copy.deepcopy(self._data)
-                storage2 = WalletStorage(new_path, data=data2, storage_kind=StorageKind.FILE)
+                storage2 = WalletStorage.from_file_data(new_path, data2)
                 # save account, derivation and xpub at index 0
                 storage2.put('accounts', {'0': x})
                 storage2.put('master_public_keys', {"x/0'": xpub})
                 storage2.put('derivation', bip44_derivation(k))
                 storage2.write()
-                storage2.upgrade()
+                storage2.upgrade(has_password, new_password)
                 storage2.write()
                 storage2.close()
 
@@ -551,7 +476,7 @@ class TextStore(BaseStore):
         return result
 
     def requires_upgrade(self) -> bool:
-        seed_version = self._get_seed_version()
+        seed_version = self._get_version()
         # The version at which we should retain compatibility with Electrum and Electron Cash
         # if they upgrade their wallets using this versioning system correctly.
         if seed_version <= 17:
@@ -562,10 +487,10 @@ class TextStore(BaseStore):
             # We flag our upgraded wallets past seed version 17 with 'wallet_author' = 'ESV'.
             if self.get('wallet_author') == 'ESV':
                 return True
-            raise IncompatibleWalletError
+            raise IncompatibleWalletError("Not an ElectrumSV wallet")
         return False
 
-    def upgrade(self) -> Optional[BaseStore]:
+    def upgrade(self, has_password: bool, new_password: str) -> Optional[AbstractStore]:
         self._convert_imported()
         self._convert_wallet_type()
         self._convert_account()
@@ -574,15 +499,26 @@ class TextStore(BaseStore):
         self._convert_version_15()
         self._convert_version_16()
         self._convert_version_17()
-        self._convert_version_18()
-        self._convert_version_19()
-        self._convert_version_20()
+        self._convert_to_database(has_password, new_password)
+        assert self.get("seed_version") == DatabaseStore.INITIAL_MIGRATION, ("expected "
+            f"{DatabaseStore.INITIAL_MIGRATION}, got {self.get('seed_version')}")
 
         database_wallet_path = self._path + DATABASE_EXT
         assert os.path.exists(database_wallet_path)
         assert not os.path.exists(self._path)
 
         return DatabaseStore.from_text_store(self)
+
+    def _is_upgrade_method_needed(self, min_version, max_version):
+        cur_version = self._get_version()
+        if cur_version > max_version:
+            return False
+        elif cur_version < min_version:
+            raise Exception(
+                ('storage upgrade: unexpected version %d (should be %d-%d)'
+                 % (cur_version, min_version, max_version)))
+        else:
+            return True
 
     def _convert_imported(self) -> None:
         if not self._is_upgrade_method_needed(0, 13):
@@ -622,7 +558,7 @@ class TextStore(BaseStore):
         if self.get('keystore') or self.get('x1/') or wallet_type=='imported':
             return # False
         assert not self.requires_split()
-        seed_version = self._get_seed_version()
+        seed_version = self._get_version()
         seed = self.get('seed')
         xpubs = self.get('master_public_keys')
         xprvs = self.get('master_private_keys', {})
@@ -817,193 +753,428 @@ class TextStore(BaseStore):
 
         self.put('seed_version', 17)
 
-    def _convert_version_18(self) -> None:
+    def _convert_to_database(self, has_password: bool, new_password: str) -> None:
         if not self._is_upgrade_method_needed(17, 17):
             return
 
-        # The scope of this change is to move the bulk of the data stored in the encrypted JSON
-        # wallet file, into encrypted external storage.  At the time of the change, this
-        # storage is based on an Sqlite database.
-
         wallet_type = self.get('wallet_type')
+        assert wallet_type is not None, "Wallet has no type"
 
-        tx_store_aeskey_hex = self.get('tx_store_aeskey')
-        if tx_store_aeskey_hex is None:
-            tx_store_aeskey_hex = os.urandom(32).hex()
-            self.put('tx_store_aeskey', tx_store_aeskey_hex)
-        tx_store_aeskey = bytes.fromhex(tx_store_aeskey_hex)
+        # Create the latest database structure with only initial populated data.
+        migration.create_database_file(self._path)
 
+        # Take the old style JSON data and add it to the latest database structure.
+        # This code should be updated as the structure and wallet workings changes to ensure
+        # older wallets can always be migrated as long as we support them.
         db_context = DatabaseContext(self._path)
-        db = WalletData(db_context, tx_store_aeskey, 0)
+        try:
+            walletdata_table = WalletDataTable(db_context)
 
-        # Transaction-related data.
-        tx_map_in = self.get('transactions', {})
-        tx_fees = self.get('fees', {})
-        tx_verified = self.get('verified_tx3', {})
+            next_masterkey_id = cast(int, walletdata_table.get_value("next_masterkey_id"))
+            next_account_id = cast(int, walletdata_table.get_value("next_account_id"))
+            next_keyinstance_id = cast(int, walletdata_table.get_value("next_keyinstance_id"))
 
-        _history = self.get('addr_history',{})
-        hh_map = {tx_hash: tx_height
-                  for addr_history in _history.values()
-                  for tx_hash, tx_height in addr_history}
+            masterkey_id = next_masterkey_id
+            next_masterkey_id += 1
+            account_id = next_account_id
+            next_account_id += 1
 
-        date_added = int(time.time())
-        to_add1 = []
-        for tx_id, tx in tx_map_in.items():
-            payload = bytes.fromhex(str(tx))
-            fee = tx_fees.get(tx_id, None)
-            if tx_id in tx_verified:
-                flags = TxFlags.StateSettled
-                height, timestamp, position = tx_verified[tx_id]
+            masterkey_rows: List[MasterKeyRow] = []
+            account_rows: List[AccountRow] = []
+            keyinstance_rows: List[KeyInstanceRow] = []
+            transaction_rows: List[TransactionRow] = []
+            txdelta_rows: List[TransactionDeltaRow] = []
+            txoutput_rows: List[TransactionOutputRow] = []
+
+            class _TxState(NamedTuple):
+                tx: Transaction
+                tx_hash: bytes
+                bytedata: bytes
+                verified: bool
+                height: int
+                known_addresses: set
+                encountered_addresses: set
+
+            class _TxOutputState(NamedTuple):
+                value: int
+                row_index: int
+
+            class _AddressState(NamedTuple):
+                keyinstance_id: int
+                row_index: int
+
+            address_usage: Dict[str, Iterable[Tuple[str, int]]] = self.get('addr_history', {})
+            frozen_addresses: Set[str] = set(self.get('frozen_addresses', []))
+            frozen_coins: List[str] = self.get('frozen_coins', [])
+            tx_map_in: Dict[str, str] = self.get('transactions', {})
+            tx_fees: Dict[str, int] = self.get('tx_fees', {})
+            tx_verified: Dict[str, Any] = self.get('verified_tx3', {})
+            labels: Dict[str, str] = self.get('labels', {})
+
+            # height > 0: confirmed
+            # height = 0: unconfirmed
+            # height < 0: unconfirmed with unconfirmed parents
+            # { address_string: { tx_id: tx_height } }
+            tx_heights = {tx_id: tx_height
+                    for addr_history in address_usage.values()
+                    for tx_id, tx_height in addr_history}
+
+            txouts_frozen = set([])
+            for txo_id in frozen_coins:
+                tx_id, n = txo_id.split(":")
+                txouts_frozen.add((tx_id, int(n)))
+
+            address_states: Dict[str, _AddressState] = {}
+            tx_states: Dict[str, _TxState] = {}
+
+            date_added = int(time.time())
+            for tx_id, tx_hex in tx_map_in.items():
+                tx_hash = hex_str_to_hash(tx_id)
+                tx_bytedata = bytes.fromhex(tx_hex)
+                tx = Transaction.from_bytes(tx_bytedata)
+                fee = tx_fees.get(tx_id)
+                description = labels.pop(tx_id, None)
+                if tx_id in tx_verified:
+                    flags = TxFlags.StateSettled
+                    height, _timestamp, position = tx_verified[tx_id]
+                    tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
+                        verified=True, height=height, known_addresses=set([]),
+                        encountered_addresses=set([]))
+                else:
+                    height = tx_heights.get(tx_id)
+                    flags = TxFlags.StateCleared
+                    position = None
+                    tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
+                        verified=False, height=height, known_addresses=set([]),
+                        encountered_addresses=set([]))
+                tx_metadata = TxData(height=height, fee=fee, position=position,
+                    date_added=date_added, date_updated=date_added)
+                # TODO(rt12) BACKLOG what if this code is later reused and the operation is an
+                # import and the rows already exist?
+                transaction_rows.append(TransactionRow(tx_hash, tx_metadata, tx_bytedata, flags,
+                    description))
+
+            # Index all the address usage via the ElectrumX server scripthash state.
+            for address_string, usage_list in address_usage.items():
+                for tx_id, tx_height in usage_list:
+                    tx_states[tx_id].known_addresses.add(address_string)
+                    assert tx_height <= tx_states[tx_id].height, \
+                        f"bad height {tx_height} > {tx_states[tx_id].height}"
+
+            _addresses = self.get("addresses")
+            if not isinstance(_addresses, dict):
+                _addresses = {}
+            _receiving_address_strings = _addresses.get('receiving', [])
+            _change_address_strings = _addresses.get('change', [])
+
+            # Network check. Error if the user started up with a wallet on a different network.
+            if len(_receiving_address_strings):
+                sample_address_string = _receiving_address_strings[0]
+                # This will raise a ValueError if the address is incompatible with the network.
+                address_from_string(sample_address_string)
+
+            def update_private_data(data: str) -> str:
+                # We can assume that the new password is the old password.
+                if has_password:
+                    return data
+                return pw_encode(data, new_password)
+
+            def get_keystore_data(data: Dict[str, Any]) -> Tuple[DerivationType, Dict[str, Any]]:
+                derivation_type: DerivationType
+                keystore_type: str = data.pop("type")
+                if keystore_type == "hardware":
+                    derivation_type = DerivationType.HARDWARE
+                elif keystore_type == "bip32":
+                    derivation_type = DerivationType.BIP32
+                    if data.get("passphrase"):
+                        data["passphrase"] = update_private_data(data["passphrase"])
+                    if data.get("seed"):
+                        data["seed"] = update_private_data(data["seed"])
+                    if data.get("xprv"):
+                        data["xprv"] = update_private_data(data["xprv"])
+                elif keystore_type == "old":
+                    derivation_type = DerivationType.ELECTRUM_OLD
+                    if data.get("seed"):
+                        data["seed"] = update_private_data(data["seed"])
+                else:
+                    raise IncompatibleWalletError("unknown keystore type", keystore_type)
+                return derivation_type, data
+
+            def convert_keystore(data: Dict[str, Any],
+                    subpaths: Optional[Sequence[Tuple[Sequence[int], int]]]=None) -> Tuple[
+                        DerivationType, bytes]:
+                derivation_type, data = get_keystore_data(data)
+                if subpaths is not None:
+                    data["subpaths"] = subpaths
+                derivation_data = json.dumps(data).encode()
+                return (derivation_type, derivation_data)
+
+            def process_keyinstances_receiving_change(script_type: ScriptType) -> None:
+                nonlocal masterkey_id, account_id
+                nonlocal _receiving_address_strings, _change_address_strings
+                nonlocal keyinstance_rows, address_states, next_keyinstance_id
+
+                # We could in theory detect fresh addresses and mark them as such
+                # (ScriptType.NONE), but why bother. We'll just allocate new ones and abandon
+                # older unused ones.
+                for type_idx, address_strings in enumerate((_receiving_address_strings,
+                        _change_address_strings)):
+                    for address_idx, address_string in enumerate(address_strings):
+                        address_states[address_string] = _AddressState(next_keyinstance_id,
+                            len(keyinstance_rows))
+                        description = labels.pop(address_string, None)
+                        flags = KeyInstanceFlag.IS_ACTIVE
+                        derivation_info = {
+                            "subpath": (type_idx, address_idx),
+                        }
+                        derivation_data = json.dumps(derivation_info).encode()
+                        keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                            masterkey_id, DerivationType.BIP32_SUBPATH, derivation_data,
+                            script_type, flags, description))
+                        next_keyinstance_id += 1
+
+            def process_transactions(*script_classes: Tuple[Any]) -> None:
+                nonlocal _receiving_address_strings, _change_address_strings
+                nonlocal keyinstance_rows, txoutput_rows, txdelta_rows
+                nonlocal address_states, tx_states
+
+                key_deltas: Dict[int, int] = {}
+                tx_deltas: Dict[Tuple[bytes, int], int] = {}
+                txout_states: Dict[Tuple[bytes, int], _TxOutputState] = {}
+
+                # Locate all the outputs.
+                FROZEN_FLAGS = (TransactionOutputFlag.IS_FROZEN |
+                    TransactionOutputFlag.USER_SET_FROZEN)
+                for tx_id, tx_state in tx_states.items():
+                    for n, tx_output in enumerate(tx_state.tx.outputs):
+                        output = classify_tx_output(tx_output)
+                        if not isinstance(output, script_classes):
+                            continue
+
+                        address_string = output.to_string()
+                        if address_string in address_states:
+                            address_state = address_states[address_string]
+                            delta_key = (tx_state.tx_hash, address_state.keyinstance_id)
+                            tx_deltas[delta_key] = tx_deltas.get(delta_key, 0) + tx_output.value
+                            key_deltas[address_state.keyinstance_id] = \
+                                key_deltas.get(address_state.keyinstance_id, 0) + tx_output.value
+
+                            txout_states[(tx_state.tx_hash, n)] = _TxOutputState(tx_output.value,
+                                len(txoutput_rows))
+                            # Handled later: flags are changed if spent.
+                            is_frozen = (address_string in frozen_addresses or
+                                (tx_id, n) in txouts_frozen)
+                            flags = (FROZEN_FLAGS if is_frozen else TransactionOutputFlag.NONE)
+                            txoutput_rows.append(TransactionOutputRow(tx_state.tx_hash, n,
+                                tx_output.value, address_state.keyinstance_id, flags))
+                            tx_state.encountered_addresses.add(address_string)
+
+                # Reconcile spending of outputs.
+                for tx_id, tx_state in tx_states.items():
+                    for n, tx_input in enumerate(tx_state.tx.inputs):
+                        script_data: Dict[str, Any] = {}
+                        parse_script_sig(tx_input.script_sig.to_bytes(), script_data)
+                        address_string = script_data["address"].to_string()
+
+                        if address_string in address_states:
+                            address_state = address_states[address_string]
+                            txout_key = (tx_input.prev_hash, tx_input.prev_idx)
+                            if txout_key not in txout_states:
+                                logger.debug("migration has orphaned spend, input=%s:%d, "
+                                    "address %s, output=%s:%d", tx_id, n, address_string,
+                                    hash_to_hex_str(tx_input.prev_hash), tx_input.prev_idx)
+                                continue
+
+                            txout_state = txout_states[txout_key]
+                            delta_key = (tx_state.tx_hash, address_state.keyinstance_id)
+                            tx_deltas[delta_key] = tx_deltas.get(delta_key, 0) - txout_state.value
+                            key_deltas[address_state.keyinstance_id] = \
+                                key_deltas.get(address_state.keyinstance_id, 0) - txout_state.value
+
+                            # Go back to the rows produced from outputs and adjust spent flag.
+                            orow = txoutput_rows[txout_state.row_index]
+                            txoutput_rows[txout_state.row_index] = TransactionOutputRow(
+                                orow.tx_hash, orow.tx_index, orow.value, orow.keyinstance_id,
+                                TransactionOutputFlag.IS_SPENT)
+                            tx_state.encountered_addresses.add(address_string)
+
+                # Record all the balance deltas.
+                for (tx_hash, keyinstance_id), delta_value in tx_deltas.items():
+                    txdelta_rows.append(TransactionDeltaRow(tx_hash, keyinstance_id,
+                        delta_value))
+
+            multsig_mn = multisig_type(wallet_type)
+            if multsig_mn is not None:
+                multsig_m, multsig_n = multsig_mn
+                cosigner_keys: List[Tuple[DerivationType, Dict[str, Any]]] = []
+                # We bake the cosigner key data into the multi-signature masterkey.
+                for i in range(multsig_n):
+                    keystore_name = f'x{i+1:d}/'
+                    keystore = self.get(keystore_name)
+                    cosigner_keys.append(get_keystore_data(keystore))
+                mk_data = {
+                    "m": multsig_m,
+                    "n": multsig_n,
+                    "subpaths": [
+                        (RECEIVING_SUBPATH, len(_receiving_address_strings)),
+                        (CHANGE_SUBPATH, len(_change_address_strings)),
+                    ],
+                    "cosigner-keys": cosigner_keys,
+                }
+
+                derivation_data = json.dumps(mk_data).encode()
+                masterkey_rows.append(MasterKeyRow(masterkey_id, None,
+                    DerivationType.ELECTRUM_MULTISIG, derivation_data))
+                account_rows.append(AccountRow(account_id, masterkey_id, ScriptType.MULTISIG_P2SH,
+                    "Multisig account"))
+                process_keyinstances_receiving_change(ScriptType.MULTISIG_P2SH)
+                process_transactions(P2SH_Address)
+            elif wallet_type == "imported_addr":
+                for address_string in self.get("addresses"):
+                    address_states[address_string] = _AddressState(next_keyinstance_id,
+                        len(keyinstance_rows))
+                    ia_data = { "hash": address_string }
+                    derivation_data = json.dumps(ia_data).encode()
+                    description = labels.pop(address_string, None)
+                    address = address_from_string(address_string)
+                    if isinstance(address, P2PKH_Address):
+                        keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                            None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
+                            ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, description))
+                    elif isinstance(address, P2SH_Address):
+                        keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                            None, DerivationType.SCRIPT_HASH, derivation_data,
+                            ScriptType.MULTISIG_P2SH, KeyInstanceFlag.IS_ACTIVE, description))
+                    else:
+                        raise IncompatibleWalletError("imported address wallet has non-address")
+                    next_keyinstance_id += 1
+
+                account_rows.append(AccountRow(account_id, None, ScriptType.NONE,
+                    "Imported addresses"))
+                process_transactions(P2PKH_Address, P2SH_Address)
+            elif wallet_type == "imported_privkey":
+                keystore = self.get("keystore")
+                assert "imported" == keystore.pop("type")
+                keypairs = keystore.get("keypairs")
+
+                for pubkey_hex, enc_prvkey in keypairs.items():
+                    pubkey = PublicKey.from_hex(pubkey_hex)
+                    address_string = pubkey.to_address()
+                    description = labels.pop(address_string, None)
+                    address_states[address_string] = _AddressState(next_keyinstance_id,
+                        len(keyinstance_rows))
+                    ik_data = {
+                        "pub": pubkey_hex,
+                        "prv": update_private_data(enc_prvkey),
+                    }
+                    derivation_data = json.dumps(ik_data).encode()
+                    keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                        None, DerivationType.PRIVATE_KEY, derivation_data,
+                        ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, description))
+                    next_keyinstance_id += 1
+
+                account_rows.append(AccountRow(account_id, None, ScriptType.P2PKH,
+                    "Imported private keys"))
+                process_transactions(P2PKH_Address)
+            elif wallet_type in ("standard", "old"):
+                subpaths = [
+                    (RECEIVING_SUBPATH, len(_receiving_address_strings)),
+                    (CHANGE_SUBPATH, len(_change_address_strings)),
+                ]
+                keystore = self.get("keystore")
+                masterkey_row = MasterKeyRow(*(masterkey_id, None),
+                    *convert_keystore(keystore, subpaths))
+                masterkey_rows.append(masterkey_row)
+                account_rows.append(AccountRow(account_id, masterkey_id, ScriptType.P2PKH,
+                    "Standard account"))
+                process_keyinstances_receiving_change(ScriptType.P2PKH)
+                process_transactions(P2PKH_Address)
             else:
-                flags = TxFlags.StateCleared
-                timestamp = position = None
-                height = hh_map.get(tx_id)
-            tx_data = TxData(height=height, fee=fee, position=position, timestamp=timestamp,
-                date_added=date_added, date_updated=date_added)
-            to_add1.append((tx_id, tx_data, payload, flags))
-        if len(to_add1):
-            db.tx_store.add_many(to_add1)
+                raise IncompatibleWalletError("unknown wallet type", wallet_type)
 
-        # Address/utxo related data.
-        txi = self.get('txi', {})
-        to_add2 = []
-        for tx_hash, address_entry in txi.items():
-            for address_string, output_values in address_entry.items():
-                for prevout_key, amount in output_values:
-                    prevout_tx_hash, prev_idx = prevout_key.split(":")
-                    txin = DBTxInput(address_string, prevout_tx_hash, int(prev_idx), amount)
-                    to_add2.append((tx_hash, txin))
-        if len(to_add2):
-            db.txin_store.add_entries(to_add2)
+            # Reconcile what addresses we found for transactions with the addresses that were in
+            # the ElectrumX address usage state.
+            for tx_id, tx_state in tx_states.items():
+                missing_addresses = tx_state.known_addresses - tx_state.encountered_addresses
+                if missing_addresses:
+                    logger.debug("db-migration, tx %s missing addresses %s", tx_id,
+                        missing_addresses)
+                extra_addresses = tx_state.encountered_addresses - tx_state.known_addresses
+                if extra_addresses:
+                    logger.debug("db-migration, tx %s extra addresses %s", tx_id,
+                        extra_addresses)
 
-        txo = self.get('txo', {})
-        to_add = []
-        for tx_hash, address_entry in txo.items():
-            for address_string, input_values in address_entry.items():
-                for txout_n, amount, is_coinbase in input_values:
-                    txout = DBTxOutput(address_string, txout_n, amount, is_coinbase)
-                    to_add.append((tx_hash, txout))
-        if len(to_add):
-            db.txout_store.add_entries(to_add)
+            # Commit all the changes to the database. This is ordered to respect FK constraints.
+            # TODO(rt12) BACKLOG Shouldn't this use explicit creation calls for the first
+            # migration so that subsequent migrations can be applied?
+            if len(transaction_rows):
+                with TransactionTable(db_context) as table:
+                    table.create(transaction_rows)
+            if len(masterkey_rows):
+                with MasterKeyTable(db_context) as table:
+                    table.create(masterkey_rows)
+            if len(account_rows):
+                with AccountTable(db_context) as table:
+                    table.create(account_rows)
+            if len(keyinstance_rows):
+                with KeyInstanceTable(db_context) as table:
+                    table.create(keyinstance_rows)
+            if len(txdelta_rows):
+                with TransactionDeltaTable(db_context) as table:
+                    table.create(txdelta_rows)
+            if len(txoutput_rows):
+                with TransactionOutputTable(db_context) as table:
+                    table.create(txoutput_rows)
 
-        addresses = self.get('addresses')
-        if addresses is not None:
-            # Bug in the wallet storage upgrade tests, it turns this into a dict.
-            if wallet_type == "imported_addr" and type(addresses) is dict:
-                addresses = list(addresses.keys())
-            db.misc_store.add('addresses', addresses)
-        db.misc_store.add('addr_history', self.get('addr_history'))
-        db.misc_store.add('frozen_addresses', self.get('frozen_addresses'))
+            # The database creation should create these rows.
+            creation_rows = []
+            creation_rows.append(WalletDataRow("password-token",
+                pw_encode(os.urandom(32).hex(), new_password)))
+            if len(labels):
+                creation_rows.append(WalletDataRow("lost-labels", labels))
+            for key in [
+                    "contacts2", # contacts.py
+                    "wallet_nonce", "labels", # labels.py (A, B), wallet.py (B)
+                    "winpos-qt", # main_window.py
+                    "use_change", "multiple_change", # preferences.py
+                    "invoices", "stored_height", "payment_requests", "gap_limit" ]: # wallet.py
+                value = self.get(key)
+                if value is not None:
+                    creation_rows.append(WalletDataRow(key, value))
+            walletdata_table.create(creation_rows)
 
-        # Convert from "hash:n" to (hash, n).
-        frozen_coins = self.get('frozen_coins', [])
-        for i, s in enumerate(frozen_coins):
-            hash, n = s.split(":")
-            n = int(n)
-            frozen_coins[i] = (hash, n)
-        db.misc_store.add('frozen_coins', frozen_coins)
+            walletdata_table.update([
+                WalletDataRow("next_masterkey_id", next_masterkey_id),
+                WalletDataRow("next_account_id", next_account_id),
+                WalletDataRow("next_keyinstance_id", next_keyinstance_id),
+            ])
+            walletdata_table.close()
+        finally:
+            db_context.close()
 
-        pruned_txo = self.get('pruned_txo', {})
-        new_pruned_txo = {}
-        for k, v in pruned_txo.items():
-            hash, n = k.split(":")
-            n = int(n)
-            new_pruned_txo[(hash, n)] = v
-        db.misc_store.add('pruned_txo', new_pruned_txo)
-
+        # We hand across the data to the database store, so correct it.
         self.put('addresses', None)
         self.put('addr_history', None)
         self.put('frozen_addresses', None)
         self.put('frozen_coins', None)
+        self.put('keystore', None)
+        self.put('labels', None)
         self.put('pruned_txo', None)
         self.put('transactions', None)
         self.put('txi', None)
         self.put('txo', None)
         self.put('tx_fees', None)
-        self.put('verified_tx3', None)
-
-        self.put('wallet_author', 'ESV')
-        self.put('seed_version', 18)
-
-        db.close()
-        db_context.close()
-
-    def _convert_version_19(self) -> None:
-        if not self._is_upgrade_method_needed(18, 18):
-            return
-
-        # The scope of this upgrade is the move towards a wallet no longer being a keystore,
-        # but being a container for one or more child wallets. The goal of this change was to
-        # prepare for a move towards an account-oriented interface.
-
-        wallet_type = self.get('wallet_type')
-        assert wallet_type is not None, "Wallet has no type"
-
-        # Some of these fields are specific to the wallet type, and others are common.
-        possible_wallet_fields = [ "gap_limit", "invoices", "labels",
-            "multiple_change", "payment_requests", "stored_height", "use_change" ]
-
-        # 2. Move the local contents of this wallet into the first account / legacy wallet.
-        subwallet_data = {}
-        subwallet_data['wallet_type'] = wallet_type
-        for field_name in possible_wallet_fields:
-            field_value = self.get(field_name)
-            if field_value is not None:
-                # Move this field to the subwallet data, and remove from the parent wallet.
-                subwallet_data[field_name] = field_value
-                self.put(field_name, None)
-
-        # 3. Move the keystore out of the subwallet, and put a reference to it instead.
-        keystores = []
-        keystore = self.get('keystore')
-        if keystore is not None:
-            keystores.append(keystore)
-            subwallet_data['keystore_usage'] = [ { 'index': 0, }, ]
-
-        # Special case for the multiple keystores for the multisig wallets.
-        multsig_mn = multisig_type(wallet_type)
-        if multsig_mn is not None:
-            keystore_usage = []
-            m, n = multsig_mn
-            for i in range(n):
-                keystore_name = f'x{i+1:d}/'
-                keystore = self.get(keystore_name)
-                keystores.append(keystore)
-                self.put(field_name, None)
-                keystore_usage.append({ 'index': i, 'name': keystore_name })
-            subwallet_data['keystore_usage'] = keystore_usage
-
-        # Linked to the wallet database GroupId column.
-        subwallet_id = 0
-        subwallet_data["id"] = subwallet_id
-
-        self.put('keystores', keystores)
-        self.put('subwallets', [ subwallet_data ])
-        self.put('wallet_type', ParentWalletKinds.LEGACY)
-
-        # Convert the database to designate child wallets.
-        tx_store_aeskey = bytes.fromhex(self.get('tx_store_aeskey'))
-
-        db_context = DatabaseContext(self._path)
-        db = WalletData(db_context, tx_store_aeskey, subwallet_id, MigrationContext(18, 19))
-        db.close()
-        db_context.close()
-
-        self.put('seed_version', 19)
-
-    def _convert_version_20(self) -> None:
-        if not self._is_upgrade_method_needed(19, 19):
-            return
+        self.put('wallet_type', None)
 
         # Remove the TEXT file, as the store is now database-only.
-        assert os.path.exists(self._path + DATABASE_EXT)
+        assert os.path.exists(db_context.get_path())
         # The only case where the file will not exist is where we upgraded from split accounts,
         os.remove(self._path)
 
         # Setting this will ensure this store cannot write the TEXT file again.
-        self.put('seed_version', 20)
+        self.put('seed_version', DatabaseStore.INITIAL_MIGRATION)
 
-    def _get_seed_version(self) -> int:
+    def _get_version(self) -> int:
         seed_version = self.get('seed_version')
         if not seed_version:
             seed_version = (self.OLD_SEED_VERSION if len(self.get('master_public_key','')) == 128
@@ -1039,11 +1210,10 @@ class TextStore(BaseStore):
 
 
 class WalletStorage:
-    _store: BaseStore
+    _store: AbstractStore
     _is_closed: bool = False
 
     def __init__(self, path: str, manual_upgrades: bool=False,
-            data: Optional[Dict[str, Any]]=None,
             storage_kind: StorageKind=StorageKind.UNKNOWN) -> None:
         logger.debug("wallet path '%s'", path)
         dirname = os.path.dirname(path)
@@ -1053,42 +1223,33 @@ class WalletStorage:
         storage_info = categorise_file(path)
         if storage_kind == StorageKind.UNKNOWN:
             storage_kind = storage_info.kind
+        if storage_kind == StorageKind.HYBRID:
+            raise IncompatibleWalletError("Migration of development wallet format unsupported")
+
         # Take the chance to normalise the wallet filename (remove any extension).
-        if storage_info.kind == StorageKind.DATABASE or storage_info.kind == StorageKind.UNKNOWN:
+        if storage_info.kind in (StorageKind.DATABASE, StorageKind.UNKNOWN):
             path = storage_info.wallet_filepath
 
-        self._manual_upgrades = manual_upgrades
         self._path = path
 
-        store: Optional[BaseStore] = None
+        store: Optional[AbstractStore] = None
         if storage_kind == StorageKind.UNKNOWN:
-            store = DatabaseStore(path, data=data)
-            self._set_store(store)
-
-            # Initialise anything that needs to be in the wallet storage and immediately persisted.
-            # In the case of the aeskey, this is because the wallet saving is not guaranteed and
-            # the writes to the database are not synchronised with it.
-            tx_store_aeskey_hex = os.urandom(32).hex()
-            self.put('tx_store_aeskey', tx_store_aeskey_hex)
-
-            self.put('wallet_author', 'ESV')
-            self.put('seed_version', FINAL_SEED_VERSION)
+            self._set_store(DatabaseStore(path))
         else:
-            is_unsaved_file = (storage_kind == StorageKind.FILE and not os.path.exists(path) and \
-                data is not None)
-            assert data is None or is_unsaved_file
-            if storage_kind == StorageKind.FILE or storage_kind == StorageKind.HYBRID:
-                store = TextStore(path, data=data)
+            if storage_kind == StorageKind.FILE:
+                store = TextStore(path)
+                if os.path.exists(path):
+                    store.attempt_load_data()
             else:
                 store = DatabaseStore(path)
             self._set_store(store)
 
-            # Unsaved files already have explicit unpersisted data. Note that no upgrade will be
-            # performed on them, regardless of the value of `manual_upgrades`.
-            if not is_unsaved_file:
-                raw = self._store.read_raw_data()
-                if not self._store.is_encrypted():
-                    self.load_data(raw)
+    @classmethod
+    def from_file_data(cls, path: str, data: Dict[str, Any]) -> 'WalletStorage':
+        storage = WalletStorage(path=path, storage_kind=StorageKind.FILE)
+        text_store = storage.get_text_store()
+        text_store._set_data(data)
+        return storage
 
     def move_to(self, new_path: str) -> None:
         db_store = cast(DatabaseStore, self._store)
@@ -1104,8 +1265,7 @@ class WalletStorage:
 
         shutil.copyfile(self.get_path(), new_path + DATABASE_EXT)
 
-        # NOTE(rt12): Everything keeps the extensionless path. Need to consider if it makes it
-        # easier to keep the full path, and refactor accordingly.
+        # Everything keeps the extensionless path.
         self._path = new_path
 
         db_store.set_path(new_path)
@@ -1128,48 +1288,16 @@ class WalletStorage:
         del self.requires_split
         del self.split_accounts
         del self.requires_upgrade
-        del self.is_encrypted
 
         self._is_closed = True
 
     def get_path(self) -> str:
         return self._store.get_path()
 
-    def load_data(self, raw: bytes) -> None:
-        self._store.load_data(raw)
-        self._load_data()
-
-    def _load_data(self) -> None:
-        if not self._manual_upgrades:
-            if self.requires_split():
-                raise Exception("This wallet has multiple accounts and must be split")
-            if self.requires_upgrade():
-                self.upgrade()
-
     @staticmethod
     def get_eckey_from_password(password: str) -> PrivateKey:
         secret = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), b'', iterations=1024)
         return PrivateKey.from_arbitrary_bytes(secret)
-
-    def decrypt(self, password: str) -> None:
-        ec_key = self.get_eckey_from_password(password)
-        encrypted_data = self._store.get_encrypted_data()
-        assert type(encrypted_data) is bytes
-        raw = zlib.decompress(ec_key.decrypt_message(encrypted_data))
-
-        pubkey = ec_key.public_key.to_hex()
-        self._store.set_pubkey(pubkey)
-
-        self.load_data(raw)
-
-    def set_password(self, password: Optional[str]) -> None:
-        self.put('use_encryption', bool(password))
-        if password:
-            ec_key = self.get_eckey_from_password(password)
-            pubkey = ec_key.public_key.to_hex()
-        else:
-            pubkey = None
-        self._store.set_pubkey(pubkey)
 
     def _set_store(self, store: StoreType) -> None:
         # This should only be called on `WalletStorage` creation or during the upgrade process
@@ -1183,25 +1311,33 @@ class WalletStorage:
         self.requires_split = store.requires_split
         self.split_accounts = store.split_accounts
         self.requires_upgrade = store.requires_upgrade
-        self.is_encrypted = store.is_encrypted
 
-    def upgrade(self) -> None:
+    def get_text_store(self) -> TextStore:
+        if not isinstance(self._store, TextStore):
+            raise NotImplementedError
+        return self._store
+
+    def is_legacy_format(self) -> bool:
+        return not isinstance(self._store, DatabaseStore)
+
+    def upgrade(self, has_password: bool, new_password: str) -> None:
         logger.debug('upgrading wallet format')
         backup_wallet_files(self._path)
 
         # The store can change if the old kind of store was obsoleted. We upgrade through
         # obsoleted kinds of stores to the final in-use kind of store.
         while True:
-            new_store = self._store.upgrade()
+            new_store = self._store.upgrade(has_password, new_password)
             if new_store is not None:
                 self._set_store(new_store)
                 if new_store.requires_upgrade():
                     continue
             break
 
-    def get_db_context(self) -> DatabaseContext:
-        db_store = cast(DatabaseStore, self._store)
-        return db_store._db_context
+    def get_db_context(self) -> Optional[DatabaseContext]:
+        if isinstance(self._store, DatabaseStore):
+            return self._store._db_context
+        return None
 
     @classmethod
     def files_are_matched_by_path(klass, path: str) -> StorageKind:

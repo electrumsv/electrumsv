@@ -60,9 +60,17 @@ class UserQuit(Exception):
 class Bip270Exception(Exception):
     pass
 
+class OverloadedMultisigKeystore(Exception):
+    pass
 
 class UnknownTransactionException(Exception):
     pass
 
 class IncompatibleWalletError(Exception):
+    pass
+
+class DatabaseMigrationError(Exception):
+    pass
+
+class WalletLoadError(Exception):
     pass

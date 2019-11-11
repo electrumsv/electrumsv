@@ -26,8 +26,5 @@ def plugin_class(gui_kind):
     if gui_kind == 'qt':
         from .qt import Plugin
         return Plugin
-    elif gui_kind == 'cmdline':
-        from .ledger import LedgerPlugin
-        return LedgerPlugin
     else:
         raise ValueError(f'gui kind {gui_kind} not supported')

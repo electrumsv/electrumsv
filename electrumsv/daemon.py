@@ -41,7 +41,7 @@ from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .util import json_decode, DaemonThread, to_string, random_integer, get_wallet_name_from_path
 from .version import PACKAGE_VERSION
-from .wallet import ParentWallet
+from .wallet import Wallet
 
 
 logger = logs.get_logger("daemon")
@@ -206,8 +206,8 @@ class Daemon(DaemonThread):
             response = "Daemon already running"
         elif sub == 'load_wallet':
             path = config.get_wallet_path()
-            wallet = self.load_wallet(path, config.get('password'))
-            self.cmd_runner.parent_wallet = wallet
+            wallet = self.load_wallet(path)
+            self.cmd_runner._wallet = wallet
             response = True
         elif sub == 'close_wallet':
             path = WalletStorage.canonical_path(config.get_wallet_path())
@@ -242,43 +242,41 @@ class Daemon(DaemonThread):
 
         return "error: ElectrumSV is running in daemon mode; stop the daemon first."
 
-    def load_wallet(self, wallet_filepath: str, password: Optional[str]) -> ParentWallet:
+    def load_wallet(self, wallet_filepath: str) -> Wallet:
         # wizard will be launched if we return
         if wallet_filepath in self.wallets:
             wallet = self.wallets[wallet_filepath]
             return wallet
         if not WalletStorage.files_are_matched_by_path(wallet_filepath):
             return
-        storage = WalletStorage(wallet_filepath, manual_upgrades=True)
-        if storage.is_encrypted():
-            if not password:
-                return
-            storage.decrypt(password)
+        storage = WalletStorage(wallet_filepath)
         if storage.requires_split():
+            storage.close()
             return
         if storage.requires_upgrade():
+            storage.close()
             return
 
-        parent_wallet = ParentWallet(storage)
-        self.start_wallet(parent_wallet)
-        return parent_wallet
+        wallet = Wallet(storage)
+        self.start_wallet(wallet)
+        return wallet
 
-    def get_wallet(self, path: str) -> ParentWallet:
+    def get_wallet(self, path: str) -> Wallet:
         wallet_filepath = WalletStorage.canonical_path(path)
         return self.wallets.get(wallet_filepath)
 
-    def start_wallet(self, parent_wallet: ParentWallet) -> None:
+    def start_wallet(self, wallet: Wallet) -> None:
         # We expect the storage path to be exact, including the database extension. So it should
         # match the canonical path used elsewhere.
-        self.wallets[parent_wallet.get_storage_path()] = parent_wallet
-        parent_wallet.start(self.network)
+        self.wallets[wallet.get_storage_path()] = wallet
+        wallet.start(self.network)
 
     def stop_wallet_at_path(self, path: str) -> None:
         wallet_filepath = WalletStorage.canonical_path(path)
         # Issue #659 wallet may already be stopped.
         if wallet_filepath in self.wallets:
-            parent_wallet = self.wallets.pop(wallet_filepath)
-            parent_wallet.stop()
+            wallet = self.wallets.pop(wallet_filepath)
+            wallet.stop()
 
     def stop_wallets(self):
         for path in list(self.wallets.keys()):
@@ -292,12 +290,12 @@ class Daemon(DaemonThread):
         cmd = known_commands[cmdname]
         if cmd.requires_wallet:
             path = WalletStorage.canonical_path(config.get_wallet_path())
-            parent_wallet = self.wallets.get(path)
-            if parent_wallet is None:
+            wallet = self.wallets.get(path)
+            if wallet is None:
                 return {'error': 'Wallet "%s" is not loaded. Use "electrum-sv daemon load_wallet"'
                         % get_wallet_name_from_path(path)}
         else:
-            parent_wallet = None
+            wallet = None
         # arguments passed to function
         args = [config.get(x) for x in cmd.params]
         # decode json arguments
@@ -307,7 +305,7 @@ class Daemon(DaemonThread):
         for x in cmd.options:
             kwargs[x] = (config_options.get(x) if x in ['password', 'new_password']
                          else config.get(x))
-        cmd_runner = Commands(config, parent_wallet, self.network)
+        cmd_runner = Commands(config, wallet, self.network)
         func = getattr(cmd_runner, cmd.name)
         result = func(*args, **kwargs)
         return result

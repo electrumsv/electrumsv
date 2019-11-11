@@ -51,6 +51,7 @@ class SVMainnet(object):
     NAME = 'mainnet'
     URI_PREFIX = "bitcoin"
     WIF_PREFIX = 0x80
+    BIP276_VERSION = 1
 
     # Bitcoin Cash fork block specification
     BITCOIN_CASH_FORK_BLOCK_HEIGHT = 478559
@@ -109,6 +110,7 @@ class SVTestnet(object):
     NAME = 'testnet'
     URI_PREFIX = "bitcoin"
     WIF_PREFIX = 0xef
+    BIP276_VERSION = 2
 
     # Bitcoin Cash fork block specification
     BITCOIN_CASH_FORK_BLOCK_HEIGHT = 1155876
@@ -168,6 +170,7 @@ class SVScalingTestnet(object):
     NAME = 'scalingtestnet'
     URI_PREFIX = "bitcoin"
     WIF_PREFIX = 0xef
+    BIP276_VERSION = 3
 
     # Bitcoin Cash fork block specification
     # BITCOIN_CASH_FORK_BLOCK_HEIGHT = 1155876

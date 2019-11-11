@@ -23,6 +23,7 @@
 # SOFTWARE.
 
 import threading
+from typing import cast
 
 from bitcoinx import (
     BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, Address,
@@ -35,8 +36,8 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output
-from electrumsv.util import bfh
+from electrumsv.transaction import classify_tx_output, Transaction
+from electrumsv.wallet import AbstractAccount
 
 from ..hw_wallet import HW_PluginBase
 
@@ -299,17 +300,18 @@ class KeepKeyPlugin(HW_PluginBase):
         self.xpub_path = xpub_path
         client = self.get_client(keystore)
         inputs = self.tx_inputs(tx)
-        outputs = self.tx_outputs(keystore.get_derivation(), tx)
+        outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx)
         signatures = client.sign_tx(self.get_coin_name(client), inputs, outputs,
                                     lock_time=tx.locktime)[0]
         tx.update_signatures(signatures)
 
-    def show_address(self, wallet, address):
-        keystore = wallet.get_keystore()
+    def show_key(self, account: AbstractAccount, keyinstance_id: int) -> None:
+        keystore = cast(KeepKey_KeyStore, account.get_keystore())
         client = self.get_client(keystore)
-        change, index = wallet.get_address_index(address)
-        derivation = keystore.derivation
-        address_path = "%s/%d/%d"%(derivation, change, index)
+        derivation_path = account.get_derivation_path(keyinstance_id)
+        assert derivation_path is not None
+        subpath = '/'.join(str(x) for x in derivation_path)
+        address_path = f"{keystore.derivation}/{subpath}"
         address_n = bip32_decompose_chain_string(address_path)
         script_type = self.types.SPENDADDRESS
         client.get_address(Net.KEEPKEY_DISPLAY_COIN_NAME, address_n,
@@ -319,16 +321,12 @@ class KeepKeyPlugin(HW_PluginBase):
         inputs = []
         for txin in tx.inputs:
             txinputtype = self.types.TxInputType()
-            txinputtype.prev_hash = bytes(reversed(txin.prev_hash))
-            txinputtype.prev_index = txin.prev_idx
-            txinputtype.sequence = txin.sequence
-            txinputtype.amount = txin.value
 
             x_pubkeys = txin.x_pubkeys
             if len(x_pubkeys) == 1:
                 x_pubkey = x_pubkeys[0]
                 xpub, path = x_pubkey.bip32_extended_key_and_path()
-                xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
+                xpub_n = tuple(bip32_decompose_chain_string(self.xpub_path[xpub]))
                 txinputtype.address_n.extend(xpub_n + path)
                 txinputtype.script_type = self.types.SPENDADDRESS
             else:
@@ -336,7 +334,7 @@ class KeepKeyPlugin(HW_PluginBase):
                     if x_pubkey.is_bip32_key():
                         xpub, path = x_pubkey.bip32_extended_key_and_path()
                     else:
-                        xpub = BIP32PublicKey(bfh(x_pubkey), NULL_DERIVATION, Net.COIN)
+                        xpub = BIP32PublicKey(x_pubkey.to_public_key(), NULL_DERIVATION, Net.COIN)
                         xpub = xpub.to_extended_key_string()
                         path = []
                     node = self.ckd_public.deserialize(xpub)
@@ -357,36 +355,42 @@ class KeepKeyPlugin(HW_PluginBase):
                     if x_pubkey.is_bip32_key():
                         xpub, path = x_pubkey.bip32_extended_key_and_path()
                         if xpub in self.xpub_path:
-                            xpub_n = bip32_decompose_chain_string(self.xpub_path[xpub])
+                            xpub_n = tuple(bip32_decompose_chain_string(self.xpub_path[xpub]))
                             txinputtype.address_n.extend(xpub_n + path)
                             break
+
+            txinputtype.prev_hash = bytes(reversed(txin.prev_hash))
+            txinputtype.prev_index = txin.prev_idx
+            txinputtype.sequence = txin.sequence
+            txinputtype.amount = txin.value
 
             inputs.append(txinputtype)
 
         return inputs
 
-    def tx_outputs(self, derivation, tx):
-        outputs = []
+    def tx_outputs(self, keystore: KeepKey_KeyStore, derivation: str, tx: Transaction):
         has_change = False
+        account_derivation = tuple(bip32_decompose_chain_string(derivation))
+        keystore_fingerprint = keystore.get_fingerprint()
 
-        for tx_output, info in zip(tx.outputs, tx.output_info):
+        outputs = []
+        for tx_output, output_metadatas in zip(tx.outputs, tx.output_info):
+            info = output_metadatas.get(keystore_fingerprint)
             if info is not None and not has_change:
                 has_change = True # no more than one change address
-                index, xpubs, m = info
+                key_derivation, xpubs, m = info
                 if len(xpubs) == 1:
                     script_type = self.types.PAYTOADDRESS
-                    address_n = bip32_decompose_chain_string(derivation + "/%d/%d"%index)
                     txoutputtype = self.types.TxOutputType(
                         amount = tx_output.value,
                         script_type = script_type,
-                        address_n = address_n,
+                        address_n = account_derivation + key_derivation,
                     )
                 else:
                     script_type = self.types.PAYTOMULTISIG
-                    address_n = bip32_decompose_chain_string("/%d/%d"%index)
                     nodes = [self.ckd_public.deserialize(xpub) for xpub in xpubs]
-                    pubkeys = [self.types.HDNodePathType(node=node, address_n=address_n)
-                               for node in nodes]
+                    pubkeys = [self.types.HDNodePathType(node=node, address_n=key_derivation)
+                        for node in nodes]
                     multisig = self.types.MultisigRedeemScriptType(
                         pubkeys = pubkeys,
                         signatures = [b''] * len(pubkeys),
@@ -394,7 +398,7 @@ class KeepKeyPlugin(HW_PluginBase):
                     txoutputtype = self.types.TxOutputType(
                         multisig = multisig,
                         amount = tx_output.value,
-                        address_n = bip32_decompose_chain_string(derivation + "/%d/%d"%index),
+                        address_n = account_derivation + key_derivation,
                         script_type = script_type)
             else:
                 txoutputtype = self.types.TxOutputType()

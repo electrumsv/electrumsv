@@ -68,7 +68,7 @@ class ExchangeBase(object):
             try:
                 with open(filename, 'r', encoding='utf-8') as f:
                     return json.loads(f.read()), timestamp
-            except:
+            except Exception:
                 pass
         return None, None
 
@@ -235,7 +235,7 @@ def get_exchanges_and_currencies():
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return json.loads(f.read())
-    except:
+    except Exception:
         pass
     d = {}
     is_exchange = lambda obj: (inspect.isclass(obj)
@@ -247,7 +247,7 @@ def get_exchanges_and_currencies():
         try:
             d[name] = exchange.get_currencies()
             logger.debug("get_exchanges_and_currencies %s = ok", name)
-        except:
+        except Exception:
             logger.exception("get_exchanges_and_currencies %s = error", name)
             continue
     with open(path, 'w', encoding='utf-8') as f:

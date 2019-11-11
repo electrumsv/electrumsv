@@ -321,8 +321,8 @@ class NetworkChoiceLayout(object):
         grid.addWidget(HelpButton(msg), 0, 4)
 
         self.server_label = QLabel('')
-        msg = _("ElectrumSV sends your wallet addresses to a single server, in order to "
-                "receive your transaction history.")
+        msg = _("ElectrumSV sends your wallet payment script metadata to a single server, "
+                "in order to receive any transaction history relating to them.")
         grid.addWidget(QLabel(_('Server') + ':'), 1, 0)
         grid.addWidget(self.server_label, 1, 1, 1, 3)
         grid.addWidget(HelpButton(msg), 1, 4)

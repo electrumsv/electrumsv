@@ -26,7 +26,7 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
 
-from electrumsv.bitcoin import address_from_string
+from electrumsv.bitcoin import address_from_string, script_template_to_string
 from electrumsv.i18n import _
 from electrumsv.util import format_time, age
 from electrumsv.paymentrequest import PR_UNKNOWN
@@ -38,9 +38,9 @@ class RequestList(MyTreeWidget):
     filter_columns = [0, 1, 2, 3, 4]  # Date, Account, Address, Description, Amount
 
     def __init__(self, parent):
-        self.wallet = parent.parent_wallet.get_default_wallet()
-        MyTreeWidget.__init__(self, parent, self.create_menu, [
-            _('Date'), _('Address'), '', _('Description'), _('Amount'), _('Status')], 3)
+        self._account = parent._wallet.get_default_account()
+        MyTreeWidget.__init__(self, parent, parent, self.create_menu, [
+            _('Date'), _('Payment destination'), '', _('Description'), _('Amount'), _('Status')], 3)
         self.currentItemChanged.connect(self.item_changed)
         self.itemClicked.connect(self.item_changed)
         self.setSortingEnabled(True)
@@ -52,14 +52,18 @@ class RequestList(MyTreeWidget):
             return
         if not item.isSelected():
             return
-        wallet_id, addr = item.data(0, Qt.UserRole)
-        wallet = self.parent.parent_wallet.get_wallet_for_account(wallet_id)
-        req = wallet.receive_requests[addr]
+        key_id = item.data(0, Qt.UserRole)
+        req = self._account.receive_requests[key_id]
         expires = age(req['time'] + req['exp']) if req.get('exp') else _('Never')
         amount = req['amount']
-        message = wallet.labels.get(addr.to_string(), '')
-        self.parent.receive_address_e.setText(addr.to_string())
+
+        script_template = self._account.get_script_template_for_id(key_id)
+        address_text = script_template_to_string(script_template)
+        self.parent.receive_destination_e.setText(address_text)
+
+        message = self._account.get_keyinstance_label(key_id)
         self.parent.receive_message_e.setText(message)
+
         self.parent.receive_amount_e.setAmount(amount)
         self.parent.expires_combo.hide()
         self.parent.expires_label.show()
@@ -68,7 +72,7 @@ class RequestList(MyTreeWidget):
 
     def on_update(self):
         # hide receive tab if no receive requests available
-        b = len(self.wallet.receive_requests) > 0
+        b = len(self._account.receive_requests) > 0
         self.setVisible(b)
         self.parent.receive_requests_label.setVisible(b)
         if not b:
@@ -76,23 +80,22 @@ class RequestList(MyTreeWidget):
             self.parent.expires_combo.show()
 
         # update the receive address if necessary
-        current_address_string = self.parent.receive_address_e.text().strip()
+        current_address_string = self.parent.receive_destination_e.text().strip()
         current_address = (address_from_string(current_address_string)
                            if len(current_address_string) else None)
-        domain = self.wallet.get_receiving_addresses()
-        addr = self.wallet.get_unused_address()
-        if not current_address in domain and addr:
+
+        # TODO(rt12) BACKLOG replace with either create or allocate key.
+        addr = self._account.get_unused_address_REPLACE()
+        if addr:
             self.parent.set_receive_address(addr)
         self.parent.new_request_button.setEnabled(addr != current_address)
 
-        wallet_id = self.wallet.get_id()
+        account_id = self._account.get_id()
 
         # clear the list and fill it again
         self.clear()
-        for req in self.wallet.get_sorted_requests(self.config):
-            address = req['address']
-            if address not in domain:
-                continue
+        for req in self._account.get_sorted_requests():
+            key_id = req["key_id"]
             timestamp = req.get('time', 0)
             amount = req.get('amount')
             expiration = req.get('exp', None)
@@ -100,20 +103,23 @@ class RequestList(MyTreeWidget):
             date = format_time(timestamp, _("Unknown"))
             status = req.get('status')
             amount_str = self.parent.format_amount(amount) if amount else ""
-            item = QTreeWidgetItem([date, address.to_string(), '', message,
+
+            script_template = self._account.get_script_template_for_id(key_id)
+            address_text = script_template_to_string(script_template)
+
+            item = QTreeWidgetItem([date, address_text, '', message,
                                     amount_str, pr_tooltips.get(status,'')])
-            item.setData(0, Qt.UserRole, (wallet_id, address))
+            item.setData(0, Qt.UserRole, key_id)
             if status is not PR_UNKNOWN:
                 item.setIcon(6, read_QIcon(pr_icons.get(status)))
             self.addTopLevelItem(item)
-
 
     def create_menu(self, position):
         item = self.itemAt(position)
         if not item:
             return
-        addr = item.data(0, Qt.UserRole)
-        req = self.wallet.receive_requests[addr]
+        key_id = item.data(0, Qt.UserRole)
+        req = self._account.receive_requests[key_id]
         column = self.currentColumn()
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
@@ -122,9 +128,9 @@ class RequestList(MyTreeWidget):
                        lambda: self.parent.app.clipboard().setText(column_data))
         menu.addAction(_("Copy URI"),
                        lambda: self.parent.view_and_paste(
-                           'URI', '', self.parent.get_request_URI(addr)))
+                           'URI', '', self.parent.get_request_URI(key_id)))
         menu.addAction(_("Save as BIP270 file"),
-            lambda: self.parent.export_payment_request(addr))
+            lambda: self.parent.export_payment_request(key_id))
         menu.addAction(_("Delete"),
-            lambda: self.parent.delete_payment_request(addr))
+            lambda: self.parent.delete_payment_request(key_id))
         menu.exec_(self.viewport().mapToGlobal(position))

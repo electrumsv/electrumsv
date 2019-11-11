@@ -25,7 +25,7 @@
 '''ElectrumSV Preferences dialog.'''
 
 from functools import partial
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -35,24 +35,30 @@ from PyQt5.QtWidgets import (
 
 from electrumsv import qrscanner
 from electrumsv.app_state import app_state
+from electrumsv.constants import ScriptType
 from electrumsv.extensions import label_sync
 from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
 import electrumsv.web as web
-from electrumsv.wallet import ParentWallet
+from electrumsv.wallet import AbstractAccount, Wallet
 
 from .amountedit import BTCSatsByteEdit
 from .util import (
     HelpButton, HelpLabel, Buttons, CloseButton, MessageBox,
 )
 
+if TYPE_CHECKING:
+    from electrumsv.gui.qt.main_window import ElectrumWindow
+
 
 class PreferencesDialog(QDialog):
-    def __init__(self, parent_wallet: Optional[ParentWallet]=None):
-        '''The preferences dialog has a wallet tab only if wallet is given.'''
+    def __init__(self, main_window: 'ElectrumWindow', wallet: Wallet,
+            account: Optional[AbstractAccount]=None):
+        '''The preferences dialog has a account tab only if account is given.'''
         super().__init__()
         self.setWindowTitle(_('Preferences'))
-        self.lay_out(parent_wallet)
+        self._main_window = main_window
+        self.lay_out(wallet, account)
         self.initial_language = app_state.config.get('language', None)
 
     def accept(self) -> None:
@@ -67,16 +73,16 @@ class PreferencesDialog(QDialog):
                 title=_('Success'), parent=self)
         super().accept()
 
-    def lay_out(self, parent_wallet: Optional[ParentWallet]):
-        default_wallet = parent_wallet.get_default_wallet() if parent_wallet else None
+    def lay_out(self, wallet: Wallet, account: Optional[AbstractAccount]):
         tabs_info = [
             (self.general_widgets(), _('General')),
             (self.tx_widgets(), _('Transactions')),
             (self.fiat_widgets(), _('Fiat')),
-            (self.extensions_widgets(default_wallet), _('Extensions')),
+            (self.extensions_widgets(account), _('Extensions')),
         ]
-        if default_wallet:
-            tabs_info.append((self.wallet_widgets(default_wallet), _('Wallet')))
+        tabs_info.append((self.wallet_widgets(wallet), _('Wallet')))
+        if account is not None:
+            tabs_info.append((self.account_widgets(account), _('Account')))
 
         tabs = QTabWidget()
         tabs.setUsesScrollButtons(False)
@@ -333,7 +339,7 @@ class PreferencesDialog(QDialog):
             (fiat_balance_checkbox, ),
         ]
 
-    def extensions_widgets(self, wallet):
+    def extensions_widgets(self, account: Optional[AbstractAccount]):
         def cb_clicked(extension, settings_widget, checked):
             extension.set_enabled(checked)
             if settings_widget:
@@ -344,8 +350,8 @@ class PreferencesDialog(QDialog):
             cb = QCheckBox(extension.name)
             cb.setChecked(extension.is_enabled())
             # Yes this is ugly
-            if extension is label_sync and wallet:
-                settings_widget = app_state.app.label_sync.settings_widget(self, wallet)
+            if extension is label_sync and account:
+                settings_widget = app_state.app.label_sync.settings_widget(self, account)
                 settings_widget.setEnabled(extension.is_enabled())
             else:
                 settings_widget = None
@@ -355,42 +361,68 @@ class PreferencesDialog(QDialog):
 
         return widgets
 
-    def wallet_widgets(self, wallet):
-        label = QLabel(_("The settings below only affect the wallet {}")
-                       .format(wallet.name()))
-
+    def wallet_widgets(self, wallet: Wallet):
         usechange_cb = QCheckBox(_('Use change addresses'))
-        usechange_cb.setChecked(wallet.use_change)
+        usechange_cb.setChecked(wallet.get_use_change())
         usechange_cb.setEnabled(app_state.config.is_modifiable('use_change'))
         usechange_cb.setToolTip(
-            _('Using a different change address each time improves your privacy by '
+            _('Using a different change key each time improves your privacy by '
               'making it more difficult for others to analyze your transactions.')
         )
         def on_usechange(state):
             usechange_result = state == Qt.Checked
-            if wallet.use_change != usechange_result:
-                wallet.use_change = usechange_result
-                wallet.put('use_change', wallet.use_change)
-                multiple_cb.setEnabled(wallet.use_change)
+            if wallet.get_use_change() != usechange_result:
+                wallet.set_use_change(usechange_result)
+                multiple_cb.setEnabled(wallet.get_use_change())
         usechange_cb.stateChanged.connect(on_usechange)
 
         multiple_cb = QCheckBox(_('Use multiple change addresses'))
-        multiple_cb.setChecked(wallet.multiple_change)
-        multiple_cb.setEnabled(wallet.use_change)
+        multiple_cb.setChecked(wallet.get_multiple_change())
+        multiple_cb.setEnabled(wallet.get_use_change())
         multiple_cb.setToolTip('\n'.join([
-            _('In some cases, use up to 3 change addresses in order to break '
-              'up large coin amounts and obfuscate the recipient address.'),
+            _('In some cases, use up to 3 change keys in order to break '
+              'up large coin amounts and obfuscate the recipient key.'),
             _('This may result in higher transactions fees.')
         ]))
         def on_multiple(state):
             multiple = state == Qt.Checked
-            if wallet.multiple_change != multiple:
-                wallet.multiple_change = multiple
-                wallet.put('multiple_change', multiple)
+            if wallet.get_multiple_change() != multiple:
+                wallet.set_multiple_change(multiple)
         multiple_cb.stateChanged.connect(on_multiple)
 
         return [
-            (label, ),
             (usechange_cb, ),
             (multiple_cb, ),
+        ]
+
+    def account_widgets(self, account: AbstractAccount):
+        label = QLabel(_("The settings below only affect the account '{}'")
+                       .format(account.display_name()))
+
+        script_type_combo = QComboBox()
+
+        def update_script_types():
+            default_script_type = account.get_default_script_type()
+            combo_items = [ v.name for v in account.get_valid_script_types() ]
+
+            script_type_combo.clear()
+            script_type_combo.addItems(combo_items)
+            script_type_combo.setCurrentIndex(script_type_combo.findText(default_script_type.name))
+
+        def on_script_type_change(index):
+            script_type_name = script_type_combo.currentText()
+            new_script_type = getattr(ScriptType, script_type_name)
+            current_script_type = account.get_default_script_type()
+            if current_script_type == new_script_type:
+                return
+            account.set_default_script_type(new_script_type)
+            self._main_window.update_receive_address_widget()
+
+        script_type_combo.currentIndexChanged.connect(on_script_type_change)
+
+        update_script_types()
+
+        return [
+            (label, ),
+            (script_type_combo, ),
         ]
