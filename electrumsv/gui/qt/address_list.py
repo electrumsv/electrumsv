@@ -613,8 +613,6 @@ class AddressList(QTableView):
 
     def _add_addresses(self, addresses: List[Address], state: Dict[Address, EventFlags]) -> None:
         self._logger.debug("_add_addresses %d", len(addresses))
-        # self._logger.debug("_add_addresses %s",
-        #     [ a.to_string(coin=Net.COIN) for a in addresses ])
 
         # TODO: Use state to identify if we know the receiving or change status of an address.
         receiving_addresses = self._wallet.get_receiving_addresses()[:]
@@ -640,8 +638,6 @@ class AddressList(QTableView):
 
     def _update_addresses(self, addresses: List[Address], state: Dict[Address, EventFlags]) -> None:
         self._logger.debug("_update_addresses %d", len(addresses))
-        # self._logger.debug("_update_addresses %s",
-        #     [ a.to_string(coin=Net.COIN) for a in addresses ])
 
         # TODO(rt12): It should be possible to look at the state and see if partial updates
         # are enough.
@@ -663,7 +659,7 @@ class AddressList(QTableView):
         if len(matches) != len(addresses):
             matched_addresses = [ line.address for (row, line) in matches ]
             self._logger.debug("_update_addresses missing entries %s",
-                [ a.to_string(coin=Net.COIN) for a in addresses if a not in matched_addresses ])
+                [ a.to_string() for a in addresses if a not in matched_addresses ])
         for row, line in matches:
             new_line = self._create_address_entry(line.address,
                 (line.flags & AddressFlags.CHANGE) == AddressFlags.CHANGE,
@@ -676,13 +672,11 @@ class AddressList(QTableView):
 
     def _remove_addresses(self, addresses: List[Address]) -> None:
         self._logger.debug("_remove_addresses %d", len(addresses))
-        # self._logger.debug("_remove_addresses %s",
-        #     [ a.to_string(coin=Net.COIN) for a in addresses ])
         matches = self._match_addresses(addresses)
         if len(matches) != len(addresses):
             matched_addresses = [ line.address for (row, line) in matches ]
             self._logger.debug("_remove_addresses missing entries %s",
-                [ a.to_string(coin=Net.COIN) for a in addresses if a not in matched_addresses ])
+                [ a.to_string() for a in addresses if a not in matched_addresses ])
         # Make sure that we will be removing rows from the last to the first, to preserve offsets.
         for row, line in sorted(matches, reverse=True, key=lambda v: v[0]):
             self._base_model.remove_row(row)
