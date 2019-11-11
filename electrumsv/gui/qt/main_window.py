@@ -2002,6 +2002,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             'network': self.network,
             'util': util,
             'parent_wallet': self.parent_wallet,
+            # For now we'll alias the default wallet as 'wallet'.
+            'wallet': self.parent_wallet.get_default_wallet(),
             'window': self,
         })
 
