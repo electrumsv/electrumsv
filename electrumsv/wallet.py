@@ -147,7 +147,7 @@ class Abstract_Wallet:
     """
 
     max_change_outputs = 3
-    _filter_observed_addresses = False
+    _filter_observed_addresses = True
 
     def __init__(self, parent_wallet: 'ParentWallet', wallet_data: Dict[str, Any]) -> None:
         # Prevent circular reference keeping parent and child wallets alive.
@@ -427,12 +427,8 @@ class Abstract_Wallet:
             keys = [(hash_to_hex_str(input.prev_hash), input.prev_idx) for
                     input in tx.inputs]
 
-            logger.debug('cleaning up redundant frozen coins where applicable for: %s' % keys)
-            logger.debug('frozen coins before: %r' % self._frozen_coins)
-
             for key in keys:
                 self._frozen_coins.discard(key)
-                logger.debug('frozen coins after: %r' % self._frozen_coins)
 
     def display_name(self) -> str:
         # TODO: ACCOUNTS: Allow user to change this.
@@ -778,6 +774,7 @@ class Abstract_Wallet:
         return self.get_utxos(domain, exclude_frozen=True, mature=True,
                               confirmed_only=confirmed_only)
 
+    @profiler
     def get_utxos_cached(self, exclude_frozen=False, mature=True,
                          confirmed_only=False) -> UTXOCache:
         """As an interim measure (until persisted in database), the cache should be loaded once per
@@ -807,7 +804,8 @@ class Abstract_Wallet:
                                            confirmed_only=False)
                     self._datastore.utxos.add_many(coins)
                     if len(self._datastore.utxos) == 0:
-                        raise NotEnoughFunds("Either all utxos are frozen or wallet is out of coins.")
+                        raise NotEnoughFunds("Either all utxos are frozen or wallet is out of "
+                                             "coins.")
 
                     return self._datastore.utxos
 
@@ -1036,19 +1034,23 @@ class Abstract_Wallet:
 
             for tx_id in set(t[0] for t in hist):
                 has_tx_data = self._datastore.tx.have_transaction_data(tx_id)
-                if has_tx_data:
+                is_cached = self._datastore.tx.is_cached(tx_id)
+                if has_tx_data and is_cached:
+                    entry = self._datastore.tx.get_cached_entry(tx_id)
+                if has_tx_data and not is_cached:
                     entry = self._datastore.tx.get_entry(tx_id)
+
                 # if StateSigned | StateDispatched | StateReceived update --> StateCleared
                 if has_tx_data and entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
                     self.logger.debug("updating incoming tx --> StateCleared. Before: %s ", entry)
                     self.set_transaction_state(tx_id, TxFlags.StateCleared | TxFlags.HasByteData)
                     self.logger.debug("After update: %s ", self._datastore.tx.get_entry(tx_id))
-                    self.logger.debug("Before utxo and frozen coin cleanup: %s, frozen coins: %s",
-                                      self._datastore.utxos, self._frozen_coins)
+                    #self.logger.debug("Before utxo and frozen coin cleanup: %s, frozen coins: %s",
+                    #                  self._datastore.utxos, self._frozen_coins)
                     self.handle_incoming_payments(entry.transaction, tx_hash)  # Add to UTXOCache
-                    self.handle_outgoing_payments(entry.transaction)  # Cleanup Frozen coins
-                    self.logger.debug("After utxo and frozen coin cleanup: %s, frozen coins: %s ",
-                                      self._datastore.utxos, self._frozen_coins)
+                    #self.handle_outgoing_payments(entry.transaction)  # Cleanup Frozen coins
+                    #self.logger.debug("After utxo and frozen coin cleanup: %s, frozen coins: %s ",
+                    #                  self._datastore.utxos, self._frozen_coins)
 
                     # else let it flow through to the "monitor_txs" loop and be dealt with
                     # by the "missing_transactions pool"... (for txs without "HasByteData)

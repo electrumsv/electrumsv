@@ -1946,7 +1946,7 @@ class UTXOCache(deque):
 
         self.logger.debug("updating utxo cache for %s", tx.txid())
         # Add new utxos to cache
-        new_utxos = self.extract_utxos_from_tx_entry(txid, tx, tx_cache_entry)
+        new_utxos = self.extract_utxos_from_tx_entry(tx.txid(), tx, tx_cache_entry)
         self.extend(new_utxos)
 
     def undo_add_from_tx_entry(self, tx_cache_entry: TxCacheEntry) -> None:
@@ -1978,7 +1978,9 @@ class UTXOCache(deque):
         if len(utxos_to_add_back) == 0 or utxos_to_add_back is None:
             return
 
-        # avoid duplicate additions
+        # avoid duplicate additions (This is a slow operation
+        # but failure to broadcast should be
+        # a rare event
         elif utxos_to_add_back not in self:
             # extendleft because the idea is to keep the deque ordered
             # and pop used utxos from left, append new utxos to right side.
