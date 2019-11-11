@@ -325,12 +325,11 @@ class DatabaseStore(BaseStore):
         self._db_context.close()
 
     def _get_seed_version(self) -> int:
-        seed_version = self._db_values.get("seed_version")
-        assert seed_version is not None
-        return seed_version
+        return self._seed_version
 
     def _set_seed_version(self, seed_version: Optional[int]) -> None:
         assert seed_version is not None
+        self._seed_version = seed_version
         self._db_values.set("seed_version", seed_version)
 
     @classmethod
@@ -378,9 +377,14 @@ class DatabaseStore(BaseStore):
         else:
             raw = s.encode()
 
-        self._db_values.set("jsondata", raw)
-        self._primed = True
+        completion_event = threading.Event()
+        def _wait_for_completion() -> None:
+            completion_event.set()
 
+        self._db_values.set("jsondata", raw, completion_callback=_wait_for_completion)
+        completion_event.wait()
+
+        self._primed = True
         return raw
 
     def requires_split(self) -> bool:
