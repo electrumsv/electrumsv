@@ -657,8 +657,9 @@ class AddressList(QTableView):
 
         matches = self._match_addresses(addresses)
         if len(matches) != len(addresses):
+            matched_addresses = [ line.address for (row, line) in matches ]
             self._logger.debug("_update_addresses missing entries %s",
-                [ a.to_string(coin=Net.COIN) for a in matches if a not in addresses ])
+                [ a.to_string(coin=Net.COIN) for a in addresses if a not in matched_addresses ])
         for row, line in matches:
             new_line = self._create_address_entry(line.address,
                 (line.flags & AddressFlags.CHANGE) == AddressFlags.CHANGE,
@@ -675,8 +676,9 @@ class AddressList(QTableView):
         #     [ a.to_string(coin=Net.COIN) for a in addresses ])
         matches = self._match_addresses(addresses)
         if len(matches) != len(addresses):
+            matched_addresses = [ line.address for (row, line) in matches ]
             self._logger.debug("_remove_addresses missing entries %s",
-                [ a.to_string(coin=Net.COIN) for a in matches if a not in addresses ])
+                [ a.to_string(coin=Net.COIN) for a in addresses if a not in matched_addresses ])
         # Make sure that we will be removing rows from the last to the first, to preserve offsets.
         for row, line in sorted(matches, reverse=True, key=lambda v: v[0]):
             self._base_model.remove_row(row)
