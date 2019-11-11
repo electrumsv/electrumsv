@@ -588,7 +588,11 @@ class AddressList(QTableView):
 
         self.resizeRowsToContents()
 
-    def _on_addresses_created(self, addresses: Iterable[Address], is_change: bool=False) -> None:
+    def _on_addresses_created(self, wallet: Abstract_Wallet, addresses: Iterable[Address],
+            is_change: bool=False) -> None:
+        if wallet is not self._wallet:
+            return
+
         flags = EventFlags.ADDRESS_ADDED
         if is_change:
             flags |= EventFlags.ADDRESS_CHANGE
@@ -601,7 +605,7 @@ class AddressList(QTableView):
     # - Archived.
     # - Usages.
     # - Balance.
-    def _on_addresses_updated(self, addresses: Iterable[Address]) -> None:
+    def _on_addresses_updated(self, wallet: Abstract_Wallet, addresses: Iterable[Address]) -> None:
         new_flags = EventFlags.ADDRESS_UPDATED
         for address in addresses:
             flags = self._pending_state.get(address, EventFlags.UNSET)

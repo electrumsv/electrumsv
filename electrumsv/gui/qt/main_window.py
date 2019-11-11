@@ -103,8 +103,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     network_signal = pyqtSignal(str, object)
     history_updated_signal = pyqtSignal()
     network_status_signal = pyqtSignal()
-    addresses_updated_signal = pyqtSignal(object)
-    addresses_created_signal = pyqtSignal(object, object)
+    addresses_updated_signal = pyqtSignal(object, object)
+    addresses_created_signal = pyqtSignal(object, object, object)
 
     def __init__(self, parent_wallet: ParentWallet):
         QMainWindow.__init__(self)
@@ -243,14 +243,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.load_wallet()
         self.app.timer.timeout.connect(self.timer_actions)
 
-    def _on_addresses_created(self, event_name: str, addresses: Iterable[Address],
-            is_change: bool=False) -> None:
+    def _on_addresses_created(self, event_name: str, wallet: Abstract_Wallet,
+            addresses: Iterable[Address], is_change: bool=False) -> None:
         # logger.debug("_on_addresses_created %s %s", [a.to_string() for a in addresses], is_change)
-        self.addresses_created_signal.emit(addresses, is_change)
+        self.addresses_created_signal.emit(wallet, addresses, is_change)
 
-    def _on_addresses_updated(self, event_name: str, addresses: Iterable[Address]) -> None:
+    def _on_addresses_updated(self, event_name: str, wallet: Abstract_Wallet,
+            addresses: Iterable[Address]) -> None:
         # logger.debug("_on_addresses_updated %s", [ a.to_string() for a in addresses ])
-        self.addresses_updated_signal.emit(addresses)
+        self.addresses_updated_signal.emit(wallet, addresses)
 
     def _on_history(self, b):
         self.new_fx_history_signal.emit()

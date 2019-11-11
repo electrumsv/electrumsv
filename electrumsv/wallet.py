@@ -930,7 +930,7 @@ class Abstract_Wallet:
             self._datastore.txout.add_entries(txouts)
 
         if len(affected_addresses):
-            self.network.trigger_callback('on_addresses_updated', affected_addresses)
+            self.network.trigger_callback('on_addresses_updated', self, affected_addresses)
 
     # Used by ImportedWalletBase
     def _remove_transaction(self, tx_hash: str) -> None:
@@ -1544,7 +1544,9 @@ class Abstract_Wallet:
             self.save_addresses()
             # Ensures addresses show in address list
             if self.network:
-                self.network.trigger_callback('on_addresses_created', addresses, for_change)
+                # There is no unique id for the child wallet, so we just pass the wallet for now.
+                self.network.trigger_callback('on_addresses_created', self, addresses,
+                    for_change)
 
     async def new_addresses(self) -> List[Address]:
         await self._new_addresses_event.wait()
