@@ -606,6 +606,9 @@ class AddressList(QTableView):
     # - Usages.
     # - Balance.
     def _on_addresses_updated(self, wallet: Abstract_Wallet, addresses: Iterable[Address]) -> None:
+        if wallet is not self._wallet:
+            return
+
         new_flags = EventFlags.ADDRESS_UPDATED
         for address in addresses:
             flags = self._pending_state.get(address, EventFlags.UNSET)
@@ -715,6 +718,9 @@ class AddressList(QTableView):
 
     # The user has edited a label either here, or in some other wallet location.
     def update_labels(self, wallet: Abstract_Wallet, updates: Dict[str, str]) -> None:
+        if wallet is not self._wallet:
+            return
+
         with self._update_lock:
             new_flags = EventFlags.ADDRESS_UPDATED | EventFlags.LABEL_UPDATE
 
