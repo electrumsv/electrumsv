@@ -62,7 +62,6 @@ from electrumsv.app_state import app_state
 from electrumsv.bitcoin import address_from_string
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
-from electrumsv.networks import Net
 from electrumsv.platform import platform
 from electrumsv.util import profiler
 from electrumsv.wallet import Multisig_Wallet, Abstract_Wallet

@@ -11,7 +11,6 @@ is out of date.
 """
 from abc import ABC, abstractmethod
 from collections import namedtuple, deque
-from copy import deepcopy
 from io import BytesIO
 import json
 import queue
@@ -1465,9 +1464,9 @@ class TxCache:
                 new_flags |= TxFlags.HasByteData
             if (entry.metadata == new_metadata and entry.bytedata == new_bytedata and
                     entry.flags == new_flags):
-                self.logger.debug("_update: skipped %s %r %s %r %s %s", tx_id, metadata,
-                    TxFlags.to_repr(flags), new_metadata, byte_repr(new_bytedata),
-                    entry.is_bytedata_cached())
+                #self.logger.debug("_update: skipped %s %r %s %r %s %s", tx_id, metadata,
+                #    TxFlags.to_repr(flags), new_metadata, byte_repr(new_bytedata),
+                #    entry.is_bytedata_cached())
                 skipped_update_ids.add(tx_id)
             else:
                 self._validate_new_flags(new_flags)
@@ -2067,6 +2066,13 @@ class WalletData:
     @property
     def utxos(self) -> UTXOCache:
         return self.utxo_cache
+
+    @utxos.setter
+    def utxos(self, value):
+        if isinstance(value, list):
+            self.utxo_cache = UTXOCache(value)
+        else:
+            self.utxo_cache = value
 
     @property
     def misc(self) -> ObjectKeyValueStore:

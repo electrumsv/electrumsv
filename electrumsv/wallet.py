@@ -788,24 +788,23 @@ class Abstract_Wallet:
         # Fast Track
         with self.transaction_lock:
             if exclude_frozen is False and mature is True and confirmed_only is False:
+                # The purpose of use with these parameters is for performance, whereby one adds and
+                # removes utxos instead of filtering for frozen coins.
+                # However, at present coin freezing should also be done so that if cache runs empty.
+                # The "re-scan" of addresses can yeild the correct utxo set
+                # (despite network latency)
                 if len(self._datastore.utxos) != 0:
                     return self._datastore.utxos
                 else:
-                    # Sorting requirements of dapps and 3rd parties could vary markedly e.g. for
-                    # The GUI / SPV - it may be that we want --> Benford's law? Therefore I have
-                    # ommitted (costly) sorting from this function.
-                    #coins = sorted(
-                    #    self.get_utxos(domain=None, exclude_frozen=False, mature=True,
-                    #                   confirmed_only=False),
-                    #    key=lambda k: (k.height, k.value),
-                    #    reverse=True
-                    #)
-                    coins = self.get_utxos(domain=None, exclude_frozen=False, mature=True,
+                    # The reason that exclude_frozen=True here is that under heavy load, this will
+                    # re-scan addresses and could give an inaccurate result (because utxo has been
+                    # removed from cache but will not be excluded from return value of un-cached
+                    # function until tx comes in from the network.
+                    coins = self.get_utxos(domain=None, exclude_frozen=True, mature=True,
                                            confirmed_only=False)
                     self._datastore.utxos.add_many(coins)
                     if len(self._datastore.utxos) == 0:
-                        raise NotEnoughFunds("Either all utxos are frozen or wallet is out of "
-                                             "coins.")
+                        return
 
                     return self._datastore.utxos
 
