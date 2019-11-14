@@ -99,6 +99,11 @@ class SVApplication(QApplication):
     identity_removed_signal = pyqtSignal(object, object)
 
     def __init__(self, argv):
+        QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_X11InitThreads)
+        if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
+            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
+        if hasattr(QGuiApplication, 'setDesktopFileName'):
+            QGuiApplication.setDesktopFileName('electrum-sv.desktop')
         super().__init__(argv)
         self.windows = []
         self.log_handler = SVLogHandler()
@@ -124,11 +129,6 @@ class SVApplication(QApplication):
         self._start()
 
     def _start(self):
-        QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_X11InitThreads)
-        if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
-            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
-        if hasattr(QGuiApplication, 'setDesktopFileName'):
-            QGuiApplication.setDesktopFileName('electrum-sv.desktop')
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.installEventFilter(OpenFileEventFilter(self.windows))
         self.create_new_window_signal.connect(self.start_new_window)
