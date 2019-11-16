@@ -254,22 +254,20 @@ class CoinChooserRandom(CoinChooserBase):
         return winner
 
 class CoinChooserPrivacy(CoinChooserRandom):
-    '''Attempts to better preserve user privacy.  First, if any coin is
-    spent from a user address, all coins are.  Compared to spending
-    from other addresses to make up an amount, this reduces
-    information leakage about sender holdings.  It also helps to
-    reduce blockchain UTXO bloat, and reduce future privacy loss that
-    would come from reusing that address' remaining UTXOs.  Second, it
-    penalizes change that is quite different to the sent amount.
-    Third, it penalizes change that is too big.'''
+    '''Attempts to better preserve user privacy.  First, if any coin is spent from a user
+    address, all coins are.  Compared to spending from other addresses to make up an
+    amount, this reduces information leakage about sender holdings.  It also helps to
+    reduce future privacy loss that would come from reusing that address' remaining UTXOs.
+    Second, it penalizes change that is quite different to the sent amount.  Third, it
+    penalizes change that is too big.
+    '''
 
     def keys(self, coins):
         return [coin.address for coin in coins]
 
     def penalty_func(self, tx):
         out_values = [output.value for output in tx.outputs]
-        min_change = min(out_values) * 0.75
-        max_change = max(out_values) * 1.33
+        max_change = max(out_values) * 1.5
         spent_amount = sum(out_values)
 
         def penalty(buckets):
@@ -277,11 +275,9 @@ class CoinChooserPrivacy(CoinChooserRandom):
             total_input = sum(bucket.value for bucket in buckets)
             change = float(total_input - spent_amount)
             # Penalize change not roughly in output range
-            if change < min_change:
-                badness += (min_change - change) / (min_change + 10000)
-            elif change > max_change:
+            if change > max_change:
                 badness += (change - max_change) / (max_change + 10000)
-                # Penalize large change; 5 BTC excess ~= using 1 more input
+                # Penalize large change; 5 BSV excess ~= using 1 more input
                 badness += change / (COIN * 5)
             return badness
 
