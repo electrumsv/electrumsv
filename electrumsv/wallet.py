@@ -2182,7 +2182,7 @@ class ParentWallet:
     def stop(self) -> None:
         for wallet in self.get_child_wallets():
             wallet.stop()
-        self._storage.write()
+        self.save_storage()
         self._storage.close()
 
     def create_gui_handlers(self, window: 'ElectrumWindow') -> None:
