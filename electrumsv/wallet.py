@@ -550,21 +550,29 @@ class Abstract_Wallet:
         return self.get_pubkeys(*sequence)
 
     def add_verified_tx(self, tx_hash, height, timestamp, position, proof_position, proof_branch):
-        entry = self._datastore.tx.get_entry(tx_hash, TxFlags.StateCleared)
+        entry = self._datastore.tx.get_entry(tx_hash, TxFlags.StateCleared)  # HasHeight
+
         # Ensure we are not verifying transactions multiple times.
         if entry is None:
-            entry = self._datastore.tx.get_entry(tx_hash)
-            self.logger.debug("Attempting to clear unsettled tx %s %r",
-                tx_hash, entry)
-            return
+            # We have proof now so regardless what TxState is, we can 'upgrade' it to StateSettled.
+            # This rests on the commitment that any of the following four tx States *will*
+            # Have tx bytedata i.e. "HasByteData" flag is set.
+            possible_states = (TxFlags.StateSigned | TxFlags.StateDispatched |
+                               TxFlags.StateCleared | TxFlags.StateReceived)
+            entry = self._datastore.tx.get_entry(tx_hash, flags=possible_states)
+            self.logger.debug("Fast_tracking entry to StateSettled: %r", entry)
 
         # We only update a subset.
         flags = TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition
         data = TxData(height=height, timestamp=timestamp, position=position)
+
         self._datastore.tx.update([ (tx_hash, data, None, flags | TxFlags.StateSettled) ])
 
         proof = TxProof(proof_position, proof_branch)
         self._datastore.tx.update_proof(tx_hash, proof)
+        self.logger.debug("final tx_entry after updating proof: entry: %r cached entry: %r",
+                          self._datastore.tx.get_entry(tx_hash),
+                          self._datastore.tx.get_cached_entry(tx_hash))
 
         height, conf, timestamp = self.get_tx_height(tx_hash)
         self.logger.debug("add_verified_tx %d %d %d", height, conf, timestamp)
@@ -963,6 +971,13 @@ class Abstract_Wallet:
 
     async def set_address_history(self, script_hash: str, address: Address,
             hist: Dict[str, List[Tuple[str, int]]], tx_fees: Dict[str, int]):
+        # We got here due to incoming transactions for subscriptions to new / "observed addresses"
+        # If we prepared this tx locally then we will already have a TxCacheEntry which
+        # HasByteData flag set. (StateSigned | StateDispatched | StateReceived)
+        # In such cases we can fast track --> StateCleared
+        # It will skip the "missing_transaction pool" in monitor_txs (because HasByteData)
+        # And if we have a proof, it should go straight into the "unverified pool"
+        # of 'monitor_txs'
         with self.lock:
             # { address: [ (tx_hash, tx_height), ] }
             # height > 0: confirmed
@@ -978,17 +993,31 @@ class Abstract_Wallet:
                 if tx_fee is not None:
                     flags |= TxFlags.HasFee
                 updates.append((tx_hash, data, None, flags))
-            self._datastore.tx.update_or_add(updates)
+
+                self._datastore.tx.update_or_add(updates)
 
             for tx_id in set(t[0] for t in hist):
+                has_tx_data = self._datastore.tx.have_transaction_data(tx_id)
+                is_cached = self._datastore.tx.is_cached(tx_id)
+                if has_tx_data and is_cached:
+                    entry = self._datastore.tx.get_cached_entry(tx_id)
+                if has_tx_data and not is_cached:
+                    entry = self._datastore.tx.get_entry(tx_id)
+
+                # if StateSigned | StateDispatched | StateReceived update --> StateCleared
+                if has_tx_data and entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
+                    self.logger.debug("updating incoming tx --> StateCleared. Before: %s ", entry)
+                    self.set_transaction_state(tx_id, TxFlags.StateCleared | TxFlags.HasByteData)
+                    self.logger.debug("After update: %s ", self._datastore.tx.get_entry(tx_id))
+
                 # if addr is new, we have to recompute txi and txo
-                if self._datastore.tx.have_transaction_data(tx_id) and \
-                        not len(self.get_txins(tx_id, address)) and \
-                        not len(self.get_txouts(tx_id, address)):
-                    tx = self.get_transaction(tx_id)
-                    self.apply_transactions_xputs(tx_id, tx)
+                if len(self.get_txins(tx_id, address)) and len(self.get_txouts(tx_id, address)):
+                    self.apply_transactions_xputs(tx_id, entry.transaction)
 
         self.txs_changed_event.set()
+        # --> awakens network._monitor_txs loop
+        # Any transactions that do not 'HasByteData' --> "missing_transactions" pool
+        # to get ByteData and only then do they upgrade --> StateCleared
         await self._trigger_synchronization()
 
     def get_history(self, domain=None):
@@ -1330,10 +1359,10 @@ class Abstract_Wallet:
             except UserCancelled:
                 continue
 
-        # # Track all the transactions we sign so that we know whether our UTXOs are allocated for
-        # # use or not.
-        # tx_id = tx.txid()
-        # self.add_transaction(tx_id, tx, TxFlags.StateSigned)
+        # Track all the transactions we sign so that we know whether our UTXOs are allocated for
+        # use or not.
+        tx_id = tx.txid()
+        self.add_transaction(tx_id, tx, TxFlags.StateSigned)
 
     def get_unused_addresses(self):
         # fixme: use slots from expired requests
