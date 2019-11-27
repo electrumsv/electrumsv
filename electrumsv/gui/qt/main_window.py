@@ -1701,15 +1701,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
                 # Success --> StateDispatched
                 if result == tx.txid():
-                    self.logger.debug(
-                        f'broadcast_tx in main_window successful '
-                        f'broadcast for: {result}')
+                    self.logger.debug(f'broadcast_tx in main_window '
+                                      f'successful broadcast for: {result}')
                     self.logger.debug(f'setting transaction to StateDispatched...')
-                    wallet.set_transaction_state(
-                        tx.txid(),
-                        (TxFlags.StateDispatched | TxFlags.HasByteData)
-                    )
-
+                    wallet.set_transaction_state(tx.txid(),
+                        (TxFlags.StateDispatched | TxFlags.HasByteData))
                 return result
 
         def on_done(future):

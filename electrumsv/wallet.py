@@ -558,9 +558,13 @@ class Abstract_Wallet:
             # This rests on the commitment that any of the following four tx States *will*
             # Have tx bytedata i.e. "HasByteData" flag is set.
             possible_states = (TxFlags.StateSigned | TxFlags.StateDispatched |
-                               TxFlags.StateCleared | TxFlags.StateReceived)
+                               TxFlags.StateReceived)
             entry = self._datastore.tx.get_entry(tx_hash, flags=possible_states)
-            self.logger.debug("Fast_tracking entry to StateSettled: %r", entry)
+            if entry.flags & TxFlags.HasByteData != 0:
+                self.logger.debug("Fast_tracking entry to StateSettled: %r", entry)
+            else:
+                self.logger.debug("Fetching transaction bytedata for %s %r", tx_hash, entry)
+                return
 
         # We only update a subset.
         flags = TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition
@@ -994,30 +998,28 @@ class Abstract_Wallet:
                     flags |= TxFlags.HasFee
                 updates.append((tx_hash, data, None, flags))
 
-                self._datastore.tx.update_or_add(updates)
+            self._datastore.tx.update_or_add(updates)
 
             for tx_id in set(t[0] for t in hist):
-                has_tx_data = self._datastore.tx.have_transaction_data(tx_id)
-                is_cached = self._datastore.tx.is_cached(tx_id)
-                if has_tx_data and is_cached:
-                    entry = self._datastore.tx.get_cached_entry(tx_id)
-                if has_tx_data and not is_cached:
-                    entry = self._datastore.tx.get_entry(tx_id)
+                entry = self._datastore.tx.get_cached_entry(tx_id)
 
-                # if StateSigned | StateDispatched | StateReceived update --> StateCleared
-                if has_tx_data and entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
-                    self.logger.debug("updating incoming tx --> StateCleared. Before: %s ", entry)
+                # if StateSigned | StateDispatched | StateReceived and has bytedata, then update to StateCleared
+                if entry.flags & TxFlags.HasByteData != 0 and \
+                        entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
+                    self.logger.debug("updating incoming tx to StateCleared. Before: %s ", entry)
                     self.set_transaction_state(tx_id, TxFlags.StateCleared | TxFlags.HasByteData)
                     self.logger.debug("After update: %s ", self._datastore.tx.get_entry(tx_id))
 
                 # if addr is new, we have to recompute txi and txo
                 if len(self.get_txins(tx_id, address)) and len(self.get_txouts(tx_id, address)):
-                    self.apply_transactions_xputs(tx_id, entry.transaction)
+                    if entry.transaction:
+                        self.apply_transactions_xputs(tx_id, entry.transaction)
+                    # else this occurs when missing transaction bytedata is fetched.
 
         self.txs_changed_event.set()
-        # --> awakens network._monitor_txs loop
-        # Any transactions that do not 'HasByteData' --> "missing_transactions" pool
-        # to get ByteData and only then do they upgrade --> StateCleared
+        # Awakens network._monitor_txs loop for transactions that do not have 'HasByteData'flag set.
+        # These  go to "missing_transactions" pool to get transaction ByteData and only then do they
+        # upgrade to StateCleared
         await self._trigger_synchronization()
 
     def get_history(self, domain=None):
