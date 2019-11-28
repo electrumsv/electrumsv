@@ -569,14 +569,10 @@ class Abstract_Wallet:
         # We only update a subset.
         flags = TxFlags.HasHeight | TxFlags.HasTimestamp | TxFlags.HasPosition
         data = TxData(height=height, timestamp=timestamp, position=position)
-
         self._datastore.tx.update([ (tx_hash, data, None, flags | TxFlags.StateSettled) ])
 
         proof = TxProof(proof_position, proof_branch)
         self._datastore.tx.update_proof(tx_hash, proof)
-        self.logger.debug("final tx_entry after updating proof: entry: %r cached entry: %r",
-                          self._datastore.tx.get_entry(tx_hash),
-                          self._datastore.tx.get_cached_entry(tx_hash))
 
         height, conf, timestamp = self.get_tx_height(tx_hash)
         self.logger.debug("add_verified_tx %d %d %d", height, conf, timestamp)
@@ -978,7 +974,7 @@ class Abstract_Wallet:
         # We got here due to incoming transactions for subscriptions to new / "observed addresses"
         # If we prepared this tx locally then we will already have a TxCacheEntry which
         # HasByteData flag set. (StateSigned | StateDispatched | StateReceived)
-        # In such cases we can fast track --> StateCleared
+        # In such cases we can "upgrade" the TxFlag to StateCleared.
         # It will skip the "missing_transaction pool" in monitor_txs (because HasByteData)
         # And if we have a proof, it should go straight into the "unverified pool"
         # of 'monitor_txs'
@@ -997,24 +993,24 @@ class Abstract_Wallet:
                 if tx_fee is not None:
                     flags |= TxFlags.HasFee
                 updates.append((tx_hash, data, None, flags))
-
             self._datastore.tx.update_or_add(updates)
 
             for tx_id in set(t[0] for t in hist):
                 entry = self._datastore.tx.get_cached_entry(tx_id)
 
-                # if StateSigned | StateDispatched | StateReceived and has bytedata, then update to StateCleared
+                # StateSigned, StateDispatched, StateReceived with bytedata update to StateCleared
                 if entry.flags & TxFlags.HasByteData != 0 and \
                         entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
-                    self.logger.debug("updating incoming tx to StateCleared. Before: %s ", entry)
                     self.set_transaction_state(tx_id, TxFlags.StateCleared | TxFlags.HasByteData)
-                    self.logger.debug("After update: %s ", self._datastore.tx.get_entry(tx_id))
 
                 # if addr is new, we have to recompute txi and txo
-                if len(self.get_txins(tx_id, address)) and len(self.get_txouts(tx_id, address)):
-                    if entry.transaction:
-                        self.apply_transactions_xputs(tx_id, entry.transaction)
-                    # else this occurs when missing transaction bytedata is fetched.
+                if self._datastore.tx.have_transaction_data(tx_id) and \
+                        not len(self.get_txins(tx_id, address)) and \
+                        not len(self.get_txouts(tx_id, address)):
+                    tx = self.get_transaction(tx_id)
+                    self.apply_transactions_xputs(tx_id, tx)
+                    # else this occurs when missing transaction bytedata is fetched in _monitor_txs.
+                    # In the p2p model, we already have tx bytedata in cache or database
 
         self.txs_changed_event.set()
         # Awakens network._monitor_txs loop for transactions that do not have 'HasByteData'flag set.
