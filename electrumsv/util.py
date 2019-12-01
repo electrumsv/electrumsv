@@ -23,7 +23,8 @@
 # SOFTWARE.
 
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
+from dateutil.parser import isoparse
 import json
 import hmac
 import os
@@ -523,8 +524,16 @@ def versiontuple(v):
 def resource_path(*parts):
     return os.path.join(package_dir, "data", *parts)
 
+
+GENESIS_DATE = '2020-02-03T22:00:00.000000+00:00'
+
+def is_after_genesis_upgrade() -> bool:
+    genesis_date = isoparse(GENESIS_DATE)
+    current_date = datetime.now(timezone.utc)
+    return current_date > genesis_date
+
+
 def get_update_check_dates(new_date):
-    from dateutil.parser import isoparse
     # This is the latest stable release date.
     release_date = isoparse(new_date).astimezone()
     # This is the rough date of the current release (might be stable or unstable).

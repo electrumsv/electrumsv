@@ -29,6 +29,9 @@ class NotEnoughFunds(Exception):
 class ExcessiveFee(Exception):
     pass
 
+class PostGenesisP2SHChange(Exception):
+    pass
+
 class InvalidPassword(Exception):
     def __str__(self):
         return _("Incorrect password")

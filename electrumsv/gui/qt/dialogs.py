@@ -188,11 +188,11 @@ Your coins are your responsibility, take care with them.</span>
 
 article_text = _('All noteable changes in each release are covered in a detailed article. '
     'You can read about <a href="%s">the changes in this release</a> if you wish.')
-changes_url = "https://medium.com/@roger.taylor/electrumsv-1-2-4-c42e5d73213d"
+changes_url = "https://medium.com/@roger.taylor/electrumsv-1-2-5-cd13d8151d95"
 
 all_boxes = [
-    InfoBox('welcome-ESV-1.2.4',
-            '<b>'+ _('Welcome to ElectrumSV 1.2.4') +'</b>',
+    InfoBox('welcome-ESV-1.2.5',
+            '<b>'+ _('Welcome to ElectrumSV 1.2.5') +'</b>',
             '<p>'+ take_care_notice +'</p>'+
             '<p>'+ _('What has changed?') +'</p>'+
             '<p>'+ (article_text % changes_url) +'</p>'

@@ -1,5 +1,6 @@
 import hashlib
 from struct import pack, unpack
+from typing import Any
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import TYPE_ADDRESS, int_to_hex, var_int
@@ -66,7 +67,7 @@ class Ledger_Client():
             return False
         return True
 
-    def test_pin_unlocked(func): # pylint: disable=no-self-argument
+    def test_pin_unlocked(func: Any): # pylint: disable=no-self-argument
         """Function decorator to test the Ledger for being unlocked, and if not,
         raise a human-readable exception.
         """
@@ -238,7 +239,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             self.client = None
         raise Exception(message)
 
-    def set_and_unset_signing(func): # pylint: disable=no-self-argument
+    def set_and_unset_signing(func: Any): # pylint: disable=no-self-argument
         """Function decorator to set and unset self.signing."""
         def wrapper(self, *args, **kwargs):
             try:

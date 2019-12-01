@@ -48,7 +48,8 @@ from .app_state import app_state
 from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, scripthash_hex
 from .contacts import Contacts
 from .crypto import sha256d
-from .exceptions import NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword
+from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, InvalidPassword,
+    PostGenesisP2SHChange)
 from .i18n import _
 from .keystore import (
     load_keystore, Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore, xpubkey_to_address
@@ -59,7 +60,8 @@ from .paymentrequest import InvoiceStore
 from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .storage import multisig_type
 from .transaction import Transaction
-from .util import profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime
+from .util import (profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime,
+    is_after_genesis_upgrade)
 from .version import PACKAGE_VERSION
 from .web import create_URI
 
@@ -934,6 +936,9 @@ class Abstract_Wallet:
         if change_addr:
             change_addrs = [change_addr]
         else:
+            if isinstance(self, Multisig_Wallet) and is_after_genesis_upgrade():
+                raise PostGenesisP2SHChange()
+
             addrs = self.get_change_addresses()[-self.gap_limit_for_change:]
             if self.use_change and addrs:
                 # New change addresses are created only after a few

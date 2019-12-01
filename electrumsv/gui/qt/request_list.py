@@ -70,19 +70,20 @@ class RequestList(MyTreeWidget):
         b = len(self.wallet.receive_requests) > 0
         self.setVisible(b)
         self.parent.receive_requests_label.setVisible(b)
-        if not b:
-            self.parent.expires_label.hide()
-            self.parent.expires_combo.show()
+        if self.parent.is_receive_form_enabled():
+            if not b:
+                self.parent.expires_label.hide()
+                self.parent.expires_combo.show()
 
-        # update the receive address if necessary
-        current_address_string = self.parent.receive_address_e.text().strip()
-        current_address = (Address.from_string(current_address_string)
-                           if len(current_address_string) else None)
-        domain = self.wallet.get_receiving_addresses()
-        addr = self.wallet.get_unused_address()
-        if not current_address in domain and addr:
-            self.parent.set_receive_address(addr)
-        self.parent.new_request_button.setEnabled(addr != current_address)
+            # update the receive address if necessary
+            current_address_string = self.parent.receive_address_e.text().strip()
+            current_address = (Address.from_string(current_address_string)
+                            if len(current_address_string) else None)
+            domain = self.wallet.get_receiving_addresses()
+            addr = self.wallet.get_unused_address()
+            if not current_address in domain and addr:
+                self.parent.set_receive_address(addr)
+            self.parent.new_request_button.setEnabled(addr != current_address)
 
         # clear the list and fill it again
         self.clear()

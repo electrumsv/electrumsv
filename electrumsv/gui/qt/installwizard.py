@@ -660,10 +660,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
 
     @wizard_dialog
     def confirm_dialog(self, title, message, run_next):
-        self.confirm(message, title)
-
-    def confirm(self, message, title):
         label = WWLabel(message)
+        label.setTextFormat(Qt.RichText)
         vbox = QVBoxLayout()
         vbox.addWidget(label)
         self.exec_layout(vbox, title)

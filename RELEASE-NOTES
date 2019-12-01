@@ -36,6 +36,12 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.2.5
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-2-5-cd13d8151d95
+  * Genesis warnings: Sending to P2SH addresses is disabled as of February 2020. There is able
+    warning when creating a multi-signature wallet. And a error when sending to a P2SH address
+    after February 2020.
+
 # Release 1.2.4
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-2-4-c42e5d73213d
   * Coin-splitting: A loser decided to spend time draining all the funds in the faucet that is

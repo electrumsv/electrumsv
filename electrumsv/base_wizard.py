@@ -24,6 +24,7 @@
 # SOFTWARE.
 
 import os
+from typing import TYPE_CHECKING
 
 from bitcoinx import bip32_is_valid_chain_string
 
@@ -33,6 +34,7 @@ from .app_state import app_state
 from .i18n import _
 from .keystore import bip44_derivation_cointype
 from .logs import logs
+from .util import is_after_genesis_upgrade
 from .wallet import (
     ImportedAddressWallet, ImportedPrivkeyWallet, Standard_Wallet, Multisig_Wallet, wallet_types,
 )
@@ -99,12 +101,43 @@ class BaseWizard(object):
         if choice == 'standard':
             action = 'choose_keystore'
         elif choice == 'multisig':
-            action = 'choose_multisig'
+            action = 'multisig_p2sh_warning'
         elif choice == 'imported':
             action = 'import_addresses_or_keys'
         self.run(action)
 
-    def choose_multisig(self):
+    def multisig_p2sh_warning(self) -> None:
+        warning_title = _("About multi-signature wallets and the Genesis upgrade")
+        if not is_after_genesis_upgrade():
+            warning_message = _(
+                "<p>On the 4th of February 2020, Bitcoin SV will undergo it's 'Genesis' upgrade. "
+                "When this happens, it will no longer be possible for anyone to send funds to "
+                "this wallet.</p>")
+        else:
+            warning_message = _(
+                "<p>On the 4th of February 2020, Bitcoin SV underwent it's 'Genesis' upgrade. "
+                "Due to this, it is no longer possible for anyone to send funds to this wallet. "
+                "Anyone creating a new multi-signature wallet, and not restoring an older "
+                "one, should be aware that this wallet will never be usable.</p>")
+
+        warning_message +=_("<p>What you need to know:</p>"
+            "<ul>"
+            "<li>It will always be possible to send the funds already in this wallet, somewhere "
+            "else.</li>"
+            "<li>It will no longer be possible for anyone to send funds to "
+            "this wallet.</li>"
+            "<li>Other types of multi-signature wallets should become available as options to "
+            "migrate to. Gaining access to these will likely require upgrading to the latest "
+            "version of ElectrumSV.</li>"
+            "</ul>")
+        self.confirm_dialog(title=warning_title, message=warning_message,
+            run_next=self.choose_multisig)
+
+    if TYPE_CHECKING:
+        def confirm_dialog(self, **kwargs) -> None:
+            pass
+
+    def choose_multisig(self, choice):
         def on_multisig(m, n):
             self.multisig_type = "%dof%d"%(m, n)
             self.storage.put('wallet_type', self.multisig_type)

@@ -51,7 +51,8 @@ from electrumsv import bitcoin, commands, keystore, paymentrequest, qrscanner, u
 from electrumsv.address import Address, ScriptOutput
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COIN, TYPE_ADDRESS, TYPE_SCRIPT
-from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
+from electrumsv.exceptions import (NotEnoughFunds, UserCancelled, ExcessiveFee,
+    PostGenesisP2SHChange)
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
@@ -61,7 +62,7 @@ from electrumsv.paymentrequest import PR_PAID
 from electrumsv.transaction import Transaction, SerializationError, tx_from_str
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, format_fee_satoshis,
-    get_update_check_dates, get_identified_release_signers
+    get_update_check_dates, get_identified_release_signers, is_after_genesis_upgrade
 )
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import Multisig_Wallet, sweep_preparations
@@ -237,8 +238,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Refresh edits with the new rate
         edit = self.fiat_send_e if self.fiat_send_e.is_last_edited else self.amount_e
         edit.textEdited.emit(edit.text())
-        edit = self.fiat_receive_e if self.fiat_receive_e.is_last_edited else self.receive_amount_e
-        edit.textEdited.emit(edit.text())
+        if self.is_receive_form_enabled():
+            edit = self.fiat_receive_e if self.fiat_receive_e.is_last_edited else \
+                self.receive_amount_e
+            edit.textEdited.emit(edit.text())
         # History tab needs updating if it used spot
         if app_state.fx.history_used_spot:
             self.history_list.update()
@@ -957,7 +960,57 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tx_dialog.finished.disconnect()
         self.tx_dialogs.remove(tx_dialog)
 
+    def is_receive_form_enabled(self) -> bool:
+        return not isinstance(self.wallet, Multisig_Wallet) or not is_after_genesis_upgrade()
+
     def create_receive_tab(self):
+        if self.is_receive_form_enabled():
+            form_layout = self._create_receive_form_layout()
+        else:
+            label_title = WWLabel(_("<p><b>This wallet can no longer receive funds.</b></p>"))
+            label_title.setMaximumWidth(400)
+            label_title.setAlignment(Qt.AlignCenter)
+
+            label_body = WWLabel(_(
+                "<p>It will still be able to send funds to other wallets for the indefinite "
+                "future, but will never be able to receive funds again. "
+                "<a href='%s'>Read more</a> about this.</p>"
+                ) % "https://medium.com/@roger.taylor/electrumsv-1-2-5-cd13d8151d95")
+            label_body.setMaximumWidth(400)
+            label_body.setMinimumWidth(400)
+            label_body.setOpenExternalLinks(True)
+            vbox1 = QVBoxLayout()
+            vbox1.addWidget(label_title)
+            vbox1.addWidget(label_body)
+            hbox2 = QHBoxLayout()
+            hbox2.addStretch(1)
+            hbox2.addLayout(vbox1)
+            hbox2.addStretch(1)
+            vbox2 = QVBoxLayout()
+            vbox2.addStretch(1)
+            vbox2.addLayout(hbox2)
+            vbox2.addStretch(1)
+
+            form_layout = vbox2
+
+        from .request_list import RequestList
+        self.request_list = RequestList(self)
+
+        self.receive_requests_label = QLabel(_('Requests'))
+
+        w = QWidget()
+        w.searchable_list = self.request_list
+        vbox = QVBoxLayout(w)
+        vbox.addLayout(form_layout)
+        if self.is_receive_form_enabled():
+            vbox.addStretch(1)
+        vbox.addWidget(self.receive_requests_label)
+        vbox.addWidget(self.request_list)
+        vbox.setStretchFactor(self.request_list, 1000)
+
+        return w
+
+    def _create_receive_form_layout(self):
         # A 4-column grid layout.  All the stretch is in the last column.
         # The exchange rate plugin adds a fiat widget in column 2
         self.receive_grid = grid = QGridLayout()
@@ -1031,11 +1084,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         buttons.addWidget(self.new_request_button)
         grid.addLayout(buttons, 4, 1, 1, 2)
 
-        self.receive_requests_label = QLabel(_('Requests'))
-
-        from .request_list import RequestList
-        self.request_list = RequestList(self)
-
         # layout
         vbox_g = QVBoxLayout()
         vbox_g.addLayout(grid)
@@ -1045,17 +1093,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox.addLayout(vbox_g)
         hbox.addWidget(self.receive_qr)
 
-        w = QWidget()
-        w.searchable_list = self.request_list
-        vbox = QVBoxLayout(w)
-        vbox.addLayout(hbox)
-        vbox.addStretch(1)
-        vbox.addWidget(self.receive_requests_label)
-        vbox.addWidget(self.request_list)
-        vbox.setStretchFactor(self.request_list, 1000)
-
-        return w
-
+        return hbox
 
     def delete_payment_request(self, addr):
         self.wallet.remove_payment_request(addr, self.config)
@@ -1154,9 +1192,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.receive_address_e.setText(text)
 
     def clear_receive_tab(self):
-        self.expires_label.hide()
-        self.expires_combo.show()
-        self.set_receive_address(self.wallet.get_receiving_address())
+        if self.is_receive_form_enabled():
+            self.expires_label.hide()
+            self.expires_combo.show()
+            self.set_receive_address(self.wallet.get_receiving_address())
 
     def toggle_qr_window(self):
         from . import qrwindow
@@ -1517,6 +1556,21 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_error(_('No outputs'))
             return
 
+        if is_after_genesis_upgrade():
+            for _type, addr, amount in outputs:
+                if addr.kind == Address.ADDR_P2SH:
+                    self.show_error(
+                        _('<p><b>Sending to P2SH addresses is no longer supported.</b></p>') +
+                        _("<p>As of the Genesis upgrade on 4th of February 2020, support for "
+                        "sending to P2SH addresses was removed. This decision was made in order "
+                        "to ensure the stability of the Bitcoin SV blockchain, given the broken "
+                        "nature of these types of payments.</p>") +
+                        _("<p>The party you are trying to send to is more than likely using a "
+                        "old-style multi-signature wallet based on P2SH. They should upgrade "
+                        "their wallet to one of the newer kinds of multi-signature "
+                        "approaches.</p>"))
+                    return
+
         for _type, addr, amount in outputs:
             if amount is None:
                 self.show_error(_('Invalid Amount'))
@@ -1591,6 +1645,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
         except ExcessiveFee:
             self.show_message(_("Your fee is too high.  Max is 50 sat/byte."))
+            return
+        except PostGenesisP2SHChange:
+            self.show_error(_(
+                "<p><b>This wallet can no longer make change.</b></p>"
+                "<p>This wallet can only send whole coins, as it no longer has "
+                "the ability to receive change. View the remaining coins in the <i>Coins</i> tab "
+                "which can be enabled in the <i>View</i> menu. "
+                "<a href='%s'>Read more</a> about this.</p>"
+                ) % "https://medium.com/@roger.taylor/electrumsv-1-2-5-cd13d8151d95")
             return
         except Exception as e:
             self.logger.exception("")
@@ -2710,7 +2773,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         '''Called when the user changes fiat currency in preferences.'''
         b = app_state.fx and app_state.fx.is_enabled()
         self.fiat_send_e.setVisible(b)
-        self.fiat_receive_e.setVisible(b)
+        if self.is_receive_form_enabled():
+            self.fiat_receive_e.setVisible(b)
         self.history_list.refresh_headers()
         self.history_list.update()
         self.history_updated_signal.emit()
@@ -2719,7 +2783,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.update_status()
 
     def on_base_unit_changed(self):
-        edits = self.amount_e, self.receive_amount_e
+        edits = [ self.amount_e ]
+        if self.is_receive_form_enabled():
+            edits.append(self.receive_amount_e)
         amounts = [edit.get_amount() for edit in edits]
         self.history_list.update()
         self.history_updated_signal.emit()
