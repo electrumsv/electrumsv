@@ -66,9 +66,9 @@ class CoinSplittingTab(QWidget):
 
         window.network.register_callback(self._on_network_event, ['new_transaction'])
         self.waiting_dialog = SplitWaitingDialog(window, self, self._split_prepare_task,
-                                                 on_done=self._on_split_prepare_done)
+            on_done=self._on_split_prepare_done, on_cancel=self._on_split_abort)
 
-    def _split_prepare_task(self):
+    def _split_prepare_task(self, our_dialog: 'SplitWaitingDialog'):
         self.split_stage = STAGE_OBTAINING_DUST
 
         wallet = self.get_wallet()
@@ -86,16 +86,24 @@ class CoinSplittingTab(QWidget):
         with self.new_transaction_cv:
             time_passed = 0.0
             while not was_received:
+                if our_dialog != self.waiting_dialog:
+                    return RESULT_DIALOG_CLOSED
+                if time_passed >= max_time_passed_for_failure:
+                    return RESULT_DUST_TIMEOUT
                 self.waiting_dialog.set_stage_progress(time_passed/max_time_passed_for_progress)
                 was_received = self.new_transaction_cv.wait(0.1)
                 time_passed += 0.1
-                if time_passed >= max_time_passed_for_failure:
-                    return RESULT_DUST_TIMEOUT
 
         # The user needs to sign the transaction.  It can't be done in this thread.
         wallet.set_frozen_state([ self.receiving_address ], False)
         self.split_stage = STAGE_SPLITTING
         return RESULT_READY_FOR_SPLIT
+
+    def _on_split_abort(self):
+        window = self.window()
+        window.show_error(_("Coin-splitting process has been cancelled."))
+        self._cleanup_tx_final()
+        self._cleanup_tx_created()
 
     def _on_split_prepare_done(self, future):
         window = self.window()
@@ -109,7 +117,7 @@ class CoinSplittingTab(QWidget):
                 return
 
             if result == RESULT_DIALOG_CLOSED:
-                window.show_error(_("You aborted the process."))
+                window.show_error(_("Coin-splitting process has been cancelled."))
             elif result == RESULT_DUST_TIMEOUT:
                 window.show_error(_("It took too long to get the dust from the faucet."))
             else:
@@ -182,10 +190,9 @@ class CoinSplittingTab(QWidget):
         self.waiting_dialog = None
         self.faucet_status_code = None
         self.split_stage = STAGE_INACTIVE
-        logger.debug("_cleanup_tx_created")
 
     def _cleanup_tx_final(self):
-        logger.debug("_cleanup_tx_final")
+        logger.debug("final cleanup performed")
         self.split_button.setText(_("Split"))
         self.split_button.setEnabled(True)
 
@@ -355,14 +362,15 @@ class CoinSplittingTab(QWidget):
 class SplitWaitingDialog(QProgressDialog):
     update_signal = pyqtSignal()
     update_label = None
+    was_rejected = False
 
-    def __init__(self, parent, splitter, func, on_done):
+    def __init__(self, parent, splitter, func, on_done, on_cancel):
         self.splitter = splitter
 
         # These flags remove the close button, which removes a corner case that we'd
         # otherwise have to handle.
         super().__init__("", None, 0, 100, parent,
-                         Qt.Window | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
+                         Qt.Window | Qt.WindowTitleHint) # | Qt.CustomizeWindowHint)
 
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle(_("Please wait"))
@@ -370,10 +378,17 @@ class SplitWaitingDialog(QProgressDialog):
         self.stage_progress = 0
 
         def _on_done(future):
+            if self.was_rejected:
+                return
             self.accept()
             on_done(future)
-        future = app_state.app.run_in_thread(func, on_done=_on_done)
+        future = app_state.app.run_in_thread(func, self, on_done=_on_done)
         self.accepted.connect(future.cancel)
+        def _on_rejected():
+            self.was_rejected = True
+            future.cancel()
+            on_cancel()
+        self.rejected.connect(_on_rejected)
         self.update_signal.connect(self.update)
         self.update()
         self.show()
