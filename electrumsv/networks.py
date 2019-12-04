@@ -144,7 +144,7 @@ class SVTestnet(object):
             {'tx': 'tx', 'addr': 'address'},
         ),
         'satoshi.io': (
-            'https://test.satoshi.io',
+            'https://testnet.satoshi.io',
             {'tx': 'tx', 'addr': 'address'},
         ),
         'system default': (
