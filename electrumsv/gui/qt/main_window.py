@@ -211,7 +211,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # partials, lambdas or methods of subobjects.  Hence...
             self.network.register_callback(self.on_network, interests)
             # set initial message
-            self.console.showMessage(self.network.main_server.state.banner)
+            if self.network.main_server:
+                self.console.showMessage(self.network.main_server.state.banner)
             self.network.register_callback(self.on_quotes, ['on_quotes'])
             self.network.register_callback(self.on_history, ['on_history'])
             self.new_fx_quotes_signal.connect(self.on_fx_quotes)
