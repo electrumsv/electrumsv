@@ -1089,13 +1089,14 @@ class Abstract_Wallet:
         return label
 
     def get_default_label(self, tx_hash):
-        if not len(self.get_txins(tx_hash)):
-            labels = []
-            for txout in self.get_txouts(tx_hash):
-                label = self.get_address_label(txout.address_string)
-                if label:
-                    labels.append(label)
-            return ', '.join(labels)
+        with self.transaction_lock:
+            if not len(self.get_txins(tx_hash)):
+                labels = []
+                for txout in self.get_txouts(tx_hash):
+                    label = self.get_address_label(txout.address_string)
+                    if label:
+                        labels.append(label)
+                return ', '.join(labels)
         return ''
 
     def dust_threshold(self):
