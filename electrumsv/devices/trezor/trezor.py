@@ -279,7 +279,7 @@ class TrezorPlugin(HW_PluginBase):
         # prepare multisig, if available:
         xpubs = wallet.get_master_public_keys()
         if len(xpubs) > 1:
-            pubkeys = wallet.get_public_keys(address)
+            pubkeys = [pubkey.to_hex() for pubkey in wallet.get_public_keys(address)]
             # sort xpubs using the order of pubkeys
             sorted_pairs = sorted(zip(pubkeys, xpubs))
             multisig = self._make_multisig(

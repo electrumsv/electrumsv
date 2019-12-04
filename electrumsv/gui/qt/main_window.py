@@ -2241,8 +2241,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         def show_decrypted_message(msg):
             message_e.setText(msg.decode())
-        self.run_in_thread(child_wallet.decrypt_message, pubkey_e.text(), cyphertext, password,
-                           on_success=show_decrypted_message)
+
+        try:
+            public_key = PublicKey.from_hex(pubkey_e.text())
+        except Exception as e:
+            self.logger.exception("")
+            self.show_warning(_('Invalid Public key'))
+        else:
+            self.run_in_thread(child_wallet.decrypt_message, public_key, cyphertext, password,
+                               on_success=show_decrypted_message)
 
     def do_encrypt(self, child_wallet: Abstract_Wallet, message_e, pubkey_e, encrypted_e) -> None:
         message = message_e.toPlainText()

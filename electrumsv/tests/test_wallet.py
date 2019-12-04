@@ -448,9 +448,8 @@ class TestImportedPrivkeyWallet:
         parent_wallet = _TestableParentWallet.as_legacy_wallet_container(tmp_storage)
         wallet = ImportedPrivkeyWallet.from_text(parent_wallet, WIF)
         public_key = privkey.public_key
-        pubkey_hex = public_key.to_hex()
         address = public_key.to_address(coin=coin).to_string()
-        assert wallet.pubkeys_to_address(pubkey_hex) == address_from_string(address)
+        assert wallet.pubkeys_to_address(public_key) == address_from_string(address)
 
 
 

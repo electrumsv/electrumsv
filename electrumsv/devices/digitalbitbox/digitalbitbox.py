@@ -538,7 +538,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     index, xpubs, m = info
                     changePath = self.get_derivation() + "/%d/%d" % index
                     changePubkey = self.derive_pubkey(index[0], index[1])
-                    pubkeyarray_i = {'pubkey': changePubkey, 'keypath': changePath}
+                    pubkeyarray_i = {'pubkey': changePubkey.to_hex(), 'keypath': changePath}
                     pubkeyarray.append(pubkeyarray_i)
 
             # Special serialization of the unsigned transaction for

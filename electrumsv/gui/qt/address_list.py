@@ -913,5 +913,6 @@ class AddressList(QTableView):
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def encrypt_message(self, address: Address) -> None:
-        public_key_str = self._wallet.get_public_key(address) or ''
-        self._parent.encrypt_message(self._wallet, public_key_str)
+        public_key = self._wallet.get_public_key(address)
+        if public_key:
+            self._parent.encrypt_message(self._wallet, public_key.to_hex())
