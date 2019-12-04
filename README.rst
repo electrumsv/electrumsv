@@ -68,6 +68,13 @@ If you encounter problems referring to wheels, make sure you have installed the 
 
     pip3 install --user wheel
 
+Errors relating to "libusb" installing the pip3 requirements
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Install the following::
+
+    sudo apt install libusb-1.0.0-dev libudev-dev
+
 Errors relating to "Python.h"
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
