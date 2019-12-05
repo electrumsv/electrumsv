@@ -271,7 +271,7 @@ class Xpub:
     def get_master_public_key(self):
         return self.xpub
 
-    def derive_pubkey(self, for_change: bool, n: int) -> str:
+    def derive_pubkey(self, for_change: bool, n: int) -> PublicKey:
         xpub = self.xpub_change if for_change else self.xpub_receive
         if xpub is None:
             xpub = bip32_key_from_string(self.xpub)
@@ -283,11 +283,11 @@ class Xpub:
         return self.get_pubkey_from_xpub(xpub, (n,))
 
     @classmethod
-    def get_pubkey_from_xpub(self, xpub, sequence) -> str:
+    def get_pubkey_from_xpub(self, xpub, sequence) -> PublicKey:
         pubkey = bip32_key_from_string(xpub)
         for n in sequence:
             pubkey = pubkey.child_safe(n)
-        return pubkey.to_hex()
+        return pubkey
 
     def get_xpubkey(self, c, i):
         s = ''.join(int_to_hex(x,2) for x in (c, i))
@@ -459,13 +459,14 @@ class Old_KeyStore(Deterministic_KeyStore):
         return be_bytes_to_int(sha256d(("%d:%d:"%(n, for_change)).encode('ascii') + bfh(mpk)))
 
     @classmethod
-    def get_pubkey_from_mpk(cls, mpk, for_change: bool, n: int) -> str:
+    def get_pubkey_from_mpk(cls, mpk, for_change: bool, n: int) -> PublicKey:
         z = cls.get_sequence(mpk, for_change, n)
         master_public_key = cls._mpk_to_PublicKey(mpk)
-        public_key2 = master_public_key.add(int_to_be_bytes(z, 32))
-        return public_key2.to_hex(compressed=False)
+        public_key = master_public_key.add(int_to_be_bytes(z, 32))
+        assert not public_key.is_compressed()
+        return public_key
 
-    def derive_pubkey(self, for_change: bool, n: int) -> str:
+    def derive_pubkey(self, for_change: bool, n: int) -> PublicKey:
         return self.get_pubkey_from_mpk(self.mpk, for_change, n)
 
     def get_private_key_from_stretched_exponent(self, for_change, n, secexp):

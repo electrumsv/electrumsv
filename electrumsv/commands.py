@@ -353,7 +353,7 @@ class Commands:
         """Return the public keys for a wallet address. """
         address = address_from_string(address)
         wallet = self.parent_wallet.get_wallet_for_account(account_id)
-        return wallet.get_public_keys(address)
+        return [pubkey.to_hex() for pubkey in wallet.get_public_keys(address)]
 
     @command('w')
     def getbalance(self, account_id: int):
@@ -571,6 +571,7 @@ class Commands:
     def decrypt(self, account_id: int, pubkey, encrypted, password: Optional[str]=None):
         """Decrypt a message encrypted with a public key."""
         wallet = self.parent_wallet.get_wallet_for_account(account_id)
+        pubkey = PublicKey.from_hex(pubkey)
         return wallet.decrypt_message(pubkey, encrypted, password)
 
     def _format_request(self, out: Dict[str, Any]) -> Dict[str, Any]:

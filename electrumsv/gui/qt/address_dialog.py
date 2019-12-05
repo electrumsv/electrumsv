@@ -66,14 +66,13 @@ class AddressDialog(WindowModalDialog):
             try:
                 # ok, now try the usual method for imported wallets, etc
                 pubkey = self.wallet.get_public_key(address)
-                pubkeys = [pubkey.to_string()]
             except Exception:
                 # watching only wallets (totally lacks a private/public key pair for this address)
                 pubkeys = None
         if pubkeys:
             vbox.addWidget(QLabel(_("Public keys") + ':'))
             for pubkey in pubkeys:
-                pubkey_e = ButtonsLineEdit(pubkey)
+                pubkey_e = ButtonsLineEdit(pubkey.to_hex())
                 pubkey_e.addCopyButton(self.app)
                 vbox.addWidget(pubkey_e)
 

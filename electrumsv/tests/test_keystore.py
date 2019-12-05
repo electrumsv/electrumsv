@@ -28,7 +28,7 @@ class TestOld_KeyStore:
         assert keystore.mpk == ('e9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df9'
                                 'c09d5a3e271dc814a29981f81b3faaf2737b551ef5dcc6189cf0f8252c442b3')
 
-    @pytest.mark.parametrize("args,pubkey", (
+    @pytest.mark.parametrize("args,pubkey_hex", (
         (('105a142ad6090e5a1cc29895f0a30289556cfe68731972bd70138f4f01865351c9a17269147fe'
           '551b5ad899f46f7f245d495bc1394409c49b364bbc31d01e849', False, 2),
          '04fdc2cfde886681e7f450b94b0e662761037dfed495909ab7b5a5c0de5a15428b4b7ec0142b'
@@ -38,8 +38,9 @@ class TestOld_KeyStore:
          '04d061d4f250c6722975e5084412cc88eb71dd5ddb96154ab3b652efe3f7f49249d3144ba'
          '816044d5b844f97c7660c49f1e7db1055b7f8b16d52df0fd2ef2ad0ba'),
     ))
-    def test_get_pubkey_from_mpk(self, args, pubkey):
-        assert Old_KeyStore.get_pubkey_from_mpk(*args) == pubkey
+    def test_get_pubkey_from_mpk(self, args, pubkey_hex):
+        pubkey = Old_KeyStore.get_pubkey_from_mpk(*args)
+        assert pubkey.to_hex() == pubkey_hex
 
     def test_get_seed(self):
         seed = 'ee6ea9eceaf649640051a4c305ac5c59'
@@ -284,15 +285,16 @@ class TestBIP32_KeyStore:
 
 class TestXPub:
 
-    @pytest.mark.parametrize("for_change,n,pubkey", (
+    @pytest.mark.parametrize("for_change,n,pubkey_hex", (
         (False, 3, '03b90f6af678c35926a72e27908f1ddcf33e370f1444fbf1e4a85a028ac352a477'),
         (True, 5, '033177256871768b5ee8e031647f3727e63d1b62c8d776d9b422a367fd8e721bd3'),
     ))
-    def test_derive_pubkey(self, for_change, n, pubkey):
+    def test_derive_pubkey(self, for_change, n, pubkey_hex):
         xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
                 'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
         keystore = BIP32_KeyStore({'xpub': xpub})
-        assert keystore.derive_pubkey(for_change, n) == pubkey
+        pubkey = keystore.derive_pubkey(for_change, n)
+        assert pubkey.to_hex()== pubkey_hex
 
     # def test_xpubkey(self):
     #     xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'

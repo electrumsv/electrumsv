@@ -545,7 +545,7 @@ class Abstract_Wallet:
         secret, compressed = keystore.get_private_key(index, password)
         return PrivateKey(secret).to_WIF(compressed=compressed, coin=Net.COIN)
 
-    def get_public_keys(self, address: Address):
+    def get_public_keys(self, address: Address) -> List[PublicKey]:
         sequence = self.get_address_index(address)
         return self.get_pubkeys(*sequence)
 
@@ -1307,6 +1307,7 @@ class Abstract_Wallet:
                 index = self.get_address_index(addr)
                 pubkeys = self.get_public_keys(addr)
                 # sort xpubs using the order of pubkeys
+                pubkeys = [pubkey.to_hex() for pubkey in pubkeys]
                 sorted_pubkeys, sorted_xpubs = zip(*sorted(zip(pubkeys, xpubs)))
                 item = (index, sorted_xpubs, self.m if isinstance(self, Multisig_Wallet) else None)
             else:
@@ -1582,7 +1583,7 @@ class Abstract_Wallet:
         keystore = self.get_keystore()
         return keystore.sign_message(index, message, password)
 
-    def decrypt_message(self, pubkey, message, password):
+    def decrypt_message(self, pubkey:PublicKey, message, password):
         addr = self.pubkeys_to_address(pubkey)
         index = self.get_address_index(addr)
         keystore = self.get_keystore()
@@ -1763,10 +1764,10 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
     def delete_address_derived(self, address):
         self.get_keystore().remove_address(address)
 
-    def get_address_index(self, address):
+    def get_address_index(self, address) -> PublicKey:
         return self.get_public_key(address)
 
-    def get_public_key(self, address):
+    def get_public_key(self, address) -> PublicKey:
         return self.get_keystore().address_to_pubkey(address)
 
     def import_private_key(self, sec, pw):
@@ -1788,10 +1789,9 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
             pubkey = self.get_keystore().address_to_pubkey(address)
             txin.x_pubkeys = [XPublicKey(pubkey.to_bytes())]
 
-    def pubkeys_to_address(self, pubkey):
-        pubkey = PublicKey.from_hex(pubkey)
+    def pubkeys_to_address(self, pubkey: PublicKey):
         if pubkey in self.get_keystore().keypairs:
-            return address_from_string(pubkey.to_address(coin=Net.COIN).to_string())
+            return pubkey.to_address(coin=Net.COIN)
 
 
 class Deterministic_Wallet(Abstract_Wallet):
@@ -1911,14 +1911,14 @@ class Simple_Deterministic_Wallet(Simple_Wallet, Deterministic_Wallet):
         Deterministic_Wallet.__init__(self, parent_wallet, wallet_data)
         self.txin_type = 'p2pkh'
 
-    def get_public_key(self, address: Address) -> str:
+    def get_public_key(self, address: Address) -> PublicKey:
         c, i = self.get_address_index(address)
         return self.get_pubkey(c, i)
 
-    def get_pubkey(self, c: bool, i: int) -> str:
+    def get_pubkey(self, c: bool, i: int) -> PublicKey:
         return self.derive_pubkeys(c, i)
 
-    def get_public_keys(self, address):
+    def get_public_keys(self, address) -> List[PublicKey]:
         return [self.get_public_key(address)]
 
     def _add_input_sig_info(self, txin):
@@ -1931,15 +1931,15 @@ class Simple_Deterministic_Wallet(Simple_Wallet, Deterministic_Wallet):
     def get_master_public_key(self):
         return self.get_keystore().get_master_public_key()
 
-    def derive_pubkeys(self, c: bool, i: int) -> str:
+    def derive_pubkeys(self, c: bool, i: int) -> PublicKey:
         return self.get_keystore().derive_pubkey(c, i)
 
 
 class Standard_Wallet(Simple_Deterministic_Wallet):
     wallet_type = 'standard'
 
-    def pubkeys_to_address(self, pubkey):
-        return PublicKey.from_hex(pubkey).to_address(coin=Net.COIN)
+    def pubkeys_to_address(self, pubkey: PublicKey):
+        return pubkey.to_address(coin=Net.COIN)
 
 
 class Multisig_Wallet(Deterministic_Wallet):
@@ -1955,18 +1955,20 @@ class Multisig_Wallet(Deterministic_Wallet):
         self.m, self.n = multisig_type(self.wallet_type)
         Deterministic_Wallet.__init__(self, parent_wallet, wallet_data)
 
-    def get_pubkeys(self, c, i):
+    def get_pubkeys(self, c, i) -> List[PublicKey]:
         return self.derive_pubkeys(c, i)
 
-    def pubkeys_to_address(self, pubkeys):
+    def pubkeys_to_address(self, pubkeys: List[PublicKey]):
         redeem_script = self.pubkeys_to_redeem_script(pubkeys)
         return P2SH_Address(hash160(redeem_script), Net.COIN)
 
-    def pubkeys_to_redeem_script(self, pubkeys):
-        assert all(isinstance(pubkey, str) for pubkey in pubkeys)
+    def pubkeys_to_redeem_script(self, pubkeys: List[PublicKey]):
+        assert all(isinstance(pubkey, PublicKey) for pubkey in pubkeys)
+        # FIXME: remove if/when bitcoinx introduces comparison operators for PublicKey objects
+        pubkeys = [pubkey.to_hex() for pubkey in pubkeys]
         return P2MultiSig_Output(sorted(pubkeys), self.m).to_script_bytes()
 
-    def derive_pubkeys(self, c, i):
+    def derive_pubkeys(self, c, i) -> List[PublicKey]:
         return [k.derive_pubkey(c, i) for k in self.get_keystores()]
 
     def _get_keystore_usage(self) -> List[Dict[str, Any]]:
