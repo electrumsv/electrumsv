@@ -63,8 +63,7 @@ class TrezorKeyStore(Hardware_KeyStore):
     def sign_message(self, sequence, message, password):
         client = self.get_client()
         address_path = self.get_derivation() + "/%d/%d"%sequence
-        address_n = client.expand_path(address_path)
-        msg_sig = client.sign_message(self.plugin.get_coin_name(), address_n, message)
+        msg_sig = client.sign_message(address_path, message)
         return msg_sig.signature
 
     def sign_transaction(self, tx, password):
