@@ -720,9 +720,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         QMessageBox.about(self, "ElectrumSV",
             _("Version")+" %s" % PACKAGE_VERSION + "\n\n" +
             _("ElectrumSV's focus is speed, with low resource usage and simplifying "
-              "Bitcoin SV. You do not need to perform regular backups, because your "
-              "wallet can be recovered from a secret phrase that you can memorize or "
-              "write on paper. Startup times are instant because it operates in "
+              "Bitcoin SV. Startup times are instant because it operates in "
               "conjunction with high-performance servers that handle the most complicated "
               "parts of the Bitcoin SV system."  + "\n\n" +
               _("Uses icons from the Icons8 icon pack (icons8.com).")))
