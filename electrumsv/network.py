@@ -1130,7 +1130,7 @@ class Network:
                     logger.exception(e)
                     logger.error(f'fetching transaction {tx_hash}: {e}')
                 else:
-                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared)
+                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared | TxFlags.HasByteData)
                     self.trigger_callback('new_transaction', tx, wallet)
         return had_timeout
 
