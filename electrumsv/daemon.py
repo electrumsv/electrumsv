@@ -242,9 +242,8 @@ class Daemon(DaemonThread):
 
         return "error: ElectrumSV is running in daemon mode; stop the daemon first."
 
-    def load_wallet(self, path: str, password: Optional[str]) -> ParentWallet:
+    def load_wallet(self, wallet_filepath: str, password: Optional[str]) -> ParentWallet:
         # wizard will be launched if we return
-        wallet_filepath = WalletStorage.canonical_path(path)
         if wallet_filepath in self.wallets:
             wallet = self.wallets[wallet_filepath]
             return wallet

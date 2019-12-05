@@ -1206,5 +1206,5 @@ class WalletStorage:
     @classmethod
     def canonical_path(klass, database_filepath: str) -> str:
         if not database_filepath.lower().endswith(DATABASE_EXT):
-            database_filepath += "."+ DATABASE_EXT
+            database_filepath += DATABASE_EXT
         return database_filepath
