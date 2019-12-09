@@ -159,6 +159,7 @@ class BaseStore:
 
     def __init__(self, path: str, pubkey: Optional[str]=None,
             data: Optional[Dict[str, Any]]=None) -> None:
+        assert not path.endswith(DATABASE_EXT)
         self._path = path
         assert pubkey is None or type(pubkey) is str, "must be hex representation of pubkey"
         self._pubkey = pubkey
@@ -1050,7 +1051,7 @@ class WalletStorage:
         if storage_kind == StorageKind.UNKNOWN:
             storage_kind = storage_info.kind
         # Take the chance to normalise the wallet filename (remove any extension).
-        if storage_info.kind == StorageKind.DATABASE:
+        if storage_info.kind == StorageKind.DATABASE or storage_info.kind == StorageKind.UNKNOWN:
             path = storage_info.wallet_filepath
 
         self._manual_upgrades = manual_upgrades
