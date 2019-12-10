@@ -943,30 +943,46 @@ class Abstract_Wallet:
         if len(affected_addresses):
             self.network.trigger_callback('on_addresses_updated', self, affected_addresses)
 
-    # Used by ImportedWalletBase
-    def _remove_transaction(self, tx_hash: str) -> None:
+    def delete_transaction(self, tx_hash: str) -> None:
         with self.transaction_lock:
             self.logger.debug("removing tx from history %s", tx_hash)
+            self._remove_transaction(tx_hash)
+            self.logger.debug("deleting tx from cache and datastore: %s", tx_hash)
+            self._datastore.tx.delete(tx_hash)
+
+    # Used by ImportedWalletBase
+    def _remove_transaction(self, tx_hash: str) -> None:
+        """
+        - Removes txin and txout for a given transaction.
+        - Also removes *child* transaction's txin but leaves behind a marker for it in pruned_txo.
+        """
+
+        with self.transaction_lock:
+            self.logger.debug("removing inputs and outputs for %s", tx_hash)
+
+            removal_txins = []
+            for txin_hash, txin in self._datastore.txin.get_all_entries().items():
+                for input in txin:
+                    # transaction's *child*
+                    if input.prevout_tx_hash == tx_hash:
+                        removal_txins.append((tx_hash, input))  # *child* transaction's input
+                        self.pruned_txo[(input.prevout_tx_hash, input.prev_idx)] = txin_hash
+
+            removal_txins.extend(self.get_txins(tx_hash))
+            if len(removal_txins):
+                self.logger.debug("deleting txins: %s", removal_txins)
+                self._datastore.txin.delete_entries([
+                    (tx_hash, tx_xput) for tx_xput in removal_txins ])
+
+            removal_txouts = self.get_txouts(tx_hash)
+            if len(removal_txouts):
+                self.logger.debug("deleting txouts: %s", removal_txouts)
+                self._datastore.txout.delete_entries(
+                    [ (tx_hash, tx_xput) for tx_xput in removal_txouts ])
 
             for out_key, input_tx_hash in list(self.pruned_txo.items()):
                 if input_tx_hash == tx_hash:
                     self.pruned_txo.pop(out_key)
-
-            # add tx to pruned_txo, and undo the txi addition
-            removal_txins = []
-            for txin_hash, txin in self._datastore.txin.get_all_entries().items():
-                if txin.prevout_tx_hash == tx_hash:
-                    removal_txins.append((tx_hash, txin))
-                    self.pruned_txo[(txin.prevout_tx_hash, txin.prev_idx)] = txin_hash
-
-            removal_txins.extend(self.get_txins(tx_hash))
-            if len(removal_txins):
-                self._datastore.txin.delete_entries(removal_txins)
-
-            removal_txouts = self.get_txouts(tx_hash)
-            if len(removal_txouts):
-                self._datastore.txout.delete_entries(
-                    [ (tx_hash, tx_xput) for tx_xput in removal_txouts ])
 
     def get_address_history(self, address: Address):
         assert isinstance(address, Address)
