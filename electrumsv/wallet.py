@@ -68,7 +68,7 @@ from .transaction import (
     Transaction, classify_tx_output, tx_output_to_display_text, XPublicKey, NO_SIGNATURE,
     XTxInput
 )
-from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxData, TxProof
+from .wallet_database import WalletData, DBTxInput, DBTxOutput, TxData, TxProof, TxCacheEntry
 from .util import (profiler, format_satoshis, bh2u, format_time, timestamp_to_datetime,
     get_wallet_name_from_path)
 from .web import create_URI
@@ -277,6 +277,9 @@ class Abstract_Wallet:
     def get_id(self) -> int:
         return self._id
 
+    def get_parent_wallet(self) -> 'ParentWallet':
+        return self._parent_wallet
+
     def dump(self) -> Dict[str, Any]:
         return self._wallet_data
 
@@ -458,6 +461,18 @@ class Abstract_Wallet:
     def get_transaction(self, tx_id: str, flags: Optional[int]=None) -> Optional[Transaction]:
         return self._datastore.tx.get_transaction(tx_id, flags)
 
+    def get_transaction_entry(self, tx_id: str, flags: Optional[int]=None,
+            mask: Optional[int]=None) -> Optional[TxCacheEntry]:
+        return self._datastore.tx.get_entry(tx_id, flags, mask)
+
+    def get_transaction_metadata(self, tx_hash: str) -> Optional[TxData]:
+        return self._datastore.tx.get_metadata(tx_hash)
+
+    def get_transaction_metadatas(self, flags: Optional[int]=None, mask: Optional[int]=None,
+            tx_ids: Optional[Iterable[str]]=None,
+            require_all: bool=True) -> List[Tuple[str, TxData]]:
+        return self._datastore.tx.get_metadatas(flags, mask, tx_ids, require_all)
+
     def has_received_transaction(self, tx_id: str) -> bool:
         # At this time, this means received over the P2P network.
         flags = self._datastore.tx.get_flags(tx_id)
@@ -557,9 +572,7 @@ class Abstract_Wallet:
             # We have proof now so regardless what TxState is, we can 'upgrade' it to StateSettled.
             # This rests on the commitment that any of the following four tx States *will*
             # Have tx bytedata i.e. "HasByteData" flag is set.
-            possible_states = (TxFlags.StateSigned | TxFlags.StateDispatched |
-                               TxFlags.StateReceived)
-            entry = self._datastore.tx.get_entry(tx_hash, flags=possible_states)
+            entry = self._datastore.tx.get_entry(tx_hash, flags=TxFlags.STATE_UNCLEARED_MASK)
             if entry.flags & TxFlags.HasByteData != 0:
                 self.logger.debug("Fast_tracking entry to StateSettled: %r", entry)
             else:
@@ -876,6 +889,7 @@ class Abstract_Wallet:
             self._update_transaction_xputs(tx_hash, tx)
             self.logger.debug("adding tx data %s (flags: %s)", tx_hash, TxFlags.to_repr(flag))
             self._datastore.tx.add_transaction(tx, flag)
+        self.network.trigger_callback('transaction_added', self, tx_hash)
 
     def set_transaction_state(self, tx_hash: str, flags: TxFlags) -> bool:
         """ raises UnknownTransactionException """
@@ -885,7 +899,7 @@ class Abstract_Wallet:
             existing_flags = self._datastore.tx.get_cached_entry(tx_hash).flags
             updated_flags = self._datastore.tx.update_flags(tx_hash, flags)
         self.network.trigger_callback('transaction_state_change',
-            tx_hash, existing_flags, updated_flags)
+            self, tx_hash, existing_flags, updated_flags)
 
     def apply_transactions_xputs(self, tx_hash: str, tx: Transaction) -> None:
         with self.transaction_lock:
@@ -950,6 +964,8 @@ class Abstract_Wallet:
             self.logger.debug("deleting tx from cache and datastore: %s", tx_hash)
             self._datastore.tx.delete(tx_hash)
 
+        self.network.trigger_callback('transaction_deleted', self, tx_hash)
+
     # Used by ImportedWalletBase
     def _remove_transaction(self, tx_hash: str) -> None:
         """
@@ -983,6 +999,7 @@ class Abstract_Wallet:
             for out_key, input_tx_hash in list(self.pruned_txo.items()):
                 if input_tx_hash == tx_hash:
                     self.pruned_txo.pop(out_key)
+
 
     def get_address_history(self, address: Address):
         assert isinstance(address, Address)
@@ -1019,7 +1036,7 @@ class Abstract_Wallet:
 
                 # StateSigned, StateDispatched, StateReceived with bytedata update to StateCleared
                 if entry.flags & TxFlags.HasByteData != 0 and \
-                        entry.flags & (TxFlags.StateCleared | TxFlags.StateSettled) == 0:
+                        entry.flags & TxFlags.STATE_BROADCAST_MASK == 0:
                     self.set_transaction_state(tx_id, TxFlags.StateCleared | TxFlags.HasByteData)
 
                 # if addr is new, we have to recompute txi and txo

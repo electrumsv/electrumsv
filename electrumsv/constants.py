@@ -54,6 +54,8 @@ class TxFlags(IntEnum):
 
     METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition | HasTimestamp)
     STATE_MASK = (StateSettled | StateDispatched | StateReceived | StateCleared | StateSigned)
+    STATE_UNCLEARED_MASK = (StateDispatched | StateReceived | StateSigned)
+    STATE_BROADCAST_MASK = (StateSettled | StateCleared)
     MASK = 0xFFFFFFFF
 
     def __repr__(self):
@@ -88,4 +90,3 @@ class TxFlags(IntEnum):
 # All these states can only be set if there is transaction data present.
 TRANSACTION_FLAGS = (TxFlags.StateSettled, TxFlags.StateDispatched, TxFlags.StateReceived,
     TxFlags.StateCleared, TxFlags.StateSigned)
-

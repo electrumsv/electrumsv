@@ -642,9 +642,10 @@ class TestTransactionStore:
             TxData(height=0, fee=2, position=110, timestamp=1101),
             TxData(height=-1, fee=2, position=110, timestamp=1101),
         ]
+        date_added = 1
         for data1 in test_cases:
             raw, flags = self.store._pack_data(data1, TxFlags.METADATA_FIELD_MASK)
-            data2 = self.store._unpack_data(raw, flags)
+            data2 = self.store._unpack_data(raw, flags, date_added, date_added)
             assert data1.fee == data2.fee
             assert data1.height == data2.height
             assert data1.position == data2.position
@@ -653,16 +654,19 @@ class TestTransactionStore:
     def test_unpack_data_version_invalid_version(self):
         with pytest.raises(wallet_database.DataPackingError):
             packed_bytes = bytes.fromhex("0001020000")
-            self.store._unpack_data(packed_bytes, TxFlags.HasFee | TxFlags.HasHeight)
+            date_added = 1
+            self.store._unpack_data(packed_bytes, TxFlags.HasFee | TxFlags.HasHeight,
+                date_added, date_added)
 
     def test_data_unpack_version_1(self):
+        date_added = 1
         for hex, data, flags in [
             [ "0101020000", TxData(height=1, fee=2), TxFlags.HasFee | TxFlags.HasHeight ],
             [ "0200026efd4d04", TxData(height=-1, fee=2, position=110, timestamp=1101),
               TxFlags.HasFee | TxFlags.HasHeight | TxFlags.HasPosition | TxFlags.HasTimestamp ],
         ]:
             raw = bytes.fromhex(hex)
-            unpacked_data = self.store._unpack_data(raw, flags)
+            unpacked_data = self.store._unpack_data(raw, flags, date_added, date_added)
             assert data.height == unpacked_data.height
             assert data.fee == unpacked_data.fee
             assert data.position == unpacked_data.position
@@ -775,7 +779,9 @@ class TestTransactionStore:
 
         flags = TxFlags.StateReceived
         mask = TxFlags.METADATA_FIELD_MASK | TxFlags.HasByteData | TxFlags.HasProofData
-        self.store.update_flags(tx_id, flags, mask, completion_callback=self._completion_callback)
+        date_updated = 1
+        self.store.update_flags(tx_id, flags, mask, date_updated,
+            completion_callback=self._completion_callback)
         self._completion_event.wait()
         self._completion_event.clear()
 
@@ -787,7 +793,9 @@ class TestTransactionStore:
 
         flags = TxFlags.StateReceived
         mask = TxFlags.Unset
-        self.store.update_flags(tx_id, flags, mask, completion_callback=self._completion_callback)
+        date_updated = 1
+        self.store.update_flags(tx_id, flags, mask, date_updated,
+            completion_callback=self._completion_callback)
         self._completion_event.wait()
         self._completion_event.clear()
 
@@ -1007,7 +1015,9 @@ class TestTransactionStore:
         position1 = 10
         merkle_branch1 = [ os.urandom(32) for i in range(10) ]
         proof = TxProof(position1, merkle_branch1)
-        self.store.update_proof(tx_id, proof, completion_callback=self._completion_callback)
+        date_updated = 1
+        self.store.update_proof(tx_id, proof, date_updated,
+            completion_callback=self._completion_callback)
         self._completion_event.wait()
         self._completion_event.clear()
 

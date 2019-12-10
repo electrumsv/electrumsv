@@ -105,6 +105,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     network_status_signal = pyqtSignal()
     addresses_updated_signal = pyqtSignal(object, object)
     addresses_created_signal = pyqtSignal(object, object, object)
+    transaction_state_signal = pyqtSignal(object, object, object, object)
+    transaction_added_signal = pyqtSignal(object, object)
+    transaction_deleted_signal = pyqtSignal(object, object)
 
     def __init__(self, parent_wallet: ParentWallet):
         QMainWindow.__init__(self)
@@ -156,6 +159,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.coinsplitting_tab = self.create_coinsplitting_tab()
 
         tabs.addTab(self.create_history_tab(), read_QIcon("tab_history.png"), _('History'))
+        tabs.addTab(self.create_transaction_tab(), read_QIcon("icons8-transaction-list-96.png"),
+            _('Transactions'))
         tabs.addTab(self.send_tab, read_QIcon("tab_send.png"), _('Send'))
         tabs.addTab(self.receive_tab, read_QIcon("tab_receive.png"), _('Receive'))
 
@@ -238,11 +243,27 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.network.register_callback(self._on_history, ['on_history'])
             self.network.register_callback(self._on_addresses_updated, ['on_addresses_updated'])
             self.network.register_callback(self._on_addresses_created, ['on_addresses_created'])
+            self.network.register_callback(self._on_transaction_state_change,
+                ['transaction_state_change'])
+            self.network.register_callback(self._on_transaction_added, ['transaction_added'])
+            self.network.register_callback(self._on_transaction_deleted, ['transaction_deleted'])
             self.new_fx_quotes_signal.connect(self.on_fx_quotes)
             self.new_fx_history_signal.connect(self.on_fx_history)
 
         self.load_wallet()
         self.app.timer.timeout.connect(self.timer_actions)
+
+    def _on_transaction_state_change(self, event_name: str, wallet: Abstract_Wallet,
+            tx_hash: str, old_state: TxFlags, new_state: TxFlags) -> None:
+        self.transaction_state_signal.emit(wallet, tx_hash, old_state, new_state)
+
+    def _on_transaction_added(self, event_name: str, wallet: Abstract_Wallet,
+            tx_hash: str) -> None:
+        self.transaction_added_signal.emit(wallet, tx_hash)
+
+    def _on_transaction_deleted(self, event_name: str, wallet: Abstract_Wallet,
+            tx_hash: str) -> None:
+        self.transaction_deleted_signal.emit(wallet, tx_hash)
 
     def _on_addresses_created(self, event_name: str, wallet: Abstract_Wallet,
             addresses: Iterable[Address], is_change: bool=False) -> None:
@@ -970,6 +991,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from .history_list import HistoryView
         self.history_view = HistoryView(self, self.parent_wallet)
         return self.history_view
+
+    def create_transaction_tab(self):
+        from .transaction_list import TransactionView
+        self.transaction_view = TransactionView(self, self._send_wallet)
+        return self.transaction_view
 
     def show_address(self, wallet: Abstract_Wallet, addr: Address):
         from . import address_dialog
@@ -1893,6 +1919,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.history_view.update_tx_list()
             self.history_updated_signal.emit()
             self.clear_receive_tab()
+
+    def remove_transaction(self, tx_hash: str) -> None:
+        raise NotImplementedError()
 
     def get_coins(self, child_wallet: Abstract_Wallet, isInvoice = False):
         if self.pay_from:

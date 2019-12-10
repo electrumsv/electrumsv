@@ -250,6 +250,8 @@ class SqliteWriteDispatcher:
 
 class DatabaseContext:
     def __init__(self, wallet_path: str) -> None:
+        super().__init__()
+
         if not wallet_path.endswith(DATABASE_EXT):
             wallet_path += DATABASE_EXT
         self._db_path = wallet_path
@@ -868,14 +870,14 @@ class TransactionOutputStore(HexKeyMixin, EncryptedKeyMixin, GenericKeyValueStor
             completion_callback=completion_callback)
 
 
-class TxData(namedtuple("TxDataTuple", "height timestamp position fee")):
+class TxData(namedtuple("TxDataTuple", "height timestamp position fee date_added date_updated")):
     def __repr__(self):
         return (f"TxData(height={self.height},timestamp={self.timestamp},"+
             f"position={self.position},fee={self.fee})")
 
 # namedtuple defaults do not get added until 3.7, and are not available in 3.6, so we set them
 # indirectly to be compatible by both.
-TxData.__new__.__defaults__ = (None, None, None, None)
+TxData.__new__.__defaults__ = (None, None, None, None, None, None)
 
 
 class TxProof(namedtuple("TxProofTuple", "position branch")):
@@ -959,11 +961,11 @@ class TransactionStore(BaseWalletStore):
         return raw, flags
 
     @staticmethod
-    def _unpack_data(raw: bytes, flags: int) -> TxData:
+    def _unpack_data(raw: bytes, flags: int, date_created: int, date_updated: int) -> TxData:
         io = BytesIO(raw)
         pack_version = bitcoinx.read_varint(io.read)
         if pack_version == 1 or pack_version == 2:
-            kwargs = {}
+            kwargs = { "date_added": date_created, "date_updated": date_updated }
             for kw, mask in (
                     ('height', TxFlags.HasHeight),
                     ('fee', TxFlags.HasFee),
@@ -1030,7 +1032,7 @@ class TransactionStore(BaseWalletStore):
             mask: Optional[int]=None) -> Optional[Tuple[TxData, Optional[bytes], int]]:
         etx_id = self._encrypt_hex(tx_id)
         clause, params = self._flag_clause(flags, mask)
-        query = ("SELECT MetaData, ByteData, Flags FROM Transactions "+
+        query = ("SELECT MetaData, ByteData, Flags, DateCreated, DateUpdated FROM Transactions "+
             "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL")
         if clause:
             query += " AND "+ clause
@@ -1038,14 +1040,15 @@ class TransactionStore(BaseWalletStore):
         row = cursor.fetchone()
         if row is not None:
             bytedata = self._decrypt(row[1]) if row[1] is not None else None
-            return self._unpack_data(self._decrypt(row[0]), row[2]), bytedata, row[2]
+            return (self._unpack_data(self._decrypt(row[0]), row[2], row[3], row[4]),
+                bytedata, row[2])
         return None
 
     @tprofiler
     def get_many(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_ids: Optional[Iterable[str]]=None) -> List[Tuple[str, TxData, Optional[bytes], int]]:
-        query = ("SELECT Key, MetaData, ByteData, Flags FROM Transactions "+
-            "WHERE GroupId=? AND DateDeleted IS NULL")
+        query = ("SELECT Key, MetaData, ByteData, Flags, DateCreated, DateUpdated "+
+            "FROM Transactions WHERE GroupId=? AND DateDeleted IS NULL")
         params = [ self._group_id ]
         clause, extra_params = self._flag_clause(flags, mask)
         if clause:
@@ -1059,7 +1062,7 @@ class TransactionStore(BaseWalletStore):
             for row in rows:
                 tx_id = self._decrypt_hex(row[0])
                 bytedata = self._decrypt(row[2]) if row[2] is not None else None
-                data = self._unpack_data(self._decrypt(row[1]), row[3])
+                data = self._unpack_data(self._decrypt(row[1]), row[3], row[4], row[5])
                 results.append((tx_id, data, bytedata, row[3]))
 
         if tx_ids is not None and len(tx_ids):
@@ -1083,20 +1086,20 @@ class TransactionStore(BaseWalletStore):
             mask: Optional[int]=None) -> Optional[Tuple[TxData, int]]:
         etx_id = self._encrypt_hex(tx_id)
         clause, params = self._flag_clause(flags, mask)
-        query = ("SELECT MetaData, Flags FROM Transactions "+
+        query = ("SELECT MetaData, Flags, DateCreated, DateUpdated FROM Transactions "+
             "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL")
         if clause:
             query += " AND "+ clause
         cursor = self._db.execute(query, [self._group_id, etx_id] + params)
         row = cursor.fetchone()
         if row is not None:
-            return self._unpack_data(self._decrypt(row[0]), row[1]), row[1]
+            return self._unpack_data(self._decrypt(row[0]), row[1], row[2], row[3]), row[1]
         return None
 
     @tprofiler
     def get_metadata_many(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_ids: Optional[Iterable[str]]=None) -> List[Tuple[str, TxData, int]]:
-        query = ("SELECT Key, MetaData, Flags FROM Transactions "+
+        query = ("SELECT Key, MetaData, Flags, DateCreated, DateUpdated FROM Transactions "+
             "WHERE GroupId=? AND DateDeleted IS NULL")
         params = [ self._group_id ]
         clause, extra_params = self._flag_clause(flags, mask)
@@ -1110,7 +1113,7 @@ class TransactionStore(BaseWalletStore):
             cursor.close()
             for row in rows:
                 tx_id = self._decrypt_hex(row[0])
-                data = self._unpack_data(self._decrypt(row[1]), row[2])
+                data = self._unpack_data(self._decrypt(row[1]), row[2], row[3], row[4])
                 results.append((tx_id, data, row[2]))
 
         if tx_ids is not None and len(tx_ids):
@@ -1164,8 +1167,6 @@ class TransactionStore(BaseWalletStore):
     @tprofiler
     def add_many(self, entries: List[Tuple[str, TxData, Optional[bytes], int]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        timestamp = self._get_current_timestamp()
-
         datas = []
         for tx_id, metadata, bytedata, flags in entries:
             etx_id = self._encrypt_hex(tx_id)
@@ -1175,8 +1176,8 @@ class TransactionStore(BaseWalletStore):
             if bytedata is not None:
                 flags |= TxFlags.HasByteData
             ebytedata = None if bytedata is None else self._encrypt(bytedata)
-            datas.append((self._group_id, etx_id, emetadata, ebytedata, flags, timestamp,
-                timestamp))
+            datas.append((self._group_id, etx_id, emetadata, ebytedata, flags, metadata.date_added,
+                metadata.date_added))
 
         def _write(db: sqlite3.Connection) -> None:
             if len(entries) < 20:
@@ -1201,8 +1202,6 @@ class TransactionStore(BaseWalletStore):
     @tprofiler
     def update_many(self, entries: List[Tuple[str, TxData, bytes, int]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        timestamp = self._get_current_timestamp()
-
         datas = []
         for tx_id, metadata, bytedata, flags in entries:
             etx_id = self._encrypt_hex(tx_id)
@@ -1213,7 +1212,8 @@ class TransactionStore(BaseWalletStore):
             if bytedata is not None:
                 flags |= TxFlags.HasByteData
                 ebytedata = self._encrypt(bytedata)
-            datas.append((emetadata, ebytedata, flags, timestamp, self._group_id, etx_id))
+            datas.append((emetadata, ebytedata, flags, metadata.date_updated, self._group_id,
+                etx_id))
 
         def _write(db: sqlite3.Connection) -> None:
             if len(entries) < 20:
@@ -1241,14 +1241,12 @@ class TransactionStore(BaseWalletStore):
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         # NOTE: This should only be used if it knows the existing flags column value, it should
         # preserve the state, bytedata and proofdata flags if it does not intend to clear them.
-        timestamp = self._get_current_timestamp()
-
         datas = []
-        for tx_id, data, flags in entries:
+        for tx_id, metadata, flags in entries:
             etx_id = self._encrypt_hex(tx_id)
-            metadata_bytes, flags = self._pack_data(data, flags)
+            metadata_bytes, flags = self._pack_data(metadata, flags)
             emetadata = self._encrypt(metadata_bytes)
-            datas.append((emetadata, flags, timestamp, self._group_id, etx_id))
+            datas.append((emetadata, flags, metadata.date_updated, self._group_id, etx_id))
 
         def _write(db: sqlite3.Connection) -> None:
             self._logger.debug("update %d tx metadatas: %s", len(entries),
@@ -1263,9 +1261,8 @@ class TransactionStore(BaseWalletStore):
         self._db_context.queue_write(_write)
 
     @tprofiler
-    def update_flags(self, tx_id: str, flags: int, mask: Optional[int]=TxFlags.Unset,
+    def update_flags(self, tx_id: str, flags: int, mask: int, date_updated: int,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        timestamp = self._get_current_timestamp()
         etx_id = self._encrypt_hex(tx_id)
 
         def _write(db: sqlite3.Connection) -> None:
@@ -1273,15 +1270,14 @@ class TransactionStore(BaseWalletStore):
 
             db.execute("UPDATE Transactions SET Flags=((Flags&?)|?), DateUpdated=? "+
                 "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL",
-                [mask, flags, timestamp, self._group_id, etx_id])
+                [mask, flags, date_updated, self._group_id, etx_id])
             return completion_callback
 
         self._db_context.queue_write(_write)
 
     @tprofiler
-    def update_proof(self, tx_id: str, proof: TxProof,
+    def update_proof(self, tx_id: str, proof: TxProof, date_updated: int,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        timestamp = self._get_current_timestamp()
         etx_id = self._encrypt_hex(tx_id)
         raw = self._pack_proof(proof)
         eraw = self._encrypt(raw)
@@ -1291,7 +1287,7 @@ class TransactionStore(BaseWalletStore):
             db.execute(
                 "UPDATE Transactions SET ProofData=?, DateUpdated=?, Flags=(Flags|?) "+
                 "WHERE GroupId=? AND Key=? AND DateDeleted IS NULL",
-                [eraw, timestamp, TxFlags.HasProofData, self._group_id, etx_id])
+                [eraw, date_updated, TxFlags.HasProofData, self._group_id, etx_id])
             return completion_callback
 
         self._db_context.queue_write(_write)
@@ -1303,7 +1299,6 @@ class TransactionStore(BaseWalletStore):
     @tprofiler
     def delete_many(self, tx_ids: Iterable[str],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        # TODO: Integrate this with delete and look at using executemany.
         timestamp = self._get_current_timestamp()
 
         datas = []
@@ -1423,8 +1418,6 @@ class TxCache:
         # self._cache_access = {}
         self._store = store
 
-        self.update_proof = self._store.update_proof
-
         self._lock = threading.RLock()
 
         if cache_metadata:
@@ -1477,16 +1470,19 @@ class TxCache:
     def add_missing_transaction(self, tx_id: str, height: int, fee: Optional[int]=None,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         # TODO: Consider setting state based on height.
-        self.add([ (tx_id, TxData(height=height, fee=fee), None, TxFlags.Unset) ],
-            completion_callback=completion_callback)
+        date_added = self._store._get_current_timestamp()
+        self.add([ (tx_id,
+            TxData(height=height, fee=fee, date_added=date_added, date_updated=date_added),
+            None, TxFlags.Unset) ], completion_callback=completion_callback)
 
     def add_transaction(self, tx: Transaction, flags: Optional[TxFlags]=TxFlags.Unset,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         tx_id = tx.txid()
         tx_hex = str(tx)
         bytedata = bytes.fromhex(tx_hex)
-        self.update_or_add([ (tx_id, TxData(), bytedata, flags | TxFlags.HasByteData) ],
-            completion_callback=completion_callback)
+        date_updated = self._store._get_current_timestamp()
+        self.update_or_add([ (tx_id, TxData(date_added=date_updated, date_updated=date_updated),
+            bytedata, flags | TxFlags.HasByteData) ], completion_callback=completion_callback)
 
     def add(self, inserts: List[Tuple[str, TxData, Optional[bytes], int]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -1495,7 +1491,7 @@ class TxCache:
 
     def _add(self, inserts: List[Tuple[str, TxData, Optional[bytes], int]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        access_time = time.time()
+        date_added = self._store._get_current_timestamp()
         for tx_id, metadata, bytedata, add_flags in inserts:
             assert tx_id not in self._cache, f"Tx {tx_id} found in cache unexpectedly"
             flags = self._adjust_field_flags(metadata, add_flags)
@@ -1504,10 +1500,11 @@ class TxCache:
             assert ((add_flags & TxFlags.METADATA_FIELD_MASK) == 0 or
                 flags == add_flags), f"{TxFlags.to_repr(flags)} != {TxFlags.to_repr(add_flags)}"
             self._validate_new_flags(flags)
+            metadata = TxData(metadata.height, metadata.timestamp, metadata.position,
+                metadata.fee, date_added, date_added)
             self._cache[tx_id] = TxCacheEntry(metadata, flags, bytedata)
             assert bytedata is None or self._cache[tx_id].is_bytedata_cached(), \
                 "bytedata not flagged as cached"
-            # self._cache_access[tx_id] = access_time
 
         self._store.add_many(inserts, completion_callback=completion_callback)
 
@@ -1526,6 +1523,7 @@ class TxCache:
         desired_update_ids = set(update_map)
         skipped_update_ids = set([])
         actual_updates = {}
+        date_updated = self._store._get_current_timestamp()
         # self.logger.debug("_update: desired_update_ids=%s", desired_update_ids)
         for tx_id, entry in self._get_entries(tx_ids=desired_update_ids, require_all=update_all):
             _discard, metadata, bytedata, flags = update_map[tx_id]
@@ -1538,7 +1536,8 @@ class TxCache:
             timestamp = (metadata.timestamp if flags & TxFlags.HasTimestamp
                 else entry.metadata.timestamp)
             new_bytedata = bytedata if flags & TxFlags.HasByteData else entry.bytedata
-            new_metadata = TxData(height, timestamp, position, fee)
+            new_metadata = TxData(height, timestamp, position, fee, metadata.date_added,
+                date_updated)
             # Take the existing entry flags and set the state ones based on metadata present.
             new_flags = self._adjust_field_flags(new_metadata,
                 entry.flags & ~TxFlags.STATE_MASK)
@@ -1599,11 +1598,28 @@ class TxCache:
             mask |= TxFlags.METADATA_FIELD_MASK
 
         with self._lock:
+            date_updated = self._store._get_current_timestamp()
             entry = self._get_entry(tx_id)
             entry.flags = (entry.flags & mask) | (flags & ~TxFlags.METADATA_FIELD_MASK)
             self._validate_new_flags(entry.flags)
-            self._store.update_flags(tx_id, flags, mask, completion_callback=completion_callback)
+            # Update the cached metadata for the new modification date.
+            metadata = entry.metadata
+            entry.metadata = TxData(metadata.height, metadata.timestamp, metadata.position,
+                metadata.fee, metadata.date_added, date_updated)
+            self._store.update_flags(tx_id, flags, mask, date_updated,
+                completion_callback=completion_callback)
         return entry.flags
+
+    def update_proof(self, tx_id: str, proof: TxProof,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        with self._lock:
+            date_updated = self._store._get_current_timestamp()
+            entry = self._get_entry(tx_id)
+            metadata = entry.metadata
+            entry.metadata = TxData(metadata.height, metadata.timestamp, metadata.position,
+                metadata.fee, metadata.date_added, date_updated)
+            self._store.update_proof(tx_id, proof, date_updated,
+                completion_callback=completion_callback)
 
     def delete(self, tx_id: str,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -1823,7 +1839,8 @@ class TxCache:
             tx_ids: Optional[Iterable[str]]=None,
             require_all: bool=True) -> List[Tuple[str, TxData]]:
         with self._lock:
-            return self._get_metadatas(flags, mask, tx_ids, require_all)
+            return self._get_metadatas(flags=flags, mask=mask, tx_ids=tx_ids,
+                require_all=require_all)
 
     def _get_metadatas(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_ids: Optional[Iterable[str]]=None,
@@ -1845,6 +1862,7 @@ class TxCache:
             store_tx_ids = [ tx_id for tx_id in tx_ids if tx_id not in self._cache ]
 
         cache_additions = {}
+        new_matches = []
         existing_matches = []
         # tx_ids will be None and store_tx_ids will be None.
         # tx_ids will be a list, and store_tx_ids will be a list.
@@ -1855,8 +1873,9 @@ class TxCache:
                 # take the possibly full/complete with bytedata cached version, rather than
                 # corrupt the cache with the limited metadata version.
                 if tx_id in self._cache:
-                    existing_matches.append((tx_id, self._cache[tx_id]))
+                    existing_matches.append((tx_id, self._cache[tx_id].metadata))
                 else:
+                    new_matches.append((tx_id, metadata))
                     cache_additions[tx_id] = TxCacheEntry(metadata, flags_get,
                         is_bytedata_cached=False)
             self.logger.debug("get_metadatas/cache_additions: adds=%d haves=%d %r...",
@@ -1872,9 +1891,9 @@ class TxCache:
                     if require_all:
                         raise MissingRowError(tx_id)
                 elif self._entry_visible(entry.flags, flags, mask):
-                    results.append((tx_id, entry))
+                    results.append((tx_id, entry.metadata))
         else:
-            results = list(cache_additions.items()) + existing_matches
+            results = new_matches + existing_matches
         return results
 
     def get_transactions(self, flags: Optional[int]=None, mask: Optional[int]=None,
@@ -1913,15 +1932,17 @@ class TxCache:
             TxFlags.HasProofData | TxFlags.STATE_MASK)
 
         with self._lock:
-            # NOTE(rt12): Strictly speaking we should be reading from the database only those
-            # rows with relevant height, but all the metadata is cached anyway so not an issue.
+            date_updated = self._store._get_current_timestamp()
+            # This does not request bytedata so if all metadata is cached, will not hit the
+            # database.
             store_updates = []
             for (tx_id, metadata) in self.get_metadatas(fetch_flags, fetch_mask):
                 if metadata.height > reorg_height:
                     # Update the cached version to match the changes we are going to apply.
                     entry = self.get_cached_entry(tx_id)
                     entry.flags = (entry.flags & unverify_mask) | TxFlags.StateCleared
-                    entry.metadata = TxData(0, 0, 0, metadata.fee)
+                    entry.metadata = TxData(0, 0, 0, metadata.fee, metadata.date_added,
+                        date_updated)
                     store_updates.append((tx_id, entry.metadata, entry.flags))
             if len(store_updates):
                 self._store.update_metadata_many(store_updates,

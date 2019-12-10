@@ -38,6 +38,7 @@ import re
 import shutil
 import stat
 import threading
+import time
 from typing import Any, Dict, List, Optional, Type, TypeVar, cast
 import zlib
 
@@ -845,6 +846,7 @@ class TextStore(BaseStore):
                   for addr_history in _history.values()
                   for tx_hash, tx_height in addr_history}
 
+        date_added = int(time.time())
         to_add1 = []
         for tx_id, tx in tx_map_in.items():
             payload = bytes.fromhex(str(tx))
@@ -856,7 +858,8 @@ class TextStore(BaseStore):
                 flags = TxFlags.StateCleared
                 timestamp = position = None
                 height = hh_map.get(tx_id)
-            tx_data = TxData(height=height, fee=fee, position=position, timestamp=timestamp)
+            tx_data = TxData(height=height, fee=fee, position=position, timestamp=timestamp,
+                date_added=date_added, date_updated=date_added)
             to_add1.append((tx_id, tx_data, payload, flags))
         if len(to_add1):
             db.tx_store.add_many(to_add1)

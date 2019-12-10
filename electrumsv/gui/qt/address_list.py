@@ -469,11 +469,6 @@ class AddressList(QTableView):
                 self.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
         self.horizontalHeader().setMinimumSectionSize(20)
         self.verticalHeader().setMinimumSectionSize(20)
-        # The initial spacing of rows is generous. This will draw in the spacing based on the
-        # initial data we have put in the model, and give a more professional compact layout.
-        # If there is no initial data, then this should be ineffectual, so we also call this on
-        # explicit post-creation addition of rows as well to cover that case.
-        self.resizeRowsToContents()
 
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -552,6 +547,7 @@ class AddressList(QTableView):
             change_addresses = self._wallet.get_change_addresses()[:]
             self._data = self._create_data_snapshot(receiving_addresses, change_addresses)
             self._base_model.set_data(self._data)
+            self.resizeRowsToContents()
             return
 
         additions = []
