@@ -1664,11 +1664,11 @@ class TestTxCache:
         # Delete as if a reorg happened above the suitable but excluded canary transaction.
         cache.delete_reorged_entries(5)
 
-        metadatas = cache.get_metadatas(TxFlags.HasByteData, TxFlags.HasByteData)
-        assert 4 == len(metadatas)
+        metadata_entries = cache.get_entries(TxFlags.HasByteData, TxFlags.HasByteData)
+        assert 4 == len(metadata_entries)
 
         # Affected, canary above common height.
-        y1 = [ m[1] for m in metadatas if m[0] == tx_id_y1 ][0]
+        y1 = [ m[1] for m in metadata_entries if m[0] == tx_id_y1 ][0]
         assert 0 == y1.metadata.height
         assert 0 == y1.metadata.timestamp
         assert 0 == y1.metadata.position
@@ -1680,7 +1680,7 @@ class TestTxCache:
             TxFlags.HasHeight | TxFlags.HasPosition)
 
         # Skipped, old enough to survive.
-        n1 = [ m[1] for m in metadatas if m[0] == tx_id_n1 ][0]
+        n1 = [ m[1] for m in metadata_entries if m[0] == tx_id_n1 ][0]
         assert data_n1.height == n1.metadata.height
         assert data_n1.timestamp == n1.metadata.timestamp
         assert data_n1.position == n1.metadata.position
@@ -1688,7 +1688,7 @@ class TestTxCache:
         assert TxFlags.StateSettled | expected_flags == n1.flags, TxFlags.to_repr(n1.flags)
 
         # Skipped, canary common height.
-        n2 = [ m[1] for m in metadatas if m[0] == tx_id_n2 ][0]
+        n2 = [ m[1] for m in metadata_entries if m[0] == tx_id_n2 ][0]
         assert data_n2.height == n2.metadata.height
         assert data_n2.timestamp == n2.metadata.timestamp
         assert data_n2.position == n2.metadata.position
@@ -1696,7 +1696,7 @@ class TestTxCache:
         assert TxFlags.StateSettled | expected_flags == n2.flags, TxFlags.to_repr(n2.flags)
 
         # Skipped, canary non-cleared.
-        n3 = [ m[1] for m in metadatas if m[0] == tx_id_n3 ][0]
+        n3 = [ m[1] for m in metadata_entries if m[0] == tx_id_n3 ][0]
         assert data_n3.height == n3.metadata.height
         assert data_n3.timestamp == n3.metadata.timestamp
         assert data_n3.position == n3.metadata.position

@@ -877,12 +877,15 @@ class Abstract_Wallet:
             self.logger.debug("adding tx data %s (flags: %s)", tx_hash, TxFlags.to_repr(flag))
             self._datastore.tx.add_transaction(tx, flag)
 
-    def set_transaction_state(self, tx_hash: str, flag: TxFlags) -> bool:
+    def set_transaction_state(self, tx_hash: str, flags: TxFlags) -> bool:
         """ raises UnknownTransactionException """
         with self.transaction_lock:
             if not self._datastore.tx.is_cached(tx_hash):
                 raise UnknownTransactionException(f"tx {tx_hash} unknown")
-            self._datastore.tx.update_flags(tx_hash, flag)
+            existing_flags = self._datastore.tx.get_cached_entry(tx_hash).flags
+            updated_flags = self._datastore.tx.update_flags(tx_hash, flags)
+        self.network.trigger_callback('transaction_state_change',
+            tx_hash, existing_flags, updated_flags)
 
     def apply_transactions_xputs(self, tx_hash: str, tx: Transaction) -> None:
         with self.transaction_lock:

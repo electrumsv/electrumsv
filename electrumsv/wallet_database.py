@@ -1590,7 +1590,7 @@ class TxCache:
             return updated_ids
 
     def update_flags(self, tx_id: str, flags: int, mask: Optional[int]=None,
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+            completion_callback: Optional[CompletionCallbackType]=None) -> TxFlags:
         # This is an odd function. It logical ors metadata flags, but replaces the other
         # flags losing their values.
         if mask is None:
@@ -1603,6 +1603,7 @@ class TxCache:
             entry.flags = (entry.flags & mask) | (flags & ~TxFlags.METADATA_FIELD_MASK)
             self._validate_new_flags(entry.flags)
             self._store.update_flags(tx_id, flags, mask, completion_callback=completion_callback)
+        return entry.flags
 
     def delete(self, tx_id: str,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -1828,9 +1829,16 @@ class TxCache:
             tx_ids: Optional[Iterable[str]]=None,
             require_all: bool=True) -> List[Tuple[str, TxData]]:
         if self._all_metadata_cached:
-            return [
-                t for t in self._cache.items() if self._entry_visible(t[1].flags, flags, mask)
-            ]
+            if tx_ids is not None:
+                matches = []
+                for tx_id in tx_ids:
+                    entry = self._cache[tx_id]
+                    if self._entry_visible(entry.flags, flags, mask):
+                        matches.append((tx_id, entry.metadata))
+                return matches
+            else:
+                return [ (t[0], t[1].metadata) for t in self._cache.items()
+                    if self._entry_visible(t[1].flags, flags, mask) ]
 
         store_tx_ids = None
         if tx_ids is not None:
@@ -1894,7 +1902,8 @@ class TxCache:
             flags=TxFlags.HasByteData | TxFlags.HasHeight,
             mask=TxFlags.HasByteData | TxFlags.HasTimestamp | TxFlags.HasPosition |
                  TxFlags.HasHeight)
-        return [ t for t in results if 0 < t[1].metadata.height <= watermark_height ]
+        return [ (tx_id, self._cache[tx_id]) for (tx_id, metadata) in results
+            if 0 < metadata.height <= watermark_height ]
 
     def delete_reorged_entries(self, reorg_height: int,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -1907,11 +1916,12 @@ class TxCache:
             # NOTE(rt12): Strictly speaking we should be reading from the database only those
             # rows with relevant height, but all the metadata is cached anyway so not an issue.
             store_updates = []
-            for (tx_id, entry) in self.get_metadatas(fetch_flags, fetch_mask):
-                if entry.metadata.height > reorg_height:
+            for (tx_id, metadata) in self.get_metadatas(fetch_flags, fetch_mask):
+                if metadata.height > reorg_height:
                     # Update the cached version to match the changes we are going to apply.
+                    entry = self.get_cached_entry(tx_id)
                     entry.flags = (entry.flags & unverify_mask) | TxFlags.StateCleared
-                    entry.metadata = TxData(0, 0, 0, entry.metadata.fee)
+                    entry.metadata = TxData(0, 0, 0, metadata.fee)
                     store_updates.append((tx_id, entry.metadata, entry.flags))
             if len(store_updates):
                 self._store.update_metadata_many(store_updates,
