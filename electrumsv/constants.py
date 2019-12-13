@@ -153,3 +153,6 @@ class PaymentState(IntEnum):
     EXPIRED = 1
     UNKNOWN = 2     # sent but not propagated
     PAID    = 3     # send and propagated
+
+# Transaction limits
+MAX_MESSAGE_BYTES = 99000

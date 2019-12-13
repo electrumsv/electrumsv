@@ -25,12 +25,11 @@
 
 import ast
 import base64
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Callable, ClassVar
 import os
 import time
-
 import jsonrpclib
-
+from .restapi import AiohttpServer
 from .app_state import app_state
 from .commands import known_commands, Commands
 from .exchange_rate import FxTask
@@ -42,6 +41,7 @@ from .storage import WalletStorage
 from .util import json_decode, DaemonThread, to_string, random_integer, get_wallet_name_from_path
 from .version import PACKAGE_VERSION
 from .wallet import Wallet
+from .restapi_endpoints import DefaultEndpoints
 
 
 logger = logs.get_logger("daemon")
@@ -114,7 +114,8 @@ def get_server(config: SimpleConfig) -> Optional[jsonrpclib.Server]:
         time.sleep(1.0)
 
 
-def get_rpc_credentials(config: SimpleConfig) -> Tuple[Optional[str], Optional[str]]:
+def get_rpc_credentials(config: SimpleConfig, is_restapi=False) \
+        -> Tuple[Optional[str], Optional[str]]:
     rpc_user = config.get('rpcuser', None)
     rpc_password = config.get('rpcpassword', None)
     if rpc_user is None or rpc_password is None:
@@ -126,8 +127,10 @@ def get_rpc_credentials(config: SimpleConfig) -> Tuple[Optional[str], Optional[s
         rpc_password = to_string(pw_b64, 'ascii')
         config.set_key('rpcuser', rpc_user)
         config.set_key('rpcpassword', rpc_password, save=True)
-    elif rpc_password == '':
-        logger.warning('RPC authentication is disabled.')
+    elif rpc_password == '' and not is_restapi:
+        logger.warning('No password set for RPC API. Access is therefore granted to any users.')
+    elif rpc_password == '' and is_restapi:
+        logger.warning('No password set for REST API. Access is therefore granted to any users.')
     return rpc_user, rpc_password
 
 
@@ -146,14 +149,33 @@ class Daemon(DaemonThread):
             app_state.fx = FxTask(app_state.config, self.network)
             self.fx_task = app_state.async_.spawn(app_state.fx.refresh_loop)
         self.wallets = {}
-        # Setup JSONRPC server
+        # RPC API - (synchronous)
         self.init_server(config, fd, is_gui)
         # self.init_thread_watcher()
+        self.is_gui = is_gui
+
+        # REST API - (asynchronous)
+        self.rest_server = None
+        if app_state.config.get("cmd") == "daemon":
+            self.init_restapi_server(config, fd)
+            self.configure_restapi_server()
+
+    def configure_restapi_server(self):
+        self.rest_server.register_routes(DefaultEndpoints)
+
+    def init_restapi_server(self, config: SimpleConfig, fd) -> None:
+        host = config.get('rpchost', '127.0.0.1')
+        port = 9999  # hard-code until added to config
+
+        username, password = get_rpc_credentials(config, is_restapi=True)
+        self.rest_server = AiohttpServer(host=host, port=port, username=username,
+                                         password=password)
+        # let the rpc server handle the fd for now (until we purge the jsonrpc server from ESV)
+        return
 
     def init_server(self, config: SimpleConfig, fd, is_gui: bool) -> None:
         host = config.get('rpchost', '127.0.0.1')
-        port = config.get('rpcport', 0)
-
+        port = config.get('rpcport', 8888)
         rpc_user, rpc_password = get_rpc_credentials(config)
         try:
             server = VerifyingJSONRPCServer((host, port), logRequests=False,
@@ -310,7 +332,19 @@ class Daemon(DaemonThread):
         result = func(*args, **kwargs)
         return result
 
+    def on_stop(self):
+        if self.rest_server and self.rest_server.is_alive:
+            app_state.async_.spawn_and_wait(self.rest_server.stop)
+        self.logger.debug("stopped.")
+
+    def launch_restapi(self):
+        if not self.is_gui and not self.rest_server.is_alive:
+            self._restapi_future = app_state.async_.spawn(self.rest_server.launcher)
+            self.rest_server.is_alive = True
+
     def run(self) -> None:
+        if app_state.gui_kind != "gui":
+            self.launch_restapi()
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)
         logger.warning("no longer running")

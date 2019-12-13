@@ -56,6 +56,11 @@ class DefaultApp(object):
         while app_state.daemon.is_running():
             time.sleep(0.5)
 
+    def setup_app(self):
+        # app_state.daemon's __init__ is called after app_state.app's.
+        # Initialise things dependent upon app_state.daemon here."""
+        return
+
 
 class AppStateProxy(object):
     app = None
