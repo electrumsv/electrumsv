@@ -25,12 +25,14 @@
 
 import ast
 import base64
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Dict, List, Callable
 import os
 import time
 
 import jsonrpclib
+from aiohttp import web
 
+from .restapi import AiohttpServer
 from .app_state import app_state
 from .commands import known_commands, Commands
 from .exchange_rate import FxTask
@@ -114,7 +116,7 @@ def get_server(config: SimpleConfig) -> Optional[jsonrpclib.Server]:
         time.sleep(1.0)
 
 
-def get_rpc_credentials(config: SimpleConfig) -> Tuple[Optional[str], Optional[str]]:
+def get_rpc_credentials(config: SimpleConfig, is_restapi=False) -> Tuple[Optional[str], Optional[str]]:
     rpc_user = config.get('rpcuser', None)
     rpc_password = config.get('rpcpassword', None)
     if rpc_user is None or rpc_password is None:
@@ -126,8 +128,10 @@ def get_rpc_credentials(config: SimpleConfig) -> Tuple[Optional[str], Optional[s
         rpc_password = to_string(pw_b64, 'ascii')
         config.set_key('rpcuser', rpc_user)
         config.set_key('rpcpassword', rpc_password, save=True)
-    elif rpc_password == '':
+    elif rpc_password == '' and not is_restapi:
         logger.warning('RPC authentication is disabled.')
+    elif rpc_password == '' and is_restapi:
+        logger.warning('Basic authentication is disabled.')
     return rpc_user, rpc_password
 
 
@@ -146,14 +150,55 @@ class Daemon(DaemonThread):
             app_state.fx = FxTask(app_state.config, self.network)
             self.fx_task = app_state.async_.spawn(app_state.fx.refresh_loop)
         self.wallets = {}
-        # Setup JSONRPC server
+
+        # RPC API - (synchronous) - self.run()
         self.init_server(config, fd, is_gui)
-        # self.init_thread_watcher()
+
+        # REST API - (asynchronous) - async_ loop/thread
+        self.init_restapi_server(config, fd)
+        self.default_endpoints = {"/"    : self.status,
+                                  "/ping": self.rest_ping}
+        app_state.dapp_extensions_added = False
+        self.configure_restapi_server(self.default_endpoints)
+
+    # ----- Default External API ----- #
+
+    async def status(self, request):
+        return web.json_response({
+            "status": "success",
+        })
+
+    async def rest_ping(self, request):
+        return web.json_response({
+            "value": "pong"
+        })
+
+    # -------------------------------- #
+
+    def configure_restapi_server(self, extension_endpoints: Dict[str, Any]):
+        self.rest_server.register_new_endpoints(extension_endpoints)
+        self.logger.debug(f"added default rest api endpoints: {list(extension_endpoints.keys())}")
+        pass
+
+    def init_restapi_server(self, config: SimpleConfig, fd) -> None:
+        host = config.get('rpchost', '127.0.0.1')
+        port = 9999  # hard-code until added to config
+
+        # Basic Auth not yet configured. Credentials shared with rpc currently.
+        username, password = get_rpc_credentials(config, is_restapi=True)
+        try:
+            self.rest_server = AiohttpServer(host=host, port=port, username=username,
+                password=password, extension_endpoints=None)
+
+        except Exception as e:
+            logger.error('Warning: cannot initialize REST server on host %s %s', host, e)
+            self.rest_server = None
+            # let the rpc server handle the fd for now (until we purge the jsonrpc server from ESV)
+            return
 
     def init_server(self, config: SimpleConfig, fd, is_gui: bool) -> None:
         host = config.get('rpchost', '127.0.0.1')
         port = config.get('rpcport', 0)
-
         rpc_user, rpc_password = get_rpc_credentials(config)
         try:
             server = VerifyingJSONRPCServer((host, port), logRequests=False,
@@ -312,9 +357,23 @@ class Daemon(DaemonThread):
         result = func(*args, **kwargs)
         return result
 
+    def on_stop(self):
+        if self.rest_server.is_alive:
+            app_state.async_.spawn_and_wait(self.rest_server.stop)
+            self.logger.debug("stopped.")
+
     def run(self) -> None:
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)
+            if app_state.has_app():
+                # running server 'freezes' routes - must register dapp endpoints first
+                # https://github.com/aio-libs/aiohttp/issues/3238
+                if app_state.dapp_extensions_added and not self.rest_server.is_alive:
+                    # This won't run for gui because 'dapp_extensions' never get added.
+                    self._restapi_future = app_state.async_.spawn(self.rest_server.launcher)
+                    self.rest_server.is_alive = True
+                else:
+                    continue
         logger.warning("no longer running")
         if self.network:
             logger.warning("wait for network shutdown")
