@@ -187,15 +187,10 @@ class Daemon(DaemonThread):
 
         # Basic Auth not yet configured. Credentials shared with rpc currently.
         username, password = get_rpc_credentials(config, is_restapi=True)
-        try:
-            self.rest_server = AiohttpServer(host=host, port=port, username=username,
+        self.rest_server = AiohttpServer(host=host, port=port, username=username,
                 password=password, extension_endpoints=None)
-
-        except Exception as e:
-            logger.error('Warning: cannot initialize REST server on host %s %s', host, e)
-            self.rest_server = None
-            # let the rpc server handle the fd for now (until we purge the jsonrpc server from ESV)
-            return
+        # let the rpc server handle the fd for now (until we purge the jsonrpc server from ESV)
+        return
 
     def init_server(self, config: SimpleConfig, fd, is_gui: bool) -> None:
         host = config.get('rpchost', '127.0.0.1')
