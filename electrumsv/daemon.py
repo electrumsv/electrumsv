@@ -155,11 +155,12 @@ class Daemon(DaemonThread):
         self.init_server(config, fd, is_gui)
 
         # REST API - (asynchronous) - async_ loop/thread
-        self.init_restapi_server(config, fd)
-        self.default_endpoints = {"/"    : self.status,
-                                  "/ping": self.rest_ping}
-        app_state.dapp_extensions_added = False
-        self.configure_restapi_server(self.default_endpoints)
+        self.rest_server = None
+        if app_state.config.get("cmd") == "daemon":
+            self.init_restapi_server(config, fd)
+            self.default_endpoints = {"/"    : self.status,
+                                      "/ping": self.rest_ping}
+            self.configure_restapi_server(self.default_endpoints)
 
     # ----- Default External API ----- #
 
@@ -358,22 +359,28 @@ class Daemon(DaemonThread):
         return result
 
     def on_stop(self):
-        if self.rest_server.is_alive:
+        if self.rest_server and self.rest_server.is_alive:
             app_state.async_.spawn_and_wait(self.rest_server.stop)
         self.logger.debug("stopped.")
 
+    def launch_restapi(self):
+        if not self.rest_server.is_alive:
+            self._restapi_future = app_state.async_.spawn(self.rest_server.launcher)
+            self.rest_server.is_alive = True
+
     def run(self) -> None:
+        if app_state.config.get("cmd") == "daemon":
+            if app_state.config.get("daemon_app_module", None):
+                # wait for dapp setup before launching restapi (which 'freezes' routes)
+                # https://github.com/aio-libs/aiohttp/issues/3238
+                while not app_state.app.is_running:
+                    time.sleep(0.2)
+                self.launch_restapi()
+            else:
+                self.launch_restapi()
+
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)
-            if app_state.has_app():
-                # running server 'freezes' routes - must register dapp endpoints first
-                # https://github.com/aio-libs/aiohttp/issues/3238
-                if app_state.dapp_extensions_added and not self.rest_server.is_alive:
-                    # This won't run for gui because 'dapp_extensions' never get added.
-                    self._restapi_future = app_state.async_.spawn(self.rest_server.launcher)
-                    self.rest_server.is_alive = True
-                else:
-                    continue
         logger.warning("no longer running")
         if self.network:
             logger.warning("wait for network shutdown")
