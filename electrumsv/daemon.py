@@ -25,7 +25,7 @@
 
 import ast
 import base64
-from typing import Optional, Tuple, Any, Dict, List, Callable
+from typing import Optional, Tuple, Any, Dict
 import os
 import time
 
@@ -116,7 +116,8 @@ def get_server(config: SimpleConfig) -> Optional[jsonrpclib.Server]:
         time.sleep(1.0)
 
 
-def get_rpc_credentials(config: SimpleConfig, is_restapi=False) -> Tuple[Optional[str], Optional[str]]:
+def get_rpc_credentials(config: SimpleConfig, is_restapi=False) \
+        -> Tuple[Optional[str], Optional[str]]:
     rpc_user = config.get('rpcuser', None)
     rpc_password = config.get('rpcpassword', None)
     if rpc_user is None or rpc_password is None:
@@ -129,9 +130,9 @@ def get_rpc_credentials(config: SimpleConfig, is_restapi=False) -> Tuple[Optiona
         config.set_key('rpcuser', rpc_user)
         config.set_key('rpcpassword', rpc_password, save=True)
     elif rpc_password == '' and not is_restapi:
-        logger.warning('RPC authentication is disabled.')
+        logger.warning('No password set for RPC API. Access is therefore granted to any users.')
     elif rpc_password == '' and is_restapi:
-        logger.warning('Basic authentication is disabled.')
+        logger.warning('No password set for REST API. Access is therefore granted to any users.')
     return rpc_user, rpc_password
 
 
@@ -150,7 +151,6 @@ class Daemon(DaemonThread):
             app_state.fx = FxTask(app_state.config, self.network)
             self.fx_task = app_state.async_.spawn(app_state.fx.refresh_loop)
         self.wallets = {}
-
         # RPC API - (synchronous) - self.run()
         self.init_server(config, fd, is_gui)
 
@@ -360,7 +360,7 @@ class Daemon(DaemonThread):
     def on_stop(self):
         if self.rest_server.is_alive:
             app_state.async_.spawn_and_wait(self.rest_server.stop)
-            self.logger.debug("stopped.")
+        self.logger.debug("stopped.")
 
     def run(self) -> None:
         while self.is_running():

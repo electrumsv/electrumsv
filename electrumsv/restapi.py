@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Dict, Callable, List
+from typing import Any, Dict, Callable, List, Optional
 from aiohttp import web
 import logging
 
@@ -14,7 +14,7 @@ class BaseAiohttpServer:
         self.app.on_shutdown.append(self.on_shutdown)
         self.host = host
         self.port = port
-        self.logger = logging.getLogger("aiohttp REST API")
+        self.logger = logging.getLogger("aiohttp-rest-api")
 
     async def on_startup(self, app):
         self.logger.debug("starting...")
@@ -36,7 +36,7 @@ class BaseAiohttpServer:
 
 class AiohttpServer(BaseAiohttpServer):
 
-    def __init__(self, host: str="localhost", port: int=9999, username: str=None,
+    def __init__(self, host: str="localhost", port: int=9999, username: Optional[str]=None,
             password: str=None, extension_endpoints: Dict[str, Any]=None) -> None:
         super().__init__(host=host, port=port)
         self.username = username
