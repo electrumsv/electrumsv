@@ -125,3 +125,10 @@ yarl==1.4.2 \
     --hash=sha256:c9959d49a77b0e07559e579f38b2f3711c2b8716b8410b320bf9713013215a1b \
     --hash=sha256:d8cdee92bc930d8b09d8bd2043cedd544d9c8bd7436a77678dd602467a993080 \
     --hash=sha256:e15199cdb423316e15f108f51249e44eb156ae5dba232cb73be555324a1d49c2
+typing-extensions==3.6.5 ; python_version < "3.7" \
+    --hash=sha256:1c0a8e3b4ce55207a03dd0dcb98bc47a704c71f14fe4311ec860cc8af8f4bd27 \
+    --hash=sha256:8b0962ecb92847974514b1724c8ae2b6dd1ffe86bcdfac429517f5e583ada658 \
+    --hash=sha256:be7b05ddab71727fabf1f071365043cf034e4cdac9cade1f1d61a6cc526aaafe
+idna_ssl==1.0.0 ; python_version < "3.7" \
+    --hash=sha256:1227e44039bd31e02adaeafdbba61281596d623d222643fb021f87f2144ea147
+
