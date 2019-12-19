@@ -49,12 +49,20 @@ logger = logs.get_logger("app_state")
 
 class DefaultApp(object):
     def __init__(self):
-        pass
+        self.is_running = False
 
     def run_app(self):
         global app_state
+        self.is_running = True
         while app_state.daemon.is_running():
             time.sleep(0.5)
+        self.is_running = False
+
+    @staticmethod
+    def wait_until_started():
+        while not app_state.app.is_running:
+            time.sleep(0.2)  # block the calling thread until dapp is running
+        return
 
 
 class AppStateProxy(object):

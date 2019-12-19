@@ -153,6 +153,7 @@ class Daemon(DaemonThread):
         self.wallets = {}
         # RPC API - (synchronous) - self.run()
         self.init_server(config, fd, is_gui)
+        self.is_gui = is_gui
 
         # REST API - (asynchronous) - async_ loop/thread
         self.rest_server = None
@@ -283,7 +284,7 @@ class Daemon(DaemonThread):
 
         return "error: ElectrumSV is running in daemon mode; stop the daemon first."
 
-    def load_wallet(self, wallet_filepath: str, password: Optional[str]) -> ParentWallet:
+    def load_wallet(self, wallet_filepath: str, password: Optional[str]) -> Optional[ParentWallet]:
         # wizard will be launched if we return
         if wallet_filepath in self.wallets:
             wallet = self.wallets[wallet_filepath]
@@ -364,15 +365,9 @@ class Daemon(DaemonThread):
             self.rest_server.is_alive = True
 
     def run(self) -> None:
-        if app_state.config.get("cmd") == "daemon":
-            if app_state.config.get("daemon_app_module", None):
-                # wait for dapp setup before launching restapi (which 'freezes' routes)
-                # https://github.com/aio-libs/aiohttp/issues/3238
-                while not app_state.app.is_running:
-                    time.sleep(0.2)
-                self.launch_restapi()
-            else:
-                self.launch_restapi()
+        if not self.is_gui:
+            app_state.app.wait_until_started()
+            self.launch_restapi()
 
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)
