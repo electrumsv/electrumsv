@@ -59,6 +59,6 @@ class AiohttpServer(BaseAiohttpServer):
     async def launcher(self):
         await self.start()
         self.is_alive = True
-        self.logger.debug(f"started on http://{self.host}:{self.port}")
+        self.logger.debug("started on http://%s:%s", self.host, self.port)
         while True:
             await asyncio.sleep(0.5)

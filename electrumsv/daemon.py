@@ -178,7 +178,7 @@ class Daemon(DaemonThread):
 
     def configure_restapi_server(self, extension_endpoints: Dict[str, Any]):
         self.rest_server.register_new_endpoints(extension_endpoints)
-        self.logger.debug(f"added default rest api endpoints: {list(extension_endpoints.keys())}")
+        self.logger.debug("added default rest api endpoints: %s", list(extension_endpoints.keys()))
         pass
 
     def init_restapi_server(self, config: SimpleConfig, fd) -> None:
