@@ -6,7 +6,6 @@ from typing import Optional, ClassVar, Dict, Union, Any, Tuple
 from aiohttp import web
 from aiohttp.web_urldispatcher import UrlDispatcher
 import logging
-
 from .constants import MAX_MESSAGE_BYTES
 from .app_state import app_state
 from .util import to_bytes, to_string, constant_time_compare
@@ -89,23 +88,6 @@ class Fault(Exception):
         return "Fault(%s, '%s')" % (self.code, self.message)
 
 
-def class_to_instance_methods(klass: ClassVar, routes: web.RouteTableDef) -> Union[UrlDispatcher,
-                                                                                   object]:
-    """Allows @routes.get("/") decorator syntax on instance methods and all of the benefits
-    associated with that (regex, dynamic resources / url paths, code readability etc."""
-    instance = klass()
-    router = UrlDispatcher()
-    http_methods = [route.method for route in routes._items]
-    handlers = [route.handler.__name__ for route in routes._items]
-    paths = [route.path for route in routes._items]
-
-    for path, handler, http_method in zip(paths, handlers, http_methods):
-        instance_method = getattr(instance, handler)
-        adder = getattr(router, "add_" + http_method.lower())
-        adder(path=path, handler=instance_method)
-    return router, instance
-
-
 def bad_request(code: int, message: str) -> web.Response:
     response_obj = {'code': code,
                     'message': message}
@@ -143,12 +125,12 @@ def good_response(response: Dict) -> web.Response:
 async def decode_request_body(request) -> Union[Dict[Any, Any], Fault]:
     body = await request.read()
     if body == b"" or body == b"{}":
-        return Fault(Errors.EMPTY_REQUEST_BODY_CODE, Errors.EMPTY_REQUEST_BODY_MESSAGE)
+        return {}
     try:
         request_body = json.loads(body.decode('utf-8'))
     except JSONDecodeError as e:
         message = "JSONDecodeError " + str(e)
-        return Fault(Errors.JSON_DECODE_ERROR_CODE, message)
+        raise Fault(Errors.JSON_DECODE_ERROR_CODE, message)
     return request_body
 
 
@@ -276,9 +258,5 @@ class AiohttpServer(BaseAiohttpServer):
         while True:
             await asyncio.sleep(0.5)
 
-    def register_routes(self, endpoints_class: ClassVar) -> Tuple[UrlDispatcher, object]:
-        transformed_router, instance = class_to_instance_methods(klass=endpoints_class,
-                                                                 routes=endpoints_class.routes)
-        for resource in transformed_router.resources():
-            self.app.router.register_resource(resource)
-        return transformed_router, instance
+    def register_routes(self, endpoints) -> None:
+        self.app.router.add_routes(endpoints.routes)

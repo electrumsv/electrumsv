@@ -2,7 +2,7 @@ ElectrumSV - Example Applications
 =================================
 
 These are a formalised way to run an extended version of ElectrumSV. They are intended to be
-useful in the case where you need access to (for instance) an extended set of RPC
+useful in the case where you need access to (for instance) an extended set of REST API
 functionality that ElectrumSV has either not incorporated yet, or will not incorporate because
 it does not serve the general needs.
 
@@ -14,56 +14,40 @@ However, we may provide useful skeletons. These will be updated as ElectrumSV ev
 you derive from these, it is with the expectation you will be willing to migrate your code
 following the changes made to them.
 
-File Upload
+REST API
 -----------
 
-Two ways to upload files are 'b://' and 'Bcat'. This application extends ElectrumSV to provide
-a way for users to upload files to the blockchain using either of these two different protocols
-based on file size.
-
-WARNING: Electrum historically stores wallet data in one encrypted json file that is decrypted
-when loaded, and encrypted when saved. As you accrue more transactions within it which contain
-file contents, it will become slower and slower to load. ElectrumSV retains this wallet
-structure at this time, and is therefore unsuited to image upload.
-
-WARNING: The Bcat specification is not entirely clear, and the errors displayed on failure when
-you view the data on bico.media are unhelpful at best. If you do use this script to upload
-files, do so at your own risk as you may end up having uploaded something broken.
-
-WARNING: Use this moderately untested tool at your own risk.
+This extends the built-in REST API and is intended as both a general template for application
+developers but also has the aim of growing to serve most general-purpose needs or to influence
+future additions to the ESV built-in REST API.
 
 Add the 'examples/applications' directory to your 'PYTHONPATH'.
+Starting in the top-level directory of the electrumsv repository...
 
-Then start it the ElectrumSV daemon by::
+In windows cmd.exe::
 
-    electrum-sv daemon -dapp esv_fileupload
+    $ set PYTHONPATH=examples/applications
 
-Set your RPC username and password::
+In linux bash::
 
-    electrum-sv setconfig rpcuser my_rpc_username
-    electrum-sv setconfig rpcpassword my_rpc_password
+    $ export PYTHONPATH=examples/applications
 
-This runs ElectrumSV as a daemon providing an extended JSON-RPC API. Then you can make use of
-the 'fileupload.py' script, to upload files.
+Then start the ElectrumSV daemon application with::
 
-Run the script::
+    $ py -3.7 electrum-sv daemon --testnet -dapp restapi
 
-    examples/applications/fileupload.py -f my-cool-picture.jpg -eh 127.0.0.1 -ep 8888
-    -u my_rpc_username -p my_rpc_password -wn spending_wallet -wp my_password
+Set your REST API username and password (not implemented yet)::
 
-Merchant Server
----------------
+    $ electrum-sv setconfig restuser my_rest_username
+    $ electrum-sv setconfig restpassword my_rest_password
 
-ElectrumSV provides support for payment requests, both from the side of the consumer and
-the merchant. This application extends ElectrumSV to provide suitable functionality for a
-local web site to communicate with it via RPC, and detect payments and react to them.
+This runs ElectrumSV as a daemon providing an extended REST API. Early stage documentation can be
+found here_:
 
-This will be accompanied at a later stage by an example web site, but for now serves as an
-initial example of an application.
+.. _here: https://documenter.getpostman.com/view/9976147/SWLib6gk?version=latest
 
-Add the 'examples/applications' directory to your 'PYTHONPATH'.
-
-Then start it by::
-
-    electrum-sv daemon -dapp esv_merchant_server
-
+Future possibilities include:
+- Dedicated B and BCAT handlers for ease of file uploads.
+- Websockets to ElectrumX subscriptions
+- p2p broadcasting
+q

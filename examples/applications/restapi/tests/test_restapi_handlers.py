@@ -3,7 +3,6 @@ import json
 
 import bitcoinx
 from aiohttp import web
-from electrumsv import restapi_endpoints
 from electrumsv.restapi import good_response, Fault
 from aiohttp.test_utils import make_mocked_request
 from concurrent.futures.thread import ThreadPoolExecutor
@@ -14,6 +13,8 @@ from typing import List, Union, Dict, Any, Optional, Tuple
 import tempfile
 from electrumsv.wallet import ParentWallet, Abstract_Wallet, UTXO
 from electrumsv.transaction import Transaction
+from ..handlers import ExtensionEndpoints
+
 
 class SVTestnet(object):
 
@@ -94,7 +95,7 @@ def _fake_balance_dto_succeeded(wallet) -> Dict[Any, Any]:
             "unconfirmed_balance": unconfirmed_bal}
 
 
-def _fake_transaction_state_dto_succeeded(wallet, tx_ids) -> Dict[Any, Any]:
+def _fake_transaction_state_dto_succeeded(wallet, txids) -> Dict[Any, Any]:
     results = {
         "txid1...": {"block_id": 1,
                      "height": 1,
@@ -213,7 +214,7 @@ class MockAppState:
         self.async_ = MockAsync()
 
 
-class MockDefaultEndpoints(restapi_endpoints.DefaultEndpoints):
+class MockDefaultEndpoints(ExtensionEndpoints):
     # fake init for LocalRESTExtensions
     def __init__(self):
         self.all_wallets = ["wallet_file1.sqlite", "wallet_file2.sqlite"]
@@ -251,6 +252,10 @@ class TestDefaultEndpoints:
     def cli(self, loop, aiohttp_client, monkeypatch):
         """mock client - see: https://docs.aiohttp.org/en/stable/client_quickstart.html"""
         app = web.Application()
+        app.router.add_get('/v1/{network}/wallets/{wallet_name}/',
+                           self.rest_server.get_parent_wallet)
+        app.router.add_get('/v1/{network}/wallets/{wallet_name}/{index}/',
+                           self.rest_server.get_child_wallet)
         app.router.add_post('/v1/{network}/wallets/{wallet_name}/load_wallet',
                            self.rest_server.load_wallet)
         app.router.add_post('/v1/{network}/wallets/{wallet_name}/{index}/txs/'
@@ -303,38 +308,31 @@ class TestDefaultEndpoints:
         resp = await self.rest_server.get_all_wallets(mock_request)
         assert resp.text == good_response(expected_json).text
 
-    async def test_get_parent_wallet_good_response(self):
-        """
-        GET http://localhost:9999/v1/{network}/wallets/{wallet_name}
-        Gets overview info for parent wallet with nested child wallets
-        """
+    async def test_get_parent_wallet_good_response(self, cli):
+        # mock request
         network = "test"
         wallet_name = "wallet_file1.sqlite"
-
-        mock_request = make_mocked_request("GET", f"/v1/{network}/wallets/{wallet_name}/")
-        mock_request.match_info.update({"network": network})  # checked by middleware
-        mock_request.match_info.update({"wallet_name": wallet_name})
-        resp = await self.rest_server.get_parent_wallet(mock_request)
+        resp = await cli.get(f"/v1/{network}/wallets/{wallet_name}/")
         expected_json = {'parent_wallet': "wallet_file1.sqlite",
                          'value': {'0': {'wallet_type': 'StandardWallet',
                                        'is_wallet_ready': True}}}
-        assert resp.text == good_response(expected_json).text
+        assert resp.status == 200
+        response = await resp.read()
+        assert json.loads(response) == expected_json
 
-    async def test_get_child_wallet_good_response(self):
+    async def test_get_child_wallet_good_response(self, cli):
+        # mock request
         network = "test"
         wallet_name = "wallet_file1.sqlite"
-        index = '0'
-        mock_request = make_mocked_request("GET", f"/v1/{network}/wallets/{wallet_name}/"
-                                                  f"{index}")
-        mock_request.match_info.update({"network": network})  # checked by middleware
-        mock_request.match_info.update({"wallet_name": wallet_name})
-        mock_request.match_info.update({"index": index})
-
-        resp = await self.rest_server.get_child_wallet(mock_request)
-        assert not isinstance(resp, Fault)
+        index = "0"
+        resp = await cli.get(f"/v1/{network}/wallets/{wallet_name}/"
+                             f"{index}/")
+        # check
         expected_json = {'value': {'0': {'wallet_type': 'StandardWallet',
                                          'is_wallet_ready': True}}}
-        assert resp.text == good_response(expected_json).text
+        assert resp.status == 200
+        response = await resp.read()
+        assert json.loads(response) == expected_json
 
     async def test_load_wallet_good_request(self, monkeypatch, cli):
         monkeypatch.setattr(self.rest_server, '_load_wallet',

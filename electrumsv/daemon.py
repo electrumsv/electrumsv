@@ -161,7 +161,8 @@ class Daemon(DaemonThread):
             self.configure_restapi_server()
 
     def configure_restapi_server(self):
-        self.rest_server.register_routes(DefaultEndpoints)
+        self.default_api = DefaultEndpoints()
+        self.rest_server.register_routes(self.default_api)
 
     def init_restapi_server(self, config: SimpleConfig, fd) -> None:
         host = config.get('rpchost', '127.0.0.1')
