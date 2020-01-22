@@ -281,9 +281,6 @@ class ChooseWalletPage(QWizardPage):
         self.setTitle(_("Select an existing wallet"))
         self.setButtonText(QWizard.NextButton, "  "+ _("Open &Selected Wallet") +"  ")
 
-        unlocked_pixmap = QPixmap(icon_path("icons8-unlock-80.png")).scaledToWidth(
-            40, Qt.SmoothTransformation)
-
         vlayout = QVBoxLayout()
 
         page = self
@@ -296,9 +293,48 @@ class ChooseWalletPage(QWizardPage):
                     super(TableWidget, self).keyPressEvent(event)
 
         self._wallet_table = TableWidget()
-        self._wallet_table.setColumnCount(1)
         #self._wallet_table.setIconSize(QSize(24, 24))
+        self._wallet_table.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        self._wallet_table.doubleClicked.connect(self._on_entry_doubleclicked)
+
+        if not parent.should_auto_open_wallet():
+            self._populate_list()
+
+        vlayout.addWidget(self._wallet_table)
+
+        tablebutton_layout = QHBoxLayout()
+        self.file_button = QPushButton("  "+ _("Open &Other Wallet") +"  ")
+        self.file_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.file_button.clicked.connect(self._on_open_file_click)
+        tablebutton_layout.addStretch()
+        tablebutton_layout.addWidget(self.file_button, Qt.AlignRight)
+        vlayout.addLayout(tablebutton_layout)
+
+        self.setLayout(vlayout)
+
+        self._recent_wallet_entries: Dict[str, Any] = {}
+        self._on_reset_next_page()
+
+    def _on_reset_next_page(self) -> None:
+        self._next_page_id = WalletPage.PREMIGRATION_PASSWORD_ADDITION
+
+    def _populate_list(self) -> None:
+        while self._wallet_table.rowCount():
+            self._wallet_table.removeRow(self._wallet_table.rowCount()-1)
+
+        unlocked_pixmap = QPixmap(icon_path("icons8-lock-80.png")).scaledToWidth(
+            40, Qt.SmoothTransformation)
+
         self._wallet_table.setHorizontalHeaderLabels([ "Recently Opened Wallets" ])
+
+        hh = self._wallet_table.horizontalHeader()
+        hh.setStretchLastSection(True)
+
+        vh = self._wallet_table.verticalHeader()
+        vh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        vh.hide()
+
+        self._wallet_table.setColumnCount(1)
         self._wallet_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._wallet_table.setStyleSheet("""
             QTableView {
@@ -311,16 +347,6 @@ class ChooseWalletPage(QWizardPage):
         # Tab by default in QTableWidget, moves between list items. The arrow keys also perform
         # the same function, and we want tab to allow toggling to the wizard button bar instead.
         self._wallet_table.setTabKeyNavigation(False)
-
-        self._wallet_table.selectionModel().selectionChanged.connect(self._on_selection_changed)
-        self._wallet_table.doubleClicked.connect(self._on_entry_doubleclicked)
-
-        hh = self._wallet_table.horizontalHeader()
-        hh.setStretchLastSection(True)
-
-        vh = self._wallet_table.verticalHeader()
-        vh.setSectionResizeMode(QHeaderView.ResizeToContents)
-        vh.hide()
 
         recent_wallet_entries = self._get_recently_opened_wallets()
         for d in recent_wallet_entries:
@@ -347,24 +373,6 @@ class ChooseWalletPage(QWizardPage):
 
         self._recent_wallet_entries = recent_wallet_entries
 
-        vlayout.addWidget(self._wallet_table)
-
-        tablebutton_layout = QHBoxLayout()
-        self.file_button = QPushButton("  "+ _("Open &Other Wallet") +"  ")
-        self.file_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        self.file_button.clicked.connect(self._on_open_file_click)
-        tablebutton_layout.addStretch()
-        tablebutton_layout.addWidget(self.file_button, Qt.AlignRight)
-        vlayout.addLayout(tablebutton_layout)
-
-        self.setLayout(vlayout)
-
-        self._wallet_table.setFocus()
-        self._on_reset_next_page()
-
-    def _on_reset_next_page(self) -> None:
-        self._next_page_id = WalletPage.PREMIGRATION_PASSWORD_ADDITION
-
     def nextId(self) -> WalletPage:
         return self._next_page_id
 
@@ -386,22 +394,10 @@ class ChooseWalletPage(QWizardPage):
         results = []
         for file_path in app_state.config.get('recently_open', []):
             if os.path.exists(file_path) and categorise_file(file_path) != StorageKind.HYBRID:
-                try:
-                    storage = WalletStorage(file_path)
-                except Exception:
-                    continue
-                else:
-                    storage.close()
-
-                try:
-                    results.append({
-                        'name': get_wallet_name_from_path(file_path),
-                        'path': file_path,
-                    })
-                except Exception:
-                    # If the wallet cannot be opened, we skip it.
-                    continue
-                    # logger.exception("problem looking at recent wallet '%s'", file_path)
+                results.append({
+                    'name': get_wallet_name_from_path(file_path),
+                    'path': file_path,
+                })
 
         return results
 
@@ -510,7 +506,12 @@ class ChooseWalletPage(QWizardPage):
 
         if wizard.should_auto_open_wallet():
             wizard.clear_auto_open_wallet()
-            self._attempt_open_wallet(wizard._initial_path, change_page=True)
+            if self._attempt_open_wallet(wizard._initial_path, change_page=True):
+                # Avoid the slow list population.
+                return
+
+        self._populate_list()
+        self._wallet_table.setFocus()
 
     def on_leave(self) -> None:
         button = self.wizard().button(QWizard.CustomButton1)
