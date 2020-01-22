@@ -285,6 +285,8 @@ class XTxInput(TxInput):
 
     def is_complete(self) -> bool:
         '''Return true if this input has all signatures present.'''
+        if not self.signatures:
+            return True
         return len(self.signatures_present()) >= self.threshold
 
     def stripped_signatures_with_blanks(self) -> List[bytes]:
@@ -308,7 +310,7 @@ class XTxInput(TxInput):
         return size
 
     def size(self) -> int:
-        return len(TxInput.to_bytes(self))   # base class implementation
+        return len(TxInput.to_bytes(self))
 
     def type(self) -> ScriptType:
         if self.is_coinbase():
@@ -608,8 +610,7 @@ class Transaction(Tx):
     def size(self) -> int:
         if self.is_complete():
             return len(self.to_bytes())
-        else:
-            return self.estimated_size()
+        return self.estimated_size()
 
     def estimated_size(self) -> int:
         '''Return an estimated tx size in bytes.'''
