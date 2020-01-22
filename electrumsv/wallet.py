@@ -57,8 +57,7 @@ from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, UnknownTransactionException,
     WalletLoadError)
 from .i18n import _
-from .keystore import (Hardware_KeyStore, Imported_KeyStore, BIP32_KeyStore, KeyStore,
-    Old_KeyStore, Multisig_KeyStore, instantiate_keystore)
+from .keystore import (Hardware_KeyStore, Imported_KeyStore, instantiate_keystore, KeyStore)
 from .logs import logs
 from .networks import Net
 from .paymentrequest import InvoiceStore

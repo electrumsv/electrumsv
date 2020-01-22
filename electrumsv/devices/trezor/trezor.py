@@ -338,7 +338,7 @@ class TrezorPlugin(HW_PluginBase):
             m=m)
 
     def tx_outputs(self, keystore: TrezorKeyStore, derivation: str, tx: Transaction):
-        account_derivation = tuple(bip32_decompose_chain_string(derivation))
+        account_derivation: Sequence[int] = tuple(bip32_decompose_chain_string(derivation))
         keystore_fingerprint = keystore.get_fingerprint()
 
         def create_output_by_derivation(key_derivation: Sequence[int], xpubs,
@@ -351,7 +351,7 @@ class TrezorPlugin(HW_PluginBase):
             return TxOutputType(
                 multisig=multisig,
                 amount=tx_output.value,
-                address_n=account_derivation + key_derivation,
+                address_n=(*account_derivation, *key_derivation),
                 script_type=script_type
             )
 

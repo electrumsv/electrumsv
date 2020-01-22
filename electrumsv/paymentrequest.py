@@ -40,7 +40,7 @@ from .networks import Net
 
 
 if TYPE_CHECKING:
-    from electrumsv.wallet import AbstractAccount
+    from electrumsv.wallet import DeterministicAccount
 
 logger = logs.get_logger("paymentrequest")
 
@@ -274,7 +274,7 @@ class PaymentRequest:
     def get_outputs(self) -> List[TxOutput]:
         return [output.to_tx_output() for output in self.outputs]
 
-    def send_payment(self, account: 'AbstractAccount',
+    def send_payment(self, account: 'DeterministicAccount',
             transaction_hex: str) -> Tuple[bool, Optional[str]]:
 
         if not self.payment_url:

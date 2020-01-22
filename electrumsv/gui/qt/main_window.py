@@ -53,7 +53,7 @@ from electrumsv import bitcoin, commands, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from electrumsv.constants import DATABASE_EXT, RECEIVING_SUBPATH, ScriptType, TxFlags
+from electrumsv.constants import DATABASE_EXT, RECEIVING_SUBPATH, TxFlags
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore

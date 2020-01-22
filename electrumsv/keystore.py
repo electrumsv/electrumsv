@@ -682,6 +682,7 @@ class Multisig_KeyStore(DerivablePaths, KeyStore):
             assert derivation_type in (DerivationType.BIP32, DerivationType.HARDWARE,
                 DerivationType.ELECTRUM_OLD)
             keystore = instantiate_keystore(derivation_type, derivation_data)
+            keystore = cast(MultisigChildKeyStoreType, keystore)
             self.add_cosigner_keystore(keystore)
 
     def is_deterministic(self) -> bool:
@@ -880,6 +881,7 @@ def _public_key_from_private_key_text(text):
 def instantiate_keystore(derivation_type: DerivationType, data: Dict[str, Any],
         parent_keystore: Optional[KeyStore]=None,
         row: Optional[MasterKeyRow]=None) -> KeyStore:
+    keystore: KeyStore
     if derivation_type == DerivationType.BIP32:
         keystore = BIP32_KeyStore(data, row, parent_keystore)
     elif derivation_type == DerivationType.HARDWARE:

@@ -374,6 +374,7 @@ class KeepKeyPlugin(HW_PluginBase):
         keystore_fingerprint = keystore.get_fingerprint()
 
         outputs = []
+        assert tx.output_info is not None
         for tx_output, output_metadatas in zip(tx.outputs, tx.output_info):
             info = output_metadatas.get(keystore_fingerprint)
             if info is not None and not has_change:

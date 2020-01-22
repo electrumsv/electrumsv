@@ -653,7 +653,7 @@ class Transaction(Tx):
         version = data.get('version', 0)
         tx = cls.from_hex(data['hex'])
         if version == 1:
-            input_data: Optional[Dict[str, Any]] = data.get('inputs')
+            input_data: Optional[List[Dict[str, Any]]] = data.get('inputs')
             if input_data is not None:
                 assert len(tx.inputs) == len(input_data)
                 for i, txin in enumerate(tx.inputs):
@@ -662,7 +662,7 @@ class Transaction(Tx):
                     txin.value = int(input_data[i]['value'])
                     txin.signatures = [ bytes.fromhex(v) for v in input_data[i]['signatures'] ]
                     txin.x_pubkeys = [ XPublicKey.from_dict(v) for v in input_data[i]['x_pubkeys']]
-            output_data: Optional[Dict[str, Any]] = data.get('outputs')
+            output_data: Optional[List[Dict[str, Any]]] = data.get('outputs')
             if output_data is not None:
                 assert len(tx.outputs) == len(output_data)
                 for i, txout in enumerate(tx.outputs):
