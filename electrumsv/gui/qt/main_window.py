@@ -525,8 +525,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         wallet_names = [get_wallet_name_from_path(path) for path in recent]
         counts = Counter(wallet_names)
-        pairs = sorted((wallet_name if counts[wallet_name] == 1 else path, path)
-                       for wallet_name, path in zip(wallet_names, recent))
+        pairs = ((wallet_name if counts[wallet_name] == 1 else path, path)
+            for wallet_name, path in zip(wallet_names, recent))
         for menu_text, path in pairs:
             self.recently_visited_menu.addAction(menu_text, partial(self.app.new_window, path))
         self.recently_visited_menu.setEnabled(bool(pairs))
