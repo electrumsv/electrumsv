@@ -700,7 +700,7 @@ class TestTransactionCache:
         # Affected, canary above common height.
         y1 = [ m[1] for m in metadata_entries if m[0] == tx_hash_y1 ][0]
         assert 0 == y1.metadata.height
-        assert 0 == y1.metadata.position
+        assert None is y1.metadata.position
         assert data_y1.fee == y1.metadata.fee
         assert TxFlags.StateCleared | TxFlags.HasByteData | TxFlags.HasFee == y1.flags, \
             TxFlags.to_repr(y1.flags)
