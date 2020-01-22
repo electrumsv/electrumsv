@@ -453,7 +453,7 @@ class TransactionTable(BaseWalletStore):
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         datas = [(tx_hash,) for tx_hash in tx_hashes]
         def _write(db: sqlite3.Connection):
-            self._logger.debug("deleting transactions %s", [hash_to_hex_str(b) for b in datas])
+            self._logger.debug("deleting transactions %s", [hash_to_hex_str(b[0]) for b in datas])
             db.executemany(TransactionDeltaTable.DELETE_TRANSACTION_SQL, datas)
             db.executemany(TransactionOutputTable.DELETE_TRANSACTION_SQL, datas)
             db.executemany(self.DELETE_SQL, datas)
