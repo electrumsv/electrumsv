@@ -25,7 +25,7 @@
 
 import ast
 import base64
-from typing import Optional, Tuple, Any, Callable, ClassVar
+from typing import Optional, Tuple, Any
 import os
 import time
 import jsonrpclib
@@ -171,8 +171,6 @@ class Daemon(DaemonThread):
         username, password = get_rpc_credentials(config, is_restapi=True)
         self.rest_server = AiohttpServer(host=host, port=port, username=username,
                                          password=password)
-        # let the rpc server handle the fd for now (until we purge the jsonrpc server from ESV)
-        return
 
     def init_server(self, config: SimpleConfig, fd, is_gui: bool) -> None:
         host = config.get('rpchost', '127.0.0.1')
@@ -193,9 +191,6 @@ class Daemon(DaemonThread):
         server.register_function(self.ping, 'ping')
         server.register_function(self.run_gui, 'gui')
         server.register_function(self.run_daemon, 'daemon')
-        self.cmd_runner = Commands(self.config, None, self.network)
-        for cmdname in known_commands:
-            server.register_function(getattr(self.cmd_runner, cmdname), cmdname)
         server.register_function(self.run_cmdline, 'run_cmdline')
 
     def init_thread_watcher(self) -> None:

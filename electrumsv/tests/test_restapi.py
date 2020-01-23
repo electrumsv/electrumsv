@@ -2,8 +2,7 @@ from aiohttp import web
 
 import electrumsv
 from electrumsv.restapi import bad_request, Fault, not_found, internal_server_error, \
-    fault_to_http_response, Errors, unauthorized, forbidden, get_network_type, get_app_state
-from electrumsv import app_state
+    fault_to_http_response, Errors, unauthorized, forbidden, get_network_type
 
 
 class MockAppStateMain():
@@ -34,15 +33,15 @@ def fake_get_app_state_stn():
 def test_fault_to_http_response():
 
     fault_negative = Fault(-1, '')
-    fault_aiorpcx = Fault(Errors.AIORPCX_ERROR_CODE, '<message>')
-    fault_4xx = Fault(Errors.GENERIC_BAD_REQUEST_CODE, '<message>')
-    fault_404 = Fault(Errors.WALLET_NOT_FOUND_CODE, Errors.WALLET_NOT_FOUND_MESSAGE)
-    fault_5xx = Fault(Errors.GENERIC_INTERNAL_SERVER_ERROR, '<message>')
+    fault_zero = Fault(0, '<message>')
+    fault_4xx = Fault(40000, '<message>')
+    fault_404 = Fault(40400, '<not found message>')
+    fault_5xx = Fault(50000, '<message>')
     fault_other = Fault(60000, '<message>')
     assert fault_to_http_response(fault_negative)._body == \
            bad_request(fault_negative.code, fault_negative.message)._body
-    assert fault_to_http_response(fault_aiorpcx)._body == \
-           bad_request(fault_aiorpcx.code, fault_aiorpcx.message)._body
+    assert fault_to_http_response(fault_zero)._body == \
+           bad_request(fault_zero.code, fault_zero.message)._body
     assert fault_to_http_response(fault_4xx)._body == \
            bad_request(fault_4xx.code, fault_4xx.message)._body
     assert fault_to_http_response(fault_404)._body == \

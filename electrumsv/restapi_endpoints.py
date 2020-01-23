@@ -1,8 +1,10 @@
 """This is designed with extensibility in mind - see examples/applications/restapi. """
+from typing import Dict, List
+
 from aiohttp import web
 from .logs import logs
 from .app_state import app_state
-from .restapi import good_response
+from .restapi import good_response, get_network_type
 
 # PATHS
 VERSION = "/v1"
@@ -16,7 +18,7 @@ class VARNAMES:
 
 
 # Request types
-ARGTYPES = {}
+ARGTYPES: Dict[str, type] = {}
 
 
 def __init__(self):
@@ -31,7 +33,7 @@ class HandlerUtils:
 
 class DefaultEndpoints(HandlerUtils):
 
-    routes = []
+    routes: List[web.RouteDef] = []
 
     def __init__(self):
         super().__init__()
@@ -48,7 +50,8 @@ class DefaultEndpoints(HandlerUtils):
         ]
 
     async def status(self, request):
-        return good_response({"status": "success"})
+        return good_response({"status": "success",
+                              "network": f"{get_network_type()}"})
 
     async def ping(self, request):
         return good_response({"value": "pong"})

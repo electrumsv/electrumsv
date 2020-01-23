@@ -189,6 +189,9 @@ class MockApp:
     def broadcast_file(*args):
         pass
 
+    def get_and_set_frozen_utxos_for_tx(self):
+        pass
+
 
 class MockConfig:
     def __init__(self):
@@ -469,7 +472,7 @@ class TestDefaultEndpoints:
         monkeypatch.setattr(self.rest_server.app_state.app, '_create_transaction',
                             _fake_create_transaction_succeeded)
         monkeypatch.setattr(asyncio, 'get_event_loop', _fake_get_event_loop)
-        monkeypatch.setattr(self.rest_server, '_get_and_set_frozen_utxos_for_tx',
+        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
                             self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
 
         # mock request
@@ -499,7 +502,7 @@ class TestDefaultEndpoints:
                             _fake_spawn)
         monkeypatch.setattr(self.rest_server.app_state.async_, 'spawn',
                             _fake_spawn)
-        monkeypatch.setattr(self.rest_server, '_get_and_set_frozen_utxos_for_tx',
+        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
                             self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
         monkeypatch.setattr(self.rest_server, 'send_request',
                             self.rest_server._fake_send_request)
@@ -525,7 +528,7 @@ class TestDefaultEndpoints:
                             _fake_create_transaction_succeeded)
         monkeypatch.setattr(self.rest_server.app_state.app, 'broadcast_tx',
                             _fake_broadcast_tx)
-        monkeypatch.setattr(self.rest_server, '_get_and_set_frozen_utxos_for_tx',
+        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
                             self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
         monkeypatch.setattr(self.rest_server, 'send_request',
                             self.rest_server._fake_send_request)

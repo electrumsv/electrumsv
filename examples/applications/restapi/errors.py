@@ -1,0 +1,52 @@
+from electrumsv.constants import MAX_MESSAGE_BYTES
+
+
+class Errors:
+    # http 400 bad requests
+    GENERIC_BAD_REQUEST_CODE = 40000
+    URL_INVALID_NETWORK_CODE = 40001
+    URL_NETWORK_MISMATCH_CODE = 40002
+    JSON_DECODE_ERROR_CODE = 40003
+    LOAD_BEFORE_GET_CODE = 40004
+    EMPTY_REQUEST_BODY_CODE = 40005
+    NO_COINS_CODE = 40006
+    DATA_TOO_BIG_CODE = 40007
+    BAD_WALLET_NAME_CODE = 40008
+    WALLET_NOT_LOADED_CODE = 40009
+    INSUFFICIENT_FUNDS_CODE = 40010
+    ALREADY_SENT_TRANSACTION_CODE = 40011
+    AIORPCX_ERROR_CODE = 40012
+
+    # http 401 unauthorized
+    AUTH_CREDENTIALS_MISSING_CODE = 40102
+    AUTH_UNSUPPORTED_TYPE_CODE = 40103
+
+    # http 402 - 402xx series
+    # http 403 - 403xx series
+    AUTH_CREDENTIALS_INVALID_CODE = 40301
+
+    # http 404 not found
+    WALLET_NOT_FOUND_CODE = 40401
+    HEADER_VAR_NOT_PROVIDED_CODE = 40402
+    BODY_VAR_NOT_PROVIDED_CODE = 40403
+
+    # http 500 internal server error
+    GENERIC_INTERNAL_SERVER_ERROR = 50000
+
+    AUTH_CREDENTIALS_INVALID_MESSAGE = "Authentication failed (bad credentials)."
+    AUTH_CREDENTIALS_MISSING_MESSAGE = "Authentication failed (missing credentials)."
+    AUTH_UNSUPPORTED_TYPE_MESSAGE = "Authentication failed (only basic auth is supported)."
+    URL_INVALID_NETWORK_MESSAGE = "Only {} networks are supported. You entered: '{}' network."
+    URL_NETWORK_MISMATCH_MESSAGE = "Wallet is on '{}' network. You requested: '{}' network."
+    WALLET_NOT_FOUND_MESSAGE = "Wallet: '{}' does not exist."
+    LOAD_BEFORE_GET_MESSAGE = "Must load wallet (POST request to " \
+                              "http://127.0.0.1:9999/v1/{}/wallets/{}" \
+                              "/load_wallet)"
+    EMPTY_REQUEST_BODY_MESSAGE = "Request body was empty"
+    HEADER_VAR_NOT_PROVIDED_MESSAGE = "Required header variable: '{}' was not provided."
+    BODY_VAR_NOT_PROVIDED_MESSAGE = "Required body variable: '{}' was not provided."
+    NO_COINS_MESSAGE = "Wallet has no coins"
+    DATA_TOO_BIG_MESSAGE = "Message is too large (>%s bytes))." % MAX_MESSAGE_BYTES
+    BAD_WALLET_NAME_MESSAGE = "Wallet name invalid."
+    WALLET_NOT_LOADED_MESSAGE = "Wallet was unable to be loaded (bad password?)"
+    INSUFFICIENT_FUNDS_MESSAGE = "You have insufficient funds for this transaction"
