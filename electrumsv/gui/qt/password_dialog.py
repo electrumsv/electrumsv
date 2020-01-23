@@ -97,6 +97,7 @@ class PasswordLineEdit(QWidget):
         self.setLayout(layout)
 
         # Pass-throughs
+        self.text_submitted_signal = self.pw.text_submitted_signal
         self.returnPressed = self.pw.returnPressed
         self.setFocus = self.pw.setFocus
         self.setMaxLength = self.pw.setMaxLength

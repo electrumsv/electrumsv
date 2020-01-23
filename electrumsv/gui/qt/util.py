@@ -2,12 +2,12 @@ import os.path
 from functools import partial, lru_cache
 from typing import Any, Optional, TYPE_CHECKING
 
-from PyQt5.QtCore import Qt, QCoreApplication, QLocale, QTimer, QModelIndex
-from PyQt5.QtGui import QFont, QCursor, QIcon, QColor, QPalette
+from PyQt5.QtCore import pyqtSignal, Qt, QCoreApplication, QLocale, QTimer, QModelIndex
+from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette
 from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
     QRadioButton, QFileDialog, QStyledItemDelegate, QTreeWidget, QButtonGroup,
-    QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem,
+    QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem
 )
 from PyQt5.uic import loadUi
 
@@ -50,6 +50,16 @@ class EnterButton(QPushButton):
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Return:
             self.func()
+
+class XLineEdit(QLineEdit):
+    text_submitted_signal = pyqtSignal()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.text_submitted_signal.emit()
+        else:
+            super().keyPressEvent(event)
+
 
 
 class WWLabel(QLabel):
@@ -184,6 +194,9 @@ class MessageBoxMixin(object):
 
 
 class MessageBox:
+    @classmethod
+    def show_message(cls, msg, parent=None, title=None):
+        return cls.msg_box(QMessageBox.Information, parent, title or _('Information'), msg)
 
     @classmethod
     def question(cls, msg, parent=None, title=None, icon=None):
@@ -550,7 +563,7 @@ class ButtonsWidget(QWidget):
         self.app.clipboard().setText(self.text())
         QToolTip.showText(QCursor.pos(), _("Text copied to clipboard"), self)
 
-class ButtonsLineEdit(QLineEdit, ButtonsWidget):
+class ButtonsLineEdit(XLineEdit, ButtonsWidget):
     def __init__(self, text=''):
         QLineEdit.__init__(self, text, None)
         self.buttons = []

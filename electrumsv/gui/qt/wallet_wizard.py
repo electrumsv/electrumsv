@@ -543,6 +543,7 @@ class AddPasswordBeforeMigrationPage(QWizardPage):
             PASSWORD_MISSING_TEXT +"\n\n"+ PASSWORD_NEW_TEXT, PasswordAction.NEW,
             password_change_cb)
         self._add_password_object.pw.setVisible(False)
+        self._add_password_object.new_pw.text_submitted_signal.connect(self._on_password_submitted)
 
         vbox.addLayout(self._add_password_object.layout())
 
@@ -563,6 +564,11 @@ class AddPasswordBeforeMigrationPage(QWizardPage):
     def validatePage(self) -> bool:
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         return self.isComplete()
+
+    def _on_password_submitted(self) -> None:
+        if self._password_completed:
+            wizard: WalletWizard = self.wizard()
+            wizard.next()
 
     def on_enter(self) -> None:
         self._password_completed = False
@@ -601,6 +607,7 @@ class RequestPasswordBeforeMigrationPage(QWizardPage):
         self._password_edit = PasswordLineEdit()
         # We use `textEdited` to get manual changes, but not programmatic ones.
         self._password_edit.textEdited.connect(self._on_password_changed)
+        self._password_edit.text_submitted_signal.connect(self._on_password_submitted)
 
         label = QLabel(PASSWORD_EXISTING_TEXT + "\n")
         label.setWordWrap(True)
@@ -695,6 +702,14 @@ class RequestPasswordBeforeMigrationPage(QWizardPage):
         self._is_final_page = not (storage.requires_split() or storage.requires_upgrade())
         self.setFinalPage(self._is_final_page)
         self.completeChanged.emit()
+
+    def _on_password_submitted(self) -> None:
+        if self._is_complete:
+            wizard: WalletWizard = self.wizard()
+            if self._is_final_page:
+                wizard.accept()
+            else:
+                wizard.next()
 
     def _get_password(self) -> str:
         return self._password_edit.text().strip()

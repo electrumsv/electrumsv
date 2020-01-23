@@ -427,6 +427,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.hide()
         else:
             self.show()
+
         self._update_window_title()
 
         if self._account_id is not None:
@@ -449,7 +450,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.setGeometry(100, 100, 840, 400)
 
     def _update_window_title(self):
-        title = f'ElectrumSV {PACKAGE_VERSION} ({Net.NAME})  -  {self._wallet.name()}'
+        title = f'ElectrumSV {PACKAGE_VERSION} ({Net.NAME}) - {self._wallet.name()}'
         self.setWindowTitle(title)
 
         # TODO: ACCOUNTS: This requires more nuance, in terms of showing which are watching only

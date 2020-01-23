@@ -259,6 +259,9 @@ class AbstractAccount:
     def get_keyinstance(self, key_id: int) -> KeyInstanceRow:
         return self._keyinstances[key_id]
 
+    def get_keyinstance_ids(self) -> Sequence[int]:
+        return tuple(self._keyinstances.keys())
+
     def get_next_derivation_index(self, derivation_path: Sequence[int]) -> int:
         raise NotImplementedError
 
@@ -1402,6 +1405,12 @@ class AbstractAccount:
         derivation_path = self._keypath[keyinstance_id]
         keystore = self.get_keystore()
         return keystore.decrypt_message(derivation_path, message, password)
+
+    def is_watching_only(self) -> bool:
+        raise NotImplementedError
+
+    def can_change_password(self):
+        raise NotImplementedError
 
 
 class SimpleAccount(AbstractAccount):
