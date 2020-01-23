@@ -223,20 +223,6 @@ class SVApplication(QApplication):
             if dialog:
                 dialog.accept()
 
-    def _maybe_choose_server(self):
-        # Show network dialog if config does not exist
-        pass
-        # if app_state.daemon.network and app_state.config.get('auto_connect') is None:
-        #     raise NotImplementedError
-            # try:
-            #     wizard = InstallWizard()
-            #     wizard.init_network(app_state.daemon.network)
-            #     wizard.terminate()
-            # except Exception as e:
-            #     if not isinstance(e, (UserCancelled, GoBack)):
-            #         logger.exception("")
-            #     self.quit()
-
     def on_transaction_label_change(self, account: AbstractAccount, tx_hash: bytes,
             text: str) -> None:
         self.label_sync.set_transaction_label(account, tx_hash, text)
@@ -339,28 +325,6 @@ class SVApplication(QApplication):
     def initial_dialogs(self) -> None:
         '''Suppressible dialogs that are shown when first opening the app.'''
         dialogs.show_named('welcome-ESV-1.3.0a1')
-        # This needs to be reworked or removed, as non-advanced users aren't sure whether
-        # it is safe, and likely many people aren't quite sure if it should be done.
-        # old_items = []
-        # headers_path = os.path.join(app_state.config.path, 'blockchain_headers')
-        # if os.path.exists(headers_path):
-        #     old_items.append((_('the file "blockchain_headers"'), os.remove, headers_path))
-        # forks_dir = os.path.join(app_state.config.path, 'forks')
-        # if os.path.exists(forks_dir):
-        #     old_items.append((_('the directory "forks/"'), shutil.rmtree, forks_dir))
-        # if old_items:
-        #     main_text = _('Delete the following obsolete items in <br>{}?'
-        #                   .format(app_state.config.path))
-        #     info_text = '<ul>{}</ul>'.format(''.join('<li>{}</li>'.format(text)
-        #                                              for text, *rest in old_items))
-        #     if dialogs.show_named('delete-obsolete-headers', main_text=main_text,
-        #                           info_text=info_text):
-        #         try:
-        #             for _text, rm_func, *args in old_items:
-        #                 rm_func(*args)
-        #         except OSError as e:
-        #             logger.exception('deleting obsolete files')
-        #             dialogs.error_dialog(_('Error deleting files:'), info_text=str(e))
 
     def event_loop_started(self) -> None:
         self.cosigner_pool = CosignerPool()
@@ -370,7 +334,6 @@ class SVApplication(QApplication):
         self.timer.start()
         signal.signal(signal.SIGINT, lambda *args: self.quit())
         self.initial_dialogs()
-        self._maybe_choose_server()
         app_state.config.open_last_wallet()
         path = app_state.config.get_wallet_path()
         if not self.start_new_window(path, app_state.config.get('url'), is_startup=True):
