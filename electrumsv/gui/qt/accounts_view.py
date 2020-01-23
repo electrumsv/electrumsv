@@ -1,20 +1,29 @@
+import csv
 from functools import partial
+import json
 from typing import Optional
+import os
+import threading
+import time
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (QDialog, QListWidget, QListWidgetItem, QMenu, QSplitter,
-    QVBoxLayout, QGridLayout, QLabel, QTabWidget)
+    QVBoxLayout, QGridLayout, QLabel, QTabWidget, QTextEdit)
 
-from electrumsv.bitcoin import address_from_string
+from electrumsv.bitcoin import address_from_string, script_template_to_string
 from electrumsv.i18n import _
 from electrumsv.wallet import MultisigAccount, Wallet
 
 from .main_window import ElectrumWindow
 from .qrtextedit import ShowQRTextEdit
-from .util import (Buttons, ChoicesLayout, CloseButton, MessageBox, protected)
+from .util import (Buttons, CancelButton, ChoicesLayout, CloseButton, filename_field, MessageBox,
+    OkButton, protected, WindowModalDialog)
 
 
 class AccountsView(QSplitter):
+    computing_privkeys_signal = pyqtSignal()
+    show_privkeys_signal = pyqtSignal()
+
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet) -> None:
         super().__init__(main_window)
 
@@ -70,7 +79,9 @@ class AccountsView(QSplitter):
         if account.can_import_privkey():
             private_keys_menu.addAction(_("&Import"), partial(self._import_privkey,
                 main_window=self._main_window, account_id=account_id))
-
+        export_menu = private_keys_menu.addAction(_("&Export"), partial(self._export_privkeys,
+            main_window=self._main_window, account_id=account_id))
+        export_menu.setEnabled(not account.is_watching_only())
         if account.can_import_address():
             menu.addAction(_("Import addresses"), partial(self._import_addresses, account_id))
 
@@ -136,7 +147,7 @@ class AccountsView(QSplitter):
         # window to do the password request in the context of.
         account = self._wallet.get_account(account_id)
         if not account.has_seed():
-            MessageBox.show_message(self._main_window, _('This account has no seed'))
+            MessageBox.show_message(_('This account has no seed'), self._main_window)
             return
 
         keystore = account.get_keystore()
@@ -144,7 +155,7 @@ class AccountsView(QSplitter):
             seed = keystore.get_seed(password)
             passphrase = keystore.get_passphrase(password)
         except Exception as e:
-            MessageBox.show_error(self._main_window, str(e))
+            MessageBox.show_error(str(e), self._main_window)
             return
 
         from .seed_dialog import SeedDialog
@@ -172,3 +183,112 @@ class AccountsView(QSplitter):
                 return address
             return None
         self._main_window._do_import(title, msg, import_addr)
+
+    @protected
+    def _export_privkeys(self, main_window: 'ElectrumWindow', account_id: int=-1,
+            password: Optional[str]=None) -> None:
+        account = self._wallet.get_account(account_id)
+
+        if isinstance(self._wallet, MultisigAccount):
+            self.show_message(
+                _('WARNING: This is a multi-signature wallet.') + '\n' +
+                _('It can not be "backed up" by simply exporting these private keys.')
+            )
+
+        d = WindowModalDialog(self, _('Private keys'))
+        d.setMinimumSize(850, 300)
+        vbox = QVBoxLayout(d)
+
+        msg = "\n".join([
+            _("WARNING: ALL your private keys are secret."),
+            _("Exposing a single private key can compromise your entire wallet!"),
+            _("In particular, DO NOT use 'redeem private key' services proposed by third parties.")
+        ])
+        vbox.addWidget(QLabel(msg))
+
+        e = QTextEdit()
+        e.setReadOnly(True)
+        vbox.addWidget(e)
+
+        defaultname = 'electrumsv-private-keys.csv'
+        select_msg = _('Select file to export your private keys to')
+        hbox, filename_e, csv_button = filename_field(self._main_window.config, defaultname,
+            select_msg)
+        vbox.addLayout(hbox)
+
+        b = OkButton(d, _('Export'))
+        b.setEnabled(False)
+        vbox.addLayout(Buttons(CancelButton(d), b))
+
+        private_keys = {}
+        keyinstance_ids = account.get_keyinstance_ids()
+        done = False
+        cancelled = False
+        def privkeys_thread():
+            for keyinstance_id in keyinstance_ids:
+                time.sleep(0.1)
+                if done or cancelled:
+                    break
+                privkey = account.export_private_key(keyinstance_id, password)
+                script_template = account.get_script_template_for_id(keyinstance_id)
+                script_text = script_template_to_string(script_template)
+                private_keys[script_text] = privkey
+                self.computing_privkeys_signal.emit()
+            if not cancelled:
+                self.computing_privkeys_signal.disconnect()
+                self.show_privkeys_signal.emit()
+
+        def show_privkeys():
+            s = "\n".join('{}\t{}'.format(script_text, privkey)
+                          for script_text, privkey in private_keys.items())
+            e.setText(s)
+            b.setEnabled(True)
+            self.show_privkeys_signal.disconnect()
+            nonlocal done
+            done = True
+
+        def on_dialog_closed(*args):
+            nonlocal done
+            nonlocal cancelled
+            if not done:
+                cancelled = True
+                self.computing_privkeys_signal.disconnect()
+                self.show_privkeys_signal.disconnect()
+
+        self.computing_privkeys_signal.connect(lambda: e.setText(
+            "Please wait... %d/%d" % (len(private_keys),len(keyinstance_ids))))
+        self.show_privkeys_signal.connect(show_privkeys)
+        d.finished.connect(on_dialog_closed)
+        threading.Thread(target=privkeys_thread).start()
+
+        if not d.exec_():
+            done = True
+            return
+
+        filename = filename_e.text()
+        if not filename:
+            return
+
+        try:
+            self.do_export_privkeys(filename, private_keys, csv_button.isChecked())
+        except (IOError, os.error) as reason:
+            txt = "\n".join([
+                _("ElectrumSV was unable to produce a private key-export."),
+                str(reason)
+            ])
+            MessageBox.show_error(txt, title=_("Unable to create csv"))
+        except Exception as e:
+            self.show_message(str(e))
+            return
+
+        MessageBox.show_message(_('Private keys exported'), self._main_window)
+
+    def do_export_privkeys(self, fileName: str, pklist, is_csv):
+        with open(fileName, "w+") as f:
+            if is_csv:
+                transaction = csv.writer(f)
+                transaction.writerow(["reference", "private_key"])
+                for key_text, pk in pklist.items():
+                    transaction.writerow([key_text, pk])
+            else:
+                f.write(json.dumps(pklist, indent = 4))
