@@ -70,16 +70,13 @@ class RequestList(MyTreeWidget):
             return
         pr_id = item.data(0, Qt.UserRole)
         pr = self._account.get_payment_request(pr_id)
-        print(pr)
         expires = age(pr.date_created + pr.expiration) if pr.expiration else _('Never')
 
+        self._main_window._receive_key_id = pr.keyinstance_id
         script_template = self._account.get_script_template_for_id(pr.keyinstance_id)
         address_text = script_template_to_string(script_template)
         self._main_window.receive_destination_e.setText(address_text)
-
-        message = self._account.get_keyinstance_label(pr.keyinstance_id)
-        self._main_window.receive_message_e.setText(message)
-
+        self._main_window.receive_message_e.setText(pr.description or "")
         self._main_window.receive_amount_e.setAmount(pr.value)
         self._main_window.expires_combo.hide()
         self._main_window.expires_label.show()
@@ -108,7 +105,6 @@ class RequestList(MyTreeWidget):
         # clear the list and fill it again
         self.clear()
         for req in self._account.get_sorted_requests():
-            print(req)
             date = format_time(req.date_created, _("Unknown"))
             amount_str = self._main_window.format_amount(req.value) if req.value else ""
 

@@ -1187,7 +1187,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             URI += f"&exp={req.expiration}"
         return str(URI)
 
-    def save_payment_request(self):
+    def save_payment_request(self) -> None:
         if not self._receive_key_id:
             self.show_error(_('No receiving payment destination'))
             return
@@ -1196,15 +1196,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         message = self.receive_message_e.text()
         if not message and not amount:
             self.show_error(_('No message or amount'))
-            return False
+            return
 
         i = self.expires_combo.currentIndex()
         expiration = [x[1] for x in expiration_values][i]
-        req = self._account.create_payment_request(self._receive_key_id, PaymentState.UNPAID,
-            amount, expiration, message)
+        req = self._account.get_payment_request_for_keyinstance_id(self._receive_key_id)
+        if req is None:
+            req = self._account.create_payment_request(self._receive_key_id, PaymentState.UNPAID,
+                amount, expiration, message)
+        else:
+            # Expiration is just a label.
+            self._account.update_payment_request(req.paymentrequest_id, req.state, amount,
+                req.expiration, message)
         self.request_list.update()
-        keyinstance = self._account.get_keyinstance(self._receive_key_id)
-        self.key_view.update_keys([ keyinstance ])
         self.save_request_button.setEnabled(False)
 
     def view_and_paste(self, title, msg, data):
@@ -1271,9 +1275,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.receive_destination_e.setText(text)
 
     def clear_receive_tab(self) -> None:
-        # self.expires_label.hide()
-        # self.expires_combo.show()
-        # TODO(rt12) REQUIRED used to set with a new receiving address
+        self.expires_label.hide()
+        self.expires_combo.show()
         fresh_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
         self.set_receive_key(fresh_key)
 

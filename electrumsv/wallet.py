@@ -522,6 +522,13 @@ class AbstractAccount:
         for row in rows:
             self._payment_requests[row.paymentrequest_id] = row
 
+    def get_payment_request_for_keyinstance_id(self,
+            keyinstance_id: int) -> Optional[PaymentRequestRow]:
+        for row in self._payment_requests.values():
+            if row.keyinstance_id == keyinstance_id:
+                return row
+        return None
+
     def create_payment_request(self, keyinstance_id: int, state: PaymentState, value: Optional[int],
             expiration: Optional[int], description: Optional[str]) -> PaymentRequestRow:
         row = self._wallet.create_payment_requests([ PaymentRequestRow(-1,
@@ -536,6 +543,16 @@ class AbstractAccount:
         self._network.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),
             self._id, [ new_key ])
         return row
+
+    def update_payment_request(self, paymentrequest_id: int, state: PaymentState,
+            value: Optional[int], expiration: Optional[int],
+            description: Optional[str]) -> PaymentRequestRow:
+        req = self._payment_requests[paymentrequest_id]
+        new_req = PaymentRequestRow(paymentrequest_id, req.keyinstance_id, state,
+            value, expiration, description, req.date_created)
+        self._wallet.update_payment_requests([ new_req ])
+        self._payment_requests[paymentrequest_id] = new_req
+        return new_req
 
     def delete_payment_request(self, pr_id: int):
         if pr_id in self._payment_requests:
@@ -2073,18 +2090,24 @@ class Wallet:
 
     def create_payment_requests(self, requests: List[PaymentRequestRow]) -> List[PaymentRequestRow]:
         request_id = self._storage.get("next_paymentrequest_id", 1)
-
         rows = []
         for request in requests:
             rows.append(PaymentRequestRow(request_id, request.keyinstance_id, request.state,
                 request.value, request.expiration, request.description, request.date_created))
             request_id += 1
         self._storage.put("next_paymentrequest_id", request_id)
-
         with PaymentRequestTable(self._db_context) as table:
             table.create(rows)
-
         return rows
+
+    def update_payment_requests(self, requests: List[PaymentRequestRow]) -> List[PaymentRequestRow]:
+        entries = []
+        for request in requests:
+            entries.append((request.state, request.value, request.expiration, request.description,
+                request.paymentrequest_id))
+        with PaymentRequestTable(self._db_context) as table:
+            table.update(entries)
+        return requests
 
     def update_transaction_descriptions(self,
             entries: Iterable[Tuple[Optional[str], bytes]]) -> None:

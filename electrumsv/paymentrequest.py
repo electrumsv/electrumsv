@@ -456,28 +456,7 @@ def get_payment_request(url: str) -> PaymentRequest:
     return PaymentRequest.from_json(data)
 
 
-def make_unsigned_request(req: dict) -> PaymentRequest:
-    address = req['address']
-    creation_timestamp = req.get('time')
-    expiration_seconds = req.get('exp')
-    if creation_timestamp and type(creation_timestamp) is not int:
-        creation_timestamp = None
-    if expiration_seconds and type(expiration_seconds) is not int:
-        expiration_seconds = None
-    amount = req['amount']
-    if amount is None:
-        amount = 0
-    memo = req['memo']
-
-    pr = PaymentRequest([ Output(address.to_script(), amount=amount) ])
-    pr.creation_timestamp = creation_timestamp
-    if expiration_seconds is not None:
-        pr.expiration_timestamp = creation_timestamp + expiration_seconds
-    pr.memo = memo
-    return pr
-
-
-class InvoiceStore(object):
+class InvoiceStore:
     def __init__(self, wallet_data: Dict[str, Any]) -> None:
         self._wallet_data = wallet_data
         self.invoices: Dict[str, PaymentRequest] = {}
