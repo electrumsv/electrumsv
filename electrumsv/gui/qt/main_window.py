@@ -1915,28 +1915,27 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
 
-    def show_invoice(self, key):
-        pr = self._account.invoices.get(key)
-        pr.verify(self.contacts)
-        self.show_pr_details(pr)
+    def show_invoice(self, request_id: str) -> None:
+        external_request = self._account.invoices.get(request_id)
+        external_request.verify(self.contacts)
+        self.show_pr_details(external_request)
 
-    def show_pr_details(self, pr):
-        key = pr.get_id()
+    def show_pr_details(self, req):
         d = WindowModalDialog(self, _("Invoice"))
         vbox = QVBoxLayout(d)
         grid = QGridLayout()
         grid.addWidget(QLabel(_("Requestor") + ':'), 0, 0)
-        grid.addWidget(QLabel(pr.get_requestor()), 0, 1)
+        grid.addWidget(QLabel(req.get_requestor()), 0, 1)
         grid.addWidget(QLabel(_("Amount") + ':'), 1, 0)
         outputs_str = '\n'.join(self.format_amount(tx_output.value) + app_state.base_unit() +
                                 ' @ ' + tx_output_to_display_text(tx_output)[0]
-                                for tx_output in pr.get_outputs())
+                                for tx_output in req.get_outputs())
         grid.addWidget(QLabel(outputs_str), 1, 1)
-        expires = pr.get_expiration_date()
+        expires = req.get_expiration_date()
         grid.addWidget(QLabel(_("Memo") + ':'), 2, 0)
-        grid.addWidget(QLabel(pr.get_memo()), 2, 1)
+        grid.addWidget(QLabel(req.get_memo()), 2, 1)
         grid.addWidget(QLabel(_("Signature") + ':'), 3, 0)
-        grid.addWidget(QLabel(pr.get_verify_status()), 3, 1)
+        grid.addWidget(QLabel(req.get_verify_status()), 3, 1)
         if expires:
             grid.addWidget(QLabel(_("Expires") + ':'), 4, 0)
             grid.addWidget(QLabel(format_time(expires, _("Unknown"))), 4, 1)
@@ -1946,12 +1945,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if not fn:
                 return
             with open(fn, 'w') as f:
-                data = f.write(pr.to_json())
+                data = f.write(req.to_json())
             self.show_message(_('Invoice saved as' + ' ' + fn))
         exportButton = EnterButton(_('Save'), do_export)
         def do_delete():
             if self.question(_('Delete invoice?')):
-                self._account.invoices.remove(key)
+                self._account.invoices.remove(req.get_id())
                 self.history_view.update_tx_list()
                 self.history_updated_signal.emit()
                 self.invoice_list.update()
@@ -1960,12 +1959,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         vbox.addLayout(Buttons(exportButton, deleteButton, CloseButton(d)))
         d.exec_()
 
-    def do_pay_invoice(self, key):
-        pr = self._account.invoices.get(key)
-        self.payment_request = pr
+    def do_pay_invoice(self, req_id: str) -> None:
+        req = self._account.invoices.get(req_id)
+        self.payment_request = req
         self.prepare_for_payment_request()
-        pr.error = None  # this forces verify() to re-run
-        if pr.verify(self.contacts):
+        req.error = None  # this forces verify() to re-run
+        if req.verify(self.contacts):
             self.payment_request_ok()
         else:
             self.payment_request_error()

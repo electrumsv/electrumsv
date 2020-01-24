@@ -29,7 +29,6 @@
 
 from collections import defaultdict
 import attr
-import copy
 import itertools
 import json
 import os
@@ -48,8 +47,7 @@ from bitcoinx import (
 
 from . import coinchooser
 from .app_state import app_state
-from .bitcoin import (compose_chain_string, COINBASE_MATURITY, ScriptTemplate,
-    script_template_to_string)
+from .bitcoin import compose_chain_string, COINBASE_MATURITY, ScriptTemplate
 from .constants import (CHANGE_SUBPATH, DerivationType, KeyInstanceFlag, TxFlags,
     RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, PaymentState)
 from .contacts import Contacts
@@ -72,7 +70,6 @@ from .wallet_database.tables import (AccountRow, AccountTable, KeyInstanceRow, K
     MasterKeyRow, MasterKeyTable, TransactionTable, TransactionOutputTable,
     TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow, PaymentRequestTable,
     PaymentRequestRow)
-from .web import create_URI
 
 logger = logs.get_logger("wallet")
 
@@ -560,9 +557,9 @@ class AbstractAccount:
             with PaymentRequestTable(self._wallet._db_context) as table:
                 table.delete([ (pr_id,) ])
             key = self._keyinstances[pr.keyinstance_id]
-            self._keyinstances[pr.keyinstance_id] = KeyInstanceRow(key.keyinstance_id, key.account_id,
-                key.masterkey_id, key.derivation_type, key.derivation_data, key.script_type,
-                key.flags & ~KeyInstanceFlag.IS_PAYMENT_REQUEST, key.description)
+            self._keyinstances[pr.keyinstance_id] = KeyInstanceRow(key.keyinstance_id,
+                key.account_id, key.masterkey_id, key.derivation_type, key.derivation_data,
+                key.script_type, key.flags & ~KeyInstanceFlag.IS_PAYMENT_REQUEST, key.description)
             new_key = self._keyinstances[pr.keyinstance_id]
             self._wallet.update_keyinstance_flags([ (new_key.flags, pr.keyinstance_id) ])
             self._network.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),

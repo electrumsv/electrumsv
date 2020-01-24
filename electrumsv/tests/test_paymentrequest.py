@@ -29,10 +29,6 @@ def _generate_address():
 
 
 class TestOutput(unittest.TestCase):
-    def test_get_address_string(self):
-        output = paymentrequest.Output(P2PKH_SCRIPT)
-        self.assertEqual(PKH_ADDRESS.to_string(), output.get_address_string())
-
     def test_dict_optional_fields_unused(self):
         output = paymentrequest.Output(P2PKH_SCRIPT)
         data = output.to_dict()

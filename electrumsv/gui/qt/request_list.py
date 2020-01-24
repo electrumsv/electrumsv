@@ -98,7 +98,8 @@ class RequestList(MyTreeWidget):
         keyinstance = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
         if keyinstance:
             self._main_window.set_receive_key(keyinstance)
-        self._main_window.new_request_button.setEnabled(current_key_id != keyinstance.keyinstance_id)
+        self._main_window.new_request_button.setEnabled(
+            current_key_id != keyinstance.keyinstance_id)
 
         account_id = self._account.get_id()
 

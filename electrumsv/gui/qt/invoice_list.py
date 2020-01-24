@@ -70,8 +70,8 @@ class InvoiceList(MyTreeWidget):
         inv_list = invoices.unpaid_invoices()
         self.clear()
         for pr in inv_list:
-            key = pr.get_id()
-            status = invoices.get_status(key)
+            request_id = pr.get_id()
+            status = invoices.get_status(request_id)
             requestor = pr.get_requestor()
             exp = pr.get_expiration_date()
             date_str = format_time(exp, _("Unknown")) if exp else _('Never')
@@ -79,7 +79,7 @@ class InvoiceList(MyTreeWidget):
                 self._main_window.format_amount(pr.get_amount(), whitespaces=True),
                 pr_tooltips.get(status,'')])
             item.setIcon(4, read_QIcon(pr_icons.get(status)))
-            item.setData(0, Qt.UserRole, (self._account_id, key))
+            item.setData(0, Qt.UserRole, (self._account_id, request_id))
             item.setFont(1, self.monospace_font)
             item.setFont(3, self.monospace_font)
             self.addTopLevelItem(item)

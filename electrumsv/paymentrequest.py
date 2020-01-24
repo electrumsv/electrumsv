@@ -29,14 +29,15 @@ import time
 from typing import Any, List, Optional, Tuple, Dict, TYPE_CHECKING
 import urllib.parse
 
-from bitcoinx import TxOutput, Script, classify_output_script
+from .bip276 import bip276_encode, BIP276Network, PREFIX_SCRIPT
+from bitcoinx import TxOutput, Script
 import certifi
 import requests
 
 from .constants import RECEIVING_SUBPATH, PaymentState
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .logs import logs
-from .networks import Net
+from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet
 from .wallet_database.tables import PaymentRequestRow
 
 
@@ -75,23 +76,11 @@ class Output:
         self.description = description
         self.amount = amount
 
-    def address(self):
-        return classify_output_script(self.script, Net.COIN)
-
     def to_tx_output(self):
         return TxOutput(self.amount, self.script)
 
-    def to_ui_dict(self) -> dict:
-        return {
-            'amount': self.amount,
-            'address': self.address(),
-        }
-
-    def get_address_string(self):
-        return self.address().to_string()
-
     @classmethod
-    def from_dict(klass, data: dict) -> 'Output':
+    def from_dict(cls, data: dict) -> 'Output':
         if 'script' not in data:
             raise Bip270Exception("Missing required 'script' field")
         script_hex = data['script']
@@ -104,9 +93,9 @@ class Output:
         if description is not None and type(description) is not str:
             raise Bip270Exception("Invalid 'description' field")
 
-        return klass(Script.from_hex(script_hex), amount, description)
+        return cls(Script.from_hex(script_hex), amount, description)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         data = {
             'script': self.script.to_hex(),
         }
@@ -117,9 +106,9 @@ class Output:
         return data
 
     @classmethod
-    def from_json(klass, s: str) -> 'Output':
+    def from_json(cls, s: str) -> 'Output':
         data = json.loads(s)
-        return klass.from_dict(data)
+        return cls.from_dict(data)
 
     def to_json(self) -> str:
         data = self.to_dict()
@@ -154,18 +143,18 @@ class PaymentRequest:
         return self.to_json()
 
     @classmethod
-    def from_wallet_entry(klass, account: 'DeterministicAccount',
+    def from_wallet_entry(cls, account: 'DeterministicAccount',
             pr: PaymentRequestRow) -> 'PaymentRequest':
         script = account.get_script_for_id(pr.keyinstance_id)
         date_expiry = None
         if pr.expiration is not None:
             date_expiry = pr.date_created + pr.expiration
         outputs = [ Output(script, pr.value) ]
-        return klass(outputs, pr.date_created, date_expiry, pr.description)
+        return cls(outputs, pr.date_created, date_expiry, pr.description)
 
     @classmethod
-    def from_json(klass, s: str) -> 'PaymentRequest':
-        if len(s) > klass.MAXIMUM_JSON_LENGTH:
+    def from_json(cls, s: str) -> 'PaymentRequest':
+        if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(f"Invalid payment request, too large")
 
         d = json.loads(s)
@@ -182,7 +171,7 @@ class PaymentRequest:
         outputs = []
         for ui_dict in d['outputs']:
             outputs.append(Output.from_dict(ui_dict))
-        pr = klass(outputs)
+        pr = cls(outputs)
 
         if 'creationTimestamp' not in d:
             raise Bip270Exception("Missing required json 'creationTimestamp' field")
@@ -228,11 +217,10 @@ class PaymentRequest:
             d['merchantData'] = self.merchant_data
         return json.dumps(d)
 
-    def is_pr(self):
+    def is_pr(self) -> bool:
         return self.get_amount() != 0
 
     def verify(self, contacts) -> bool:
-        # the address will be dispayed as requestor
         self.requestor = None
         return True
 
@@ -246,7 +234,15 @@ class PaymentRequest:
         return sum(x.amount for x in self.outputs)
 
     def get_address(self) -> str:
-        return self.outputs[0].get_address_string()
+        if isinstance(Net._net, SVMainnet):
+            network = BIP276Network.NETWORK_MAINNET
+        elif isinstance(Net._net, SVTestnet):
+            network = BIP276Network.NETWORK_TESTNET
+        elif isinstance(Net._net, SVScalingTestnet):
+            network = BIP276Network.NETWORK_SCALINGTESTNET
+        else:
+            raise Exception("unhandled network", Net)
+        return bip276_encode(PREFIX_SCRIPT, bytes(self.outputs[0].script), network)
 
     def get_requestor(self) -> str:
         return self.requestor if self.requestor else self.get_address()
@@ -257,7 +253,7 @@ class PaymentRequest:
     def get_memo(self) -> str:
         return self.memo
 
-    def get_id(self):
+    def get_id(self) -> str:
         return self.id if self.requestor else self.get_address()
 
     def get_outputs(self) -> List[TxOutput]:
@@ -326,14 +322,14 @@ class Payment:
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
     def __init__(self, merchant_data: Any, transaction_hex: str, refund_outputs: List[Output],
-                 memo: Optional[str]=None):
+                 memo: Optional[str]=None) -> None:
         self.merchant_data = merchant_data
         self.transaction_hex = transaction_hex
         self.refund_outputs = refund_outputs
         self.memo = memo
 
     @classmethod
-    def from_dict(klass, data: dict) -> 'Payment':
+    def from_dict(cls, data: dict) -> 'Payment':
         if 'merchantData' not in data:
             raise Bip270Exception("Missing required json 'merchantData' field")
         merchant_data = data['merchantData']
@@ -355,7 +351,7 @@ class Payment:
         if memo is not None and type(memo) is not str:
             raise Bip270Exception("Invalid json 'memo' field")
 
-        return klass(merchant_data, transaction_hex, refund_outputs, memo)
+        return cls(merchant_data, transaction_hex, refund_outputs, memo)
 
     def to_dict(self) -> dict:
         data = {
@@ -368,11 +364,11 @@ class Payment:
         return data
 
     @classmethod
-    def from_json(klass, s: str) -> 'Payment':
-        if len(s) > klass.MAXIMUM_JSON_LENGTH:
+    def from_json(cls, s: str) -> 'Payment':
+        if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(f"Invalid payment, too large")
         data = json.loads(s)
-        return klass.from_dict(data)
+        return cls.from_dict(data)
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict())
@@ -381,11 +377,11 @@ class Payment:
 class PaymentACK:
     MAXIMUM_JSON_LENGTH = 11 * 1000 * 1000
 
-    def __init__(self, payment: Payment, memo: Optional[str] = None):
+    def __init__(self, payment: Payment, memo: Optional[str] = None) -> None:
         self.payment = payment
         self.memo = memo
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         data = {
             'payment': self.payment.to_json(),
         }
@@ -394,7 +390,7 @@ class PaymentACK:
         return data
 
     @classmethod
-    def from_dict(klass, data: dict) -> 'PaymentACK':
+    def from_dict(cls, data: Dict[str, Any]) -> 'PaymentACK':
         if 'payment' not in data:
             raise Bip270Exception("Missing required json 'payment' field")
 
@@ -403,18 +399,18 @@ class PaymentACK:
             raise Bip270Exception("Invalid json 'memo' field")
 
         payment = Payment.from_json(data['payment'])
-        return klass(payment, memo)
+        return cls(payment, memo)
 
     def to_json(self) -> str:
         data = self.to_dict()
         return json.dumps(data)
 
     @classmethod
-    def from_json(klass, s: str) -> 'PaymentACK':
-        if len(s) > klass.MAXIMUM_JSON_LENGTH:
+    def from_json(cls, s: str) -> 'PaymentACK':
+        if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(f"Invalid payment ACK, too large")
         data = json.loads(s)
-        return klass.from_dict(data)
+        return cls.from_dict(data)
 
 
 def get_payment_request(url: str) -> PaymentRequest:
@@ -461,14 +457,15 @@ class InvoiceStore:
         self._wallet_data = wallet_data
         self.invoices: Dict[str, PaymentRequest] = {}
         self.paid: Dict[str, str] = {}
+
         d = wallet_data.get('invoices', {})
         self.load(d)
 
-    def set_paid(self, pr, txid):
-        pr.tx = txid
-        self.paid[txid] = pr.get_id()
+    def set_paid(self, pr: PaymentRequest, tx_id: str) -> None:
+        pr.tx = tx_id
+        self.paid[tx_id] = pr.get_id()
 
-    def load(self, d):
+    def load(self, d) -> None:
         for k, v in d.items():
             try:
                 pr = PaymentRequest(bytes.fromhex(v.get('hex')))
@@ -480,7 +477,7 @@ class InvoiceStore:
             except Exception:
                 continue
 
-    def import_file(self, path):
+    def import_file(self, path) -> None:
         try:
             with open(path, 'r') as f:
                 d = json.loads(f.read())
@@ -493,48 +490,48 @@ class InvoiceStore:
             raise FileImportFailed()
         self.save()
 
-    def save(self):
+    def save(self) -> None:
         l = {}
         for k, pr in self.invoices.items():
             l[k] = {
                 'requestor': pr.requestor,
                 'txid': pr.tx
             }
-        self.wallet_data['invoices'] = l
+        self._wallet_data['invoices'] = l
 
-    def get_status(self, key):
-        pr = self.get(key)
+    def get_status(self, request_id: str) -> PaymentState:
+        pr = self.get(request_id)
         if pr is None:
-            logger.debug("[InvoiceStore] get_status() can't find pr for %s", key)
-            return
+            logger.debug("[InvoiceStore] get_status() can't find pr for %s", request_id)
+            return PaymentState.UNKNOWN
         if pr.tx is not None:
             return PaymentState.PAID
         if pr.has_expired():
             return PaymentState.EXPIRED
         return PaymentState.UNPAID
 
-    def add(self, pr):
-        key = pr.get_id()
-        self.invoices[key] = pr
+    def add(self, pr: PaymentRequest) -> str:
+        request_id = pr.get_id()
+        self.invoices[request_id] = pr
         self.save()
-        return key
+        return request_id
 
-    def remove(self, key):
+    def remove(self, request_id: str) -> None:
         paid_list = self.paid.items()
         for p in paid_list:
-            if p[1] == key:
+            if p[1] == request_id:
                 self.paid.pop(p[0])
                 break
-        self.invoices.pop(key)
+        self.invoices.pop(request_id)
         self.save()
 
-    def get(self, k):
-        return self.invoices.get(k)
+    def get(self, request_id: str) -> Optional[PaymentRequest]:
+        return self.invoices.get(request_id)
 
-    def sorted_list(self):
+    def sorted_list(self) -> List[PaymentRequest]:
         # sort
-        return self.invoices.values()
+        return list(self.invoices.values())
 
-    def unpaid_invoices(self):
+    def unpaid_invoices(self) -> List[PaymentRequest]:
         return [invoice for key, invoice in self.invoices.items()
                 if self.get_status(key) != PaymentState.PAID]
