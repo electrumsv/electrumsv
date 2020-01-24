@@ -12,8 +12,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
+from electrumsv.constants import PaymentState
 from electrumsv.i18n import _, languages
-from electrumsv.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
 from electrumsv.util import resource_path
 
 if TYPE_CHECKING:
@@ -22,15 +22,15 @@ if TYPE_CHECKING:
 dialogs = []
 
 pr_icons = {
-    PR_UNPAID: "unpaid.png",
-    PR_PAID: "icons8-checkmark-green-52.png",
-    PR_EXPIRED: "expired.png"
+    PaymentState.UNPAID: "unpaid.png",
+    PaymentState.PAID: "icons8-checkmark-green-52.png",
+    PaymentState.EXPIRED: "expired.png"
 }
 
 pr_tooltips = {
-    PR_UNPAID:_('Pending'),
-    PR_PAID:_('Paid'),
-    PR_EXPIRED:_('Expired')
+    PaymentState.UNPAID:_('Pending'),
+    PaymentState.PAID:_('Paid'),
+    PaymentState.EXPIRED:_('Expired')
 }
 
 expiration_values = [
@@ -47,14 +47,14 @@ class EnterButton(QPushButton):
         self.func = func
         self.clicked.connect(func)
 
-    def keyPressEvent(self, e):
+    def keyPressEvent(self, e: QKeyEvent):
         if e.key() == Qt.Key_Return:
             self.func()
 
 class XLineEdit(QLineEdit):
     text_submitted_signal = pyqtSignal()
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key_Return, Qt.Key_Enter):
             self.text_submitted_signal.emit()
         else:
@@ -428,7 +428,7 @@ class MyTreeWidget(QTreeWidget):
             QTreeWidget.editItem(self, item, column)
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event: QKeyEvent):
         if event.key() in [ Qt.Key_F2, Qt.Key_Return ] and self.editor is None:
             self.on_activated(self.currentItem(), self.currentColumn())
         else:
@@ -457,7 +457,7 @@ class MyTreeWidget(QTreeWidget):
         self.editor.editingFinished.connect(self.editing_finished)
         return self.editor
 
-    def editing_finished(self):
+    def editing_finished(self) -> None:
         # Long-time QT bug - pressing Enter to finish editing signals
         # editingFinished twice.  If the item changed the sequence is
         # Enter key:  editingFinished, on_change, editingFinished
@@ -480,7 +480,7 @@ class MyTreeWidget(QTreeWidget):
                 self.pending_update = False
                 self.on_update()
 
-    def on_edited(self, item, column, prior):
+    def on_edited(self, item, column, prior) -> None:
         '''Called only when the text actually changes'''
         text = item.text(column).strip()
         if text == "":
@@ -490,7 +490,7 @@ class MyTreeWidget(QTreeWidget):
         account.set_transaction_label(tx_hash, text)
         self._main_window.history_view.update_tx_labels()
 
-    def update(self):
+    def update(self) -> None:
         # Defer updates if editing
         if self.editor:
             self.pending_update = True

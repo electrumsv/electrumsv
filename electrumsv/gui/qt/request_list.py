@@ -23,114 +23,121 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from typing import Optional
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
 
-from electrumsv.bitcoin import address_from_string, script_template_to_string
+from electrumsv.bitcoin import script_template_to_string
+from electrumsv.constants import RECEIVING_SUBPATH, PaymentState
 from electrumsv.i18n import _
 from electrumsv.util import format_time, age
-from electrumsv.paymentrequest import PR_UNKNOWN
+from electrumsv.wallet import AbstractAccount
 
+from .main_window import ElectrumWindow
 from .util import MyTreeWidget, pr_tooltips, pr_icons, read_QIcon
 
 
 class RequestList(MyTreeWidget):
-    filter_columns = [0, 1, 2, 3, 4]  # Date, Account, Address, Description, Amount
+    filter_columns = [0, 1, 2, 3, 4]  # Date, Account, Destination, Description, Amount
 
-    def __init__(self, parent):
-        self._account = parent._wallet.get_default_account()
+    def __init__(self, parent: ElectrumWindow) -> None:
+        self._main_window = parent
+        self._account: AbstractAccount = None
+        self._account_id: Optional[int] = None
+
         MyTreeWidget.__init__(self, parent, parent, self.create_menu, [
-            _('Date'), _('Payment destination'), '', _('Description'), _('Amount'), _('Status')], 3)
+            _('Date'), _('Destination'), '', _('Description'), _('Amount'), _('Status')], 3)
         self.currentItemChanged.connect(self.item_changed)
         self.itemClicked.connect(self.item_changed)
         self.setSortingEnabled(True)
         self.setColumnWidth(0, 180)
         self.hideColumn(1)
 
+        self._main_window.account_change_signal.connect(self._on_account_change)
+
+    def _on_account_change(self, new_account_id: int) -> None:
+        old_account_id = self._account_id
+        self._account_id = new_account_id
+        self._account = self._main_window._wallet.get_account(self._account_id)
+
+        self.update()
+
     def item_changed(self, item):
         if item is None:
             return
         if not item.isSelected():
             return
-        key_id = item.data(0, Qt.UserRole)
-        req = self._account.receive_requests[key_id]
-        expires = age(req['time'] + req['exp']) if req.get('exp') else _('Never')
-        amount = req['amount']
+        pr_id = item.data(0, Qt.UserRole)
+        pr = self._account.get_payment_request(pr_id)
+        print(pr)
+        expires = age(pr.date_created + pr.expiration) if pr.expiration else _('Never')
 
-        script_template = self._account.get_script_template_for_id(key_id)
+        script_template = self._account.get_script_template_for_id(pr.keyinstance_id)
         address_text = script_template_to_string(script_template)
-        self.parent.receive_destination_e.setText(address_text)
+        self._main_window.receive_destination_e.setText(address_text)
 
-        message = self._account.get_keyinstance_label(key_id)
-        self.parent.receive_message_e.setText(message)
+        message = self._account.get_keyinstance_label(pr.keyinstance_id)
+        self._main_window.receive_message_e.setText(message)
 
-        self.parent.receive_amount_e.setAmount(amount)
-        self.parent.expires_combo.hide()
-        self.parent.expires_label.show()
-        self.parent.expires_label.setText(expires)
-        self.parent.new_request_button.setEnabled(True)
+        self._main_window.receive_amount_e.setAmount(pr.value)
+        self._main_window.expires_combo.hide()
+        self._main_window.expires_label.show()
+        self._main_window.expires_label.setText(expires)
+        self._main_window.new_request_button.setEnabled(True)
 
-    def on_update(self):
+    def on_update(self) -> None:
         # hide receive tab if no receive requests available
-        b = len(self._account.receive_requests) > 0
+        b = len(self._account._payment_requests) > 0
         self.setVisible(b)
-        self.parent.receive_requests_label.setVisible(b)
+        self._main_window.receive_requests_label.setVisible(b)
         if not b:
-            self.parent.expires_label.hide()
-            self.parent.expires_combo.show()
+            self._main_window.expires_label.hide()
+            self._main_window.expires_combo.show()
 
         # update the receive address if necessary
-        current_address_string = self.parent.receive_destination_e.text().strip()
-        current_address = (address_from_string(current_address_string)
-                           if len(current_address_string) else None)
+        current_key_id = self._main_window.get_receive_key_id()
 
-        # TODO(rt12) BACKLOG replace with either create or allocate key.
-        addr = self._account.get_unused_address_REPLACE()
-        if addr:
-            self.parent.set_receive_address(addr)
-        self.parent.new_request_button.setEnabled(addr != current_address)
+        keyinstance = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
+        if keyinstance:
+            self._main_window.set_receive_key(keyinstance)
+        self._main_window.new_request_button.setEnabled(current_key_id != keyinstance.keyinstance_id)
 
         account_id = self._account.get_id()
 
         # clear the list and fill it again
         self.clear()
         for req in self._account.get_sorted_requests():
-            key_id = req["key_id"]
-            timestamp = req.get('time', 0)
-            amount = req.get('amount')
-            expiration = req.get('exp', None)
-            message = req.get('memo', '')
-            date = format_time(timestamp, _("Unknown"))
-            status = req.get('status')
-            amount_str = self.parent.format_amount(amount) if amount else ""
+            print(req)
+            date = format_time(req.date_created, _("Unknown"))
+            amount_str = self._main_window.format_amount(req.value) if req.value else ""
 
-            script_template = self._account.get_script_template_for_id(key_id)
+            script_template = self._account.get_script_template_for_id(req.keyinstance_id)
             address_text = script_template_to_string(script_template)
 
-            item = QTreeWidgetItem([date, address_text, '', message,
-                                    amount_str, pr_tooltips.get(status,'')])
-            item.setData(0, Qt.UserRole, key_id)
-            if status is not PR_UNKNOWN:
-                item.setIcon(6, read_QIcon(pr_icons.get(status)))
+            item = QTreeWidgetItem([date, address_text, '', req.description or "",
+                amount_str, pr_tooltips.get(req.state,'')])
+            item.setData(0, Qt.UserRole, req.paymentrequest_id)
+            if req.state is not PaymentState.UNKNOWN:
+                item.setIcon(6, read_QIcon(pr_icons.get(req.state)))
             self.addTopLevelItem(item)
 
     def create_menu(self, position):
         item = self.itemAt(position)
         if not item:
             return
-        key_id = item.data(0, Qt.UserRole)
-        req = self._account.receive_requests[key_id]
+        pr_id = item.data(0, Qt.UserRole)
         column = self.currentColumn()
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
         menu = QMenu(self)
         menu.addAction(_("Copy {}").format(column_title),
-                       lambda: self.parent.app.clipboard().setText(column_data))
+                       lambda: self._main_window.app.clipboard().setText(column_data))
         menu.addAction(_("Copy URI"),
-                       lambda: self.parent.view_and_paste(
-                           'URI', '', self.parent.get_request_URI(key_id)))
+                       lambda: self._main_window.view_and_paste(
+                           'URI', '', self._main_window.get_request_URI(pr_id)))
         menu.addAction(_("Save as BIP270 file"),
-            lambda: self.parent.export_payment_request(key_id))
+            lambda: self._main_window.export_payment_request(pr_id))
         menu.addAction(_("Delete"),
-            lambda: self.parent.delete_payment_request(key_id))
+            lambda: self._main_window.delete_payment_request(pr_id))
         menu.exec_(self.viewport().mapToGlobal(position))

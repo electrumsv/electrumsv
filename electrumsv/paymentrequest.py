@@ -33,10 +33,11 @@ from bitcoinx import TxOutput, Script, classify_output_script
 import certifi
 import requests
 
-from .constants import RECEIVING_SUBPATH
+from .constants import RECEIVING_SUBPATH, PaymentState
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .logs import logs
 from .networks import Net
+from .wallet_database.tables import PaymentRequestRow
 
 
 if TYPE_CHECKING:
@@ -56,13 +57,6 @@ ACK_HEADERS = {
 
 # Used for requests.
 ca_path = certifi.where()
-
-
-# status of payment requests
-PR_UNPAID  = 0
-PR_EXPIRED = 1
-PR_UNKNOWN = 2     # sent but not propagated
-PR_PAID    = 3     # send and propagated
 
 
 
@@ -160,19 +154,14 @@ class PaymentRequest:
         return self.to_json()
 
     @classmethod
-    def from_wallet_entry(klass, data: dict) -> 'PaymentRequest':
-        address = data['address']
-        amount = data['amount']
-        memo = data['memo']
-
-        creation_timestamp = data.get('time')
-        expiration_timestamp = None
-        expiration_seconds = data.get('exp')
-        if creation_timestamp is not None and expiration_seconds is not None:
-            expiration_timestamp = creation_timestamp + expiration_seconds
-
-        outputs = [ Output(address.to_script(), amount) ]
-        return klass(outputs, creation_timestamp, expiration_timestamp, memo)
+    def from_wallet_entry(klass, account: 'DeterministicAccount',
+            pr: PaymentRequestRow) -> 'PaymentRequest':
+        script = account.get_script_for_id(pr.keyinstance_id)
+        date_expiry = None
+        if pr.expiration is not None:
+            date_expiry = pr.date_created + pr.expiration
+        outputs = [ Output(script, pr.value) ]
+        return klass(outputs, pr.date_created, date_expiry, pr.description)
 
     @classmethod
     def from_json(klass, s: str) -> 'PaymentRequest':
@@ -540,10 +529,10 @@ class InvoiceStore(object):
             logger.debug("[InvoiceStore] get_status() can't find pr for %s", key)
             return
         if pr.tx is not None:
-            return PR_PAID
+            return PaymentState.PAID
         if pr.has_expired():
-            return PR_EXPIRED
-        return PR_UNPAID
+            return PaymentState.EXPIRED
+        return PaymentState.UNPAID
 
     def add(self, pr):
         key = pr.get_id()
@@ -569,4 +558,4 @@ class InvoiceStore(object):
 
     def unpaid_invoices(self):
         return [invoice for key, invoice in self.invoices.items()
-                if self.get_status(key) != PR_PAID]
+                if self.get_status(key) != PaymentState.PAID]

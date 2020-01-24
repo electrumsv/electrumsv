@@ -88,21 +88,35 @@ def migration_0000_create_database(conn: sqlite3.Connection) -> None:
         "ON TransactionDeltas(keyinstance_id, tx_hash)")
 
     conn.execute("CREATE TABLE IF NOT EXISTS WalletData ("
-            "key TEXT NOT NULL,"
-            "value TEXT NOT NULL,"
-            "date_created INTEGER NOT NULL,"
-            "date_updated INTEGER NOT NULL"
-        ")")
+        "key TEXT NOT NULL,"
+        "value TEXT NOT NULL,"
+        "date_created INTEGER NOT NULL,"
+        "date_updated INTEGER NOT NULL"
+    ")")
+
+    conn.execute("CREATE TABLE IF NOT EXISTS PaymentRequests ("
+        "paymentrequest_id INTEGER PRIMARY KEY,"
+        "keyinstance_id INTEGER NOT NULL,"
+        "state INTEGER NOT NULL,"
+        "description TEXT DEFAULT NULL,"
+        "expiration INTEGER DEFAULT NULL,"
+        "value INTEGER DEFAULT NULL,"
+        "date_created INTEGER NOT NULL,"
+        "date_updated INTEGER NOT NULL,"
+        "FOREIGN KEY(keyinstance_id) REFERENCES KeyInstances (keyinstance_id) "
+    ")")
 
     # The unique constraint is also required for any upsert operation to work.
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_WalletData_unique ON WalletData(key)")
 
     conn.executemany("INSERT INTO WalletData (key, value, date_created, date_updated) VALUES "
-        "(?, ?, ?, ?)", [
-            ["migration", json.dumps(22), date_created, date_created],
-            ["next_masterkey_id", json.dumps(1), date_created, date_created],
-            ["next_account_id", json.dumps(1), date_created, date_created],
-            ["next_keyinstance_id", json.dumps(1), date_created, date_created],])
+            "(?, ?, ?, ?)", [
+        ["migration", json.dumps(22), date_created, date_created],
+        ["next_masterkey_id", json.dumps(1), date_created, date_created],
+        ["next_account_id", json.dumps(1), date_created, date_created],
+        ["next_keyinstance_id", json.dumps(1), date_created, date_created],
+        ["next_paymentrequest_id", json.dumps(1), date_created, date_created],
+    ])
 
 
 def _get_migration(db: sqlite3.Connection) -> int:

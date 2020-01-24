@@ -5,13 +5,14 @@ import sqlite3
 import tempfile
 from typing import List
 
-from electrumsv.constants import TxFlags, ScriptType, DerivationType, TransactionOutputFlag
+from electrumsv.constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
+    PaymentState)
 from electrumsv.logs import logs
 from electrumsv.wallet_database import (migration, KeyInstanceTable, MasterKeyTable,
-    TransactionTable, DatabaseContext, TransactionDeltaTable, TransactionOutputTable,
-    SynchronousWriter, TxData, TxProof, AccountTable)
+    PaymentRequestTable, TransactionTable, DatabaseContext, TransactionDeltaTable,
+    TransactionOutputTable, SynchronousWriter, TxData, TxProof, AccountTable)
 from electrumsv.wallet_database.tables import (MasterKeyRow, AccountRow, KeyInstanceRow,
-    TransactionDeltaRow)
+    PaymentRequestRow, TransactionDeltaRow)
 
 logs.set_level("debug")
 
@@ -870,3 +871,110 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     drows = table.read_descriptions(ACCOUNT_ID)
     assert len(drows) == 1
     assert drows[0] == (TX_HASH, "tx 1")
+
+
+@pytest.mark.timeout(8)
+def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
+    table = PaymentRequestTable(db_context)
+    assert [] == table.read()
+
+    table._get_current_timestamp = lambda: 10
+
+    TX_BYTES = os.urandom(10)
+    TX_HASH = bitcoinx.double_sha256(TX_BYTES)
+    TX_INDEX = 1
+    TXOUT_FLAGS = 1 << 15
+    KEYINSTANCE_ID = 1
+    ACCOUNT_ID = 10
+    MASTERKEY_ID = 20
+    DERIVATION_DATA = b'111'
+    SCRIPT_TYPE = 40
+
+    TX_BYTES2 = os.urandom(10)
+    TX_HASH2 = bitcoinx.double_sha256(TX_BYTES2)
+
+    LINE_COUNT = 3
+    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentState.PAID, None, None, "desc",
+        table._get_current_timestamp())
+    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentState.UNPAID, 100, 60*60, None,
+        table._get_current_timestamp())
+
+    # No effect: The transactionoutput foreign key constraint will fail as the key instance
+    # does not exist.
+    with pytest.raises(sqlite3.IntegrityError):
+        with SynchronousWriter() as writer:
+            table.create([ line1 ], completion_callback=writer.get_callback())
+            assert not writer.succeeded()
+
+    # Satisfy the masterkey foreign key constraint by creating the masterkey.
+    masterkey_table = MasterKeyTable(db_context)
+    with SynchronousWriter() as writer:
+        masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    # Satisfy the account foreign key constraint by creating the account.
+    account_table = AccountTable(db_context)
+    with SynchronousWriter() as writer:
+        account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
+    keyinstance_table = KeyInstanceTable(db_context)
+    with SynchronousWriter() as writer:
+        entries = [ (KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
+            DERIVATION_DATA, SCRIPT_TYPE, True, None) for i in range(LINE_COUNT) ]
+        keyinstance_table.create(entries, completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    with SynchronousWriter() as writer:
+        table.create([ line1, line2 ], completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    # No effect: The primary key constraint will prevent any conflicting entry from being added.
+    with pytest.raises(sqlite3.IntegrityError):
+        with SynchronousWriter() as writer:
+            table.create([ line1 ], completion_callback=writer.get_callback())
+            assert not writer.succeeded()
+
+    db_lines = table.read()
+    assert 2 == len(db_lines)
+    db_line1 = [ db_line for db_line in db_lines if db_line == line1 ][0]
+    assert line1 == db_line1
+    db_line2 = [ db_line for db_line in db_lines if db_line == line2 ][0]
+    assert line2 == db_line2
+
+    date_updated = 20
+
+    with SynchronousWriter() as writer:
+        table.update([ (PaymentState.UNKNOWN, 20, 999, "newdesc",
+            line2.paymentrequest_id) ],
+            date_updated,
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    db_lines = table.read()
+    assert 2 == len(db_lines)
+    db_line2 = [ db_line for db_line in db_lines
+        if db_line.paymentrequest_id == line2.paymentrequest_id ][0]
+    assert db_line2.value == 20
+    assert db_line2.state == PaymentState.UNKNOWN
+    assert db_line2.description == "newdesc"
+    assert db_line2.expiration == 999
+
+    # Account does not exist.
+    db_lines = table.read(1000)
+    assert 0 == len(db_lines)
+
+    # This account is matched.
+    db_lines = table.read(ACCOUNT_ID)
+    assert 2 == len(db_lines)
+
+    with SynchronousWriter() as writer:
+        table.delete([ (line2.paymentrequest_id,) ], completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    db_lines = table.read()
+    assert 1 == len(db_lines)
+    assert db_lines[0].paymentrequest_id == line1.paymentrequest_id

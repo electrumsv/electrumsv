@@ -45,7 +45,7 @@ from bitcoinx.address import P2PKH_Address, P2SH_Address
 
 from .bitcoin import is_address_valid, address_from_string
 from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, RECEIVING_SUBPATH,
-    ScriptType, StorageKind, TxFlags, TransactionOutputFlag, KeyInstanceFlag)
+    ScriptType, StorageKind, TxFlags, TransactionOutputFlag, KeyInstanceFlag, PaymentState)
 from .crypto import pw_encode
 from .exceptions import IncompatibleWalletError
 from .keystore import bip44_derivation
@@ -53,10 +53,11 @@ from .logs import logs
 from .networks import Net
 from .transaction import Transaction, classify_tx_output, parse_script_sig
 from .wallet_database import (AccountTable, TxData, DatabaseContext, migration,
-    TransactionTable, MasterKeyTable, KeyInstanceTable, TransactionDeltaTable,
-    TransactionOutputTable, WalletDataTable)
+    KeyInstanceTable, MasterKeyTable, PaymentRequestTable, TransactionDeltaTable,
+    TransactionOutputTable, TransactionTable, WalletDataTable)
 from .wallet_database.tables import (AccountRow, KeyInstanceRow, MasterKeyRow,
-    TransactionDeltaRow, TransactionOutputRow, TransactionRow, WalletDataRow)
+    PaymentRequestRow, TransactionDeltaRow, TransactionOutputRow, TransactionRow,
+    WalletDataRow)
 
 
 logger = logs.get_logger("storage")
@@ -773,6 +774,7 @@ class TextStore(AbstractStore):
             next_masterkey_id = cast(int, walletdata_table.get_value("next_masterkey_id"))
             next_account_id = cast(int, walletdata_table.get_value("next_account_id"))
             next_keyinstance_id = cast(int, walletdata_table.get_value("next_keyinstance_id"))
+            next_paymentrequest_id = cast(int, walletdata_table.get_value("next_paymentrequest_id"))
 
             masterkey_id = next_masterkey_id
             next_masterkey_id += 1
@@ -785,6 +787,7 @@ class TextStore(AbstractStore):
             transaction_rows: List[TransactionRow] = []
             txdelta_rows: List[TransactionDeltaRow] = []
             txoutput_rows: List[TransactionOutputRow] = []
+            paymentrequest_rows: List[PaymentRequestRow] = []
 
             class _TxState(NamedTuple):
                 tx: Transaction
@@ -802,6 +805,7 @@ class TextStore(AbstractStore):
             class _AddressState(NamedTuple):
                 keyinstance_id: int
                 row_index: int
+                script_type: ScriptType
 
             address_usage: Dict[str, Iterable[Tuple[str, int]]] = self.get('addr_history', {})
             frozen_addresses: Set[str] = set(self.get('frozen_addresses', []))
@@ -914,14 +918,11 @@ class TextStore(AbstractStore):
                 nonlocal _receiving_address_strings, _change_address_strings
                 nonlocal keyinstance_rows, address_states, next_keyinstance_id
 
-                # We could in theory detect fresh addresses and mark them as such
-                # (ScriptType.NONE), but why bother. We'll just allocate new ones and abandon
-                # older unused ones.
                 for type_idx, address_strings in enumerate((_receiving_address_strings,
                         _change_address_strings)):
                     for address_idx, address_string in enumerate(address_strings):
                         address_states[address_string] = _AddressState(next_keyinstance_id,
-                            len(keyinstance_rows))
+                            len(keyinstance_rows), script_type)
                         description = labels.pop(address_string, None)
                         flags = KeyInstanceFlag.IS_ACTIVE
                         derivation_info = {
@@ -930,7 +931,7 @@ class TextStore(AbstractStore):
                         derivation_data = json.dumps(derivation_info).encode()
                         keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
                             masterkey_id, DerivationType.BIP32_SUBPATH, derivation_data,
-                            script_type, flags, description))
+                            ScriptType.NONE, flags, description))
                         next_keyinstance_id += 1
 
             def process_transactions(*script_classes: Tuple[Any]) -> None:
@@ -968,6 +969,13 @@ class TextStore(AbstractStore):
                             txoutput_rows.append(TransactionOutputRow(tx_state.tx_hash, n,
                                 tx_output.value, address_state.keyinstance_id, flags))
                             tx_state.encountered_addresses.add(address_string)
+
+                            # We now update the key to reflect the existence of the output.
+                            key = keyinstance_rows[address_state.row_index]
+                            keyinstance_rows[address_state.row_index] = KeyInstanceRow(
+                                key.keyinstance_id, key.account_id, key.masterkey_id,
+                                key.derivation_type, key.derivation_data, address_state.script_type,
+                                key.flags, key.description)
 
                 # Reconcile spending of outputs.
                 for tx_id, tx_state in tx_states.items():
@@ -1031,17 +1039,19 @@ class TextStore(AbstractStore):
                 process_transactions(P2SH_Address)
             elif wallet_type == "imported_addr":
                 for address_string in self.get("addresses"):
-                    address_states[address_string] = _AddressState(next_keyinstance_id,
-                        len(keyinstance_rows))
                     ia_data = { "hash": address_string }
                     derivation_data = json.dumps(ia_data).encode()
                     description = labels.pop(address_string, None)
                     address = address_from_string(address_string)
                     if isinstance(address, P2PKH_Address):
+                        address_states[address_string] = _AddressState(next_keyinstance_id,
+                            len(keyinstance_rows), ScriptType.P2PKH)
                         keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
                             None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
                             ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, description))
                     elif isinstance(address, P2SH_Address):
+                        address_states[address_string] = _AddressState(next_keyinstance_id,
+                            len(keyinstance_rows), ScriptType.MULTISIG_P2SH)
                         keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
                             None, DerivationType.SCRIPT_HASH, derivation_data,
                             ScriptType.MULTISIG_P2SH, KeyInstanceFlag.IS_ACTIVE, description))
@@ -1062,7 +1072,7 @@ class TextStore(AbstractStore):
                     address_string = pubkey.to_address()
                     description = labels.pop(address_string, None)
                     address_states[address_string] = _AddressState(next_keyinstance_id,
-                        len(keyinstance_rows))
+                        len(keyinstance_rows), ScriptType.P2PKH)
                     ik_data = {
                         "pub": pubkey_hex,
                         "prv": update_private_data(enc_prvkey),
@@ -1091,6 +1101,19 @@ class TextStore(AbstractStore):
                 process_transactions(P2PKH_Address)
             else:
                 raise IncompatibleWalletError("unknown wallet type", wallet_type)
+
+            payment_requests: Dict[str, Dict[str, Any]] = self.get("payment_requests", {})
+            for address_string, request_data in payment_requests.items():
+                if address_string not in address_states:
+                    continue
+
+                address_state = address_states[address_string]
+                paymentrequest_rows.append(PaymentRequestRow(next_paymentrequest_id,
+                    address_state.keyinstance_id,
+                    request_data.get('status', PaymentState.UNKNOWN),
+                    request_data.get('amount', None), request_data.get('exp', None),
+                    request_data.get('memo', None), request_data.get('time', time.time())))
+                next_paymentrequest_id += 1
 
             # Reconcile what addresses we found for transactions with the addresses that were in
             # the ElectrumX address usage state.
@@ -1125,6 +1148,9 @@ class TextStore(AbstractStore):
             if len(txoutput_rows):
                 with TransactionOutputTable(db_context) as table:
                     table.create(txoutput_rows)
+            if len(paymentrequest_rows):
+                with PaymentRequestTable(db_context) as table:
+                    table.create(paymentrequest_rows)
 
             # The database creation should create these rows.
             creation_rows = []
@@ -1137,7 +1163,7 @@ class TextStore(AbstractStore):
                     "wallet_nonce", "labels", # labels.py (A, B), wallet.py (B)
                     "winpos-qt", # main_window.py
                     "use_change", "multiple_change", # preferences.py
-                    "invoices", "stored_height", "payment_requests", "gap_limit" ]: # wallet.py
+                    "invoices", "stored_height", "gap_limit" ]: # wallet.py
                 value = self.get(key)
                 if value is not None:
                     creation_rows.append(WalletDataRow(key, value))
@@ -1147,6 +1173,7 @@ class TextStore(AbstractStore):
                 WalletDataRow("next_masterkey_id", next_masterkey_id),
                 WalletDataRow("next_account_id", next_account_id),
                 WalletDataRow("next_keyinstance_id", next_keyinstance_id),
+                WalletDataRow("next_paymentrequest_id", next_paymentrequest_id),
             ])
             walletdata_table.close()
         finally:
@@ -1159,6 +1186,7 @@ class TextStore(AbstractStore):
         self.put('frozen_coins', None)
         self.put('keystore', None)
         self.put('labels', None)
+        self.put('payment_requests', None)
         self.put('pruned_txo', None)
         self.put('transactions', None)
         self.put('txi', None)

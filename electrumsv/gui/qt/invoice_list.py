@@ -27,6 +27,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QFileDialog, QMenu, QWidget
 
+from electrumsv.constants import PaymentState
 from electrumsv.i18n import _
 from electrumsv.platform import platform
 from electrumsv.exceptions import FileImportFailed
@@ -34,7 +35,7 @@ from electrumsv.util import format_time
 from electrumsv.wallet import AbstractAccount
 
 from .main_window import ElectrumWindow
-from .util import MyTreeWidget, pr_icons, pr_tooltips, PR_UNPAID, read_QIcon
+from .util import MyTreeWidget, pr_icons, pr_tooltips, read_QIcon
 
 
 class InvoiceList(MyTreeWidget):
@@ -61,7 +62,7 @@ class InvoiceList(MyTreeWidget):
         self._account_id = new_account_id
         self._account = self._main_window._wallet.get_account(self._account_id)
 
-    def on_update(self):
+    def on_update(self) -> None:
         if self._account_id is None:
             return
 
@@ -89,7 +90,7 @@ class InvoiceList(MyTreeWidget):
     def import_invoices(self):
         wallet_folder = self._main_window.get_wallet_folder()
         filename, __ = QFileDialog.getOpenFileName(self._main_window, "Select your wallet file",
-                                                   wallet_folder)
+            wallet_folder)
         if not filename:
             return
         try:
@@ -115,7 +116,7 @@ class InvoiceList(MyTreeWidget):
             menu.addAction(_("Copy {}").format(column_title),
                            lambda: self._main_window.app.clipboard().setText(column_data))
         menu.addAction(_("Details"), lambda: self._main_window.show_invoice(key))
-        if status == PR_UNPAID:
+        if status == PaymentState.UNPAID:
             menu.addAction(_("Pay Now"), lambda: self._main_window.do_pay_invoice(key))
         menu.addAction(_("Delete"), lambda: self._main_window.delete_invoice(key))
         menu.exec_(self.viewport().mapToGlobal(position))

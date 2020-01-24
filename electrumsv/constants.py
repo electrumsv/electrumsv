@@ -119,16 +119,16 @@ class KeyInstanceFlag(IntEnum):
 
     # This key should be loaded and managed appropriately.
     IS_ACTIVE = 1 << 0
-    # This key has been given out to an external party.
-    IS_ALLOCATED = 1 << 1
 
     # The user explicitly set this key to be active. It is not intended that the management
     # mark it inactive without good reason.
     USER_SET_ACTIVE = 1 << 8
+    IS_PAYMENT_REQUEST = 1 << 9
 
     # The mask used to load the subset of keys that are actively cached by accounts.
     CACHE_MASK = IS_ACTIVE
     ACTIVE_MASK = IS_ACTIVE | USER_SET_ACTIVE
+    ALLOCATED_MASK = IS_PAYMENT_REQUEST
 
 
 class TransactionOutputFlag(IntEnum):
@@ -146,3 +146,10 @@ class TransactionOutputFlag(IntEnum):
     USER_SET_FROZEN = 1 << 8
 
     FROZEN_MASK = IS_FROZEN | USER_SET_FROZEN
+
+
+class PaymentState(IntEnum):
+    UNPAID  = 0
+    EXPIRED = 1
+    UNKNOWN = 2     # sent but not propagated
+    PAID    = 3     # send and propagated

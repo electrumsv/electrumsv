@@ -9,7 +9,7 @@ import bitcoinx
 from bitcoinx import hash_to_hex_str
 
 from ..constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
-    KeyInstanceFlag)
+    KeyInstanceFlag, PaymentState)
 from ..logs import logs
 from .sqlite_support import SQLITE_MAX_VARS, DatabaseContext, CompletionCallbackType
 
@@ -863,5 +863,92 @@ class TransactionDeltaTable(BaseWalletStore):
             datas.append((key_id, tx_hash))
         def _write(db: sqlite3.Connection):
             db.executemany(self.DELETE_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+
+class PaymentRequestRow(NamedTuple):
+    paymentrequest_id: int
+    keyinstance_id: int
+    state: PaymentState
+    value: Optional[int]
+    expiration: Optional[int]
+    description: Optional[str]
+    date_created: int
+
+
+class PaymentRequestTable(BaseWalletStore):
+    LOGGER_NAME = "db-table-prequest"
+
+    CREATE_SQL = ("INSERT INTO PaymentRequests "
+        "(paymentrequest_id, keyinstance_id, state, value, expiration, description, date_created, "
+        "date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    READ_ALL_SQL = ("SELECT P.paymentrequest_id, P.keyinstance_id, P.state, P.value, P.expiration, "
+        "P.description, P.date_created FROM PaymentRequests P")
+    READ_ACCOUNT_SQL = (READ_ALL_SQL +" INNER JOIN KeyInstances K "
+        "ON K.keyinstance_id = P.keyinstance_id WHERE K.account_id=?")
+    UPDATE_SQL = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, expiration=?, "
+        "description=? WHERE paymentrequest_id=?")
+    DELETE_SQL = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
+
+    def _get_many_common(self, query: str, base_params: Optional[List[Any]]=None,
+            row_ids: Optional[Iterable[str]]=None) -> List[Tuple[Any]]:
+        params = base_params[:] if base_params is not None else []
+
+        if row_ids is None or not len(row_ids):
+            cursor = self._db.execute(query, params)
+            rows = cursor.fetchall()
+            cursor.close()
+            return rows
+
+        conjunction = "WHERE"
+        if " WHERE " in query:
+            conjunction = "AND"
+
+        results = []
+        batch_size = SQLITE_MAX_VARS - len(params)
+        while len(row_ids):
+            batch_row_ids = row_ids[:batch_size]
+            batch_query = (query +" "+ conjunction +" "+
+                "tx_hash IN ({0})".format(",".join("?" for k in batch_row_ids)))
+            cursor = self._db.execute(batch_query, params + batch_row_ids)
+            rows = cursor.fetchall()
+            cursor.close()
+            results.extend(rows)
+            row_ids = row_ids[batch_size:]
+        return results
+
+    def create(self, entries: Iterable[PaymentRequestRow],
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        # Duplicate the last column for date_updated = date_created
+        datas = [ (*t, t[-1]) for t in entries ]
+        def _write(db: sqlite3.Connection):
+            db.executemany(self.CREATE_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def read(self, account_id: Optional[int]=None) -> List[PaymentRequestRow]:
+        query = self.READ_ALL_SQL
+        params = ()
+        if account_id is not None:
+            query = self.READ_ACCOUNT_SQL
+            params = (account_id,)
+        cursor = self._db.execute(query, params)
+        rows = cursor.fetchall()
+        cursor.close()
+        return [ PaymentRequestRow(*t) for t in rows ]
+
+    def update(self, entries: Iterable[Tuple[Optional[int], Optional[int], Optional[str], int]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection):
+            db.executemany(self.UPDATE_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def delete(self, entries: Iterable[Tuple[int]],
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        def _write(db: sqlite3.Connection):
+            db.executemany(self.DELETE_SQL, entries)
         self._db_context.queue_write(_write, completion_callback)
 

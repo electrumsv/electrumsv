@@ -305,7 +305,8 @@ class _ItemModel(QAbstractItemModel):
                 if column == TYPE_COLUMN:
                     pass
                 elif column == STATE_COLUMN:
-                    pass
+                    if line.row.flags & KeyInstanceFlag.ALLOCATED_MASK:
+                        return "A"
                 elif column == KEY_COLUMN:
                     return line.key_text
                 elif column == SCRIPT_COLUMN:
@@ -326,7 +327,7 @@ class _ItemModel(QAbstractItemModel):
 
             elif role == Qt.BackgroundRole:
                 if column == STATE_COLUMN:
-                    if line.row.flags & KeyInstanceFlag.IS_ALLOCATED:
+                    if line.row.flags & KeyInstanceFlag.ALLOCATED_MASK:
                         return self._frozen_brush
                     elif not line.row.flags & KeyInstanceFlag.IS_ACTIVE:
                         return self._inactive_brush
@@ -341,7 +342,7 @@ class _ItemModel(QAbstractItemModel):
                 if column == TYPE_COLUMN:
                     return _("Key")
                 elif column == STATE_COLUMN:
-                    if line.row.flags & KeyInstanceFlag.IS_ALLOCATED:
+                    if line.row.flags & KeyInstanceFlag.ALLOCATED_MASK:
                         return _("This is an allocated address")
                     elif not line.row.flags & KeyInstanceFlag.IS_ACTIVE:
                         return _("This is an inactive address")

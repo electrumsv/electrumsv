@@ -53,14 +53,13 @@ from electrumsv import bitcoin, commands, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from electrumsv.constants import DATABASE_EXT, RECEIVING_SUBPATH, TxFlags
+from electrumsv.constants import DATABASE_EXT, RECEIVING_SUBPATH, TxFlags, PaymentState
 from electrumsv.exceptions import NotEnoughFunds, UserCancelled, ExcessiveFee
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.network import broadcast_failure_reason
 from electrumsv.networks import Net
-from electrumsv.paymentrequest import PR_PAID
 from electrumsv.transaction import (Transaction, txdict_from_str, tx_output_to_display_text,
     XTxOutput)
 from electrumsv.util import (
@@ -326,8 +325,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # update menus
         self.update_buttons_on_seed()
         self.clear_receive_tab()
-        # self.request_list.update()
         self.history_updated_signal.emit()
+
+        self.console.updateNamespace({
+            'account': (self._wallet.get_account(new_account_id) if new_account_id is not None
+                else None),
+        })
 
         self.account_change_signal.emit(new_account_id)
 
@@ -1025,7 +1028,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def update_tabs(self, *args):
         self.history_view.update_tx_list()
-        # self.request_list.update()
+        self.request_list.update()
         self.utxo_list.update()
         self.contact_list.update()
         self.invoice_list.update()
@@ -1167,28 +1170,27 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         return w
 
-    def delete_payment_request(self, key_id: int) -> None:
-        self._account.remove_payment_request(key_id, self.config)
+    def delete_payment_request(self, pr_id: int) -> None:
+        self._account.delete_payment_request(pr_id)
         self.request_list.update()
         self.clear_receive_tab()
 
-    def get_request_URI(self, key_id: int) -> str:
-        req = self._account.receive_requests[key_id]
-        message = self._account.get_keyinstance_label(key_id)
-        script_template = self._account.get_script_template_for_id(key_id)
+    def get_request_URI(self, pr_id: int) -> str:
+        req = self._account.get_payment_request(pr_id)
+        message = self._account.get_keyinstance_label(req.keyinstance_id)
+        script_template = self._account.get_script_template_for_id(req.keyinstance_id)
         address_text = script_template_to_string(script_template)
 
-        amount = req['amount']
-        URI = web.create_URI(address_text, amount, message)
-        if req.get('time'):
-            URI += "&time=%d"%req.get('time')
-        if req.get('exp'):
-            URI += "&exp=%d"%req.get('exp')
+        URI = web.create_URI(address_text, req.value, message)
+        URI += f"&time={req.date_created}"
+        if req.expiration:
+            URI += f"&exp={req.expiration}"
         return str(URI)
 
     def save_payment_request(self):
         if not self._receive_key_id:
             self.show_error(_('No receiving payment destination'))
+            return
 
         amount = self.receive_amount_e.get_amount()
         message = self.receive_message_e.text()
@@ -1198,13 +1200,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         i = self.expires_combo.currentIndex()
         expiration = [x[1] for x in expiration_values][i]
-        req = self._account.make_payment_request(self._receive_key_id, amount, message, expiration)
-        self._account.add_payment_request(req, self.config)
+        req = self._account.create_payment_request(self._receive_key_id, PaymentState.UNPAID,
+            amount, expiration, message)
         self.request_list.update()
-        # The existence of the key in the payment request index changes it's state (not unused).
-        # TODO(rt12) BACKLOG ...
-        if self._receive_key_id is not None:
-            self.key_view.update_keys([ self._receive_key ])
+        keyinstance = self._account.get_keyinstance(self._receive_key_id)
+        self.key_view.update_keys([ keyinstance ])
         self.save_request_button.setEnabled(False)
 
     def view_and_paste(self, title, msg, data):
@@ -1219,10 +1219,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         dialog.setLayout(vbox)
         dialog.exec_()
 
-    def export_payment_request(self, key_id) -> None:
-        r = self._account.receive_requests[key_id]
-        pr_data = paymentrequest.PaymentRequest.from_wallet_entry(r).to_json()
-        name = r['id'] + '.bip270.json'
+    def export_payment_request(self, pr_id: int) -> None:
+        pr = self._account.get_payment_request(pr_id)
+        pr_data = paymentrequest.PaymentRequest.from_wallet_entry(self._account, pr).to_json()
+        name = f'{pr.paymentrequest_id}.bip270.json'
         fileName = self.getSaveFileName(_("Select where to save your payment request"),
                                         name, "*.bip270.json")
         if fileName:
@@ -1253,6 +1253,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.expires_combo.show()
         self.new_request_button.setEnabled(False)
         self.receive_message_e.setFocus(1)
+
+    def get_receive_key_id(self) -> Optional[int]:
+        return self._receive_key_id
 
     def set_receive_key(self, keyinstance: KeyInstanceRow) -> None:
         self._receive_key_id = keyinstance.keyinstance_id
@@ -1305,11 +1308,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         amount = self.receive_amount_e.get_amount()
         message = self.receive_message_e.text()
         self.save_request_button.setEnabled((amount is not None) or (message != ""))
-        # TODO(rt12) REQUIRED update for receive uri..
-        uri = web.create_URI(self._receive_key_id, amount, message)
+
+        script_template = self._account.get_script_template_for_id(self._receive_key_id)
+        address_text = script_template_to_string(script_template)
+
+        uri = web.create_URI(address_text, amount, message)
         self.receive_qr.setData(uri)
         if self.qr_window and self.qr_window.isVisible():
-            # TODO(rt12) REQUIRED update for receive qr code text.
             self.qr_window.set_content(self.receive_destination_e.text(), amount,
                                        message, uri)
 
@@ -1728,7 +1733,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         key = self._account.invoices.add(pr)
         status = self._account.invoices.get_status(key)
         self.invoice_list.update()
-        if status == PR_PAID:
+        if status == PaymentState.PAID:
             self.show_message("invoice already paid")
             self.do_clear()
             self.payment_request = None
@@ -1980,8 +1985,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             'network': self.network,
             'util': util,
             'wallet': self._wallet,
-            # For now we'll alias the default wallet as 'wallet'.
-            'account': self._wallet.get_default_account(),
+            'account': (self._wallet.get_account(self._account_id) if self._account_id is not None
+                else None),
             'window': self,
         })
 
@@ -2500,7 +2505,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         amounts = [edit.get_amount() for edit in edits]
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
-        # self.request_list.update()
+        self.request_list.update()
         for edit, amount in zip(edits, amounts):
             edit.setAmount(amount)
         self.update_status()

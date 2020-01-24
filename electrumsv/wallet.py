@@ -51,9 +51,9 @@ from .app_state import app_state
 from .bitcoin import (compose_chain_string, COINBASE_MATURITY, ScriptTemplate,
     script_template_to_string)
 from .constants import (CHANGE_SUBPATH, DerivationType, KeyInstanceFlag, TxFlags,
-    RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag)
+    RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, PaymentState)
 from .contacts import Contacts
-from .crypto import sha256d, pw_encode, pw_decode
+from .crypto import pw_encode, pw_decode
 from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, UnknownTransactionException,
     WalletLoadError)
 from .i18n import _
@@ -61,17 +61,17 @@ from .keystore import (Hardware_KeyStore, Imported_KeyStore, instantiate_keystor
 from .logs import logs
 from .networks import Net
 from .paymentrequest import InvoiceStore
-from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, XPublicKey, NO_SIGNATURE,
     XTxInput, XTxOutput, XPublicKeyType)
-from .util import (format_satoshis, bh2u, format_time, timestamp_to_datetime,
+from .util import (format_satoshis, format_time, timestamp_to_datetime,
     get_wallet_name_from_path)
 from .wallet_database import TxData, TxProof, TransactionCacheEntry, TransactionCache
 from .wallet_database.tables import (AccountRow, AccountTable, KeyInstanceRow, KeyInstanceTable,
     MasterKeyRow, MasterKeyTable, TransactionTable, TransactionOutputTable,
-    TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow)
+    TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow, PaymentRequestTable,
+    PaymentRequestRow)
 from .web import create_URI
 
 logger = logs.get_logger("wallet")
@@ -225,14 +225,11 @@ class AbstractAccount:
             in keyinstance_rows }
         self._masterkey_ids: Set[int] = set(row.masterkey_id for row in keyinstance_rows
             if row.masterkey_id is not None)
+        self._payment_requests: Dict[int, PaymentRequestRow] = {}
 
         self._load_keys(keyinstance_rows)
         self._load_txos(output_rows)
-
-        # load requests
-        # TODO(rt12) BACKLOG formalise storage of these
-        requests = {} # account_data.get('payment_requests', {})
-        self.receive_requests = {req['key_id']: req for req in requests.values()}
+        self._load_payment_requests()
 
         # locks: if you need to take several, acquire them in the order they are defined here!
         self.lock = threading.RLock()
@@ -316,7 +313,7 @@ class AbstractAccount:
             return False
         # Persist the removal of the active state from the key.
         self._wallet.update_keyinstance_flags([
-            (key_id, self._keyinstances[key_id].flags & ~KeyInstanceFlag.ACTIVE_MASK) ])
+            (self._keyinstances[key_id].flags & ~KeyInstanceFlag.ACTIVE_MASK, key_id) ])
         # Flush the associated UTXO state and account state from memory.
         for utxo in self.get_key_utxos(key_id):
             del self._utxos[utxo.key()]
@@ -516,6 +513,48 @@ class AbstractAccount:
 
         self._wallet.create_transactionoutputs(self._id, [ TransactionOutputRow(tx_hash,
             output_index, value, keyinstance.keyinstance_id, flags) ])
+
+    def _load_payment_requests(self) -> None:
+        self._payment_requests.clear()
+
+        with PaymentRequestTable(self._wallet._db_context) as table:
+            rows = table.read(self._id)
+        for row in rows:
+            self._payment_requests[row.paymentrequest_id] = row
+
+    def create_payment_request(self, keyinstance_id: int, state: PaymentState, value: Optional[int],
+            expiration: Optional[int], description: Optional[str]) -> PaymentRequestRow:
+        row = self._wallet.create_payment_requests([ PaymentRequestRow(-1,
+            keyinstance_id, state, value, expiration, description, int(time.time())) ])[0]
+        key = self._keyinstances[keyinstance_id]
+        self._keyinstances[keyinstance_id] = KeyInstanceRow(keyinstance_id, key.account_id,
+            key.masterkey_id, key.derivation_type, key.derivation_data, key.script_type,
+            key.flags | KeyInstanceFlag.IS_PAYMENT_REQUEST, key.description)
+        new_key = self._keyinstances[keyinstance_id]
+        self._wallet.update_keyinstance_flags([ (new_key.flags, keyinstance_id) ])
+        self._payment_requests[row.paymentrequest_id] = row
+        self._network.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),
+            self._id, [ new_key ])
+        return row
+
+    def delete_payment_request(self, pr_id: int):
+        if pr_id in self._payment_requests:
+            pr = self._payment_requests.pop(pr_id)
+            with PaymentRequestTable(self._wallet._db_context) as table:
+                table.delete([ (pr_id,) ])
+            key = self._keyinstances[pr.keyinstance_id]
+            self._keyinstances[pr.keyinstance_id] = KeyInstanceRow(key.keyinstance_id, key.account_id,
+                key.masterkey_id, key.derivation_type, key.derivation_data, key.script_type,
+                key.flags & ~KeyInstanceFlag.IS_PAYMENT_REQUEST, key.description)
+            new_key = self._keyinstances[pr.keyinstance_id]
+            self._wallet.update_keyinstance_flags([ (new_key.flags, pr.keyinstance_id) ])
+            self._network.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),
+                self._id, [ new_key ])
+            return True
+        return False
+
+    def get_payment_request(self, pr_id: int) -> Optional[PaymentRequestRow]:
+        return self._payment_requests.get(pr_id)
 
     def is_deterministic(self):
         # Not all wallets have a keystore, like imported address for instance.
@@ -1250,10 +1289,10 @@ class AbstractAccount:
             tx_hash = tx.hash()
             self.add_transaction(tx_hash, tx, TxFlags.StateSigned)
 
-    def get_payment_status(self, key_id: int, amount: int) -> Tuple[bool, int]:
+    def get_payment_status(self, req: PaymentRequestRow) -> Tuple[bool, int]:
         local_height = self._wallet.get_local_height()
-
-        related_utxos = [ u for u in self._utxos.values() if u.keyinstance_id == key_id ]
+        related_utxos = [ u for u in self._utxos.values()
+            if u.keyinstance_id == req.keyinstance_id ]
         l = []
         for utxo in related_utxos:
             tx_height = self._wallet._transaction_cache.get_height(utxo.tx_hash)
@@ -1261,97 +1300,37 @@ class AbstractAccount:
                 confirmations = local_height - tx_height
             else:
                 confirmations = 0
-            l.append((confirmations, amount))
+            l.append((confirmations, req.value))
 
         vsum = 0
         for conf, v in reversed(sorted(l)):
             vsum += v
-            if vsum >= amount:
+            if vsum >= req.value:
                 return True, conf
         return False, None
 
-    def get_payment_request(self, key_id: int):
-        r = self.receive_requests.get(key_id)
-        if not r:
-            return
+    # NOTE(rt12) no matches for this
+    # def get_request_status(self, pr_id: int) -> Tuple[PaymentState, Optional[int]]:
+    #     pr = self._payment_requests.get(pr_id)
+    #     if pr is None:
+    #         return PaymentState.UNKNOWN
 
-        script_template = self.get_keystore().get_script_template_for_id(key_id)
-        address_text = script_template_to_string(script_template)
+    #     conf = None
+    #     if pr.value:
+    #         if self.is_synchronized():
+    #             paid, conf = self.get_payment_status(pr)
+    #             status = PaymentState.PAID if paid else PaymentState.UNPAID
+    #             if (status == PaymentState.UNPAID and pr.expiration is not None and
+    #                     time.time() > pr.date_created + pr.expiration):
+    #                 status = PaymentState.EXPIRED
+    #         else:
+    #             status = PaymentState.UNKNOWN
+    #     else:
+    #         status = PaymentState.UNKNOWN
+    #     return status, conf
 
-        out = copy.copy(r)
-        out['URI'] = create_URI(address_text, r['amount'], None)
-        status, conf = self.get_request_status(key_id)
-        out['status'] = status
-        if conf is not None:
-            out['confirmations'] = conf
-        return out
-
-    def get_request_status(self, key_id):
-        r = self.receive_requests.get(key_id)
-        if r is None:
-            return PR_UNKNOWN
-        amount = r.get('amount')
-        timestamp = r.get('time', 0)
-        if timestamp and type(timestamp) != int:
-            timestamp = 0
-        expiration = r.get('exp')
-        if expiration and type(expiration) != int:
-            expiration = 0
-        conf = None
-        if amount:
-            if self.is_synchronized():
-                paid, conf = self.get_payment_status(key_id, amount)
-                status = PR_PAID if paid else PR_UNPAID
-                if (status == PR_UNPAID and expiration is not None and
-                       time.time() > timestamp + expiration):
-                    status = PR_EXPIRED
-            else:
-                status = PR_UNKNOWN
-        else:
-            status = PR_UNKNOWN
-        return status, conf
-
-    def make_payment_request(self, key_id: int, amount, message, expiration=None):
-        keyinstance = self._keyinstances[key_id]
-
-        _id = bh2u(sha256d(os.urandom(20)))[0:10]
-        return {
-            'time': int(time.time()),
-            'amount': amount,
-            'exp': expiration,
-            'key_id': keyinstance.keyinstance_id,
-            'memo': message,
-            'id': _id
-        }
-
-    def save_payment_requests(self):
-        def _delete_transient_state(value):
-            del value['address']
-            return value
-
-        requests = {
-            address_.to_string(): _delete_transient_state(value.copy())
-            for address_, value in self.receive_requests.items()
-        }
-        self._data['payment_requests'] = requests
-        # TODO(rt12) BACKLOG save this state
-
-    def add_payment_request(self, req, config):
-        key_id = req['key_id']
-        amount = req['amount']
-        message = req['memo']
-        self.receive_requests[key_id] = req
-        self.save_payment_requests()
-
-    def remove_payment_request(self, key_id: int, config):
-        if key_id not in self.receive_requests:
-            return False
-        r = self.receive_requests.pop(key_id)
-        self.save_payment_requests()
-        return True
-
-    def get_sorted_requests(self, config):
-        return (self.get_payment_request(key_id) for key_id in self.receive_requests)
+    def get_sorted_requests(self) -> List[PaymentRequestRow]:
+        return (self.get_payment_request(pr_id) for pr_id in self._payment_requests)
 
     def get_fingerprint(self) -> bytes:
         raise NotImplementedError()
@@ -1639,7 +1618,7 @@ class DeterministicAccount(AbstractAccount):
     def get_existing_fresh_keys(self, derivation_parent: Sequence[int]) -> List[KeyInstanceRow]:
         def _is_fresh_key(keyinstance: KeyInstanceRow) -> bool:
             return (keyinstance.script_type == ScriptType.NONE and
-                (keyinstance.flags & KeyInstanceFlag.IS_ALLOCATED) == 0)
+                (keyinstance.flags & KeyInstanceFlag.ALLOCATED_MASK) == 0)
         parent_depth = len(derivation_parent)
         candidates = [ key for key in self._keyinstances.values()
             if len(self._keypath[key.keyinstance_id]) == parent_depth+1
@@ -2091,6 +2070,21 @@ class Wallet:
         with TransactionOutputTable(self._db_context) as table:
             table.create(entries)
         return entries
+
+    def create_payment_requests(self, requests: List[PaymentRequestRow]) -> List[PaymentRequestRow]:
+        request_id = self._storage.get("next_paymentrequest_id", 1)
+
+        rows = []
+        for request in requests:
+            rows.append(PaymentRequestRow(request_id, request.keyinstance_id, request.state,
+                request.value, request.expiration, request.description, request.date_created))
+            request_id += 1
+        self._storage.put("next_paymentrequest_id", request_id)
+
+        with PaymentRequestTable(self._db_context) as table:
+            table.create(rows)
+
+        return rows
 
     def update_transaction_descriptions(self,
             entries: Iterable[Tuple[Optional[str], bytes]]) -> None:

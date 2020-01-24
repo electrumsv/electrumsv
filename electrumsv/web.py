@@ -70,17 +70,14 @@ def BE_sorted_list():
     return sorted(Net.BLOCK_EXPLORERS)
 
 
-def create_URI(addr, amount, message):
-    if not isinstance(addr, Address):
-        return ""
-
+def create_URI(dest, amount, message):
     query = ['sv']
     if amount:
         query.append('amount=%s'%format_satoshis_plain(amount))
     if message:
         query.append('message=%s'%urllib.parse.quote(message))
     p = urllib.parse.ParseResult(scheme=Net.URI_PREFIX,
-                                 netloc='', path=addr.to_string(),
+                                 netloc='', path=dest,
                                  params='', query='&'.join(query), fragment='')
     return urllib.parse.urlunparse(p)
 
