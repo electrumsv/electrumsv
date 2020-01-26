@@ -84,6 +84,9 @@ class RequestList(MyTreeWidget):
         self._main_window.new_request_button.setEnabled(True)
 
     def on_update(self) -> None:
+        if self._account_id is None:
+            return
+
         # hide receive tab if no receive requests available
         b = len(self._account._payment_requests) > 0
         self.setVisible(b)
