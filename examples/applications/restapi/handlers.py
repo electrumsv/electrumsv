@@ -1,4 +1,3 @@
-import asyncio
 from typing import Union, Any
 import aiorpcx
 from aiohttp import web
@@ -24,7 +23,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
     BASE = VERSION + NETWORK + "/dapp"  # avoid conflicts with built-ins
     WALLETS_TLD = BASE + "/wallets"
     WALLETS_PARENT = WALLETS_TLD + "/{wallet_name}"
-    WALLETS_ACCOUNT = WALLETS_PARENT + "/{index}"
+    WALLETS_ACCOUNT = WALLETS_PARENT + "/{account_id}"
     ACCOUNT_TXS = WALLETS_ACCOUNT + "/txs"
     ACCOUNT_UTXOS = WALLETS_ACCOUNT + "/utxos"
 
@@ -41,7 +40,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
             web.get(self.WALLETS_TLD, self.get_all_wallets),
             web.get(self.WALLETS_PARENT, self.get_parent_wallet),
             web.post(self.WALLETS_PARENT + "/load_wallet", self.load_wallet),
-            web.get(self.WALLETS_ACCOUNT, self.get_child_wallet),
+            web.get(self.WALLETS_ACCOUNT, self.get_account),
             web.get(self.ACCOUNT_UTXOS + "/coin_state", self.get_coin_state),
             web.get(self.ACCOUNT_UTXOS, self.get_utxos),
             web.get(self.ACCOUNT_UTXOS + "/balance", self.get_balance),
@@ -57,19 +56,22 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
     # ----- Extends electrumsv/restapi_endpoints ----- #
 
     async def get_all_wallets(self, request):
-        all_parent_wallets = self._get_all_wallets(self.wallets_path)
-        response = {"value": all_parent_wallets}
-        return good_response(response)
+        try:
+            all_parent_wallets = self._get_all_wallets(self.wallets_path)
+            response = {"value": all_parent_wallets}
+            return good_response(response)
+        except Fault as e:
+            return fault_to_http_response(e)
 
     async def get_parent_wallet(self, request):
-        """Overview of parent wallet and 'accounts' (a.k.a. child_wallets)"""
+        """Overview of parent wallet and accounts"""
         try:
             vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME])
             wallet_name = vars[VNAME.WALLET_NAME]
 
-            parent_wallet = self._get_parent_wallet(wallet_name)
-            child_wallets = self._child_wallets_dto(parent_wallet)
-            response = {"parent_wallet": wallet_name, "value": child_wallets}
+            wallet = self._get_parent_wallet(wallet_name)
+            accounts = self._accounts_dto(wallet)
+            response = {"parent_wallet": wallet_name, "value": accounts}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -78,25 +80,25 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
         try:
             vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME])
             wallet_name = vars[VNAME.WALLET_NAME]
-            password = vars.get(VNAME.PASSWORD)
 
-            parent_wallet = await self._load_wallet(wallet_name, password)
-            child_wallets = self._child_wallets_dto(parent_wallet)
+            parent_wallet = await self._load_wallet(wallet_name)
+            accounts = self._accounts_dto(parent_wallet)
             response = {"parent_wallet": wallet_name,
-                        "value": child_wallets}
+                        "value": accounts}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
 
-    async def get_child_wallet(self, request):
-        """Overview of a single 'account' (a.k.a. child_wallets)"""
+    async def get_account(self, request):
+        """Overview of a single 'account"""
         try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME, VNAME.INDEX])
+            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                                VNAME.ACCOUNT_ID])
             wallet_name = vars[VNAME.WALLET_NAME]
-            index = vars[VNAME.INDEX]
+            account_id = vars[VNAME.ACCOUNT_ID]
 
-            child_wallet = self._get_child_wallet(wallet_name, index)
-            ret_val = self._child_wallet_dto(child_wallet)
+            account = self._get_account(wallet_name, account_id)
+            ret_val = self._account_dto(account)
             response = {"value": ret_val}
             return good_response(response)
         except Fault as e:
@@ -105,30 +107,31 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
     async def get_coin_state(self, request):
         """get coin state (unconfirmed and confirmed coin count)"""
         try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME, VNAME.INDEX])
+            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                                VNAME.ACCOUNT_ID])
             wallet_name = vars[VNAME.WALLET_NAME]
-            index = vars[VNAME.INDEX]
+            account_id = vars[VNAME.ACCOUNT_ID]
 
-            child_wallet = self._get_child_wallet(wallet_name, index)
-            result = self._coin_state_dto(wallet=child_wallet)
+            account = self._get_account(wallet_name, account_id)
+            result = self._coin_state_dto(wallet=account)
             response = {"value": result}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
 
     async def get_utxos(self, request) -> Union[Fault, Any]:
-        # Note: child_wallet.get_utxos is currently quite slow - needs canonical utxo cache
         try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME, VNAME.INDEX])
+            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                                VNAME.ACCOUNT_ID])
             wallet_name = vars[VNAME.WALLET_NAME]
-            index = vars[VNAME.INDEX]
+            account_id = vars[VNAME.ACCOUNT_ID]
             exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, False)
             confirmed_only = vars.get(VNAME.CONFIRMED_ONLY, False)
             mature = vars.get(VNAME.MATURE, True)
 
-            child_wallet = self._get_child_wallet(wallet_name, index)
-            utxos = child_wallet.get_utxos(domain=None, exclude_frozen=exclude_frozen,
-                                           confirmed_only=confirmed_only, mature=mature)
+            account = self._get_account(wallet_name, account_id)
+            utxos = account.get_utxos(exclude_frozen=exclude_frozen,
+                                      confirmed_only=confirmed_only, mature=mature)
             result = self._utxo_dto(utxos)
             response = {"value": {"utxos": result}}
             return good_response(response)
@@ -138,12 +141,13 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
     async def get_balance(self, request):
         """get confirmed, unconfirmed and coinbase balances"""
         try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME, VNAME.INDEX])
+            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                                VNAME.ACCOUNT_ID])
             wallet_name = vars[VNAME.WALLET_NAME]
-            index = vars[VNAME.INDEX]
+            account_id = vars[VNAME.ACCOUNT_ID]
 
-            child_wallet = self._get_child_wallet(wallet_name, index)
-            ret_val = self._balance_dto(wallet=child_wallet)
+            account = self._get_account(wallet_name, account_id)
+            ret_val = self._balance_dto(wallet=account)
             response = {"value": ret_val}
             return good_response(response)
         except Fault as e:
@@ -152,11 +156,12 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
     async def delete_signed_txs(self, request):
         """This might be used to clean up after creating many transactions that were never sent."""
         try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME, VNAME.INDEX])
+            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                                VNAME.ACCOUNT_ID])
             wallet_name = vars[VNAME.WALLET_NAME]
-            index = vars[VNAME.INDEX]
+            account_id = vars[VNAME.ACCOUNT_ID]
 
-            await self._delete_signed_txs(wallet_name, index)
+            await self._delete_signed_txs(wallet_name, account_id)
             ret_val = {"value": {"message": "All StateSigned transactions deleted from TxCache, "
                                             "TxInputs and TxOutputs cache and SqliteDatabase. "
                                             "Corresponding utxos also removed from frozen list."}}
@@ -167,12 +172,13 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
     async def get_transaction_history(self, request):
         """get transactions - currently only used for debugging via 'postman'"""
         try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME, VNAME.INDEX])
+            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                                VNAME.ACCOUNT_ID])
             wallet_name = vars[VNAME.WALLET_NAME]
-            index = vars[VNAME.INDEX]
+            account_id = vars[VNAME.ACCOUNT_ID]
 
-            child_wallet = self._get_child_wallet(wallet_name, index)
-            ret_val = self._history_dto(wallet=child_wallet)
+            account = self._get_account(wallet_name, account_id)
+            ret_val = self._history_dto(wallet=account)
             response = {"value": ret_val}
             return good_response(response)
         except Fault as e:
@@ -181,14 +187,14 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
     async def get_transactions_metadata(self, request):
         """get transaction metadata"""
         try:
-            required_vars = [VNAME.WALLET_NAME, VNAME.INDEX, VNAME.TXIDS]
-            vars = await self.argparser(request, required_vars=required_vars)
+            required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.TXIDS]
+            vars = await self.argparser(request, required_vars)
             wallet_name = vars[VNAME.WALLET_NAME]
-            index = vars[VNAME.INDEX]
+            account_id = vars[VNAME.ACCOUNT_ID]
             txids = vars[VNAME.TXIDS]
 
-            child_wallet = self._get_child_wallet(wallet_name, index)
-            ret_val = self._transaction_state_dto(child_wallet, txids=txids)
+            account = self._get_account(wallet_name, account_id)
+            ret_val = self._transaction_state_dto(account, tx_ids=txids)
             response = {"value": ret_val}
             return good_response(response)
         except Fault as e:
@@ -197,14 +203,14 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
     async def fetch_transaction(self, request):
         """get transaction"""
         try:
-            required_vars = [VNAME.WALLET_NAME, VNAME.INDEX, VNAME.TXID]
+            required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.TXID]
             vars = await self.argparser(request, required_vars)
             wallet_name = vars[VNAME.WALLET_NAME]
-            index = vars[VNAME.INDEX]
+            account_id = vars[VNAME.ACCOUNT_ID]
             txid = vars[VNAME.TXID]
 
-            child_wallet = self._get_child_wallet(wallet_name, index)
-            ret_val = self._fetch_transaction_dto(child_wallet, tx_id=txid)
+            account = self._get_account(wallet_name, account_id)
+            ret_val = self._fetch_transaction_dto(account, tx_id=txid)
             response = {"value": ret_val}
             return good_response(response)
         except Fault as e:
@@ -217,12 +223,12 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
         utilities for building p2pkh, multisig etc outputs as hex strings.)
         """
         try:
-            tx, child_wallet, password = await self._create_tx_helper(request)
+            tx, account, password = await self._create_tx_helper(request)
             self.raise_for_duplicate_tx(tx)
-            child_wallet.sign_transaction(tx, password)
+            account.sign_transaction(tx, password)
 
             # freeze utxos by default (if broadcast not attempted will remain frozen)
-            _frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, child_wallet)
+            _frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
             response = {"value": {"txid": tx.txid(),
                                   "rawtx": str(tx)}}
             return good_response(response)
@@ -231,10 +237,10 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
 
     async def create_and_broadcast(self, request):
         try:
-            tx, child_wallet, password = await self._create_tx_helper(request)
+            tx, account, password = await self._create_tx_helper(request)
             self.raise_for_duplicate_tx(tx)
-            child_wallet.sign_transaction(tx, password)
-            frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, child_wallet)
+            account.sign_transaction(tx, password)
+            frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
             result = await self.send_request('blockchain.transaction.broadcast', [str(tx)])
             self.prev_transaction = result
             response = {"value": {"txid": result}}
@@ -243,28 +249,29 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
         except Fault as e:
             return fault_to_http_response(e)
         except aiorpcx.jsonrpc.RPCError as e:
-            child_wallet.set_frozen_coin_state(frozen_utxos, False)
+            account.set_frozen_coin_state(frozen_utxos, False)
             return fault_to_http_response(Fault(Errors.AIORPCX_ERROR_CODE, e.message))
 
     async def broadcast(self, request):
         """Broadcast a rawtx (hex string) to the network. """
         try:
-            required_vars = [VNAME.WALLET_NAME, VNAME.INDEX, VNAME.RAWTX]
+            required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.RAWTX]
             vars = await self.argparser(request, required_vars=required_vars)
             wallet_name = vars[VNAME.WALLET_NAME]
-            index = vars[VNAME.INDEX]
+            index = vars[VNAME.ACCOUNT_ID]
             rawtx = vars[VNAME.RAWTX]
 
-            child_wallet = self._get_child_wallet(wallet_name, index)
+            account = self._get_account(wallet_name, index)
             tx = Transaction.from_hex(rawtx)
             self.raise_for_duplicate_tx(tx)
-            frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, child_wallet)
+            frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
             result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
+            self.logger.debug("successful broadcast for %s", result)
             self.prev_transaction = result
             response = {"value": {"txid": result}}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
         except aiorpcx.jsonrpc.RPCError as e:
-            child_wallet.set_frozen_coin_state(frozen_utxos, False)
+            account.set_frozen_coin_state(frozen_utxos, False)
             return fault_to_http_response(Fault(Errors.AIORPCX_ERROR_CODE, e.message))

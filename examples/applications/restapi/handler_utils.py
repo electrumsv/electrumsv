@@ -3,14 +3,15 @@ import os
 from json import JSONDecodeError
 from typing import Optional, Union, List, Dict, Any, Iterable, Tuple
 import bitcoinx
-from bitcoinx import TxOutput
+from bitcoinx import TxOutput, hash_to_hex_str, hex_str_to_hash
 from aiohttp import web
 from electrumsv.coinchooser import PRNG
-from electrumsv.constants import TxFlags, MAX_MESSAGE_BYTES
+from electrumsv.constants import TxFlags
+from electrumsv.exceptions import NotEnoughFunds
 from electrumsv.networks import Net
 from electrumsv.restapi_endpoints import HandlerUtils, VARNAMES, ARGTYPES
 from electrumsv.transaction import Transaction
-from electrumsv.wallet import Abstract_Wallet, ParentWallet, UTXO
+from electrumsv.wallet import AbstractAccount, Wallet, UTXO
 from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, get_network_type, decode_request_body
@@ -20,7 +21,7 @@ from .errors import Errors
 # Request variables
 class VNAME(VARNAMES):
     NETWORK = 'network'
-    INDEX = 'index'
+    ACCOUNT_ID = 'account_id'
     WALLET_NAME = 'wallet_name'
     PASSWORD = 'password'
     RAWTX = 'rawtx'
@@ -38,7 +39,7 @@ class VNAME(VARNAMES):
 # Request types
 ADDITIONAL_ARGTYPES: Dict[str, type] = {
     VNAME.NETWORK: str,
-    VNAME.INDEX: str,
+    VNAME.ACCOUNT_ID: str,
     VNAME.WALLET_NAME: str,
     VNAME.PASSWORD: str,
     VNAME.RAWTX: str,
@@ -55,7 +56,7 @@ ADDITIONAL_ARGTYPES: Dict[str, type] = {
 
 ARGTYPES.update(ADDITIONAL_ARGTYPES)
 
-HEADER_VARS = [VNAME.NETWORK, VNAME.INDEX, VNAME.WALLET_NAME]
+HEADER_VARS = [VNAME.NETWORK, VNAME.ACCOUNT_ID, VNAME.WALLET_NAME]
 BODY_VARS = [VNAME.PASSWORD, VNAME.RAWTX, VNAME.TXIDS, VNAME.UTXOS, VNAME.OUTPUTS,
              VNAME.UTXO_PRESELECTION, VNAME.REQUIRE_CONFIRMED, VNAME.EXCLUDE_FROZEN,
              VNAME.CONFIRMED_ONLY, VNAME.MATURE]
@@ -74,6 +75,11 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     # ---- Parse Header and Body variables ----- #
 
+    def raise_for_rawtx_size(self, rawtx):
+        if (len(rawtx) / 2) > 99000:
+            fault = Fault(Errors.DATA_TOO_BIG_CODE, Errors.DATA_TOO_BIG_MESSAGE)
+            raise fault
+
     def raise_for_var_missing(self, vars, required_vars: List[str]):
         for varname in required_vars:
             if vars.get(varname) is None:
@@ -91,7 +97,7 @@ class ExtendedHandlerUtils(HandlerUtils):
                     message = f"{vars.get(vname)} must be of type: '{ARGTYPES.get(vname)}'"
                     raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
 
-    def index_if_isdigit(self, index: str) -> Union[int, Fault]:
+    def account_id_if_isdigit(self, index: str) -> Union[int, Fault]:
         if not index.isdigit():
             message = "child wallet index in url must be an integer. You tried " \
                       "index='%s'." % index
@@ -131,9 +137,9 @@ class ExtendedHandlerUtils(HandlerUtils):
         if wallet_name:
             self.raise_for_wallet_availability(wallet_name)
 
-        index = vars.get(VNAME.INDEX)
-        if index:
-            vars[VNAME.INDEX] = self.index_if_isdigit(index)
+        account_id = vars.get(VNAME.ACCOUNT_ID)
+        if account_id:
+            vars[VNAME.ACCOUNT_ID] = self.account_id_if_isdigit(account_id)
 
         outputs = vars.get(VNAME.OUTPUTS)
         if outputs:
@@ -151,24 +157,29 @@ class ExtendedHandlerUtils(HandlerUtils):
     # ----- Support functions ----- #
 
     def utxo_as_dict(self, utxo):
-        # 'address' paradigm to be deprecated soon
-        return {"address": utxo.address.to_string(),
-                "height": utxo.height,
-                "is_coinbase": utxo.is_coinbase,
-                "out_index": utxo.out_index,
+        return {"value": utxo.value,
                 "script_pubkey": utxo.script_pubkey.to_hex(),
-                "tx_hash": utxo.tx_hash,
-                "value": utxo.value}
+                "script_type": utxo.script_type,
+                "tx_hash": hash_to_hex_str(utxo.tx_hash),
+                "out_index": utxo.out_index,
+                "height": utxo.height,
+                "keyinstance_id": utxo.keyinstance_id,
+                "address": utxo.address.to_string(),
+                "is_coinbase": utxo.is_coinbase,
+                "flags": utxo.flags}
 
     def utxo_from_dict(self, d):
         return UTXO(
-            address=bitcoinx.Address.from_string(d['address'], coin=Net.COIN),
-            height=d['height'],
-            is_coinbase=d['is_coinbase'],
-            out_index=d['out_index'],
-            script_pubkey=bitcoinx.Script.from_hex(d['script_pubkey']),
-            tx_hash=d['tx_hash'],
             value=d['value'],
+            script_pubkey=bitcoinx.Script.from_hex(d['script_pubkey']),
+            script_type=d['script_type'],
+            tx_hash=bitcoinx.hex_str_to_hash(d['tx_hash']),
+            out_index=d['out_index'],
+            height=d['height'],
+            keyinstance_id=d['keyinstance_id'],
+            address=bitcoinx.Address.from_string(d['address'], coin=Net.COIN),
+            is_coinbase=d['is_coinbase'],
+            flags=d['flags']
         )
 
     def outputs_from_dicts(self, outputs: Optional[List[Dict[str, Any]]]) -> List[TxOutput]:
@@ -199,20 +210,18 @@ class ExtendedHandlerUtils(HandlerUtils):
         wallet_path = os.path.join(self.wallets_path, wallet_name)
         wallet_path = os.path.normpath(wallet_path)
         if wallet_name != os.path.basename(wallet_path):
-            raise Fault(Errors.BAD_WALLET_NAME_CODE,
-                         Errors.BAD_WALLET_NAME_MESSAGE)
+            raise Fault(Errors.BAD_WALLET_NAME_CODE, Errors.BAD_WALLET_NAME_MESSAGE)
         if os.path.exists(wallet_path):
             return wallet_path
         else:
-            raise Fault(Errors.WALLET_NOT_FOUND_CODE,
-                         Errors.WALLET_NOT_FOUND_MESSAGE)
+            raise Fault(Errors.WALLET_NOT_FOUND_CODE, Errors.WALLET_NOT_FOUND_MESSAGE)
 
     def _get_all_wallets(self, wallets_path) -> List[str]:
         """returns all parent wallet paths"""
         all_parent_wallets = os.listdir(wallets_path)
         return sorted(all_parent_wallets)
 
-    def _get_parent_wallet(self, wallet_name: str) -> ParentWallet:
+    def _get_parent_wallet(self, wallet_name: str) -> Wallet:
         """returns a child wallet object"""
         path_result = self._get_wallet_path(wallet_name)
         parent_wallet = self.app_state.daemon.get_wallet(path_result)
@@ -222,13 +231,13 @@ class ExtendedHandlerUtils(HandlerUtils):
             raise Fault(code=Errors.LOAD_BEFORE_GET_CODE, message=message)
         return parent_wallet
 
-    def _get_child_wallet(self, wallet_name: str, index: int=0) \
-            -> Union[Fault, Abstract_Wallet]:
+    def _get_account(self, wallet_name: str, account_id: int=1) \
+            -> Union[Fault, AbstractAccount]:
         parent_wallet = self._get_parent_wallet(wallet_name=wallet_name)
         try:
-            child_wallet = parent_wallet.get_wallet_for_account(index)
-        except IndexError:
-            message = f"There is no child wallet at index: {index}."
+            child_wallet = parent_wallet.get_account(account_id)
+        except KeyError:
+            message = f"There is no account at account_id: {account_id}."
             raise Fault(Errors.WALLET_NOT_FOUND_CODE, message)
         return child_wallet
 
@@ -236,23 +245,59 @@ class ExtendedHandlerUtils(HandlerUtils):
         wallet = self._get_parent_wallet(wallet_name)
         return wallet.is_synchronized()
 
-    async def _delete_signed_txs(self, wallet_name: str, index: int) -> Optional[Fault]:
+    async def _delete_signed_txs(self, wallet_name: str, account_id: int) -> Optional[Fault]:
         """Unfreezes all StateSigned transactions and deletes them from cache and database"""
         while True:
             is_ready = self._is_wallet_ready(wallet_name)
 
             if is_ready:
                 # Unfreeze all StateSigned transactions but leave StateDispatched frozen
-                wallet = self._get_child_wallet(wallet_name, index)
-                signed_transactions = wallet._datastore.tx.get_transactions(
+                account = self._get_account(wallet_name, account_id)
+                signed_transactions = account._wallet._transaction_cache.get_transactions(
                     flags=TxFlags.StateSigned)
 
                 for txid, tx in signed_transactions:
-                    app_state.app.get_and_set_frozen_utxos_for_tx(tx, wallet, freeze=False)
-                    wallet.delete_transaction(txid)
+                    app_state.app.get_and_set_frozen_utxos_for_tx(tx, account, freeze=False)
+                    account.delete_transaction(txid)
                 break
             await asyncio.sleep(0.1)
         return
+
+    async def _load_wallet(self, wallet_name: Optional[str] = None) -> Union[Fault, Wallet]:
+        """Loads one parent wallet into the daemon and begins synchronization"""
+        if not wallet_name.endswith(".sqlite"):
+            wallet_name += ".sqlite"
+
+        path_result = self._get_wallet_path(wallet_name)
+        parent_wallet = self.app_state.daemon.load_wallet(path_result)
+        if parent_wallet is None:
+            raise Fault(Errors.WALLET_NOT_LOADED_CODE,
+                         Errors.WALLET_NOT_LOADED_MESSAGE)
+        return parent_wallet
+
+    def _fetch_transaction_dto(self, account: AbstractAccount, tx_id) -> Optional[Dict]:
+        tx_hash = hex_str_to_hash(tx_id)
+        tx = account.get_transaction(tx_hash)
+        if not tx:
+            raise Fault(Errors.TRANSACTION_NOT_FOUND_CODE, Errors.TRANSACTION_NOT_FOUND_MESSAGE)
+        return {"tx_hex": tx.to_hex()}
+
+    def _wallet_name_available(self, wallet_name) -> bool:
+        if wallet_name in self.all_wallets:
+            return True
+        return False
+
+    def script_type_repr(self, int):
+        mappings = {
+            0: 'NONE',
+            1: 'COINBASE',
+            2: 'P2PKH',
+            3: 'P2PK',
+            4: 'MULTISIG_P2SH',
+            5: 'MULTISIG_BARE',
+            6: 'MULTISIG_ACCUMULATOR'
+        }
+        return mappings[int]
 
     async def send_request(self, method, args):
         session = await self.app_state.daemon.network._main_session()
@@ -268,8 +313,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
         selected_utxos = []
         # Deterministic randomness from coins (only select first 10 (or batch_size) for speed)
-        p = PRNG(b''.join(sorted(
-            bitcoinx.hex_str_to_hash(utxo.tx_hash) for utxo in utxos[0:BATCH_SIZE])))
+        p = PRNG(b''.join(sorted(utxo.tx_hash for utxo in utxos[0:BATCH_SIZE])))
 
         tx = Transaction.from_io([], outputs)
         # Size of the transaction with no inputs and no change
@@ -300,35 +344,6 @@ class ExtendedHandlerUtils(HandlerUtils):
                     continue
         return utxos  # may still be enough coins
 
-    async def _load_wallet(self, wallet_name: Optional[str] = None,
-                           password: Optional[str] = None) -> Union[Fault, ParentWallet]:
-        """Loads one parent wallet into the daemon and begins synchronization"""
-        if not wallet_name.endswith(".sqlite"):
-            wallet_name += ".sqlite"
-
-        path_result = self._get_wallet_path(wallet_name)
-        parent_wallet = self.app_state.daemon.load_wallet(path_result, password)
-        if parent_wallet is None:
-            raise Fault(Errors.WALLET_NOT_LOADED_CODE,
-                         Errors.WALLET_NOT_LOADED_MESSAGE)
-        return parent_wallet
-
-    def _fetch_transaction_dto(self, child_wallet: Abstract_Wallet, tx_id) -> Optional[Dict]:
-        tx = child_wallet.get_transaction(tx_id).to_hex()
-        if not tx:
-            return
-        return {"tx_hex": tx}
-
-    def _wallet_name_available(self, wallet_name) -> bool:
-        if wallet_name in self.all_wallets:
-            return True
-        return False
-
-    def _check_message_size(self, message_bytes) -> None:
-        if len(message_bytes) > MAX_MESSAGE_BYTES:
-            raise Fault(Errors.DATA_TOO_BIG_CODE,
-                         Errors.DATA_TOO_BIG_MESSAGE)
-
     # ----- Data transfer objects ----- #
 
     def _balance_dto(self, wallet) -> Dict[Any, Any]:
@@ -343,27 +358,20 @@ class ExtendedHandlerUtils(HandlerUtils):
             utxos_as_dicts.append(self.utxo_as_dict(utxo))
         return utxos_as_dicts
 
-    def _coin_state_dto(self, wallet) -> Union[Fault, Dict[str, Any]]:
-        all_coins = wallet.get_spendable_coins(None, {})
-        cleared_coins = len([coin for coin in all_coins if coin.height < 1])
-        settled_coins = len([coin for coin in all_coins if coin.height >= 1])
-        return {"cleared_coins": cleared_coins,
-                "settled_coins": settled_coins}
-
-    def _history_dto(self, wallet: Abstract_Wallet) -> List[Dict[Any, Any]]:
+    def _history_dto(self, wallet: AbstractAccount) -> List[Dict[Any, Any]]:
         history = wallet.export_history()
         return history
 
-    def _transaction_state_dto(self, wallet: Abstract_Wallet,
-                               txids: Optional[Iterable[str]]=None) -> Union[Fault, Dict[Any, Any]]:
-
+    def _transaction_state_dto(self, wallet: AbstractAccount,
+        tx_ids: Optional[Iterable[str]]=None) -> Union[Fault, Dict[Any, Any]]:
         chain = self.app_state.daemon.network.chain()
 
         result = {}
-        for tx_id in txids:
-            if wallet.has_received_transaction(tx_id):
+        for tx_id in tx_ids:
+            tx_hash = hex_str_to_hash(tx_id)
+            if wallet.has_received_transaction(tx_hash):
                 # height, conf, timestamp
-                height, conf, timestamp = wallet.get_tx_height(tx_id)
+                height, conf, timestamp = wallet.get_tx_height(tx_hash)
                 block_id = None
                 if timestamp:
                     block_id = self.app_state.headers.header_at_height(chain, height).hex_str()
@@ -375,44 +383,58 @@ class ExtendedHandlerUtils(HandlerUtils):
                 }
         return result
 
-    def _child_wallet_dto(self, wallet) -> Dict[Any, Any]:
+    def _account_dto(self, account) -> Dict[Any, Any]:
         """child wallet data transfer object"""
-        return {wallet._id: {"wallet_type": wallet.dump()['wallet_type'],
-                             "is_wallet_ready": wallet.is_synchronized()}}
+        script_type = account._row.default_script_type
 
-    def _child_wallets_dto(self, parent_wallet: ParentWallet):
+        return {account._id: {"wallet_type": account._row.account_name,
+                             "default_script_type": self.script_type_repr(script_type),
+                             "is_wallet_ready": account.is_synchronized()}}
+
+    def _accounts_dto(self, wallet: Wallet):
         """child wallets data transfer object"""
-        child_wallets = {}
-        for wallet in parent_wallet.get_child_wallets():
-            child_wallets.update(self._child_wallet_dto(wallet))
-        return child_wallets
+        accounts = {}
+        for account in wallet.get_accounts():
+            accounts.update(self._account_dto(account))
+        return accounts
+
+    def _coin_state_dto(self, wallet) -> Union[Fault, Dict[str, Any]]:
+        all_coins = wallet.get_spendable_coins(None, {})
+        # We're looking for coins that should be able to fund at least the average transaction.
+        cleared_coins = len([coin for coin in all_coins if coin.height < 1])
+        settled_coins = len([coin for coin in all_coins if coin.height >= 1])
+        return {"cleared_coins": cleared_coins,
+                "settled_coins": settled_coins}
 
     # ----- Helpers ----- #
 
     async def _create_tx_helper(self, request) -> Union[Tuple, Fault]:
-        vars = await self.argparser(request)
-        self.raise_for_var_missing(vars, required_vars=[VNAME.WALLET_NAME, VNAME.INDEX,
-                                                        VNAME.OUTPUTS])
-        wallet_name = vars[VNAME.WALLET_NAME]
-        index = vars[VNAME.INDEX]
-        outputs = vars[VNAME.OUTPUTS]
+        try:
+            vars = await self.argparser(request)
+            self.raise_for_var_missing(vars, required_vars=[VNAME.WALLET_NAME, VNAME.ACCOUNT_ID,
+                                                            VNAME.OUTPUTS, VNAME.PASSWORD])
+            wallet_name = vars[VNAME.WALLET_NAME]
+            index = vars[VNAME.ACCOUNT_ID]
+            outputs = vars[VNAME.OUTPUTS]
 
-        utxos = vars.get(VNAME.UTXOS, None)
-        utxo_preselection = vars.get(VNAME.UTXO_PRESELECTION, True)
-        password = vars.get(VNAME.PASSWORD, None)
+            utxos = vars.get(VNAME.UTXOS, None)
+            utxo_preselection = vars.get(VNAME.UTXO_PRESELECTION, True)
+            password = vars.get(VNAME.PASSWORD, None)
 
-        child_wallet = self._get_child_wallet(wallet_name, index)
+            child_wallet = self._get_account(wallet_name, index)
 
-        if not utxos:
-            exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, True)
-            confirmed_only = vars.get(VNAME.CONFIRMED_ONLY, False)
-            mature = vars.get(VNAME.MATURE, True)
-            utxos = child_wallet.get_utxos(domain=None, exclude_frozen=exclude_frozen,
-                                           confirmed_only=confirmed_only, mature=mature)
+            if not utxos:
+                exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, True)
+                confirmed_only = vars.get(VNAME.CONFIRMED_ONLY, False)
+                mature = vars.get(VNAME.MATURE, True)
+                utxos = child_wallet.get_utxos(exclude_frozen=exclude_frozen,
+                                               confirmed_only=confirmed_only, mature=mature)
 
-        if utxo_preselection:  # Defaults to True
-            utxos = self.preselect_utxos(utxos, outputs)
+            if utxo_preselection:  # Defaults to True
+                utxos = self.preselect_utxos(utxos, outputs)
 
-        # Todo - loop.run_in_executor
-        tx = child_wallet.make_unsigned_transaction(utxos, outputs, self.app_state.config)
-        return tx, child_wallet, password
+            # Todo - loop.run_in_executor
+            tx = child_wallet.make_unsigned_transaction(utxos, outputs, self.app_state.config)
+            return tx, child_wallet, password
+        except NotEnoughFunds:
+            raise Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE)

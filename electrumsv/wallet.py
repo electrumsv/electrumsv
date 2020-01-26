@@ -28,6 +28,8 @@
 #   - MultisigAccount: several keystores, P2SH
 
 from collections import defaultdict
+from datetime import datetime
+
 import attr
 import itertools
 import json
@@ -63,8 +65,7 @@ from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, XPublicKey, NO_SIGNATURE,
     XTxInput, XTxOutput, XPublicKeyType)
-from .util import (format_satoshis, format_time, timestamp_to_datetime,
-    get_wallet_name_from_path)
+from .util import (format_satoshis, format_time, get_wallet_name_from_path, timestamp_to_datetime)
 from .wallet_database import TxData, TxProof, TransactionCacheEntry, TransactionCache
 from .wallet_database.tables import (AccountRow, AccountTable, KeyInstanceRow, KeyInstanceTable,
     MasterKeyRow, MasterKeyTable, TransactionTable, TransactionOutputTable,
@@ -297,7 +298,7 @@ class AbstractAccount:
         self._add_activated_keys(rows)
         return rows
 
-    def create_derivation_data(self, key_allocation: DeterministicKeyAllocation) -> str:
+    def create_derivation_data(self, key_allocation: DeterministicKeyAllocation) -> bytes:
         assert key_allocation.derivation_type == DerivationType.BIP32_SUBPATH
         return json.dumps({ "subpath": key_allocation.derivation_path }).encode()
 
@@ -1078,47 +1079,39 @@ class AbstractAccount:
         h = self.get_history()
         fx = app_state.fx
         out = []
-        for tx_hash, height, conf, timestamp, value, balance in h:
+
+        chain = app_state.headers.longest_chain()
+        backfill_headers = app_state.daemon.network.backfill_headers_at_heights
+        header_at_height = app_state.headers.header_at_height
+        for history_line, balance in h:
+            try:
+                timestamp = timestamp_to_datetime(header_at_height(chain,
+                                history_line.height).timestamp)
+            except MissingHeader:
+                if history_line.height > 0:
+                    self._logger.debug("fetching missing headers at height: %s",
+                                       history_line.height)
+                    backfill_headers([history_line])
+                    timestamp = timestamp_to_datetime(header_at_height(chain,
+                                    history_line.height).timestamp)
+                else:
+                    timestamp = datetime.now()
             if from_timestamp and timestamp < from_timestamp:
                 continue
             if to_timestamp and timestamp >= to_timestamp:
                 continue
             item = {
-                'txid':tx_hash,
-                'height':height,
-                'confirmations':conf,
-                'timestamp':timestamp,
-                'value': format_satoshis(value, is_diff=True) if value is not None else '--',
-                'balance': format_satoshis(balance)
+                'txid': hash_to_hex_str(history_line.tx_hash),
+                'height': history_line.height,
+                'timestamp': timestamp.isoformat(),
+                'value': format_satoshis(history_line.value_delta,
+                            is_diff=True) if history_line.value_delta is not None else '--',
+                'balance': format_satoshis(balance),
+                'label': self.get_transaction_label(history_line.tx_hash)
             }
-            if item['height']>0:
-                if timestamp is not None:
-                    date_str = format_time(timestamp, _("unknown"))
-                else:
-                    date_str = _("unverified")
-            else:
-                date_str = _("unconfirmed")
-            item['date'] = date_str
-            item['label'] = self.get_transaction_label(tx_hash)
-            # if show_addresses:
-            #     tx = self.get_transaction(tx_hash)
-            #     input_addresses = []
-            #     output_addresses = []
-            #     for txin in tx.inputs:
-            #         if txin.is_coinbase():
-            #             continue
-            #         addr = txin.address
-            #         if addr is None:
-            #             continue
-            #         input_addresses.append(addr.to_string())
-            #     for tx_output in tx.outputs:
-            #         text, kind = tx_output_to_display_text(tx_output)
-            #         output_addresses.append(text)
-            #     item['input_addresses'] = input_addresses
-            #     item['output_addresses'] = output_addresses
             if fx:
-                date = timestamp_to_datetime(time.time() if conf <= 0 else timestamp)
-                item['fiat_value'] = fx.historical_value_str(value, date)
+                date = timestamp
+                item['fiat_value'] = fx.historical_value_str(history_line.value_delta, date)
                 item['fiat_balance'] = fx.historical_value_str(balance, date)
             out.append(item)
         return out

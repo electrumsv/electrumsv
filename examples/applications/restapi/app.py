@@ -6,7 +6,7 @@ import bitcoinx
 
 from electrumsv.app_state import app_state
 from electrumsv.transaction import Transaction
-from electrumsv.wallet import UTXO, Abstract_Wallet
+from electrumsv.wallet import UTXO, AbstractAccount
 from .handlers import ExtensionEndpoints
 
 
@@ -32,7 +32,7 @@ class RESTAPIApplication:
     def _teardown_app(self) -> None:
         pass
 
-    def get_and_set_frozen_utxos_for_tx(self, tx: Transaction, child_wallet: Abstract_Wallet,
+    def get_and_set_frozen_utxos_for_tx(self, tx: Transaction, child_wallet: AbstractAccount,
                                         freeze: bool=True) -> List[UTXO]:
         spendable_coins = child_wallet.get_utxos(exclude_frozen=False)
         input_keys = set(

@@ -9,13 +9,14 @@ class Errors:
     JSON_DECODE_ERROR_CODE = 40003
     LOAD_BEFORE_GET_CODE = 40004
     EMPTY_REQUEST_BODY_CODE = 40005
-    NO_COINS_CODE = 40006
+    INSUFFICIENT_COINS_CODE = 40006
     DATA_TOO_BIG_CODE = 40007
     BAD_WALLET_NAME_CODE = 40008
     WALLET_NOT_LOADED_CODE = 40009
-    INSUFFICIENT_FUNDS_CODE = 40010
-    ALREADY_SENT_TRANSACTION_CODE = 40011
-    AIORPCX_ERROR_CODE = 40012
+    ALREADY_SENT_TRANSACTION_CODE = 40010
+    AIORPCX_ERROR_CODE = 40011
+    BROADCAST_FAILURE_CODE = 40012
+    CHAIN_TOO_LONG_CODE = 40013
 
     # http 401 unauthorized
     AUTH_CREDENTIALS_MISSING_CODE = 40102
@@ -29,6 +30,7 @@ class Errors:
     WALLET_NOT_FOUND_CODE = 40401
     HEADER_VAR_NOT_PROVIDED_CODE = 40402
     BODY_VAR_NOT_PROVIDED_CODE = 40403
+    TRANSACTION_NOT_FOUND_CODE = 40404
 
     # http 500 internal server error
     GENERIC_INTERNAL_SERVER_ERROR = 50000
@@ -45,8 +47,8 @@ class Errors:
     EMPTY_REQUEST_BODY_MESSAGE = "Request body was empty"
     HEADER_VAR_NOT_PROVIDED_MESSAGE = "Required header variable: '{}' was not provided."
     BODY_VAR_NOT_PROVIDED_MESSAGE = "Required body variable: '{}' was not provided."
-    NO_COINS_MESSAGE = "Wallet has no coins"
     DATA_TOO_BIG_MESSAGE = "Message is too large (>%s bytes))." % MAX_MESSAGE_BYTES
     BAD_WALLET_NAME_MESSAGE = "Wallet name invalid."
     WALLET_NOT_LOADED_MESSAGE = "Wallet was unable to be loaded (bad password?)"
-    INSUFFICIENT_FUNDS_MESSAGE = "You have insufficient funds for this transaction"
+    INSUFFICIENT_COINS_MESSAGE = "You have insufficient coins for this transaction"
+    TRANSACTION_NOT_FOUND_MESSAGE = "Transaction not found"
