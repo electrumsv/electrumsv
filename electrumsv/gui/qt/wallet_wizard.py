@@ -895,6 +895,9 @@ class CreateNewWalletPage(QWizardPage):
         wallet_filepath = self._filename_edit.text().strip()
         if os.path.exists(wallet_filepath):
             return False
+        dirpath, filename = os.path.split(wallet_filepath)
+        if not dirpath or not os.path.isdir(dirpath) or not os.access(dirpath, os.R_OK | os.W_OK):
+            return False
         return self._password_completed
 
     def validatePage(self) -> bool:
@@ -916,6 +919,7 @@ class CreateNewWalletPage(QWizardPage):
         if len(path):
             wizard: WalletWizard = self.wizard()
             wizard.set_wallet_path(text)
+        self.completeChanged.emit()
 
     def _on_select_new_wallet_file(self) -> None:
         initial_path = self.wizard().get_initial_path()
