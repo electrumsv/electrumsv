@@ -2012,7 +2012,7 @@ class Wallet:
             account_name = "Multi-signature account"
             script_type = ScriptType.MULTISIG_P2SH
         elif masterkey_row.derivation_type == DerivationType.HARDWARE:
-            account_name = "Hardware wallet"
+            account_name = keystore.label or "Hardware wallet"
             script_type = ScriptType.P2PKH
         else:
             raise WalletLoadError(f"Unhandled derivation type {masterkey_row.derivation_type}")

@@ -1,24 +1,30 @@
+import concurrent
 import enum
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
+from bitcoinx import bip32_decompose_chain_string, bip32_is_valid_chain_string
 from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QPainter, QPalette, QPen, QPixmap, QTextOption
 from PyQt5.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QWizard, QWizardPage, QGridLayout, QListWidget,
-    QListWidgetItem, QSlider, QTextEdit, QWidget
+    QVBoxLayout, QHBoxLayout, QLabel, QWizard, QWizardPage, QGridLayout, QLineEdit, QListWidget,
+    QListWidgetItem, QProgressBar, QSlider, QTextEdit, QWidget
 )
 
 from electrumsv.app_state import app_state
+from electrumsv.bitcoin import compose_chain_string
+from electrumsv.constants import DerivationType
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.device import DeviceInfo
 from electrumsv.i18n import _
 from electrumsv import keystore
 from electrumsv.logs import logs
 from electrumsv import wallet_support
+from electrumsv.wallet import Wallet, instantiate_keystore
 
 from .main_window import ElectrumWindow
 from .password_dialog import PasswordLineEdit
-from .util import ChoicesLayout, icon_path, MessageBoxMixin, read_QIcon, WWLabel
+from .util import ChoicesLayout, icon_path, MessageBox, protected, read_QIcon, WWLabel
+
 
 logger = logs.get_logger('wizard-account')
 
@@ -41,7 +47,12 @@ DEVICE_SETUP_ERROR_TEXT = _("The selected hardware wallet failed to complete it'
     "direction.")
 
 DEVICE_SETUP_SUCCESS_TEXT = _("Your {} hardware wallet was both successfully detected and "
-    "setup.")
+    "configured.") +"\n\n"+ _("In order to link the account to how the hardware wallet has been "
+    "previously used, or specify how it should be used going forward, you need to provide a "
+    "derivation path.") +"\n\n"+ _("If you are not sure what your derivation path is, leave "
+    "this field unchanged.") + _("The default value of {} is the default derivation for "
+    "{} wallets. This matches BTC usage and that of most other BSV wallet software. To match "
+    "BCH wallet addresses use m/44'/145'/0'")
 
 
 class AccountPages(enum.IntEnum):
@@ -57,7 +68,7 @@ class AccountPages(enum.IntEnum):
     IMPORT_ACCOUNT_IDENTIFY_USAGE = 100
 
 
-class AccountWizard(MessageBoxMixin, QWizard):
+class AccountWizard(QWizard):
     _last_page_id = None
     _selected_device: Optional[Tuple[str, DeviceInfo]] = None
 
@@ -65,7 +76,7 @@ class AccountWizard(MessageBoxMixin, QWizard):
         super().__init__(main_window)
 
         self._main_window = main_window
-        self._wallet = main_window._wallet
+        self._wallet: Wallet = main_window._wallet
 
         self.setWindowTitle('ElectrumSV')
         self.setModal(True)
@@ -122,6 +133,12 @@ class AccountWizard(MessageBoxMixin, QWizard):
     def get_selected_device(self) -> Optional[Tuple[str, DeviceInfo]]:
         return self._selected_device
 
+    def get_main_window(self) -> ElectrumWindow:
+        return self._main_window
+
+    def get_wallet(self) -> Wallet:
+        return self._wallet
+
 
 class AddAccountWizardPage(QWizardPage):
     def __init__(self, wizard: AccountWizard):
@@ -140,7 +157,7 @@ class AddAccountWizardPage(QWizardPage):
         """)
 
         for entry in self._get_entries():
-            if entry.get("disabled", False):
+            if not entry.get("enabled", True):
                 continue
             list_item = QListWidgetItem()
             list_item.setSizeHint(QSize(40, 40))
@@ -257,7 +274,8 @@ class AddAccountWizardPage(QWizardPage):
                 'icon_filename': 'icons8-create-80.png',
                 'long_description': _("If you want to create a brand new standard account in "
                     "ElectrumSV this is the option you want.") +"<br/><br/>"+ _("A "
-                    "standard account is one where you are in control of all payments.")
+                    "standard account is one where you are in control of all payments."),
+                'enabled': True,
             },
             {
                 'page': AccountPages.CREATE_NEW_MULTISIG_ACCOUNT,
@@ -268,14 +286,14 @@ class AddAccountWizardPage(QWizardPage):
                     "multi-signature account is one where more than one person is required to "
                     "approve each payment. This requires that the participants, or co-signers, "
                     "coordinate the signing of each payment."),
-                'disabled': True,
+                'enabled': False,
             },
             {
                 'page': AccountPages.IMPORT_ACCOUNT_FILE,
                 'description': _("Import account file"),
                 'icon_filename': 'icons8-document.svg',
                 'long_description': _("..."),
-                'disabled': True,
+                'enabled': False,
             },
             {
                 'page': AccountPages.IMPORT_ACCOUNT_TEXT,
@@ -285,13 +303,13 @@ class AddAccountWizardPage(QWizardPage):
                 'long_description': _("If you have some text to paste, or type in, and want "
                     "ElectrumSV to examine it and offer you some choices on how it can be "
                     "imported, this is the option you probably want."),
-                'disabled': True,
+                'enabled': False,
             },
             {
                 'page': AccountPages.FIND_HARDWARE_WALLET,
                 'description': _("Import hardware wallet"),
                 'icon_filename': 'icons8-usb-2-80.png',
-                'disabled': True,
+                'enabled': True,
             },
         ]
 
@@ -399,20 +417,6 @@ class CreateStandardAccountPage(QWizardPage):
 
         vbox = QVBoxLayout()
 
-        label = QLabel(PASSWORD_EXISTING_TEXT + "\n")
-        label.setWordWrap(True)
-
-        logo_grid = QGridLayout()
-        logo_grid.setSpacing(8)
-        logo_grid.setColumnMinimumWidth(0, 70)
-        logo_grid.setColumnStretch(1,1)
-
-        logo = QLabel()
-        logo.setAlignment(Qt.AlignCenter)
-
-        logo_grid.addWidget(logo,  0, 0)
-        logo_grid.addWidget(label, 0, 1, 1, 2)
-
         self._password_edit = PasswordLineEdit()
         # We use `textEdited` to get manual changes, but not programmatic ones.
         self._password_edit.textEdited.connect(self._on_password_changed)
@@ -427,8 +431,22 @@ class CreateStandardAccountPage(QWizardPage):
         pwlabel.setAlignment(Qt.AlignTop)
         grid.addWidget(pwlabel, 0, 0)
         grid.addWidget(self._password_edit, 0, 1)
+
+        label = QLabel(PASSWORD_EXISTING_TEXT + "\n")
+        label.setWordWrap(True)
+
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignCenter)
         lockfile = "lock.png"
         logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(36))
+
+        logo_grid = QGridLayout()
+        logo_grid.setSpacing(8)
+        logo_grid.setColumnMinimumWidth(0, 70)
+        logo_grid.setColumnStretch(1,1)
+
+        logo_grid.addWidget(logo,  0, 0)
+        logo_grid.addWidget(label, 0, 1, 1, 2)
 
         vbox.addLayout(logo_grid)
         vbox.addLayout(grid)
@@ -496,6 +514,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
     _selected_device: Optional[Tuple[str, DeviceInfo]]
     _devices: List[Tuple[str, DeviceInfo]]
     _device_debug_message: Optional[str]
+    _alive: bool = False
 
     def __init__(self, wizard: AccountWizard):
         super().__init__(wizard)
@@ -522,99 +541,150 @@ class FindHardwareWalletAccountPage(QWizardPage):
         return self._selected_device is not None
 
     def on_enter(self) -> None:
-        self._scan_attempt()
-
         button = self.wizard().button(QWizard.CustomButton1)
-        button.setVisible(True)
         button.setText(_("&Rescan"))
         button.setContentsMargins(10, 0, 10, 0)
         button.clicked.connect(self._on_rescan_clicked)
 
+        self._alive = True
+        if len(self._devices):
+            self._display_scan_success_results()
+        else:
+            self._initiate_scan()
+
     def on_leave(self) -> None:
+        self._show_rescan_button(False)
+        self._alive = False
         button = self.wizard().button(QWizard.CustomButton1)
-        button.setVisible(False)
         button.clicked.disconnect()
 
     def _on_rescan_clicked(self, *checked) -> None:
-        self._scan_attempt()
+        self._initiate_scan()
+
+    def _display_scan_in_progress(self) -> None:
+        progress_bar = QProgressBar()
+        progress_bar.setRange(0, 0)
+        progress_bar.setOrientation(Qt.Horizontal)
+        progress_bar.setMinimumWidth(250)
+        # This explicitly needs to be done for the progress bar otherwise it has some RHS space.
+        progress_bar.setAlignment(Qt.AlignCenter)
+
+        progress_label = QLabel(_("Please wait for hardware wallets to be located."))
+
+        vbox = QVBoxLayout()
+        vbox.addStretch(1)
+        vbox.addWidget(progress_bar, alignment=Qt.AlignCenter)
+        vbox.addWidget(progress_label, alignment=Qt.AlignCenter)
+        vbox.addStretch(1)
+
+        if self.layout():
+            QWidget().setLayout(self.layout())
+
+        hlayout = QHBoxLayout()
+        hlayout.addStretch(1)
+        hlayout.addLayout(vbox)
+        hlayout.addStretch(1)
+        self.setLayout(hlayout)
+
+    def _display_scan_success_results(self) -> None:
+        choices = []
+        for name, info in self._devices:
+            state = _("initialized") if info.initialized else _("wiped")
+            label = info.label or _("An unnamed {}").format(name)
+            choices.append(((name, info), f"{label} [{name}, {state}]"))
+
+        c_values = [x[0] for x in choices]
+        c_titles = [x[1] for x in choices]
+        def _on_choice_clicked(choices: ChoicesLayout) -> None:
+            self._selected_device = c_values[choices.selected_index()]
+            self.completeChanged.emit()
+        self._selected_device = c_values[0]
+        self.completeChanged.emit()
+
+        message = _('Select a device')
+        self._choices = ChoicesLayout(message, c_titles, on_clicked=_on_choice_clicked)
+
+        vbox = QVBoxLayout()
+        vbox.addLayout(self._choices.layout())
+        vbox.addStretch(1)
+
+        if self.layout():
+            QWidget().setLayout(self.layout())
+        self.setLayout(vbox)
+
+    def _display_scan_failure_results(self) -> None:
+        label = QLabel(NO_DEVICES_FOUND_TEXT + "\n")
+        label.setWordWrap(True)
+
+        logo_grid = QGridLayout()
+        logo_grid.setSpacing(18)
+        logo_grid.setColumnMinimumWidth(0, 70)
+        logo_grid.setColumnStretch(1,1)
+
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignCenter)
+        lockfile = "icons8-usb-disconnected-80.png"
+        logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(80))
+
+        logo_grid.addWidget(logo,  0, 0)
+        logo_grid.addWidget(label, 0, 1, 1, 2)
+
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        grid.setColumnMinimumWidth(0, 150)
+        grid.setColumnMinimumWidth(1, 100)
+        grid.setColumnStretch(1,1)
+
+        scan_text_label = QLabel(_("Debug messages:"))
+        scan_text_edit = QTextEdit()
+        scan_text_edit.setText(self._device_debug_message)
+        scan_text_edit.setReadOnly(True)
+        grid.addWidget(scan_text_label, 0, 0, 2, 1)
+        grid.addWidget(scan_text_edit, 1, 0, 2, 2)
+
+        vbox = QVBoxLayout()
+        vbox.setContentsMargins(10, 10, 20, 10)
+        vbox.addLayout(logo_grid)
+        vbox.addSpacing(10)
+        vbox.addWidget(scan_text_label)
+        vbox.addWidget(scan_text_edit)
+        vbox.addLayout(grid)
+        vbox.addStretch(1)
+
+        if self.layout():
+            QWidget().setLayout(self.layout())
+        self.setLayout(vbox)
+
+    def _show_rescan_button(self, is_shown: bool) -> None:
+        if not self._alive:
+            return
+        button = self.wizard().button(QWizard.CustomButton1)
+        button.setVisible(is_shown)
+
+    def _initiate_scan(self) -> None:
+        self._show_rescan_button(False)
+
+        self._devices = []
+        self._selected_device = None
+        self._device_debug_message = None
+        self.completeChanged.emit()
+
+        self._display_scan_in_progress()
+
+        app_state.app.run_in_thread(self._scan_attempt, on_done=self._on_scan_complete)
+
+    def _on_scan_complete(self, future: concurrent.futures.Future) -> None:
+        if len(self._devices):
+            self._display_scan_success_results()
+        else:
+            self._display_scan_failure_results()
+        self._show_rescan_button(True)
 
     def _scan_attempt(self) -> None:
         self._scan_devices()
         self.completeChanged.emit()
 
-        if len(self._devices):
-            choices = []
-            for name, info in self._devices:
-                state = _("initialized") if info.initialized else _("wiped")
-                label = info.label or _("An unnamed {}").format(name)
-                choices.append(((name, info), f"{label} [{name}, {state}]"))
-
-            c_values = [x[0] for x in choices]
-            c_titles = [x[1] for x in choices]
-            def _on_choice_clicked(choices: ChoicesLayout) -> None:
-                self._selected_device = c_values[choices.selected_index()]
-                self.completeChanged.emit()
-            self._selected_device = c_values[0]
-            self.completeChanged.emit()
-
-            message = _('Select a device')
-            self._choices = ChoicesLayout(message, c_titles, on_clicked=_on_choice_clicked)
-
-            vbox = QVBoxLayout()
-            vbox.addLayout(self._choices.layout())
-            vbox.addStretch(1)
-
-            if self.layout():
-                QWidget().setLayout(self.layout())
-            self.setLayout(vbox)
-        else:
-            label = QLabel(NO_DEVICES_FOUND_TEXT + "\n")
-            label.setWordWrap(True)
-
-            logo_grid = QGridLayout()
-            logo_grid.setSpacing(18)
-            logo_grid.setColumnMinimumWidth(0, 70)
-            logo_grid.setColumnStretch(1,1)
-
-            logo = QLabel()
-            logo.setAlignment(Qt.AlignCenter)
-            lockfile = "icons8-usb-disconnected-80.png"
-            logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(80))
-
-            logo_grid.addWidget(logo,  0, 0)
-            logo_grid.addWidget(label, 0, 1, 1, 2)
-
-            grid = QGridLayout()
-            grid.setSpacing(8)
-            grid.setColumnMinimumWidth(0, 150)
-            grid.setColumnMinimumWidth(1, 100)
-            grid.setColumnStretch(1,1)
-
-            scan_text_label = QLabel(_("Debug messages:"))
-            scan_text_edit = QTextEdit()
-            scan_text_edit.setText(self._device_debug_message)
-            scan_text_edit.setReadOnly(True)
-            grid.addWidget(scan_text_label, 0, 0, 2, 1)
-            grid.addWidget(scan_text_edit, 1, 0, 2, 2)
-
-            vbox = QVBoxLayout()
-            vbox.setContentsMargins(10, 10, 20, 10)
-            vbox.addLayout(logo_grid)
-            vbox.addSpacing(10)
-            vbox.addWidget(scan_text_label)
-            vbox.addWidget(scan_text_edit)
-            vbox.addLayout(grid)
-            vbox.addStretch(1)
-
-            if self.layout():
-                QWidget().setLayout(self.layout())
-            self.setLayout(vbox)
-
     def _scan_devices(self) -> None:
-        self._selected_device = None
-        self._devices = []
-        self._device_debug_message = None
-
         devices: DeviceList = []
         devmgr = app_state.device_manager
 
@@ -649,6 +719,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
         else:
             self._device_debug_message = debug_msg
 
+        # Help text?
         #     msg = ''.join([
         #         _('No hardware device detected.') + '\n',
         #         _('To trigger a rescan, press \'Next\'.') + '\n\n',
@@ -668,6 +739,9 @@ class FindHardwareWalletAccountPage(QWizardPage):
 class SetupHardwareWalletAccountPage(QWizardPage):
     _plugin: Any
     _plugin_debug_message: Optional[str]
+    _derivation_default: Sequence[int] = tuple(bip32_decompose_chain_string(
+        keystore.bip44_derivation_cointype(0, 0)))
+    _derivation_user: Optional[Sequence[int]] = None
 
     def __init__(self, wizard: AccountWizard):
         super().__init__(wizard)
@@ -683,127 +757,131 @@ class SetupHardwareWalletAccountPage(QWizardPage):
 
     def validatePage(self) -> bool:
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
+        wizard: AccountWizard = self.wizard()
+        if self._create_account(main_window=wizard._main_window):
+            return True
         return False
 
     def isComplete(self) -> bool:
         # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
         # Overriding this requires us to emit the 'completeChanges' signal where applicable.
-        return self._plugin_debug_message is None and self._plugin is not None
+        return (self._plugin_debug_message is None and self._plugin is not None and
+            self._derivation_user is not None)
 
     def on_enter(self) -> None:
-        self._setup_attempt()
-
-        # f = lambda x: self.run('on_hw_derivation', name, device_info, str(x))
         # if self.wallet_type=='multisig':
         #     # There is no general standard for HD multisig.
         #     # This is partially compatible with BIP45; assumes index=0
         #     default_derivation = "m/45'/0"
-        # else:
-        #     default_derivation = bip44_derivation_cointype(0, 0)
-        # self.derivation_dialog(f, default_derivation)
 
-    def _setup_attempt(self) -> None:
-        self._setup_device()
+        self._initiate_setup()
+
+    def on_leave(self) -> None:
+        self._plugin = None
+        self._plugin_debug_message = None
+
+    def _initiate_setup(self) -> None:
+        app_state.app.run_in_thread(self._setup_device, on_done=self._on_setup_complete)
+
+    def _on_setup_complete(self, future: concurrent.futures.Future) -> None:
+        # Display according to result.
+        if self._plugin_debug_message is None:
+            self._display_setup_success_results()
+        else:
+            self._display_setup_failure_results()
         self.completeChanged.emit()
 
+    def _display_setup_success_results(self) -> None:
         wizard: AccountWizard = self.wizard()
         name, device_info = wizard.get_selected_device()
 
-        if self._plugin_debug_message is None:
-            text = DEVICE_SETUP_SUCCESS_TEXT.format(name.capitalize())
+        wallet_type = "standard"
+        text = DEVICE_SETUP_SUCCESS_TEXT.format(name.capitalize(),
+            compose_chain_string(self._derivation_default), wallet_type)
 
-            label = QLabel(text + "\n")
-            label.setWordWrap(True)
+        label = QLabel(text + "\n")
+        label.setWordWrap(True)
 
-            logo_grid = QGridLayout()
-            logo_grid.setSpacing(18)
-            logo_grid.setColumnMinimumWidth(0, 70)
-            logo_grid.setColumnStretch(1,1)
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignCenter)
+        logo_filename = "icons8-usb-connected-80.png"
+        logo.setPixmap(QPixmap(icon_path(logo_filename)).scaledToWidth(80))
 
-            logo = QLabel()
-            logo.setAlignment(Qt.AlignCenter)
-            logo_filename = "icons8-usb-connected-80.png"
-            logo.setPixmap(QPixmap(icon_path(logo_filename)).scaledToWidth(80))
+        logo_grid = QGridLayout()
+        logo_grid.setSpacing(18)
+        logo_grid.setColumnMinimumWidth(0, 70)
+        logo_grid.setColumnStretch(1,1)
+        logo_grid.addWidget(logo,  0, 0, Qt.AlignTop)
+        logo_grid.addWidget(label, 0, 1, 1, 2)
 
-            logo_grid.addWidget(logo,  0, 0)
-            logo_grid.addWidget(label, 0, 1, 1, 2)
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        grid.setColumnMinimumWidth(0, 150)
+        grid.setColumnMinimumWidth(1, 100)
+        grid.setContentsMargins(50, 10, 50, 10)
+        grid.setColumnStretch(1,1)
 
-            grid = QGridLayout()
-            grid.setSpacing(8)
-            grid.setColumnMinimumWidth(0, 150)
-            grid.setColumnMinimumWidth(1, 100)
-            grid.setColumnStretch(1,1)
+        self._path_edit = QLineEdit()
+        self._path_edit.setText(compose_chain_string(self._derivation_default))
+        self._path_edit.textEdited.connect(self._on_derivation_path_changed)
 
-            default_derivation =  keystore.bip44_derivation_cointype(0, 0)
-            wallet_type = "standard"
-            message = '\n'.join([
-                _('Enter your wallet derivation here.  If you are not sure what this is, '
-                'leave this field unchanged.\n'),
-                _("The default value of {} is the default derivation for {} wallets.  "
-                "This matches BTC wallet addresses and most other BSV wallet software.")
-                .format(default_derivation, wallet_type),
-                _("To match BCH wallet addresses use m/44'/145'/0'"),
-            ])
+        grid.addWidget(QLabel(_("Derivation path")), 1, 0, 1, 1)
+        grid.addWidget(self._path_edit, 1, 1, 1, 2)
 
-            pwlabel = QLabel(_('Password:'))
-            pwlabel.setAlignment(Qt.AlignTop)
-            grid.addWidget(pwlabel, 0, 0)
-            grid.addWidget(self._password_edit, 0, 1)
-            lockfile = "lock.png"
-            logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(36))
+        vbox = QVBoxLayout()
+        vbox.setContentsMargins(10, 10, 20, 10)
+        vbox.addLayout(logo_grid)
+        vbox.addSpacing(10)
+        vbox.addLayout(grid)
+        vbox.addStretch(1)
 
-            vbox = QVBoxLayout()
-            vbox.setContentsMargins(10, 10, 20, 10)
-            vbox.addLayout(logo_grid)
-            vbox.addSpacing(10)
-            pass
-            vbox.addStretch(1)
+        if self.layout():
+            QWidget().setLayout(self.layout())
+        self.setLayout(vbox)
 
-            if self.layout():
-                QWidget().setLayout(self.layout())
-            self.setLayout(vbox)
-        else:
-            label = QLabel(DEVICE_SETUP_ERROR_TEXT + "\n")
-            label.setWordWrap(True)
+    def _display_setup_failure_results(self) -> None:
+        # This might happen for instance, if the "bitcoin cash" application is not open.
+        label = QLabel(DEVICE_SETUP_ERROR_TEXT + "\n")
+        label.setWordWrap(True)
 
-            logo_grid = QGridLayout()
-            logo_grid.setSpacing(18)
-            logo_grid.setColumnMinimumWidth(0, 70)
-            logo_grid.setColumnStretch(1,1)
+        logo_grid = QGridLayout()
+        logo_grid.setSpacing(18)
+        logo_grid.setColumnMinimumWidth(0, 70)
+        logo_grid.setColumnStretch(1,1)
 
-            logo = QLabel()
-            logo.setAlignment(Qt.AlignCenter)
-            logo_filename = "icons8-usb-disconnected-80.png"
-            logo.setPixmap(QPixmap(icon_path(logo_filename)).scaledToWidth(80))
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignCenter)
+        logo_filename = "icons8-usb-disconnected-80.png"
+        logo.setPixmap(QPixmap(icon_path(logo_filename)).scaledToWidth(80))
 
-            logo_grid.addWidget(logo,  0, 0)
-            logo_grid.addWidget(label, 0, 1, 1, 2)
+        logo_grid.addWidget(logo,  0, 0)
+        logo_grid.addWidget(label, 0, 1, 1, 2)
 
-            grid = QGridLayout()
-            grid.setSpacing(8)
-            grid.setColumnMinimumWidth(0, 150)
-            grid.setColumnMinimumWidth(1, 100)
-            grid.setColumnStretch(1,1)
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        grid.setColumnMinimumWidth(0, 150)
+        grid.setColumnMinimumWidth(1, 100)
+        grid.setColumnStretch(1,1)
 
-            scan_text_label = QLabel(_("Debug messages:"))
-            scan_text_edit = QTextEdit()
-            scan_text_edit.setText(self._plugin_debug_message)
-            scan_text_edit.setReadOnly(True)
-            grid.addWidget(scan_text_label, 0, 0, 2, 1)
-            grid.addWidget(scan_text_edit, 1, 0, 2, 2)
+        scan_text_label = QLabel(_("Debug messages:"))
+        scan_text_edit = QTextEdit()
+        scan_text_edit.setText(self._plugin_debug_message)
+        scan_text_edit.setReadOnly(True)
+        grid.addWidget(scan_text_label, 0, 0, 2, 1)
+        grid.addWidget(scan_text_edit, 1, 0, 2, 2)
 
-            vbox = QVBoxLayout()
-            vbox.setContentsMargins(10, 10, 20, 10)
-            vbox.addLayout(logo_grid)
-            vbox.addSpacing(10)
-            vbox.addWidget(scan_text_label)
-            vbox.addWidget(scan_text_edit)
-            vbox.addLayout(grid)
-            vbox.addStretch(1)
+        vbox = QVBoxLayout()
+        vbox.setContentsMargins(10, 10, 20, 10)
+        vbox.addLayout(logo_grid)
+        vbox.addSpacing(10)
+        vbox.addWidget(scan_text_label)
+        vbox.addWidget(scan_text_edit)
+        vbox.addLayout(grid)
+        vbox.addStretch(1)
 
-            if self.layout():
-                QWidget().setLayout(self.layout())
-            self.setLayout(vbox)
+        if self.layout():
+            QWidget().setLayout(self.layout())
+        self.setLayout(vbox)
 
     def _setup_device(self) -> None:
         self._plugin = None
@@ -824,6 +902,40 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         except Exception as e:
             self._plugin_debug_message = str(e)
             return
+
+    def _on_derivation_path_changed(self, text: str) -> None:
+        path_text = self._path_edit.text().strip()
+        try:
+            self._derivation_user = tuple(bip32_decompose_chain_string(path_text))
+        except ValueError:
+            pass
+        self.completeChanged.emit()
+
+    @protected
+    def _create_account(self, main_window: Optional[ElectrumWindow]=None) -> None:
+        # The derivation path is valid, proceed to create the account.
+        wizard: AccountWizard = self.wizard()
+        name, device_info = wizard.get_selected_device()
+        wallet = wizard.get_wallet()
+
+        derivation_text = compose_chain_string(self._derivation_user)
+        try:
+            mpk = self._plugin.get_master_public_key(device_info.device.id_, derivation_text,
+                wizard.get_main_window())
+        except Exception as e:
+            MessageBox.show_error(str(e))
+            return False
+
+        data = {
+            'hw_type': name,
+            'derivation': self._derivation_user,
+            'xpub': mpk.to_extended_key_string(),
+            'label': device_info.label,
+        }
+        _keystore = instantiate_keystore(DerivationType.HARDWARE, data)
+        wallet.create_account_from_keystore(_keystore)
+
+        return True
 
 
 class CosignWidget(QWidget):

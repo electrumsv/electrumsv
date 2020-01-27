@@ -254,7 +254,7 @@ def compose_chain_string(derivation: Sequence[int]) -> str:
     result = "m"
     for value in derivation:
         result += "/"
-        if value > HARDENED:
+        if value >= HARDENED:
             result += str(value - HARDENED) +"'"
         else:
             result += str(value)

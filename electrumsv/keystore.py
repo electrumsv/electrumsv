@@ -613,10 +613,10 @@ class Hardware_KeyStore(Xpub, KeyStore):
         # Errors and other user interaction is done through the wallet's
         # handler.  The handler is per-window and preserved across
         # device reconnects
-        self.xpub = data.get('xpub')
-        self.label = data.get('label')
-        self.derivation = data.get('derivation')
+        self.xpub = data['xpub']
+        self.derivation = data['derivation']
         self.hw_type = data['hw_type']
+        self.label = data.get('label')
         self.handler = None
         self.plugin = None
         self.libraries_available = False
