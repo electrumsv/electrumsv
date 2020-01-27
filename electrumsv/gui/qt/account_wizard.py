@@ -309,7 +309,7 @@ class AddAccountWizardPage(QWizardPage):
                 'page': AccountPages.FIND_HARDWARE_WALLET,
                 'description': _("Import hardware wallet"),
                 'icon_filename': 'icons8-usb-2-80.png',
-                'enabled': True,
+                'enabled': False,
             },
         ]
 
@@ -821,9 +821,11 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         grid.setContentsMargins(50, 10, 50, 10)
         grid.setColumnStretch(1,1)
 
+        path_text = compose_chain_string(self._derivation_default)
         self._path_edit = QLineEdit()
-        self._path_edit.setText(compose_chain_string(self._derivation_default))
+        self._path_edit.setText(path_text)
         self._path_edit.textEdited.connect(self._on_derivation_path_changed)
+        self._on_derivation_path_changed(path_text)
 
         grid.addWidget(QLabel(_("Derivation path")), 1, 0, 1, 1)
         grid.addWidget(self._path_edit, 1, 1, 1, 2)
@@ -912,7 +914,8 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         self.completeChanged.emit()
 
     @protected
-    def _create_account(self, main_window: Optional[ElectrumWindow]=None) -> None:
+    def _create_account(self, main_window: Optional[ElectrumWindow]=None,
+            password: Optional[str]=None) -> None:
         # The derivation path is valid, proceed to create the account.
         wizard: AccountWizard = self.wizard()
         name, device_info = wizard.get_selected_device()
