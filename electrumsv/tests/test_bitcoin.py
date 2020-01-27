@@ -1,11 +1,14 @@
 import base64
+import pytest
+
 from bitcoinx import (
     PublicKey, Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check, is_minikey,
+    bip32_decompose_chain_string
 )
 
 from electrumsv.bitcoin import (
     is_new_seed, is_old_seed, var_int, op_push, seed_type, address_from_string,
-    push_script, int_to_hex, is_address_valid, scripthash_hex
+    push_script, int_to_hex, is_address_valid, scripthash_hex, compose_chain_string
 )
 from electrumsv.crypto import sha256d
 from electrumsv.keystore import is_xpub, is_xprv, is_private_key
@@ -432,3 +435,10 @@ class Test_seeds(SequentialTestCase):
     def test_seed_type(self):
         for seed_words, _type in self.mnemonics:
             self.assertEqual(_type, seed_type(seed_words), msg=seed_words)
+
+
+@pytest.mark.parametrize("path", (
+    "m", "m/1/1/1/1", "m/44'/0/0", "m/44'/0'/0", "m/44'/0'/0'"
+))
+def test_bip32_chain_string_composition(path: str) -> None:
+    assert compose_chain_string(bip32_decompose_chain_string(path)) == path
