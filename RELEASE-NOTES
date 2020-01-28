@@ -36,6 +36,12 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.3.0b2-multisig
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-0b2-multisig-d216604d0d9e
+  * Coin selection and privacy: A bug was introduced in 1.3.0b1 in the coin selection and
+    change-making for transactions, where all coins in the wallet were combined as part of
+    the change-making process. Reported and fixed by AustEcon.
+
 # Release 1.3.0b1-multisig
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-0b1-multisig-931f5562cc1d
   * Database upgrade: Wallets are now a database. Only private key and signing data is
