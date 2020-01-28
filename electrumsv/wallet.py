@@ -103,7 +103,6 @@ class UTXO:
     script_type = attr.ib()
     tx_hash = attr.ib()
     out_index = attr.ib()
-    height = attr.ib()
     keyinstance_id = attr.ib()
     address = attr.ib()
     # To determine if matured and spendable
@@ -474,10 +473,10 @@ class AbstractAccount:
                 flags = row.flags
                 if metadata.position==0:
                     flags |= TransactionOutputFlag.IS_COINBASE
-                self.register_utxo(row.tx_hash, row.tx_index, row.value, metadata.height, flags,
+                self.register_utxo(row.tx_hash, row.tx_index, row.value, flags,
                     keyinstance, script_template)
 
-    def register_utxo(self, tx_hash: bytes, output_index: int, value: int, height: int,
+    def register_utxo(self, tx_hash: bytes, output_index: int, value: int,
             flags: TransactionOutputFlag, keyinstance: KeyInstanceRow,
             script_template: ScriptTemplate) -> None:
         is_coinbase = (flags & TransactionOutputFlag.IS_COINBASE) != 0
@@ -488,7 +487,6 @@ class AbstractAccount:
             script_type=keyinstance.script_type,
             tx_hash=tx_hash,
             out_index=output_index,
-            height=height,
             keyinstance_id=keyinstance.keyinstance_id,
             flags=flags,
             address=script_template if isinstance(script_template, Address) else None,
@@ -506,7 +504,7 @@ class AbstractAccount:
         if flags & TransactionOutputFlag.IS_SPENT:
             self._stxos[(tx_hash, output_index)] = keyinstance.keyinstance_id
         else:
-            self.register_utxo(tx_hash, output_index, value, metadata.height, flags, keyinstance,
+            self.register_utxo(tx_hash, output_index, value, flags, keyinstance,
                 script_template)
 
         self._wallet.create_transactionoutputs(self._id, [ TransactionOutputRow(tx_hash,
@@ -754,15 +752,15 @@ class AbstractAccount:
         '''Note exclude_frozen=True checks for coin-level frozen status. '''
         mempool_height = self._wallet.get_local_height() + 1
         def is_spendable_utxo(utxo):
+            metadata = self.get_transaction_metadata(utxo.tx_hash)
             if exclude_frozen and self.is_frozen_utxo(utxo):
                 return False
-            if confirmed_only and utxo.height <= 0:
+            if confirmed_only and metadata.height <= 0:
                 return False
-            # A coin is spendable at height (utxo.height + COINBASE_MATURITY)
-            if mature and utxo.is_coinbase and mempool_height < utxo.height + COINBASE_MATURITY:
+            # A coin is spendable at height + COINBASE_MATURITY)
+            if mature and utxo.is_coinbase and mempool_height < metadata.height + COINBASE_MATURITY:
                 return False
             return True
-
         return [ utxo for utxo in self._utxos.values() if is_spendable_utxo(utxo)]
 
     def existing_active_keys(self) -> List[int]:
@@ -782,9 +780,11 @@ class AbstractAccount:
             if exclude_frozen_coins and k in self._frozen_coins:
                 continue
             o = self._utxos[k]
-            if o.is_coinbase and o.height + COINBASE_MATURITY > self._wallet.get_local_height():
+            metadata = self.get_transaction_metadata(o.tx_hash)
+            if o.is_coinbase and metadata.height + COINBASE_MATURITY > \
+                    self._wallet.get_local_height():
                 x += o.value
-            elif o.height > 0:
+            elif metadata.height > 0:
                 c += o.value
             else:
                 u += o.value
@@ -928,7 +928,6 @@ class AbstractAccount:
                 if txo_key in self._stxos:
                     spent_keyinstance_id = self._stxos.pop(txo_key)
                     # This may incur database read latency, but deletion should be uncommon.
-                    spent_metadata = self._wallet._transaction_cache.get_metadata(txin.prev_hash)
                     spent_tx = self._wallet._transaction_cache.get_transaction(txin.prev_hash)
                     spent_value = spent_tx.outputs[txin.prev_idx].value
                     # Need to set the TXO to non-spent.s
@@ -941,8 +940,8 @@ class AbstractAccount:
                     spent_keyinstance = self._keyinstances[spent_keyinstance_id]
                     script_template = self.get_script_template_for_id(spent_keyinstance_id,
                         spent_keyinstance.script_type)
-                    self.register_utxo(txin.prev_hash, txin.prev_idx, spent_value,
-                        spent_metadata.height, txo_flags, spent_keyinstance, script_template)
+                    self.register_utxo(txin.prev_hash, txin.prev_idx, spent_value, txo_flags,
+                        spent_keyinstance, script_template)
                     txout_flags.append((txo_flags, *txo_key))
 
             key_script_types: List[Tuple[ScriptType, int]] = []
