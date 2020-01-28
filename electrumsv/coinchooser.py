@@ -261,7 +261,7 @@ class CoinChooserPrivacy(CoinChooserRandom):
     '''
 
     def keys(self, coins):
-        return [coin.script_sig for coin in coins]
+        return [coin.keyinstance_id for coin in coins]
 
     def penalty_func(self, tx):
         out_values = [output.value for output in tx.outputs]
