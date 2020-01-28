@@ -2,7 +2,7 @@ import concurrent
 import enum
 from typing import Any, List, Optional, Sequence, Tuple
 
-from bitcoinx import bip32_decompose_chain_string, bip32_is_valid_chain_string
+from bitcoinx import bip32_decompose_chain_string
 from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QPainter, QPalette, QPen, QPixmap, QTextOption
 from PyQt5.QtWidgets import (

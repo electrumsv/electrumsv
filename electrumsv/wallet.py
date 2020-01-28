@@ -134,6 +134,7 @@ class UTXO:
             signatures=[NO_SIGNATURE] * threshold,
             x_pubkeys=account.get_xpubkeys_for_id(self.keyinstance_id),
             value=self.value,
+            keyinstance_id=self.keyinstance_id
         )
 
 

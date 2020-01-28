@@ -239,6 +239,7 @@ class XTxInput(TxInput):
     threshold: int = attr.ib(default=0)
     signatures: List[bytes] = attr.ib(default=attr.Factory(list))
     script_type: ScriptType = attr.ib(default=ScriptType.NONE)
+    keyinstance_id: Optional[int] = attr.ib(default=None)
 
     @classmethod
     def read_extended(cls, read):
@@ -320,9 +321,10 @@ class XTxInput(TxInput):
     def __repr__(self) -> str:
         return (
             f'XTxInput(prev_hash="{hash_to_hex_str(self.prev_hash)}", prev_idx={self.prev_idx}, '
-            f'script_sig="{self.script_sig}", sequence={self.sequence}), value={self.value} '
+            f'script_sig="{self.script_sig}", sequence={self.sequence}), value={self.value}, '
             f'threshold={self.threshold}, '
-            f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys})'
+            f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys}), '
+            f'keyinstance_id={self.keyinstance_id}'
         )
 
 @attr.s(slots=True, repr=False)
