@@ -1,6 +1,6 @@
 ---
 name: Report a problem
-about: If you are asking for help with a problem, you MUST fill this out. It will get you a response much faster, and we will ask you to come back and fill it out anyway, if you didn't.
+about: If you want assistance, help with a problem or to report a bug, please fill this out. It will get you a response much faster, and we will ask you to come back and fill it out anyway, if you didn't.
 title: ''
 labels: ''
 assignees: ''
