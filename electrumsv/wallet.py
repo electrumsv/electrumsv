@@ -65,7 +65,7 @@ from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, XPublicKey, NO_SIGNATURE,
     XTxInput, XTxOutput, XPublicKeyType)
-from .util import (format_satoshis, format_time, get_wallet_name_from_path, timestamp_to_datetime)
+from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime)
 from .wallet_database import TxData, TxProof, TransactionCacheEntry, TransactionCache
 from .wallet_database.tables import (AccountRow, AccountTable, KeyInstanceRow, KeyInstanceTable,
     MasterKeyRow, MasterKeyTable, TransactionTable, TransactionOutputTable,

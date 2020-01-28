@@ -41,7 +41,6 @@ class Net(metaclass=_CurrentNetMeta):
 SPENDABLE_UTXOS = [
     UTXO(address=Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmou',
                                               Net.COIN),
-         height=1,
          is_coinbase=False,
          out_index=0,
          script_pubkey=Script(b'v\xa9\x14&\x0c\x95\x8e\x81\xc8o\xe3.\xc3\xd4\x1d7\x1cy'
@@ -54,7 +53,6 @@ SPENDABLE_UTXOS = [
          flags=TransactionOutputFlag.NONE),
     UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr',
                                               Net.COIN),
-         height=1,
          is_coinbase=False,
          out_index=0,
          script_pubkey=Script(b'v\xa9\x14\x84\xb3[1i\xe4+"}+\x9d\x85s!\t\xa1y\xab\xff'

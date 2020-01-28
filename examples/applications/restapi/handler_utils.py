@@ -162,11 +162,10 @@ class ExtendedHandlerUtils(HandlerUtils):
                 "script_type": utxo.script_type,
                 "tx_hash": hash_to_hex_str(utxo.tx_hash),
                 "out_index": utxo.out_index,
-                "height": utxo.height,
                 "keyinstance_id": utxo.keyinstance_id,
                 "address": utxo.address.to_string(),
                 "is_coinbase": utxo.is_coinbase,
-                "flags": utxo.flags}
+                "flags": utxo.flags}  # TransactionOutputFlag(s) only
 
     def utxo_from_dict(self, d):
         return UTXO(
@@ -175,7 +174,6 @@ class ExtendedHandlerUtils(HandlerUtils):
             script_type=d['script_type'],
             tx_hash=bitcoinx.hex_str_to_hash(d['tx_hash']),
             out_index=d['out_index'],
-            height=d['height'],
             keyinstance_id=d['keyinstance_id'],
             address=bitcoinx.Address.from_string(d['address'], coin=Net.COIN),
             is_coinbase=d['is_coinbase'],
@@ -401,8 +399,10 @@ class ExtendedHandlerUtils(HandlerUtils):
     def _coin_state_dto(self, wallet) -> Union[Fault, Dict[str, Any]]:
         all_coins = wallet.get_spendable_coins(None, {})
         # We're looking for coins that should be able to fund at least the average transaction.
-        cleared_coins = len([coin for coin in all_coins if coin.height < 1])
-        settled_coins = len([coin for coin in all_coins if coin.height >= 1])
+        cleared_coins = len([coin for coin in all_coins if
+                             wallet.get_transaction_metadata(coin.tx_hash).height < 1])
+        settled_coins = len([coin for coin in all_coins if
+                             wallet.get_transaction_metadata(coin.tx_hash).height >= 1])
         return {"cleared_coins": cleared_coins,
                 "settled_coins": settled_coins}
 
