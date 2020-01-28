@@ -78,12 +78,13 @@ class UTXOList(MyTreeWidget):
         self.clear()
 
         for utxo in self._account.get_utxos():
+            metadata = self._account.get_transaction_metadata(utxo.tx_hash)
             prevout_str = utxo.key_str()
             prevout_str = prevout_str[0:10] + '...' + prevout_str[-2:]
             label = self._account.get_transaction_label(utxo.tx_hash)
             amount = self._main_window.format_amount(utxo.value, whitespaces=True)
             utxo_item = SortableTreeWidgetItem(
-                [ prevout_str, label, amount, str(utxo.height) ])
+                [ prevout_str, label, amount, str(metadata.height) ])
             # set this here to avoid sorting based on Qt.UserRole+1
             utxo_item.DataRole = Qt.UserRole+100
             for col in (0, 2):
