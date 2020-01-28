@@ -1,14 +1,14 @@
 ---
-name: Bug report
-about: Create a report to help us improve
+name: Report a problem
+about: If you are asking for help with a problem, you MUST fill this out. If you do not, we are then forced to ask you the exact same questions anyway. So what will likely happen is we will close your issue and ask you to make a new one filling out this information.
 title: ''
 labels: ''
 assignees: ''
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+**Describe the problem**
+A clear and concise description of what the problem is.
 
 **To Reproduce**
 Steps to reproduce the behavior:
