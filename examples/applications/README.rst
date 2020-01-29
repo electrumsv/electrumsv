@@ -34,7 +34,14 @@ In linux bash::
 
 Then start the ElectrumSV daemon application with::
 
-    $ py -3.7 electrum-sv daemon --testnet -dapp restapi
+    $ py -3.7 electrum-sv --restapi --testnet daemon -dapp restapi
+
+Note: **--restapi** and **--testnet** are global configuration flags to 'activate' the restapi and run on testnet
+(whether running a daemon app or in GUI wallet mode). These arguments can be placed in any order (i.e. they could come last).
+
+Whereas, **-dapp restapi** loads up a daemon app (in this case called 'restapi') and will cause its additional
+endpoints to be registered onto the activated restapi. These commands are **specific to running ESV in daemon mode**, so
+must follow the **"daemon"** command.
 
 Set your REST API username and password (not implemented yet)::
 
@@ -50,4 +57,4 @@ Future possibilities include:
 - Dedicated B and BCAT handlers for ease of file uploads.
 - Websockets to ElectrumX subscriptions
 - p2p broadcasting
-q
+- coin splitting

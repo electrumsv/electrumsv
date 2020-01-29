@@ -1,18 +1,17 @@
 from typing import Union, Any
+
 import aiorpcx
 from aiohttp import web
-from electrumsv.restapi_endpoints import DefaultEndpoints
+
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv.app_state import app_state
-from electrumsv.restapi import Fault, good_response, \
-    fault_to_http_response
+from electrumsv.restapi import Fault, good_response, fault_to_http_response
 from .errors import Errors
-
 from .handler_utils import ExtendedHandlerUtils, VNAME
 
 
-class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
+class ExtensionEndpoints(ExtendedHandlerUtils):
     """Extension endpoints for ElectrumSV REST API"""
 
     routes = []
@@ -35,8 +34,6 @@ class ExtensionEndpoints(ExtendedHandlerUtils, DefaultEndpoints):
 
     def add_routes(self):
         self.routes = [
-            web.get("/", self.status),
-            web.get(self.BASE + "/ping", self.ping),
             web.get(self.WALLETS_TLD, self.get_all_wallets),
             web.get(self.WALLETS_PARENT, self.get_parent_wallet),
             web.post(self.WALLETS_PARENT + "/load_wallet", self.load_wallet),

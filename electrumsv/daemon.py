@@ -156,7 +156,7 @@ class Daemon(DaemonThread):
 
         # REST API - (asynchronous)
         self.rest_server = None
-        if app_state.config.get("cmd") == "daemon":
+        if app_state.config.get("restapi"):
             self.init_restapi_server(config, fd)
             self.configure_restapi_server()
 
@@ -334,12 +334,12 @@ class Daemon(DaemonThread):
         self.logger.debug("stopped.")
 
     def launch_restapi(self):
-        if not self.is_gui and not self.rest_server.is_alive:
+        if not self.rest_server.is_alive:
             self._restapi_future = app_state.async_.spawn(self.rest_server.launcher)
             self.rest_server.is_alive = True
 
     def run(self) -> None:
-        if app_state.gui_kind != "gui":
+        if app_state.config.get("restapi"):
             self.launch_restapi()
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)

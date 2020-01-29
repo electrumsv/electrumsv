@@ -159,6 +159,10 @@ class SVApplication(QApplication):
             app_state.config.save_last_wallet(window._wallet)
             self._last_window_closed()
 
+    def setup_app(self):
+        # app_state.daemon is initialised after app. Setup things dependent on daemon here.
+        pass
+
     def _build_tray_menu(self):
         # Avoid immediate GC of old menu when window closed via its action
         if self.tray.contextMenu() is None:

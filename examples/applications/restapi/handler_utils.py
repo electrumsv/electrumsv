@@ -2,9 +2,11 @@ import asyncio
 import os
 from json import JSONDecodeError
 from typing import Optional, Union, List, Dict, Any, Iterable, Tuple
+
 import bitcoinx
 from bitcoinx import TxOutput, hash_to_hex_str, hex_str_to_hash
 from aiohttp import web
+
 from electrumsv.coinchooser import PRNG
 from electrumsv.constants import TxFlags
 from electrumsv.exceptions import NotEnoughFunds

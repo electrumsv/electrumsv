@@ -1,17 +1,18 @@
 import asyncio
 import json
+import logging
+import tempfile
 
+import pytest
 import bitcoinx
 from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
+from bitcoinx import Address, Script, BitcoinTestnet, hex_str_to_hash
+from typing import List, Union, Dict, Any, Optional, Tuple
+from concurrent.futures.thread import ThreadPoolExecutor
+
 from electrumsv.constants import TransactionOutputFlag, ScriptType
 from electrumsv.restapi import good_response, Fault
-from aiohttp.test_utils import make_mocked_request
-from concurrent.futures.thread import ThreadPoolExecutor
-import pytest
-from bitcoinx import Address, Script, BitcoinTestnet, hex_str_to_hash
-import logging
-from typing import List, Union, Dict, Any, Optional, Tuple
-import tempfile
 from electrumsv.wallet import UTXO, Wallet, AbstractAccount
 from electrumsv.transaction import Transaction
 from ..handlers import ExtensionEndpoints

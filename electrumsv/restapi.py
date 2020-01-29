@@ -1,11 +1,18 @@
 import asyncio
 import json
-from base64 import b64decode
 from typing import Optional, Dict, Union, Any
+
+from base64 import b64decode
 from aiohttp import web
+
 from .logs import logs
 from .app_state import app_state
 from .util import to_bytes, to_string, constant_time_compare
+
+# Supported networks in restapi url
+MAINET = 'main'
+TESTNET = 'test'
+SCALINGTESTNET = 'stn'
 
 
 def get_app_state():
@@ -16,11 +23,11 @@ def get_app_state():
 def get_network_type():
     app_state = get_app_state()
     if app_state.config.get('testnet'):
-        return 'test'
+        return TESTNET
     if app_state.config.get('scalingtestnet'):
-        return 'stn'
+        return SCALINGTESTNET
     else:
-        return 'main'
+        return MAINET
 
 
 class Errors:
@@ -99,10 +106,7 @@ async def decode_request_body(request) -> Union[Dict[Any, Any], Fault]:
     return json.loads(body.decode('utf-8'))
 
 
-def fault_to_http_response(fault: Union[Fault]):
-    if fault.code < 0:  # bitcoin rpc error codes
-        return bad_request(fault.code, fault.message)
-
+def fault_to_http_response(fault: Fault):
     if 40000 <= fault.code < 50000:  # ESV rest_api.Errors 4xx codes
         if 40400 <= fault.code < 40500:
             return not_found(fault.code, fault.message)
@@ -111,8 +115,7 @@ def fault_to_http_response(fault: Union[Fault]):
     if 50000 <= fault.code < 60000:  # ESV rest_api.Errors 5xx codes
         return internal_server_error(fault.code, fault.message)
 
-    else:  # other
-        return bad_request(fault.code, fault.message)
+    return bad_request(fault.code, fault.message)
 
 
 class BaseAiohttpServer:
@@ -158,7 +161,7 @@ class AiohttpServer(BaseAiohttpServer):
 
     @web.middleware
     async def check_network(self, request, handler):
-        supported_networks = ['main', 'stn', 'test']
+        supported_networks = [MAINET, SCALINGTESTNET, TESTNET]
         network = request.match_info.get('network', None)
 
         # paths without {network} are okay

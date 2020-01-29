@@ -2,6 +2,7 @@
 from typing import Dict, List
 
 from aiohttp import web
+
 from .logs import logs
 from .app_state import app_state
 from .restapi import good_response, get_network_type
