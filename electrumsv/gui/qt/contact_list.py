@@ -2,7 +2,7 @@
 #
 # ElectrumSV - lightweight Bitcoin client
 # Copyright (C) 2015 Thomas Voegtlin
-# Copyright (C) 2019 ElectrumSV Developers
+# Copyright (C) 2019-2020 The ElectrumSV Developers
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files

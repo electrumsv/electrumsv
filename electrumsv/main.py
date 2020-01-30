@@ -1,5 +1,5 @@
 # ElectrumSV - lightweight Bitcoin SV client
-# Copyright (C) 2018-2019 The ElectrumSV Developers
+# Copyright (C) 2018-2020 The ElectrumSV Developers
 #
 # Electrum Cash - lightweight Bitcoin Cash client
 # Copyright (C) 2017-2018 The Electron Cash Developers
