@@ -233,6 +233,8 @@ def load_app_module(module_name, config):
 def run_app_with_daemon(fd, is_gui, config_options):
     with app_state.async_ as async_:
         d = daemon.Daemon(fd, is_gui)
+        app_state.app.setup_app()
+
         d.start()
         try:
             app_state.app.run_app()

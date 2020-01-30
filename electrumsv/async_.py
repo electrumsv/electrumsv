@@ -40,7 +40,7 @@ class ASync(object):
 
     def __init__(self):
         self._queue = queue.Queue()
-        self.thread = threading.Thread(target=self._main)
+        self.thread = threading.Thread(target=self._main, name="async")
         self.loop = new_event_loop()
         self.start_event = threading.Event()
         self.stop_event = self.event()

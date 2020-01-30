@@ -303,6 +303,8 @@ def add_global_options(parser):
                        default=False, help="Use Scaling Testnet")
     group.add_argument("--file-logging", action="store_true", dest="file_logging", default=False,
                        help="Redirect logging to log file")
+    group.add_argument("--restapi", action="store_true", dest="restapi",
+                       help="Run the built-in restapi")
 
 def get_parser():
     # create main parser

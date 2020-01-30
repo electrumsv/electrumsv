@@ -25,6 +25,7 @@
 
 from collections import defaultdict, namedtuple
 from math import floor, log10
+from typing import List
 
 from bitcoinx import sha256
 
@@ -74,6 +75,8 @@ class PRNG:
             j = self.randint(0, i+1)
             x[i], x[j] = x[j], x[i]
 
+    def pluck(self, seq: List):
+        return seq.pop(self.randint(0, len(seq)))
 
 Bucket = namedtuple('Bucket', ['desc', 'size', 'value', 'coins'])
 
