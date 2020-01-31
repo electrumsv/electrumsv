@@ -440,3 +440,20 @@ class ExtendedHandlerUtils(HandlerUtils):
             return tx, child_wallet, password
         except NotEnoughFunds:
             raise Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE)
+
+    async def _broadcast_transaction(self, rawtx: str, tx_hash: bytes, account: AbstractAccount):
+        result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
+        account.set_transaction_state(tx_hash=tx_hash,
+                                      flags=TxFlags.StateDispatched | TxFlags.HasByteData)
+        self.logger.debug("successful broadcast for %s", result)
+        return result
+
+    def remove_signed_transaction(self, tx: Transaction, wallet: AbstractAccount):
+        # must remove signed transactions after a failed broadcast attempt (to unlock utxos)
+        # if it's a re-broadcast attempt (same txid) and we already have a StateDispatched or
+        # StateCleared transaction then *no deletion* should occur
+        tx_hash = tx.hash()
+        signed_tx = wallet.get_transaction(tx_hash, flags=TxFlags.StateSigned)
+
+        if signed_tx:
+            wallet.delete_transaction(tx_hash)
