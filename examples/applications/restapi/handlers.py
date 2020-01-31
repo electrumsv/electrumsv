@@ -2,6 +2,8 @@ from typing import Union, Any
 
 import aiorpcx
 from aiohttp import web
+from bitcoinx import hex_str_to_hash
+from electrumsv.constants import TxFlags
 
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
@@ -224,7 +226,6 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             self.raise_for_duplicate_tx(tx)
             account.sign_transaction(tx, password)
 
-            # freeze utxos by default (if broadcast not attempted will remain frozen)
             _frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
             response = {"value": {"txid": tx.txid(),
                                   "rawtx": str(tx)}}
@@ -238,7 +239,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             self.raise_for_duplicate_tx(tx)
             account.sign_transaction(tx, password)
             frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
-            result = await self.send_request('blockchain.transaction.broadcast', [str(tx)])
+            result = await self._broadcast_transaction(str(tx), tx.hash(), account)
             self.prev_transaction = result
             response = {"value": {"txid": result}}
             self.logger.debug("successful broadcast for %s", result)
@@ -247,6 +248,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             return fault_to_http_response(e)
         except aiorpcx.jsonrpc.RPCError as e:
             account.set_frozen_coin_state(frozen_utxos, False)
+            self.remove_signed_transaction(tx, account)
             return fault_to_http_response(Fault(Errors.AIORPCX_ERROR_CODE, e.message))
 
     async def broadcast(self, request):
@@ -262,8 +264,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             tx = Transaction.from_hex(rawtx)
             self.raise_for_duplicate_tx(tx)
             frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
-            result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
-            self.logger.debug("successful broadcast for %s", result)
+            result = await self._broadcast_transaction(rawtx, tx.hash(), account)
             self.prev_transaction = result
             response = {"value": {"txid": result}}
             return good_response(response)
@@ -271,4 +272,5 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             return fault_to_http_response(e)
         except aiorpcx.jsonrpc.RPCError as e:
             account.set_frozen_coin_state(frozen_utxos, False)
+            self.remove_signed_transaction(tx, account)
             return fault_to_http_response(Fault(Errors.AIORPCX_ERROR_CODE, e.message))
