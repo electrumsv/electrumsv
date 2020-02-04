@@ -6,8 +6,8 @@ import unittest
 
 import pytest
 
-from electrumsv.constants import (DATABASE_EXT, DerivationType, ScriptType, StorageKind,
-    CHANGE_SUBPATH, RECEIVING_SUBPATH)
+from electrumsv.constants import (DATABASE_EXT, DerivationType, KeystoreTextType, ScriptType,
+    StorageKind, CHANGE_SUBPATH, RECEIVING_SUBPATH)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (from_seed, from_xpub, Old_KeyStore, Multisig_KeyStore)
@@ -331,12 +331,11 @@ class TestLegacyWalletCreation:
         check_create_keys(wallet, account_row.default_script_type)
 
     def test_imported_privkey(self, tmp_storage) -> None:
-        text = """
-        KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6
-        """
         wallet = Wallet(tmp_storage)
-        script_type = ScriptType.P2PKH
-        account = ImportedPrivkeyAccount.from_text(wallet, None, script_type, 'password', text)
+        account = wallet.create_account_from_text_entries(KeystoreTextType.PRIVATE_KEYS,
+            ScriptType.P2PKH,
+            [ "KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6" ],
+            "password")
 
         keypairs = {'02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997':
             'KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6'}
@@ -349,8 +348,10 @@ class TestLegacyWalletCreation:
         1GPHVTY8UD9my6jyP4tb2TYJwUbDetyNC6
         """
         wallet = Wallet(tmp_storage)
-        account = ImportedAddressAccount.from_text(wallet, None, text)
-
+        account = wallet.create_account_from_text_entries(KeystoreTextType.ADDRESSES,
+            ScriptType.NONE,
+            [ "15hETetDmcXm1mM4sEf7U2KXC9hDHFMSzz", "1GPHVTY8UD9my6jyP4tb2TYJwUbDetyNC6" ],
+            "password")
         check_legacy_parent_of_imported_address_wallet(wallet)
 
     def test_multisig(self, tmp_storage) -> None:

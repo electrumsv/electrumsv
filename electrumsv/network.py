@@ -52,7 +52,7 @@ from .constants import TxFlags
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
-from .util import JSON, protocol_tuple, version_string, chunks
+from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
 from .networks import Net
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
 
@@ -901,12 +901,14 @@ class SVSession(RPCSession):
         logger.debug(f"unsubscribed {len(exclusive_subs)} subscriptions for {account}")
 
 
-class Network:
+class Network(TriggeredCallbacks):
     '''Manages a set of connections to remote ElectrumX servers.  All operations are
     asynchronous.
     '''
 
     def __init__(self):
+        TriggeredCallbacks.__init__(self)
+
         app_state.read_headers()
 
         # Sessions
@@ -923,10 +925,6 @@ class Network:
 
         # Add an account, remove an account, or redo all account verifications
         self.account_jobs = app_state.async_.queue()
-
-        # Callbacks and their lock
-        self.callbacks = defaultdict(list)
-        self.lock = threading.Lock()
 
         dir_path = app_state.config.file_path('certs')
         if not os.path.exists(dir_path):
@@ -1324,22 +1322,6 @@ class Network:
 
     def remove_account(self, account):
         app_state.async_.spawn(self.account_jobs.put, ('remove', account))
-
-    def register_callback(self, callback, events):
-        with self.lock:
-            for event in events:
-                self.callbacks[event].append(callback)
-
-    def unregister_callback(self, callback):
-        with self.lock:
-            for callbacks in self.callbacks.values():
-                if callback in callbacks:
-                    callbacks.remove(callback)
-
-    def trigger_callback(self, event, *args):
-        with self.lock:
-            callbacks = self.callbacks[event][:]
-        [callback(event, *args) for callback in callbacks]
 
     def chain(self):
         main_session = self.main_session()

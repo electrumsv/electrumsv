@@ -180,8 +180,9 @@ class AccountsView(QSplitter):
         def import_addr(addr):
             address = address_from_string(addr)
             if account.import_address(address):
-                return address
-            return None
+                return addr
+            # Show duplicate addition same as good addition.
+            return addr
         self._main_window._do_import(title, msg, import_addr)
 
     @protected

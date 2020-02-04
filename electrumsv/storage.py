@@ -863,7 +863,9 @@ class TextStore(AbstractStore):
                 for tx_id, tx_height in usage_list:
                     tx_states[tx_id].known_addresses.add(address_string)
                     assert tx_height <= tx_states[tx_id].height, \
-                        f"bad height {tx_height} > {tx_states[tx_id].height}"
+                        (f"bad height {tx_height} > {tx_states[tx_id].height}" +
+                        f"verified {tx_verified.get(tx_id)}" +
+                        f"heights {tx_heights.get(tx_id)}")
 
             _addresses = self.get("addresses")
             if not isinstance(_addresses, dict):

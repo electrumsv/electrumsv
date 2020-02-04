@@ -206,15 +206,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self.console.showMessage(self.network.main_server.state.banner)
             self.network.register_callback(self.on_quotes, ['on_quotes'])
             self.network.register_callback(self._on_history, ['on_history'])
-            self.network.register_callback(self._on_account_created, ['on_account_created'])
-            self.network.register_callback(self._on_keys_updated, ['on_keys_updated'])
-            self.network.register_callback(self._on_keys_created, ['on_keys_created'])
-            self.network.register_callback(self._on_transaction_state_change,
-                ['transaction_state_change'])
-            self.network.register_callback(self._on_transaction_added, ['transaction_added'])
-            self.network.register_callback(self._on_transaction_deleted, ['transaction_deleted'])
+
             self.new_fx_quotes_signal.connect(self.on_fx_quotes)
             self.new_fx_history_signal.connect(self.on_fx_history)
+
+        self._wallet.register_callback(self._on_account_created, ['on_account_created'])
+        self._wallet.register_callback(self._on_keys_updated, ['on_keys_updated'])
+        self._wallet.register_callback(self._on_keys_created, ['on_keys_created'])
+        self._wallet.register_callback(self._on_transaction_state_change,
+            ['transaction_state_change'])
+        self._wallet.register_callback(self._on_transaction_added, ['transaction_added'])
+        self._wallet.register_callback(self._on_transaction_deleted, ['transaction_deleted'])
 
         self.load_wallet()
         self.app.timer.timeout.connect(self.timer_actions)
@@ -268,6 +270,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.transaction_deleted_signal.emit(wallet_path, account_id, tx_hash)
 
     def _on_account_created(self, event_name: str, new_account_id: int) -> None:
+        print("_on_account_created", event_name, self._account_id, new_account_id)
         if self._account_id is None:
             self._account_id = new_account_id
             self._account = self._wallet.get_account(new_account_id)
@@ -1236,7 +1239,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.saved = True
 
     def new_payment_request(self) -> None:
-        keyinstances = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)
+        keyinstances: List[KeyInstanceRow] = []
+        if self._account.is_deterministic():
+            keyinstances = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)
         if not len(keyinstances):
             if not self._account.is_deterministic():
                 msg = [
@@ -1269,16 +1274,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def update_receive_address_widget(self) -> None:
         text = ""
-        script_template = self._account.get_script_template_for_id(self._receive_key_id)
-        if script_template is not None:
-            text = script_template_to_string(script_template)
+        if self._receive_key_id is not None:
+            script_template = self._account.get_script_template_for_id(self._receive_key_id)
+            if script_template is not None:
+                text = script_template_to_string(script_template)
         self.receive_destination_e.setText(text)
 
     def clear_receive_tab(self) -> None:
         self.expires_label.hide()
         self.expires_combo.show()
-        fresh_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-        self.set_receive_key(fresh_key)
+        if self._account.is_deterministic() and self._receive_key_id is None:
+            fresh_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
+            self.set_receive_key(fresh_key)
 
     def toggle_qr_window(self):
         from . import qrwindow
@@ -2471,16 +2478,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         good = []
         for key in str(text).split():
             try:
-                addr = func(key)
-                good.append(addr)
+                func(key)
+                good.append(key)
             except Exception as e:
+                self.logger.exception("import")
                 bad.append(key)
                 continue
         if good:
-            self.show_message(_("The following addresses were added") + ':\n' +
-                '\n'.join(address.to_string() for address in good))
+            self.show_message(_("The following entries were added") + ':\n' +
+                '\n'.join(text for text in good))
         if bad:
-            self.show_critical(_("The following inputs could not be imported") +
+            self.show_critical(_("The following entries could not be imported") +
                                ':\n'+ '\n'.join(bad))
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()

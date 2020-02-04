@@ -22,6 +22,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from collections import defaultdict
 from decimal import Decimal
 from datetime import datetime
 import json
@@ -575,3 +576,25 @@ def chunks(items, size):
     '''Break up items, an iterable, into chunks of length size.'''
     for i in range(0, len(items), size):
         yield items[i: i + size]
+
+
+class TriggeredCallbacks:
+    def __init__(self) -> None:
+        self._callbacks = defaultdict(list)
+        self._callback_lock = threading.Lock()
+
+    def register_callback(self, callback, events) -> None:
+        with self._callback_lock:
+            for event in events:
+                self._callbacks[event].append(callback)
+
+    def unregister_callback(self, callback) -> None:
+        with self._callback_lock:
+            for callbacks in self._callbacks.values():
+                if callback in callbacks:
+                    callbacks.remove(callback)
+
+    def trigger_callback(self, event, *args) -> None:
+        with self._callback_lock:
+            callbacks = self._callbacks[event][:]
+        [callback(event, *args) for callback in callbacks]

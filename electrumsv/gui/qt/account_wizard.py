@@ -1,24 +1,26 @@
 import concurrent
 import enum
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
-from bitcoinx import bip32_decompose_chain_string
+from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
+    bip32_key_from_string, PrivateKey, P2SH_Address)
 from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QPainter, QPalette, QPen, QPixmap, QTextOption
 from PyQt5.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QWizard, QWizardPage, QGridLayout, QLineEdit, QListWidget,
-    QListWidgetItem, QProgressBar, QSlider, QTextEdit, QWidget
+    QCheckBox, QVBoxLayout, QHBoxLayout, QLabel, QWizard, QWizardPage, QGridLayout, QGroupBox,
+    QLineEdit, QListWidget, QListWidgetItem, QProgressBar, QRadioButton, QSlider, QTextEdit,
+    QWidget
 )
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import compose_chain_string
-from electrumsv.constants import DerivationType
+from electrumsv.bitcoin import compose_chain_string, is_new_seed, is_old_seed
+from electrumsv.constants import DerivationType, KeystoreTextType, ScriptType
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.device import DeviceInfo
 from electrumsv.i18n import _
 from electrumsv import keystore
 from electrumsv.logs import logs
-from electrumsv import wallet_support
+from electrumsv.networks import Net
 from electrumsv.wallet import Wallet, instantiate_keystore
 
 from .main_window import ElectrumWindow
@@ -55,12 +57,15 @@ DEVICE_SETUP_SUCCESS_TEXT = _("Your {} hardware wallet was both successfully det
     "BCH wallet addresses use m/44'/145'/0'")
 
 
+KeystoreMatchType = Union[str, Set[str]]
+
 class AccountPages(enum.IntEnum):
     ADD_ACCOUNT_MENU = 12
     CREATE_NEW_STANDARD_ACCOUNT = 13
     CREATE_NEW_MULTISIG_ACCOUNT = 14
     IMPORT_ACCOUNT_FILE = 15
     IMPORT_ACCOUNT_TEXT = 16
+    IMPORT_ACCOUNT_TEXT_CUSTOM = 17
     # Hardware wallets.
     FIND_HARDWARE_WALLET = 51
     SETUP_HARDWARE_WALLET = 52
@@ -77,6 +82,8 @@ class AccountWizard(QWizard):
 
         self._main_window = main_window
         self._wallet: Wallet = main_window._wallet
+        self._text_import_type: Optional[KeystoreTextType] = None
+        self._text_import_matches: Optional[KeystoreMatchType] = None
 
         self.setWindowTitle('ElectrumSV')
         self.setModal(True)
@@ -89,6 +96,7 @@ class AccountWizard(QWizard):
 
         self.setPage(AccountPages.ADD_ACCOUNT_MENU, AddAccountWizardPage(self))
         self.setPage(AccountPages.IMPORT_ACCOUNT_TEXT, ImportWalletTextPage(self))
+        self.setPage(AccountPages.IMPORT_ACCOUNT_TEXT_CUSTOM, ImportWalletTextCustomPage(self))
         self.setPage(AccountPages.CREATE_NEW_STANDARD_ACCOUNT, CreateStandardAccountPage(self))
         self.setPage(AccountPages.CREATE_NEW_MULTISIG_ACCOUNT, CreateMultisigAccountPage(self))
         self.setPage(AccountPages.FIND_HARDWARE_WALLET, FindHardwareWalletAccountPage(self))
@@ -138,6 +146,17 @@ class AccountWizard(QWizard):
 
     def get_wallet(self) -> Wallet:
         return self._wallet
+
+    def set_text_import_matches(self, text_type: KeystoreTextType,
+            text_matches: KeystoreMatchType) -> None:
+        self._text_import_type = text_type
+        self._text_import_matches = text_matches
+
+    def get_text_import_type(self) -> Optional[KeystoreTextType]:
+        return self._text_import_type
+
+    def get_text_import_matches(self) -> Optional[KeystoreMatchType]:
+        return self._text_import_matches
 
 
 class AddAccountWizardPage(QWizardPage):
@@ -202,6 +221,8 @@ class AddAccountWizardPage(QWizardPage):
         option_list.itemSelectionChanged.connect(_on_item_selection_changed)
 
     def isComplete(self) -> bool:
+        # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
+        # Overriding this requires us to emit the 'completeChanges' signal where applicable.
         selected_items = self.option_list.selectedItems()
         return len(selected_items)
 
@@ -303,7 +324,7 @@ class AddAccountWizardPage(QWizardPage):
                 'long_description': _("If you have some text to paste, or type in, and want "
                     "ElectrumSV to examine it and offer you some choices on how it can be "
                     "imported, this is the option you probably want."),
-                'enabled': False,
+                'enabled': True,
             },
             {
                 'page': AccountPages.FIND_HARDWARE_WALLET,
@@ -315,14 +336,15 @@ class AddAccountWizardPage(QWizardPage):
 
 
 class ImportWalletTextPage(QWizardPage):
-    def __init__(self, wizard: AccountWizard):
+    def __init__(self, wizard: AccountWizard) -> None:
         super().__init__(wizard)
 
         self.setTitle(_("Import Account From Text"))
-        self.setFinalPage(False)
+        self.setFinalPage(True)
 
-        self._text_matches = set([])
-        self._text_value = None
+        self._next_page_id = -1
+        self._checked_match_type: Optional[KeystoreTextType] = None
+        self._matches: Dict[KeystoreTextType, KeystoreMatchType] = {}
 
         self.text_area = QTextEdit()
         self.text_area.textChanged.connect(self._on_text_changed)
@@ -334,75 +356,323 @@ class ImportWalletTextPage(QWizardPage):
         self.registerField("wallet-import-text*", self.text_area, "plainText",
             self.text_area.textChanged)
 
-        label_text = self._get_label_text()
-        label_area = self._label = QLabel(label_text)
-        label_area.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-        label_area.setContentsMargins(10, 20, 10, 20)
+        self._label = QLabel(_("Please enter some text and any valid matches will be "
+            "made available below.."))
+
+        hbox = QHBoxLayout()
+        hbox.addStretch(1)
+        hbox.addWidget(self._label)
+        hbox.addStretch(1)
+
+        self._addresses_button = QRadioButton(_("Addresses"))
+        self._privkeys_button = QRadioButton(_("Private keys"))
+        self._xpub_button = QRadioButton(_("Extended public key"))
+        self._xprv_button = QRadioButton(_("Extended private key"))
+        self._bip39seed_button = QRadioButton(_("BIP39 seed words"))
+        self._esvseed_button = QRadioButton(_("Electrum seed words"))
+        self._esvoldseed_button = QRadioButton(_("Electrum old-style seed words"))
+
+        for match_type, button in self._get_buttons():
+            def make_check_callback(match_type: KeystoreTextType) -> Callable[[bool], None]:
+                def on_button_check(checked: bool=False):
+                    self._on_match_type_selected(match_type)
+                return on_button_check
+            button.clicked.connect(make_check_callback(match_type))
+
+        textbuttons_box = QGridLayout()
+        textbuttons_box.addWidget(self._addresses_button, 0, 0)
+        textbuttons_box.addWidget(self._privkeys_button, 1, 0)
+        textbuttons_box.addWidget(self._xpub_button, 2, 0)
+        textbuttons_box.addWidget(self._xprv_button, 3, 0)
+        textbuttons_box.addWidget(self._bip39seed_button, 0, 1)
+        textbuttons_box.addWidget(self._esvseed_button, 1, 1)
+        textbuttons_box.addWidget(self._esvoldseed_button, 2, 1)
+        texttype_box = QGroupBox()
+        texttype_box.setFlat(True)
+        texttype_box.setLayout(textbuttons_box)
+
+        hbox2 = QHBoxLayout()
+        hbox2.addStretch(1)
+        hbox2.addWidget(texttype_box)
+        hbox2.addStretch(1)
 
         layout = QVBoxLayout()
         layout.addWidget(self.text_area)
-        layout.addWidget(label_area)
+        layout.addLayout(hbox)
+        layout.addLayout(hbox2)
 
         self.setLayout(layout)
 
-    def get_text_value(self):
-        return self._text_value
+    def _get_buttons(self) -> List[Tuple[KeystoreTextType, QRadioButton]]:
+        return [
+            (KeystoreTextType.ADDRESSES, self._addresses_button),
+            (KeystoreTextType.PRIVATE_KEYS, self._privkeys_button),
+            (KeystoreTextType.EXTENDED_PUBLIC_KEY, self._xpub_button),
+            (KeystoreTextType.EXTENDED_PRIVATE_KEY, self._xprv_button),
+            (KeystoreTextType.BIP39_SEED_WORDS, self._bip39seed_button),
+            (KeystoreTextType.ELECTRUM_SEED_WORDS, self._esvseed_button),
+            (KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, self._esvoldseed_button),
+        ]
 
-    def set_text_value(self, value):
-        self._text_value = value
+    def _set_matches(self, matches: Dict[KeystoreTextType, KeystoreMatchType]) -> None:
+        self._checked_match_type = None
+        self._matches = matches
 
-    text_value = property(get_text_value, set_text_value)
-
-    def _get_label_text(self):
-        text = self.text_area.toPlainText().strip()
-
-        general_name = _('Private key')
-        error_name = _('error identifying text')
-        if len(self._text_matches) == 0:
-            if len(text):
-                return _("The text you have entered above is unrecognized.")
-            return _("Please enter some wallet-related text above.")
-
-        if len(self._text_matches) > 1:
-            return f"{general_name} ({_('ambiguous matches')})"
-
-        if wallet_support.TextImportTypes.PRIVATE_KEY_MINIKEY in self._text_matches:
-            return f"{general_name} ({_('minikey')})"
-
-        if wallet_support.TextImportTypes.PRIVATE_KEY_SEED in self._text_matches:
-            matches = wallet_support.find_matching_seed_word_types(text)
-            error_name = _("error identifying seed words")
-
+        # These two types are expected to be the sole kind of match, but will have one or more
+        # matches of that type.
+        if KeystoreTextType.ADDRESSES in matches or KeystoreTextType.PRIVATE_KEYS in matches:
             if len(matches) > 1:
-                return f"{general_name} ({_('ambiguous seed words')})"
-            elif wallet_support.SeedWordTypes.ELECTRUM_OLD in matches:
-                return f"{general_name} ({_('Electrum old seed words')})"
-            elif wallet_support.SeedWordTypes.ELECTRUM_NEW in matches:
-                return f"{general_name} ({_('Electrum seed words')})"
-            elif wallet_support.SeedWordTypes.BIP39 in matches:
-                return f"{general_name} ({_('BIP39 seed words')})"
+                matches.clear()
 
-        return f"{_('Private key')} ({error_name})"
+        for match_type, button in self._get_buttons():
+            if len(matches) == 1 and match_type in matches:
+                self._checked_match_type = match_type
+                button.setChecked(True)
+            else:
+                button.setChecked(False)
+            button.setEnabled(match_type in matches)
 
-    def _on_text_changed(self):
-        """ The contents of the text area have changed. """
+        self._on_match_type_selected(self._checked_match_type)
+
+    def _on_match_type_selected(self, match_type: Optional[KeystoreTextType]) -> None:
+        self._checked_match_type = match_type
+
+        button = self.wizard().button(QWizard.CustomButton1)
+        button.setEnabled(self._checked_match_type is not None and \
+            self._checked_match_type not in { KeystoreTextType.ADDRESSES,
+                KeystoreTextType.PRIVATE_KEYS })
+        self.completeChanged.emit()
+
+    def _on_text_changed(self) -> None:
+        matches: Dict[KeystoreTextType, KeystoreMatchType] = {}
         text = self.text_area.toPlainText().strip()
-        new_text_matches = wallet_support.find_matching_text_import_types(text)
-        if new_text_matches != self._text_matches:
-            self._text_matches = new_text_matches
-        self._label.setText(self._get_label_text())
 
-    def isFinalPage(self):
-        return False
+        # First try the matches that match the entire text.
+        if is_old_seed(text):
+            matches[KeystoreTextType.ELECTRUM_OLD_SEED_WORDS] = text
+        if is_new_seed(text):
+            matches[KeystoreTextType.ELECTRUM_SEED_WORDS] = text
+        is_checksum_valid, is_wordlist_valid = keystore.bip39_is_checksum_valid(text)
+        if is_checksum_valid and is_wordlist_valid:
+            matches[KeystoreTextType.BIP39_SEED_WORDS] = text
 
-    def isComplete(self):
-        return len(self._text_matches)
+        try:
+            key = bip32_key_from_string(text)
+            if isinstance(key, PrivateKey):
+                matches[KeystoreTextType.EXTENDED_PRIVATE_KEY] = text
+            else:
+                matches[KeystoreTextType.EXTENDED_PUBLIC_KEY] = text
+        except (Base58Error, ValueError):
+            pass
 
-    def validatePage(self):
-        return self.isComplete()
+        # If no full matches, try and match each "word".
+        if not len(matches):
+            text = text.split()
+            for word in text:
+                match_found = False
+                try:
+                    PrivateKey.from_text(word)
+                except (Base58Error, ValueError):
+                    pass
+                else:
+                    match_found = True
+                    if KeystoreTextType.PRIVATE_KEYS not in matches:
+                        matches[KeystoreTextType.PRIVATE_KEYS] = set()
+                    matches[KeystoreTextType.PRIVATE_KEYS].add(word)
 
-    def nextId(self):
+                try:
+                    address = Address.from_string(word, Net.COIN)
+                    if isinstance(address, P2SH_Address):
+                        raise ValueError("P2SH not supported")
+                except (Base58Error, ValueError):
+                    pass
+                else:
+                    match_found = True
+                    if KeystoreTextType.ADDRESSES not in matches:
+                        matches[KeystoreTextType.ADDRESSES] = set()
+                    matches[KeystoreTextType.ADDRESSES].add(word)
+
+                if not match_found:
+                    if KeystoreTextType.UNRECOGNIZED not in matches:
+                        matches[KeystoreTextType.UNRECOGNIZED] = set()
+                    matches[KeystoreTextType.UNRECOGNIZED].add(word)
+
+        self._set_matches(matches)
+
+    def _on_customize_button_clicked(self, *checked) -> None:
+        assert self.isComplete()
+        self._next_page_id = AccountPages.IMPORT_ACCOUNT_TEXT_CUSTOM
+
+        wizard: AccountWizard = self.wizard()
+        wizard.next()
+
+    def isComplete(self) -> bool:
+        # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
+        # Overriding this requires us to emit the 'completeChanges' signal where applicable.
+        return self._checked_match_type is not None
+
+    def validatePage(self) -> bool:
+        # Called when 'Next' or 'Finish' is clicked for last-minute validation.
+        assert self.isComplete()
+
+        wizard: AccountWizard = self.wizard()
+        if self._next_page_id == -1:
+            # Create the account with no customisation
+            if not self._create_account(main_window=wizard._main_window):
+                return False
+        else:
+            wizard.set_text_import_matches(self._checked_match_type,
+                self._matches[self._checked_match_type])
+        return True
+
+    def nextId(self) -> int:
+        # Need to know if customize is clicked and go to the custom page.
+        return self._next_page_id
+
+    def on_enter(self) -> None:
+        self._next_page_id = -1
+
+        button = self.wizard().button(QWizard.CustomButton1)
+        button.setText(_("&Customize"))
+        button.setContentsMargins(10, 0, 10, 0)
+        button.clicked.connect(self._on_customize_button_clicked)
+        button.setVisible(True)
+        button.setEnabled(False)
+
+        self._set_matches(self._matches)
+
+    def on_leave(self) -> None:
+        button = self.wizard().button(QWizard.CustomButton1)
+        button.clicked.disconnect()
+        button.setVisible(False)
+        self._next_page_id = -1
+
+    @protected
+    def _create_account(self, main_window: Optional[ElectrumWindow]=None,
+            password: Optional[str]=None) -> bool:
+        wizard: AccountWizard = self.wizard()
+        wallet = wizard.get_wallet()
+        entries = self._matches[self._checked_match_type]
+        if self._checked_match_type in (KeystoreTextType.ADDRESSES, KeystoreTextType.PRIVATE_KEYS):
+            script_type = (ScriptType.P2PKH
+                if self._checked_match_type == KeystoreTextType.PRIVATE_KEYS else ScriptType.NONE)
+            wallet.create_account_from_text_entries(self._checked_match_type, script_type,
+                entries, password)
+        else:
+            _keystore = keystore.instantiate_keystore_from_text(self._checked_match_type,
+                self._matches[self._checked_match_type], password)
+            wallet.create_account_from_keystore(_keystore)
+        return True
+
+
+class ImportWalletTextCustomPage(QWizardPage):
+    def __init__(self, wizard: AccountWizard) -> None:
+        super().__init__(wizard)
+
+        self.setTitle(_("Import Account From Text With Customizations"))
+
+        self._text_type: Optional[KeystoreTextType] = None
+        self._text_matches: Optional[KeystoreMatchType] = None
+        self._derivation_text = ""
+
+        self._passphrase_label = QLabel(_("Passphrase"))
+        self._passphrase_edit = QLineEdit()
+        self._passphrase_edit.setFixedWidth(140)
+
+        self._derivation_label = QLabel(_("Derivation path"))
+        self._derivation_edit = QLineEdit(self._derivation_text)
+        self._derivation_edit.setFixedWidth(140)
+        self._derivation_edit.textEdited.connect(self._on_derivation_text_edited)
+
+        self._options_label = QLabel(_("Options"))
+        self._watchonly_button = QCheckBox(_("This is a watch-only account."))
+
+        grid = QGridLayout()
+        grid.addWidget(self._passphrase_label, 0, 0, Qt.AlignRight)
+        grid.addWidget(self._passphrase_edit, 0, 1, Qt.AlignLeft)
+        grid.addWidget(self._derivation_label, 1, 0, Qt.AlignRight)
+        grid.addWidget(self._derivation_edit, 1, 1, Qt.AlignLeft)
+        grid.addWidget(self._options_label, 2, 0, Qt.AlignRight)
+        grid.addWidget(self._watchonly_button, 2, 1, Qt.AlignLeft)
+
+        layout = QVBoxLayout()
+        layout.addLayout(grid)
+        self.setLayout(layout)
+
+    def _on_derivation_text_edited(self, text: str) -> None:
+        self._derivation_text = text.strip()
+        self.completeChanged.emit()
+
+    def isComplete(self) -> bool:
+        # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
+        # Overriding this requires us to emit the 'completeChanges' signal where applicable.
+        if self._allow_derivation_path_usage():
+            try:
+                derivation = bip32_decompose_chain_string(self._derivation_text)
+            except ValueError:
+                return False
+        return True
+
+    def validatePage(self) -> bool:
+        # Called when 'Next' or 'Finish' is clicked for last-minute validation.
+        assert self.isComplete()
+
+        wizard: AccountWizard = self.wizard()
+        if not self._create_account(main_window=wizard._main_window):
+            return False
+        return True
+
+    def nextId(self) -> int:
         return -1
+
+    def on_enter(self) -> None:
+        wizard: AccountWizard = self.wizard()
+
+        self._text_type = wizard.get_text_import_type()
+        self._text_matches = wizard.get_text_import_matches()
+        if self._text_type == KeystoreTextType.BIP39_SEED_WORDS:
+            self._derivation_text = keystore.bip44_derivation_cointype(0, 0)
+        else:
+            self._derivation_text = ""
+
+        self._passphrase_edit.setText("")
+        self._passphrase_edit.setEnabled(self._allow_passphrase_usage())
+        self._derivation_edit.setText(self._derivation_text)
+        self._derivation_edit.setEnabled(self._allow_derivation_path_usage())
+        self._watchonly_button.setChecked(False)
+        self._watchonly_button.setEnabled(self._allow_watch_only_usage())
+
+    def on_leave(self) -> None:
+        pass
+
+    def _allow_passphrase_usage(self) -> bool:
+        return self._text_type in (KeystoreTextType.ELECTRUM_SEED_WORDS,
+            KeystoreTextType.BIP39_SEED_WORDS)
+
+    def _allow_derivation_path_usage(self) -> bool:
+        return self._text_type in (KeystoreTextType.BIP39_SEED_WORDS,)
+
+    def _allow_watch_only_usage(self) -> bool:
+        return self._text_type in (KeystoreTextType.BIP39_SEED_WORDS,
+            KeystoreTextType.ELECTRUM_SEED_WORDS, KeystoreTextType.ELECTRUM_OLD_SEED_WORDS,
+            KeystoreTextType.EXTENDED_PRIVATE_KEY)
+
+    @protected
+    def _create_account(self, main_window: Optional[ElectrumWindow]=None,
+            password: Optional[str]=None) -> bool:
+        wizard: AccountWizard = self.wizard()
+        wallet = wizard.get_wallet()
+
+        passphrase = (self._passphrase_edit.text().strip()
+            if self._allow_passphrase_usage() else None)
+        derivation_text = self._derivation_text if self._allow_derivation_path_usage() else None
+        watch_only = (self._watchonly_button.isChecked()
+            if self._allow_watch_only_usage() else False)
+
+        _keystore = keystore.instantiate_keystore_from_text(self._text_type, self._text_matches,
+            password, derivation_text, passphrase, watch_only)
+        wallet.create_account_from_keystore(_keystore)
+        return True
 
 
 class CreateStandardAccountPage(QWizardPage):
@@ -500,7 +770,7 @@ class CreateStandardAccountPage(QWizardPage):
     def _get_password(self) -> str:
         return self._password_edit.text().strip()
 
-    def _create_account(self, password: str) -> None:
+    def _create_account(self, password: str) -> bool:
         from electrumsv import mnemonic
         seed_phrase = mnemonic.Mnemonic('en').make_seed('standard')
         k = keystore.from_seed(seed_phrase, '')
@@ -508,6 +778,7 @@ class CreateStandardAccountPage(QWizardPage):
 
         wizard: AccountWizard = self.wizard()
         wizard._wallet.create_account_from_keystore(k)
+        return True
 
 
 class FindHardwareWalletAccountPage(QWizardPage):
@@ -915,7 +1186,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
 
     @protected
     def _create_account(self, main_window: Optional[ElectrumWindow]=None,
-            password: Optional[str]=None) -> None:
+            password: Optional[str]=None) -> bool:
         # The derivation path is valid, proceed to create the account.
         wizard: AccountWizard = self.wizard()
         name, device_info = wizard.get_selected_device()

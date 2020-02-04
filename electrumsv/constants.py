@@ -114,6 +114,17 @@ RECEIVING_SUBPATH = (0,)
 CHANGE_SUBPATH = (1,)
 
 
+class KeystoreTextType(IntEnum):
+    UNRECOGNIZED = 0
+    ADDRESSES = 2
+    PRIVATE_KEYS = 3
+    BIP39_SEED_WORDS = 4
+    ELECTRUM_SEED_WORDS = 5
+    ELECTRUM_OLD_SEED_WORDS = 6
+    EXTENDED_PRIVATE_KEY = 7
+    EXTENDED_PUBLIC_KEY = 8
+
+
 class KeyInstanceFlag(IntEnum):
     NONE = 0
 

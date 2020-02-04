@@ -447,7 +447,7 @@ class TransactionView(QTableView):
         if not self._have_pending_updates() or (time.time() - self._last_not_synced) < 5.0:
             return
         # We do not update if there has been a recent sync.
-        if not self._main_window._wallet.is_synchronized():
+        if self._main_window.network and not self._main_window._wallet.is_synchronized():
             self._last_not_synced = time.time()
             return
         self._last_not_synced = 0

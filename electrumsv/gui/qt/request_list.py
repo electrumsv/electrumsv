@@ -97,9 +97,13 @@ class RequestList(MyTreeWidget):
 
         # update the receive address if necessary
         current_key_id = self._main_window.get_receive_key_id()
+        if current_key_id is None:
+            return
 
-        keyinstance = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-        if keyinstance:
+        keyinstance = None
+        if self._account.is_deterministic():
+            keyinstance = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
+        if keyinstance is not None:
             self._main_window.set_receive_key(keyinstance)
         self._main_window.new_request_button.setEnabled(
             current_key_id != keyinstance.keyinstance_id)

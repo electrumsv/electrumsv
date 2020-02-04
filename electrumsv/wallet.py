@@ -38,7 +38,7 @@ import random
 import threading
 import time
 from typing import (Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Set,
-    Tuple, Type, TypeVar, Union)
+    Tuple, TypeVar, Union)
 import weakref
 
 from bitcoinx import (
@@ -50,7 +50,7 @@ from bitcoinx import (
 from . import coinchooser
 from .app_state import app_state
 from .bitcoin import compose_chain_string, COINBASE_MATURITY, ScriptTemplate
-from .constants import (CHANGE_SUBPATH, DerivationType, KeyInstanceFlag, TxFlags,
+from .constants import (CHANGE_SUBPATH, DerivationType, KeyInstanceFlag, KeystoreTextType, TxFlags,
     RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, PaymentState)
 from .contacts import Contacts
 from .crypto import pw_encode, pw_decode
@@ -65,7 +65,8 @@ from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, XPublicKey, NO_SIGNATURE,
     XTxInput, XTxOutput, XPublicKeyType)
-from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime)
+from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime,
+    TriggeredCallbacks)
 from .wallet_database import TxData, TxProof, TransactionCacheEntry, TransactionCache
 from .wallet_database.tables import (AccountRow, AccountTable, KeyInstanceRow, KeyInstanceTable,
     MasterKeyRow, MasterKeyTable, TransactionTable, TransactionOutputTable,
@@ -537,8 +538,8 @@ class AbstractAccount:
         new_key = self._keyinstances[keyinstance_id]
         self._wallet.update_keyinstance_flags([ (new_key.flags, keyinstance_id) ])
         self._payment_requests[row.paymentrequest_id] = row
-        self._network.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),
-            self._id, [ new_key ])
+        self._wallet.trigger_callback('on_keys_updated', self._wallet.get_storage_path(), self._id,
+            [ new_key ])
         return row
 
     def update_payment_request(self, paymentrequest_id: int, state: PaymentState,
@@ -562,7 +563,7 @@ class AbstractAccount:
                 key.script_type, key.flags & ~KeyInstanceFlag.IS_PAYMENT_REQUEST, key.description)
             new_key = self._keyinstances[pr.keyinstance_id]
             self._wallet.update_keyinstance_flags([ (new_key.flags, pr.keyinstance_id) ])
-            self._network.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),
+            self._wallet.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),
                 self._id, [ new_key ])
             return True
         return False
@@ -796,7 +797,7 @@ class AbstractAccount:
             if exc_value is not None:
                 raise exc_value # pylint: disable=raising-bad-type
 
-            self._network.trigger_callback('transaction_added', self._wallet.get_storage_path(),
+            self._wallet.trigger_callback('transaction_added', self._wallet.get_storage_path(),
                 self._id, tx_hash)
 
         with self.transaction_lock:
@@ -812,7 +813,7 @@ class AbstractAccount:
                 raise UnknownTransactionException(f"tx {tx_hash} unknown")
             existing_flags = self._wallet._transaction_cache.get_cached_entry(tx_hash).flags
             updated_flags = self._wallet._transaction_cache.update_flags(tx_hash, flags)
-        self._network.trigger_callback('transaction_state_change',
+        self._wallet.trigger_callback('transaction_state_change',
             self._wallet.get_storage_path(), self._id, tx_hash, existing_flags, updated_flags)
 
     def process_key_usage(self, tx_hash: bytes, tx: Transaction) -> None:
@@ -884,7 +885,7 @@ class AbstractAccount:
 
         if len(tx_deltas):
             affected_keys = [self._keyinstances[k] for (_x, k) in tx_deltas.keys()]
-            self._network.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),
+            self._wallet.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),
                 self._id, affected_keys)
 
     def delete_transaction(self, tx_hash: bytes) -> None:
@@ -892,7 +893,7 @@ class AbstractAccount:
             if exc_value is not None:
                 raise exc_value # pylint: disable=raising-bad-type
 
-            self._network.trigger_callback('transaction_deleted', self._wallet.get_storage_path(),
+            self._wallet.trigger_callback('transaction_deleted', self._wallet.get_storage_path(),
                 self._id, tx_hash)
 
         tx_id = hash_to_hex_str(tx_hash)
@@ -1360,11 +1361,9 @@ class AbstractAccount:
             self._activated_keys.extend(k.keyinstance_id for k in keys)
         self._activated_keys_event.set()
 
-        # Ensures keys show in key list
-        if self._network:
-            # There is no unique id for the account, so we just pass the wallet for now.
-            self._network.trigger_callback('on_keys_created', self._wallet.get_storage_path(),
-                self._id, keys)
+        # There is no unique id for the account, so we just pass the wallet for now.
+        self._wallet.trigger_callback('on_keys_created', self._wallet.get_storage_path(),
+            self._id, keys)
 
     async def new_activated_keys(self) -> List[int]:
         await self._activated_keys_event.wait()
@@ -1432,31 +1431,6 @@ class ImportedAddressAccount(ImportedAccountBase):
         self._hashes: Dict[int, str] = {}
         super().__init__(wallet, row, keyinstance_rows, output_rows)
 
-    @classmethod
-    def from_text(cls: Type[T], wallet: 'Wallet', account_id: Optional[int], text: str) -> T:
-        if account_id is None:
-            account_rows = wallet.add_accounts([ AccountRow(-1, None, ScriptType.NONE,
-                "watch only") ])
-            account_id = account_rows[0].account_id
-            wallet.register_account(account_id,
-                ImportedAddressAccount(wallet, account_rows[0], [], []))
-        account = wallet.get_account(account_id)
-
-        keyinstance_creation_rows = []
-        for address_text in text.split():
-            address = Address.from_string(address_text, Net.COIN)
-            if isinstance(address, P2SH_Address):
-                derivation_type = DerivationType.SCRIPT_HASH
-            else:
-                derivation_type = DerivationType.PUBLIC_KEY_HASH
-            derivation_json = json.dumps({ "hash": address_text })
-            keyinstance_creation_rows.append(KeyInstanceRow(-1, None, None,
-                derivation_type, derivation_json, ScriptType.NONE, KeyInstanceFlag.NONE, None))
-
-        keyinstances = wallet.create_keyinstances(account_id, keyinstance_creation_rows)
-        account._load_keys(keyinstances)
-        return account
-
     def is_watching_only(self) -> bool:
         return True
 
@@ -1476,22 +1450,51 @@ class ImportedAddressAccount(ImportedAccountBase):
             del self._hashes[key_id]
         super()._unload_keys(key_ids)
 
-    def can_change_password(self):
+    def can_change_password(self) -> bool:
         return False
 
-    def can_import_address(self):
+    def can_import_address(self) -> bool:
         return True
 
-    def import_address(self, address):
+    def import_address(self, address: Address) -> bool:
         assert isinstance(address, Address)
-        if address in self.addresses:
+        address_string = address.to_string()
+        if address_string in self._hashes.values():
             return False
-        self.addresses.append(address)
-        self._add_activated_keys([address])
+
+        ia_data = { "hash": address_string }
+        derivation_data = json.dumps(ia_data).encode()
+        raw_keyinstance= KeyInstanceRow(-1, -1,
+            None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
+            ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, None)
+        keyinstance = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])[0]
+        self._hashes[keyinstance.keyinstance_id] = address_string
+        self._keyinstances[keyinstance.keyinstance_id] = keyinstance
+        self._add_activated_keys([ keyinstance ])
+
         return True
+
+    def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
+        return [ ]
 
     def get_xpubkeys_for_id(self, keyinstance_id: int) -> List[XPublicKey]:
         raise NotImplementedError
+
+    def get_valid_script_types(self) -> Sequence[ScriptType]:
+        return (ScriptType.P2PKH,)
+
+    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
+        keyinstance = self._keyinstances[keyinstance_id]
+        return [ (script_type,
+                self.get_script_template_for_id(keyinstance_id, script_type).to_script())
+            for script_type in self.get_valid_script_types() ]
+
+    def get_script_template_for_id(self, keyinstance_id: int,
+            script_type: Optional[ScriptType]=None) -> Any:
+        keyinstance = self._keyinstances[keyinstance_id]
+        script_type = (script_type if script_type is not None or
+            keyinstance.script_type == ScriptType.NONE else keyinstance.script_type)
+        return Address.from_string(self._hashes[keyinstance_id], Net.COIN)
 
 
 class ImportedPrivkeyAccount(ImportedAccountBase):
@@ -1501,30 +1504,6 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         assert all(row.derivation_type == DerivationType.PRIVATE_KEY for row in keyinstance_rows)
         self._default_keystore = Imported_KeyStore()
         AbstractAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
-
-    @classmethod
-    def from_text(cls: Type[T], wallet: 'Wallet', account_id: Optional[int],
-            script_type: ScriptType, password: str, text: str) -> T:
-        if account_id is None:
-            account_rows = wallet.add_accounts(
-                [ AccountRow(-1, None, script_type, "private keys") ])
-            account_id = account_rows[0].account_id
-            wallet.register_account(account_id,
-                ImportedPrivkeyAccount(wallet, account_rows[0], [], []))
-        account = wallet.get_account(account_id)
-
-        keyinstance_creation_rows = []
-        for prvkey_text in text.split():
-            pubkey_text = PrivateKey.from_text(prvkey_text).public_key.to_hex()
-            prvkeyenc_text = pw_encode(prvkey_text, password)
-            derivation_json = json.dumps({ "pub": pubkey_text, "prv": prvkeyenc_text })
-            keyinstance_creation_rows.append(KeyInstanceRow(-1, None, None,
-                DerivationType.PRIVATE_KEY, derivation_json, ScriptType.P2PKH,
-                KeyInstanceFlag.NONE, None))
-
-        keyinstances = wallet.create_keyinstances(account_id, keyinstance_creation_rows)
-        account._load_keys(keyinstances)
-        return account
 
     def is_watching_only(self) -> bool:
         return False
@@ -1549,12 +1528,29 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
         return [ self.get_keystore().get_public_key_for_id(keyinstance_id) ]
 
-    def import_private_key(self, sec, pw):
-        pubkey = self.get_keystore().import_privkey(sec, pw)
-        # TODO(rt12) REQUIRED ensure this addition is written to the database immediately
-        address = pubkey.to_address(coin=Net.COIN)
-        self._add_activated_keys([ address ])
-        return address
+    def import_private_key(self, private_key_text: str, password: str) -> str:
+        public_key = PrivateKey.from_text(private_key_text).public_key
+
+        k = self.get_keystore()
+        # Prevent re-importing existing entries.
+        if k.get_keyinstance_id_for_public_key(public_key) is not None:
+            return private_key_text
+
+        enc_private_key_text = pw_encode(private_key_text, password)
+        ik_data = {
+            "pub": public_key.to_hex(),
+            "prv": enc_private_key_text,
+        }
+        derivation_data = json.dumps(ik_data).encode()
+        raw_keyinstance = KeyInstanceRow(-1, -1, None, DerivationType.PRIVATE_KEY, derivation_data,
+            ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, None)
+        keyinstance = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])[0]
+        self._keyinstances[keyinstance.keyinstance_id] = keyinstance
+
+        k.import_private_key(keyinstance.keyinstance_id, public_key, enc_private_key_text)
+
+        self._add_activated_keys([ keyinstance ])
+        return private_key_text
 
     def export_private_key(self, keyinstance_id: int, password: str) -> str:
         '''Returned in WIF format.'''
@@ -1565,6 +1561,34 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
     def get_xpubkeys_for_id(self, keyinstance_id: int) -> List[XPublicKey]:
         public_key = self.get_keystore().get_public_key_for_id(keyinstance_id)
         return [XPublicKey(pubkey_bytes=public_key.to_bytes())]
+
+    def get_valid_script_types(self) -> Sequence[ScriptType]:
+        return (ScriptType.P2PKH,)
+
+    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
+        keyinstance = self._keyinstances[keyinstance_id]
+        return [ (script_type,
+                self.get_script_template_for_id(keyinstance_id, script_type).to_script())
+            for script_type in self.get_valid_script_types() ]
+
+    def get_script_template_for_id(self, keyinstance_id: int,
+            script_type: Optional[ScriptType]=None) -> Any:
+        public_key = self.get_public_keys_for_id(keyinstance_id)[0]
+        keyinstance = self._keyinstances[keyinstance_id]
+        script_type = (script_type if script_type is not None or
+            keyinstance.script_type == ScriptType.NONE else keyinstance.script_type)
+        return self.get_script_template(public_key, script_type)
+
+    def get_script_template(self, public_key: PublicKey,
+            script_type: Optional[ScriptType]=None) -> Any:
+        if script_type is None:
+            script_type = self.get_default_script_type()
+        if script_type == ScriptType.P2PK:
+            return P2PK_Output(public_key)
+        elif script_type == ScriptType.P2PKH:
+            return public_key.to_address()
+        else:
+            raise Exception("unsupported script type", script_type)
 
 
 class DeterministicAccount(AbstractAccount):
@@ -1825,12 +1849,14 @@ class MultisigAccount(DeterministicAccount):
         return [x_pubkey for _hex, x_pubkey in sorted_pairs]
 
 
-class Wallet:
+class Wallet(TriggeredCallbacks):
     _network: 'Network' = None
     _transaction_table: Optional[TransactionTable] = None
     _transaction_cache: Optional[TransactionCache] = None
 
     def __init__(self, storage: WalletStorage) -> None:
+        TriggeredCallbacks.__init__(self)
+
         self._id = random.randint(0, (1<<32)-1)
 
         self._storage = storage
@@ -1987,11 +2013,27 @@ class Wallet:
             DerivationType.ELECTRUM_MULTISIG: MultisigAccount,
             DerivationType.HARDWARE: StandardAccount,
         }
-        masterkey_row = self._masterkey_rows[account_row.default_masterkey_id]
-        klass = account_constructors.get(masterkey_row.derivation_type, None)
-        if klass is not None:
-            return klass(self, account_row, keyinstance_rows, output_rows)
+        if account_row.default_masterkey_id is None:
+            if keyinstance_rows[0].derivation_type == DerivationType.PUBLIC_KEY_HASH:
+                return ImportedAddressAccount(self, account_row, keyinstance_rows, output_rows)
+            elif keyinstance_rows[0].derivation_type == DerivationType.PRIVATE_KEY:
+                return ImportedPrivkeyAccount(self, account_row, keyinstance_rows, output_rows)
+        else:
+            masterkey_row = self._masterkey_rows[account_row.default_masterkey_id]
+            klass = account_constructors.get(masterkey_row.derivation_type, None)
+            if klass is not None:
+                return klass(self, account_row, keyinstance_rows, output_rows)
         raise WalletLoadError(_("unknown account type %d"), masterkey_row.derivation_type)
+
+    def _realize_account_from_row(self, account_row: AccountRow,
+            keyinstance_rows: List[KeyInstanceRow],
+            output_rows: List[TransactionOutputRow]) -> AbstractAccount:
+        account = self._realize_account(account_row, keyinstance_rows, output_rows)
+        self.register_account(account_row.account_id, account)
+        self.trigger_callback("on_account_created", account_row.account_id)
+        if self._network is not None:
+            account.start(self._network)
+        return account
 
     def create_account_from_keystore(self, keystore) -> AbstractAccount:
         masterkey_row = self.create_masterkey_from_keystore(keystore)
@@ -2011,12 +2053,7 @@ class Wallet:
             raise WalletLoadError(f"Unhandled derivation type {masterkey_row.derivation_type}")
         basic_row = AccountRow(-1, masterkey_row.masterkey_id, script_type, account_name)
         rows = self.add_accounts([ basic_row ])
-        account = self._realize_account(rows[0], [], [])
-        self.register_account(rows[0].account_id, account)
-        if self._network is not None:
-            account.start(self._network)
-        self._network.trigger_callback("on_account_created", rows[0].account_id)
-        return account
+        return self._realize_account_from_row(rows[0], [], [])
 
     def create_masterkey_from_keystore(self, keystore: KeyStore) -> MasterKeyRow:
         basic_row = keystore.to_masterkey_row()
@@ -2025,6 +2062,41 @@ class Wallet:
         self._keystores[rows[0].masterkey_id] = keystore
         self._masterkey_rows[rows[0].masterkey_id] = rows[0]
         return rows[0]
+
+    def create_account_from_text_entries(self, text_type: KeystoreTextType, script_type: ScriptType,
+            entries: List[str], password: str) -> AbstractAccount:
+        account_name: Optional[str] = None
+        if text_type == KeystoreTextType.ADDRESSES:
+            account_name = "Imported addresses"
+        elif text_type == KeystoreTextType.PRIVATE_KEYS:
+            account_name = "Imported private keys"
+        else:
+            raise WalletLoadError(f"Unhandled text type {text_type}")
+
+        raw_keyinstance_rows = []
+        if text_type == KeystoreTextType.ADDRESSES:
+            for address_string in entries:
+                ia_data = { "hash": address_string }
+                derivation_data = json.dumps(ia_data).encode()
+                raw_keyinstance_rows.append(KeyInstanceRow(-1, -1,
+                    None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
+                    ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, None))
+        elif text_type == KeystoreTextType.PRIVATE_KEYS:
+            for private_key_text in entries:
+                private_key = PrivateKey.from_text(private_key_text)
+                pubkey_hex = private_key.public_key.to_hex()
+                ik_data = {
+                    "pub": pubkey_hex,
+                    "prv": pw_encode(private_key_text, password),
+                }
+                derivation_data = json.dumps(ik_data).encode()
+                raw_keyinstance_rows.append(KeyInstanceRow(-1, -1,
+                    None, DerivationType.PRIVATE_KEY, derivation_data,
+                    ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, None))
+        basic_account_row = AccountRow(-1, None, script_type, account_name)
+        account_row = self.add_accounts([ basic_account_row ])[0]
+        keyinstance_rows = self.create_keyinstances(account_row.account_id, raw_keyinstance_rows)
+        return self._realize_account_from_row(account_row, keyinstance_rows, [])
 
     def add_masterkeys(self, entries: Iterable[MasterKeyRow]) -> Iterable[MasterKeyRow]:
         masterkey_id = self._storage.get("next_masterkey_id", 1)
