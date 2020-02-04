@@ -144,6 +144,8 @@ class Daemon(DaemonThread):
         if config.get('offline'):
             self.network = None
             self.fx_task = None
+
+            app_state.read_headers()
         else:
             self.network = Network()
             app_state.fx = FxTask(app_state.config, self.network)
