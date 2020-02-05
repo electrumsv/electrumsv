@@ -34,14 +34,13 @@ import stat
 import sys
 import threading
 import time
+from typing import Any, Dict, List
 
 from bitcoinx import PublicKey, be_bytes_to_int
 
 from .logs import logs
 from .startup import package_dir
 from .version import PACKAGE_DATE
-
-from typing import Dict, Any
 
 
 def inv_dict(d):
@@ -580,10 +579,10 @@ def chunks(items, size):
 
 class TriggeredCallbacks:
     def __init__(self) -> None:
-        self._callbacks = defaultdict(list)
+        self._callbacks: Dict[str, List[Any]] = defaultdict(list)
         self._callback_lock = threading.Lock()
 
-    def register_callback(self, callback, events) -> None:
+    def register_callback(self, callback: Any, events: List[str]) -> None:
         with self._callback_lock:
             for event in events:
                 self._callbacks[event].append(callback)
@@ -594,7 +593,7 @@ class TriggeredCallbacks:
                 if callback in callbacks:
                     callbacks.remove(callback)
 
-    def trigger_callback(self, event, *args) -> None:
+    def trigger_callback(self, event: str, *args) -> None:
         with self._callback_lock:
             callbacks = self._callbacks[event][:]
         [callback(event, *args) for callback in callbacks]

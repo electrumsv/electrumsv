@@ -31,7 +31,6 @@ import random
 import re
 import ssl
 import stat
-import threading
 import time
 from typing import Any, Dict, List, Optional
 

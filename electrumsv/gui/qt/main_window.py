@@ -270,7 +270,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.transaction_deleted_signal.emit(wallet_path, account_id, tx_hash)
 
     def _on_account_created(self, event_name: str, new_account_id: int) -> None:
-        print("_on_account_created", event_name, self._account_id, new_account_id)
         if self._account_id is None:
             self._account_id = new_account_id
             self._account = self._wallet.get_account(new_account_id)
@@ -327,6 +326,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.notify_transactions()
         # update menus
         self.update_buttons_on_seed()
+        self.update_receive_tab()
         self.clear_receive_tab()
         self.history_updated_signal.emit()
 
@@ -1073,7 +1073,41 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tx_dialog.finished.disconnect()
         self.tx_dialogs.remove(tx_dialog)
 
-    def create_receive_tab(self):
+    def is_receive_form_enabled(self) -> bool:
+        return self._account_id is not None
+
+    def create_receive_tab(self) -> QWidget:
+        w = QWidget()
+        if self.is_receive_form_enabled():
+            layout = self._create_receive_form_layout()
+            # w.searchable_list = self.request_list
+        else:
+            layout = self._create_receive_unavailable_layout()
+        w.setLayout(layout)
+        return w
+
+    def update_receive_tab(self) -> None:
+        throwaway_widget = QWidget()
+        throwaway_widget.setLayout(self.receive_tab.layout())
+        if self.is_receive_form_enabled():
+            layout = self._create_receive_form_layout()
+            # w.searchable_list = self.request_list
+        else:
+            layout = self._create_receive_unavailable_layout()
+        self.receive_tab.setLayout(layout)
+
+    def _create_receive_unavailable_layout(self) -> QVBoxLayout:
+        label_title = WWLabel(_("<p>No active account.</p>"))
+        label_title.setMaximumWidth(400)
+        label_title.setAlignment(Qt.AlignCenter)
+
+        vbox2 = QVBoxLayout()
+        vbox2.addStretch(1)
+        vbox2.addWidget(label_title)
+        vbox2.addStretch(1)
+        return vbox2
+
+    def _create_receive_form_layout(self) -> QVBoxLayout:
         # A 4-column grid layout.  All the stretch is in the last column.
         # The exchange rate plugin adds a fiat widget in column 2
         self.receive_grid = grid = QGridLayout()
@@ -1148,12 +1182,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         buttons.addWidget(self.new_request_button)
         grid.addLayout(buttons, 4, 1, 1, 2)
 
-        self.receive_requests_label = QLabel(_('Requests'))
-
-        from .request_list import RequestList
-        self.request_list = RequestList(self)
-
-        # layout
         vbox_g = QVBoxLayout()
         vbox_g.addLayout(grid)
         vbox_g.addStretch()
@@ -1162,16 +1190,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox.addLayout(vbox_g)
         hbox.addWidget(self.receive_qr)
 
-        w = QWidget()
-        # w.searchable_list = self.request_list
-        vbox = QVBoxLayout(w)
+        self.receive_requests_label = QLabel(_('Requests'))
+
+        from .request_list import RequestList
+        self.request_list = RequestList(self)
+
+        vbox = QVBoxLayout()
         vbox.addLayout(hbox)
         vbox.addStretch(1)
         vbox.addWidget(self.receive_requests_label)
         vbox.addWidget(self.request_list)
         vbox.setStretchFactor(self.request_list, 2000)
-
-        return w
+        return vbox
 
     def delete_payment_request(self, pr_id: int) -> None:
         self._account.delete_payment_request(pr_id)
@@ -1283,7 +1313,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def clear_receive_tab(self) -> None:
         self.expires_label.hide()
         self.expires_combo.show()
-        if self._account.is_deterministic() and self._receive_key_id is None:
+        if self._account.is_deterministic():
             fresh_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
             self.set_receive_key(fresh_key)
 

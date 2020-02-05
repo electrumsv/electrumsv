@@ -330,7 +330,7 @@ class AddAccountWizardPage(QWizardPage):
                 'page': AccountPages.FIND_HARDWARE_WALLET,
                 'description': _("Import hardware wallet"),
                 'icon_filename': 'icons8-usb-2-80.png',
-                'enabled': False,
+                'enabled': True,
             },
         ]
 
@@ -697,10 +697,10 @@ class CreateStandardAccountPage(QWizardPage):
         grid.setColumnMinimumWidth(1, 100)
         grid.setColumnStretch(1,1)
 
-        pwlabel = QLabel(_('Password:'))
+        pwlabel = QLabel(_('Password') +":")
         pwlabel.setAlignment(Qt.AlignTop)
-        grid.addWidget(pwlabel, 0, 0)
-        grid.addWidget(self._password_edit, 0, 1)
+        grid.addWidget(pwlabel, 0, 0, Qt.AlignRight)
+        grid.addWidget(self._password_edit, 0, 1, Qt.AlignLeft)
 
         label = QLabel(PASSWORD_EXISTING_TEXT + "\n")
         label.setWordWrap(True)
@@ -906,12 +906,12 @@ class FindHardwareWalletAccountPage(QWizardPage):
         grid.setColumnMinimumWidth(1, 100)
         grid.setColumnStretch(1,1)
 
-        scan_text_label = QLabel(_("Debug messages:"))
+        scan_text_label = QLabel(_("Debug messages") +":")
         scan_text_edit = QTextEdit()
         scan_text_edit.setText(self._device_debug_message)
         scan_text_edit.setReadOnly(True)
-        grid.addWidget(scan_text_label, 0, 0, 2, 1)
-        grid.addWidget(scan_text_edit, 1, 0, 2, 2)
+        grid.addWidget(scan_text_label, 0, 0, 2, 1, Qt.AlignRight)
+        grid.addWidget(scan_text_edit, 1, 0, 2, 2, Qt.AlignLeft)
 
         vbox = QVBoxLayout()
         vbox.setContentsMargins(10, 10, 20, 10)
@@ -1096,10 +1096,11 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         self._path_edit = QLineEdit()
         self._path_edit.setText(path_text)
         self._path_edit.textEdited.connect(self._on_derivation_path_changed)
+        self._path_edit.setFixedWidth(140)
         self._on_derivation_path_changed(path_text)
 
-        grid.addWidget(QLabel(_("Derivation path")), 1, 0, 1, 1)
-        grid.addWidget(self._path_edit, 1, 1, 1, 2)
+        grid.addWidget(QLabel(_("Derivation path")), 1, 0, 1, 1, Qt.AlignRight)
+        grid.addWidget(self._path_edit, 1, 1, 1, 2, Qt.AlignLeft)
 
         vbox = QVBoxLayout()
         vbox.setContentsMargins(10, 10, 20, 10)
@@ -1140,8 +1141,8 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         scan_text_edit = QTextEdit()
         scan_text_edit.setText(self._plugin_debug_message)
         scan_text_edit.setReadOnly(True)
-        grid.addWidget(scan_text_label, 0, 0, 2, 1)
-        grid.addWidget(scan_text_edit, 1, 0, 2, 2)
+        grid.addWidget(scan_text_label, 0, 0, 2, 1, Qt.AlignRight)
+        grid.addWidget(scan_text_edit, 1, 0, 2, 2, Qt.AlignLeft)
 
         vbox = QVBoxLayout()
         vbox.setContentsMargins(10, 10, 20, 10)
@@ -1268,10 +1269,10 @@ class CreateMultisigAccountPage(QWizardPage):
         m_label = QLabel()
         grid = QGridLayout()
         grid.setContentsMargins(50, 10, 50, 10)
-        grid.addWidget(n_label, 0, 0)
-        grid.addWidget(n_edit, 0, 1)
-        grid.addWidget(m_label, 1, 0)
-        grid.addWidget(m_edit, 1, 1)
+        grid.addWidget(n_label, 0, 0, Qt.AlignRight)
+        grid.addWidget(n_edit, 0, 1, Qt.AlignLeft)
+        grid.addWidget(m_label, 1, 0, Qt.AlignRight)
+        grid.addWidget(m_edit, 1, 1, Qt.AlignLeft)
         def on_m(m: int) -> None:
             m_label.setText(_('Require %d signatures')%m)
             cw.set_m(m)

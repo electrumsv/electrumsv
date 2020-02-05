@@ -76,12 +76,12 @@ class AccountsView(QSplitter):
         menu.addSeparator()
 
         private_keys_menu = menu.addMenu(_("&Private keys"))
-        if account.can_import_privkey():
-            private_keys_menu.addAction(_("&Import"), partial(self._import_privkey,
+        import_menu = private_keys_menu.addAction(_("&Import"), partial(self._import_privkey,
                 main_window=self._main_window, account_id=account_id))
+        import_menu.setEnabled(account.can_import_privkey())
         export_menu = private_keys_menu.addAction(_("&Export"), partial(self._export_privkeys,
             main_window=self._main_window, account_id=account_id))
-        export_menu.setEnabled(not account.is_watching_only())
+        export_menu.setEnabled(account.can_export())
         if account.can_import_address():
             menu.addAction(_("Import addresses"), partial(self._import_addresses, account_id))
 

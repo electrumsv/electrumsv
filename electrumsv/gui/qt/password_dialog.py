@@ -42,8 +42,7 @@ from .util import (
 )
 
 
-def check_password_strength(password):
-
+def check_password_strength(password: str) -> str:
     '''
     Check the strength of the password entered by the user and return back the same
     :param password: password entered by user in New Password
@@ -159,32 +158,34 @@ class PasswordLayout(object):
             vbox.addLayout(logo_grid)
 
             if kind != PasswordAction.NEW:
-                pwlabel = QLabel(_('Current Password:'))
+                pwlabel = QLabel(_('Current Password') +":")
                 pwlabel.setAlignment(Qt.AlignTop)
-                grid.addWidget(pwlabel, 0, 0)
-                grid.addWidget(self.pw, 0, 1)
+                grid.addWidget(pwlabel, 0, 0, Qt.AlignRight | Qt.AlignVCenter)
+                grid.addWidget(self.pw, 0, 1, Qt.AlignLeft)
 
-            m1 = _('New Password:') if kind == PasswordAction.CHANGE else _('Password:')
-            msgs = [m1, _('Confirm Password:')]
+            m1 = _('New Password') +":" if kind == PasswordAction.CHANGE else _('Password') +":"
+            msgs = [m1, _('Confirm Password') +":"]
 
             lockfile = "lock.png"
             logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(36))
 
         label0 = QLabel(msgs[0])
         label0.setAlignment(Qt.AlignTop)
-        grid.addWidget(label0, 1, 0)
-        grid.addWidget(self.new_pw, 1, 1)
+        grid.addWidget(label0, 1, 0, Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(self.new_pw, 1, 1, Qt.AlignLeft)
 
         label1 = QLabel(msgs[1])
         label1.setAlignment(Qt.AlignTop)
-        grid.addWidget(label1, 2, 0)
-        grid.addWidget(self.conf_pw, 2, 1)
+        grid.addWidget(label1, 2, 0, Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(self.conf_pw, 2, 1, Qt.AlignLeft)
         vbox.addLayout(grid)
 
         # Password Strength Label
         if kind != PasswordAction.PASSPHRASE:
-            self.pw_strength = QLabel()
-            grid.addWidget(self.pw_strength, 3, 0, 1, 2)
+            self._pw_strength_label = QLabel()
+            self._pw_strength = QLabel()
+            grid.addWidget(self._pw_strength_label, 3, 0, 1, 1, Qt.AlignRight | Qt.AlignVCenter)
+            grid.addWidget(self._pw_strength, 3, 1, 1, 1, Qt.AlignLeft)
             self.new_pw.textChanged.connect(self.pw_changed)
 
         def enable_OK():
@@ -203,15 +204,16 @@ class PasswordLayout(object):
 
     def pw_changed(self):
         password = self.new_pw.text()
+        label = ""
+        strength_text = ""
         if password:
             colors = {"Weak":"Red", "Medium":"Blue", "Strong":"Green",
                       "Very Strong":"Green"}
             strength = check_password_strength(password)
-            label = (_("Password Strength") + ": " + "<font color="
-                     + colors[strength] + ">" + strength + "</font>")
-        else:
-            label = ""
-        self.pw_strength.setText(label)
+            strength_text = "<font color="+ colors[strength] + ">" + strength + "</font>"
+            label = _("Password Strength") +":"
+        self._pw_strength_label.setText(label)
+        self._pw_strength.setText(strength_text)
 
     def old_password(self):
         if self.kind == PasswordAction.CHANGE:

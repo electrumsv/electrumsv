@@ -86,6 +86,9 @@ class KeyStore:
     def can_import(self) -> bool:
         return False
 
+    def can_export(self) -> bool:
+        return False
+
     def get_private_key(self, key_data: Any, password: str) -> Tuple[bytes, bool]:
         raise NotImplementedError
 
@@ -213,6 +216,9 @@ class Imported_KeyStore(Software_KeyStore):
         if pubkey != _public_key_from_private_key_text(privkey_text):
             raise InvalidPassword()
         return privkey_text
+
+    def can_export(self) -> bool:
+        return True
 
     def get_private_key(self, pubkey: PublicKey, password: str) -> Tuple[bytes, bool]:
         '''Returns a (32 byte privkey, is_compressed) pair.'''
@@ -421,6 +427,9 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
             xprv = xprv.child_safe(n)
         self.add_xprv(xprv)
 
+    def can_export(self) -> bool:
+        return True
+
     def get_private_key(self, derivation_path: Sequence[int], password: str) -> Tuple[bytes, bool]:
         xprv = self.get_master_private_key(password)
         privkey = bip32_key_from_string(xprv)
@@ -543,6 +552,9 @@ class Old_KeyStore(DerivablePaths, Deterministic_KeyStore):
         assert len(derivation_path) == 2
         secexp = (secexp + self.get_sequence(self.mpk, derivation_path)) % CURVE_ORDER
         return int_to_be_bytes(secexp, 32)
+
+    def can_export(self) -> bool:
+        return True
 
     def get_private_key(self, derivation_path: Sequence[int], password: str) -> Tuple[bytes, bool]:
         seed = self._get_hex_seed_bytes(password)
@@ -900,7 +912,7 @@ def instantiate_keystore(derivation_type: DerivationType, data: Dict[str, Any],
 
 def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Union[str, List[str]],
         password: str, derivation_text: Optional[str]=None, passphrase: Optional[str]=None,
-        watch_only: bool=False) -> None:
+        watch_only: bool=False) -> KeyStore:
     derivation_type: Optional[DerivationType] = None
     data: Dict[str, Any] = {}
     if text_type == KeystoreTextType.EXTENDED_PUBLIC_KEY:

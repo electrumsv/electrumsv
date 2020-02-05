@@ -1215,7 +1215,7 @@ class AbstractAccount:
             self._network = None
 
     def can_export(self) -> bool:
-        return not self.is_watching_only() and hasattr(self.get_keystore(), 'get_private_key')
+        return not self.is_watching_only() and self.get_keystore().can_export()
 
     def cpfp(self, tx: Transaction, fee: int) -> Transaction:
         tx_hash = tx.hash()

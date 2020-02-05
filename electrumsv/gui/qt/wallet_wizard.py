@@ -629,10 +629,9 @@ class RequestPasswordBeforeMigrationPage(QWizardPage):
         logo_grid.addWidget(logo,  0, 0)
         logo_grid.addWidget(label, 0, 1, 1, 2)
 
-        pwlabel = QLabel(_('Password:'))
-        pwlabel.setAlignment(Qt.AlignTop)
-        grid.addWidget(pwlabel, 0, 0)
-        grid.addWidget(self._password_edit, 0, 1)
+        pwlabel = QLabel(_('Password') +":")
+        grid.addWidget(pwlabel, 0, 0, Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(self._password_edit, 0, 1, Qt.AlignLeft)
         lockfile = "lock.png"
         logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(36))
 
@@ -840,7 +839,7 @@ class CreateNewWalletPage(QWizardPage):
         self.setTitle(_("Create a new wallet"))
         self.setFinalPage(True)
 
-        filename_label = QLabel(_("File name:"))
+        filename_label = QLabel(_("File name") +":")
         self._filename_edit = QLineEdit()
         self._filename_edit.textChanged.connect(self._on_filename_changed)
 
@@ -865,8 +864,8 @@ class CreateNewWalletPage(QWizardPage):
         grid.setColumnMinimumWidth(0, 150)
         grid.setColumnMinimumWidth(1, 100)
         grid.setColumnStretch(1,1)
-        grid.addWidget(filename_label, 0, 0)
-        grid.addLayout(filename_layout, 0, 1)
+        grid.addWidget(filename_label, 0, 0, Qt.AlignRight | Qt.AlignVCenter)
+        grid.addLayout(filename_layout, 0, 1, Qt.AlignLeft)
 
         self._error_label = QLabel()
         grid.addWidget(self._error_label, 1, 1)
