@@ -5,7 +5,7 @@ import threading
 
 from . import util
 from .bitcoin import MAX_FEE_RATE
-from .constants import DATABASE_EXT
+from .constants import DATABASE_EXT, DEFAULT_FEE
 from .logs import logs
 from .platform import platform
 from .util import make_dir, JSON
@@ -253,7 +253,7 @@ class SimpleConfig:
         if retval is None:
             retval = self.get('fee_per_kb')
         if retval is None:
-            retval = 1000  # New wallet
+            retval = DEFAULT_FEE  # New wallet
         return retval
 
     def has_custom_fee_rate(self):

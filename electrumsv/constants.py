@@ -113,6 +113,8 @@ class DerivationType(IntEnum):
 RECEIVING_SUBPATH = (0,)
 CHANGE_SUBPATH = (1,)
 
+DEFAULT_FEE = 500
+
 
 class KeystoreTextType(IntEnum):
     UNRECOGNIZED = 0
