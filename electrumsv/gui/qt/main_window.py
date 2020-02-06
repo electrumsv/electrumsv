@@ -1031,7 +1031,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def update_tabs(self, *args):
         self.history_view.update_tx_list()
-        self.request_list.update()
+        if self._account_id is not None:
+            self.request_list.update()
         self.utxo_list.update()
         self.contact_list.update()
         self.invoice_list.update()
@@ -1098,7 +1099,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _create_receive_unavailable_layout(self) -> QVBoxLayout:
         label_title = WWLabel(_("<p>No active account.</p>"))
-        label_title.setMaximumWidth(400)
         label_title.setAlignment(Qt.AlignCenter)
 
         vbox2 = QVBoxLayout()
