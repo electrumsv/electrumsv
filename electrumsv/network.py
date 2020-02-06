@@ -346,6 +346,7 @@ class SVSession(RPCSession):
         self._handlers = {}
         self._network = network
         self._closed_event = app_state.async_.event()
+        self._on_status_queue = app_state.async_.queue()
         # These attributes are intended to part of the external API
         self.chain = None
         self.logger = logger
@@ -586,7 +587,7 @@ class SVSession(RPCSession):
     async def _subscribe_to_script_hash(self, script_hash: str) -> None:
         '''Raises: RPCError, TaskTimeout'''
         status = await self.send_request(SCRIPTHASH_SUBSCRIBE, [script_hash])
-        await self._on_status_changed(script_hash, status)
+        await self._on_queue_status_changed(script_hash, status)
 
     async def _unsubscribe_from_script_hash(self, script_hash: str) -> bool:
         return await self.send_request(SCRIPTHASH_UNSUBSCRIBE, [script_hash])
@@ -818,12 +819,16 @@ class SVSession(RPCSession):
         '''Raises: RPCError, TaskTimeout'''
         return await self.send_request(SCRIPTHASH_HISTORY, [script_hash])
 
+    async def _on_queue_status_changed(self, script_hash: str, status: str) -> None:
+        item = (script_hash, status)
+        self._on_status_queue.put_nowait(item)
+
     async def subscribe_to_triples(self, account, triples) -> None:
         '''triples is an iterable of (keyinstance_id, script_type, script_hash) triples.
 
         Raises: RPCError, TaskTimeout'''
         # Set notification handler
-        self._handlers[SCRIPTHASH_SUBSCRIBE] = self._on_status_changed
+        self._handlers[SCRIPTHASH_SUBSCRIBE] = self._on_queue_status_changed
         if account not in self._subs_by_account:
             self._subs_by_account[account] = []
         # Take reference so account can be unsubscribed asynchronously without conflict
@@ -1179,6 +1184,13 @@ class Network(TriggeredCallbacks):
                                      f'{hhts(header.merkle_root)}')
         return had_timeout
 
+    async def _monitor_on_status(self):
+        """worker task to process new aiorpcx 'Notifications' from queue"""
+        while True:
+            session = await self._main_session()
+            script_hash, status = await session._on_status_queue.get()
+            app_state.async_.spawn(session._on_status_changed, script_hash, status)
+
     async def _monitor_txs(self, account):
         '''Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError'''
         # When the account receives notification of new transactions, it signals that this
@@ -1237,6 +1249,7 @@ class Network(TriggeredCallbacks):
             while True:
                 try:
                     async with TaskGroup() as group:
+                        await group.spawn(self._monitor_on_status)
                         await group.spawn(self._monitor_txs, account)
                         await group.spawn(self._monitor_active_keys, account)
                         await group.spawn(self._monitor_inactive_keys, account)

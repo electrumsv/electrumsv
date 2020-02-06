@@ -10,7 +10,7 @@ from .app_state import app_state
 from .util import to_bytes, to_string, constant_time_compare
 
 # Supported networks in restapi url
-MAINET = 'main'
+MAINNET = 'main'
 TESTNET = 'test'
 SCALINGTESTNET = 'stn'
 
@@ -24,10 +24,10 @@ def get_network_type():
     app_state = get_app_state()
     if app_state.config.get('testnet'):
         return TESTNET
-    if app_state.config.get('scalingtestnet'):
+    elif app_state.config.get('scalingtestnet'):
         return SCALINGTESTNET
     else:
-        return MAINET
+        return MAINNET
 
 
 class Errors:
@@ -161,7 +161,7 @@ class AiohttpServer(BaseAiohttpServer):
 
     @web.middleware
     async def check_network(self, request, handler):
-        supported_networks = [MAINET, SCALINGTESTNET, TESTNET]
+        supported_networks = [MAINNET, SCALINGTESTNET, TESTNET]
         network = request.match_info.get('network', None)
 
         # paths without {network} are okay
