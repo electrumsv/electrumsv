@@ -55,6 +55,9 @@ class KeyStore:
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         self._row = row
 
+    def type_name(self) -> str:
+        return "unknown"
+
     def get_id(self) -> int:
         assert self._row is not None
         return self._row.masterkey_id
@@ -110,6 +113,9 @@ class Software_KeyStore(KeyStore):
     def __init__(self, row: Optional[MasterKeyRow]=None) -> None:
         KeyStore.__init__(self, row)
 
+    def type_name(self) -> str:
+        return "software"
+
     def sign_message(self, derivation_path: Sequence[int], message: bytes, password: str):
         privkey, compressed = self.get_private_key(derivation_path, password)
         key = PrivateKey(privkey, compressed)
@@ -151,6 +157,9 @@ class Imported_KeyStore(Software_KeyStore):
         self._public_keys = {}
 
         Software_KeyStore.__init__(self, row)
+
+    def type_name(self) -> str:
+        return "impprvkey"
 
     def load_state(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
         self._keypairs.clear()
@@ -367,6 +376,9 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         self.xpub: Optional[str] = data.get('xpub')
         self.xprv: Optional[str] = data.get('xprv')
 
+    def type_name(self) -> str:
+        return "bip32"
+
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         Xpub.set_row(self, row)
         Deterministic_KeyStore.set_row(self, row)
@@ -454,6 +466,9 @@ class Old_KeyStore(DerivablePaths, Deterministic_KeyStore):
         super().__init__(data, row)
 
         self.mpk = data['mpk']
+
+    def type_name(self) -> str:
+        return "old"
 
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         DerivablePaths.set_row(self, row)
@@ -633,6 +648,9 @@ class Hardware_KeyStore(Xpub, KeyStore):
         self.plugin = None
         self.libraries_available = False
 
+    def type_name(self) -> str:
+        return f"hardware/{self.hw_type}"
+
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         Xpub.set_row(self, row)
         KeyStore.set_row(self, row)
@@ -696,6 +714,9 @@ class Multisig_KeyStore(DerivablePaths, KeyStore):
             keystore = instantiate_keystore(derivation_type, derivation_data)
             keystore = cast(MultisigChildKeyStoreType, keystore)
             self.add_cosigner_keystore(keystore)
+
+    def type_name(self) -> str:
+        return "multisig"
 
     def is_deterministic(self) -> bool:
         return True

@@ -391,9 +391,6 @@ class AbstractAccount:
         return (self._synchronized_event.is_set() and
                 not (self._network and self.missing_transactions()))
 
-    def __str__(self):
-        return self.name()
-
     def get_keystore(self) -> Optional[KeyStore]:
         if self._row.default_masterkey_id is not None:
             return self._wallet.get_keystore(self._row.default_masterkey_id)
@@ -429,12 +426,28 @@ class AbstractAccount:
         flags = self._wallet._transaction_cache.get_flags(tx_hash)
         return flags is not None and (flags & (TxFlags.StateCleared | TxFlags.StateSettled)) != 0
 
+    def __str__(self):
+        return self.name()
+
+    # Displayed in the regular user UI.
     def display_name(self) -> str:
         return self._row.account_name if self._row.account_name else _("unnamed account")
 
+    # Displayed in the advanced user UI/logs.
     def name(self) -> str:
         parent_name = self._wallet.name()
         return f"{parent_name}/{self._id}"
+
+    # Used for exception reporting account class instance classification.
+    def type_name(self) -> str:
+        return self.__class__.__name__
+
+    # Used for exception reporting overall account classification.
+    def debug_name(self) -> str:
+        k = self.get_keystore()
+        if k is None:
+            return self.type_name()
+        return f"{self.type_name()}/{k.type_name()}"
 
     def _load_sync_state(self) -> None:
         self._sync_state = SyncState()
@@ -1431,6 +1444,9 @@ class ImportedAddressAccount(ImportedAccountBase):
         self._hashes: Dict[int, str] = {}
         super().__init__(wallet, row, keyinstance_rows, output_rows)
 
+    def type_name(self) -> str:
+        return "impaddress"
+
     def is_watching_only(self) -> bool:
         return True
 
@@ -1504,6 +1520,9 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         assert all(row.derivation_type == DerivationType.PRIVATE_KEY for row in keyinstance_rows)
         self._default_keystore = Imported_KeyStore()
         AbstractAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
+
+    def type_name(self) -> str:
+        return "impprvkey"
 
     def is_watching_only(self) -> bool:
         return False
@@ -1747,7 +1766,8 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
 
 
 class StandardAccount(SimpleDeterministicAccount):
-    pass
+    def type_name(self) -> str:
+        return "standard"
 
 
 class MultisigAccount(DeterministicAccount):
@@ -1759,6 +1779,9 @@ class MultisigAccount(DeterministicAccount):
         self.n = self._multisig_keystore.n
 
         DeterministicAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
+
+    def type_name(self) -> str:
+        return "multisig"
 
     def get_threshold(self, script_type: ScriptType) -> int:
         assert script_type in self.get_valid_script_types(), \
