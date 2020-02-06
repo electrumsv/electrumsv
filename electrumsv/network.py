@@ -275,18 +275,9 @@ class SVServer:
 
 
 class SVUserAuth(SOCKSUserAuth):
-
-    def to_json(self):
-        return (self.username, self.password)
-
-    @classmethod
-    def from_json(cls, item):
-        username, password = item
-        return cls(username, password)
-
     def __repr__(self):
         # So its safe in logs, etc.  Also used in proxy comparisons.
-        hash_str = sha256(str(self.to_json()).encode())[:8].hex()
+        hash_str = sha256(str((self.username, self.password)).encode())[:8].hex()
         return f'{self.__class__.__name__}({hash_str})'
 
 
@@ -299,6 +290,10 @@ class SVProxy(SOCKSProxy):
         protocol = self.kinds.get(kind.upper())
         if not protocol:
             raise ValueError(f'invalid proxy kind: {kind}')
+        # This class is serialised using `util.JSON` hooks, this is not possible for `SVUserAuth`
+        # as that is naturally serialisable via `json.dumps` and the hook is not called.
+        if isinstance(auth, list):
+            auth = SVUserAuth(*auth)
         super().__init__(address, protocol, auth)
 
     def to_json(self):
