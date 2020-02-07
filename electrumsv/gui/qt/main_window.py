@@ -310,8 +310,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Refresh edits with the new rate
         edit = self.fiat_send_e if self.fiat_send_e.is_last_edited else self.amount_e
         edit.textEdited.emit(edit.text())
-        edit = self.fiat_receive_e if self.fiat_receive_e.is_last_edited else self.receive_amount_e
-        edit.textEdited.emit(edit.text())
+        if self._account_id is not None:
+            edit = (self.fiat_receive_e
+                if self.fiat_receive_e.is_last_edited else self.receive_amount_e)
+            edit.textEdited.emit(edit.text())
         # History tab needs updating if it used spot
         if app_state.fx.history_used_spot:
             self.history_view.update_tx_list()
@@ -1110,32 +1112,32 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _create_receive_form_layout(self) -> QVBoxLayout:
         # A 4-column grid layout.  All the stretch is in the last column.
         # The exchange rate plugin adds a fiat widget in column 2
-        self.receive_grid = grid = QGridLayout()
+        grid = QGridLayout()
         grid.setSpacing(8)
         grid.setColumnStretch(3, 1)
 
-        self._receive_key_id: int = None
+        self._receive_key_id: Optional[int] = None
 
         self.receive_destination_e = ButtonsLineEdit()
         self.receive_destination_e.addCopyButton(self.app)
         self.receive_destination_e.setReadOnly(True)
         msg = _('Bitcoin SV payment destination where the payment should be received. '
                 'Note that each payment request uses a different Bitcoin SV payment destination.')
-        self.receive_address_label = HelpLabel(_('Receiving destination'), msg)
-        self.receive_destination_e.textChanged.connect(self.update_receive_qr)
+        receive_address_label = HelpLabel(_('Receiving destination'), msg)
+        self.receive_destination_e.textChanged.connect(self._update_receive_qr)
         self.receive_destination_e.setFocusPolicy(Qt.NoFocus)
-        grid.addWidget(self.receive_address_label, 0, 0)
+        grid.addWidget(receive_address_label, 0, 0)
         grid.addWidget(self.receive_destination_e, 0, 1, 1, -1)
 
         self.receive_message_e = QLineEdit()
         grid.addWidget(QLabel(_('Description')), 1, 0)
         grid.addWidget(self.receive_message_e, 1, 1, 1, -1)
-        self.receive_message_e.textChanged.connect(self.update_receive_qr)
+        self.receive_message_e.textChanged.connect(self._update_receive_qr)
 
         self.receive_amount_e = BTCAmountEdit()
         grid.addWidget(QLabel(_('Requested amount')), 2, 0)
         grid.addWidget(self.receive_amount_e, 2, 1)
-        self.receive_amount_e.textChanged.connect(self.update_receive_qr)
+        self.receive_amount_e.textChanged.connect(self._update_receive_qr)
 
         self.fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
         if not app_state.fx or not app_state.fx.is_enabled():
@@ -1164,21 +1166,21 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.expires_label.hide()
         grid.addWidget(self.expires_label, 3, 1)
 
-        self.save_request_button = QPushButton(_('Save'))
-        self.save_request_button.clicked.connect(self.save_payment_request)
+        self._save_request_button = QPushButton(_('Save'))
+        self._save_request_button.clicked.connect(self.save_payment_request)
 
         self.new_request_button = QPushButton(_('New'))
         self.new_request_button.clicked.connect(self.new_payment_request)
 
-        self.receive_qr = QRCodeWidget(fixedSize=200)
-        self.receive_qr.mouseReleaseEvent = lambda x: self.toggle_qr_window()
-        self.receive_qr.enterEvent = lambda x: self.app.setOverrideCursor(
+        self._receive_qr = QRCodeWidget(fixedSize=200)
+        self._receive_qr.mouseReleaseEvent = lambda x: self._toggle_qr_window()
+        self._receive_qr.enterEvent = lambda x: self.app.setOverrideCursor(
             QCursor(Qt.PointingHandCursor))
-        self.receive_qr.leaveEvent = lambda x: self.app.setOverrideCursor(QCursor(Qt.ArrowCursor))
+        self._receive_qr.leaveEvent = lambda x: self.app.setOverrideCursor(QCursor(Qt.ArrowCursor))
 
-        self.receive_buttons = buttons = QHBoxLayout()
+        buttons = QHBoxLayout()
         buttons.addStretch(1)
-        buttons.addWidget(self.save_request_button)
+        buttons.addWidget(self._save_request_button)
         buttons.addWidget(self.new_request_button)
         grid.addLayout(buttons, 4, 1, 1, 2)
 
@@ -1188,7 +1190,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         hbox = QHBoxLayout()
         hbox.addLayout(vbox_g)
-        hbox.addWidget(self.receive_qr)
+        hbox.addWidget(self._receive_qr)
 
         self.receive_requests_label = QLabel(_('Requests'))
 
@@ -1242,7 +1244,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._account.update_payment_request(req.paymentrequest_id, req.state, amount,
                 req.expiration, message)
         self.request_list.update()
-        self.save_request_button.setEnabled(False)
+        self._save_request_button.setEnabled(False)
 
     def view_and_paste(self, title, msg, data):
         dialog = WindowModalDialog(self, title)
@@ -1317,7 +1319,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             fresh_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
             self.set_receive_key(fresh_key)
 
-    def toggle_qr_window(self):
+    # Bound to mouse release in `_create_receive_form_layout`.
+    def _toggle_qr_window(self):
         from . import qrwindow
         if not self.qr_window:
             self.qr_window = qrwindow.QR_Window(self)
@@ -1330,7 +1333,23 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 self.qr_window_geometry = self.qr_window.geometry()
                 self.qr_window.setVisible(False)
-        self.update_receive_qr()
+
+        self._update_receive_qr()
+
+    # Bound to text fields in `_create_receive_form_layout`.
+    def _update_receive_qr(self):
+        amount = self.receive_amount_e.get_amount()
+        message = self.receive_message_e.text()
+        self._save_request_button.setEnabled((amount is not None) or (message != ""))
+
+        script_template = self._account.get_script_template_for_id(self._receive_key_id)
+        address_text = script_template_to_string(script_template)
+
+        uri = web.create_URI(address_text, amount, message)
+        self._receive_qr.setData(uri)
+        if self.qr_window and self.qr_window.isVisible():
+            self.qr_window.set_content(self.receive_destination_e.text(), amount,
+                                       message, uri)
 
     def show_send_tab(self):
         self._tab_widget.setCurrentIndex(self._tab_widget.indexOf(self.send_tab))
@@ -1338,25 +1357,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def show_receive_tab(self):
         self._tab_widget.setCurrentIndex(self._tab_widget.indexOf(self.receive_tab))
 
+    # Only called from key list menu.
     def receive_at_id(self, key_id: int) -> None:
         self._receive_key_id = key_id
         self.show_receive_tab()
         self.new_request_button.setEnabled(True)
         self.update_receive_address_widget()
-
-    def update_receive_qr(self):
-        amount = self.receive_amount_e.get_amount()
-        message = self.receive_message_e.text()
-        self.save_request_button.setEnabled((amount is not None) or (message != ""))
-
-        script_template = self._account.get_script_template_for_id(self._receive_key_id)
-        address_text = script_template_to_string(script_template)
-
-        uri = web.create_URI(address_text, amount, message)
-        self.receive_qr.setData(uri)
-        if self.qr_window and self.qr_window.isVisible():
-            self.qr_window.set_content(self.receive_destination_e.text(), amount,
-                                       message, uri)
 
     def create_send_tab(self):
         # A 4-column grid layout.  All the stretch is in the last column.
@@ -2534,18 +2540,22 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         '''Called when the user changes fiat currency in preferences.'''
         b = app_state.fx and app_state.fx.is_enabled()
         self.fiat_send_e.setVisible(b)
-        self.fiat_receive_e.setVisible(b)
+        if self.account_id is not None:
+            self.fiat_receive_e.setVisible(b)
         self.history_view.update_tx_headers()
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
         self.update_status()
 
     def on_base_unit_changed(self):
-        edits = self.amount_e, self.receive_amount_e
+        edits = [ self.amount_e ]
+        if self._account_id is not None:
+            edits.append(self.receive_amount_e)
         amounts = [edit.get_amount() for edit in edits]
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
-        self.request_list.update()
+        if self._account_id is not None:
+            self.request_list.update()
         for edit, amount in zip(edits, amounts):
             edit.setAmount(amount)
         self.update_status()
