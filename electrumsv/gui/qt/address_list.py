@@ -49,6 +49,9 @@ from functools import partial
 import threading
 import time
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
+import webbrowser
+
+from bitcoinx import Address
 
 from PyQt5.QtCore import (QAbstractItemModel, QModelIndex, QVariant, Qt, QSortFilterProxyModel,
     QTimer)
@@ -57,6 +60,7 @@ from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 
 from electrumsv.i18n import _
 from electrumsv.app_state import app_state
+from electrumsv.bitcoin import scripthash_hex
 from electrumsv.constants import ScriptType
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
@@ -64,6 +68,7 @@ from electrumsv.platform import platform
 from electrumsv.util import profiler
 from electrumsv.wallet import MultisigAccount, AbstractAccount, StandardAccount
 from electrumsv.wallet_database.tables import KeyInstanceRow, KeyInstanceFlag
+from electrumsv import web
 
 from .main_window import ElectrumWindow
 from .util import read_QIcon, get_source_index
@@ -795,9 +800,35 @@ class KeyView(QTableView):
                         lambda: self._main_window.sign_verify_message(self._account, key_id))
                     menu.addAction(_("Encrypt/decrypt message"),
                                 lambda: self._main_window.encrypt_message(self._account, key_id))
-                # addr_URL = web.BE_URL(self._main_window.config, 'addr', addr)
-                # if addr_URL:
-                #     menu.addAction(_("View on block explorer"), lambda: webbrowser.open(addr_URL))
+
+                explore_menu = menu.addMenu(_("View on block explorer"))
+
+                keyinstance = self._account.get_keyinstance(key_id)
+                addr_URL = script_URL = None
+                if keyinstance.script_type != ScriptType.NONE:
+                    script_template = self._account.get_script_template_for_id(key_id)
+                    if isinstance(script_template, Address):
+                        addr_URL = web.BE_URL(self._main_window.config, 'addr', script_template)
+
+                    scripthash = scripthash_hex(script_template.to_script_bytes())
+                    script_URL = web.BE_URL(self._main_window.config, 'script', scripthash)
+
+                addr_action = explore_menu.addAction(_("By address"),
+                    partial(webbrowser.open, addr_URL))
+                if not addr_URL:
+                    addr_action.setEnabled(False)
+                script_action = explore_menu.addAction(_("By script"),
+                    partial(webbrowser.open, script_URL))
+                if not script_URL:
+                    script_action.setEnabled(False)
+
+                for script_type, script in self._account.get_possible_scripts_for_id(key_id):
+                    scripthash = scripthash_hex(bytes(script))
+                    script_URL = web.BE_URL(self._main_window.config, 'script', scripthash)
+                    if script_URL:
+                        explore_menu.addAction(
+                            _("As {scripttype}").format(scripttype=script_type.name),
+                            partial(webbrowser.open, script_URL))
 
                 if isinstance(self._account, StandardAccount):
                     keystore = self._account.get_keystore()

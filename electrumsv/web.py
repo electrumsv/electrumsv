@@ -27,6 +27,7 @@ import random
 import re
 import shutil
 import threading
+from typing import Optional
 import urllib
 import urllib.parse
 
@@ -45,15 +46,16 @@ logger = logs.get_logger("web")
 def BE_from_config(config):
     return config.get('block_explorer', '')
 
-def random_BE():
-    possible_keys = [ k for k in Net.BLOCK_EXPLORERS.keys() if k != "system default" ]
+def random_BE(kind: Optional[str]=None):
+    possible_keys = [ k for (k, v) in Net.BLOCK_EXPLORERS.items()
+        if k != "system default" and (kind is None or v[1].get(kind) is not None) ]
     if len(possible_keys):
         return random.choice(possible_keys)
 
-def BE_URL(config, kind, item):
+def BE_URL(config, kind: str, item):
     selected_key = BE_from_config(config)
     if selected_key is None or selected_key not in Net.BLOCK_EXPLORERS:
-        selected_key = random_BE()
+        selected_key = random_BE(kind)
     be_tuple = Net.BLOCK_EXPLORERS.get(selected_key)
     if not be_tuple:
         return

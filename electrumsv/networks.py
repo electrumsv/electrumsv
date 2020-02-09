@@ -80,7 +80,7 @@ class SVMainnet(object):
         ),
         'whatsonchain.com': (
             'https://whatsonchain.com',
-            {'tx': 'tx', 'addr': 'address'},
+            {'tx': 'tx', 'addr': 'address', 'script': 'script'},
         ),
         'blockchair.com' : (
             'https://blockchair.com/bitcoin-sv',
@@ -88,7 +88,7 @@ class SVMainnet(object):
         ),
         'satoshi.io': (
             'https://satoshi.io',
-            {'tx': 'tx', 'addr': 'address'},
+            {'tx': 'tx', 'addr': 'address', 'script': 'script'},
         ),
     }
 
@@ -139,11 +139,11 @@ class SVTestnet(object):
         ),
         'whatsonchain.com': (
             'http://test.whatsonchain.com',
-            {'tx': 'tx', 'addr': 'address'},
+            {'tx': 'tx', 'addr': 'address', 'script': 'script'},
         ),
         'satoshi.io': (
             'https://testnet.satoshi.io',
-            {'tx': 'tx', 'addr': 'address'},
+            {'tx': 'tx', 'addr': 'address', 'script': 'script'},
         ),
         'system default': (
             'blockchain:',
