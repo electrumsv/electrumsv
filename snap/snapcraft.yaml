@@ -19,7 +19,7 @@ apps:
       # Use GTK3 cursor theme, icon theme and open/save file dialogs.
       QT_QPA_PLATFORMTHEME: gtk3    
     command: desktop-launch electrum-sv
-    plugs: [unity7, home, network, network-bind, nano-s]
+    plugs: [unity7, home, network, network-bind, camera, raw-usb, nano-s]
 
 parts:
   electrumsv:
@@ -40,7 +40,7 @@ parts:
       - trezor>=0.11.1
       - keepkey>=6.0.3
       - btchip-python
-    stage-packages: [python3-pyqt5, libusb-1.0-0]
+    stage-packages: [python3-pyqt5, libusb-1.0-0, python-zbar]
     build-packages: [pyqt5-dev-tools, libusb-1.0-0-dev, libudev-dev]
     after: [desktop-qt5]
 
