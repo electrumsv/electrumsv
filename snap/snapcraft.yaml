@@ -1,0 +1,122 @@
+name: electrumsv
+base: core18
+version: '1.2.5'
+summary: The best desktop wallet for Bitcoin SV
+description: |
+  Looking for a place to keep track of Bitcoin SV on your desktop computer?
+  You have come to the right place. ElectrumSV does this and more.
+
+  The only cryptocurrency ElectrumSV supports is Bitcoin SV.
+  As the only real descendent of the original Bitcoin created by Satoshi Nakamoto, it is therefore the only Bitcoin with a future. 
+
+grade: stable
+confinement: strict
+icon: gui/electrumsv_light_icon.png
+
+apps:
+  electrumsv:
+    environment:
+      # Use GTK3 cursor theme, icon theme and open/save file dialogs.
+      QT_QPA_PLATFORMTHEME: gtk3    
+    command: desktop-launch electrum-sv
+    plugs: [unity7, home, network, network-bind, nano-s]
+
+parts:
+  electrumsv:
+    source: https://github.com/electrumsv/electrumsv.git
+    source-type: git
+    source-tag: sv-1.2.5
+    plugin: python
+    python-version: python3
+    python-packages: 
+      - electrumsv-secp256k1>=0.9.1
+      - bitcoinx==0.1.5
+      - PyQt5>=5.12
+      - pycryptodomex
+      - websocket-client
+      - dmgbuild
+      - psutil==5.6.1
+      - Cython>=0.27
+      - trezor>=0.11.1
+      - keepkey>=6.0.3
+      - btchip-python
+    stage-packages: [python3-pyqt5, libusb-1.0-0]
+    build-packages: [pyqt5-dev-tools, libusb-1.0-0-dev, libudev-dev]
+    after: [desktop-qt5]
+
+  # periodically check if the below is still current
+  # https://github.com/ubuntu/snapcraft-desktop-helpers/blob/master/snapcraft.yaml
+  desktop-qt5:
+    source: https://github.com/ubuntu/snapcraft-desktop-helpers.git
+    source-subdir: qt
+    plugin: make
+    make-parameters: ["FLAVOR=qt5"]
+    build-packages:
+      - build-essential
+      - qtbase5-dev
+      - dpkg-dev
+    stage-packages:
+      - libxkbcommon0
+      - ttf-ubuntu-font-family
+      - dmz-cursor-theme
+      - light-themes
+      - adwaita-icon-theme
+      - gnome-themes-standard
+      - shared-mime-info
+      - libqt5gui5
+      - libgdk-pixbuf2.0-0
+      - libqt5svg5 # for loading icon themes which are svg
+      - try: [appmenu-qt5] # not available on core18
+      - locales-all
+      - xdg-user-dirs
+      - fcitx-frontend-qt5
+
+  qt5-gtk-platform:
+    plugin: nil
+    stage-packages:
+      - qt5-gtk-platformtheme
+
+plugs:
+    nano-s:
+      interface: serial-port
+
+# Custom serial-port interface for the Ledger devices
+slots:
+  nano-s:
+    interface: serial-port
+    path: /dev/serial-port-nano-s
+    usb-vendor: 0x2c97
+    usb-product: 
+      - 0x0001
+      - 0x1000
+      - 0x1001
+      - 0x1002
+      - 0x1003
+      - 0x1004
+      - 0x1005
+      - 0x1006
+      - 0x1007
+      - 0x1008
+      - 0x1009
+      - 0x100a
+      - 0x100b
+      - 0x100c
+      - 0x100d
+      - 0x100e
+      - 0x100f
+      - 0x1010
+      - 0x1011
+      - 0x1012
+      - 0x1013
+      - 0x1014
+      - 0x1015
+      - 0x1016
+      - 0x1017
+      - 0x1018
+      - 0x1019
+      - 0x101a
+      - 0x101b
+      - 0x101c
+      - 0x101d
+      - 0x101e
+      - 0x101f
