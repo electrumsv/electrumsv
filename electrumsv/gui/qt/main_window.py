@@ -73,7 +73,6 @@ import electrumsv.web as web
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from .contact_list import ContactList, edit_contact_dialog
-from .coinsplitting_tab import CoinSplittingTab
 from . import dialogs
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit
@@ -1867,6 +1866,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.update_fee()
 
     def create_coinsplitting_tab(self):
+        from .coinsplitting_tab import CoinSplittingTab
         return CoinSplittingTab(self)
 
     def create_list_tab(self, l, list_header=None):
