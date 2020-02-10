@@ -1,3 +1,8 @@
+55c0881e94287a20e5927f76a264c55f2d9f651ac5afd347e34e0ed73c90e8a4  ElectrumSV-1.3.0b3-multisig.dmg
+bfff704eb57416bac65c320aeeb18c071d948c78431906b916af33efa65108b6  ElectrumSV-1.3.0b3-multisig.exe
+04bd93090c7f32b6a32f876221a9b95b75603b1886d1d12ddc51ac011d440516  ElectrumSV-1.3.0b3-multisig-portable.exe
+dac091fc3455e6c6654516d1aafc7e8049bac87595d50e43cff19023f4970a41  ElectrumSV-1.3.0b3-multisig.tar.gz
+1faf13deaebb7f710951d8578d3061557c6d67c3d4cc5492cc2cdfd74732f277  ElectrumSV-1.3.0b3-multisig.zip
 97d96b5a83f4c967c630708f4fc3e1093f4b959f4b22ab20728a873575baa484  ElectrumSV-1.3.0b2-multisig.dmg
 413c8414ac3d1dd223066ced2c0b14eb959f8d3f1a56377b0c6dd9ab95adf0e3  ElectrumSV-1.3.0b2-multisig.exe
 6c720a943cea2347388e66d80cb50249cb754d873374c80d3f340c89fa9a40c7  ElectrumSV-1.3.0b2-multisig-portable.exe
