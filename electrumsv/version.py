@@ -1,5 +1,5 @@
-PACKAGE_VERSION = '1.3.0b2'                        # version of the client package
-PACKAGE_DATE = '2020-01-28T20:00:00.000000+13:00'  # official timestamp for client package
+PACKAGE_VERSION = '1.3.0b3'                        # version of the client package
+PACKAGE_DATE = '2020-02-10T20:00:00.000000+13:00'  # official timestamp for client package
 # Negotiate protocol in this range
 PROTOCOL_MIN = (1, 4)
 PROTOCOL_MAX = (1, 4, 2)

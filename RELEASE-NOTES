@@ -36,6 +36,25 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.3.0b3-multisig
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-0b3-multisig-51b97311caae
+  * Error reporting: The system used to give users the option to report errors they encounter
+    as bugs on Github, was broken in some circumstances. This has been fixed and all such
+    errors are now able to be reported.
+  * REST API: The old JSON-RPC API has been removed and replaced with a new asynchronous REST-based
+    API. This provides a much more stable, responsive base for our future APIs. An example
+    application is provided to show people how they can run their own wallet application based
+    on ElectrumSV. Developed by AustEcon.
+  * Block explorers: Now that the Genesis upgrade has removed the false limit that transactions
+    must be "standard", there is no guarantee that a payment will be made to an address.
+    WhatsOnChain and satoshi.io have added support for viewing transactions that use specific
+    scripts, which allows these address-less payments to be viewed.
+  * Transaction fees: Users of other wallets are paying 500 satoshis/kB, which is half the old
+    ElectrumSV default fee of 1000 satoshis/kB. These lower fee transactions still get mined.
+    As such ElectrumSV's new default fee is 500 satoshis/kB.
+  * Proxy settings: A long standing bug in the UI to edit proxy settings, for those who have
+    already configured and enabled the proxy, has been fixed. Issue #189.
+
 # Release 1.3.0b2-multisig
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-0b2-multisig-d216604d0d9e
   * Coin selection and privacy: A bug was introduced in 1.3.0b1 in the coin selection and
