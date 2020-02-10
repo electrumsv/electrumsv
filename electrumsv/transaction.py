@@ -333,6 +333,9 @@ class XTxOutput(TxOutput):
     script_type: ScriptType = attr.ib(default=ScriptType.NONE)
     x_pubkeys: List[XPublicKey] = attr.ib(default=attr.Factory(list))
 
+    def estimated_size(self) -> int:
+        return len(self.to_bytes())
+
     def __repr__(self):
         return (
             f'XTxOutput(value={self.value}, script_pubkey="{self.script_pubkey}", '

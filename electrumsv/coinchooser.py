@@ -172,7 +172,7 @@ class CoinChooserBase:
             logger.debug('not keeping dust %s', dust)
         return change, dust
 
-    def make_tx(self, coins, outputs, change_outs, fee_estimator, dust_threshold):
+    def make_tx(self, coins, outputs, change_outs, fee_estimator, dust_threshold) -> Transaction:
         '''Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
         the transaction) it is kept, otherwise none is sent and it is
@@ -203,8 +203,8 @@ class CoinChooserBase:
         tx_size = base_size + sum(bucket.size for bucket in buckets)
 
         # This takes a count of change outputs and returns a tx fee;
-        # each pay-to-bitcoin-address output serializes as 34 bytes
-        fee = lambda count: fee_estimator(tx_size + count * 34)
+        change_output_size = change_outs[0].estimated_size()
+        fee = lambda count: fee_estimator(tx_size + count * change_output_size)
         change, dust = self.change_outputs(tx, change_outs, fee, dust_threshold)
         tx.outputs.extend(change)
 

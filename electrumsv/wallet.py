@@ -1162,12 +1162,12 @@ class AbstractAccount:
                 change_outs = []
                 for keyinstance in change_keyinstances:
                     script_type = self.get_script_type_for_id(keyinstance.keyinstance_id)
-                    change_outs.append(XTxOutput(None,
+                    change_outs.append(XTxOutput(0,
                         self.get_script_for_id(keyinstance.keyinstance_id, script_type),
                         script_type,
                         self.get_xpubkeys_for_id(keyinstance.keyinstance_id)))
             else:
-                change_outs = [ XTxOutput(None, utxos[0].script_pubkey, inputs[0].script_type,
+                change_outs = [ XTxOutput(0, utxos[0].script_pubkey, inputs[0].script_type,
                     inputs[0].x_pubkeys) ]
             coin_chooser = coinchooser.CoinChooserPrivacy()
             tx = coin_chooser.make_tx(inputs, outputs, change_outs, fee_estimator,

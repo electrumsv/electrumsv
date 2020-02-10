@@ -1651,9 +1651,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         confirm_rate = 2 * self.config.max_fee_rate()
 
-        if fee < (tx.estimated_size()):
+        if fee < round(tx.estimated_size() * 0.5):
             msg.append(_('Warning') + ': ' +
-                       _('The fee is less than 1000 sats/kb.  '
+                       _('The fee is less than 500 sats/kb.  '
                          'It may take a very long time to confirm.'))
 
         msg.append("")
