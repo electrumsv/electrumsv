@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Please update these carefully, some versions won't work under Wine
-NSIS_FILENAME=nsis-3.03-setup.exe
+NSIS_FILENAME=nsis-3.05-setup.exe
 NSIS_URL=https://prdownloads.sourceforge.net/nsis/$NSIS_FILENAME?download
-NSIS_SHA256=bd3b15ab62ec6b0c7a00f46022d441af03277be893326f6fea8e212dc2d77743
+NSIS_SHA256=1a3cc9401667547b9b9327a177b13485f7c59c2303d4b6183e7bc9e6c8d6bfdb
 
 ZBAR_FILENAME=zbarw-20121031-setup.exe
 ZBAR_URL=https://sourceforge.net/projects/zbarw/files/$ZBAR_FILENAME/download
@@ -12,8 +12,9 @@ ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 LIBUSB_REPO='https://github.com/libusb/libusb.git'
 LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 
-PYINSTALLER_REPO='https://github.com/ElectrumSV/pyinstaller.git'
-PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
+# 3.6
+PYINSTALLER_REPO='https://github.com/pyinstaller/pyinstaller.git'
+PYINSTALLER_COMMIT=6d4cce1f8eb80c0bf49d35876d28daa55a05800f
 
 PYTHON_VERSION=3.6.6
 
@@ -123,7 +124,7 @@ mkdir pyinstaller
     fi
     pushd bootloader
     # If switching to 64-bit Windows, edit CC= below
-    python3 ./waf all CC=i686-w64-mingw32-gcc CFLAGS="-Wno-stringop-overflow -static"
+    python3 ./waf all CC=i686-w64-mingw32-gcc CFLAGS="-static -Wno-dangling-else -Wno-error=unused-value"
     # Note: it's possible for the EXE to not be there if the build
     # failed but didn't return exit status != 0 to the shell (waf bug?);
     # So we need to do this to make sure the EXE is actually there.

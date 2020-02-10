@@ -8,3 +8,4 @@ jsonrpclib-pelix
 aiorpcX>=0.18.0,<0.19
 python-dateutil>=2.8.0
 aiohttp
+setuptools<45.0.0
