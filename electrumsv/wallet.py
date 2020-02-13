@@ -61,6 +61,7 @@ from .keystore import (Hardware_KeyStore, Imported_KeyStore, instantiate_keystor
 from .logs import logs
 from .networks import Net
 from .paymentrequest import InvoiceStore
+from .script import AccumulatorMultiSigOutput
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, XPublicKey, NO_SIGNATURE,
@@ -1793,7 +1794,7 @@ class MultisigAccount(DeterministicAccount):
         return [ k.derive_pubkey(derivation_path) for k in self.get_keystores() ]
 
     def get_valid_script_types(self) -> Sequence[ScriptType]:
-        return (ScriptType.MULTISIG_P2SH, ScriptType.MULTISIG_BARE)
+        return (ScriptType.MULTISIG_P2SH, ScriptType.MULTISIG_BARE, ScriptType.MULTISIG_ACCUMULATOR)
 
     def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Script]:
         public_keys = self.get_public_keys_for_id(keyinstance_id)
@@ -1825,6 +1826,8 @@ class MultisigAccount(DeterministicAccount):
         elif script_type == ScriptType.MULTISIG_P2SH:
             redeem_script = P2MultiSig_Output(sorted(public_keys_hex), self.m).to_script_bytes()
             return P2SH_Address(hash160(redeem_script), Net.COIN)
+        elif script_type == ScriptType.MULTISIG_ACCUMULATOR:
+            return AccumulatorMultiSigOutput(sorted(public_keys_hex), self.m)
         else:
             raise Exception("unsupported script type", script_type)
 

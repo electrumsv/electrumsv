@@ -223,6 +223,13 @@ def string_to_script_template(text: str) -> ScriptTemplate:
         return classify_output_script(Script(data), Net.COIN)
     return Address.from_string(text, Net.COIN)
 
+def string_to_bip276_script(text: str) -> Script:
+    if text.startswith(PREFIX_SCRIPT):
+        prefix, version, network, data = bip276_decode(text, Net.BIP276_VERSION)
+        assert network == Net.BIP276_VERSION, "incompatible network"
+        return Script(data)
+    raise ValueError("string is not bip276")
+
 def scripthash_bytes(script: Script) -> bytes:
     return sha256(bytes(script))
 

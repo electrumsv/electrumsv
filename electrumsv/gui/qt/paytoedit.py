@@ -25,22 +25,24 @@
 
 import time
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
+
+from bitcoinx import Address, cashaddr, Script
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFontMetrics, QTextCursor
 from PyQt5.QtWidgets import QCompleter, QPlainTextEdit
-from bitcoinx import cashaddr, Script
 
-from .qrtextedit import ScanQRTextEdit
-
-from electrumsv.bitcoin import string_to_script_template
+from electrumsv.bitcoin import string_to_bip276_script
 from electrumsv.i18n import _
+from electrumsv.network import Net
 from electrumsv.transaction import XTxOutput
 from electrumsv.web import is_URI
 
 from .main_window import ElectrumWindow
+from .qrtextedit import ScanQRTextEdit
 from . import util
+
 
 RE_ALIAS = '^(.*?)\s*\<([0-9A-Za-z:]{26,})\>$'
 
@@ -66,7 +68,7 @@ class PayToEdit(ScanQRTextEdit):
         self.is_alias = False
         self.scan_f = main_window.pay_to_URI
         self.update_size()
-        self.payto_address = None
+        self.payto_script: Optional[Script] = None
 
         self.previous_payto = ''
 
@@ -116,21 +118,23 @@ class PayToEdit(ScanQRTextEdit):
     def _parse_tx_output(self, line: str) -> XTxOutput:
         x, y = line.split(',')
         script = self._parse_output(x)
-        if not isinstance(script, Script):  # An Address object
-            script = script.to_script()
         amount = self._parse_amount(y)
         return XTxOutput(amount, script)
 
-    def _parse_output(self, x):
+    def _parse_output(self, text: str) -> Script:
         try:
-            address = self._parse_address(x)
-            self._show_cashaddr_warning(x)
-            return address
-        except Exception:
-            return Script.from_asm(x)
+            address =  Address.from_string(text, Net.COIN)
+            self._show_cashaddr_warning(text)
+            return address.to_script()
+        except ValueError:
+            pass
 
-    def _parse_address(self, text: str):
-        return string_to_script_template(text)
+        try:
+            return string_to_bip276_script(text)
+        except ValueError:
+            pass
+
+        return Script.from_asm(text)
 
     def _parse_amount(self, x):
         if x.strip() == '!':
@@ -146,17 +150,17 @@ class PayToEdit(ScanQRTextEdit):
         lines = [i for i in self._lines() if i]
         outputs = []
         total = 0
-        self.payto_address = None
+        self.payto_script = None
         if len(lines) == 1:
             data = lines[0]
             if is_URI(data):
                 self.scan_f(data)
                 return
             try:
-                self.payto_address = self._parse_output(data)
+                self.payto_script = self._parse_output(data)
             except Exception:
                 pass
-            if self.payto_address:
+            if self.payto_script is not None:
                 self._main_window.lock_amount(False)
                 return
 
@@ -176,7 +180,7 @@ class PayToEdit(ScanQRTextEdit):
 
         self._main_window.is_max = is_max
         self.outputs = outputs
-        self.payto_address = None
+        self.payto_script = None
 
         if self._main_window.is_max:
             self._main_window.do_update_fee()
@@ -187,19 +191,16 @@ class PayToEdit(ScanQRTextEdit):
     def get_errors(self):
         return self.errors
 
-    def get_recipient(self):
-        return self.payto_address
+    def get_payee_script(self) -> Optional[Script]:
+        return self.payto_script
 
     def get_outputs(self, is_max):
-        if self.payto_address:
+        if self.payto_script is not None:
             if is_max:
                 amount = all
             else:
                 amount = self.amount_edit.get_amount()
-
-            addr = self.payto_address
-            self.outputs = [XTxOutput(amount, addr.to_script())]
-
+            self.outputs = [XTxOutput(amount, self.payto_script)]
         return self.outputs[:]
 
     def _lines(self):

@@ -1526,10 +1526,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             fee = None
             outputs = self.payto_e.get_outputs(self.is_max)
             if not outputs:
-                out = self.payto_e.get_recipient()
-                if not out:
-                    out = self._account.get_dummy_script_template()
-                outputs = [XTxOutput(amount, out.to_script())]
+                output_script = self.payto_e.get_payee_script()
+                if output_script is None:
+                    output_script = self._account.get_dummy_script_template().to_script()
+                outputs = [XTxOutput(amount, output_script)]
             try:
                 tx = self._account.make_unsigned_transaction(
                     self.get_coins(self._account), outputs, self.config, fee)

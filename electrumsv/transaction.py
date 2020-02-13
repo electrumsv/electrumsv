@@ -29,19 +29,17 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import attr
 from bitcoinx import (
-    PublicKey, PrivateKey, bip32_key_from_string, base58_encode_check,
-    Ops, der_signature_to_compact, InvalidSignatureError,
-    Script, push_int, push_item, hash_to_hex_str,
-    Address, P2PK_Output,
-    Tx, TxInput, TxOutput, SigHash, classify_output_script,
-    read_le_uint32, read_le_int32, read_list,
-    pack_byte, pack_le_int32, pack_le_uint32, pack_list, unpack_le_uint16,
-    double_sha256, BIP32PublicKey, hash160, P2SH_Address, read_varbytes, read_le_int64
+    Address, base58_encode_check, bip32_key_from_string, BIP32PublicKey, classify_output_script,
+    der_signature_to_compact, double_sha256, hash160, hash_to_hex_str, InvalidSignatureError,
+    Ops, P2PK_Output, P2SH_Address, pack_byte, pack_le_int32, pack_le_uint32, pack_list,
+    PrivateKey, PublicKey, push_int, push_item, Script, SigHash, Tx, TxInput, TxOutput,
+    read_le_uint32, read_le_int32, read_le_int64, read_list, read_varbytes, unpack_le_uint16,
 )
 
 from .constants import ScriptType
-from .networks import Net
 from .logs import logs
+from .networks import Net
+from .script import AccumulatorMultiSigOutput
 
 NO_SIGNATURE = b'\xff'
 dummy_public_key = PublicKey.from_bytes(bytes(range(3, 36)))
@@ -272,6 +270,19 @@ class XTxInput(TxInput):
             parts = [pack_byte(Ops.OP_0)]
             parts.extend(push_item(signature) for signature in signatures)
             return Script(b''.join(parts))
+        elif self.script_type == ScriptType.MULTISIG_ACCUMULATOR:
+            parts = []
+            for i, signature in enumerate(signatures):
+                if signature == NO_SIGNATURE:
+                    parts.append([ pack_byte(Ops.OP_FALSE) ])
+                else:
+                    parts.append([
+                        push_item(signature),
+                        push_item(x_pubkeys[i].to_bytes()),
+                        pack_byte(Ops.OP_TRUE),
+                    ])
+            parts.reverse()
+            return Script(b''.join([ value for l in parts for value in l ]))
         raise ValueError(f"unable to realize script {self.script_type}")
         # return self.script_sig
 
@@ -569,6 +580,9 @@ class Transaction(Tx):
             return script.to_bytes().hex()
         elif _type == ScriptType.MULTISIG_P2SH or _type == ScriptType.MULTISIG_BARE:
             return multisig_script(txin.x_pubkeys, txin.threshold).hex()
+        elif _type == ScriptType.MULTISIG_ACCUMULATOR:
+            return AccumulatorMultiSigOutput(
+                [ v.to_bytes() for v in txin.x_pubkeys ], txin.threshold).to_script_bytes().hex()
         elif _type == ScriptType.P2PK:
             x_pubkey = txin.x_pubkeys[0]
             script = x_pubkey.to_public_key().P2PK_script()
