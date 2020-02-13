@@ -122,7 +122,7 @@ class RequestList(MyTreeWidget):
             item = QTreeWidgetItem([date, address_text, '', req.description or "",
                 amount_str, pr_tooltips.get(req.state,'')])
             item.setData(0, Qt.UserRole, req.paymentrequest_id)
-            if req.state is not PaymentState.UNKNOWN:
+            if req.state != PaymentState.UNKNOWN:
                 item.setIcon(6, read_QIcon(pr_icons.get(req.state)))
             self.addTopLevelItem(item)
 
