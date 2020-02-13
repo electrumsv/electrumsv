@@ -2540,7 +2540,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         '''Called when the user changes fiat currency in preferences.'''
         b = app_state.fx and app_state.fx.is_enabled()
         self.fiat_send_e.setVisible(b)
-        if self.account_id is not None:
+        if self._account_id is not None:
             self.fiat_receive_e.setVisible(b)
         self.history_view.update_tx_headers()
         self.history_view.update_tx_list()
