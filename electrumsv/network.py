@@ -346,7 +346,6 @@ class SVSession(RPCSession):
         self._handlers = {}
         self._network = network
         self._closed_event = app_state.async_.event()
-        self._on_status_queue = app_state.async_.queue()
         # These attributes are intended to part of the external API
         self.chain = None
         self.logger = logger
@@ -616,6 +615,7 @@ class SVSession(RPCSession):
             assert len(set(tx_hash for tx_hash, tx_height in history)) == len(history), \
                 f'server history for {keyinstance_id} has duplicate transactions'
         except (AssertionError, KeyError) as e:
+            self._network._on_status_queue.put_nowait((script_hash, status))  # re-queue
             raise DisconnectSessionError(f'bad history returned: {e}')
 
         # Check the status; it can change legitimately between initial notification and
@@ -790,6 +790,7 @@ class SVSession(RPCSession):
             for account in list(subs_by_account):
                 triples = [(*keyinstance_map[sh], sh) for sh in subs_by_account[account]]
                 await group.spawn(self.subscribe_account, account, triples)
+        self._network.session_subs_complete.set()
 
     async def headers_at_heights(self, heights):
         '''Raises: MissingHeader, DisconnectSessionError, BatchError, TaskTimeout'''
@@ -821,7 +822,7 @@ class SVSession(RPCSession):
 
     async def _on_queue_status_changed(self, script_hash: str, status: str) -> None:
         item = (script_hash, status)
-        self._on_status_queue.put_nowait(item)
+        self._network._on_status_queue.put_nowait(item)
 
     async def subscribe_to_triples(self, account, triples) -> None:
         '''triples is an iterable of (keyinstance_id, script_type, script_hash) triples.
@@ -921,9 +922,13 @@ class Network(TriggeredCallbacks):
         self.check_main_chain_event = app_state.async_.event()
         self.stop_network_event = app_state.async_.event()
         self.shutdown_complete_event = app_state.async_.event()
+        self.session_subs_complete = app_state.async_.event()
 
         # Add an account, remove an account, or redo all account verifications
         self.account_jobs = app_state.async_.queue()
+
+        # Feed pub-sub notifications to currently active SVSession for processing
+        self._on_status_queue = app_state.async_.queue()
 
         dir_path = app_state.config.file_path('certs')
         if not os.path.exists(dir_path):
@@ -1184,12 +1189,12 @@ class Network(TriggeredCallbacks):
                                      f'{hhts(header.merkle_root)}')
         return had_timeout
 
-    async def _monitor_on_status(self):
+    async def _monitor_on_status(self, group):
         """worker task to process new aiorpcx 'Notifications' from queue"""
         while True:
             session = await self._main_session()
-            script_hash, status = await session._on_status_queue.get()
-            app_state.async_.spawn(session._on_status_changed, script_hash, status)
+            script_hash, status = await self._on_status_queue.get()
+            await group.spawn(session._on_status_changed, script_hash, status)
 
     async def _monitor_txs(self, account):
         '''Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError'''
@@ -1220,16 +1225,19 @@ class Network(TriggeredCallbacks):
 
     async def _monitor_active_keys(self, account) -> None:
         '''Raises: RPCError, TaskTimeout'''
-        keys = account.existing_active_keys()
+        all_keys = set(account.existing_active_keys())
         while True:
             session = await self._main_session()
-            session.logger.info(f'subscribing to {len(keys):,d} new keys for {account}')
+            monitored_keyinstance_ids = set([v[0] for k, v in session._keyinstance_map.items()])
+            additional_keys = all_keys - monitored_keyinstance_ids
+
+            session.logger.info(f'subscribing to {len(additional_keys):,d} new keys for {account}')
             # Do in reverse to require fewer account re-sync loops
-            pairs = [ (k, script_type, scripthash_hex(script)) for k in keys
+            pairs = [ (k, script_type, scripthash_hex(script)) for k in additional_keys
                 for script_type, script in account.get_possible_scripts_for_id(k) ]
             pairs.reverse()
             await session.subscribe_to_triples(account, pairs)
-            keys = await account.new_activated_keys()
+            additional_keys = await account.new_activated_keys()
 
     async def _monitor_inactive_keys(self, account) -> None:
         '''Raises: RPCError, TaskTimeout'''
@@ -1247,13 +1255,15 @@ class Network(TriggeredCallbacks):
         logger.info(f'maintaining account {account}')
         try:
             while True:
+                await self.session_subs_complete.wait()
+                self.session_subs_complete.clear()
                 try:
                     async with TaskGroup() as group:
-                        await group.spawn(self._monitor_on_status)
                         await group.spawn(self._monitor_txs, account)
                         await group.spawn(self._monitor_active_keys, account)
                         await group.spawn(self._monitor_inactive_keys, account)
                         await group.spawn(account.synchronize_loop)
+                        await group.spawn(self._monitor_on_status, group)
                 except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
                     blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
                     session = self.main_session()

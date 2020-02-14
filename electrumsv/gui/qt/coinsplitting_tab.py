@@ -133,7 +133,8 @@ class CoinSplittingTab(QWidget):
             elif result == RESULT_DUST_TIMEOUT:
                 self._main_window.show_error(_("It took too long to get the dust from the faucet."))
             else:
-                self._main_window.show_error(_("Unexpected situation. You should not even be here."))
+                self._main_window.show_error(_("Unexpected situation. You should not even be "
+                                               "here."))
             self._cleanup_tx_final()
         finally:
             self._cleanup_tx_created()
