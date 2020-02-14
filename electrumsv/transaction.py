@@ -255,40 +255,10 @@ class XTxInput(TxInput):
             result.value = read_le_int64(read)
         return result
 
-    def _realize_script_sig(self, x_pubkeys: List[XPublicKey], signatures: List[bytes]) -> Script:
-        if self.script_type == ScriptType.P2PK:
-            return Script(push_item(signatures[0]))
-        elif self.script_type == ScriptType.P2PKH:
-            return Script(push_item(signatures[0]) + push_item(x_pubkeys[0].to_bytes()))
-        elif self.script_type == ScriptType.MULTISIG_P2SH:
-            parts = [pack_byte(Ops.OP_0)]
-            parts.extend(push_item(signature) for signature in signatures)
-            nested_script = multisig_script(x_pubkeys, self.threshold)
-            parts.append(push_item(nested_script))
-            return Script(b''.join(parts))
-        elif self.script_type == ScriptType.MULTISIG_BARE:
-            parts = [pack_byte(Ops.OP_0)]
-            parts.extend(push_item(signature) for signature in signatures)
-            return Script(b''.join(parts))
-        elif self.script_type == ScriptType.MULTISIG_ACCUMULATOR:
-            parts = []
-            for i, signature in enumerate(signatures):
-                if signature == NO_SIGNATURE:
-                    parts.append([ pack_byte(Ops.OP_FALSE) ])
-                else:
-                    parts.append([
-                        push_item(signature),
-                        push_item(x_pubkeys[i].to_bytes()),
-                        pack_byte(Ops.OP_TRUE),
-                    ])
-            parts.reverse()
-            return Script(b''.join([ value for l in parts for value in l ]))
-        raise ValueError(f"unable to realize script {self.script_type}")
-        # return self.script_sig
-
     def to_bytes(self) -> bytes:
         if self.x_pubkeys:
-            self.script_sig = self._realize_script_sig(self.x_pubkeys, self.signatures)
+            self.script_sig = create_script_sig(self.script_type, self.threshold, self.x_pubkeys,
+                self.signatures)
         return super().to_bytes()
 
     def signatures_present(self) -> List[bytes]:
@@ -316,7 +286,7 @@ class XTxInput(TxInput):
         saved_script_sig = self.script_sig
         x_pubkeys = [x_pubkey.to_public_key() for x_pubkey in self.x_pubkeys]
         signatures = [dummy_signature] * self.threshold
-        self.script_sig = self._realize_script_sig(x_pubkeys, signatures)
+        self.script_sig = create_script_sig(self.script_type, self.threshold, x_pubkeys, signatures)
         size = self.size()
         self.script_sig = saved_script_sig
         return size
@@ -402,6 +372,51 @@ def _extract_multisig_pattern(decoded):
     return m, n, [ op_m ] + [Ops.OP_PUSHDATA4]*n + [ op_n, Ops.OP_CHECKMULTISIG ]
 
 
+def multisig_script(x_pubkeys: List[XPublicKey], threshold: int) -> bytes:
+    '''Returns bytes.
+
+    x_pubkeys is an array of XPulicKey objects or an array of PublicKey objects.
+    '''
+    assert 1 <= threshold <= len(x_pubkeys)
+    parts = [push_int(threshold)]
+    parts.extend(push_item(x_pubkey.to_bytes()) for x_pubkey in x_pubkeys)
+    parts.append(push_int(len(x_pubkeys)))
+    parts.append(pack_byte(Ops.OP_CHECKMULTISIG))
+    return b''.join(parts)
+
+
+def create_script_sig(script_type: ScriptType, threshold: int, x_pubkeys: List[XPublicKey],
+        signatures: List[bytes]) -> Script:
+    if script_type == ScriptType.P2PK:
+        return Script(push_item(signatures[0]))
+    elif script_type == ScriptType.P2PKH:
+        return Script(push_item(signatures[0]) + push_item(x_pubkeys[0].to_bytes()))
+    elif script_type == ScriptType.MULTISIG_P2SH:
+        parts = [pack_byte(Ops.OP_0)]
+        parts.extend(push_item(signature) for signature in signatures)
+        nested_script = multisig_script(x_pubkeys, threshold)
+        parts.append(push_item(nested_script))
+        return Script(b''.join(parts))
+    elif script_type == ScriptType.MULTISIG_BARE:
+        parts = [pack_byte(Ops.OP_0)]
+        parts.extend(push_item(signature) for signature in signatures)
+        return Script(b''.join(parts))
+    elif script_type == ScriptType.MULTISIG_ACCUMULATOR:
+        parts = []
+        for i, signature in enumerate(signatures):
+            if signature == NO_SIGNATURE:
+                parts.append([ pack_byte(Ops.OP_FALSE) ])
+            else:
+                parts.append([
+                    push_item(signature),
+                    push_item(x_pubkeys[i].to_bytes()),
+                    pack_byte(Ops.OP_TRUE),
+                ])
+        parts.reverse()
+        return Script(b''.join([ value for l in parts for value in l ]))
+    raise ValueError(f"unable to realize script {script_type}")
+
+
 def parse_script_sig(script: bytes, kwargs: Dict[str, Any]) -> None:
     try:
         decoded = list(_script_GetOp(script))
@@ -451,19 +466,6 @@ def parse_script_sig(script: bytes, kwargs: Dict[str, Any]) -> None:
     kwargs['address'] = P2SH_Address(hash160(multisig_script(x_pubkeys, m)), Net.COIN)
     kwargs['signatures'] = [x[1] for x in decoded[1:-1]]
     return
-
-
-def multisig_script(x_pubkeys, threshold):
-    '''Returns bytes.
-
-    x_pubkeys is an array of XPulicKey objects or an array of PublicKey objects.
-    '''
-    assert 1 <= threshold <= len(x_pubkeys)
-    parts = [push_int(threshold)]
-    parts.extend(push_item(x_pubkey.to_bytes()) for x_pubkey in x_pubkeys)
-    parts.append(push_int(len(x_pubkeys)))
-    parts.append(pack_byte(Ops.OP_CHECKMULTISIG))
-    return b''.join(parts)
 
 
 def txdict_from_str(txt: str) -> Dict[str, Any]:
