@@ -1226,11 +1226,12 @@ class Network(TriggeredCallbacks):
     async def _monitor_active_keys(self, account) -> None:
         '''Raises: RPCError, TaskTimeout'''
         all_keys = set(account.existing_active_keys())
+        session = await self._main_session()
+        monitored_keyinstance_ids = set([v[0] for v in session._keyinstance_map.values()])
+        additional_keys = all_keys - monitored_keyinstance_ids
+
         while True:
             session = await self._main_session()
-            monitored_keyinstance_ids = set([v[0] for k, v in session._keyinstance_map.items()])
-            additional_keys = all_keys - monitored_keyinstance_ids
-
             session.logger.info(f'subscribing to {len(additional_keys):,d} new keys for {account}')
             # Do in reverse to require fewer account re-sync loops
             pairs = [ (k, script_type, scripthash_hex(script)) for k in additional_keys
