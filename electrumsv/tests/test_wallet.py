@@ -193,6 +193,12 @@ def check_legacy_parent_of_multisig_wallet(wallet: Wallet) -> None:
             assert keystore_data['xpub'] is not None
             assert keystore_data['xprv'] is None
 
+def check_parent_of_blank_wallet(wallet: Wallet) -> None:
+    assert len(wallet.get_accounts()) == 0
+    parent_keystores = wallet.get_keystores()
+    assert len(parent_keystores) == 0
+
+
 def check_legacy_parent_of_hardware_wallet(wallet: Wallet) -> None:
     assert len(wallet.get_accounts()) == 1
     child_account = wallet.get_accounts()[0]
@@ -398,8 +404,12 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
 
     wallet_filename = storage_info.filename
     wallet_path = os.path.join(temp_dir, wallet_filename)
+    # "<expected version>_<network>_<type>[_<subtype>]"
+    (expected_version_text, expected_network, expected_type, *expected_subtypes) \
+        = wallet_filename.split("_")
+    expected_version = int(expected_version_text)
 
-    if "testnet" in wallet_filename:
+    if "testnet" == expected_network:
         Net.set_to(SVTestnet)
 
     if storage_info.kind == StorageKind.HYBRID:
@@ -407,13 +417,15 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
 
     password = None
     storage = WalletStorage(wallet_path)
-    if "passworded" in wallet_filename:
+    if "passworded" in expected_subtypes:
         password = "123456"
         text_store = storage.get_text_store()
         text_store.load_data(text_store.decrypt(password))
-    if "encrypted" in wallet_filename:
+    if "encrypted" in expected_subtypes:
         password = "123456"
-        check_no_password = False
+    if expected_version >= 22:
+        password = "123456"
+        storage.check_password(password)
 
     storage.upgrade(password is not None, password)
 
@@ -437,22 +449,27 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
     password = "654321"
     wallet.update_password(password, old_password)
 
-    if "standard" in wallet_filename:
-        is_bip39 = "bip39" in wallet_filename
+    if "standard" == expected_type:
+        is_bip39 = "bip39" in expected_subtypes
         check_legacy_parent_of_standard_wallet(wallet, is_bip39=is_bip39,
             password=password)
-    elif "imported_privkey" in wallet_filename:
-        check_legacy_parent_of_imported_privkey_wallet(wallet)
-    elif "imported_address" in wallet_filename:
-        check_legacy_parent_of_imported_address_wallet(wallet)
-    elif "multisig" in wallet_filename:
+    elif "imported" == expected_type:
+        if "privkey" in wallet_filename:
+            check_legacy_parent_of_imported_privkey_wallet(wallet)
+        elif "address" in expected_subtypes:
+            check_legacy_parent_of_imported_address_wallet(wallet)
+        else:
+            raise Exception(f"unrecognised wallet file {wallet_filename}")
+    elif "multisig" == expected_type:
         check_legacy_parent_of_multisig_wallet(wallet)
-    elif "hardware" in wallet_filename:
+    elif "hardware" == expected_type:
         check_legacy_parent_of_hardware_wallet(wallet)
+    elif "blank" == expected_type:
+        check_parent_of_blank_wallet(wallet)
     else:
         raise Exception(f"unrecognised wallet file {wallet_filename}")
 
-    if "testnet" in wallet_filename:
+    if "testnet" == expected_network:
         Net.set_to(SVMainnet)
 
 

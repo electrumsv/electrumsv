@@ -268,12 +268,14 @@ class ChangePasswordDialog(WindowModalDialog):
             password_check_fn: Optional[PasswordCheckCallbackType]=None) -> None:
         WindowModalDialog.__init__(self, parent)
 
-        OK_button = OkButton(self)
+        ok_button = OkButton(self)
         # NOTE(rt12): This preserves existing behaviour for the `is_new` case.
-        OK_button.setEnabled(kind != PasswordAction.NEW)
+        ok_button.setEnabled(kind != PasswordAction.NEW)
+        self._ok_button = ok_button
 
         def state_change_fn(state: bool) -> None:
-            OK_button.setEnabled(state)
+            nonlocal ok_button
+            ok_button.setEnabled(state)
 
         if msg is None:
             if kind == PasswordAction.NEW:
@@ -289,7 +291,10 @@ class ChangePasswordDialog(WindowModalDialog):
         vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         vbox.addLayout(self.playout.layout())
         vbox.addStretch(1)
-        vbox.addLayout(Buttons(CancelButton(self), OK_button))
+        vbox.addLayout(Buttons(CancelButton(self), ok_button))
+
+        self.playout.new_pw.text_submitted_signal.connect(self._on_text_submitted)
+        self.playout.conf_pw.text_submitted_signal.connect(self._on_text_submitted)
 
     def run(self):
         try:
@@ -300,6 +305,10 @@ class ChangePasswordDialog(WindowModalDialog):
             self.playout.pw.setText('')
             self.playout.conf_pw.setText('')
             self.playout.new_pw.setText('')
+
+    def _on_text_submitted(self) -> None:
+        if self._ok_button.isEnabled():
+            self.accept()
 
 
 PASSWORD_REQUEST_TEXT = _("Your wallet has a password, you will need to provide that password "

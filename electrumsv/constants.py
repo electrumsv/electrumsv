@@ -1,5 +1,5 @@
 # ...
-from enum import IntEnum
+from enum import Enum, IntEnum
 
 ## Wallet
 
@@ -98,6 +98,7 @@ ADDRESSABLE_SCRIPT_TYPES = (ScriptType.P2PKH, ScriptType.MULTISIG_P2SH)
 
 
 class DerivationType(IntEnum):
+    NONE = 0
     ELECTRUM_OLD = 1
     ELECTRUM_MULTISIG = 2
     BIP32 = 3
@@ -171,3 +172,25 @@ class PaymentState(IntEnum):
 MAX_MESSAGE_BYTES = 99000
 
 MAX_INCOMING_ELECTRUMX_MESSAGE_SIZE = 10_000_000
+
+
+DEFAULT_COSIGNER_COUNT = 2
+MAXIMUM_COSIGNER_COUNT = 15
+
+
+class KeystoreType(Enum):
+    BIP32 = "bip32"
+    HARDWARE = "hardware"
+    IMPORTED_PRIVATE_KEY = "impprvkey"
+    MULTISIG = "multisig"
+    OLD = "old"
+    SOFTWARE = "software"
+    UNSPECIFIED = "unspecified"
+
+
+class AccountType(Enum):
+    UNSPECIFIED = "unspecified"
+    STANDARD = "standard"
+    MULTISIG = "multisig"
+    IMPORTED_ADDRESS = "impaddress"
+    IMPORTED_PRIVATE_KEY = "impprvkey"

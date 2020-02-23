@@ -27,7 +27,6 @@
 # SOFTWARE.
 
 import enum
-from functools import partial
 import os
 import shutil
 import sys
@@ -46,7 +45,7 @@ from PyQt5.QtWidgets import (
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import DATABASE_EXT, StorageKind
-from electrumsv.exceptions import IncompatibleWalletError, InvalidPassword
+from electrumsv.exceptions import IncompatibleWalletError
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage, categorise_file
@@ -54,8 +53,9 @@ from electrumsv.util import get_wallet_name_from_path, read_resource_text
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import Wallet
 
-from .util import (Buttons, can_show_in_file_explorer, create_new_wallet, icon_path, MessageBox,
-    show_in_file_explorer, OkButton, WindowModalDialog)
+from .util import (can_show_in_file_explorer, create_new_wallet, icon_path, MessageBox,
+    show_in_file_explorer)
+from .wizard_common import BaseWizard, HelpContext
 
 
 logger = logs.get_logger('wizard-wallet')
@@ -104,10 +104,6 @@ class FileState(NamedTuple):
     password_state: PasswordState = PasswordState.UNKNOWN
     requires_upgrade: bool = False
     modification_time: int = 0
-
-class HelpContext(NamedTuple):
-    file_name: str
-    title: str
 
 class MigrationContext(NamedTuple):
     entry: FileState
@@ -160,14 +156,6 @@ def create_file_state(wallet_path: str) -> Optional[FileState]:
     return FileState(name, wallet_path, wallet_action, storage_info.kind, password_state,
         requires_upgrade, modification_time)
 
-def validate_password(storage: WalletStorage, password: str) -> bool:
-    try:
-        storage.check_password(password)
-    except InvalidPassword:
-        pass
-    else:
-        return True
-    return False
 
 def request_password(parent: Optional[QWidget], storage: WalletStorage, entry: FileState) \
         -> Optional[str]:
@@ -180,7 +168,7 @@ def request_password(parent: Optional[QWidget], storage: WalletStorage, entry: F
     if entry.password_state & PasswordState.PASSWORDED:
         from .password_dialog import PasswordDialog
         d = PasswordDialog(parent, PASSWORD_REQUEST_TEXT,
-            fields=fields, password_check_fn=partial(validate_password, storage))
+            fields=fields, password_check_fn=storage.is_password_valid)
         d.setMaximumWidth(200)
         return d.run()
 
@@ -193,7 +181,7 @@ def request_password(parent: Optional[QWidget], storage: WalletStorage, entry: F
     return None
 
 
-class WalletWizard(QWizard):
+class WalletWizard(BaseWizard):
     """
     Wallet selection/creation related circumstances:
     - SHOWN: With no explicit path on application startup.
@@ -205,6 +193,8 @@ class WalletWizard(QWizard):
     - NOT SHOWN: Via the new wallet menu in an already open wallet window.
       - The user should get asked for a password for the creation after which it should open.
     """
+    HELP_DIRNAME = "wallet_wizard"
+
     _last_page_id = WalletPage.NONE
     _wallet_type = StorageKind.UNKNOWN
     _wallet_path: Optional[str] = None
@@ -220,23 +210,11 @@ class WalletWizard(QWizard):
         self.setWindowTitle('ElectrumSV')
         self.setMinimumSize(600, 600)
 
-        # This is made visible or not when a page is entered, depending on whether the page
-        # declares a help context.
-        help_button = self.button(QWizard.HelpButton)
-        help_button.clicked.connect(self._event_click_help_button)
-
         self.setPage(WalletPage.SPLASH_SCREEN, SplashScreenPage(self))
         self.setPage(WalletPage.RELEASE_NOTES, ReleaseNotesPage(self))
         self.setPage(WalletPage.CHOOSE_WALLET, ChooseWalletPage(self))
         self.setPage(WalletPage.MIGRATE_OLDER_WALLET,
             OlderWalletMigrationPage(self, migration_data))
-
-        self.currentIdChanged.connect(self.on_current_id_changed)
-
-        self.setOption(QWizard.IndependentPages, False)
-        self.setOption(QWizard.NoDefaultButton, True)
-        self.setOption(QWizard.HaveHelpButton, True)
-        self.setOption(QWizard.HelpButtonOnRight, False)
 
         if migration_data is not None:
             self.setStartId(WalletPage.MIGRATE_OLDER_WALLET)
@@ -276,42 +254,6 @@ class WalletWizard(QWizard):
                 if storage is not None:
                     storage.close()
         return False, was_aborted, None
-
-    def run(self) -> int:
-        self.ensure_shown()
-        return self.exec()
-
-    def ensure_shown(self) -> None:
-        self.show()
-        self.raise_()
-
-    # Wiring for pages to know when the wizard switches between them. This is important because
-    # pages are instantiated on wizard creation, and reused as the user goes back and forwards
-    # between them.
-    def on_current_id_changed(self, page_id: WalletPage):
-        if self._last_page_id != WalletPage.NONE:
-            page = self.page(self._last_page_id)
-            if hasattr(page, "on_leave"):
-                page.on_leave()
-
-        self._last_page_id = page_id
-        page = self.page(page_id)
-        if hasattr(page, "on_enter"):
-            # Only show the help button if there is help to show for the given page.
-            help_context: Optional[HelpContext] = getattr(page, "HELP_CONTEXT", None)
-            self.button(QWizard.HelpButton).setVisible(help_context is not None)
-
-            page.on_enter()
-        else:
-            button = self.button(QWizard.CustomButton1)
-            button.setVisible(False)
-
-    def _event_click_help_button(self) -> None:
-        page = self.currentPage()
-        help_context: Optional[HelpContext] = getattr(page, "HELP_CONTEXT", None)
-        assert help_context is not None
-        h = HelpDialog(page, help_context.title, help_context.file_name)
-        h.run()
 
     def set_wallet_path(self, wallet_path: Optional[str]) -> None:
         self._wallet_path = wallet_path
@@ -451,7 +393,8 @@ class ChooseWalletPage(QWizardPage):
                 selected_indexes = self.selectedIndexes()
                 if not len(selected_indexes):
                     return
-                entry = page._recent_wallet_entries[selected_indexes[0].row()]
+                wallet_path = page._recent_wallet_paths[selected_indexes[0].row()]
+                entry = page._recent_wallet_entries[wallet_path]
 
                 show_file_action: Optional[QAction] = None
                 show_directory_action: Optional[QAction] = None
@@ -675,7 +618,12 @@ class ChooseWalletPage(QWizardPage):
                 return
             if os.path.exists(file_path):
                 # We can assume that the state does not exist because we doing initial population.
-                self.update_list_entry.emit(list_thread_id, create_file_state(file_path))
+                entry = create_file_state(file_path)
+                # This should filter out invalid wallets. But if there's an Sqlite error it will
+                # skip them. In theory the retrying in the Sqlite support code should prevent
+                # this from happening.
+                if entry is not None:
+                    self.update_list_entry.emit(list_thread_id, entry)
 
     def _get_file_state(self, wallet_path: str) -> Optional[FileState]:
         if not os.path.exists(wallet_path):
@@ -722,6 +670,7 @@ class ChooseWalletPage(QWizardPage):
 
         row_layout.addWidget(row_icon_label)
         row_layout.addWidget(row_desc_label)
+        row_layout.addStretch(1)
 
         row_widget.setLayout(row_layout)
         self._wallet_table.setCellWidget(row_index, 0, row_widget)
@@ -890,27 +839,3 @@ class OlderWalletMigrationPage(QWizardPage):
             original_filepath, backup_filepath = backup_filepaths
             shutil.move(backup_filepath, original_filepath)
             os.remove(self._migration_storage.get_storage_path() + DATABASE_EXT)
-
-
-class HelpDialog(WindowModalDialog):
-    def __init__(self, parent: QWizardPage, title: str, help_file_name: str) -> None:
-        WindowModalDialog.__init__(self, parent)
-
-        self.setWindowTitle(f"Wallet Wizard - Help for {title}")
-        self.setMinimumSize(450, 400)
-
-        release_html = read_resource_text("wallet-wizard", f"{help_file_name}.html")
-
-        widget = QTextBrowser()
-        widget.document().setDocumentMargin(15)
-        widget.setOpenExternalLinks(True)
-        widget.setAcceptRichText(True)
-        widget.setHtml(release_html)
-
-        vbox = QVBoxLayout(self)
-        # vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
-        vbox.addWidget(widget)
-        vbox.addLayout(Buttons(OkButton(self)))
-
-    def run(self):
-        return self.exec_()

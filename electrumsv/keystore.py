@@ -36,7 +36,7 @@ from bitcoinx import (
 from .i18n import _
 from .app_state import app_state
 from .bitcoin import is_seed, seed_type, is_address_valid
-from .constants import DerivationType, KeystoreTextType
+from .constants import DerivationType, KeystoreTextType, KeystoreType
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword, OverloadedMultisigKeystore, IncompatibleWalletError
 from .logs import logs
@@ -49,14 +49,33 @@ from .wallet_database.tables import KeyInstanceRow, MasterKeyRow
 logger = logs.get_logger("keystore")
 
 class KeyStore:
+    derivation_type = DerivationType.NONE
+    label: Optional[str] = None
+
     def __init__(self, row: Optional[MasterKeyRow]=None) -> None:
         self.set_row(row)
 
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         self._row = row
 
-    def type_name(self) -> str:
-        return "unknown"
+    def type(self) -> KeystoreType:
+        return KeystoreType.UNSPECIFIED
+
+    def subtype(self) -> Optional[str]:
+        return None
+
+    def get_label(self) -> Optional[str]:
+        return self.label
+
+    def set_label(self, label: Optional[str]) -> None:
+        self.label = label
+
+    def debug_name(self) -> str:
+        name = self.type().value
+        sub_type = self.subtype() # pylint: disable=assignment-from-none
+        if sub_type is not None:
+            name += "/"+ sub_type
+        return name
 
     def get_id(self) -> int:
         assert self._row is not None
@@ -113,8 +132,8 @@ class Software_KeyStore(KeyStore):
     def __init__(self, row: Optional[MasterKeyRow]=None) -> None:
         KeyStore.__init__(self, row)
 
-    def type_name(self) -> str:
-        return "software"
+    def type(self) -> KeystoreType:
+        return KeystoreType.SOFTWARE
 
     def sign_message(self, derivation_path: Sequence[int], message: bytes, password: str):
         privkey, compressed = self.get_private_key(derivation_path, password)
@@ -147,6 +166,8 @@ class Software_KeyStore(KeyStore):
 
 
 class Imported_KeyStore(Software_KeyStore):
+    derivation_type = DerivationType.IMPORTED
+
     # keystore for imported private keys
     # private keys are encrypted versions of the WIF encoding
     _keypairs: Dict[PublicKey, str]
@@ -158,8 +179,8 @@ class Imported_KeyStore(Software_KeyStore):
 
         Software_KeyStore.__init__(self, row)
 
-    def type_name(self) -> str:
-        return "impprvkey"
+    def type(self) -> KeystoreType:
+        return KeystoreType.IMPORTED_PRIVATE_KEY
 
     def load_state(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
         self._keypairs.clear()
@@ -263,6 +284,7 @@ class Deterministic_KeyStore(Software_KeyStore):
 
         self.seed = data.get('seed', '')
         self.passphrase = data.get('passphrase', '')
+        self.label = data.get('label')
 
     def is_deterministic(self) -> bool:
         return True
@@ -273,6 +295,8 @@ class Deterministic_KeyStore(Software_KeyStore):
             d['seed'] = self.seed
         if self.passphrase:
             d['passphrase'] = self.passphrase
+        if self.label:
+            d['label'] = self.label
         return d
 
     def has_seed(self) -> bool:
@@ -376,8 +400,8 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         self.xpub: Optional[str] = data.get('xpub')
         self.xprv: Optional[str] = data.get('xprv')
 
-    def type_name(self) -> str:
-        return "bip32"
+    def type(self) -> KeystoreType:
+        return KeystoreType.BIP32
 
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         Xpub.set_row(self, row)
@@ -467,8 +491,8 @@ class Old_KeyStore(DerivablePaths, Deterministic_KeyStore):
 
         self.mpk = data['mpk']
 
-    def type_name(self) -> str:
-        return "old"
+    def type(self) -> KeystoreType:
+        return KeystoreType.OLD
 
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         DerivablePaths.set_row(self, row)
@@ -648,15 +672,15 @@ class Hardware_KeyStore(Xpub, KeyStore):
         self.plugin = None
         self.libraries_available = False
 
-    def type_name(self) -> str:
-        return f"hardware/{self.hw_type}"
+    def type(self) -> KeystoreType:
+        return KeystoreType.HARDWARE
+
+    def subtype(self) -> Optional[str]:
+        return self.hw_type
 
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         Xpub.set_row(self, row)
         KeyStore.set_row(self, row)
-
-    def set_label(self, label):
-        self.label = label
 
     def is_deterministic(self):
         return True
@@ -698,6 +722,9 @@ class Hardware_KeyStore(Xpub, KeyStore):
 MultisigChildKeyStoreType = Union[BIP32_KeyStore, Hardware_KeyStore, Old_KeyStore]
 
 class Multisig_KeyStore(DerivablePaths, KeyStore):
+    # This isn't used, it's mostly included for consistency. Generally this attribute is used
+    # only by this class, to classify derivation data of cosigner information.
+    derivation_type = DerivationType.ELECTRUM_MULTISIG
     _cosigner_keystores: List[MultisigChildKeyStoreType]
 
     def __init__(self, data: Dict[str, Any], row: Optional[MasterKeyRow]=None) -> None:
@@ -715,8 +742,8 @@ class Multisig_KeyStore(DerivablePaths, KeyStore):
             keystore = cast(MultisigChildKeyStoreType, keystore)
             self.add_cosigner_keystore(keystore)
 
-    def type_name(self) -> str:
-        return "multisig"
+    def type(self) -> KeystoreType:
+        return KeystoreType.MULTISIG
 
     def is_deterministic(self) -> bool:
         return True
@@ -932,8 +959,8 @@ def instantiate_keystore(derivation_type: DerivationType, data: Dict[str, Any],
     return keystore
 
 def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Union[str, List[str]],
-        password: str, derivation_text: Optional[str]=None, passphrase: Optional[str]=None,
-        watch_only: bool=False) -> KeyStore:
+        password: Optional[str], derivation_text: Optional[str]=None,
+        passphrase: Optional[str]=None, watch_only: bool=False) -> KeyStore:
     derivation_type: Optional[DerivationType] = None
     data: Dict[str, Any] = {}
     if text_type == KeystoreTextType.EXTENDED_PUBLIC_KEY:
@@ -947,6 +974,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Unio
         assert isinstance(text_match, str)
         assert passphrase is None
         if not watch_only:
+            assert password is not None
             data['xprv'] = pw_encode(text_match, password)
         private_key = bip32_key_from_string(text_match)
         data['xpub'] = private_key.public_key.to_extended_key_string()
@@ -967,6 +995,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Unio
         for n in bip32_decompose_chain_string(derivation_text):
             xprv = xprv.child_safe(n)
         if not watch_only:
+            assert password is not None
             data['xprv'] = pw_encode(xprv.to_extended_key_string(), password)
             data['seed'] = pw_encode(text_match, password)
             if passphrase is not None:
@@ -982,6 +1011,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Unio
         for n in bip32_decompose_chain_string(derivation_text):
             xprv = private_key.child_safe(n)
         if not watch_only:
+            assert password is not None
             data['xprv'] = pw_encode(xprv.to_extended_key_string(), password)
             data['seed'] = pw_encode(text_match, password)
             if passphrase is not None:
@@ -994,6 +1024,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Unio
         assert passphrase is None
         # `watch_only` is ignored.
         hex_seed = Old_KeyStore._seed_to_hex(text_match)
+        assert password is not None
         data['seed'] = pw_encode(hex_seed, password)
         data['mpk'] = Old_KeyStore._mpk_from_hex_seed(hex_seed)
     else:

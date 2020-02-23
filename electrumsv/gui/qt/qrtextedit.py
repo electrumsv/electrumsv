@@ -1,3 +1,4 @@
+from typing import Optional
 
 from PyQt5.QtWidgets import QFileDialog
 
@@ -5,15 +6,16 @@ from electrumsv import qrscanner
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 
-from .util import ButtonsTextEdit, MessageBoxMixin, ColorScheme
+from .util import ButtonsMode, ButtonsTextEdit, MessageBoxMixin, ColorScheme
 
 
 class ShowQRTextEdit(ButtonsTextEdit):
-
-    def __init__(self, text=None):
-        ButtonsTextEdit.__init__(self, text)
-        self.setReadOnly(1)
-        self.addButton("qrcode.png", self.qr_show, _("Show as QR code"))
+    def __init__(self, text: Optional[str]=None,
+            buttons_mode: ButtonsMode=ButtonsMode.TOOLBAR_BOTTOM) -> None:
+        super().__init__(text)
+        self.buttons_mode = buttons_mode
+        self.setReadOnly(True)
+        self.qr_button = self.addButton("qrcode.png", self.qr_show, _("Show as QR code"))
 
     def qr_show(self):
         from .qrcodewidget import QRDialog

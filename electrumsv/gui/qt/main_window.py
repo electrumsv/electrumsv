@@ -83,7 +83,8 @@ from .util import (
     WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
     CloseButton, CancelButton, text_dialog, filename_field,
     update_fixed_tree_height, UntrustedMessageDialog, protected,
-    can_show_in_file_explorer, show_in_file_explorer, create_new_wallet
+    can_show_in_file_explorer, show_in_file_explorer, create_new_wallet,
+    FormSectionWidget
 )
 from .wallet_api import WalletAPI
 
@@ -565,7 +566,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         file_menu.addAction(_("&Quit"), self.close)
 
         wallet_menu = menubar.addMenu(_("&Wallet"))
-        wallet_menu.addAction(_("&Information"), self.show_wallet_information)
+        wallet_menu.addAction(_("&Information"), self._show_wallet_information)
         wallet_menu.addSeparator()
 
         self.password_menu = wallet_menu.addAction(_("&Password"), self.change_password_dialog)
@@ -770,6 +771,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def new_payment(self) -> None:
         from . import payment
+        from importlib import reload
+        reload(payment)
         self.w = payment.PaymentWindow(self._api, parent=self)
         self.w.show()
 
@@ -2069,9 +2072,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def change_password_dialog(self):
         from .password_dialog import ChangePasswordDialog
-        from .wallet_wizard import validate_password
         storage = self._wallet.get_storage()
-        d = ChangePasswordDialog(self, password_check_fn=partial(validate_password, storage))
+        d = ChangePasswordDialog(self, password_check_fn=storage.is_password_valid)
         ok, password, new_password = d.run()
         if not ok:
             return
@@ -2097,7 +2099,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if hasattr(tab, 'searchable_list'):
             tab.searchable_list.filter(t)
 
-    def show_wallet_information(self) -> None:
+    def _show_wallet_information(self) -> None:
         def file_explorer_label(text: str, callback: Callable[[str], None]) -> QLabel:
             label = QLabel()
             if can_show_in_file_explorer():
@@ -2109,6 +2111,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return label
         def open_file_explorer(path: str, _discard: str) -> None:
             show_in_file_explorer(path)
+
         dialog = QDialog(self)
         dialog.setWindowTitle(_("Wallet Information"))
         dialog.setMinimumSize(500, 100)
@@ -2121,12 +2124,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         path_label = file_explorer_label(wallet_dirpath,
             partial(open_file_explorer, wallet_dirpath))
 
-        grid = QGridLayout()
-        grid.addWidget(QLabel(_("File name")+ ':'), 0, 0, Qt.AlignRight)
-        grid.addWidget(name_label, 0, 1)
-        grid.addWidget(QLabel(_("Path")+ ':'), 1, 0, Qt.AlignRight)
-        grid.addWidget(path_label, 1, 1)
-        vbox.addLayout(grid)
+        grid = FormSectionWidget()
+        grid.add_row(QLabel(_("File name")), name_label)
+        grid.add_row(QLabel(_("Path")), path_label)
+        vbox.addWidget(grid)
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CloseButton(dialog)))
         dialog.setLayout(vbox)
@@ -2359,10 +2360,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def password_dialog(self, msg: Optional[str]=None, parent: Optional[QWidget]=None) -> str:
         from .password_dialog import PasswordDialog
-        from .wallet_wizard import validate_password
         parent = parent or self
         storage = self._wallet.get_storage()
-        d = PasswordDialog(parent, msg, password_check_fn=partial(validate_password, storage))
+        d = PasswordDialog(parent, msg, password_check_fn=storage.is_password_valid)
         return d.run()
 
     def tx_from_text(self, txt: str) -> Optional[Transaction]:

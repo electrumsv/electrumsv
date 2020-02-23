@@ -1,15 +1,17 @@
-import os.path
+from enum import IntEnum
 from functools import partial, lru_cache
+import os.path
 import sys
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Iterable, Callable, Optional, TYPE_CHECKING, Union
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QTimer,
     QModelIndex)
 from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette
 from PyQt5.QtWidgets import (
-    QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
-    QRadioButton, QFileDialog, QStyledItemDelegate, QTreeWidget, QButtonGroup,
-    QHeaderView, QWidget, QStyle, QToolButton, QToolTip, QPlainTextEdit, QTreeWidgetItem
+    QAbstractButton, QButtonGroup, QDialog, QGridLayout, QGroupBox, QMessageBox, QHBoxLayout,
+    QHeaderView, QLabel, QLayout, QLineEdit, QFileDialog, QFrame, QPlainTextEdit, QPushButton,
+    QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QToolButton, QToolTip, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget
 )
 from PyQt5.uic import loadUi
 
@@ -117,11 +119,29 @@ class HelpButton(QPushButton):
         b.exec()
 
 class Buttons(QHBoxLayout):
-    def __init__(self, *buttons):
+    _insert_index: int = 0
+
+    # Need to be careful this only covers Buttons layouts, and not things like the buttons in
+    # buttons edit widgets.
+    STYLESHEET = """
+        QAbstractButton {
+            padding-top: 4px;
+            padding-bottom: 4px;
+            padding-left: 20px;
+            padding-right: 20px;
+        }
+    """
+
+    def __init__(self, *buttons: Iterable[QAbstractButton]) -> None:
         QHBoxLayout.__init__(self)
         self.addStretch(1)
         for b in buttons:
             self.addWidget(b)
+
+    def add_left_button(self, button: QAbstractButton) -> None:
+        self.insertWidget(self._insert_index, button)
+        self._insert_index += 1
+
 
 class CloseButton(QPushButton):
     def __init__(self, dialog):
@@ -531,36 +551,80 @@ class MyTreeWidget(QTreeWidget):
                                 for column in columns]))
 
 
+class ButtonsMode(IntEnum):
+    INTERNAL = 0
+    TOOLBAR_RIGHT = 1
+    TOOLBAR_BOTTOM = 2
+
+
+
 class ButtonsWidget(QWidget):
+    buttons_mode = ButtonsMode.INTERNAL
 
     def __init__(self):
         super().__init__()
-        self.buttons = []
+        self.buttons: Iterable[QAbstractButton] = []
 
     def resizeButtons(self):
-        frameWidth = self.style().pixelMetric(QStyle.PM_DefaultFrameWidth)
-        x = self.rect().right() - frameWidth
-        y = self.rect().top() + frameWidth
-        for button in self.buttons:
-            sz = button.sizeHint()
-            x -= sz.width()
-            button.move(x, y)
+        frame_width = self.style().pixelMetric(QStyle.PM_DefaultFrameWidth)
+        if self.buttons_mode == ButtonsMode.INTERNAL:
+            x = self.rect().right() - frame_width
+            y = self.rect().top() + frame_width
+            for button in self.buttons:
+                sz = button.sizeHint()
+                x -= sz.width()
+                button.move(x, y)
+        elif self.buttons_mode == ButtonsMode.TOOLBAR_RIGHT:
+            x = self.rect().right() - frame_width
+            y = self.rect().top() - frame_width
+            for i, button in enumerate(self.buttons):
+                sz = button.sizeHint()
+                if i > 0:
+                    y += sz.height()
+                button.move(x - sz.width(), y)
+        elif self.buttons_mode == ButtonsMode.TOOLBAR_BOTTOM:
+            x = self.rect().left() - frame_width
+            y = self.rect().bottom() + frame_width
+            for i, button in enumerate(self.buttons):
+                sz = button.sizeHint()
+                if i > 0:
+                    x += sz.width()
+                button.move(x, y - sz.height())
 
-    def addButton(self, icon_name, on_click, tooltip):
+    def addButton(self, icon_name: str, on_click: Callable[[], None], tooltip: str,
+            insert: bool=False) -> None:
         button = QToolButton(self)
         button.setIcon(read_QIcon(icon_name))
-        button.setStyleSheet("QToolButton { border: none; hover {border: 1px} "
-                             "pressed {border: 1px} padding: 0px; }")
+        # Horizontal buttons are inside the edit widget and do not have borders.
+        if self.buttons_mode == ButtonsMode.INTERNAL:
+            button.setStyleSheet("QToolButton { border: none; hover {border: 1px} "
+                                "pressed {border: 1px} padding: 0px; }")
         button.setVisible(True)
         button.setToolTip(tooltip)
         button.setCursor(QCursor(Qt.PointingHandCursor))
         button.clicked.connect(on_click)
-        self.buttons.append(button)
+        if insert:
+            self.buttons.insert(0, button)
+        else:
+            self.buttons.append(button)
+
+        # Vertical buttons are integrated into the widget, within a margin that moves the edge
+        # of the edit widget over to make space.
+        frame_width = self.style().pixelMetric(QStyle.PM_DefaultFrameWidth)
+        if self.buttons_mode == ButtonsMode.TOOLBAR_RIGHT:
+            self.button_padding = max(button.sizeHint().width() for button in self.buttons) + 4
+            self.setStyleSheet("QPlainTextEdit { margin-right: "+ str(self.button_padding) +"px; }")
+        elif self.buttons_mode == ButtonsMode.TOOLBAR_BOTTOM:
+            self.button_padding = max(button.sizeHint().height() for button in self.buttons) + \
+                frame_width
+            self.setStyleSheet(
+                "QPlainTextEdit { margin-bottom: "+ str(self.button_padding) +"px; }")
         return button
 
     def addCopyButton(self, app):
         self.app = app
-        self.addButton("copy.png", self.on_copy, _("Copy to clipboard"))
+        return self.addButton("icons8-copy-to-clipboard-32.png", self.on_copy,
+            _("Copy to clipboard"))
 
     def on_copy(self):
         self.app.clipboard().setText(self.text())
@@ -569,7 +633,7 @@ class ButtonsWidget(QWidget):
 class ButtonsLineEdit(XLineEdit, ButtonsWidget):
     def __init__(self, text=''):
         QLineEdit.__init__(self, text, None)
-        self.buttons = []
+        self.buttons: Iterable[QAbstractButton] = []
 
     def resizeEvent(self, e):
         o = QLineEdit.resizeEvent(self, e)
@@ -581,7 +645,7 @@ class ButtonsTextEdit(QPlainTextEdit, ButtonsWidget):
         QPlainTextEdit.__init__(self, text)
         self.setText = self.setPlainText
         self.text = self.toPlainText
-        self.buttons = []
+        self.buttons: Iterable[QAbstractButton] = []
 
     def resizeEvent(self, e):
         o = QPlainTextEdit.resizeEvent(self, e)
@@ -768,3 +832,102 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     storage.close()
 
     return create_filepath
+
+
+FieldType = Union[QWidget, QLayout]
+
+class FormSectionWidget(QWidget):
+    show_help_label: bool = True
+    minimum_label_width: int = 80
+
+    def __init__(self, parent: Optional[QWidget]=None,
+            minimum_label_width: Optional[int]=None) -> None:
+        super().__init__(parent)
+
+        if minimum_label_width is not None:
+            self.minimum_label_width = minimum_label_width
+
+        self.frame_layout = QVBoxLayout()
+
+        frame = QFrame()
+        frame.setObjectName("FormFrame")
+        frame.setLayout(self.frame_layout)
+
+        self.setStyleSheet("""
+        #FormSeparatorLine {
+            border: 1px solid #E3E2E2;
+        }
+
+        #FormSectionLabel {
+            color: #444444;
+        }
+
+        #FormFrame {
+            background-color: #F2F2F2;
+            border: 1px solid #E3E2E2;
+        }
+        """)
+
+        vlayout = QVBoxLayout()
+        vlayout.setContentsMargins(0, 0, 0, 0)
+        vlayout.addWidget(frame)
+        self.setLayout(vlayout)
+
+    def create_title(self, title_text: str) -> QLabel:
+        label = QLabel(title_text)
+        label.setObjectName("FormSectionTitle")
+        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        return label
+
+    def add_title(self, title_text: str) -> None:
+        label = self.create_title(title_text)
+        self.frame_layout.addWidget(label, Qt.AlignTop)
+
+    def add_title_row(self, title_object: FieldType) -> None:
+        if isinstance(title_object, QLayout):
+            self.frame_layout.addLayout(title_object)
+        else:
+            self.frame_layout.addWidget(title_object, Qt.AlignTop)
+
+    def add_row(self, label_text: Union[str, QLabel], field_object: FieldType,
+            stretch_field: bool=False) -> None:
+        if self.frame_layout.count() > 0:
+            line = QFrame()
+            line.setObjectName("FormSeparatorLine")
+            line.setFrameShape(QFrame.HLine)
+            line.setFixedHeight(1)
+            self.frame_layout.addWidget(line)
+
+        if isinstance(label_text, QLabel):
+            label = label_text
+        else:
+            if not label_text.endswith(":"):
+                label_text += ":"
+            label = QLabel(label_text)
+        label.setObjectName("FormSectionLabel")
+        label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+
+        grid_layout = QGridLayout()
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+        grid_layout.addWidget(label, 0, 0, Qt.AlignRight | Qt.AlignTop)
+        if stretch_field:
+            if isinstance(field_object, QLayout):
+                grid_layout.addLayout(field_object, 0, 1, Qt.AlignTop)
+            else:
+                grid_layout.addWidget(field_object, 0, 1, Qt.AlignTop)
+        else:
+            field_layout = QHBoxLayout()
+            field_layout.setContentsMargins(0, 0, 0, 0)
+            if isinstance(field_object, QLayout):
+                field_layout.addLayout(field_object)
+            else:
+                field_layout.addWidget(field_object)
+            field_layout.addStretch(1)
+            grid_layout.addLayout(field_layout, 0, 1, Qt.AlignTop)
+        grid_layout.setColumnMinimumWidth(0, self.minimum_label_width)
+        grid_layout.setColumnStretch(0, 0)
+        grid_layout.setColumnStretch(1, 1)
+        grid_layout.setHorizontalSpacing(10)
+        grid_layout.setSizeConstraint(QLayout.SetMinimumSize)
+
+        self.frame_layout.addLayout(grid_layout)

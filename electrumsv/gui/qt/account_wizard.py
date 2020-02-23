@@ -1,31 +1,63 @@
+# The Open BSV license.
+#
+# Copyright © 2020 Bitcoin Association
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the “Software”), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+#   1. The above copyright notice and this permission notice shall be included
+#      in all copies or substantial portions of the Software.
+#   2. The Software, and any software that is derived from the Software or parts
+#      thereof, can only be used on the Bitcoin SV blockchains. The Bitcoin SV
+#      blockchains are defined, for purposes of this license, as the Bitcoin
+#      blockchain containing block height #556767 with the hash
+#      “000000000000000001d956714215d96ffc00e0afda4cd0a96c96f8d802b1662b” and
+#      the test blockchains that are supported by the unmodified Software.
+#
+# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import concurrent
 import enum
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
     bip32_key_from_string, PrivateKey, P2SH_Address)
-from PyQt5.QtCore import QSize, Qt
-from PyQt5.QtGui import QPainter, QPalette, QPen, QPixmap, QTextOption
+
+from PyQt5.QtCore import QObject, QSize, Qt
+from PyQt5.QtGui import QBrush, QColor, QPainter, QPalette, QPen, QPixmap, QTextOption
 from PyQt5.QtWidgets import (
-    QCheckBox, QVBoxLayout, QHBoxLayout, QLabel, QWizard, QWizardPage, QGridLayout, QGroupBox,
-    QLineEdit, QListWidget, QListWidgetItem, QProgressBar, QRadioButton, QSlider, QTextEdit,
-    QWidget
+    QCheckBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QProgressBar, QRadioButton, QSizePolicy, QSlider, QTextEdit,
+    QVBoxLayout, QWidget, QWizard, QWizardPage
 )
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import compose_chain_string, is_new_seed, is_old_seed
-from electrumsv.constants import DerivationType, KeystoreTextType, ScriptType
-from electrumsv.exceptions import InvalidPassword
+from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, KeystoreTextType,
+    MAXIMUM_COSIGNER_COUNT, ScriptType)
 from electrumsv.device import DeviceInfo
 from electrumsv.i18n import _
-from electrumsv import keystore
+from electrumsv.keystore import (bip39_is_checksum_valid, bip44_derivation_cointype, from_seed,
+    instantiate_keystore_from_text, KeyStore, Multisig_KeyStore)
 from electrumsv.logs import logs
 from electrumsv.networks import Net
+from electrumsv.storage import WalletStorage
 from electrumsv.wallet import Wallet, instantiate_keystore
 
+from .cosigners_view import CosignerState, CosignerList
 from .main_window import ElectrumWindow
-from .password_dialog import PasswordLineEdit
-from .util import ChoicesLayout, icon_path, MessageBox, protected, read_QIcon, WWLabel
+from .util import ChoicesLayout, icon_path, MessageBox, protected, read_QIcon
+from .wizard_common import BaseWizard, DEFAULT_WIZARD_FLAGS, WizardFlags, WizardFormSection
 
 
 logger = logs.get_logger('wizard-account')
@@ -33,7 +65,7 @@ logger = logs.get_logger('wizard-account')
 DeviceList = List[Tuple[str, DeviceInfo]]
 
 PASSWORD_EXISTING_TEXT = _("Your wallet has a password, and you will need to provide that "
-    "password in order to add this account.")
+    "password in order to secure this account.")
 
 NO_DEVICES_FOUND_TEXT = _("A scan has been unable to locate any connected hardware wallets. "
     "Once you have connected your hardware wallet, and if necessary turned it on, please "
@@ -59,81 +91,98 @@ DEVICE_SETUP_SUCCESS_TEXT = _("Your {} hardware wallet was both successfully det
 
 KeystoreMatchType = Union[str, Set[str]]
 
-class AccountPages(enum.IntEnum):
-    ADD_ACCOUNT_MENU = 12
-    CREATE_NEW_STANDARD_ACCOUNT = 13
-    CREATE_NEW_MULTISIG_ACCOUNT = 14
-    IMPORT_ACCOUNT_FILE = 15
-    IMPORT_ACCOUNT_TEXT = 16
-    IMPORT_ACCOUNT_TEXT_CUSTOM = 17
-    # Hardware wallets.
-    FIND_HARDWARE_WALLET = 51
-    SETUP_HARDWARE_WALLET = 52
-    #
-    IMPORT_ACCOUNT_IDENTIFY_USAGE = 100
+
+class AccountPage(enum.IntEnum):
+    NONE = 0
+
+    ADD_ACCOUNT_MENU = 100
+
+    CREATE_MULTISIG_ACCOUNT = 300
+    CREATE_MULTISIG_ACCOUNT_CUSTOM = 301
+    CREATE_MULTISIG_ACCOUNT_COSIGNERS = 302
+
+    IMPORT_ACCOUNT_FILE = 400
+    IMPORT_ACCOUNT_TEXT = 405
+    IMPORT_ACCOUNT_TEXT_CUSTOM = 410
+
+    FIND_HARDWARE_WALLET = 500
+    SETUP_HARDWARE_WALLET = 505
+
+class KeyFlags(enum.IntEnum):
+    NONE = 0
+    CAN_BE_MULTISIG_READ_ONLY = 1 << 0
+    CAN_BE_MULTISIG_WRITABLE = (1 << 1) | CAN_BE_MULTISIG_READ_ONLY
+
+TextKeystoreTypeFlags = {
+    KeystoreTextType.ADDRESSES: KeyFlags.NONE,
+    KeystoreTextType.PRIVATE_KEYS: KeyFlags.NONE,
+    KeystoreTextType.EXTENDED_PUBLIC_KEY: KeyFlags.CAN_BE_MULTISIG_READ_ONLY,
+    KeystoreTextType.EXTENDED_PRIVATE_KEY: KeyFlags.CAN_BE_MULTISIG_WRITABLE,
+    KeystoreTextType.BIP39_SEED_WORDS: KeyFlags.CAN_BE_MULTISIG_WRITABLE,
+    KeystoreTextType.ELECTRUM_SEED_WORDS: KeyFlags.CAN_BE_MULTISIG_WRITABLE,
+    KeystoreTextType.ELECTRUM_OLD_SEED_WORDS: KeyFlags.CAN_BE_MULTISIG_WRITABLE,
+}
+
+class ResultType(enum.IntFlag):
+    UNKNOWN = 0
+
+    NEW = 1
+    MULTISIG = 2
+    IMPORTED = 3
+    HARDWARE = 4
 
 
-class AccountWizard(QWizard):
-    _last_page_id = None
+def request_password(parent: Optional[QWidget], storage: WalletStorage) -> Optional[str]:
+    from .password_dialog import PasswordDialog
+    d = PasswordDialog(parent, PASSWORD_EXISTING_TEXT, password_check_fn=storage.is_password_valid)
+    d.setMaximumWidth(200)
+    return d.run()
+
+
+
+class AccountWizard(BaseWizard):
+    HELP_DIRNAME = "account-wizard"
+
+    _last_page_id: Optional[AccountPage] = None
     _selected_device: Optional[Tuple[str, DeviceInfo]] = None
+    _keystore: Optional[KeyStore] = None
+    _keystore_type = ResultType.UNKNOWN
 
-    def __init__(self, main_window: ElectrumWindow) -> None:
-        super().__init__(main_window)
+    def __init__(self, main_window: ElectrumWindow,
+            flags: WizardFlags=DEFAULT_WIZARD_FLAGS, parent: Optional[QWidget]=None) -> None:
+        if parent is None:
+            parent = main_window
+        super().__init__(parent)
+
+        self.flags = flags
 
         self._main_window = main_window
         self._wallet: Wallet = main_window._wallet
+
         self._text_import_type: Optional[KeystoreTextType] = None
         self._text_import_matches: Optional[KeystoreMatchType] = None
 
-        self.setWindowTitle('ElectrumSV')
+        self.set_subtitle("")
         self.setModal(True)
         self.setMinimumSize(600, 600)
-        self.setOption(QWizard.IndependentPages, False)
-        self.setOption(QWizard.NoDefaultButton, True)
-        self.setOption(QWizard.HaveHelpButton, True)
-        self.setOption(QWizard.HelpButtonOnRight, False)
         self.setOption(QWizard.HaveCustomButton1, True)
 
-        self.setPage(AccountPages.ADD_ACCOUNT_MENU, AddAccountWizardPage(self))
-        self.setPage(AccountPages.IMPORT_ACCOUNT_TEXT, ImportWalletTextPage(self))
-        self.setPage(AccountPages.IMPORT_ACCOUNT_TEXT_CUSTOM, ImportWalletTextCustomPage(self))
-        self.setPage(AccountPages.CREATE_NEW_STANDARD_ACCOUNT, CreateStandardAccountPage(self))
-        self.setPage(AccountPages.CREATE_NEW_MULTISIG_ACCOUNT, CreateMultisigAccountPage(self))
-        self.setPage(AccountPages.FIND_HARDWARE_WALLET, FindHardwareWalletAccountPage(self))
-        self.setPage(AccountPages.SETUP_HARDWARE_WALLET, SetupHardwareWalletAccountPage(self))
+        self.setPage(AccountPage.ADD_ACCOUNT_MENU, AddAccountWizardPage(self))
+        self.setPage(AccountPage.IMPORT_ACCOUNT_TEXT, ImportWalletTextPage(self))
+        self.setPage(AccountPage.IMPORT_ACCOUNT_TEXT_CUSTOM, ImportWalletTextCustomPage(self))
+        self.setPage(AccountPage.CREATE_MULTISIG_ACCOUNT, CreateMultisigAccountPage(self))
+        self.setPage(AccountPage.CREATE_MULTISIG_ACCOUNT_CUSTOM,
+            CreateMultisigAccountCustomPage(self))
+        self.setPage(AccountPage.CREATE_MULTISIG_ACCOUNT_COSIGNERS,
+            MultisigAccountCosignerListPage(self))
+        self.setPage(AccountPage.FIND_HARDWARE_WALLET, FindHardwareWalletAccountPage(self))
+        self.setPage(AccountPage.SETUP_HARDWARE_WALLET, SetupHardwareWalletAccountPage(self))
 
-        self.currentIdChanged.connect(self.on_current_id_changed)
+        self.setStartId(AccountPage.ADD_ACCOUNT_MENU)
 
-        self.setStartId(AccountPages.ADD_ACCOUNT_MENU)
-
-    def run(self):
-        button = self.button(QWizard.HelpButton)
-        button.clicked.connect(self._on_help_button_clicked)
-
-        self.ensure_shown()
-        result = self.exec()
-        return result
-
-    def ensure_shown(self):
-        self.show()
-        self.raise_()
-
-    def on_current_id_changed(self, page_id):
-        if self._last_page_id is not None:
-            page = self.page(self._last_page_id)
-            if hasattr(page, "on_leave"):
-                page.on_leave()
-
-        self._last_page_id = page_id
-        page = self.page(page_id)
-        if hasattr(page, "on_enter"):
-            page.on_enter()
-        else:
-            button = self.button(QWizard.CustomButton1)
-            button.setVisible(False)
-
-    def _on_help_button_clicked(self, *checked) -> None:
-        print("Help button clicked")
+    def set_subtitle(self, subtitle: str) -> None:
+        suffix = f" - {subtitle}" if len(subtitle) else ""
+        self.setWindowTitle(f'ElectrumSV{suffix}')
 
     def set_selected_device(self, device: Optional[Tuple[str, DeviceInfo]]) -> None:
         self._selected_device = device
@@ -142,9 +191,11 @@ class AccountWizard(QWizard):
         return self._selected_device
 
     def get_main_window(self) -> ElectrumWindow:
+        "For page access to the parent window."
         return self._main_window
 
     def get_wallet(self) -> Wallet:
+        "For page access to any wallet."
         return self._wallet
 
     def set_text_import_matches(self, text_type: KeystoreTextType,
@@ -158,25 +209,70 @@ class AccountWizard(QWizard):
     def get_text_import_matches(self) -> Optional[KeystoreMatchType]:
         return self._text_import_matches
 
+    def has_result(self) -> bool:
+        return self._keystore_type != ResultType.UNKNOWN
+
+    def get_keystore(self) -> KeyStore:
+        return self._keystore
+
+    def set_keystore_result(self, result_type: ResultType, keystore: Optional[KeyStore]) -> None:
+        self._keystore_type = result_type
+        self._keystore = keystore
+
+        if keystore is None:
+            return
+
+        # For now, all other result types are expected to be collected by the invoking logic of
+        # this account wizard instance.
+        if self.flags & WizardFlags.ACCOUNT_RESULT:
+            self._wallet.create_account_from_keystore(keystore)
+
+    def set_text_entry_account_result(self, result_type: ResultType, text_type: KeystoreTextType,
+            script_type: ScriptType, text_matches: KeystoreMatchType,
+            password: Optional[str]) -> None:
+        self._keystore_type = result_type
+
+        if self.flags & WizardFlags.ACCOUNT_RESULT:
+            assert password is not None
+            self._wallet.create_account_from_text_entries(text_type, script_type, text_matches,
+                password)
+        else:
+            raise NotImplementedError("Invalid attempt to generate keyless keystore data")
+
+
 
 class AddAccountWizardPage(QWizardPage):
-    def __init__(self, wizard: AccountWizard):
+    def __init__(self, wizard: AccountWizard) -> None:
         super().__init__(wizard)
 
-        self.setTitle(_("Add Account"))
+        self.setTitle(_("Account Types"))
         self.setFinalPage(False)
 
-        option_list = self.option_list = QListWidget()
+        page = self
+        class ListWidget(QListWidget):
+            def keyPressEvent(self, event):
+                key = event.key()
+                if key == Qt.Key_Return or key == Qt.Key_Enter:
+                    page._event_key_press_selection()
+                else:
+                    super(ListWidget, self).keyPressEvent(event)
+
+        option_list = self._option_list = ListWidget()
         option_list.setIconSize(QSize(30, 30))
         option_list.setStyleSheet("""
-            QListView::item:selected {
-                background-color: #F5F8FA;
+            QListWidget {
+                background-color: white;
+            }
+            QListWidget::item:selected {
+                background-color: white;
                 color: black;
             }
         """)
 
         for entry in self._get_entries():
             if not entry.get("enabled", True):
+                continue
+            if wizard.flags & entry.get("mode_mask", WizardFlags.NONE) == WizardFlags.NONE:
                 continue
             list_item = QListWidgetItem()
             list_item.setSizeHint(QSize(40, 40))
@@ -188,7 +284,7 @@ class AddAccountWizardPage(QWizardPage):
         option_list.setMaximumWidth(400)
         option_list.setWordWrap(True)
 
-        option_detail = self.optionDetail = QLabel()
+        option_detail = self._option_detail = QLabel()
         option_detail.setMinimumWidth(200)
         option_detail.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         option_detail.setTextFormat(Qt.RichText)
@@ -203,41 +299,103 @@ class AddAccountWizardPage(QWizardPage):
         layout.addWidget(option_detail)
         self.setLayout(layout)
 
-        def _on_item_selection_changed():
-            selected_items = self.option_list.selectedItems()
-            if len(selected_items):
-                entry = selected_items[0].data(Qt.UserRole)
-                self.optionDetail.setText(self._get_entry_detail(entry))
-            else:
-                self.optionDetail.setText(self._get_entry_detail())
-            self.completeChanged.emit()
+        option_list.itemSelectionChanged.connect(self._event_selection_changed)
+        option_list.itemDoubleClicked.connect(self._event_double_click_item)
 
-        def _on_item_double_clicked(clicked_item: QListWidgetItem) -> None:
-            self.option_list.setCurrentItem(clicked_item)
-            self.completeChanged.emit()
-            wizard.next()
+    # Qt default QWizardPage event when page is entered.
+    def initializePage(self) -> None:
+        wizard: AccountWizard = self.wizard()
+        # Clear the result. This shouldn't be needed except in the case of an unexpected error
+        # where the wizard does not exit and the user returns back to this page.
+        wizard.set_keystore_result(ResultType.UNKNOWN, None)
+        # The click event arrives after the standard wizard next page handling. We use it to
+        # perform actions that finish on the current page.
+        next_button = wizard.button(QWizard.NextButton)
+        next_button.clicked.connect(self._event_click_next_button)
+        self._restore_button_text = wizard.buttonText(QWizard.NextButton)
 
-        option_list.itemDoubleClicked.connect(_on_item_double_clicked)
-        option_list.itemSelectionChanged.connect(_on_item_selection_changed)
+    # Qt default QWizardPage event when page is exited.
+    def cleanupPage(self) -> None:
+        wizard: AccountWizard = self.wizard()
+        next_button = wizard.button(QWizard.NextButton)
+        next_button.clicked.disconnect(self._event_click_next_button)
+        wizard.setButtonText(QWizard.NextButton, self._restore_button_text)
 
+    # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
+    # Overriding this requires us to emit the 'completeChanges' signal where applicable.
     def isComplete(self) -> bool:
-        # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
-        # Overriding this requires us to emit the 'completeChanges' signal where applicable.
-        selected_items = self.option_list.selectedItems()
-        return len(selected_items)
+        return len(self._option_list.selectedItems()) > 0
 
+    # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
     def validatePage(self) -> bool:
-        # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         if self.isComplete():
-            return True
+            next_page_id = self.nextId()
+            if next_page_id != AccountPage.NONE:
+                return True
+            # In the case we manually accept for a no-page option, check we have the result.
+            wizard: AccountWizard = self.wizard()
+            if wizard.has_result():
+                return True
         return False
 
+    # Qt method called to get the Id of the next page.
     def nextId(self) -> int:
-        selected_items = self.option_list.selectedItems()
-        result = AccountPages.CREATE_NEW_STANDARD_ACCOUNT
-        if len(selected_items):
-            result = selected_items[0].data(Qt.UserRole)['page']
-        return result
+        items = self._option_list.selectedItems()
+        if len(items) > 0:
+            return items[0].data(Qt.UserRole).get("page", AccountPage.NONE)
+        return AccountPage.NONE
+
+    def _event_selection_changed(self) -> None:
+        wizard: AccountWizard = self.wizard()
+        items = self._option_list.selectedItems()
+        if len(items) > 0:
+            entry = items[0].data(Qt.UserRole)
+            button_text = entry.get("button_text", self._restore_button_text)
+            self._option_detail.setText(self._get_entry_detail(entry))
+        else:
+            button_text = self._restore_button_text
+            self._option_detail.setText(self._get_entry_detail())
+        wizard.setButtonText(QWizard.NextButton, button_text)
+        self.completeChanged.emit()
+
+    def _event_key_press_selection(self) -> None:
+        items = self._option_list.selectedItems()
+        if len(items):
+            self._select_item(items[0])
+
+    def _event_double_click_item(self, item: QListWidgetItem) -> None:
+        self._option_list.setCurrentItem(item)
+        self._select_item(item)
+
+    def _event_click_next_button(self) -> None:
+        items = self._option_list.selectedItems()
+        if len(items):
+            self._select_item(items[0], direct_only=True)
+
+    def _select_item(self, item: QListWidgetItem, direct_only: bool=False) -> None:
+        entry = item.data(Qt.UserRole)
+        page = entry.get("page", AccountPage.NONE)
+        if page == AccountPage.NONE:
+            # This is something that either finishes on this page, or requires custom handling
+            # before manually invoking a move to the next page.
+            entry['handler']()
+        elif not direct_only:
+            self.completeChanged.emit()
+            self.wizard().next()
+
+    def _create_new_account(self) -> None:
+        wizard: AccountWizard = self.wizard()
+        wallet_storage = wizard.get_main_window()._wallet.get_storage()
+        password = request_password(self, wallet_storage)
+        if password is None:
+            return
+
+        from electrumsv import mnemonic
+        seed_phrase = mnemonic.Mnemonic('en').make_seed('standard')
+        keystore = from_seed(seed_phrase, '')
+        keystore.update_password(password)
+        wizard.set_keystore_result(ResultType.NEW, keystore)
+        wizard.accept()
 
     def _get_entry_detail(self, entry=None):
         title_start_html = "<b>"
@@ -290,47 +448,53 @@ class AddAccountWizardPage(QWizardPage):
 
         return [
             {
-                'page': AccountPages.CREATE_NEW_STANDARD_ACCOUNT,
-                'description': _("Create new standard account"),
+                'page': AccountPage.NONE,
+                'description': _("Standard"),
                 'icon_filename': 'icons8-create-80.png',
                 'long_description': _("If you want to create a brand new standard account in "
                     "ElectrumSV this is the option you want.") +"<br/><br/>"+ _("A "
                     "standard account is one where you are in control of all payments."),
+                'button_text': _("Create"),
                 'enabled': True,
+                'mode_mask': WizardFlags.ALL_MODES,
+                'handler': self._create_new_account,
             },
             {
-                'page': AccountPages.CREATE_NEW_MULTISIG_ACCOUNT,
-                'description': _("Create new multi-signature account"),
-                'icon_filename': 'icons8-create-80.png',
+                'page': AccountPage.CREATE_MULTISIG_ACCOUNT,
+                'description': _("Multi-signature"),
+                'icon_filename': 'icons8-group-task-80-blueui-active.png',
                 'long_description': _("If you want to create a brand new multi-signature account "
                     "in ElectrumSV this is the option you want.") +"<br/><br/>"+ _("A "
                     "multi-signature account is one where more than one person is required to "
-                    "approve each payment. This requires that the participants, or co-signers, "
+                    "approve each payment. This requires that the participants, or cosigners, "
                     "coordinate the signing of each payment."),
-                'enabled': False,
+                'enabled': True,
+                'mode_mask': WizardFlags.STANDARD_MODE,
             },
             {
-                'page': AccountPages.IMPORT_ACCOUNT_FILE,
-                'description': _("Import account file"),
+                'page': AccountPage.IMPORT_ACCOUNT_FILE,
+                'description': _("Import from file"),
                 'icon_filename': 'icons8-document.svg',
                 'long_description': _("..."),
                 'enabled': False,
             },
             {
-                'page': AccountPages.IMPORT_ACCOUNT_TEXT,
-                'description': _("Import account using text (any seed phrase, public keys, "+
+                'page': AccountPage.IMPORT_ACCOUNT_TEXT,
+                'description': _("Import from text (any seed phrase, public keys, "+
                                  "private keys or addresses)"),
                 'icon_filename': 'icons8-brain-80.png',
                 'long_description': _("If you have some text to paste, or type in, and want "
                     "ElectrumSV to examine it and offer you some choices on how it can be "
                     "imported, this is the option you probably want."),
                 'enabled': True,
+                'mode_mask': WizardFlags.ALL_MODES,
             },
             {
-                'page': AccountPages.FIND_HARDWARE_WALLET,
+                'page': AccountPage.FIND_HARDWARE_WALLET,
                 'description': _("Import hardware wallet"),
-                'icon_filename': 'icons8-usb-2-80.png',
+                'icon_filename': 'icons8-usb-2-80-blueui-active.png',
                 'enabled': True,
+                'mode_mask': WizardFlags.ALL_MODES,
             },
         ]
 
@@ -352,10 +516,6 @@ class ImportWalletTextPage(QWizardPage):
         self.text_area.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         self.text_area.setTabChangesFocus(True)
 
-        # Beats me.
-        self.registerField("wallet-import-text*", self.text_area, "plainText",
-            self.text_area.textChanged)
-
         self._label = QLabel(_("Please enter some text and any valid matches will be "
             "made available below.."))
 
@@ -372,21 +532,24 @@ class ImportWalletTextPage(QWizardPage):
         self._esvseed_button = QRadioButton(_("Electrum seed words"))
         self._esvoldseed_button = QRadioButton(_("Electrum old-style seed words"))
 
-        for match_type, button in self._get_buttons():
+        for match_type, button in self._get_buttons(wizard):
             def make_check_callback(match_type: KeystoreTextType) -> Callable[[bool], None]:
                 def on_button_check(checked: bool=False):
                     self._on_match_type_selected(match_type)
                 return on_button_check
             button.clicked.connect(make_check_callback(match_type))
 
+        # Simple logic for two columns of options.
         textbuttons_box = QGridLayout()
-        textbuttons_box.addWidget(self._addresses_button, 0, 0)
-        textbuttons_box.addWidget(self._privkeys_button, 1, 0)
-        textbuttons_box.addWidget(self._xpub_button, 2, 0)
-        textbuttons_box.addWidget(self._xprv_button, 3, 0)
-        textbuttons_box.addWidget(self._bip39seed_button, 0, 1)
-        textbuttons_box.addWidget(self._esvseed_button, 1, 1)
-        textbuttons_box.addWidget(self._esvoldseed_button, 2, 1)
+        button_entries = self._get_buttons(wizard)
+        row_length = len(button_entries) // 2
+        if len(button_entries) % 2 != 0:
+            row_length += 1
+        for button_index in range(len(button_entries)):
+            button = button_entries[button_index][1]
+            row_index = button_index % row_length
+            column_index = button_index // row_length
+            textbuttons_box.addWidget(button, row_index, column_index)
         texttype_box = QGroupBox()
         texttype_box.setFlat(True)
         texttype_box.setLayout(textbuttons_box)
@@ -403,8 +566,8 @@ class ImportWalletTextPage(QWizardPage):
 
         self.setLayout(layout)
 
-    def _get_buttons(self) -> List[Tuple[KeystoreTextType, QRadioButton]]:
-        return [
+    def _get_buttons(self, wizard: AccountWizard) -> List[Tuple[KeystoreTextType, QRadioButton]]:
+        button_entries = [
             (KeystoreTextType.ADDRESSES, self._addresses_button),
             (KeystoreTextType.PRIVATE_KEYS, self._privkeys_button),
             (KeystoreTextType.EXTENDED_PUBLIC_KEY, self._xpub_button),
@@ -413,6 +576,15 @@ class ImportWalletTextPage(QWizardPage):
             (KeystoreTextType.ELECTRUM_SEED_WORDS, self._esvseed_button),
             (KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, self._esvoldseed_button),
         ]
+        if wizard.flags & WizardFlags.MULTISIG_MODE == WizardFlags.MULTISIG_MODE:
+            entries = []
+            for text_type, button in button_entries:
+                key_flags = TextKeystoreTypeFlags[text_type]
+                if key_flags == KeyFlags.NONE:
+                    continue
+                entries.append((text_type, button))
+            return entries
+        return button_entries
 
     def _set_matches(self, matches: Dict[KeystoreTextType, KeystoreMatchType]) -> None:
         self._checked_match_type = None
@@ -424,7 +596,8 @@ class ImportWalletTextPage(QWizardPage):
             if len(matches) > 1:
                 matches.clear()
 
-        for match_type, button in self._get_buttons():
+        wizard: AccountWizard = self.wizard()
+        for match_type, button in self._get_buttons(wizard):
             if len(matches) == 1 and match_type in matches:
                 self._checked_match_type = match_type
                 button.setChecked(True)
@@ -452,7 +625,7 @@ class ImportWalletTextPage(QWizardPage):
             matches[KeystoreTextType.ELECTRUM_OLD_SEED_WORDS] = text
         if is_new_seed(text):
             matches[KeystoreTextType.ELECTRUM_SEED_WORDS] = text
-        is_checksum_valid, is_wordlist_valid = keystore.bip39_is_checksum_valid(text)
+        is_checksum_valid, is_wordlist_valid = bip39_is_checksum_valid(text)
         if is_checksum_valid and is_wordlist_valid:
             matches[KeystoreTextType.BIP39_SEED_WORDS] = text
 
@@ -501,16 +674,17 @@ class ImportWalletTextPage(QWizardPage):
 
     def _on_customize_button_clicked(self, *checked) -> None:
         assert self.isComplete()
-        self._next_page_id = AccountPages.IMPORT_ACCOUNT_TEXT_CUSTOM
+        self._next_page_id = AccountPage.IMPORT_ACCOUNT_TEXT_CUSTOM
 
         wizard: AccountWizard = self.wizard()
         wizard.next()
 
+    # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
+    # Overriding this requires us to emit the 'completeChanges' signal where applicable.
     def isComplete(self) -> bool:
-        # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
-        # Overriding this requires us to emit the 'completeChanges' signal where applicable.
         return self._checked_match_type is not None
 
+    # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
     def validatePage(self) -> bool:
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         assert self.isComplete()
@@ -525,14 +699,16 @@ class ImportWalletTextPage(QWizardPage):
                 self._matches[self._checked_match_type])
         return True
 
+    # Qt method called to get the Id of the next page.
     def nextId(self) -> int:
         # Need to know if customize is clicked and go to the custom page.
         return self._next_page_id
 
     def on_enter(self) -> None:
         self._next_page_id = -1
+        wizard: AccountWizard = self.wizard()
 
-        button = self.wizard().button(QWizard.CustomButton1)
+        button = wizard.button(QWizard.CustomButton1)
         button.setText(_("&Customize"))
         button.setContentsMargins(10, 0, 10, 0)
         button.clicked.connect(self._on_customize_button_clicked)
@@ -551,17 +727,16 @@ class ImportWalletTextPage(QWizardPage):
     def _create_account(self, main_window: Optional[ElectrumWindow]=None,
             password: Optional[str]=None) -> bool:
         wizard: AccountWizard = self.wizard()
-        wallet = wizard.get_wallet()
         entries = self._matches[self._checked_match_type]
         if self._checked_match_type in (KeystoreTextType.ADDRESSES, KeystoreTextType.PRIVATE_KEYS):
             script_type = (ScriptType.P2PKH
                 if self._checked_match_type == KeystoreTextType.PRIVATE_KEYS else ScriptType.NONE)
-            wallet.create_account_from_text_entries(self._checked_match_type, script_type,
-                entries, password)
+            wizard.set_text_entry_account_result(ResultType.IMPORTED, self._checked_match_type,
+                script_type, entries, password)
         else:
-            _keystore = keystore.instantiate_keystore_from_text(self._checked_match_type,
+            _keystore = instantiate_keystore_from_text(self._checked_match_type,
                 self._matches[self._checked_match_type], password)
-            wallet.create_account_from_keystore(_keystore)
+            wizard.set_keystore_result(ResultType.IMPORTED, _keystore)
         return True
 
 
@@ -603,9 +778,9 @@ class ImportWalletTextCustomPage(QWizardPage):
         self._derivation_text = text.strip()
         self.completeChanged.emit()
 
+    # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
+    # Overriding this requires us to emit the 'completeChanges' signal where applicable.
     def isComplete(self) -> bool:
-        # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
-        # Overriding this requires us to emit the 'completeChanges' signal where applicable.
         if self._allow_derivation_path_usage():
             try:
                 derivation = bip32_decompose_chain_string(self._derivation_text)
@@ -613,6 +788,7 @@ class ImportWalletTextCustomPage(QWizardPage):
                 return False
         return True
 
+    # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
     def validatePage(self) -> bool:
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         assert self.isComplete()
@@ -622,6 +798,7 @@ class ImportWalletTextCustomPage(QWizardPage):
             return False
         return True
 
+    # Qt method called to get the Id of the next page.
     def nextId(self) -> int:
         return -1
 
@@ -631,7 +808,7 @@ class ImportWalletTextCustomPage(QWizardPage):
         self._text_type = wizard.get_text_import_type()
         self._text_matches = wizard.get_text_import_matches()
         if self._text_type == KeystoreTextType.BIP39_SEED_WORDS:
-            self._derivation_text = keystore.bip44_derivation_cointype(0, 0)
+            self._derivation_text = bip44_derivation_cointype(0, 0)
         else:
             self._derivation_text = ""
 
@@ -660,124 +837,16 @@ class ImportWalletTextCustomPage(QWizardPage):
     @protected
     def _create_account(self, main_window: Optional[ElectrumWindow]=None,
             password: Optional[str]=None) -> bool:
-        wizard: AccountWizard = self.wizard()
-        wallet = wizard.get_wallet()
-
         passphrase = (self._passphrase_edit.text().strip()
             if self._allow_passphrase_usage() else None)
         derivation_text = self._derivation_text if self._allow_derivation_path_usage() else None
         watch_only = (self._watchonly_button.isChecked()
             if self._allow_watch_only_usage() else False)
 
-        _keystore = keystore.instantiate_keystore_from_text(self._text_type, self._text_matches,
+        _keystore = instantiate_keystore_from_text(self._text_type, self._text_matches,
             password, derivation_text, passphrase, watch_only)
-        wallet.create_account_from_keystore(_keystore)
-        return True
-
-
-class CreateStandardAccountPage(QWizardPage):
-    _is_complete = False
-    _is_final_page = False
-
-    def __init__(self, parent: AccountWizard) -> None:
-        super().__init__(parent)
-
-        self.setTitle(_("Create a Standard Account"))
-        self.setFinalPage(True)
-
-        vbox = QVBoxLayout()
-
-        self._password_edit = PasswordLineEdit()
-        # We use `textEdited` to get manual changes, but not programmatic ones.
-        self._password_edit.textEdited.connect(self._on_password_changed)
-
-        grid = QGridLayout()
-        grid.setSpacing(8)
-        grid.setColumnMinimumWidth(0, 150)
-        grid.setColumnMinimumWidth(1, 100)
-        grid.setColumnStretch(1,1)
-
-        pwlabel = QLabel(_('Password') +":")
-        pwlabel.setAlignment(Qt.AlignTop)
-        grid.addWidget(pwlabel, 0, 0, Qt.AlignRight)
-        grid.addWidget(self._password_edit, 0, 1, Qt.AlignLeft)
-
-        label = QLabel(PASSWORD_EXISTING_TEXT + "\n")
-        label.setWordWrap(True)
-
-        logo = QLabel()
-        logo.setAlignment(Qt.AlignCenter)
-        lockfile = "lock.png"
-        logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(36))
-
-        logo_grid = QGridLayout()
-        logo_grid.setSpacing(8)
-        logo_grid.setColumnMinimumWidth(0, 70)
-        logo_grid.setColumnStretch(1,1)
-
-        logo_grid.addWidget(logo,  0, 0)
-        logo_grid.addWidget(label, 0, 1, 1, 2)
-
-        vbox.addLayout(logo_grid)
-        vbox.addLayout(grid)
-
-        hlayout = QHBoxLayout()
-        hlayout.addStretch(1)
-        hlayout.addLayout(vbox)
-        hlayout.addStretch(1)
-        self.setLayout(hlayout)
-
-    def isFinalPage(self) -> bool:
-        return False
-
-    def nextId(self) -> int:
-        return -1
-
-    def isComplete(self) -> bool:
-        # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
-        # Overriding this requires us to emit the 'completeChanges' signal where applicable.
-        return self._is_complete
-
-    def validatePage(self) -> bool:
-        # Called when 'Next' or 'Finish' is clicked for last-minute validation.
-        self._create_account(self._get_password())
-        return True
-
-    def on_enter(self) -> None:
-        pass
-
-    def on_leave(self) -> None:
-        self._password_edit.setText("")
-
-    def _on_password_changed(self, text: str) -> None:
         wizard: AccountWizard = self.wizard()
-        password = self._get_password()
-
-        was_complete = self._is_complete
-        self._is_complete = False
-
-        try:
-            wizard._wallet.check_password(password)
-            self._is_complete = True
-        except InvalidPassword:
-            pass
-
-        if was_complete == self._is_complete:
-            return
-
-        self.completeChanged.emit()
-
-    def _get_password(self) -> str:
-        return self._password_edit.text().strip()
-
-    def _create_account(self, password: str) -> bool:
-        from electrumsv import mnemonic
-        seed_phrase = mnemonic.Mnemonic('en').make_seed('standard')
-        k = keystore.from_seed(seed_phrase, '')
-        k.update_password(password)
-
-        wizard: AccountWizard = self.wizard()
-        wizard._wallet.create_account_from_keystore(k)
+        wizard.set_keystore_result(ResultType.IMPORTED, _keystore)
         return True
 
 
@@ -797,18 +866,19 @@ class FindHardwareWalletAccountPage(QWizardPage):
         self.setTitle(_("Import a Hardware Wallet as an Account"))
         self.setFinalPage(False)
 
+    # Qt method called to get the Id of the next page.
     def nextId(self):
-        return AccountPages.SETUP_HARDWARE_WALLET
+        return AccountPage.SETUP_HARDWARE_WALLET
 
+    # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
     def validatePage(self) -> bool:
-        # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         wizard: AccountWizard = self.wizard()
         wizard.set_selected_device(self._selected_device)
         return True
 
+    # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
+    # Overriding this requires us to emit the 'completeChanges' signal where applicable.
     def isComplete(self) -> bool:
-        # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
-        # Overriding this requires us to emit the 'completeChanges' signal where applicable.
         return self._selected_device is not None
 
     def on_enter(self) -> None:
@@ -971,7 +1041,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
                 if isinstance(plugin, Exception):
                     tail = '\n    '.join([_('You might have an incompatible library.'), '']
                                          + str(plugin).splitlines())
-                    debug_msg += f'  {device_kind}: (error loding plugin)\n{tail}\n'
+                    debug_msg += f'  {device_kind}: (error loading plugin)\n{tail}\n'
                     continue
 
                 try:
@@ -1011,7 +1081,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
     _plugin: Any
     _plugin_debug_message: Optional[str]
     _derivation_default: Sequence[int] = tuple(bip32_decompose_chain_string(
-        keystore.bip44_derivation_cointype(0, 0)))
+        bip44_derivation_cointype(0, 0)))
     _derivation_user: Optional[Sequence[int]] = None
 
     def __init__(self, wizard: AccountWizard):
@@ -1023,19 +1093,20 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         self.setTitle(_("Import a Hardware Wallet as an Account"))
         self.setFinalPage(False)
 
+    # Qt method called to get the Id of the next page.
     def nextId(self):
         return -1
 
+    # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
     def validatePage(self) -> bool:
-        # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         wizard: AccountWizard = self.wizard()
         if self._create_account(main_window=wizard._main_window):
             return True
         return False
 
+    # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
+    # Overriding this requires us to emit the 'completeChanges' signal where applicable.
     def isComplete(self) -> bool:
-        # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
-        # Overriding this requires us to emit the 'completeChanges' signal where applicable.
         return (self._plugin_debug_message is None and self._plugin is not None and
             self._derivation_user is not None)
 
@@ -1191,7 +1262,6 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         # The derivation path is valid, proceed to create the account.
         wizard: AccountWizard = self.wizard()
         name, device_info = wizard.get_selected_device()
-        wallet = wizard.get_wallet()
 
         derivation_text = compose_chain_string(self._derivation_user)
         try:
@@ -1207,8 +1277,8 @@ class SetupHardwareWalletAccountPage(QWizardPage):
             'xpub': mpk.to_extended_key_string(),
             'label': device_info.label,
         }
-        _keystore = instantiate_keystore(DerivationType.HARDWARE, data)
-        wallet.create_account_from_keystore(_keystore)
+        keystore = instantiate_keystore(DerivationType.HARDWARE, data)
+        wizard.set_keystore_result(ResultType.HARDWARE, keystore)
 
         return True
 
@@ -1222,6 +1292,8 @@ class CosignWidget(QWidget):
         self.setMaximumHeight(self.size)
         self.m = m
         self.n = n
+
+        self._green = QBrush(QColor.fromRgb(0x55, 0xDD, 0x55))
 
     def set_n(self, n: int) -> None:
         self.n = n
@@ -1243,9 +1315,109 @@ class CosignWidget(QWidget):
         for i in range(self.n):
             alpha = int(16 * 360 * i/self.n)
             alpha2 = int(16 * 360 * 1/self.n)
-            qp.setBrush(Qt.green if i<self.m else Qt.gray)
+            qp.setBrush(self._green if i<self.m else Qt.gray)
             qp.drawPie(x, 0, self.size, self.size, alpha, alpha2)
         qp.end()
+
+
+class CreateMultisigAccountPageContext(QObject):
+    def __init__(self, page: QWizardPage, cosign_widget: CosignWidget,
+            summary_label: QLabel) -> None:
+        self.page = page
+        self.cosign_widget = cosign_widget
+        self.summary_label = summary_label
+
+        self._watch_only = False
+
+    def set_m(self, value: int) -> None:
+        self.cosign_widget.set_m(value)
+        self.update_summary_label()
+
+    def set_n(self, value: int) -> None:
+        self.cosign_widget.set_n(value)
+        self.update_summary_label()
+
+    def set_watch_only(self, value: bool) -> None:
+        self._watch_only = value
+
+    def update_summary_label(self) -> None:
+        self.summary_label.setText(_("Every transaction must be signed by at least {} of the {} "
+            "cosigners.").format(self.cosign_widget.m, self.cosign_widget.n))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "m": self.cosign_widget.m,
+            "n": self.cosign_widget.n,
+            "watch_only": False,
+        }
+
+
+class CreateMultisigAccountOptionsWidget(WizardFormSection):
+    def __init__(self, form_context: Optional[CreateMultisigAccountPageContext],
+            page: QWizardPage) -> None:
+        super().__init__(page)
+
+        self.setObjectName("CreateMultisigAccountOptions")
+        self._form_context = form_context
+
+        widget = QCheckBox(_("Watch only."))
+
+        self.add_title(_("Additional options"))
+        self.add_row(_("Account type")+":", widget)
+
+        page.registerField("multisig-watch-only", widget, "checked")
+
+    def set_form_context(self, form_context: CreateMultisigAccountPageContext) -> None:
+        self._form_context = form_context
+
+
+class CreateMultisigAccountSettingsWidget(WizardFormSection):
+    def __init__(self, form_context: Optional[CreateMultisigAccountPageContext],
+            page: QWizardPage) -> None:
+        super().__init__(page)
+
+        self.setObjectName("CreateMultisigAccountSettings")
+        self._page = page
+        self._form_context = form_context
+
+        m_edit = QSlider(Qt.Horizontal, self)
+        m_edit.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Maximum)
+        n_edit = QSlider(Qt.Horizontal, self)
+        n_edit.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Maximum)
+        n_edit.setMinimum(2)
+        n_edit.setMaximum(MAXIMUM_COSIGNER_COUNT)
+        m_edit.setMinimum(1)
+        m_edit.setMaximum(DEFAULT_COSIGNER_COUNT)
+        n_edit.setValue(DEFAULT_COSIGNER_COUNT)
+        m_edit.setValue(DEFAULT_COSIGNER_COUNT)
+        n_label = QLabel()
+        m_label = QLabel()
+
+        def on_m(m: int) -> None:
+            nonlocal m_label
+            m_label.setText(_('Require %d signatures')%m +":")
+            if self._form_context is not None:
+                self._form_context.set_m(m)
+        def on_n(n: int) -> None:
+            nonlocal n_label, n_edit
+            n_label.setText(_('From %d cosigners')%n +":")
+            if self._form_context is not None:
+                self._form_context.set_n(n)
+            m_edit.setMaximum(n)
+        n_edit.valueChanged.connect(on_n)
+        m_edit.valueChanged.connect(on_m)
+        # Prime the labels.
+        on_n(DEFAULT_COSIGNER_COUNT)
+        on_m(DEFAULT_COSIGNER_COUNT)
+
+        self.add_row(n_label, n_edit, True)
+        self.add_row(m_label, m_edit, True)
+
+        page.registerField("multisig-m", m_edit, "value")
+        page.registerField("multisig-n", n_edit, "value")
+
+    def set_form_context(self, form_context: CreateMultisigAccountPageContext) -> None:
+        self._form_context = form_context
 
 
 class CreateMultisigAccountPage(QWizardPage):
@@ -1255,46 +1427,193 @@ class CreateMultisigAccountPage(QWizardPage):
         self.setTitle(_("Create a Multi-signature Account"))
         self.setFinalPage(False)
 
-        cw = CosignWidget(2, 2)
+        self._next_page_id = AccountPage.CREATE_MULTISIG_ACCOUNT_COSIGNERS
 
-        m_edit = QSlider(Qt.Horizontal, self)
-        n_edit = QSlider(Qt.Horizontal, self)
-        n_edit.setMinimum(2)
-        n_edit.setMaximum(15)
-        m_edit.setMinimum(1)
-        m_edit.setMaximum(2)
-        n_edit.setValue(2)
-        m_edit.setValue(2)
-        n_label = QLabel()
-        m_label = QLabel()
-        grid = QGridLayout()
-        grid.setContentsMargins(50, 10, 50, 10)
-        grid.addWidget(n_label, 0, 0, Qt.AlignRight)
-        grid.addWidget(n_edit, 0, 1, Qt.AlignLeft)
-        grid.addWidget(m_label, 1, 0, Qt.AlignRight)
-        grid.addWidget(m_edit, 1, 1, Qt.AlignLeft)
-        def on_m(m: int) -> None:
-            m_label.setText(_('Require %d signatures')%m)
-            cw.set_m(m)
-        def on_n(n: int) -> None:
-            n_label.setText(_('From %d cosigners')%n)
-            cw.set_n(n)
-            m_edit.setMaximum(n)
-        n_edit.valueChanged.connect(on_n)
-        m_edit.valueChanged.connect(on_m)
-        on_n(2)
-        on_m(2)
+        self._form_context: Optional[CreateMultisigAccountPageContext] = None
+        self._cosign_widget = CosignWidget(DEFAULT_COSIGNER_COUNT, DEFAULT_COSIGNER_COUNT)
+        self._summary_label = QLabel()
+        self._settings_widget = CreateMultisigAccountSettingsWidget(self._form_context, self)
+
+        layout = self._create_layout()
+        self.setLayout(layout)
+
+    def _create_form_context(self) -> None:
+        self._form_context = CreateMultisigAccountPageContext(self, self._cosign_widget,
+            self._summary_label)
+
+    def _create_layout(self) -> QVBoxLayout:
+        if self._form_context is not None:
+            self._settings_widget.set_form_context(self._form_context)
+            self._form_context.update_summary_label()
+
         vbox = QVBoxLayout()
         vbox.addStretch(1)
-        vbox.addWidget(cw)
+        vbox.addWidget(self._cosign_widget)
         vbox.addStretch(1)
-        vbox.addWidget(WWLabel(_("Choose the number of signatures needed to unlock "
-                                 "funds in your account:")))
-        vbox.addLayout(grid)
+        vbox.addWidget(self._summary_label, 0, Qt.AlignCenter)
         vbox.addStretch(1)
+        vbox.addWidget(self._settings_widget)
 
+        return vbox
+
+    def on_enter(self) -> None:
+        self._next_page_id = AccountPage.CREATE_MULTISIG_ACCOUNT_COSIGNERS
+
+        button = self.wizard().button(QWizard.CustomButton1)
+        button.setText(_("&Customize"))
+        button.setContentsMargins(10, 0, 10, 0)
+        button.clicked.connect(self._on_customize_button_clicked)
+        button.setVisible(True)
+        # The customize page is disabled for now. It's one option was obsoleted.
+        button.setEnabled(False)
+
+        self._create_form_context()
+        discardable = QWidget()
+        discardable.setLayout(self.layout())
+        self.setLayout(self._create_layout())
+
+    def on_leave(self) -> None:
+        button = self.wizard().button(QWizard.CustomButton1)
+        button.clicked.disconnect()
+        button.setVisible(False)
+
+        self._form_context = None
+
+    # Qt method called to get the Id of the next page.
+    def nextId(self):
+        # Need to know if customize is clicked and go to the custom page.
+        return self._next_page_id
+
+    def _on_customize_button_clicked(self, *checked) -> None:
+        assert self.isComplete()
+        self._next_page_id = AccountPage.CREATE_MULTISIG_ACCOUNT_CUSTOM
+
+        wizard: AccountWizard = self.wizard()
+        wizard.next()
+
+
+class CreateMultisigAccountCustomPage(QWizardPage):
+    def __init__(self, wizard: AccountWizard):
+        super().__init__(wizard)
+
+        self.setTitle(_("Create a Multi-signature Account - Customize"))
+        self.setFinalPage(False)
+
+        self._next_page_id = AccountPage.CREATE_MULTISIG_ACCOUNT_COSIGNERS
+
+        self._form_context: Optional[CreateMultisigAccountPageContext] = None
+        self._cosign_widget = CosignWidget(2, 2)
+        self._summary_label = QLabel()
+        self._options_widget = CreateMultisigAccountOptionsWidget(self._form_context, self)
+
+        layout = self._create_layout()
+        self.setLayout(layout)
+
+    def _create_form_context(self) -> None:
+        self._form_context = CreateMultisigAccountPageContext(self, self._cosign_widget,
+            self._summary_label)
+
+    def _create_layout(self,
+            form_context: Optional[CreateMultisigAccountPageContext]=None) -> QVBoxLayout:
+        # Object creation has no context.
+        if self._form_context is not None:
+            self._options_widget.set_form_context(self._form_context)
+            self._form_context.set_m(self.field("multisig-m"))
+            self._form_context.set_n(self.field("multisig-n"))
+            self._form_context.update_summary_label()
+
+        vbox = QVBoxLayout()
+        vbox.addStretch(1)
+        vbox.addWidget(self._cosign_widget)
+        vbox.addStretch(1)
+        vbox.addWidget(self._summary_label, 0, Qt.AlignCenter)
+        vbox.addStretch(1)
+        vbox.addWidget(self._options_widget)
+
+        return vbox
+
+    def on_enter(self) -> None:
+        self._next_page_id = AccountPage.CREATE_MULTISIG_ACCOUNT_COSIGNERS
+
+        self._create_form_context()
+        discardable = QWidget()
+        discardable.setLayout(self.layout())
+        self.setLayout(self._create_layout())
+
+    def on_leave(self) -> None:
+        self._form_context = None
+
+    # Qt method called to get the Id of the next page.
+    def nextId(self):
+        # Need to know if customize is clicked and go to the custom page.
+        return self._next_page_id
+
+
+class MultisigAccountCosignerListPage(QWizardPage):
+    _cosigner_states: List[CosignerState]
+
+    _list: Optional[QListWidget] = None
+
+    def __init__(self, wizard: AccountWizard):
+        super().__init__(wizard)
+
+        self.setTitle(_("Create a Multi-signature Account") +" - "+ _("Cosigners"))
+
+        vbox = QVBoxLayout()
         self.setLayout(vbox)
 
-    def nextId(self):
+    # Qt default QWizardPage event when page is entered.
+    def initializePage(self) -> None:
+        cosigner_count = self.field("multisig-n")
+        self._cosigner_states = [ CosignerState(i) for i in range(cosigner_count) ]
+
+        # Create a new page layout that reflects the current user selected values.
+        discardable = QWidget()
+        discardable.setLayout(self.layout())
+        self.setLayout(self._create_layout())
+
+    # Qt default QWizardPage event when page is exited.
+    def cleanupPage(self) -> None:
+        pass
+
+    # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
+    def validatePage(self) -> bool:
+        assert len(self._cosigner_states) == self.field("multisig-n"), "Mismatched cosigner counts"
+
+        keystore = Multisig_KeyStore({
+            "m": self.field("multisig-m"),
+            "n": self.field("multisig-n"),
+            "cosigner-keys": [],
+        })
+        for state in self._cosigner_states:
+            assert state.keystore is not None, f"Expected complete keystore {state.cosigner_index}"
+            keystore.add_cosigner_keystore(state.keystore)
+
+        wizard: AccountWizard = self.wizard()
+        wizard.set_keystore_result(ResultType.MULTISIG, keystore)
+        return True
+
+    # Qt method called to get the Id of the next page.
+    def nextId(self) -> int:
         return -1
 
+    # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
+    # Overriding this requires us to emit the 'completeChanges' signal where applicable.
+    def isComplete(self) -> bool:
+        return all(s.is_complete() for s in self._cosigner_states)
+
+    def _create_layout(self) -> QVBoxLayout:
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        wizard: AccountWizard = self.wizard()
+        self._list = CosignerList(wizard.get_main_window())
+        for cosigner_state in self._cosigner_states:
+            card = self._list.add_state(cosigner_state)
+            card.cosigner_updated.connect(self.event_cosigner_updated)
+        layout.addWidget(self._list)
+        return layout
+
+    def event_cosigner_updated(self, cosigner_index: int) -> None:
+        self.completeChanged.emit()

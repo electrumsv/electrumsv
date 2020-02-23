@@ -1361,6 +1361,15 @@ class WalletStorage:
         secret = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), b'', iterations=1024)
         return PrivateKey.from_arbitrary_bytes(secret)
 
+    def is_password_valid(self, password: str) -> bool:
+        try:
+            self.check_password(password)
+        except InvalidPassword:
+            pass
+        else:
+            return True
+        return False
+
     def _set_store(self, store: StoreType) -> None:
         # This should only be called on `WalletStorage` creation or during the upgrade process
         # as one type of store transitions to another type. This will ensure that any object

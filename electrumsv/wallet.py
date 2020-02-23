@@ -47,8 +47,8 @@ from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160
 from . import coinchooser
 from .app_state import app_state
 from .bitcoin import compose_chain_string, COINBASE_MATURITY, ScriptTemplate
-from .constants import (CHANGE_SUBPATH, DerivationType, KeyInstanceFlag, KeystoreTextType, TxFlags,
-    RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, PaymentState)
+from .constants import (AccountType, CHANGE_SUBPATH, DerivationType, KeyInstanceFlag,
+    KeystoreTextType, TxFlags, RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, PaymentState)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
 from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, UnknownTransactionException,
@@ -480,15 +480,15 @@ class AbstractAccount:
         return f"{parent_name}/{self._id}"
 
     # Used for exception reporting account class instance classification.
-    def type_name(self) -> str:
-        return self.__class__.__name__
+    def type(self) -> AccountType:
+        return AccountType.UNSPECIFIED
 
     # Used for exception reporting overall account classification.
     def debug_name(self) -> str:
         k = self.get_keystore()
         if k is None:
-            return self.type_name()
-        return f"{self.type_name()}/{k.type_name()}"
+            return self.type().value
+        return f"{self.type().value}/{k.debug_name()}"
 
     def _load_sync_state(self) -> None:
         self._sync_state = SyncState()
@@ -1573,8 +1573,8 @@ class ImportedAddressAccount(ImportedAccountBase):
         self._hashes: Dict[int, str] = {}
         super().__init__(wallet, row, keyinstance_rows, output_rows)
 
-    def type_name(self) -> str:
-        return "impaddress"
+    def type(self) -> AccountType:
+        return AccountType.IMPORTED_ADDRESS
 
     def is_watching_only(self) -> bool:
         return True
@@ -1650,8 +1650,8 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         self._default_keystore = Imported_KeyStore()
         AbstractAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
 
-    def type_name(self) -> str:
-        return "impprvkey"
+    def type(self) -> AccountType:
+        return AccountType.IMPORTED_PRIVATE_KEY
 
     def is_watching_only(self) -> bool:
         return False
@@ -1895,8 +1895,8 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
 
 
 class StandardAccount(SimpleDeterministicAccount):
-    def type_name(self) -> str:
-        return "standard"
+    def type(self) -> AccountType:
+        return AccountType.STANDARD
 
 
 class MultisigAccount(DeterministicAccount):
@@ -1909,8 +1909,8 @@ class MultisigAccount(DeterministicAccount):
 
         DeterministicAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
 
-    def type_name(self) -> str:
-        return "multisig"
+    def type(self) -> AccountType:
+        return AccountType.MULTISIG
 
     def get_threshold(self, script_type: ScriptType) -> int:
         assert script_type in self.get_valid_script_types(), \

@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (QAction, QComboBox, QCompleter, QDialog, QDialogBut
 from electrumsv.contacts import ContactEntry, ContactIdentity, IDENTITY_SYSTEM_NAMES
 from electrumsv.i18n import _
 
-from .util import icon_path, read_QIcon
+from .util import FormSectionWidget, icon_path, read_QIcon
 from .wallet_api import WalletAPI
 
 # Payment UI:
@@ -253,7 +253,8 @@ class FundsSelectionWidget(QWidget):
         self._fiat_balance = fiat_balance
 
         sv_balance.installEventFilter(self)
-        fiat_balance.installEventFilter(self)
+        if fiat_balance is not None:
+            fiat_balance.installEventFilter(self)
 
     # QWidget styles do not render. Found this somewhere on the qt5 doc site.
     def paintEvent(self, event):
@@ -577,72 +578,8 @@ class PayeeWidget(QWidget):
         self.setTabOrder(self.badge_widget.name_button, self.badge_widget.system_button)
 
 
-class PaymentSectionWidget(QWidget):
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
 
-        self.frame_layout = QVBoxLayout()
-
-        frame = QFrame()
-        frame.setObjectName("PaymentFrame")
-        frame.setLayout(self.frame_layout)
-
-        vlayout = QVBoxLayout()
-        vlayout.setContentsMargins(0, 0, 0, 0)
-        vlayout.addWidget(frame)
-        self.setLayout(vlayout)
-
-    def add_title(self, title_text: str) -> None:
-        label = QLabel(title_text +":")
-        label.setObjectName("PaymentSectionTitle")
-        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.frame_layout.addWidget(label, Qt.AlignTop)
-
-    def add_row(self, label_text: QWidget, field_widget: QWidget,
-            stretch_field: bool=False) -> None:
-        line = QFrame()
-        line.setObjectName("PaymentSeparatorLine")
-        line.setFrameShape(QFrame.HLine)
-        line.setFixedHeight(1)
-
-        self.frame_layout.addWidget(line)
-
-        label = QLabel(label_text)
-        label.setObjectName("PaymentSectionLabel")
-        label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
-
-        help_label = QLabel()
-        help_label.setPixmap(
-            QPixmap(icon_path("icons8-help.svg")).scaledToWidth(16, Qt.SmoothTransformation))
-        help_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
-
-        label_layout = QHBoxLayout()
-        label_layout.addWidget(label)
-        label_layout.addWidget(help_label)
-        # Ensure that the top-aligned vertical spacing matches the fields.
-        label_layout.setContentsMargins(0,2,0,2)
-        label_layout.setSizeConstraint(QLayout.SetFixedSize)
-
-        grid_layout = QGridLayout()
-        grid_layout.addLayout(label_layout, 0, 0, Qt.AlignLeft | Qt.AlignTop)
-        if stretch_field:
-            grid_layout.addWidget(field_widget, 0, 1)
-        else:
-            field_layout = QHBoxLayout()
-            field_layout.setContentsMargins(0, 0, 0, 0)
-            field_layout.addWidget(field_widget)
-            field_layout.addStretch(1)
-            grid_layout.addLayout(field_layout, 0, 1)
-        grid_layout.setColumnMinimumWidth(0, 80)
-        grid_layout.setColumnStretch(0, 0)
-        grid_layout.setColumnStretch(1, 1)
-        grid_layout.setHorizontalSpacing(0)
-        grid_layout.setSizeConstraint(QLayout.SetMinimumSize)
-
-        self.frame_layout.addLayout(grid_layout)
-
-
-class PaymentPayeeWidget(PaymentSectionWidget):
+class PaymentPayeeWidget(FormSectionWidget):
     def __init__(self, form_context, parent=None) -> None:
         super().__init__(parent)
 
@@ -654,7 +591,7 @@ class PaymentPayeeWidget(PaymentSectionWidget):
         self.add_row(_("Pay to"), widget)
 
 
-class PaymentFundingWidget(PaymentSectionWidget):
+class PaymentFundingWidget(FormSectionWidget):
     def __init__(self, form_context, parent=None) -> None:
         super().__init__(parent)
         self._form_context = form_context
@@ -667,7 +604,7 @@ class PaymentFundingWidget(PaymentSectionWidget):
         self.add_row(_("Amount"), amount_widget)
 
 
-class PaymentNoteWidget(PaymentSectionWidget):
+class PaymentNoteWidget(FormSectionWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
@@ -743,20 +680,7 @@ class PaymentWindow(QDialog):
             color: grey;
         }
 
-        #PaymentFrame {
-            background-color: #F2F2F2;
-            border: 1px solid #E3E2E2;
-        }
-
-        #PaymentSectionTitle {
-        }
-
-        #PaymentSeparatorLine {
-            border: 1px solid #E3E2E2;
-        }
-
-        #PaymentSectionLabel {
-            color: grey;
+        #FormSectionTitle {
         }
 
         QLineEdit:read-only {
