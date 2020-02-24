@@ -203,6 +203,8 @@ class AbstractAccount:
         self._logger = logs.get_logger("account[{}]".format(self.name()))
         self._network = None
 
+        self._script_cache: Dict[int, Tuple[Script, bytes, Optional[ScriptTemplate]]] = {}
+
         # For synchronization.
         self._activated_keys: List[int] = []
         self._activated_keys_lock = threading.Lock()
@@ -489,23 +491,24 @@ class AbstractAccount:
                 flags = row.flags
                 if metadata.position==0:
                     flags |= TransactionOutputFlag.IS_COINBASE
+                address = script_template if isinstance(script_template, Address) else None
                 self.register_utxo(row.tx_hash, row.tx_index, row.value, flags,
-                    keyinstance, script_template)
+                    keyinstance, script_template.to_script(), address)
 
     def register_utxo(self, tx_hash: bytes, output_index: int, value: int,
             flags: TransactionOutputFlag, keyinstance: KeyInstanceRow,
-            script_template: ScriptTemplate) -> None:
+            script: Script, address: Optional[ScriptTemplate]=None) -> None:
         is_coinbase = (flags & TransactionOutputFlag.IS_COINBASE) != 0
         utxo_key = (tx_hash, output_index)
         self._utxos[utxo_key] = UTXO(
             value=value,
-            script_pubkey=script_template.to_script(),
+            script_pubkey=script,
             script_type=keyinstance.script_type,
             tx_hash=tx_hash,
             out_index=output_index,
             keyinstance_id=keyinstance.keyinstance_id,
             flags=flags,
-            address=script_template if isinstance(script_template, Address) else None,
+            address=address,
             is_coinbase=is_coinbase)
         if flags & TransactionOutputFlag.IS_FROZEN:
             self._frozen_coins.add(utxo_key)
@@ -513,7 +516,7 @@ class AbstractAccount:
     # Should be called with the transaction lock.
     def create_transaction_output(self, tx_hash: bytes, output_index: int, value: int,
             flags: TransactionOutputFlag, keyinstance: KeyInstanceRow,
-            script_template: ScriptTemplate):
+            script: Script, address: Optional[ScriptTemplate]=None):
         metadata = self._wallet._transaction_cache.get_metadata(tx_hash)
         if metadata.position == 0:
             flags |= TransactionOutputFlag.IS_COINBASE
@@ -521,7 +524,7 @@ class AbstractAccount:
             self._stxos[(tx_hash, output_index)] = keyinstance.keyinstance_id
         else:
             self.register_utxo(tx_hash, output_index, value, flags, keyinstance,
-                script_template)
+                script, address)
 
         self._wallet.create_transactionoutputs(self._id, [ TransactionOutputRow(tx_hash,
             output_index, value, keyinstance.keyinstance_id, flags) ])
@@ -834,11 +837,39 @@ class AbstractAccount:
         with self.transaction_lock:
             self._process_key_usage(tx_hash, tx)
 
-    def _process_key_usage(self, tx_hash: bytes, tx: Transaction) -> Set[int]:
+    def _get_cached_script(self, keyinstance_id: int) -> Tuple[Script, bytes,
+            Optional[ScriptTemplate]]:
+        keyinstance = self.get_keyinstance(keyinstance_id)
+        script_type = keyinstance.script_type
+        assert script_type != ScriptType.NONE
+        cache_key = (keyinstance_id, script_type)
+        cache_value = self._script_cache.get(cache_key)
+        if cache_value is None:
+            script_template = self.get_script_template_for_id(keyinstance_id, script_type)
+            address = script_template if isinstance(script_template, Address) else None
+            script = script_template.to_script()
+            cache_value = script, bytes(script), address
+            self._script_cache[cache_key] = cache_value
+        return cache_value
+
+    # def _process_key_usage(self, tx_hash: bytes, tx: Transaction) -> None:
+    #     import cProfile, pstats, io
+    #     from pstats import SortKey
+    #     pr = cProfile.Profile()
+    #     pr.enable()
+    #     self._process_key_usage2(tx_hash, tx)
+    #     pr.disable()
+    #     s = io.StringIO()
+    #     sortby = SortKey.CUMULATIVE
+    #     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    #     ps.print_stats()
+    #     print(s.getvalue())
+
+    def _process_key_usage(self, tx_hash: bytes, tx: Transaction) -> None:
         tx_id = hash_to_hex_str(tx_hash)
         key_ids = self._sync_state.get_transaction_key_ids(tx_id)
         key_matches = [(self.get_keyinstance(key_id),
-            self.get_script_template_for_id(key_id)) for key_id in key_ids]
+            *self._get_cached_script(key_id)) for key_id in key_ids]
 
         tx_deltas: Dict[Tuple[bytes, int], int] = defaultdict(int)
         new_txos: List[Tuple[bytes, int, int, TransactionOutputFlag, KeyInstanceRow,
@@ -851,8 +882,9 @@ class AbstractAccount:
             if keyinstance_id is not None:
                 continue
 
-            for keyinstance, script_template in key_matches:
-                if script_template.to_script() == output.script_pubkey:
+            output_bytes = bytes(output.script_pubkey)
+            for keyinstance, script, script_bytes, address in key_matches:
+                if script_bytes == output_bytes:
                     break
             else:
                 continue
@@ -879,7 +911,7 @@ class AbstractAccount:
 
             # TODO(rt12) BACKLOG batch create the outputs.
             self.create_transaction_output(tx_hash, output_index, output.value,
-                txo_flags, keyinstance, script_template)
+                txo_flags, keyinstance, script, address)
             tx_deltas[(tx_hash, keyinstance.keyinstance_id)] += output.value
 
         for input_index, input in enumerate(tx.inputs):
@@ -956,8 +988,10 @@ class AbstractAccount:
                     spent_keyinstance = self._keyinstances[spent_keyinstance_id]
                     script_template = self.get_script_template_for_id(spent_keyinstance_id,
                         spent_keyinstance.script_type)
+                    script = script_template.to_script()
+                    address = script_template if isinstance(script_template, Address) else None
                     self.register_utxo(txin.prev_hash, txin.prev_idx, spent_value, txo_flags,
-                        spent_keyinstance, script_template)
+                        spent_keyinstance, script, address)
                     txout_flags.append((txo_flags, *txo_key))
 
             key_script_types: List[Tuple[ScriptType, int]] = []
