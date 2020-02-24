@@ -213,13 +213,23 @@ class AbstractAccount:
         self._synchronize_event = app_state.async_.event()
         self._synchronized_event = app_state.async_.event()
         self.txs_changed_event = app_state.async_.event()
+
+        # locks: if you need to take several, acquire them in the order they are defined here!
+        self.lock = threading.RLock()
+        self.transaction_lock = threading.RLock()
+
         self.request_count = 0
         self.response_count = 0
         self.progress_event = app_state.async_.event()
 
-        self._load_sync_state()
         self._utxos: Dict[Tuple[bytes, int], UTXO] = {}
         self._stxos: Dict[Tuple[bytes, int], int] = {}
+
+        # caching for boosted inbound tx processing
+        self._keys_to_txos: Dict[int, Set[bytes, int]] = {}  # key_id: (tx_hash, index)
+        self._spk_to_key_id: Dict[Script, int] = {}
+        self._cache_warmed_tx_set = set()  # Set[tx_hash] - should never get cache miss for these
+
         self._keypath: Dict[int, Sequence[int]] = {}
         self._keyinstances: Dict[int, KeyInstanceRow] = { r.keyinstance_id: r for r
             in keyinstance_rows }
@@ -228,12 +238,10 @@ class AbstractAccount:
         self._payment_requests: Dict[int, PaymentRequestRow] = {}
 
         self._load_keys(keyinstance_rows)
+        self._load_sync_state()
+        self._load_keys_to_txos_cache(keyinstance_rows)
         self._load_txos(output_rows)
         self._load_payment_requests()
-
-        # locks: if you need to take several, acquire them in the order they are defined here!
-        self.lock = threading.RLock()
-        self.transaction_lock = threading.RLock()
 
         # invoices and contacts
         # TODO(rt12) BACKLOG formalise porting/storage of invoice data extracted from storage data
@@ -297,6 +305,8 @@ class AbstractAccount:
         for i, row in enumerate(rows):
             self._keyinstances[row.keyinstance_id] = row
             self._keypath[row.keyinstance_id] = key_allocations[i].derivation_path
+            script_pubkey = self.get_script_template_for_id(row.keyinstance_id).to_script()
+            self._spk_to_key_id[script_pubkey] = row.keyinstance_id
         self._add_activated_keys(rows)
         return rows
 
@@ -449,6 +459,108 @@ class AbstractAccount:
         if k is None:
             return self.type_name()
         return f"{self.type_name()}/{k.type_name()}"
+
+    def update_key_to_txo_key(self, _key, txo_key):
+        if not self._keys_to_txos.get(_key, None):
+            self._keys_to_txos[_key] = set()
+        self._keys_to_txos[_key].add((txo_key[0], txo_key[1]))
+
+    def update_spk_to_key_id(self, keyinstance_rows: List[KeyInstanceRow]):
+        for row in keyinstance_rows:
+            script_pubkey = self.get_script_template_for_id(row.keyinstance_id).to_script()
+            self._spk_to_key_id[script_pubkey] = row.keyinstance_id
+
+    def init_key_ids_to_txos_caches(self, keyinstance_rows: List[KeyInstanceRow]):
+        for row in keyinstance_rows:
+            script_pubkey = self.get_script_template_for_id(row.keyinstance_id).to_script()
+            self._spk_to_key_id[script_pubkey] = row.keyinstance_id
+            if not self._keys_to_txos.get(row.keyinstance_id):
+                self._keys_to_txos[row.keyinstance_id] = set()
+
+    def _add_keys_to_txos_cache_for_txs(self, transactions: List[Tuple[bytes, Transaction]],
+            keyinstance_rows: List[KeyInstanceRow]) -> None:
+        """
+        To add transactions to '_cache_warmed_tx_set' the pre-requisite steps are:
+        1) derive temp fresh keys == count of all txos for all newly encountered txs
+        2) get the script_pubkeys for these keys and sort the txos into ones owned by account vs not
+        3) derive new keys == count of total *owned txos*
+        If the wallet user has not been doing abnormal key-reuse it will work. Otherwise,
+        they pay the price via increased % chance of cache misses.
+
+        We can never confidently classify a txo as belonging to a third party - so we have to
+        let it miss the cache sometimes. - AustEcon
+        """
+        self.update_spk_to_key_id(keyinstance_rows)
+
+        t0 = time.time()
+        possible_owned_txo_spks = set()
+        possible_owned_txos = []
+        for tx_hash, tx in transactions:
+            for index, output in enumerate(tx.outputs):
+                if output.value != 0:  # probably an 'OP_RETURN' datacarrier
+                    _key = self._spk_to_key_id.get(output.script_pubkey)
+                    if _key:
+                        self.update_key_to_txo_key(_key, txo_key=(tx_hash, index))
+                        continue
+                    else:
+                        possible_owned_txo_spks.add(output.script_pubkey)
+                        possible_owned_txos.append((tx_hash, index, output.script_pubkey))
+            self._cache_warmed_tx_set.add(tx_hash)
+
+        count_new_receiving_keys_needed = 0
+        count_new_change_keys_needed = 0
+        for i in range(len(possible_owned_txo_spks)):
+            spk_recv = self.derive_script_template((0, i)).to_script_bytes()
+            if spk_recv in possible_owned_txo_spks:
+                count_new_receiving_keys_needed += 1
+                continue
+
+            spk_change = self.derive_script_template((1, i)).to_script_bytes()
+            if spk_change in possible_owned_txo_spks:
+                count_new_change_keys_needed += 1
+
+        self._logger.debug("creating %s new receiving an %s new change keys",
+                           count_new_receiving_keys_needed, count_new_change_keys_needed)
+        new_recv_keys = []
+        new_recv_keys.extend(self.create_keys(count_new_receiving_keys_needed,RECEIVING_SUBPATH))
+        new_change_keys = []
+        new_change_keys.extend(self.create_keys(count_new_change_keys_needed, RECEIVING_SUBPATH))
+
+        if len(new_recv_keys) != 0:
+            self.init_key_ids_to_txos_caches(new_recv_keys)
+            for tx_hash, tx in transactions:
+                if len(new_recv_keys) != 0:
+                    for index, output in enumerate(tx.outputs):
+                        if output.value != 0:  # probably an 'OP_RETURN' datacarrier
+                            _key = self._spk_to_key_id.get(output.script_pubkey)
+                            if _key:
+                                self.update_key_to_txo_key(_key, txo_key=(tx_hash,
+                                                                          index))
+        if len(new_change_keys) != 0:
+            self.init_key_ids_to_txos_caches(new_change_keys)
+            for tx_hash, tx in transactions:
+                if len(new_change_keys) != 0:
+                    for index, output in enumerate(tx.outputs):
+                        if output.value != 0:  # probably an 'OP_RETURN' datacarrier
+                            _key = self._spk_to_key_id.get(output.script_pubkey)
+                            if _key:
+                                self.update_key_to_txo_key(_key, txo_key=(tx_hash,
+                                                                          index))
+        for tx_hash, index, script_pubkey in possible_owned_txos:
+            _key = self._spk_to_key_id.get(script_pubkey)
+            if _key:
+                self.update_key_to_txo_key(_key, txo_key=(tx_hash, index))
+            # else we tried - user is doing some funky key-reuse and they will pay the
+            # price with an increased rate of cache misses. -AustEcon
+
+        t1 = time.time() - t0
+        self._logger.debug("loaded keys_to_txos cache in %s seconds for %s txs", t1,
+                           len(self._cache_warmed_tx_set))
+
+    def _load_keys_to_txos_cache(self, keyinstance_rows) -> None:
+        self.init_key_ids_to_txos_caches(keyinstance_rows)
+        all_txs = self._wallet._transaction_cache.get_transactions()
+        self._add_keys_to_txos_cache_for_txs(all_txs, keyinstance_rows)
 
     def _load_sync_state(self) -> None:
         self._sync_state = SyncState()
@@ -818,7 +930,7 @@ class AbstractAccount:
             self._logger.debug("adding tx data %s (flags: %s)", hash_to_hex_str(tx_hash),
                 TxFlags.to_repr(flag))
             self._wallet._transaction_cache.add_transaction(tx, flag, _completion_callback)
-            self._process_key_usage(tx_hash, tx)
+            self._process_key_usage(tx_hash, tx, None)
 
     def set_transaction_state(self, tx_hash: bytes, flags: TxFlags) -> bool:
         """ raises UnknownTransactionException """
@@ -830,20 +942,37 @@ class AbstractAccount:
         self._wallet.trigger_callback('transaction_state_change',
             self._wallet.get_storage_path(), self._id, tx_hash, existing_flags, updated_flags)
 
-    def process_key_usage(self, tx_hash: bytes, tx: Transaction) -> None:
-        with self.transaction_lock:
-            self._process_key_usage(tx_hash, tx)
-
-    def _process_key_usage(self, tx_hash: bytes, tx: Transaction) -> Set[int]:
-        tx_id = hash_to_hex_str(tx_hash)
+    def get_key_ids_and_matches(self, tx_id):
         key_ids = self._sync_state.get_transaction_key_ids(tx_id)
         key_matches = [(self.get_keyinstance(key_id),
             self.get_script_template_for_id(key_id)) for key_id in key_ids]
+        self._logger.debug("len key_ids=%s, len key_matches=%s", len(key_ids), len(key_matches))
+        return key_ids, key_matches
 
+    def process_key_usage(self, tx_hash: bytes, tx: Transaction, tx_outputs: List[XTxOutput]=None) \
+            -> None:
+        with self.transaction_lock:
+            self._process_key_usage(tx_hash, tx, tx_outputs)
+
+    def _process_key_usage(self, tx_hash: bytes, tx: Transaction,
+                           tx_outputs: List[XTxOutput]=None) -> Set[int]:
+        """If relevant tx_outputs are supplied (cache hit) - performance is greatly improved.
+        Otherwise, it falls back to the original methodology and updates the cache for next time"""
+        def had_cache_miss():
+            nonlocal tx_outputs
+            if not tx_outputs:
+                return True
+            return False
+
+        tx_id = hash_to_hex_str(tx_hash)
+        if had_cache_miss():
+            key_ids, key_matches = self.get_key_ids_and_matches(tx_id)
         tx_deltas: Dict[Tuple[bytes, int], int] = defaultdict(int)
         new_txos: List[Tuple[bytes, int, int, TransactionOutputFlag, KeyInstanceRow,
             ScriptTemplate]] = []
-        for output_index, output in enumerate(tx.outputs):
+
+        for output_index, output in tx_outputs or enumerate(tx.outputs):
+
             utxo = self.get_utxo(tx_hash, output_index)
             if utxo is not None:
                 continue
@@ -851,16 +980,25 @@ class AbstractAccount:
             if keyinstance_id is not None:
                 continue
 
-            for keyinstance, script_template in key_matches:
-                if script_template.to_script() == output.script_pubkey:
-                    break
+            if had_cache_miss():
+                for keyinstance, script_template in key_matches:
+                    if script_template.to_script() == output.script_pubkey:
+                        _keyinstance_id = keyinstance.keyinstance_id
+                        self.update_key_to_txo_key(_keyinstance_id, txo_key=(tx_hash, output_index))
+                        self._spk_to_key_id[output.script_pubkey] = _keyinstance_id
+                        break
+                else:
+                    continue
             else:
-                continue
+                _keyinstance_id = self._spk_to_key_id[output.script_pubkey.to_bytes()]
+                script_template = self.get_script_template_for_id(_keyinstance_id)
+                keyinstance = self.get_keyinstance(_keyinstance_id)
+                if not _keyinstance_id:
+                    continue
 
             # Search the known candidates to see if we already have this txo's spending input.
             txo_flags = TransactionOutputFlag.NONE
-            for spend_tx_id, _height in self._sync_state.get_key_history(
-                    keyinstance.keyinstance_id):
+            for spend_tx_id, _height in self._sync_state.get_key_history(_keyinstance_id):
                 if spend_tx_id == tx_id:
                     continue
                 spend_tx_hash = hex_str_to_hash(spend_tx_id)
@@ -873,13 +1011,15 @@ class AbstractAccount:
                 else:
                     continue
 
-                tx_deltas[(spend_tx_hash, keyinstance.keyinstance_id)] -= output.value
+                tx_deltas[(spend_tx_hash, _keyinstance_id)] -= output.value
                 txo_flags = TransactionOutputFlag.IS_SPENT
                 break
 
             # TODO(rt12) BACKLOG batch create the outputs.
             self.create_transaction_output(tx_hash, output_index, output.value,
                 txo_flags, keyinstance, script_template)
+            self._logger.debug("creating transaction output=%s script_template=%s",
+                               output, script_template)
             tx_deltas[(tx_hash, keyinstance.keyinstance_id)] += output.value
 
         for input_index, input in enumerate(tx.inputs):
@@ -997,14 +1137,20 @@ class AbstractAccount:
     async def set_key_history(self, keyinstance_id: int, script_type: ScriptType,
             hist: List[Tuple[str, int]], tx_fees: Dict[str, int]) -> None:
         with self.lock:
-            self._logger.debug("set_key_history %s %s", keyinstance_id, tx_fees)
+            self._logger.debug("set_key_history key_id=%s script_type=%s len hist=%s",
+                               keyinstance_id,
+                               script_type, len(hist))
             key = self._keyinstances[keyinstance_id]
+
             if key.script_type == ScriptType.NONE:
+                self._logger.critical("setting script type of key_id=%s from=%s to=%s",
+                                    keyinstance_id, ScriptType.NONE, script_type)
                 # This is the first use of the allocated key and we update the key to reflect it.
                 key = KeyInstanceRow(key.keyinstance_id, key.account_id, key.masterkey_id,
                     key.derivation_type, key.derivation_data, script_type, key.flags,
                     key.description)
                 self._keyinstances[keyinstance_id] = key
+
                 self._wallet.update_keyinstance_script_types([ (script_type, keyinstance_id) ])
             elif key.script_type != script_type:
                 self._logger.error("Received key history from server for key that already "
@@ -1043,12 +1189,42 @@ class AbstractAccount:
                         == TxFlags.HasByteData:
                     self.set_transaction_state(tx_hash, TxFlags.StateCleared | TxFlags.HasByteData)
 
+            def get_relevant_outputs(keyinstance_id, tx_hash, tx):
+                relevant_outputs = []
+                output_keys = self._keys_to_txos.get(keyinstance_id)
+                if output_keys:  # cache hit
+                    for txo_hash, index in output_keys:
+                        if tx_hash == txo_hash and tx.outputs[index].value != 0:
+                            relevant_outputs.append((index, tx.outputs[index]))
+                if len(relevant_outputs) == 0:
+                    return
+                return relevant_outputs
+
             for tx_id, tx_height in hist:
                 tx_hash = hex_str_to_hash(tx_id)
                 entry = self._wallet._transaction_cache.get_cached_entry(tx_hash)
                 if entry.flags & TxFlags.HasByteData == TxFlags.HasByteData:
                     tx = self._wallet._transaction_cache.get_transaction(tx_hash)
-                    self.process_key_usage(tx_hash, tx)
+                    relevant_outputs = get_relevant_outputs(keyinstance_id, tx_hash, tx)
+
+                    if not relevant_outputs:  # cache miss
+                        if tx_hash in self._cache_warmed_tx_set:
+                            pass  # let it be
+                            self._logger.debug("cache miss for warmed tx key_id=%s", keyinstance_id)
+                        else:
+                            self._logger.debug("cache miss for unwarmed tx key_id=%s",
+                                               keyinstance_id)
+                            keyinstance_rows = self.get_keyinstance(keyinstance_id)
+                            self._add_keys_to_txos_cache_for_txs([(tx_hash, tx)],
+                                                                 [keyinstance_rows])
+                            relevant_outputs = get_relevant_outputs(keyinstance_id, tx_hash, tx)
+                    else:
+                        self._logger.debug("cache hit key_id=%s", keyinstance_id)
+
+                    t0 = time.time()
+                    self.process_key_usage(tx_hash, tx, tx_outputs=relevant_outputs)
+                    t1 = time.time() - t0
+                    self._logger.debug("time for self.process_key_usage=%s seconds", t1)
 
         self.txs_changed_event.set()
         await self._trigger_synchronization()
@@ -1136,6 +1312,7 @@ class AbstractAccount:
 
     def make_unsigned_transaction(self, utxos: List[UTXO], outputs: List[XTxOutput],
             config: SimpleConfig, fixed_fee: Optional[int]=None) -> Transaction:
+
         # check outputs
         all_index = None
         for n, output in enumerate(outputs):
