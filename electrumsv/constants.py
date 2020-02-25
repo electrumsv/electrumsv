@@ -169,3 +169,5 @@ class PaymentState(IntEnum):
 
 # Transaction limits
 MAX_MESSAGE_BYTES = 99000
+
+MAX_INCOMING_ELECTRUMX_MESSAGE_SIZE = 10_000_000

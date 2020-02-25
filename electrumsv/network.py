@@ -38,7 +38,7 @@ import certifi
 from aiorpcx import (
     connect_rs, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
     TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
-    SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth
+    SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth, NewlineFramer
 )
 from bitcoinx import (
     MissingHeader, IncorrectBits, InsufficientPoW, hex_str_to_hash, hash_to_hex_str,
@@ -47,7 +47,7 @@ from bitcoinx import (
 
 from .app_state import app_state
 from .bitcoin import scripthash_hex
-from .constants import TxFlags
+from .constants import TxFlags, MAX_INCOMING_ELECTRUMX_MESSAGE_SIZE
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
@@ -352,6 +352,9 @@ class SVSession(RPCSession):
         self.server = server
         self.tip = None
         self.ptuple = (0, )
+
+    def default_framer(self) -> NewlineFramer:
+        return NewlineFramer(max_size=MAX_INCOMING_ELECTRUMX_MESSAGE_SIZE)
 
     @classmethod
     def _required_checkpoint_headers(cls):
