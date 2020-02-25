@@ -330,7 +330,7 @@ class AbstractAccount:
 
     def get_key_utxos(self, key_id: int) -> List[UTXO]:
         with self._utxos_lock:
-            return [ u for u in self._utxos if u.keyinstance_id == key_id ]
+            return [ u for u in self._utxos.values() if u.keyinstance_id == key_id ]
 
     def get_script_type_for_id(self, key_id: int) -> ScriptType:
         keyinstance = self._keyinstances[key_id]
