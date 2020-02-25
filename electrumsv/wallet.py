@@ -221,6 +221,7 @@ class AbstractAccount:
 
         self._load_sync_state()
         self._utxos: Dict[Tuple[bytes, int], UTXO] = {}
+        self._utxos_lock = threading.RLock()
         self._stxos: Dict[Tuple[bytes, int], int] = {}
         self._keypath: Dict[int, Sequence[int]] = {}
         self._keyinstances: Dict[int, KeyInstanceRow] = { r.keyinstance_id: r for r
@@ -317,8 +318,9 @@ class AbstractAccount:
         self._wallet.update_keyinstance_flags([
             (self._keyinstances[key_id].flags & ~KeyInstanceFlag.ACTIVE_MASK, key_id) ])
         # Flush the associated UTXO state and account state from memory.
-        for utxo in self.get_key_utxos(key_id):
-            del self._utxos[utxo.key()]
+        with self._utxos_lock:
+            for utxo in self.get_key_utxos(key_id):
+                del self._utxos[utxo.key()]
         self._unload_keys([ key_id ])
         return True
 
@@ -327,7 +329,8 @@ class AbstractAccount:
             del self._keyinstances[key_id]
 
     def get_key_utxos(self, key_id: int) -> List[UTXO]:
-        return [ u for u in self._utxos if u.keyinstance_id == key_id ]
+        with self._utxos_lock:
+            return [ u for u in self._utxos if u.keyinstance_id == key_id ]
 
     def get_script_type_for_id(self, key_id: int) -> ScriptType:
         keyinstance = self._keyinstances[key_id]
@@ -500,16 +503,17 @@ class AbstractAccount:
             script: Script, address: Optional[ScriptTemplate]=None) -> None:
         is_coinbase = (flags & TransactionOutputFlag.IS_COINBASE) != 0
         utxo_key = (tx_hash, output_index)
-        self._utxos[utxo_key] = UTXO(
-            value=value,
-            script_pubkey=script,
-            script_type=keyinstance.script_type,
-            tx_hash=tx_hash,
-            out_index=output_index,
-            keyinstance_id=keyinstance.keyinstance_id,
-            flags=flags,
-            address=address,
-            is_coinbase=is_coinbase)
+        with self._utxos_lock:
+            self._utxos[utxo_key] = UTXO(
+                value=value,
+                script_pubkey=script,
+                script_type=keyinstance.script_type,
+                tx_hash=tx_hash,
+                out_index=output_index,
+                keyinstance_id=keyinstance.keyinstance_id,
+                flags=flags,
+                address=address,
+                is_coinbase=is_coinbase)
         if flags & TransactionOutputFlag.IS_FROZEN:
             self._frozen_coins.add(utxo_key)
 
@@ -742,8 +746,9 @@ class AbstractAccount:
 
     # Should be called with the transaction lock.
     def set_utxo_spent(self, tx_hash: bytes, output_index: int) -> None:
-        txo_key = (tx_hash, output_index)
-        utxo = self._utxos.pop(txo_key)
+        with self._utxos_lock:
+            txo_key = (tx_hash, output_index)
+            utxo = self._utxos.pop(txo_key)
         retained_flags = utxo.flags & TransactionOutputFlag.IS_COINBASE
         self._wallet.update_transactionoutput_flags(
             [ (retained_flags | TransactionOutputFlag.IS_SPENT, tx_hash, output_index)  ])
@@ -777,10 +782,12 @@ class AbstractAccount:
             if confirmed_only and metadata.height <= 0:
                 return False
             # A coin is spendable at height + COINBASE_MATURITY)
-            if mature and utxo.is_coinbase and mempool_height < metadata.height + COINBASE_MATURITY:
+            if mature and utxo.is_coinbase and \
+                    mempool_height < metadata.height + COINBASE_MATURITY:
                 return False
             return True
-        return [ utxo for utxo in self._utxos.values() if is_spendable_utxo(utxo)]
+        with self._utxos_lock:
+            return [ utxo for utxo in self._utxos.values() if is_spendable_utxo(utxo)]
 
     def existing_active_keys(self) -> List[int]:
         with self._activated_keys_lock:
@@ -792,22 +799,23 @@ class AbstractAccount:
         return self.get_balance(self._frozen_coins)
 
     def get_balance(self, domain=None, exclude_frozen_coins: bool=False) -> Tuple[int, int, int]:
-        if domain is None:
-            domain = set(self._utxos.keys())
-        c = u = x = 0
-        for k in domain:
-            if exclude_frozen_coins and k in self._frozen_coins:
-                continue
-            o = self._utxos[k]
-            metadata = self.get_transaction_metadata(o.tx_hash)
-            if o.is_coinbase and metadata.height + COINBASE_MATURITY > \
-                    self._wallet.get_local_height():
-                x += o.value
-            elif metadata.height > 0:
-                c += o.value
-            else:
-                u += o.value
-        return c, u, x
+        with self._utxos_lock:
+            if domain is None:
+                domain = set(self._utxos.keys())
+            c = u = x = 0
+            for k in domain:
+                if exclude_frozen_coins and k in self._frozen_coins:
+                    continue
+                o = self._utxos[k]
+                metadata = self.get_transaction_metadata(o.tx_hash)
+                if o.is_coinbase and metadata.height + COINBASE_MATURITY > \
+                        self._wallet.get_local_height():
+                    x += o.value
+                elif metadata.height > 0:
+                    c += o.value
+                else:
+                    u += o.value
+            return c, u, x
 
     def add_transaction(self, tx_hash: bytes, tx: Transaction, flag: TxFlags) -> None:
         def _completion_callback(exc_value: Any) -> None:
@@ -963,9 +971,10 @@ class AbstractAccount:
                 # Check if any outputs of this transaction have been spent already.
                 if txo_key in self._stxos:
                     raise Exception("Cannot remove as spent by child")
-                if txo_key in self._utxos:
-                    utxo = self._utxos[txo_key]
-                    utxos.append(utxo)
+                with self._utxos_lock:
+                    if txo_key in self._utxos:
+                        utxo = self._utxos[txo_key]
+                        utxos.append(utxo)
 
             # TODO(rt12) BACKLOG only read the outputs we are recreating.
             with TransactionOutputTable(self._wallet._db_context) as table:
@@ -1004,7 +1013,8 @@ class AbstractAccount:
                     key.description)
                 self._keyinstances[utxo.keyinstance_id] = key
                 # Expunge the UTXO.
-                del self._utxos[(utxo.tx_hash, utxo.out_index)]
+                with self._utxos_lock:
+                    del self._utxos[(utxo.tx_hash, utxo.out_index)]
 
             if len(txout_flags):
                 self._wallet.update_transactionoutput_flags(txout_flags)
@@ -1347,8 +1357,9 @@ class AbstractAccount:
 
     def get_payment_status(self, req: PaymentRequestRow) -> Tuple[bool, int]:
         local_height = self._wallet.get_local_height()
-        related_utxos = [ u for u in self._utxos.values()
-            if u.keyinstance_id == req.keyinstance_id ]
+        with self._utxos_lock:
+            related_utxos = [ u for u in self._utxos.values()
+                if u.keyinstance_id == req.keyinstance_id ]
         l = []
         for utxo in related_utxos:
             tx_height = self._wallet._transaction_cache.get_height(utxo.tx_hash)
