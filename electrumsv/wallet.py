@@ -462,17 +462,29 @@ class AbstractAccount:
             rows = table.read_history(self._id)
 
         key_history: Dict[int, List[Tuple[str, int]]] = {}
-        positions: Dict[Tuple[str, int], int] = {}
+        maximum_position = 0
+        positions: Dict[str, int] = {}
         for tx_hash, _value_delta, keyinstance_id in rows:
             metadata = self.get_transaction_metadata(tx_hash)
             if metadata.height is not None:
                 tx_id = hash_to_hex_str(tx_hash)
-                positions[(tx_id, keyinstance_id)] = metadata.position
+                if metadata.position is not None:
+                    positions[tx_id] = metadata.position
+                    maximum_position = max(maximum_position, metadata.position)
                 entries = key_history.setdefault(keyinstance_id, [])
                 entries.append((tx_id, metadata.height))
 
+        # From elsewhere:
+        #   The history is in immediately usable order. Transactions are listed in ascending
+        #   block height (height > 0), followed by the unconfirmed (height == 0) and then
+        #   those with unconfirmed parents (height < 0). [ (tx_hash, tx_height), ... ]
+        # We place unconfirmed transactions last by giving them a position larger than the largest
+        # known position. But we have no concept of what also has unconfirmed parents, so we
+        # leave this as a less common case that will reprocess the state. In the longer term
+        # syncing from the blockchain will likely be phased out except for restoration of older
+        # seeds.
         for keyinstance_id, entries in key_history.items():
-            entries.sort(key=lambda v: (v[1], positions.get((v[0], keyinstance_id))))
+            entries.sort(key=lambda v: (v[1], positions.get(v[0], maximum_position+1)))
             self._sync_state.set_key_history(keyinstance_id, entries)
 
     def _load_keys(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
