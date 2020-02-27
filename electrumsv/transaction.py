@@ -59,7 +59,7 @@ def tx_output_to_display_text(tx_output: TxOutput):
     if isinstance(kind, Address):
         text = kind.to_string()
     elif isinstance(kind, P2PK_Output):
-        text = kind.public_key.hex()
+        text = kind.public_key.to_hex()
     else:
         text = tx_output.script_pubkey.to_asm()
     return text, kind
