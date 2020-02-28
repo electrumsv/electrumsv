@@ -90,7 +90,7 @@ class WalletWizard(QWizard):
         self._recently_opened_entries = None
 
         self.setWindowTitle('ElectrumSV')
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(600, 600)
         self.setOption(QWizard.IndependentPages, False)
         self.setOption(QWizard.NoDefaultButton, True)
         # TODO: implement consistent help
