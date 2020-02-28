@@ -24,13 +24,14 @@
 # SOFTWARE.
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import (QLabel, QLineEdit, QSizePolicy, QSpacerItem, QGridLayout, QWidget,
+    QPlainTextEdit)
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 
 from .qrcodewidget import QRCodeWidget
-from .util import WWLabel
+from .util import ButtonsLineEdit, WWLabel
 
 
 class QR_Window(QWidget):
@@ -39,42 +40,43 @@ class QR_Window(QWidget):
         QWidget.__init__(self)
         self.win = win
         self.setWindowTitle('ElectrumSV - ' + _('Payment Request'))
-        self.setMinimumSize(800, 250)
         self.label = ''
         self.amount = 0
         self.setFocusPolicy(Qt.NoFocus)
 
-        main_box = QHBoxLayout()
+        layout = QGridLayout()
 
         self.qrw = QRCodeWidget()
-        main_box.addWidget(self.qrw, 1)
+        layout.addWidget(self.qrw, 0, 0, 1, 4, Qt.AlignHCenter)
 
-        vbox = QVBoxLayout()
-        main_box.addLayout(vbox)
-        main_box.addStretch(1)
+        self._address_label = QLabel(_("Destination") +":")
+        layout.addWidget(self._address_label, 1, 1, 1, 1, Qt.AlignRight)
+        self._address_edit = QPlainTextEdit()
+        self._address_edit.setReadOnly(True)
+        self._address_edit.setMinimumWidth(300)
+        layout.addWidget(self._address_edit, 1, 2, 1, 1, Qt.AlignLeft)
 
-        self.address_label = WWLabel()
-        self.address_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        vbox.addWidget(self.address_label)
+        self._message_label = QLabel(_("Message") +":")
+        layout.addWidget(self._message_label, 2, 1, 1, 1, Qt.AlignRight)
+        self._message_edit = QPlainTextEdit()
+        self._message_edit.setReadOnly(True)
+        self._message_edit.setMinimumWidth(300)
+        layout.addWidget(self._message_edit, 2, 2, 1, 1, Qt.AlignLeft)
 
-        self.msg_label = WWLabel()
-        self.msg_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        vbox.addWidget(self.msg_label)
+        self._amount_label = QLabel(_("Amount") +":")
+        layout.addWidget(self._amount_label, 3, 1, 1, 1, Qt.AlignRight)
+        self._amount_edit = QLineEdit()
+        self._message_edit.setReadOnly(True)
+        layout.addWidget(self._amount_edit, 3, 2, 1, 1, Qt.AlignLeft)
 
-        self.amount_label = WWLabel()
-        self.amount_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        vbox.addWidget(self.amount_label)
-
-        vbox.addStretch(1)
-        self.setLayout(main_box)
-
+        self.setLayout(layout)
 
     def set_content(self, address_text, amount, message, url):
-        self.address_label.setText(address_text)
+        self._address_edit.setPlainText(address_text)
         if amount:
             amount_text = '{} {}'.format(self.win.format_amount(amount), app_state.base_unit())
         else:
             amount_text = ''
-        self.amount_label.setText(amount_text)
-        self.msg_label.setText(message)
+        self._amount_edit.setText(amount_text)
+        self._message_edit.setPlainText(message)
         self.qrw.setData(url)
