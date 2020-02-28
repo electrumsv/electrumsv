@@ -2631,6 +2631,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if self.key_view:
             self.key_view.clean_up()
 
+        if self.transaction_view:
+            self.transaction_view.clean_up()
+
         for account in self._wallet.get_accounts():
             for keystore in account.get_keystores():
                 if isinstance(keystore, Hardware_KeyStore):
