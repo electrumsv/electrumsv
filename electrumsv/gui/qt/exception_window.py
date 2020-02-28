@@ -164,7 +164,7 @@ class Exception_Window(QDialog):
 
     def get_additional_info(self):
         account_type_names = []
-        for window in self.app.topLevelWindows():
+        for window in self.app.windows:
             if isinstance(window, ElectrumWindow):
                 account_type_names.extend(a.debug_name() for a in window._wallet.get_accounts())
         wallet_types = ','.join(account_type_names) if len(account_type_names) else "Unknown"
