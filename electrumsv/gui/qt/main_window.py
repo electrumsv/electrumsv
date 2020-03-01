@@ -1806,7 +1806,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         else:
             self.payment_request_error_signal.emit()
 
-    def pay_to_URI(self, URI):
+    def pay_to_URI(self, URI: str) -> None:
         if not URI:
             return
         try:
@@ -1822,6 +1822,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
 
         address = out.get('address')
+        bip276_text = out.get('bip276')
         amount = out.get('amount')
         label = out.get('label')
         message = out.get('message')
@@ -1830,6 +1831,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             message = label
         if address:
             self.payto_e.setText(address)
+        if bip276_text:
+            self.payto_e.setText(bip276_text, True)
         if message:
             self.message_e.setText(message)
         if amount:
