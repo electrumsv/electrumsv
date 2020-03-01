@@ -26,7 +26,6 @@
 
 import ast
 import base64
-from collections import namedtuple
 import copy
 import hashlib
 import json
@@ -76,7 +75,18 @@ def multisig_type(wallet_type) -> Optional[Tuple[int, int]]:
 
 FINAL_SEED_VERSION = 22
 
-WalletStorageInfo = namedtuple('WalletStorageInfo', ['kind', 'filename', 'wallet_filepath'])
+
+class WalletStorageInfo(NamedTuple):
+    kind: StorageKind
+    filename: str
+    wallet_filepath: str
+
+    def exists(self) -> bool:
+        if self.kind == StorageKind.FILE:
+            return os.path.exists(self.wallet_filepath)
+        elif self.kind != StorageKind.HYBRID:
+            return os.path.exists(self.wallet_filepath + DATABASE_EXT)
+        raise ValueError(f"Kind {self.kind} should not reach here")
 
 
 def get_categorised_files(wallet_path: str) -> List[WalletStorageInfo]:
@@ -1370,7 +1380,7 @@ class WalletStorage:
         return None
 
     @classmethod
-    def files_are_matched_by_path(klass, path: str) -> StorageKind:
+    def files_are_matched_by_path(klass, path: str) -> bool:
         return categorise_file(path).kind != StorageKind.UNKNOWN
 
     @classmethod

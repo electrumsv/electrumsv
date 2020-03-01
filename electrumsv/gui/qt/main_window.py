@@ -33,7 +33,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Iterable, List, Tuple, Optional
+from typing import Callable, Iterable, List, Tuple, Optional
 import weakref
 import webbrowser
 
@@ -60,11 +60,12 @@ from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.network import broadcast_failure_reason
 from electrumsv.networks import Net
+from electrumsv.storage import WalletStorage
 from electrumsv.transaction import (Transaction, txdict_from_str, tx_output_to_display_text,
     XTxOutput)
 from electrumsv.util import (
     format_time, format_satoshis, format_satoshis_plain, bh2u, format_fee_satoshis,
-    get_update_check_dates, get_identified_release_signers, profiler, get_wallet_name_from_path
+    get_update_check_dates, get_identified_release_signers, profiler, get_wallet_name_from_path,
 )
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import AbstractAccount, UTXO, Wallet
@@ -81,7 +82,8 @@ from .util import (
     WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton,
     WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
     CloseButton, CancelButton, text_dialog, filename_field,
-    update_fixed_tree_height, UntrustedMessageDialog, protected
+    update_fixed_tree_height, UntrustedMessageDialog, protected,
+    can_show_in_file_explorer, show_in_file_explorer,
 )
 from .wallet_api import WalletAPI
 
@@ -491,7 +493,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
         self.app.new_window(filename)
 
-    def backup_wallet(self):
+    def _backup_wallet(self):
         path = self._wallet.get_storage_path()
         wallet_folder = os.path.dirname(path)
         filename, __ = QFileDialog.getSaveFileName(
@@ -500,7 +502,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
 
         new_path = os.path.join(wallet_folder, filename)
-        if new_path != path:
+        new_path = WalletStorage.canonical_path(new_path)
+        if new_path.casefold() != path.casefold():
             try:
                 # Copy file contents
                 shutil.copyfile(path, new_path)
@@ -564,8 +567,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.recently_visited_menu = file_menu.addMenu(_("&Recently open"))
         file_menu.addAction(_("&Open"), self.open_wallet).setShortcut(QKeySequence.Open)
         file_menu.addAction(_("&New/Restore"), self.new_wallet).setShortcut(QKeySequence.New)
-        file_menu.addAction(_("&Save Copy"), self.backup_wallet).setShortcut(QKeySequence.SaveAs)
-        file_menu.addAction(_("Delete"), self.remove_wallet)
+        file_menu.addAction(_("&Save Copy"), self._backup_wallet).setShortcut(QKeySequence.SaveAs)
         file_menu.addSeparator()
         file_menu.addAction(_("&Quit"), self.close)
 
@@ -2088,39 +2090,66 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                else _('Password is disabled, this wallet is not protected'))
         self.show_message(msg, title=_("Success"))
 
-    def toggle_search(self):
+    def toggle_search(self) -> None:
         self._status_bar.search_box.setHidden(not self._status_bar.search_box.isHidden())
         if not self._status_bar.search_box.isHidden():
             self._status_bar.search_box.setFocus(1)
         else:
             self.do_search('')
 
-    def do_search(self, t):
+    def do_search(self, t: str) -> None:
         tab = self._tab_widget.currentWidget()
         if hasattr(tab, 'searchable_list'):
             tab.searchable_list.filter(t)
 
-    def show_wallet_information(self):
-        pass
+    def show_wallet_information(self) -> None:
+        def file_explorer_label(text: str, callback: Callable[[str], None]) -> QLabel:
+            label = QLabel()
+            if can_show_in_file_explorer():
+                label.setText(f"<a href='https://example.com'>{text}</a>")
+                label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+                label.linkActivated.connect(callback)
+            else:
+                label.setText(text)
+            return label
+        def open_file_explorer(path: str, _discard: str) -> None:
+            show_in_file_explorer(path)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(_("Wallet Information"))
+        dialog.setMinimumSize(500, 100)
+        vbox = QVBoxLayout()
+        wallet_filepath = self._wallet.get_storage_path()
+        wallet_dirpath = os.path.dirname(wallet_filepath)
+        wallet_name = os.path.basename(wallet_filepath)
+        name_label = file_explorer_label(wallet_name,
+            partial(open_file_explorer, wallet_filepath))
+        path_label = file_explorer_label(wallet_dirpath,
+            partial(open_file_explorer, wallet_dirpath))
 
-    def remove_wallet(self):
-        if self.question('\n'.join([
-                _('Delete wallet file?'),
-                "%s"%self._wallet.get_storage_path(),
-                _('If your wallet contains funds, make sure you have saved its seed.')])):
-            self._delete_wallet() # pylint: disable=no-value-for-parameter
+        grid = QGridLayout()
+        grid.addWidget(QLabel(_("File name")+ ':'), 0, 0, Qt.AlignRight)
+        grid.addWidget(name_label, 0, 1)
+        grid.addWidget(QLabel(_("Path")+ ':'), 1, 0, Qt.AlignRight)
+        grid.addWidget(path_label, 1, 1)
+        vbox.addLayout(grid)
+        vbox.addStretch(1)
+        vbox.addLayout(Buttons(CloseButton(dialog)))
+        dialog.setLayout(vbox)
+        dialog.exec_()
 
-    @protected
-    def _delete_wallet(self, password):
-        wallet_path = self._wallet.get_storage_path()
-        basename = self._wallet.name()
-        app_state.daemon.stop_wallet_at_path(wallet_path)
-        self.close()
-        os.unlink(wallet_path)
-        self.update_recently_visited(wallet_path) # this ensures it's deleted from the menu
-        self.show_error("Wallet removed:" + basename)
+    # TODO(rt12): This should be moved into the wallet wizard as a context menu option. Doing it
+    # on an open wallet makes no sense post-JSON "save on exit".
+    # @protected
+    # def _delete_wallet(self, password):
+    #     wallet_path = self._wallet.get_storage_path()
+    #     basename = self._wallet.name()
+    #     app_state.daemon.stop_wallet_at_path(wallet_path)
+    #     self.close()
+    #     os.unlink(wallet_path)
+    #     self.update_recently_visited(wallet_path) # this ensures it's deleted from the menu
+    #     self.show_error("Wallet removed:" + basename)
 
-    def show_qrcode(self, data, title = _("QR code"), parent=None):
+    def show_qrcode(self, data, title = _("QR code"), parent=None) -> None:
         if not data:
             return
         d = QRDialog(data, parent or self, title)

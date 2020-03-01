@@ -1,8 +1,10 @@
 import os.path
 from functools import partial, lru_cache
+import sys
 from typing import Any, Optional, TYPE_CHECKING
 
-from PyQt5.QtCore import pyqtSignal, Qt, QCoreApplication, QLocale, QTimer, QModelIndex
+from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QTimer,
+    QModelIndex)
 from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette
 from PyQt5.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHBoxLayout, QDialog, QVBoxLayout, QLineEdit, QGroupBox,
@@ -713,3 +715,24 @@ def get_source_index(model_index: QModelIndex, klass: Any):
 def get_default_language():
     name = QLocale.system().name()
     return name if name in languages else 'en_UK'
+
+def can_show_in_file_explorer() -> bool:
+    return sys.platform in ('win32', 'darwin')
+
+def show_in_file_explorer(path: str) -> bool:
+    # https://stackoverflow.com/a/46019091/11881963
+    if sys.platform == 'win32':
+        args = []
+        if not os.path.isdir(path):
+            args.append('/select,')
+        args.append(QDir.toNativeSeparators(path))
+        QProcess.startDetached('explorer', args)
+    elif sys.platform == 'darwin':
+        args = [
+            '-e', 'tell application "Finder"',
+            '-e', 'activate',
+            '-e', 'select POSIX file "%s"' % path,
+            '-e', 'end tell',
+            '-e', 'return',
+        ]
+        QProcess.execute('/usr/bin/osascript', args)
