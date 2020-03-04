@@ -38,7 +38,7 @@ import certifi
 from aiorpcx import (
     connect_rs, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
     TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
-    SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth, NewlineFramer
+    SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth, NewlineFramer, Concurrency
 )
 from bitcoinx import (
     MissingHeader, IncorrectBits, InsufficientPoW, hex_str_to_hash, hash_to_hex_str,
@@ -48,6 +48,10 @@ from bitcoinx import (
 from .app_state import app_state
 from .bitcoin import scripthash_hex
 from .constants import TxFlags, MAX_INCOMING_ELECTRUMX_MESSAGE_SIZE
+from .env import (
+    AIORPCX_SOFT_LIMIT, AIORPCX_COST_SOFT_LIMIT, AIORPCX_COST_SLEEP, AIORPCX_INITIAL_CONCURRENT,
+    AIORPCX_TARGET_RESPONSE_TIME, AIORPCX_RECALIBRATE_COUNT, AIORPCX_OUTGOING_CONCURRENT
+)
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
@@ -352,6 +356,32 @@ class SVSession(RPCSession):
         self.server = server
         self.tip = None
         self.ptuple = (0, )
+        self._adjust_throttling()
+
+    def _adjust_throttling(self):
+        """monkeypatch aiorpcX if any of these environment variables are specified (for those
+        with access to an unthrottled ElectrumX server)"""
+        soft_limit = os.environ.get(AIORPCX_SOFT_LIMIT)
+        cost_soft_limit = os.environ.get(AIORPCX_COST_SOFT_LIMIT)
+        cost_sleep = os.environ.get(AIORPCX_COST_SLEEP)
+        initial_concurrent = os.environ.get(AIORPCX_INITIAL_CONCURRENT)
+        target_response_time = os.environ.get(AIORPCX_TARGET_RESPONSE_TIME)
+        recalibrate_count = os.environ.get(AIORPCX_RECALIBRATE_COUNT)
+        _outgoing_concurrency = os.environ.get(AIORPCX_OUTGOING_CONCURRENT)
+        if soft_limit:
+            self.cost_soft_limit = soft_limit
+        if cost_soft_limit:
+            self.cost_soft_limit = cost_soft_limit
+        if cost_sleep:
+            self.cost_sleep = cost_sleep
+        if initial_concurrent:
+            self.initial_concurrent = initial_concurrent
+        if target_response_time:
+            self.target_response_time = target_response_time
+        if recalibrate_count:
+            self.recalibrate_count = recalibrate_count
+        if _outgoing_concurrency:
+            self._outgoing_concurrency = Concurrency(_outgoing_concurrency)
 
     def default_framer(self) -> NewlineFramer:
         return NewlineFramer(max_size=MAX_INCOMING_ELECTRUMX_MESSAGE_SIZE)

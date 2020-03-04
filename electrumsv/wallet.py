@@ -54,6 +54,7 @@ from .constants import (CHANGE_SUBPATH, DerivationType, KeyInstanceFlag, Keystor
     RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, PaymentState)
 from .contacts import Contacts
 from .crypto import pw_encode, pw_decode
+from .env import GAP_LIMIT_RECEIVING, GAP_LIMIT_CHANGE
 from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, UnknownTransactionException,
     WalletLoadError)
 from .i18n import _
@@ -1673,6 +1674,15 @@ class DeterministicAccount(AbstractAccount):
             keyinstance_rows: List[KeyInstanceRow],
             output_rows: List[TransactionOutputRow]) -> None:
         AbstractAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
+        self.gap_limit_receiving = 20
+        self.gap_limit_change = 20
+        self.adjust_gap_limit(os.environ.get(GAP_LIMIT_RECEIVING), os.environ.get(GAP_LIMIT_CHANGE))
+
+    def adjust_gap_limit(self, gap_limit_receiving=None, gap_limit_change=None):
+        if gap_limit_receiving:
+            self.gap_limit_receiving = gap_limit_receiving
+        if gap_limit_change:
+            self.gap_limit_change = gap_limit_change
 
     def has_seed(self) -> bool:
         return self.get_keystore().has_seed()
@@ -1746,10 +1756,8 @@ class DeterministicAccount(AbstractAccount):
 
     async def _synchronize_wallet(self) -> None:
         '''Class-specific synchronization (generation of missing addresses).'''
-        # TODO(rt12) BACKLOG This should have a per path gap limit configurable somewhere,
-        # perhaps the account settings.
-        await self._synchronize_chain(RECEIVING_SUBPATH, 20)
-        await self._synchronize_chain(CHANGE_SUBPATH, 20)
+        await self._synchronize_chain(RECEIVING_SUBPATH, self.gap_limit_receiving)
+        await self._synchronize_chain(CHANGE_SUBPATH, self.gap_limit_change)
 
     def get_master_public_keys(self) -> List[str]:
         return [self.get_master_public_key()]
