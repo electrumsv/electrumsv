@@ -1,6 +1,7 @@
 import queue
 import sqlite3
 import threading
+import time
 import traceback
 from typing import Optional, List, Tuple, Callable, Any
 
@@ -55,6 +56,7 @@ class WriteDisabledError(Exception):
 WriteCallbackType = Callable[[sqlite3.Connection], None]
 CompletionCallbackType = Callable[[bool], None]
 WriteEntryType = Tuple[WriteCallbackType, Optional[CompletionCallbackType]]
+
 
 class SqliteWriteDispatcher:
     """
@@ -115,6 +117,7 @@ class SqliteWriteDispatcher:
                 write_entries.append(self._writer_queue.get_nowait())
 
             # Using the connection as a context manager, apply the batch as a transaction.
+            time_start = time.time()
             completion_callbacks: List[Tuple[CompletionCallbackType, bool]] = []
             try:
                 with self._db:
@@ -142,7 +145,9 @@ class SqliteWriteDispatcher:
                     completion_callbacks.append((write_entries[0][1], e))
             else:
                 if len(write_entries) > 1:
-                    self._logger.debug("Invoked %d write callbacks", len(write_entries))
+                    time_ms = int((time.time() - time_start) * 1000)
+                    self._logger.debug("Invoked %d write callbacks in %d ms",
+                        len(write_entries), time_ms)
 
             for completion_callback in completion_callbacks:
                 self._callback_queue.put_nowait(completion_callback)
@@ -211,7 +216,8 @@ class DatabaseContext:
         debug_text = traceback.format_stack()
         connection = sqlite3.connect(self._db_path, check_same_thread=False,
             isolation_level=None)
-        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA foreign_keys=ON;")
+        # connection.execute("PRAGMA journal_mode=WAL;")
         # self._debug_texts[connection] = debug_text
         self._connections.append(connection)
         return connection
