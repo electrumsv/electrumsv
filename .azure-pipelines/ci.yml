@@ -254,6 +254,11 @@ jobs:
     name: TestPythonPackages37
     vmImage: 'ubuntu-16.04'
     pythonVersion: '3.7'
+- template: jobs-run-python-tests.yml
+  parameters:
+    name: TestPythonPackages38
+    vmImage: 'ubuntu-16.04'
+    pythonVersion: '3.8'
 
   # This requires an extra github access token added. It's a lot of hassle and it's likely better
   # to just use the API and do it externally and manually.
