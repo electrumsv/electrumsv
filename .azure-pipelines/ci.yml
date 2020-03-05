@@ -185,7 +185,7 @@ jobs:
       architecture: x64
   - script: |
       # Calin's QR reader requires SDK 10.14, which is not available in the default Xcode version.
-      /bin/bash -c "sudo xcode-select -s /Applications/Xcode_10.1.app/Contents/Developer"
+      /bin/bash -c "sudo xcode-select -s /Applications/Xcode_10.3.app/Contents/Developer"
       sudo pip3 install --upgrade pip setuptools wheel
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx

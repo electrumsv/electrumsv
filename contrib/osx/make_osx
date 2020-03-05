@@ -10,7 +10,7 @@ cd $build_dir/../..
 export PYTHONHASHSEED=22
 
 # Paramterize
-PYTHON_VERSION=3.6.4
+PYTHON_VERSION=3.6.10
 BUILDDIR=/tmp/electrum-sv-build
 PACKAGE=ElectrumSV
 GIT_REPO_ACCT=https://github.com/electrumsv
@@ -39,7 +39,6 @@ else
     warn "Code signing DISABLED. Specify a valid macOS Developer identity installed on the system as the first argument to this script to enable signing."
 fi
 
-
 info "Installing Python $PYTHON_VERSION"
 export PATH="~/.pyenv/bin:~/.pyenv/shims:$PATH"
 if [ -d "~/.pyenv" ]; then
@@ -47,6 +46,8 @@ if [ -d "~/.pyenv" ]; then
 else
   curl -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash > /dev/null 2>&1
 fi
+# https://github.com/pyenv/pyenv/issues/1066#issuecomment-536700708
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX10.14.sdk MACOSX_DEPLOYMENT_TARGET=10.14 \
 PYTHON_CONFIGURE_OPTS="--enable-framework" pyenv install -s $PYTHON_VERSION && \
 pyenv global $PYTHON_VERSION || \
 fail "Unable to use Python $PYTHON_VERSION"
