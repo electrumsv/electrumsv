@@ -24,14 +24,13 @@
 # SOFTWARE.
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (QLabel, QLineEdit, QSizePolicy, QSpacerItem, QGridLayout, QWidget,
+from PyQt5.QtWidgets import (QLabel, QLineEdit, QGridLayout, QWidget,
     QPlainTextEdit)
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 
 from .qrcodewidget import QRCodeWidget
-from .util import ButtonsLineEdit, WWLabel
 
 
 class QR_Window(QWidget):

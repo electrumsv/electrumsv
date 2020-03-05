@@ -66,6 +66,7 @@ class PayToEdit(ScanQRTextEdit):
         self.errors = []
         self.is_pr = False
         self.is_alias = False
+        self._ignore_uris = False
         self.scan_f = main_window.pay_to_URI
         self.update_size()
         self.payto_script: Optional[Script] = None
@@ -142,6 +143,15 @@ class PayToEdit(ScanQRTextEdit):
         p = pow(10, self.amount_edit.decimal_point())
         return int(p * Decimal(x.strip()))
 
+    def setPlainText(self, text: str, ignore_uris: bool=False) -> None:
+        # We override this so that there's no infinite loop where pay_to_URI calls this then
+        # the BIP276 URI is detected as a URI and we feed it back to pay_to_URI via scan_f.
+        self._ignore_uris = ignore_uris
+        try:
+            super().setPlainText(text)
+        finally:
+            self._ignore_uris = False
+
     def _on_text_changed(self):
         self.errors = []
         if self.is_pr:
@@ -153,7 +163,7 @@ class PayToEdit(ScanQRTextEdit):
         self.payto_script = None
         if len(lines) == 1:
             data = lines[0]
-            if is_URI(data):
+            if not self._ignore_uris and is_URI(data):
                 self.scan_f(data)
                 return
             try:

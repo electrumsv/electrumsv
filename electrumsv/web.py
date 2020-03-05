@@ -27,12 +27,13 @@ import random
 import re
 import shutil
 import threading
-from typing import Optional
+from typing import Any, Dict, Optional
 import urllib
 import urllib.parse
 
 from bitcoinx import Address
 
+from .bip276 import PREFIX_SCRIPT, bip276_decode, NetworkMismatchError, ChecksumMismatchError
 from .bitcoin import COIN, is_address_valid
 from .i18n import _
 from .logs import logs
@@ -72,15 +73,23 @@ def BE_sorted_list():
     return sorted(Net.BLOCK_EXPLORERS)
 
 
-def create_URI(dest, amount, message):
-    query = ['sv']
+def create_URI(dest: str, amount: int, message: str) -> str:
+    scheme = Net.URI_PREFIX
+    query_parts = ['sv']
+    scheme_idx = dest.find(":")
+    if scheme_idx != -1:
+        scheme = dest[:scheme_idx]
+        dest = dest[scheme_idx+1:]
+        query_parts = []
     if amount:
-        query.append('amount=%s'%format_satoshis_plain(amount))
+        query_parts.append('amount=%s'%format_satoshis_plain(amount))
     if message:
-        query.append('message=%s'%urllib.parse.quote(message))
-    p = urllib.parse.ParseResult(scheme=Net.URI_PREFIX,
-                                 netloc='', path=dest,
-                                 params='', query='&'.join(query), fragment='')
+        query_parts.append('message=%s'%urllib.parse.quote(message))
+    query_string = ""
+    if len(query_parts):
+        query_string = '&'.join(query_parts)
+    p = urllib.parse.ParseResult(scheme=scheme, netloc='', path=dest,
+        params='', query=query_string, fragment='')
     return urllib.parse.urlunparse(p)
 
 
@@ -88,14 +97,19 @@ def is_URI(text):
     '''Returns true if the text looks like a URI.  It is not validated, and is not checked to
     be a Bitcoin SV URI.
     '''
-    return text.lower().startswith(Net.URI_PREFIX + ':')
+    scheme_idx = text.find(":")
+    if scheme_idx > -1:
+        scheme = text[:scheme_idx].lower()
+        if scheme == Net.URI_PREFIX or scheme == PREFIX_SCRIPT:
+            return True
+    return False
 
 
 class URIError(Exception):
     pass
 
 
-def parse_URI(uri, on_pr=None):
+def parse_URI(uri: str, on_pr=None):
     if is_address_valid(uri):
         return {'address': uri}
 
@@ -103,24 +117,34 @@ def parse_URI(uri, on_pr=None):
 
     # The scheme always comes back in lower case
     pq = urllib.parse.parse_qs(u.query, keep_blank_values=True)
-    if u.scheme != Net.URI_PREFIX or 'sv' not in pq:
+    if not (u.scheme == Net.URI_PREFIX and 'sv' in pq or u.scheme == PREFIX_SCRIPT):
         raise URIError(_('invalid BitcoinSV URI: {}').format(uri))
 
     for k, v in pq.items():
         if len(v) != 1:
             raise URIError(_('duplicate query key {0} in BitcoinSV URI {1}').format(k, uri))
 
-    out = {k: v[0] for k, v in pq.items()}
+    out: Dict[str, Any] = {k: v[0] for k, v in pq.items()}
 
-    if is_address_valid(u.path):
+    if u.scheme == Net.URI_PREFIX and is_address_valid(u.path):
         out['address'] = u.path
+    elif u.scheme == PREFIX_SCRIPT:
+        try:
+            _prefix, _version, _data_network, bip276_data = bip276_decode(u.scheme +":"+ u.path,
+                Net.BIP276_VERSION)
+            out['script'] = bip276_data
+            out['bip276'] = f"{u.scheme}:{u.path}"
+        except NetworkMismatchError:
+            pass
+        except ChecksumMismatchError:
+            pass
 
     if 'amount' in out:
         am = out['amount']
         m = re.match(r'([0-9\.]+)X([0-9])', am)
         if m:
-            k = int(m.group(2)) - 8
-            amount = Decimal(m.group(1)) * pow(10, k)
+            ak = int(m.group(2)) - 8
+            amount = Decimal(m.group(1)) * pow(10, ak)
         else:
             amount = Decimal(am) * COIN
         out['amount'] = int(amount)

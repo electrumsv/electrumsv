@@ -74,6 +74,7 @@ class PasswordState(enum.IntEnum):
 
 
 class WalletWizard(QWizard):
+    _handle_initial_wallet: bool = False
     _last_page_id = WalletPage.NONE
     _wallet_type = StorageKind.UNKNOWN
     _wallet_action = WalletAction.NONE
@@ -85,7 +86,8 @@ class WalletWizard(QWizard):
     def __init__(self, initial_path: str, is_startup=False):
         super().__init__(None)
 
-        self._auto_open_wallet = initial_path and not is_startup
+        self._handle_initial_wallet = initial_path and not is_startup
+
         self._initial_path = initial_path
         self._recently_opened_entries = None
 
@@ -143,11 +145,11 @@ class WalletWizard(QWizard):
     def get_initial_path(self) -> str:
         return self._initial_path
 
-    def should_auto_open_wallet(self) -> bool:
-        return self._auto_open_wallet
+    def should_handle_initial_wallet(self) -> bool:
+        return self._handle_initial_wallet
 
-    def clear_auto_open_wallet(self) -> None:
-        self._auto_open_wallet = False
+    def clear_handle_initial_wallet(self) -> None:
+        self._handle_initial_wallet = False
 
     def set_wallet_action(self, action: WalletAction) -> None:
         self._wallet_action = action
@@ -297,7 +299,7 @@ class ChooseWalletPage(QWizardPage):
         self._wallet_table.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._wallet_table.doubleClicked.connect(self._on_entry_doubleclicked)
 
-        if not parent.should_auto_open_wallet():
+        if not parent.should_handle_initial_wallet():
             self._populate_list()
 
         vlayout.addWidget(self._wallet_table)
@@ -504,10 +506,16 @@ class ChooseWalletPage(QWizardPage):
         button.setText("  "+ _("Create &New Wallet") +"  ")
         button.clicked.connect(self._on_new_wallet_clicked)
 
-        if wizard.should_auto_open_wallet():
-            wizard.clear_auto_open_wallet()
-            if self._attempt_open_wallet(wizard._initial_path, change_page=True):
-                # Avoid the slow list population.
+        if wizard.should_handle_initial_wallet():
+            initial_path = wizard.get_initial_path()
+            info = categorise_file(initial_path)
+            if info.exists():
+                wizard.clear_handle_initial_wallet()
+                if self._attempt_open_wallet(wizard._initial_path, change_page=True):
+                    # Avoid the slow list population.
+                    return
+            else:
+                self._on_new_wallet_clicked()
                 return
 
         self._populate_list()
@@ -936,3 +944,9 @@ class CreateNewWalletPage(QWizardPage):
         else:
             self._error_label.setStyleSheet("")
 
+    def on_enter(self) -> None:
+        # Automate populating the initial path.
+        wizard: WalletWizard = self.wizard()
+        if wizard.should_handle_initial_wallet():
+            wizard.clear_handle_initial_wallet()
+            self._filename_edit.setText(wizard.get_initial_path())

@@ -185,6 +185,7 @@ class AbstractAccount:
     """
 
     _default_keystore: KeyStore = None
+    _stopped: bool = False
 
     max_change_outputs = 10
 
@@ -719,9 +720,13 @@ class AbstractAccount:
         secret, compressed = keystore.get_private_key(derivation_path, password)
         return PrivateKey(secret).to_WIF(compressed=compressed, coin=Net.COIN)
 
+    # Called by network.
     def add_verified_tx(self, tx_hash: bytes, height: int, timestamp: int, position: int,
             proof_position: int, proof_branch: Sequence[bytes]) -> None:
         tx_id = hash_to_hex_str(tx_hash)
+        if self._stopped:
+            self._logger.debug("add_verified_tx on stopped wallet: %s", tx_id)
+            return
         entry = self._wallet._transaction_cache.get_entry(tx_hash, TxFlags.StateCleared) # HasHeight
 
         # Ensure we are not verifying transactions multiple times.
@@ -752,7 +757,11 @@ class AbstractAccount:
             tx_hash, height, conf, timestamp)
 
     def undo_verifications(self, above_height):
-        '''Used by the verifier when a reorg has happened'''
+        '''Called by network when a reorg has happened'''
+        if self._stopped:
+            self._logger.debug("undo_verifications on stopped wallet: %d", above_height)
+            return
+
         with self.lock:
             reorg_count = self._wallet._transaction_cache.apply_reorg(above_height)
             self._logger.info(f'removing verification of {reorg_count} transactions')
@@ -854,7 +863,13 @@ class AbstractAccount:
                     u += o.value
             return c, u, x
 
+    # Also called by network.
     def add_transaction(self, tx_hash: bytes, tx: Transaction, flag: TxFlags) -> None:
+        if self._stopped:
+            tx_id = hash_to_hex_str(tx_hash)
+            self._logger.debug("add_transaction on stopped wallet: %s", tx_id)
+            return
+
         def _completion_callback(exc_value: Any) -> None:
             if exc_value is not None:
                 raise exc_value # pylint: disable=raising-bad-type
@@ -1088,8 +1103,13 @@ class AbstractAccount:
             relevant_outputs.append((index, tx.outputs[index]))
         return relevant_outputs
 
+    # Called by network.
     async def set_key_history(self, keyinstance_id: int, script_type: ScriptType,
             hist: List[Tuple[str, int]], tx_fees: Dict[str, int]) -> None:
+        if self._stopped:
+            self._logger.debug("set_key_history on stopped wallet: %s", keyinstance_id)
+            return
+
         with self.lock:
             self._logger.debug("set_key_history %s %s", keyinstance_id, tx_fees)
             key = self._keyinstances[keyinstance_id]
@@ -1318,7 +1338,10 @@ class AbstractAccount:
             network.add_account(self)
 
     def stop(self) -> None:
-        self._logger.debug(f'stopping account {self}')
+        assert not self._stopped
+        self._stopped = True
+
+        self._logger.debug(f'stopping account %s', self)
         if self._network:
             self._network.remove_account(self)
             self._network = None
