@@ -1,16 +1,12 @@
-import json
 import os
 import pytest
 import shutil
-import tempfile
-import zlib
 
-from bitcoinx import PrivateKey
 from unittest.mock import patch
 
 from electrumsv.constants import DATABASE_EXT, StorageKind
 from electrumsv.storage import (backup_wallet_files, categorise_file, get_categorised_files,
-    AbstractStore, DatabaseStore, TextStore, WalletStorageInfo, IncompatibleWalletError, WalletStorage)
+    DatabaseStore, TextStore, WalletStorageInfo, IncompatibleWalletError, WalletStorage)
 
 from .util import TEST_WALLET_PATH
 
@@ -54,9 +50,7 @@ def test_get_categorised_files(mock_listdir, pathlist, results) -> None:
 
 @pytest.mark.parametrize("kind",
     (StorageKind.FILE, StorageKind.HYBRID, StorageKind.DATABASE))
-def test_backup_wallet_json_file(kind) -> None:
-    temp_path = tempfile.mkdtemp()
-
+def test_backup_wallet_json_file(tmp_path, kind) -> None:
     filename = "18_mainnet_hardware_trezormodelt"
 
     # A wallet is identified by a primary file, which is the json file if it is present,
@@ -74,37 +68,37 @@ def test_backup_wallet_json_file(kind) -> None:
 
     for i in range(len(filenames)):
         source_wallet_filepath = os.path.join(TEST_WALLET_PATH, filenames[i] + extensions[i])
-        dest_wallet_filepath = os.path.join(temp_path, filenames[i] + extensions[i])
+        dest_wallet_filepath = os.path.join(tmp_path, filenames[i] + extensions[i])
         shutil.copyfile(source_wallet_filepath, dest_wallet_filepath)
 
-    wallet_filepath = os.path.join(temp_path, filenames[0] + extensions[0])
+    wallet_filepath = os.path.join(tmp_path, filenames[0] + extensions[0])
 
     # Test that a first backup attempt uses the appropriate file name.
     assert backup_wallet_files(wallet_filepath)
-    assert len(os.listdir(temp_path)) == len(filenames) * 2
+    assert len(os.listdir(tmp_path)) == len(filenames) * 2
     for i in range(len(filenames)):
-        check_filepath = os.path.join(temp_path, filenames[i])
+        check_filepath = os.path.join(tmp_path, filenames[i])
         assert os.path.exists(check_filepath +".backup.1"+ extensions[i])
 
     # Test that a second backup attempt uses the appropriate sequential file name.
     assert backup_wallet_files(wallet_filepath)
-    assert len(os.listdir(temp_path)) == len(filenames) * 3
+    assert len(os.listdir(tmp_path)) == len(filenames) * 3
     for i in range(len(filenames)):
-        check_filepath = os.path.join(temp_path, filenames[i])
+        check_filepath = os.path.join(tmp_path, filenames[i])
         assert os.path.exists(check_filepath +".backup.2"+ extensions[i])
 
-    wallet_filepath = os.path.join(temp_path, f"{filenames[0]}.backup.1{extensions[0]}")
+    wallet_filepath = os.path.join(tmp_path, f"{filenames[0]}.backup.1{extensions[0]}")
 
     # Test that all kinds work with backing up a backup.
     assert backup_wallet_files(wallet_filepath)
-    assert len(os.listdir(temp_path)) == len(filenames) * 4
+    assert len(os.listdir(tmp_path)) == len(filenames) * 4
     for i in range(len(filenames)):
-        check_filepath = os.path.join(temp_path, filenames[i] +".backup.1")
+        check_filepath = os.path.join(tmp_path, filenames[i] +".backup.1")
         assert os.path.exists(check_filepath +".backup.1"+ extensions[i])
 
 
-def test_textstore_read_raw_data() -> None:
-    wallet_path = tempfile.mktemp()
+def test_textstore_read_raw_data(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "wallet")
     store = TextStore(wallet_path)
     try:
         # No write operation has been done yet on the store.
@@ -118,16 +112,16 @@ def test_textstore_read_raw_data() -> None:
     finally:
         store.close()
 
-def test_textstore_load_data_valid() -> None:
-    wallet_path = tempfile.mktemp()
+def test_textstore_load_data_valid(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "wallet")
     store = TextStore(wallet_path)
     try:
         store.load_data(b"{}")
     finally:
         store.close()
 
-def test_store_load_data_invalid() -> None:
-    wallet_path = tempfile.mktemp()
+def test_store_load_data_invalid(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "wallet")
     store = TextStore(wallet_path)
     try:
         with pytest.raises(OSError):
@@ -135,8 +129,8 @@ def test_store_load_data_invalid() -> None:
     finally:
         store.close()
 
-def test_store__write() -> None:
-    wallet_path = tempfile.mktemp()
+def test_store__write(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "wallet")
     store = TextStore(wallet_path)
     try:
         assert not store.is_primed()
@@ -167,8 +161,8 @@ def test_store__write() -> None:
     { "seed_version": DatabaseStore.INITIAL_MIGRATION-1 },
     { "seed_version": DatabaseStore.INITIAL_MIGRATION+1 })
 )
-def test_database_store_from_text_store_initial_version(data) -> None:
-    wallet_path = tempfile.mktemp()
+def test_database_store_from_text_store_initial_version(tmp_path, data) -> None:
+    wallet_path = os.path.join(tmp_path, "database")
     text_store = TextStore(wallet_path, data=data)
     try:
         # Verify that the seed version is rejected (the assertion is hit).
@@ -185,8 +179,8 @@ def _check_database_store_version_init_set(db_store, version) -> None:
     # Verify that the seed version is really present independently.
     assert db_store.get("migration") == version
 
-def test_database_store_from_text_store_version_init_set() -> None:
-    wallet_path = tempfile.mktemp()
+def test_database_store_from_text_store_version_init_set(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "database")
     try:
         text_store = TextStore(wallet_path,
             data={ "seed_version": DatabaseStore.INITIAL_MIGRATION })
@@ -197,24 +191,24 @@ def test_database_store_from_text_store_version_init_set() -> None:
         db_store.close()
         text_store.close()
 
-def test_database_store_version_init_set() -> None:
-    wallet_path = tempfile.mktemp()
+def test_database_store_version_init_set(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "database")
     db_store = DatabaseStore(wallet_path)
     try:
         _check_database_store_version_init_set(db_store, DatabaseStore.CURRENT_MIGRATION)
     finally:
         db_store.close()
 
-def test_database_store_requires_split() -> None:
-    wallet_path = tempfile.mktemp()
+def test_database_store_requires_split(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "database")
     db_store = DatabaseStore(wallet_path)
     try:
         assert not db_store.requires_split()
     finally:
         db_store.close()
 
-def test_database_store_new_never_requires_upgrade() -> None:
-    wallet_path = tempfile.mktemp()
+def test_database_store_new_never_requires_upgrade(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "database")
     db_store = DatabaseStore(wallet_path)
     try:
         # At this time this is not linked to anything as database storage upgrades internally.
@@ -223,8 +217,8 @@ def test_database_store_new_never_requires_upgrade() -> None:
     finally:
         db_store.close()
 
-def test_database_store_version_requires_upgrade() -> None:
-    wallet_path = tempfile.mktemp()
+def test_database_store_version_requires_upgrade(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "database")
     db_store = DatabaseStore(wallet_path)
     try:
         db_store.put("migration", DatabaseStore.INITIAL_MIGRATION - 1)
@@ -236,8 +230,8 @@ def test_database_store_version_requires_upgrade() -> None:
 # Test the nuances of AbstractStore._modified, whether it gets correctly initialised in the different
 # scenarios.
 @pytest.mark.parametrize("store_class", (TextStore,))
-def test_store_modified_file_nonexistent(store_class):
-    wallet_path = tempfile.mktemp()
+def test_store_modified_file_nonexistent(tmp_path, store_class):
+    wallet_path = os.path.join(tmp_path, "database")
     store = store_class(wallet_path)
     try:
         assert store._modified is False
@@ -247,8 +241,8 @@ def test_store_modified_file_nonexistent(store_class):
 # Test the nuances of AbstractStore._modified, whether it gets correctly initialised in the different
 # scenarios.
 @pytest.mark.parametrize("store_class", (TextStore,))
-def test_store_modified_file_nonexistent_with_data(store_class):
-    wallet_path = tempfile.mktemp()
+def test_store_modified_file_nonexistent_with_data(tmp_path, store_class):
+    wallet_path = os.path.join(tmp_path, "database")
     store = store_class(wallet_path, data={"a": 1})
     try:
         assert store._modified is True
@@ -256,8 +250,8 @@ def test_store_modified_file_nonexistent_with_data(store_class):
         store.close()
 
 
-def test_text_store__write_version_incompatible() -> None:
-    wallet_path = tempfile.mktemp()
+def test_text_store__write_version_incompatible(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "database")
     store = TextStore(wallet_path)
     try:
         store.put("seed_version", TextStore.FINAL_SEED_VERSION+1)
@@ -266,8 +260,8 @@ def test_text_store__write_version_incompatible() -> None:
     finally:
         store.close()
 
-def test_text_store__raise_unsupported_version() -> None:
-    wallet_path = tempfile.mktemp()
+def test_text_store__raise_unsupported_version(tmp_path) -> None:
+    wallet_path = os.path.join(tmp_path, "database")
     store = TextStore(wallet_path)
     try:
         with pytest.raises(Exception) as e:
@@ -287,16 +281,14 @@ def test_text_store__raise_unsupported_version() -> None:
         store.close()
 
 
-def test_wallet_storage_json_path_nonexistent_errors() -> None:
-    base_storage_path = tempfile.mkdtemp()
-    nonexistent_storage_path = os.path.join(base_storage_path, "nonexistent", "walletfile")
+def test_wallet_storage_json_path_nonexistent_errors(tmp_path) -> None:
+    nonexistent_storage_path = os.path.join(tmp_path, "nonexistent", "walletfile")
 
     with pytest.raises(OSError):
         storage = WalletStorage(nonexistent_storage_path)
 
-def test_wallet_storage_database_nonexistent_creates() -> None:
-    base_storage_path = tempfile.mkdtemp()
-    wallet_filepath = os.path.join(base_storage_path, "walletfile")
+def test_wallet_storage_database_nonexistent_creates(tmp_path) -> None:
+    wallet_filepath = os.path.join(tmp_path, "walletfile")
     storage = WalletStorage(wallet_filepath)
     try:
         assert type(storage._store) is DatabaseStore
