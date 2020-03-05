@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 import tempfile
 from typing import Dict, Optional, List, Set
 import unittest
@@ -418,11 +419,19 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
 
     try:
         wallet = Wallet(storage)
+    except FileNotFoundError as e:
+        if sys.version_info[:3] >= (3, 8, 0):
+            msg = "Could not find module 'libusb-1.0.dll' (or one of its dependencies)."
+            if msg in e.args[0]:
+                pytest.xfail("libusb DLL could not be found")
+                return
+        raise e
     except OSError as e:
-        if "is not a valid Win32 application" not in e.args[1]:
-            raise e
-        pytest.xfail("Missing libusb for this architecture")
-        return
+        if sys.version_info[:3] < (3, 8, 0):
+            if "The specified module could not be found" in e.args[1]:
+                pytest.xfail("libusb DLL could not be found")
+                return
+        raise e
 
     old_password = password
     password = "654321"

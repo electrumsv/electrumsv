@@ -1,12 +1,22 @@
 import logging
-import unittest
+import os
+import sys
 import threading
+import unittest
 
 from electrumsv.networks import Net, SVTestnet, SVMainnet
 
 
 logging.disable(logging.CRITICAL)
 
+
+def setup_module(module):
+    # In Python 3.8 on Windows, the DLL search paths have been constrained for security.
+    if sys.version_info[:3] >= (3, 8, 0) and sys.platform == "win32":
+        cwd = os.getcwd()
+        libusbdll_path = os.path.join(cwd, "libusb-1.0.dll")
+        if os.path.exists(libusbdll_path):
+            os.add_dll_directory(cwd)
 
 # Set this locally to make the test suite run faster.
 # If set, unit tests that would normally test functions with multiple implementations,
