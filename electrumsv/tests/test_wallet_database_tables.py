@@ -85,7 +85,7 @@ def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
     date_updated = 20
 
     with SynchronousWriter() as writer:
-        table.update_derivation_data([ (b'234', 1)],
+        table.update_derivation_data([ (b'234', 1) ],
             date_updated,
             completion_callback=writer.get_callback())
         assert writer.succeeded()
@@ -96,7 +96,8 @@ def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
 
     lines = table.read()
     assert 1 == len(lines)
-    assert lines[0][0] == 1
+    assert lines[0].masterkey_id == 1
+    assert lines[0].derivation_data == b'234'
 
 
 @pytest.mark.timeout(8)
@@ -275,6 +276,7 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
     assert 1 == len(db_lines)
     assert db_lines[0].keyinstance_id == line1.keyinstance_id
     assert db_lines[0].description is None
+    assert db_lines[0].derivation_data == b'234'
 
     # Now try out the labels.
     with SynchronousWriter() as writer:

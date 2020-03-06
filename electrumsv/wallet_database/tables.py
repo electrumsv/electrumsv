@@ -338,23 +338,22 @@ class TransactionTable(BaseWalletStore):
     def create(self, entries: List[TransactionRow],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         datas = []
+        size_hint = 0
         for tx_hash, metadata, bytedata, flags, description in entries:
             assert type(tx_hash) is bytes
             flags &= ~TxFlags.HasByteData
             if bytedata is not None:
                 flags |= TxFlags.HasByteData
+                size_hint += len(bytedata)
             flags = self._apply_flags(metadata, flags)
             assert metadata.date_added is not None and metadata.date_updated is not None
             datas.append((tx_hash, bytedata, flags, metadata.height, metadata.position,
                 metadata.fee, description, metadata.date_added, metadata.date_updated))
 
         def _write(db: sqlite3.Connection) -> None:
-            if len(entries) < 20:
-                self._logger.debug("add %d transactions", len(entries))
-            else:
-                self._logger.debug("add %d transactions (too many to show)", len(entries))
+            self._logger.debug("add %d transactions", len(datas))
             db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
+        self._db_context.queue_write(_write, completion_callback, size_hint)
 
     def read(self, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_hashes: Optional[Iterable[bytes]]=None) -> List[Tuple[Optional[bytes],
@@ -383,11 +382,13 @@ class TransactionTable(BaseWalletStore):
     def update(self, entries: List[Tuple[bytes, TxData, bytes, int]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         datas = []
+        size_hint = 0
         for tx_hash, metadata, bytedata, flags in entries:
             assert type(tx_hash) is bytes
             flags &= ~TxFlags.HasByteData
             if bytedata is not None:
                 flags |= TxFlags.HasByteData
+                size_hint += len(bytedata)
             flags = self._apply_flags(metadata, flags)
             datas.append((bytedata, flags, metadata.height, metadata.position, metadata.fee,
                 metadata.date_updated, tx_hash))
@@ -399,10 +400,9 @@ class TransactionTable(BaseWalletStore):
                     in entries ])
             else:
                 self._logger.debug("update %d transactions (too many to show)", len(entries))
-
             db.executemany(self.UPDATE_MANY_SQL, datas)
 
-        self._db_context.queue_write(_write, completion_callback)
+        self._db_context.queue_write(_write, completion_callback, size_hint)
 
     def update_metadata(self, entries: List[Tuple[bytes, TxData, int]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -443,11 +443,12 @@ class TransactionTable(BaseWalletStore):
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         datas = [ (self._pack_proof(proof), date_updated, TxFlags.HasProofData, tx_hash)
             for (tx_hash, proof, date_updated) in entries ]
+        size_hint = sum(len(t[0]) for t in datas)
         def _write(db: sqlite3.Connection) -> None:
             tx_ids = [ hash_to_hex_str(entry[0]) for entry in entries ]
             self._logger.debug("updating %d transaction proof '%s'", 1, tx_ids)
             db.executemany(self.UPDATE_PROOF_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
+        self._db_context.queue_write(_write, completion_callback, size_hint)
 
     def delete(self, tx_hashes: Iterable[bytes],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -481,9 +482,10 @@ class MasterKeyTable(BaseWalletStore):
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         timestamp = self._get_current_timestamp()
         datas = [ (*t, timestamp, timestamp) for t in entries ]
+        size_hint = sum(len(t[3]) for t in entries)
         def _write(db: sqlite3.Connection):
             db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
+        self._db_context.queue_write(_write, completion_callback, size_hint)
 
     def read(self) -> List[MasterKeyRow]:
         cursor = self._db.execute(self.READ_SQL)
@@ -491,17 +493,19 @@ class MasterKeyTable(BaseWalletStore):
         cursor.close()
         return [ MasterKeyRow(*t) for t in rows ]
 
-    def update_derivation_data(self, entries: Iterable[Tuple[int, bytes]],
+    def update_derivation_data(self, entries: Iterable[Tuple[bytes, int]],
             date_updated: Optional[int]=None,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         if date_updated is None:
             date_updated = self._get_current_timestamp()
         datas = []
+        size_hint = 0
         for t in entries:
-            datas.append((t[1], date_updated, t[0]))
+            datas.append((t[0], date_updated, t[1]))
+            size_hint += len(t[0])
         def _write(db: sqlite3.Connection):
             db.executemany(self.UPDATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
+        self._db_context.queue_write(_write, completion_callback, size_hint)
 
     def delete(self, key_ids: Iterable[int],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -625,9 +629,10 @@ class KeyInstanceTable(BaseWalletStore):
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         timestamp = self._get_current_timestamp()
         datas = [ (*t, timestamp, timestamp) for t in entries]
+        size_hint = sum(len(t[4]) for t in entries)
         def _write(db: sqlite3.Connection):
             db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
+        self._db_context.queue_write(_write, completion_callback, size_hint)
 
     def read(self, mask: Optional[KeyInstanceFlag]=None) -> List[KeyInstanceRow]:
         query = self.READ_SQL
@@ -647,6 +652,7 @@ class KeyInstanceTable(BaseWalletStore):
         if date_updated is None:
             date_updated = self._get_current_timestamp()
         datas = [(date_updated,) + entry for entry in entries]
+        size_hint = sum(len(entry[0]) for entry in entries)
         def _write(db: sqlite3.Connection):
             db.executemany(self.UPDATE_DERIVATION_DATA_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)

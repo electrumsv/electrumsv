@@ -1,6 +1,5 @@
 import os
 import pytest
-import tempfile
 from typing import Tuple, Optional
 
 import bitcoinx
@@ -12,6 +11,7 @@ from electrumsv import wallet_database
 from electrumsv.wallet_database import (DatabaseContext, SynchronousWriter, TxData, TxProof,
     TransactionCache, TransactionCacheEntry)
 from electrumsv.wallet_database.migration import create_database, update_database
+from electrumsv.wallet_database.sqlite_support import WriteEntryType
 from electrumsv.wallet_database.tables import WalletDataRow
 
 logs.set_level("debug")
@@ -771,7 +771,7 @@ class TestSqliteWriteDispatcher:
             nonlocal _write_callback_called
             _write_callback_called = True
 
-        self.dispatcher.put((_write_callback, _completion_callback))
+        self.dispatcher.put(WriteEntryType(_write_callback, _completion_callback, 0))
         self.dispatcher.stop()
 
         assert _write_callback_called
@@ -789,7 +789,7 @@ class TestSqliteWriteDispatcher:
             nonlocal _write_callback_called
             _write_callback_called = True
 
-        self.dispatcher.put((_write_callback, None))
+        self.dispatcher.put(WriteEntryType(_write_callback, None, 0))
         self.dispatcher.stop()
 
         assert _write_callback_called

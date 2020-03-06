@@ -3,7 +3,7 @@ import sqlite3
 import threading
 import time
 import traceback
-from typing import Optional, List, Tuple, Callable, Any
+from typing import Any, Callable, List, NamedTuple, Optional, Tuple
 
 from ..constants import DATABASE_EXT
 from ..logs import logs
@@ -55,7 +55,10 @@ class WriteDisabledError(Exception):
 
 WriteCallbackType = Callable[[sqlite3.Connection], None]
 CompletionCallbackType = Callable[[bool], None]
-WriteEntryType = Tuple[WriteCallbackType, Optional[CompletionCallbackType]]
+class WriteEntryType(NamedTuple):
+    write_callback: WriteCallbackType
+    completion_callback: Optional[CompletionCallbackType]
+    size_hint: int
 
 
 class SqliteWriteDispatcher:
@@ -119,14 +122,16 @@ class SqliteWriteDispatcher:
             # Using the connection as a context manager, apply the batch as a transaction.
             time_start = time.time()
             completion_callbacks: List[Tuple[CompletionCallbackType, bool]] = []
+            total_size_hint = 0
             try:
                 with self._db:
                     # We have to force a grouped statement transaction with the explicit 'begin'.
                     self._db.execute('begin')
-                    for write_callback, completion_callback in write_entries:
+                    for write_callback, completion_callback, entry_size_hint in write_entries:
                         write_callback(self._db)
                         if completion_callback is not None:
                             completion_callbacks.append((completion_callback, None))
+                        total_size_hint += entry_size_hint
                 # The transaction was successfully committed.
             except Exception as e:
                 # Exception: This is caught because we need to relay any exception to the
@@ -146,8 +151,8 @@ class SqliteWriteDispatcher:
             else:
                 if len(write_entries) > 1:
                     time_ms = int((time.time() - time_start) * 1000)
-                    self._logger.debug("Invoked %d write callbacks in %d ms",
-                        len(write_entries), time_ms)
+                    self._logger.debug("Invoked %d write callbacks (hinted at %d bytes) in %d ms",
+                        len(write_entries), total_size_hint, time_ms)
 
             for completion_callback in completion_callbacks:
                 self._callback_queue.put_nowait(completion_callback)
@@ -231,8 +236,10 @@ class DatabaseContext:
         return self._db_path
 
     def queue_write(self, write_callback: WriteCallbackType,
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        self._write_dispatcher.put((write_callback, completion_callback))
+            completion_callback: Optional[CompletionCallbackType]=None,
+            size_hint: int=0) -> None:
+        self._write_dispatcher.put(WriteEntryType(write_callback, completion_callback,
+            size_hint))
 
     def close(self) -> None:
         self._write_dispatcher.stop()

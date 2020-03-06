@@ -2335,7 +2335,7 @@ class Wallet(TriggeredCallbacks):
         keystore = self.get_keystore(masterkey_id)
         derivation_data = json.dumps(keystore.to_derivation_data()).encode()
         with MasterKeyTable(self._db_context) as table:
-            table.update_derivation_data([ (masterkey_id, derivation_data) ])
+            table.update_derivation_data([ (derivation_data, masterkey_id) ])
 
     def update_keyinstance_derivation_data(self, entries: Iterable[Tuple[bytes, int]]) -> None:
         with KeyInstanceTable(self._db_context) as table:
