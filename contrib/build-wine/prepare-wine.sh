@@ -16,7 +16,7 @@ LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 PYINSTALLER_REPO='https://github.com/pyinstaller/pyinstaller.git'
 PYINSTALLER_COMMIT=6d4cce1f8eb80c0bf49d35876d28daa55a05800f
 
-PYTHON_VERSION=3.6.8
+PYTHON_VERSION=3.7.6
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
