@@ -90,8 +90,8 @@ class FakeSynchronizer(object):
 class WalletTestCase(unittest.TestCase):
     def setUp(self):
         self.user_dir = tempfile.mkdtemp()
-
-        self.wallet_path = os.path.join(self.user_dir, "somewallet")
+        self.wallet_path = os.path.join(self.user_dir,
+            f"somewallet-{os.urandom(4).hex()}")
 
     def tearDown(self):
         shutil.rmtree(self.user_dir)

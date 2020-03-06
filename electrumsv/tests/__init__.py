@@ -5,6 +5,7 @@ import threading
 import unittest
 
 from electrumsv.networks import Net, SVTestnet, SVMainnet
+from electrumsv.wallet_database.sqlite_support import DatabaseContext, JournalModes
 
 
 logging.disable(logging.CRITICAL)
@@ -17,6 +18,11 @@ def setup_module(module):
         libusbdll_path = os.path.join(cwd, "libusb-1.0.dll")
         if os.path.exists(libusbdll_path):
             os.add_dll_directory(cwd)
+
+    # CI runs very slowly with sqlite WAL journaling, probably due to networked drives.
+    DatabaseContext.JOURNAL_MODE = JournalModes.TRUNCATE
+
+
 
 # Set this locally to make the test suite run faster.
 # If set, unit tests that would normally test functions with multiple implementations,

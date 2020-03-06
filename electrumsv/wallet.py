@@ -95,7 +95,7 @@ class HistoryLine(NamedTuple):
     value_delta: int
 
 
-@attr.s(slots=True, cmp=False, hash=False)
+@attr.s(slots=True, hash=False)
 class UTXO:
     value = attr.ib()
     script_pubkey = attr.ib()

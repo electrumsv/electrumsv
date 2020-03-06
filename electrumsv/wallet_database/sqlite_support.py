@@ -205,8 +205,18 @@ class SqliteWriteDispatcher:
         return not self._is_alive
 
 
+class JournalModes(NamedTuple):
+    DELETE = "DELETE"
+    TRUNCATE = "TRUNCATE"
+    PERSIST = "PERSIST"
+    MEMORY = "MEMORY"
+    WAL = "WAL"
+    OFF = "OFF"
+
+
 class DatabaseContext:
     MEMORY_PATH = ":memory:"
+    JOURNAL_MODE = JournalModes.WAL
 
     def __init__(self, wallet_path: str) -> None:
         if not self.is_special_path(wallet_path) and not wallet_path.endswith(DATABASE_EXT):
@@ -221,8 +231,12 @@ class DatabaseContext:
         debug_text = traceback.format_stack()
         connection = sqlite3.connect(self._db_path, check_same_thread=False,
             isolation_level=None)
+        connection.execute("PRAGMA busy_timeout=5000;")
         connection.execute("PRAGMA foreign_keys=ON;")
-        # connection.execute("PRAGMA journal_mode=WAL;")
+        # We do not enable journaling for in-memory databases. It results in 'database is locked'
+        # errors.
+        if not self.is_special_path(self._db_path):
+            connection.execute(f"PRAGMA journal_mode={self.JOURNAL_MODE};")
         # self._debug_texts[connection] = debug_text
         self._connections.append(connection)
         return connection

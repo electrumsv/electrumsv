@@ -17,7 +17,7 @@ jobs:
   - script: |
       python3 -c "import sqlite3; print(f'sqlite3 version={sqlite3.sqlite_version_info}');"
       python3 -m pip install pytest pytest-cov pytest-timeout
-      python3 -m pytest --doctest-modules --junitxml=junit/test-results.xml --cov=electrumsv --cov-report=xml --cov-report=html electrumsv/tests
+      python3 -m pytest -v -v -v --doctest-modules --junitxml=junit/test-results.xml --cov=electrumsv --cov-report=xml --cov-report=html electrumsv/tests
     displayName: 'Test with pytest'
   - script: |
       python3 -m pip install mypy
