@@ -22,6 +22,7 @@
 # SOFTWARE.
 
 from asyncio import Event, Queue, new_event_loop, run_coroutine_threadsafe, CancelledError
+from concurrent.futures import CancelledError as FCancelledError
 from functools import partial
 import queue
 import threading
@@ -91,7 +92,7 @@ class ASync(object):
         else:
             try:
                 future.result()
-            except CancelledError:
+            except (CancelledError, FCancelledError):
                 pass
             except Exception:
                 logger.exception('async task raised an unhandled exception')
