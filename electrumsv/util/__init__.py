@@ -38,9 +38,9 @@ from typing import Any, Dict, List
 
 from bitcoinx import PublicKey, be_bytes_to_int
 
-from .logs import logs
-from .startup import package_dir
-from .version import PACKAGE_DATE
+from ..logs import logs
+from ..startup import package_dir
+from ..version import PACKAGE_DATE
 
 
 def inv_dict(d):
@@ -68,7 +68,7 @@ def version_string(ptuple):
 class MyEncoder(json.JSONEncoder):
     # https://github.com/PyCQA/pylint/issues/414
     def default(self, o): # pylint: disable=method-hidden
-        from .transaction import Transaction
+        from ..transaction import Transaction
         if isinstance(o, Transaction):
             return o.to_dict()
         return super(MyEncoder, self).default(o)
