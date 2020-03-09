@@ -92,6 +92,13 @@ If it says "3.7", then install the following::
 
 If it says a later version of Python, you should be able to figure out what to do.
 
+Scanning QR codes
+~~~~~~~~~~~~~~~~~
+
+If you need to enable QR code scanning functionality, install the following::
+
+    sudo apt-get install zbar-tools
+
 Getting started on Windows
 ==========================
 
