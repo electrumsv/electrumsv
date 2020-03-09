@@ -381,26 +381,34 @@ class TransactionTable(BaseWalletStore):
 
     def update(self, entries: List[Tuple[bytes, TxData, bytes, int]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        datas = []
+        data_rows = []
+        metadata_rows = []
         size_hint = 0
         for tx_hash, metadata, bytedata, flags in entries:
             assert type(tx_hash) is bytes
-            flags &= ~TxFlags.HasByteData
-            if bytedata is not None:
-                flags |= TxFlags.HasByteData
-                size_hint += len(bytedata)
             flags = self._apply_flags(metadata, flags)
-            datas.append((bytedata, flags, metadata.height, metadata.position, metadata.fee,
-                metadata.date_updated, tx_hash))
+            if flags & TxFlags.HasByteData:
+                if bytedata is None:
+                    flags &= ~TxFlags.HasByteData
+                else:
+                    size_hint += len(bytedata)
+                data_rows.append((bytedata, flags, metadata.height, metadata.position,
+                    metadata.fee, metadata.date_updated, tx_hash))
+            else:
+                metadata_rows.append((flags, metadata.height, metadata.position,
+                    metadata.fee, metadata.date_updated, tx_hash))
 
         def _write(db: sqlite3.Connection) -> None:
             if len(entries) < 20:
                 self._logger.debug("update %d transactions: %s", len(entries),
-                    [ (hash_to_hex_str(a), b, byte_repr(c), TxFlags.to_repr(d)) for (a, b, c, d)
+                    [ (hash_to_hex_str(a), b, TxFlags.to_repr(d)) for (a, b, c, d)
                     in entries ])
             else:
                 self._logger.debug("update %d transactions (too many to show)", len(entries))
-            db.executemany(self.UPDATE_MANY_SQL, datas)
+            if len(data_rows):
+                db.executemany(self.UPDATE_MANY_SQL, data_rows)
+            if len(metadata_rows):
+                db.executemany(self.UPDATE_METADATA_MANY_SQL, metadata_rows)
 
         self._db_context.queue_write(_write, completion_callback, size_hint)
 

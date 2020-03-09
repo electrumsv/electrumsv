@@ -2105,19 +2105,24 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _show_wallet_information(self) -> None:
         def file_explorer_label(text: str, callback: Callable[[str], None]) -> QLabel:
             label = QLabel()
+            display_text = text[:40]
+            if display_text != text:
+                display_text += "..."
             if can_show_in_file_explorer():
-                label.setText(f"<a href='https://example.com'>{text}</a>")
+                label.setText(f"<a href='https://example.com'>{display_text}</a>")
                 label.setTextInteractionFlags(Qt.TextBrowserInteraction)
                 label.linkActivated.connect(callback)
+                label.setToolTip(_("View '{}' in filesystem").format(text))
             else:
-                label.setText(text)
+                label.setText(display_text)
+                label.setToolTip(text)
             return label
         def open_file_explorer(path: str, _discard: str) -> None:
             show_in_file_explorer(path)
 
         dialog = QDialog(self)
         dialog.setWindowTitle(_("Wallet Information"))
-        dialog.setMinimumSize(500, 100)
+        dialog.setMinimumSize(350, 100)
         vbox = QVBoxLayout()
         wallet_filepath = self._wallet.get_storage_path()
         wallet_dirpath = os.path.dirname(wallet_filepath)
@@ -2127,14 +2132,48 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         path_label = file_explorer_label(wallet_dirpath,
             partial(open_file_explorer, wallet_dirpath))
 
-        grid = FormSectionWidget()
-        grid.add_row(QLabel(_("File name")), name_label)
-        grid.add_row(QLabel(_("Path")), path_label)
-        vbox.addWidget(grid)
+        file_form = FormSectionWidget(minimum_label_width=100)
+        file_form.add_title(_("File"))
+        file_form.add_row(_("File name"), name_label)
+        file_form.add_row(_("Path"), path_label)
+        vbox.addWidget(file_form)
+
+        current_txcachesize_label = QLabel()
+        maximum_txcachesize_label = QLabel()
+        hits_label = QLabel()
+        misses_label = QLabel()
+
+        def update_txcachesizes():
+            nonlocal current_txcachesize_label, maximum_txcachesize_label
+            nonlocal hits_label, misses_label
+            cache = self._wallet._transaction_cache._bytedata_cache
+            current_size, max_size = cache.get_sizes()
+            current_txcachesize_label.setText(str(current_size))
+            maximum_txcachesize_label.setText(str(max_size))
+            hits_label.setText(str(cache.hits))
+            misses_label.setText(str(cache.misses))
+        update_txcachesizes()
+
+        memory_usage_form = FormSectionWidget(minimum_label_width=100)
+        memory_usage_form.add_title(_("Transaction data cache"))
+        memory_usage_form.add_row(_("Current usage"), current_txcachesize_label)
+        memory_usage_form.add_row(_("Maximum usage"), maximum_txcachesize_label)
+        memory_usage_form.add_row(_("Cache hits"), hits_label)
+        memory_usage_form.add_row(_("Cache misses"), misses_label)
+        vbox.addWidget(memory_usage_form)
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CloseButton(dialog)))
-        dialog.setLayout(vbox)
-        dialog.exec_()
+
+        update_timer = QTimer(self)
+        update_timer.setSingleShot(False)
+        update_timer.setInterval(1000)
+        update_timer.timeout.connect(update_txcachesizes)
+        update_timer.start()
+        try:
+            dialog.setLayout(vbox)
+            dialog.exec_()
+        finally:
+            update_timer.stop()
 
     # TODO(rt12): This should be moved into the wallet wizard as a context menu option. Doing it
     # on an open wallet makes no sense post-JSON "save on exit".
