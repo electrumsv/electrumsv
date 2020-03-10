@@ -210,6 +210,7 @@ class AbstractAccount:
         self._deactivated_keys_event = app_state.async_.event()
         self._synchronize_event = app_state.async_.event()
         self._synchronized_event = app_state.async_.event()
+        self._subpath_gap_limits = {}
         self.txs_changed_event = app_state.async_.event()
         self.request_count = 0
         self.response_count = 0
@@ -294,6 +295,14 @@ class AbstractAccount:
     def allocate_keys(self, count: int,
             derivation_path: Sequence[int]) -> List[DeterministicKeyAllocation]:
         return []
+
+    def get_gap_limit_for_path(self, subpath: Sequence[int]) -> int:
+        return self._subpath_gap_limits.get(subpath, 20)  # defaults to 20
+
+    def set_gap_limit_for_path(self, subpath: Sequence[int], limit: int) -> None:
+        # TODO - this is an interim step towards persisting these settings via the
+        #  database and allowing for modification via the GUI preferences Accounts tab
+        self._subpath_gap_limits[subpath] = limit
 
     def create_keys_until(self, derivation: Sequence[int],
             script_type: Optional[ScriptType]=None) -> List[KeyInstanceRow]:
@@ -1808,10 +1817,10 @@ class DeterministicAccount(AbstractAccount):
 
     async def _synchronize_wallet(self) -> None:
         '''Class-specific synchronization (generation of missing addresses).'''
-        # TODO(rt12) BACKLOG This should have a per path gap limit configurable somewhere,
-        # perhaps the account settings.
-        await self._synchronize_chain(RECEIVING_SUBPATH, 20)
-        await self._synchronize_chain(CHANGE_SUBPATH, 20)
+        await self._synchronize_chain(RECEIVING_SUBPATH,
+            self.get_gap_limit_for_path(RECEIVING_SUBPATH))
+        await self._synchronize_chain(CHANGE_SUBPATH,
+            self.get_gap_limit_for_path(CHANGE_SUBPATH))
 
     def get_master_public_keys(self) -> List[str]:
         return [self.get_master_public_key()]
