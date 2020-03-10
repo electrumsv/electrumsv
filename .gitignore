@@ -29,6 +29,9 @@ __pycache__
 icons/.DS_Store/
 xcuserdata/
 
+# Windows
+libusb-1.0.dll
+
 # IntelliJ Pycharm IDE
 *.idea*
 
