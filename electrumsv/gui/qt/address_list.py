@@ -48,7 +48,7 @@ import enum
 from functools import partial
 import threading
 import time
-from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple, Union
 import webbrowser
 
 from bitcoinx import Address
@@ -64,6 +64,7 @@ from electrumsv.bitcoin import scripthash_hex
 from electrumsv.constants import ScriptType
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
+from electrumsv.networks import Net
 from electrumsv.platform import platform
 from electrumsv.util import profiler
 from electrumsv.wallet import MultisigAccount, AbstractAccount, StandardAccount
@@ -75,6 +76,7 @@ from .util import read_QIcon, get_source_index
 
 
 QT_SORT_ROLE = Qt.UserRole+1
+QT_FILTER_ROLE = Qt.UserRole+2
 
 COLUMN_NAMES = [ _("Type"), _("State"), _('Key'), _('Script'), _('Label'), _('Usages'),
     _('Balance'), _('') ]
@@ -300,6 +302,10 @@ class _ItemModel(QAbstractItemModel):
                         rate = fx.exchange_rate()
                         return fx.value_str(line.balance, rate)
 
+            elif role == QT_FILTER_ROLE:
+                if column == KEY_COLUMN:
+                    return line.row
+
             elif role == Qt.DecorationRole:
                 if column == TYPE_COLUMN:
                     # TODO(rt12) BACKLOG Need to add variation in icons.
@@ -392,27 +398,61 @@ class _ItemModel(QAbstractItemModel):
         return False
 
 
+class MatchType(enum.IntEnum):
+    UNKNOWN = -1
+    TEXT = 0
+    ADDRESS = 1
+
+
 class _SortFilterProxyModel(QSortFilterProxyModel):
-    _filter_match: Optional[str] = None
+    _filter_type: MatchType = MatchType.UNKNOWN
+    _filter_match: Optional[Union[str, Address]] = None
+    _account: Optional[AbstractAccount] = None
+
+    def set_account(self, account: AbstractAccount) -> None:
+        self._account = account
+
+    def set_filter_match(self, text: Optional[str]) -> None:
+        self._filter_type = MatchType.UNKNOWN
+
+        if text is not None:
+            try:
+                address = Address.from_string(text, Net.COIN)
+            except ValueError:
+                pass
+            else:
+                self._filter_type = MatchType.ADDRESS
+                self._filter_match = address
+
+            if self._filter_type == MatchType.UNKNOWN:
+                self._filter_type = MatchType.TEXT
+                self._filter_match = text.lower()
+        else:
+            self._filter_match = None
+        self.invalidateFilter()
 
     def lessThan(self, source_left: QModelIndex, source_right: QModelIndex) -> bool:
         value_left = self.sourceModel().data(source_left, QT_SORT_ROLE)
         value_right = self.sourceModel().data(source_right, QT_SORT_ROLE)
         return value_left < value_right
 
-    def set_filter_match(self, text: Optional[str]) -> None:
-        self._filter_match = text.lower() if text is not None else None
-        self.invalidateFilter()
-
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
-        text = self._filter_match
-        if text is None:
+        match = self._filter_match
+        if match is None:
             return True
         source_model = self.sourceModel()
-        for column in (KEY_COLUMN, LABEL_COLUMN, SCRIPT_COLUMN):
-            column_index = source_model.index(source_row, column, source_parent)
-            if text in source_model.data(column_index, Qt.DisplayRole).lower():
-                return True
+        if self._filter_type == MatchType.TEXT:
+            for column in (KEY_COLUMN, LABEL_COLUMN, SCRIPT_COLUMN):
+                column_index = source_model.index(source_row, column, source_parent)
+                if match in source_model.data(column_index, Qt.DisplayRole).lower():
+                    return True
+        elif self._filter_type == MatchType.ADDRESS and self._account is not None:
+            column_index = source_model.index(source_row, KEY_COLUMN, source_parent)
+            key: KeyInstanceRow = source_model.data(column_index, QT_FILTER_ROLE)
+            for script_type in self._account.get_valid_script_types():
+                template = self._account.get_script_template_for_id(key.keyinstance_id, script_type)
+                if match == template:
+                    return True
         return False
 
 
@@ -491,6 +531,7 @@ class KeyView(QTableView):
 
     def filter(self, text: Optional[str]) -> None:
         self._proxy_model.set_filter_match(text)
+        # self.resizeRowsToContents()
 
     def _on_account_change(self, new_account_id: int) -> None:
         with self._update_lock:
@@ -502,6 +543,7 @@ class KeyView(QTableView):
             self._account = self._main_window._wallet.get_account(self._account_id)
             if old_account_id is None:
                 self._timer.start()
+            self._proxy_model.set_account(self._account)
 
     def keyPressEvent(self, event):
         if event.matches(QKeySequence.Copy):
@@ -543,6 +585,20 @@ class KeyView(QTableView):
     def _have_pending_updates(self) -> bool:
         return len(self._pending_actions) or len(self._pending_state)
 
+    # def _dispatch_updates(self, pending_actions: Set[ListActions],
+    #         pending_state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
+    #     import cProfile, pstats, io
+    #     from pstats import SortKey
+    #     pr = cProfile.Profile()
+    #     pr.enable()
+    #     self._dispatch_updates2(pending_actions, pending_state)
+    #     pr.disable()
+    #     s = io.StringIO()
+    #     sortby = SortKey.CUMULATIVE
+    #     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    #     ps.print_stats()
+    #     print(s.getvalue())
+
     @profiler
     def _dispatch_updates(self, pending_actions: Set[ListActions],
             pending_state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
@@ -551,7 +607,8 @@ class KeyView(QTableView):
 
             self._data = self._create_data_snapshot()
             self._base_model.set_data(self._data)
-            self.resizeRowsToContents()
+            # This is very slow for large numbers of rows.
+            # self.resizeRowsToContents()
             return
 
         additions = []
@@ -585,7 +642,8 @@ class KeyView(QTableView):
             else:
                 self._logger.error("_on_update_check action %s not applied", action)
 
-        self.resizeRowsToContents()
+        # ...
+        # self.resizeRowsToContents()
 
     def _validate_event(self, wallet_path: str, account_id: int) -> bool:
         if account_id != self._account_id:
