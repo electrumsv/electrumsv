@@ -352,17 +352,14 @@ class TxDialog(QDialog, MessageBoxMixin):
                     return account.get_script_for_id(keyinstance_id) == output.script_pubkey
             return False
 
+        known_txos = set(self._account._utxos) | set(self._account._stxos)
+
         def text_format(utxo_key: Tuple[bytes, int]) -> QTextCharFormat:
-            nonlocal txos
-            return rec if utxo_key in txos else ext
+            nonlocal known_txos
+            return rec if utxo_key in known_txos else ext
 
         def format_amount(amt: int) -> str:
             return self._main_window.format_amount(amt, whitespaces = True)
-
-        from electrumsv.wallet_database.tables import TransactionOutputTable
-        with TransactionOutputTable(self._account._wallet._db_context) as table:
-            output_rows = table.read()
-        txos = { (r.tx_hash, r.tx_index): r for r in output_rows }
 
         i_text.clear()
         cursor = i_text.textCursor()
@@ -373,11 +370,10 @@ class TxDialog(QDialog, MessageBoxMixin):
                 prev_hash_hex = hash_to_hex_str(txin.prev_hash)
                 cursor.insertText(f'{prev_hash_hex}:{txin.prev_idx:<6d}', ext)
                 txo_key = (txin.prev_hash, txin.prev_idx)
-                txo_row = txos.get(txo_key)
-                if txo_row is None:
-                    txo_text = _("Unknown")
-                else:
+                if txo_key in known_txos:
                     txo_text = _("Mine")
+                else:
+                    txo_text = _("Unknown")
                 cursor.insertText(txo_text, text_format(txo_key))
                 if txin.value is not None:
                     cursor.insertText(format_amount(txin.value), ext)
@@ -392,7 +388,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             out_format = ext
             if verify_own_output(tx_output):
                 out_format = rec
-            elif (self._tx_hash, tx_index) in txos:
+            elif (self._tx_hash, tx_index) in known_txos:
                 out_format = rec
             cursor.insertText(text, out_format)
 
