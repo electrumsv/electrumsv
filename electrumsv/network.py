@@ -793,7 +793,10 @@ class SVSession(RPCSession):
             for account in list(subs_by_account):
                 triples = [(*keyinstance_map[sh], sh) for sh in subs_by_account[account]]
                 await group.spawn(self.subscribe_account, account, triples)
-        self._network.session_subs_complete.set()
+
+        for account in list(subs_by_account):
+            # there are no accounts at initial startup of ESV
+            self._network.account_session_subs_done_events[account].set()
 
     async def headers_at_heights(self, heights):
         '''Raises: MissingHeader, DisconnectSessionError, BatchError, TaskTimeout'''
@@ -925,7 +928,7 @@ class Network(TriggeredCallbacks):
         self.check_main_chain_event = app_state.async_.event()
         self.stop_network_event = app_state.async_.event()
         self.shutdown_complete_event = app_state.async_.event()
-        self.session_subs_complete = app_state.async_.event()
+        self.account_session_subs_done_events = {}  # {account: asyncio.Event()}
 
         # Add an account, remove an account, or redo all account verifications
         self.account_jobs = app_state.async_.queue()
@@ -1257,10 +1260,15 @@ class Network(TriggeredCallbacks):
     async def _maintain_account(self, account):
         '''Put all tasks for a single account in a group so they can be cancelled together.'''
         logger.info(f'maintaining account {account}')
+
+        self.account_session_subs_done_events[account] = app_state.async_.event()
+
         try:
             while True:
-                await self.session_subs_complete.wait()
-                self.session_subs_complete.clear()
+                if SVSession._subs_by_account.get(account):
+                    # event forces subscribe_accounts() before _monitor_active_keys()
+                    await self.account_session_subs_done_events[account].wait()
+                    self.account_session_subs_done_events[account].clear()
                 try:
                     async with TaskGroup() as group:
                         await group.spawn(self._monitor_txs, account)
