@@ -32,7 +32,7 @@ import re
 import ssl
 import stat
 import time
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 import certifi
 from aiorpcx import (
@@ -806,14 +806,16 @@ class SVSession(RPCSession):
         # Take reference so account can be unsubscribed asynchronously without conflict
         subs = self._subs_by_account[account]
         async with TaskGroup() as group:
-            account.request_count += len(triples)
-            account.progress_event.set()
             for keyinstance_id, script_type, script_hash in triples:
                 subs.append(script_hash)
                 # Send request even if already subscribed, as our user expects a response
                 # to trigger other actions and won't get one if we swallow it.
                 self._keyinstance_map[script_hash] = keyinstance_id, script_type
                 await group.spawn(self._subscribe_to_script_hash(script_hash))
+
+            # ensure GUI doesn't keep showing synchronizing...(100/101) when there are only 100 subs
+            account.request_count += len(set(triples) - set(subs))
+            account.progress_event.set()
 
             while await group.next_done():
                 account.response_count += 1
