@@ -818,8 +818,10 @@ class SVSession(RPCSession):
             while await group.next_done():
                 account.response_count += 1
                 account.progress_event.set()
-        # A account shouldn't be subscribing the same key twice
-        assert len(set(subs)) == len(subs)
+
+        if len(set(subs)) != len(subs):
+            seen = set(); duplicates = set(x for x in subs if x in seen or seen.add(x))
+            logger.error("subscribed to the same keys twice for: %s", duplicates)
 
     async def unsubscribe_from_pairs(self, account, pairs) -> None:
         '''pairs is an iterable of (keyinstance_id, script_hash) pairs.
@@ -1233,6 +1235,7 @@ class Network(TriggeredCallbacks):
                     if session:
                         SVSession._subs_by_account[account] = []
                         await session.disconnect(str(error), blacklist=blacklist)
+                        await self.sessions_changed_event.wait()
         finally:
             await SVSession.unsubscribe_account(account, self.main_session())
             logger.info(f'stopped maintaining account {account}')
