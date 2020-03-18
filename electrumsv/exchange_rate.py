@@ -1,4 +1,5 @@
 from decimal import Decimal
+from concurrent.futures import CancelledError
 import csv
 import datetime
 import decimal
@@ -55,6 +56,8 @@ class ExchangeBase(object):
             logger.debug(f'getting fx quotes for {ccy}')
             self.quotes = await run_in_thread(self.get_rates, ccy)
             logger.debug('received fx quotes')
+        except CancelledError:
+            pass
         except Exception:
             logger.exception(f'exception updating FX quotes')
 

@@ -83,7 +83,7 @@ from .util import (
     WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
     CloseButton, CancelButton, text_dialog, filename_field,
     update_fixed_tree_height, UntrustedMessageDialog, protected,
-    can_show_in_file_explorer, show_in_file_explorer,
+    can_show_in_file_explorer, show_in_file_explorer, create_new_wallet
 )
 from .wallet_api import WalletAPI
 
@@ -480,19 +480,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return True
         return False
 
-    def open_wallet(self):
-        try:
-            wallet_folder = self.get_wallet_folder()
-        except FileNotFoundError as e:
-            self.show_error(str(e))
-            return
-        if not os.path.exists(wallet_folder):
-            wallet_folder = None
-        filename, __ = QFileDialog.getOpenFileName(self, "Select your wallet file", wallet_folder)
-        if not filename:
-            return
-        self.app.new_window(filename)
-
     def _backup_wallet(self):
         path = self._wallet.get_storage_path()
         wallet_folder = os.path.dirname(path)
@@ -542,31 +529,37 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.recently_visited_menu.addAction(menu_text, partial(self.app.new_window, path))
         self.recently_visited_menu.setEnabled(bool(pairs))
 
-    def get_wallet_folder(self):
-        return os.path.dirname(os.path.abspath(self.config.get_wallet_path()))
-
-    def new_wallet(self):
+    def _open_wallet(self) -> None:
         try:
-            wallet_folder = self.get_wallet_folder()
+            wallet_folder = self.config.get_preferred_wallet_dirpath()
         except FileNotFoundError as e:
             self.show_error(str(e))
             return
-        i = 1
-        existing_filenames = [ filename.lower() for filename in os.listdir(wallet_folder) ]
-        while True:
-            filename = "wallet_%d" % i
-            if filename + DATABASE_EXT not in existing_filenames:
-                break
-            i += 1
-        full_path = os.path.join(wallet_folder, filename)
-        self.app.start_new_window(full_path, None)
 
-    def init_menubar(self):
+        if not os.path.exists(wallet_folder):
+            wallet_folder = None
+        filename, __ = QFileDialog.getOpenFileName(self, "Select your wallet file", wallet_folder)
+        if not filename:
+            return
+        self.app.new_window(filename)
+
+    def _new_wallet(self) -> None:
+        try:
+            wallet_folder = self.config.get_preferred_wallet_dirpath()
+        except FileNotFoundError as e:
+            self.show_error(str(e))
+            return
+
+        create_filepath = create_new_wallet(self, wallet_folder)
+        if create_filepath is not None:
+            self.app.start_new_window(create_filepath + DATABASE_EXT, None)
+
+    def init_menubar(self) -> None:
         menubar = QMenuBar()
         file_menu = menubar.addMenu(_("&File"))
         self.recently_visited_menu = file_menu.addMenu(_("&Recently open"))
-        file_menu.addAction(_("&Open"), self.open_wallet).setShortcut(QKeySequence.Open)
-        file_menu.addAction(_("&New/Restore"), self.new_wallet).setShortcut(QKeySequence.New)
+        file_menu.addAction(_("&Open"), self._open_wallet).setShortcut(QKeySequence.Open)
+        file_menu.addAction(_("&New"), self._new_wallet).setShortcut(QKeySequence.New)
         file_menu.addAction(_("&Save Copy"), self._backup_wallet).setShortcut(QKeySequence.SaveAs)
         file_menu.addSeparator()
         file_menu.addAction(_("&Quit"), self.close)
@@ -2076,7 +2069,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def change_password_dialog(self):
         from .password_dialog import ChangePasswordDialog
-        d = ChangePasswordDialog(self, self._wallet)
+        from .wallet_wizard import validate_password
+        storage = self._wallet.get_storage()
+        d = ChangePasswordDialog(self, password_check_fn=partial(validate_password, storage))
         ok, password, new_password = d.run()
         if not ok:
             return
@@ -2362,10 +2357,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         layout.addLayout(hbox, 4, 1)
         d.exec_()
 
-    def password_dialog(self, msg=None, parent=None):
+    def password_dialog(self, msg: Optional[str]=None, parent: Optional[QWidget]=None) -> str:
         from .password_dialog import PasswordDialog
+        from .wallet_wizard import validate_password
         parent = parent or self
-        d = PasswordDialog(parent, msg)
+        storage = self._wallet.get_storage()
+        d = PasswordDialog(parent, msg, password_check_fn=partial(validate_password, storage))
         return d.run()
 
     def tx_from_text(self, txt: str) -> Optional[Transaction]:

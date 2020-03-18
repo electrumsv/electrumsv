@@ -2,10 +2,11 @@ from copy import deepcopy
 import os
 import stat
 import threading
+from typing import Optional
 
 from . import util
 from .bitcoin import MAX_FEE_RATE
-from .constants import DATABASE_EXT, DEFAULT_FEE
+from .constants import DEFAULT_FEE
 from .logs import logs
 from .platform import platform
 from .util import make_dir, JSON
@@ -191,34 +192,22 @@ class SimpleConfig:
             f.write(s)
         os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
 
-    def get_wallet_path(self):
-        """Set the path of the wallet."""
+    def get_preferred_wallet_dirpath(self) -> str:
+        wallet_path = self.get_cmdline_wallet_filepath()
+        if wallet_path is not None:
+            return os.path.dirname(os.path.abspath(wallet_path))
+        return self.get_default_wallet_dirpath()
 
-        # command line -w option
+    def get_default_wallet_dirpath(self) -> str:
+        util.assert_datadir_available(self.path)
+        path = os.path.join(self.path, "wallets")
+        make_dir(path)
+        return path
+
+    def get_cmdline_wallet_filepath(self) -> Optional[str]:
         if self.get('wallet_path'):
             return os.path.join(self.get('cwd'), self.get('wallet_path'))
-
-        # path in config file
-        path = self.get('default_wallet_path')
-        if path:
-            if os.path.exists(path):
-                return path
-            if not path.endswith(DATABASE_EXT) and os.path.exists(path + DATABASE_EXT):
-                return path
-
-        # default path
-        util.assert_datadir_available(self.path)
-        dirpath = os.path.join(self.path, "wallets")
-        make_dir(dirpath)
-
-        new_path = os.path.join(self.path, "wallets", "default_wallet")
-
-        # default path in pre 1.9 versions
-        old_path = os.path.join(self.path, "electrum.dat")
-        if os.path.exists(old_path) and not os.path.exists(new_path):
-            os.rename(old_path, new_path)
-
-        return new_path
+        return None
 
     def set_session_timeout(self, seconds):
         logger.debug("session timeout -> %d seconds", seconds)

@@ -39,13 +39,13 @@ from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Set, 
     Type, TypeVar)
 import zlib
 
-from bitcoinx import PrivateKey, PublicKey, hex_str_to_hash, hash_to_hex_str
+from bitcoinx import DecryptionError, hash_to_hex_str, hex_str_to_hash, PrivateKey, PublicKey
 from bitcoinx.address import P2PKH_Address, P2SH_Address
 
 from .bitcoin import is_address_valid, address_from_string
 from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, RECEIVING_SUBPATH,
     ScriptType, StorageKind, TxFlags, TransactionOutputFlag, KeyInstanceFlag, PaymentState)
-from .crypto import pw_encode
+from .crypto import pw_encode, pw_decode, InvalidPassword
 from .exceptions import IncompatibleWalletError
 from .keystore import bip44_derivation
 from .logs import logs
@@ -140,10 +140,10 @@ def categorise_file(wallet_filepath: str) -> WalletStorageInfo:
     return WalletStorageInfo(kind, filename, wallet_filepath)
 
 
-def backup_wallet_files(wallet_filepath: str) -> bool:
+def backup_wallet_file(wallet_filepath: str) -> Optional[Tuple[str, str]]:
     info = categorise_file(wallet_filepath)
-    if info.kind == StorageKind.UNKNOWN:
-        return False
+    if info.kind not in (StorageKind.FILE, StorageKind.DATABASE):
+        return None
 
     base_wallet_filepath = os.path.join(os.path.dirname(wallet_filepath), info.filename)
     attempt = 0
@@ -166,10 +166,12 @@ def backup_wallet_files(wallet_filepath: str) -> bool:
     if info.kind == StorageKind.DATABASE:
         shutil.copyfile(
             base_wallet_filepath + DATABASE_EXT, attempted_wallet_filepath + DATABASE_EXT)
+        return base_wallet_filepath + DATABASE_EXT, attempted_wallet_filepath + DATABASE_EXT
     if info.kind == StorageKind.FILE:
         shutil.copyfile(base_wallet_filepath,  attempted_wallet_filepath)
+        return base_wallet_filepath, attempted_wallet_filepath
 
-    return True
+    return None
 
 
 StoreType = TypeVar('StoreType', bound='AbstractStore')
@@ -191,6 +193,9 @@ class AbstractStore:
 
     def get_path(self) -> str:
         return self._path
+
+    def check_password(self, password: str) -> None:
+        raise NotImplementedError
 
     def attempt_load_data(self) -> bool:
         raise NotImplementedError
@@ -301,6 +306,11 @@ class DatabaseStore(AbstractStore):
     def get_path(self) -> str:
         return self._path + DATABASE_EXT
 
+    def check_password(self, password: str) -> None:
+        password_token: Optional[str] = self.get("password-token")
+        assert password_token is not None
+        pw_decode(password_token, password)
+
     def attempt_load_data(self) -> bool:
         self._data = {}
         for row in self._table.read():
@@ -368,6 +378,13 @@ class TextStore(AbstractStore):
             return base64.b64decode(self._raw)[0:4] == b'BIE1'
         except Exception:
             return False
+
+    def check_password(self, password: str) -> None:
+        self._read_raw_data()
+        try:
+            self.decrypt(password)
+        except DecryptionError:
+            raise InvalidPassword
 
     def decrypt(self, password: str) -> bytes:
         assert self._raw is not None
@@ -1252,6 +1269,7 @@ class TextStore(AbstractStore):
 class WalletStorage:
     _store: AbstractStore
     _is_closed: bool = False
+    _backup_filepaths: Optional[Tuple[str, str]] = None
 
     def __init__(self, path: str, manual_upgrades: bool=False,
             storage_kind: StorageKind=StorageKind.UNKNOWN) -> None:
@@ -1311,6 +1329,9 @@ class WalletStorage:
         db_store.set_path(new_path)
         db_store.open_database()
 
+    def is_closed(self) -> bool:
+        return self._is_closed
+
     def close(self) -> None:
         if self._is_closed:
             return
@@ -1322,6 +1343,7 @@ class WalletStorage:
         # See: DatabaseStore.close
         self._store.close()
 
+        del self.check_password
         del self.get
         del self.put
         del self.write
@@ -1345,6 +1367,7 @@ class WalletStorage:
         # using this object, will post-creation/post-upgrade have a static store to work with.
         self._store = store
 
+        self.check_password = store.check_password
         self.get = store.get
         self.put = store.put
         self.write = store.write
@@ -1360,9 +1383,15 @@ class WalletStorage:
     def is_legacy_format(self) -> bool:
         return not isinstance(self._store, DatabaseStore)
 
+    def get_storage_path(self) -> str:
+        return self._path
+
+    def get_backup_filepaths(self) -> Optional[Tuple[str, str]]:
+        return self._backup_filepaths
+
     def upgrade(self, has_password: bool, new_password: str) -> None:
         logger.debug('upgrading wallet format')
-        backup_wallet_files(self._path)
+        self._backup_filepaths = backup_wallet_file(self._path)
 
         # The store can change if the old kind of store was obsoleted. We upgrade through
         # obsoleted kinds of stores to the final in-use kind of store.
@@ -1380,7 +1409,9 @@ class WalletStorage:
         return None
 
     @classmethod
-    def files_are_matched_by_path(klass, path: str) -> bool:
+    def files_are_matched_by_path(klass, path: Optional[str]) -> bool:
+        if path is None:
+            return False
         return categorise_file(path).kind != StorageKind.UNKNOWN
 
     @classmethod

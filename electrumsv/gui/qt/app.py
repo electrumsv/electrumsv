@@ -24,6 +24,7 @@
 '''ElectrumSV application.'''
 
 import datetime
+import os
 from functools import partial
 import signal
 import sys
@@ -49,7 +50,7 @@ from .exception_window import Exception_Hook
 from .label_sync import LabelSync
 from .log_window import SVLogWindow, SVLogHandler
 from .network_dialog import NetworkDialog
-from .util import ColorScheme, read_QIcon, get_default_language
+from .util import ColorScheme, get_default_language, MessageBox, read_QIcon
 from .wallet_wizard import WalletWizard
 
 
@@ -154,9 +155,7 @@ class SVApplication(QApplication):
         self.windows.remove(window)
         self.window_closed_signal.emit(window)
         self._build_tray_menu()
-        # save wallet path of last open window
         if not self.windows:
-            app_state.config.save_last_wallet(window._wallet)
             self._last_window_closed()
 
     def setup_app(self):
@@ -200,11 +199,11 @@ class SVApplication(QApplication):
                 for w in self.windows:
                     w.hide()
 
-    def new_window(self, path, uri=None):
+    def new_window(self, path: Optional[str], uri: Optional[str]=None) -> None:
         # Use a signal as can be called from daemon thread
         self.create_new_window_signal.emit(path, uri)
 
-    def show_network_dialog(self, parent):
+    def show_network_dialog(self, parent) -> None:
         if not app_state.daemon.network:
             parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
                                   'ElectrumSV if you want to get connected'), title=_('Offline'))
@@ -217,7 +216,7 @@ class SVApplication(QApplication):
         self.net_dialog = NetworkDialog(app_state.daemon.network, app_state.config)
         self.net_dialog.show()
 
-    def show_log_viewer(self):
+    def show_log_viewer(self) -> None:
         if self.log_window is None:
             self.log_window = SVLogWindow(None, self.log_handler)
         self.log_window.show()
@@ -272,21 +271,35 @@ class SVApplication(QApplication):
                 if child_wallet.get_id() == wallet_id:
                     return w
 
-    def start_new_window(self, path, uri, is_startup=False):
+    def start_new_window(self, wallet_path: Optional[str], uri: Optional[str]=None,
+            is_startup: bool=False) -> Optional[ElectrumWindow]:
         '''Raises the window for the wallet if it is open.  Otherwise
         opens the wallet and creates a new window for it.'''
         for w in self.windows:
-            if w._wallet.get_storage_path() == path:
+            if w._wallet.get_storage_path() == wallet_path:
                 w.bring_to_top()
                 break
         else:
-            wizard_window = WalletWizard(path, is_startup=is_startup)
-            result = wizard_window.run()
-            if result != QDialog.Accepted:
-                # Clean up?
-                return
-
-            wallet_path = wizard_window.get_wallet_path()
+            wizard_window: Optional[WalletWizard] = None
+            if wallet_path is not None:
+                is_valid, was_aborted, wizard_window = WalletWizard.attempt_open(wallet_path)
+                if was_aborted:
+                    return None
+                if not is_valid:
+                    wallet_filename = os.path.basename(wallet_path)
+                    MessageBox.show_error(
+                        _("Unable to load file '{}'.").format(wallet_filename))
+                    return None
+            else:
+                wizard_window = WalletWizard(is_startup=is_startup)
+            if wizard_window is not None:
+                result = wizard_window.run()
+                if result != QDialog.Accepted:
+                    return None
+                wallet_path = wizard_window.get_wallet_path()
+                # We cannot rely on accept alone indicating success.
+                if wallet_path is None:
+                    return None
             wallet = app_state.daemon.load_wallet(wallet_path)
             assert wallet is not None
             w = self._create_window_for_wallet(wallet)
@@ -338,8 +351,7 @@ class SVApplication(QApplication):
         self.timer.start()
         signal.signal(signal.SIGINT, lambda *args: self.quit())
         self.initial_dialogs()
-        app_state.config.open_last_wallet()
-        path = app_state.config.get_wallet_path()
+        path = app_state.config.get_cmdline_wallet_filepath()
         if not self.start_new_window(path, app_state.config.get('url'), is_startup=True):
             self.quit()
 

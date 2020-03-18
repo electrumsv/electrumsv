@@ -64,7 +64,7 @@ def run_non_RPC(config):
 
     # cmdname = config.get('cmd')
 
-    # wallet_path = config.get_wallet_path()
+    # wallet_path = config.get_cmdline_wallet_filepath()
     # if WalletStorage.files_are_matched_by_path(wallet_path):
     #     sys.exit("Error: wallet name in use at given path")
 
@@ -97,7 +97,7 @@ def run_non_RPC(config):
 
 def init_daemon(config_options):
     config = SimpleConfig(config_options)
-    wallet_path = config.get_wallet_path()
+    wallet_path = config.get_cmdline_wallet_filepath()
     if not WalletStorage.files_are_matched_by_path(wallet_path):
         print("Error: Wallet file not found.")
         print("Type 'electrum-sv create' to create a new wallet, "
@@ -132,7 +132,7 @@ def init_cmdline(config_options, server):
     if cmdname in ['payto', 'paytomany'] and config.get('broadcast'):
         cmd.requires_network = True
 
-    wallet_path = config.get_wallet_path()
+    wallet_path = config.get_cmdline_wallet_filepath()
     if cmd.requires_wallet and not WalletStorage.files_are_matched_by_path(wallet_path):
         print("Error: Wallet file not found.")
         print("Type 'electrum-sv create' to create a new wallet, "
@@ -175,7 +175,7 @@ def run_offline_command(config, config_options):
     cmd = known_commands[cmdname]
     password = config_options.get('password')
     if cmd.requires_wallet:
-        wallet_path = config.get_wallet_path()
+        wallet_path = config.get_cmdline_wallet_filepath()
         if not WalletStorage.files_are_matched_by_path(wallet_path):
             print("Error: wallet does not exist at given path")
             sys.exit(1)

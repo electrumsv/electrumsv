@@ -1,0 +1,108 @@
+<h2>Choosing a wallet</h2>
+<p>
+    This page allows you to either create a new wallet or select an existing wallet to load.
+    If you want to create a new wallet, click on the button provided for that purpose. Otherwise,
+    if you want to select an existing wallet there are a range of ways you can do this.
+
+    <ul>
+        <li>If the wallet you want to select is one of those that were most recently opened, you
+            can locate it in the list of recently opened wallets and either double-click on it
+            or click on the button provided to open a selected wallet.</li>
+        <li>If the wallet you want to select is not in the list of recently opened wallets, you
+            can click on the button provided to open another wallet.</li>
+    </ul>
+</p>
+<h3>Creating a new wallet</h3>
+<p>
+    On choosing to create a new wallet, you will be first asked to select where it will be located
+    and what it will be called. After doing so, you will then be asked to provide a password for
+    the wallet &mdash; while in the past it was possible to have a wallet without a password, this
+    is no longer supported. Finally, the new and empty wallet will be created and this wizard will
+    close and the wallet user interface opened.
+</p>
+<p>
+    New wallets require their user to create an initial account before they can be used. For now,
+    a wallet can only have one account, but when the wallet user interface has been redesigned
+    to support multiple accounts this restriction will be removed.
+</p>
+<h3>Selecting an existing wallet</h3>
+<p>
+    Whichever method you use to select an existing wallet, depending on what that wallet is,
+    there are several things that might happen. If the wallet storage is the latest one required
+    by this version of ElectrumSV, then it will be opened. If it is an older storage format, then
+    it required going through a migration process to update it, before it can open.
+</p>
+<h4>Wallet storage formats</h4>
+<p>
+    As of ElectrumSV 1.3.0, the wallet storage has changed from a JSON file to a database file.
+    There are numerous reasons for this change that will not be documented here. Versions 1.2.5
+    and earlier use a JSON file. Versions 1.3.0 and above use a database file.
+</p>
+<p>
+    There are three different ways in which a wallet in the older JSON format might work:
+
+    <ol>
+        <li><b>Unpassworded:</b> The saved wallet file was just the direct text of the JSON format.
+            Anyone could open the file in a text editor and see not only the private keys, but
+            also any seed words for that wallet.</li>
+        <li><b>Password with key encryption:</b> The saved wallet file was the direct text of the
+            JSON format. However the most critical data like private keys and seed words was
+            encrypted with the password.</li>
+        <li><b>Password with file encryption:</b> The saved wallet file was completely encrypted
+            with the password. In addition to this, critical data was also encrypted according
+            in the same way as basic passworded wallets.
+        </li>
+    </ol>
+</p>
+<h4>Migration</h4>
+<p>
+    The specific subject of wallet migration is not covered in this document, you can read about
+    that if you are on the wallet migration wizard step. However, what the wallet selection process
+    will ask you to do before proceeding to that step, depends on your wallet's format.
+</p>
+<p>
+    Unpassworded JSON wallets will require the user to provide a password, before migration is
+    attempted. The password will be used to encrypt keys in the database, that were not previously
+    encrypted in the original JSON wallet. Passworded wallets will require the user to provide the
+    JSON wallet's existing password.
+</p>
+<h3>Wallet encryption</h3>
+<p>
+    The naive way the wallets were stored using JSON was problematic, but because it was naive
+    it allowed a simple encryption of the entire wallet file as part of the process of writing
+    all the wallet data to disk. As long as no-one really used their wallets much, and they didn't
+    create many transactions this was fine and it was workable.
+</p>
+<p>
+    With Bitcoin SV, a user may decide to store all their data on-chain. To continue to use the
+    JSON files, would mean that potentially gigabytes if not terabytes of data would need to be
+    loaded and decrypted every time the wallet was used. And it would all need to be encrypted and
+    saved every time the wallet was exited.
+</p>
+<p>
+    For now the new database wallet files use key encryption. This is where only critical private
+    key-related data like actual private keys or seed words, are encrypted in the database.
+    We did prototype full privacy, but it complicated things to the point where it was unlikely
+    we would ever make a release. So we stepped back and did what was feasible.
+</p>
+<h4>Privacy</h4>
+<p>
+    One concern about there no longer a way for wallets to have full encryption of all data,
+    is that the balance, transactions and other data can be viewed if someone has access to
+    your computer. However, if someone has access to your computer this is of less concern
+    than their ability to run software that may extract your private keys when you access them
+    &mdash; something that can be done regardless of full on-disk encryption of a wallet!
+</p>
+<p>
+    If a user really wants full privacy, and full on-disk encryption of their wallet they have
+    two options.
+
+    <ul>
+        <li>They can work with us and write support for it and we can merge their implementation
+            in for all users.</li>
+        <li>They can decrypt their wallet database before they load it, and encrypt it after they
+            have finished with it. This could be done manually each time, within a script that
+            automates wallet loading or implicitly done with full encryption of the disk the wallet
+            is stored on.</li>
+    </ul>
+</p>

@@ -5,7 +5,7 @@ import shutil
 from unittest.mock import patch
 
 from electrumsv.constants import DATABASE_EXT, StorageKind
-from electrumsv.storage import (backup_wallet_files, categorise_file, get_categorised_files,
+from electrumsv.storage import (backup_wallet_file, categorise_file, get_categorised_files,
     DatabaseStore, TextStore, WalletStorageInfo, IncompatibleWalletError, WalletStorage)
 
 from .util import TEST_WALLET_PATH
@@ -74,14 +74,14 @@ def test_backup_wallet_json_file(tmp_path, kind) -> None:
     wallet_filepath = os.path.join(tmp_path, filenames[0] + extensions[0])
 
     # Test that a first backup attempt uses the appropriate file name.
-    assert backup_wallet_files(wallet_filepath)
+    assert backup_wallet_file(wallet_filepath) is not None
     assert len(os.listdir(tmp_path)) == len(filenames) * 2
     for i in range(len(filenames)):
         check_filepath = os.path.join(tmp_path, filenames[i])
         assert os.path.exists(check_filepath +".backup.1"+ extensions[i])
 
     # Test that a second backup attempt uses the appropriate sequential file name.
-    assert backup_wallet_files(wallet_filepath)
+    assert backup_wallet_file(wallet_filepath) is not None
     assert len(os.listdir(tmp_path)) == len(filenames) * 3
     for i in range(len(filenames)):
         check_filepath = os.path.join(tmp_path, filenames[i])
@@ -90,7 +90,7 @@ def test_backup_wallet_json_file(tmp_path, kind) -> None:
     wallet_filepath = os.path.join(tmp_path, f"{filenames[0]}.backup.1{extensions[0]}")
 
     # Test that all kinds work with backing up a backup.
-    assert backup_wallet_files(wallet_filepath)
+    assert backup_wallet_file(wallet_filepath) is not None
     assert len(os.listdir(tmp_path)) == len(filenames) * 4
     for i in range(len(filenames)):
         check_filepath = os.path.join(tmp_path, filenames[i] +".backup.1")

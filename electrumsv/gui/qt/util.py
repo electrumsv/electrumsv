@@ -15,6 +15,7 @@ from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentState
+from electrumsv.crypto import pw_encode
 from electrumsv.i18n import _, languages
 from electrumsv.util import resource_path
 
@@ -736,3 +737,34 @@ def show_in_file_explorer(path: str) -> bool:
             '-e', 'return',
         ]
         QProcess.execute('/usr/bin/osascript', args)
+
+
+def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
+    create_filepath, __ = QFileDialog.getSaveFileName(parent, _("Enter a new wallet file name"),
+        initial_dirpath)
+
+    assert not os.path.exists(create_filepath)
+
+    dirpath, filename = os.path.split(create_filepath)
+    if not dirpath or not os.path.isdir(dirpath) or not os.access(dirpath, os.R_OK | os.W_OK):
+        MessageBox.show_error(_("The selected directory is not accessible."))
+        return None
+
+    name_edit = QLabel(filename)
+    fields = [
+        (QLabel(_("Wallet") +":"), name_edit),
+    ]
+    from .password_dialog import ChangePasswordDialog, PasswordAction
+    from .wallet_wizard import PASSWORD_NEW_TEXT
+    d = ChangePasswordDialog(parent, PASSWORD_NEW_TEXT, _("Create New Wallet"), fields,
+        kind=PasswordAction.NEW)
+    success, _old_password, new_password = d.run()
+    if not success or not new_password.strip():
+        return None
+
+    from electrumsv.storage import WalletStorage
+    storage = WalletStorage(create_filepath)
+    storage.put("password-token", pw_encode(os.urandom(32).hex(), new_password))
+    storage.close()
+
+    return create_filepath

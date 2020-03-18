@@ -34,7 +34,7 @@ import stat
 import sys
 import threading
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from bitcoinx import PublicKey, be_bytes_to_int
 
@@ -535,11 +535,20 @@ def setup_thread_excepthook():
 def get_wallet_name_from_path(wallet_path: str) -> str:
     return os.path.splitext(os.path.basename(wallet_path))[0]
 
-def versiontuple(v):
+def versiontuple(v: str) -> Sequence[int]:
     return tuple(int(x) for x in v.split("."))
 
-def resource_path(*parts):
-    return os.path.join(package_dir, "data", *parts)
+def resource_path(*parts: Sequence[str]) -> str:
+    return os.path.join(package_dir, "data", *parts) # type: ignore
+
+def read_resource_file(filename: str) -> str:
+    path = resource_path(filename)
+    with open(path, 'r') as f:
+        return f.read()
+
+def read_resource_text(*parts: Sequence[str]) -> str:
+    subpath = os.path.join("text", *parts) # type: ignore
+    return read_resource_file(subpath)
 
 def get_update_check_dates(new_date):
     from dateutil.parser import isoparse

@@ -225,12 +225,12 @@ class Daemon(DaemonThread):
         if sub in [None, 'start']:
             response = "Daemon already running"
         elif sub == 'load_wallet':
-            path = config.get_wallet_path()
-            wallet = self.load_wallet(path)
+            path = config.get_cmdline_wallet_filepath()
+            wallet = self.load_wallet(path) if path is not None else None
             self.cmd_runner._wallet = wallet
             response = True
         elif sub == 'close_wallet':
-            path = WalletStorage.canonical_path(config.get_wallet_path())
+            path = WalletStorage.canonical_path(config.get_cmdline_wallet_filepath())
             if path in self.wallets:
                 self.stop_wallet_at_path(path)
                 response = True
@@ -255,8 +255,7 @@ class Daemon(DaemonThread):
     def run_gui(self, config_options: dict) -> str:
         config = SimpleConfig(config_options)
         if hasattr(app_state, 'windows'):
-            config.open_last_wallet()
-            path = config.get_wallet_path()
+            path = config.get_cmdline_wallet_filepath()
             app_state.app.new_window(path, config.get('url'))
             return "ok"
 
@@ -309,11 +308,11 @@ class Daemon(DaemonThread):
         cmdname = config.get('cmd')
         cmd = known_commands[cmdname]
         if cmd.requires_wallet:
-            path = WalletStorage.canonical_path(config.get_wallet_path())
-            wallet = self.wallets.get(path)
+            wallet_path = WalletStorage.canonical_path(config.get_cmdline_wallet_filepath())
+            wallet = self.wallets.get(wallet_path)
             if wallet is None:
                 return {'error': 'Wallet "%s" is not loaded. Use "electrum-sv daemon load_wallet"'
-                        % get_wallet_name_from_path(path)}
+                        % get_wallet_name_from_path(wallet_path)}
         else:
             wallet = None
         # arguments passed to function

@@ -50,7 +50,7 @@ from .bitcoin import compose_chain_string, COINBASE_MATURITY, ScriptTemplate
 from .constants import (CHANGE_SUBPATH, DerivationType, KeyInstanceFlag, KeystoreTextType, TxFlags,
     RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, PaymentState)
 from .contacts import Contacts
-from .crypto import pw_encode, pw_decode, sha256
+from .crypto import pw_encode, sha256
 from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, UnknownTransactionException,
     WalletLoadError)
 from .i18n import _
@@ -2110,10 +2110,7 @@ class Wallet(TriggeredCallbacks):
         return list(self._keystores.values())
 
     def check_password(self, password: str) -> None:
-        # raises InvalidPassword on failure.
-        password_token: Optional[str] = self._storage.get("password-token")
-        assert password_token is not None
-        pw_decode(password_token, password)
+        self._storage.check_password(password)
 
     def update_password(self, new_password: str, old_password: Optional[str]=None) -> None:
         assert new_password, "calling code must provide an new password"

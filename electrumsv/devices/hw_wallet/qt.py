@@ -38,7 +38,8 @@ from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.i18n import _
 
 from electrumsv.gui.qt.main_window import ElectrumWindow
-from electrumsv.gui.qt.password_dialog import PasswordDialog, PasswordAction, PasswordLineEdit
+from electrumsv.gui.qt.password_dialog import (ChangePasswordDialog, PasswordAction,
+    PasswordLineEdit)
 from electrumsv.gui.qt.util import (
     WindowModalDialog, Buttons, OkButton, CancelButton, WWLabel, read_QIcon,
 )
@@ -133,7 +134,7 @@ class QtHandlerBase(QObject):
         # If confirm is true, require the user to enter the passphrase twice
         parent = self.top_level_window()
         if confirm:
-            d = PasswordDialog(parent, None, msg, PasswordAction.PASSPHRASE)
+            d = ChangePasswordDialog(parent, msg=msg, kind=PasswordAction.PASSPHRASE)
             confirmed, p, passphrase = d.run()
         else:
             d = WindowModalDialog(parent, _("Enter Passphrase"))
