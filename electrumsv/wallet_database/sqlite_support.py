@@ -9,6 +9,12 @@ from ..constants import DATABASE_EXT
 from ..logs import logs
 
 
+# TODO(rt12): Remove the special case exception for WAL journal mode and see if the in-memory
+#     databases work now that there's locking preventing concurrent enabling of the WAL mode,
+#     in addition to the backing off of retries at enabling it. I vaguely recall that it perhaps
+#     was exacerbated on the Azure Pipelines CI, and had errors there it didn't when running
+#     the unit tests locally (the unit tests exercise the in-memory storage).
+
 def max_sql_variables():
     """Get the maximum number of arguments allowed in a query by the current
     sqlite3 implementation.
@@ -75,7 +81,7 @@ class SqliteWriteDispatcher:
     """
     def __init__(self, db_context: "DatabaseContext") -> None:
         self._db_context = db_context
-        self._logger = logs.get_logger(self.__class__.__name__)
+        self._logger = logs.get_logger("sqlite-writer")
 
         self._writer_queue = queue.Queue()
         self._writer_thread = threading.Thread(target=self._writer_thread_main, daemon=True)
@@ -225,18 +231,24 @@ class DatabaseContext:
         self._connections = []
         # self._debug_texts = {}
 
+        self._logger = logs.get_logger("sqlite-context")
+        self._lock = threading.Lock()
         self._write_dispatcher = SqliteWriteDispatcher(self)
 
     def acquire_connection(self) -> sqlite3.Connection:
-        debug_text = traceback.format_stack()
+            return self._acquire_connection()
+
+    def _acquire_connection(self) -> sqlite3.Connection:
+        # debug_text = traceback.format_stack()
         connection = sqlite3.connect(self._db_path, check_same_thread=False,
             isolation_level=None)
         connection.execute("PRAGMA busy_timeout=5000;")
         connection.execute("PRAGMA foreign_keys=ON;")
-        # We do not enable journaling for in-memory databases. It results in 'database is locked'
-        # errors.
+        # We do not enable journaling for in-memory databases. It resulted in 'database is locked'
+        # errors. Perhaps it works now with the locking and backoff retries.
         if not self.is_special_path(self._db_path):
-            connection.execute(f"PRAGMA journal_mode={self.JOURNAL_MODE};")
+            self._ensure_journal_mode(connection)
+
         # self._debug_texts[connection] = debug_text
         self._connections.append(connection)
         return connection
@@ -245,6 +257,41 @@ class DatabaseContext:
         # del self._debug_texts[connection]
         self._connections.remove(connection)
         connection.close()
+
+    def _ensure_journal_mode(self, connection: sqlite3.Connection) -> None:
+        with self._lock:
+            cursor = connection.execute(f"PRAGMA journal_mode;")
+            journal_mode = cursor.fetchone()[0]
+            if journal_mode.upper() == self.JOURNAL_MODE:
+                return
+
+            self._logger.debug("Switching database from journal mode %s to journal mode %s",
+                self.JOURNAL_MODE, journal_mode.upper())
+
+            time_start = time.time()
+            attempt = 1
+            delay = 0.05
+            while True:
+                try:
+                    cursor = connection.execute(f"PRAGMA journal_mode={self.JOURNAL_MODE};")
+                except sqlite3.OperationalError:
+                    time_delta = time.time() - time_start
+                    if time_delta < 10.0:
+                        delay = min(delay, max(0.05, 10.0 - time_delta))
+                        time.sleep(delay)
+                        self._logger.warning("Database %s pragma attempt %d at %ds",
+                            self.JOURNAL_MODE, attempt, time_delta)
+                        delay *= 2
+                        attempt += 1
+                        continue
+                    raise
+                else:
+                    journal_mode = cursor.fetchone()[0]
+                    if journal_mode.upper() != self.JOURNAL_MODE:
+                        self._logger.error(
+                            "Database unable to switch from journal mode %s to journal mode %s",
+                            self.JOURNAL_MODE, journal_mode.upper())
+                    break
 
     def get_path(self) -> str:
         return self._db_path
