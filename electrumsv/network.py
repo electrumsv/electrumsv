@@ -1039,6 +1039,9 @@ class Network(TriggeredCallbacks):
                 above_height = account
                 for account in account_tasks:
                     account.undo_verifications(above_height)
+            elif job == 'check_verifications':
+                for account in account_tasks:
+                    account.txs_changed_event.set()
             else:
                 logger.error(f'unknown account job {job}')
 
@@ -1054,6 +1057,10 @@ class Network(TriggeredCallbacks):
                 logger.info(f'main chain updated; undoing account verifications '
                             f'above height {above_height:,d}')
                 await self.account_jobs.put(('undo_verifications', above_height))
+            # It has been observed that we may receive headers after all the history events that
+            # relate to the height of those headers. Queueing a check here will cover those new
+            # headers and also due to sequential nature of jobs undo any existing ones first.
+            await self.account_jobs.put(('check_verifications', None))
             main_chain = new_main_chain
             self.trigger_callback('updated')
             self.trigger_callback('main_chain', main_chain, new_main_chain)
