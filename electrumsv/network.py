@@ -756,44 +756,12 @@ class SVSession(RPCSession):
             async with TaskGroup() as group:
                 if is_main_server:
                     self.logger.info('using as main server')
-                    await group.spawn(self.subscribe_accounts)
                     await group.spawn(self._main_server_batch)
                 await group.spawn(self._ping_loop)
                 await self._closed_event.wait()
                 await group.cancel_remaining()
         finally:
             await self._network.session_closed(self)
-
-    async def subscribe_account(self, account, triples=None):
-        if triples is None:
-            triples = [ (k, script_type, scripthash_hex(script))
-                for k in account.existing_active_keys()
-                for script_type, script in account.get_possible_scripts_for_id(k) ]
-            self.logger.info(f'subscribing to {len(triples):,d} existing keys for {account}')
-        else:
-            self.logger.info(f'subscribing to {len(triples):,d} keys for {account}')
-            # If account was unsubscribed in the meantime keep it that way
-            if account not in self._subs_by_account:
-                return
-        await self.subscribe_to_triples(account, triples)
-
-    async def subscribe_accounts(self):
-        '''When switching main server or when initially connected to the main server, send script
-        hash subs to the new main session.
-
-        Raises: RPCError, TaskTimeout
-        '''
-        self.logger.debug("subscribe_accounts")
-        subs_by_account = self._subs_by_account
-        keyinstance_map = self._keyinstance_map
-        SVSession._keyinstance_map = {}
-        SVSession._subs_by_account = {account: [] for account in subs_by_account}
-
-        async with TaskGroup() as group:
-            for account in list(subs_by_account):
-                triples = [(*keyinstance_map[sh], sh) for sh in subs_by_account[account]]
-                await group.spawn(self.subscribe_account, account, triples)
-        self._network.session_subs_complete.set()
 
     async def headers_at_heights(self, heights):
         '''Raises: MissingHeader, DisconnectSessionError, BatchError, TaskTimeout'''
@@ -838,8 +806,6 @@ class SVSession(RPCSession):
         # Take reference so account can be unsubscribed asynchronously without conflict
         subs = self._subs_by_account[account]
         async with TaskGroup() as group:
-            account.request_count += len(triples)
-            account.progress_event.set()
             for keyinstance_id, script_type, script_hash in triples:
                 subs.append(script_hash)
                 # Send request even if already subscribed, as our user expects a response
@@ -847,11 +813,15 @@ class SVSession(RPCSession):
                 self._keyinstance_map[script_hash] = keyinstance_id, script_type
                 await group.spawn(self._subscribe_to_script_hash(script_hash))
 
+            # ensure GUI doesn't keep showing synchronizing...(100/101) when there are only 100 subs
+            account.request_count += len(set(triples) - set(subs))
+            account.progress_event.set()
+
             while await group.next_done():
                 account.response_count += 1
                 account.progress_event.set()
-        # A account shouldn't be subscribing the same key twice
-        assert len(set(subs)) == len(subs)
+
+        assert len(set(subs)) == len(subs), "account subscribed to the same keys twice"
 
     async def unsubscribe_from_pairs(self, account, pairs) -> None:
         '''pairs is an iterable of (keyinstance_id, script_hash) pairs.
@@ -925,7 +895,6 @@ class Network(TriggeredCallbacks):
         self.check_main_chain_event = app_state.async_.event()
         self.stop_network_event = app_state.async_.event()
         self.shutdown_complete_event = app_state.async_.event()
-        self.session_subs_complete = app_state.async_.event()
 
         # Add an account, remove an account, or redo all account verifications
         self.account_jobs = app_state.async_.queue()
@@ -1073,8 +1042,6 @@ class Network(TriggeredCallbacks):
         self.main_server = server
         self.check_main_chain_event.set()
         main_session = self.main_session()
-        if main_session:
-            await main_session.subscribe_accounts()
         # Disconnect the old main session, if any, in order to lose scripthash
         # subscriptions.
         if old_main_session:
@@ -1235,11 +1202,7 @@ class Network(TriggeredCallbacks):
 
     async def _monitor_active_keys(self, account) -> None:
         '''Raises: RPCError, TaskTimeout'''
-        all_keys = set(account.existing_active_keys())
-        session = await self._main_session()
-        monitored_keyinstance_ids = set([v[0] for v in session._keyinstance_map.values()])
-        additional_keys = all_keys - monitored_keyinstance_ids
-
+        additional_keys = set(account.existing_active_keys())
         while True:
             session = await self._main_session()
             session.logger.info(f'subscribing to {len(additional_keys):,d} new keys for {account}')
@@ -1266,8 +1229,6 @@ class Network(TriggeredCallbacks):
         logger.info(f'maintaining account {account}')
         try:
             while True:
-                await self.session_subs_complete.wait()
-                self.session_subs_complete.clear()
                 try:
                     async with TaskGroup() as group:
                         await group.spawn(self._monitor_txs, account)
@@ -1279,7 +1240,9 @@ class Network(TriggeredCallbacks):
                     blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
                     session = self.main_session()
                     if session:
+                        SVSession._subs_by_account[account] = []
                         await session.disconnect(str(error), blacklist=blacklist)
+                        await self.sessions_changed_event.wait()
         finally:
             await SVSession.unsubscribe_account(account, self.main_session())
             logger.info(f'stopped maintaining account {account}')
