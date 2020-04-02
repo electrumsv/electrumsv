@@ -821,9 +821,7 @@ class SVSession(RPCSession):
                 account.response_count += 1
                 account.progress_event.set()
 
-        if len(set(subs)) != len(subs):
-            seen = set(); duplicates = set(x for x in subs if x in seen or seen.add(x))
-            logger.error("subscribed to the same keys twice for: %s", duplicates)
+        assert len(set(subs)) == len(subs), "account subscribed to the same keys twice"
 
     async def unsubscribe_from_pairs(self, account, pairs) -> None:
         '''pairs is an iterable of (keyinstance_id, script_hash) pairs.
