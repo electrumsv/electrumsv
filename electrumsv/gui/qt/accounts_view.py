@@ -7,8 +7,8 @@ import threading
 import time
 
 from PyQt5.QtCore import pyqtSignal, QSize, Qt
-from PyQt5.QtWidgets import (QDialog, QListWidget, QListWidgetItem, QMenu, QPushButton, QSplitter,
-    QLabel, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
+    QSplitter, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from electrumsv.bitcoin import address_from_string, script_template_to_string
 from electrumsv.constants import DerivationType
@@ -297,35 +297,46 @@ class AccountInformationDialog(QDialog):
 
         vbox = QVBoxLayout()
 
-        self._grid = grid = FormSectionWidget()
-        grid.add_title(account.display_name())
-        grid.add_row(_("Account type"), QLabel(account.type().value))
-        # TODO(rt12) BACKLOG this should be shown somewhere, not sure it's here.
-        # grid.addWidget(QLabel(_("Account type")+ ':'), 1, 0)
-        # grid.addWidget(QLabel("wallet_type"), 1, 1)
-        # grid.addWidget(QLabel(_("Script type")+ ':'), 2, 0)
-        # grid.addWidget(QLabel("txin_type"), 2, 1)
-        vbox.addWidget(grid)
+        self._form = form = FormSectionWidget(minimum_label_width=160)
+        form.add_title("Account properties")
+        name_widget = QLineEdit()
+        name_widget.setText(account.display_name())
+        name_widget.setReadOnly(True)
+        form.add_row(_("Name"), name_widget, True)
+        form.add_row(_("Type"), QLabel(account.type().value))
+        script_type_widget = QLineEdit()
+        script_type_widget.setText(account.get_default_script_type().name)
+        script_type_widget.setReadOnly(True)
+        form.add_row(_("Script type"), script_type_widget, True)
+        vbox.addWidget(form)
 
-        if keystore is None:
-            pass
-        elif keystore.derivation_type == DerivationType.ELECTRUM_MULTISIG:
-            self._list = list = CosignerList(self._main_window, create=False)
-            list.setMinimumHeight(350)
-            for i, keystore in enumerate(account.get_keystores()):
-                state = CosignerState(i, keystore)
-                list.add_state(state)
-            vbox.addWidget(list, 1)
-        elif account.is_deterministic():
-            grid.add_row(_("Keystore"), QLabel(keystore.type().value))
+        add_stretch = True
+        if keystore is not None:
+            if keystore.derivation_type == DerivationType.ELECTRUM_MULTISIG:
+                multisig_form = FormSectionWidget(minimum_label_width=160)
+                multisig_form.add_title("Multi-signature properties")
+                multisig_form.add_row(_("Number of cosigners"), QLabel(str(keystore.n)))
+                multisig_form.add_row(_("Number of signatures required"), QLabel(str(keystore.m)))
+                vbox.addWidget(multisig_form)
 
-            mpk_list = account.get_master_public_keys()
-            mpk_text = ShowQRTextEdit()
-            mpk_text.setMaximumHeight(150)
-            mpk_text.addCopyButton(self._main_window.app)
-            mpk_text.setText(mpk_list[0])
-            mpk_text.repaint()   # macOS hack for Electrum #4777
-            grid.add_row(QLabel(_("Master public key")), mpk_text, True)
+                self._list = list = CosignerList(self._main_window, create=False)
+                list.setMinimumHeight(350)
+                for i, keystore in enumerate(account.get_keystores()):
+                    state = CosignerState(i, keystore)
+                    list.add_state(state)
+                vbox.addWidget(list, 1)
+                add_stretch = False
+            elif account.is_deterministic():
+                form.add_row(_("Keystore"), QLabel(keystore.type().value))
+
+                mpk_list = account.get_master_public_keys()
+                mpk_text = ShowQRTextEdit()
+                mpk_text.setFixedHeight(65)
+                mpk_text.addCopyButton(self._main_window.app)
+                mpk_text.setText(mpk_list[0])
+                mpk_text.repaint()   # macOS hack for Electrum #4777
+                form.add_row(QLabel(_("Master public key")), mpk_text, True)
+        if add_stretch:
             vbox.addStretch(1)
 
         buttons = Buttons(CloseButton(self))
