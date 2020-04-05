@@ -2196,7 +2196,7 @@ class Wallet(TriggeredCallbacks):
             script_type = ScriptType.P2PKH
         elif masterkey_row.derivation_type == DerivationType.ELECTRUM_MULTISIG:
             account_name = "Multi-signature account"
-            script_type = ScriptType.MULTISIG_P2SH
+            script_type = ScriptType.MULTISIG_BARE
         elif masterkey_row.derivation_type == DerivationType.HARDWARE:
             account_name = keystore.label or "Hardware wallet"
             script_type = ScriptType.P2PKH
