@@ -35,6 +35,7 @@ class AccountsView(QSplitter):
         self._main_window.account_created_signal.connect(self._on_account_created)
 
         self._selection_list = QListWidget()
+        self._selection_list.setMinimumWidth(150)
         self._tab_widget = QTabWidget()
 
         self.addWidget(self._selection_list)
