@@ -1,13 +1,42 @@
 <p>
     Changes included in this version of ElectrumSV are documented in a more readable
-    form within the following article: <a href="https://medium.com/@roger.taylor/electrumsv-1-3-0b3-multisig-51b97311caae">ElectrumSV 1.3.0</a>
+    form within the following article: <a href="https://medium.com/@roger.taylor/electrumsv-1-3-0b4-d9940b75c0f1">ElectrumSV 1.3.0</a>
 </p>
 <p>
     The most prominent changes are also summarised below for convenience, if you wish to read more
     about any given change, please read the linked article.
     <ul>
-        <li>The wallet storage has changed from a JSON file to an Sqlite database.</li>
-        <li>A wallet can now have multiple accounts, although they are currently limited to having
-            only one account until the user interface is reworked to support more than that.</li>
+        <li>
+            Wallet files: The wallet storage has changed from a JSON file to an SQLite database.
+        </li>
+        <li>
+            Accounts: A wallet can now have multiple accounts, although they are currently limited
+            to having only one account until the user interface is reworked to support more than
+            that.
+        </li>
+        <li>
+            Multi-signature: The default script type for a new multi-signature account is now
+            bare multi-signature. Existing multi-signature accounts can change which script
+            type they use for transactions in the wallet preferences.
+        </li>
+        <li>
+            Multi-signature: Support has been added so that multi-signature accounts can opt to
+            use the standard form of accumulator multi-signature scripts for transactions.
+        </li>
+        <li>
+            Networking: Messages larger than 1 MB are now accepted from the server. The limit
+            has temporarily been increased to 10 MB, before messages are dropped. This will be
+            revisited in the future.
+        </li>
+        <li>
+            Addresses: With the Genesis upgrade payments can easily be made to non-addressable
+            payment destinations. This means that it is no longer possible for things that use
+            an address to make a payment. BIP276 has been integrated to provide an ability to
+            make these non-addressable payment destinations addressable in different way.
+        </li>
+        <li>
+            User interface: There has been a complete rewrite of both wallet and account creation
+            user interfaces.
+        </li>
     </ul>
 </p>
