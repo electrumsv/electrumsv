@@ -954,7 +954,7 @@ def instantiate_keystore(derivation_type: DerivationType, data: Dict[str, Any],
         assert parent_keystore is None
         keystore = Old_KeyStore(data, row)
     else:
-        raise Exception(_("unknown masterkey type %s:%d").format(
+        raise Exception(_("unknown masterkey type {}:{}").format(
             row.masterkey_id if row is not None else None, derivation_type))
     return keystore
 

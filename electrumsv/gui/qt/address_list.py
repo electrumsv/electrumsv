@@ -79,7 +79,7 @@ QT_SORT_ROLE = Qt.UserRole+1
 QT_FILTER_ROLE = Qt.UserRole+2
 
 COLUMN_NAMES = [ _("Type"), _("State"), _('Key'), _('Script'), _('Label'), _('Usages'),
-    _('Balance'), _('') ]
+    _('Balance'), '' ]
 
 TYPE_COLUMN = 0
 STATE_COLUMN = 1

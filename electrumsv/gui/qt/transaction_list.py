@@ -29,7 +29,7 @@ from .util import read_QIcon, get_source_index
 
 QT_SORT_ROLE = Qt.UserRole+1
 
-COLUMN_NAMES = [ _("Date Added"), _("Date Updated"), _("State"), _('Label'), _('Value'), _('') ]
+COLUMN_NAMES = [ _("Date Added"), _("Date Updated"), _("State"), _('Label'), _('Value'), '' ]
 
 DATE_ADDED_COLUMN = 0
 DATE_UPDATED_COLUMN = 1
