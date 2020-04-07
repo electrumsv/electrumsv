@@ -5,7 +5,7 @@ msgstr ""
 "Project-Id-Version: electrumsv\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2020-04-07 17:17+1200\n"
-"PO-Revision-Date: 2020-04-07 05:17\n"
+"PO-Revision-Date: 2020-04-07 06:37\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Persian\n"
 "Language: fa_IR\n"
@@ -785,7 +785,7 @@ msgstr "\"کپی به کلیپ بورد\""
 #: electrumsv/gui/qt/transaction_list.py:703
 #: electrumsv/gui/qt/request_list.py:138 electrumsv/gui/qt/invoice_list.py:116
 msgid "Copy {}"
-msgstr "{کپی}"
+msgstr "کپی {}"
 
 #: electrumsv/gui/qt/cosigners_view.py:80
 msgid "Cosigner #{}"

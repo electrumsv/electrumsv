@@ -5,7 +5,7 @@ msgstr ""
 "Project-Id-Version: electrumsv\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2020-04-07 17:17+1200\n"
-"PO-Revision-Date: 2020-04-07 05:18\n"
+"PO-Revision-Date: 2020-04-07 06:37\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Thai\n"
 "Language: th_TH\n"
@@ -52,11 +52,11 @@ msgstr ""
 
 #: electrumsv/gui/qt/main_window.py:625
 msgid "&Donate to server"
-msgstr "Dfu"
+msgstr ""
 
 #: electrumsv/gui/qt/main_window.py:603
 msgid "&Encrypt/decrypt message"
-msgstr "Fot"
+msgstr ""
 
 #: electrumsv/gui/qt/accounts_view.py:116
 #: electrumsv/gui/qt/accounts_view.py:130
@@ -65,7 +65,7 @@ msgstr "Tam"
 
 #: electrumsv/gui/qt/main_window.py:560
 msgid "&File"
-msgstr "Fil"
+msgstr ""
 
 #: electrumsv/gui/qt/main_window.py:612
 msgid "&From QR code"
@@ -73,7 +73,7 @@ msgstr "Qr"
 
 #: electrumsv/gui/qt/main_window.py:609
 msgid "&From file"
-msgstr "From fil"
+msgstr ""
 
 #: electrumsv/gui/qt/main_window.py:610
 msgid "&From text"
@@ -94,7 +94,7 @@ msgstr ""
 #: electrumsv/gui/qt/accounts_view.py:113
 #: electrumsv/gui/qt/accounts_view.py:125
 msgid "&Import"
-msgstr "Im"
+msgstr ""
 
 #: electrumsv/gui/qt/main_window.py:569 electrumsv/gui/qt/accounts_view.py:104
 msgid "&Information"
@@ -122,7 +122,7 @@ msgstr ""
 
 #: electrumsv/gui/qt/main_window.py:618
 msgid "&Official website"
-msgstr "Ww"
+msgstr ""
 
 #: electrumsv/gui/qt/main_window.py:562
 msgid "&Open"
@@ -130,7 +130,7 @@ msgstr "&เปิด"
 
 #: electrumsv/gui/qt/main_window.py:572
 msgid "&Password"
-msgstr "Snu all"
+msgstr ""
 
 #: electrumsv/gui/qt/main_window.py:606
 msgid "&Pay to many"

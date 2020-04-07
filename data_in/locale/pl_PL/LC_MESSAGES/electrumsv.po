@@ -5,7 +5,7 @@ msgstr ""
 "Project-Id-Version: electrumsv\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2020-04-07 17:17+1200\n"
-"PO-Revision-Date: 2020-04-07 05:17\n"
+"PO-Revision-Date: 2020-04-07 06:37\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Polish\n"
 "Language: pl_PL\n"
@@ -1045,7 +1045,7 @@ msgstr ""
 #: electrumsv/device.py:157
 msgid "ElectrumSV cannot pair with your {}.\n\n"
 "Before you request bitcoins to be sent to addresses in this wallet, ensure you can pair with your device, or that you have its seed (and passphrase, if any). Otherwise all bitcoins you receive will be unspendable."
-msgstr "Electrum nie może zostać sparowane z twoim {}.\n\n"
+msgstr "ElectrumSV nie może zostać sparowane z twoim {}.\n\n"
 "Zanim poprosisz aby bitcoiny zostały wysłane na adresy w tym portfelu, upewnij się, że możesz sparować się z twoim urządzeniem lub że posiadasz jego frazę seed (i hasło jeśli istnieje). W przeciwnym wypadku bitcoiny które otrzymasz nie będą mogły zostać wydane."
 
 #: electrumsv/gui/qt/coinsplitting_tab.py:23
