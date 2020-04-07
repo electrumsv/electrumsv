@@ -47,6 +47,7 @@ from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, RECEIVING_
     ScriptType, StorageKind, TxFlags, TransactionOutputFlag, KeyInstanceFlag, PaymentState)
 from .crypto import pw_encode, pw_decode, InvalidPassword
 from .exceptions import IncompatibleWalletError
+from .i18n import _
 from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
@@ -795,6 +796,7 @@ class TextStore(AbstractStore):
         # This code should be updated as the structure and wallet workings changes to ensure
         # older wallets can always be migrated as long as we support them.
         db_context = DatabaseContext(self._path)
+        walletdata_table: Optional[WalletDataTable] = None
         try:
             walletdata_table = WalletDataTable(db_context)
 
@@ -888,6 +890,9 @@ class TextStore(AbstractStore):
             # Index all the address usage via the ElectrumX server scripthash state.
             for address_string, usage_list in address_usage.items():
                 for tx_id, tx_height in usage_list:
+                    if tx_id not in tx_states:
+                        raise IncompatibleWalletError(_("Wallets that are mid-synchronization "
+                            "cannot be migrated."))
                     tx_states[tx_id].known_addresses.add(address_string)
                     assert tx_height <= tx_states[tx_id].height, \
                         (f"bad height {tx_height} > {tx_states[tx_id].height}" +
@@ -1205,7 +1210,11 @@ class TextStore(AbstractStore):
                 WalletDataRow("next_paymentrequest_id", next_paymentrequest_id),
             ])
             walletdata_table.close()
+            walletdata_table = None
         finally:
+            # We need to close this one explicitly if it opened successfully.
+            if walletdata_table is not None:
+                walletdata_table.close()
             db_context.close()
 
         # We hand across the data to the database store, so correct it.

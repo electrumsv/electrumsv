@@ -266,7 +266,7 @@ class DatabaseContext:
                 return
 
             self._logger.debug("Switching database from journal mode %s to journal mode %s",
-                self.JOURNAL_MODE, journal_mode.upper())
+                journal_mode.upper(), self.JOURNAL_MODE)
 
             time_start = time.time()
             attempt = 1
@@ -291,7 +291,10 @@ class DatabaseContext:
                         self._logger.error(
                             "Database unable to switch from journal mode %s to journal mode %s",
                             self.JOURNAL_MODE, journal_mode.upper())
+                        return
                     break
+
+            self._logger.debug("Database now in journal mode %s", self.JOURNAL_MODE)
 
     def get_path(self) -> str:
         return self._db_path

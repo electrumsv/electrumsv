@@ -706,6 +706,7 @@ class OlderWalletMigrationPage(QWizardPage):
 
         self._progress_label = QLabel(_("Please wait while your wallet is backed up and migrated "
             "to the new format."))
+        self._progress_label.setAlignment(Qt.AlignCenter)
 
         vbox = QVBoxLayout()
         vbox.addStretch(1)
@@ -798,7 +799,7 @@ class OlderWalletMigrationPage(QWizardPage):
                 storage.upgrade(has_password, wallet_password)
             except IncompatibleWalletError as e:
                 logger.exception("wallet migration error '%s'", entry.path)
-                self._migration_error_text = e.args[0]
+                self._migration_error_text += "\n"+ e.args[0]
             else:
                 logger.debug("wallet migration successful")
                 wizard.set_wallet_path(entry.path)

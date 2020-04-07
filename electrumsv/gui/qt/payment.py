@@ -4,8 +4,8 @@ from PyQt5.QtCore import (QAbstractItemModel, Qt, QSize, QSortFilterProxyModel, 
     QModelIndex, pyqtSignal, QEvent, QObject)
 from PyQt5.QtGui import QPainter, QPixmap, QPalette, QStandardItemModel, QStandardItem
 from PyQt5.QtWidgets import (QAction, QComboBox, QCompleter, QDialog, QDialogButtonBox,
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
-    QSizePolicy, QStyledItemDelegate, QTabWidget, QVBoxLayout, QWidget, QLayout,
+    QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
+    QSizePolicy, QStyledItemDelegate, QTabWidget, QVBoxLayout, QWidget,
     QStyleOptionViewItem, QStyle, QStyleOption, QTableView, QAbstractItemView)
 
 from electrumsv.contacts import ContactEntry, ContactIdentity, IDENTITY_SYSTEM_NAMES
