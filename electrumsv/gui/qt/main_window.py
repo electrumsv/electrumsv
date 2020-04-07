@@ -980,6 +980,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             await asyncio.sleep(1.0)
 
     def _update_network_status(self) -> None:
+        "Update the network status portion of the status bar."
         text = _("Offline")
         if self.network:
             request_count = 0
@@ -1007,6 +1008,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._status_bar.set_network_status(text)
 
     def update_status(self):
+        "Update the entire status bar."
         fiat_status = None
         # Display if offline. Display if online. Do not display if synchronizing.
         if self.network and self.network.is_connected():
@@ -1020,6 +1022,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     balance, app_state.base_unit(), app_state.decimal_point)
         self.set_status_bar_balance(True)
         self._status_bar.set_fiat_status(fiat_status)
+        self._update_network_status()
 
     @profiler
     def update_wallet(self):
