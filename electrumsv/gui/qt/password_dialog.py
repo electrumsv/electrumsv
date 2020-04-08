@@ -137,10 +137,6 @@ class PasswordLayout(object):
         self.kind = kind
         self._state_change_fn = state_change_fn
 
-        # Ensure that callers know what they are doing. The password valid callback only gets used
-        # when users are actually entering it.
-        assert password_valid_fn is None or kind != PasswordAction.CHANGE
-
         vbox = QVBoxLayout()
         label = QLabel(msg + "\n")
         label.setWordWrap(True)
