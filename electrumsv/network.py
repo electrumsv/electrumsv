@@ -968,9 +968,10 @@ class Network(TriggeredCallbacks):
 
     async def _maybe_switch_main_server(self, reason):
         now = time.time()
-        max_height = max((session.tip.height for session in self.sessions), default=0)
+        max_height = max((session.tip.height for session in self.sessions
+            if session.tip is not None), default=0)
         for session in self.sessions:
-            if session.tip.height > max_height - 2:
+            if session.tip is not None and session.tip.height > max_height - 2:
                 session.server.state.last_good = now
         # Give a 60-second breather for a lagging server to catch up
         good_servers = [session.server for session in self.sessions
