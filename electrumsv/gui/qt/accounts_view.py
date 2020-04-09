@@ -106,7 +106,8 @@ class AccountsView(QSplitter):
         seed_menu = menu.addAction(_("View &Secured Data"),
             partial(self._view_secured_data, main_window=self._main_window, account_id=account_id))
         seed_menu.setEnabled(
-            not account.is_watching_only() and not isinstance(account, MultisigAccount))
+            not account.is_watching_only() and not isinstance(account, MultisigAccount) \
+            and not account.is_hardware_wallet())
         menu.addSeparator()
 
         private_keys_menu = menu.addMenu(_("&Private keys"))
