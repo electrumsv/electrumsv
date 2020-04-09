@@ -2522,16 +2522,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         lines = []
         for item in history:
             if is_csv:
-                lines.append([item['txid'], item.get('label', ''),
-                              item['confirmations'], item['value'], item['date']])
+                lines.append([item['txid'], item.get('label', ''), item['value'],
+                    item['timestamp']])
             else:
                 lines.append(item)
 
         with open(fileName, "w+") as f:
             if is_csv:
                 transaction = csv.writer(f, lineterminator='\n')
-                transaction.writerow(["transaction_hash", "label", "confirmations",
-                                      "value", "timestamp"])
+                transaction.writerow(["transaction_hash", "label", "value", "timestamp"])
                 for line in lines:
                     transaction.writerow(line)
             else:
