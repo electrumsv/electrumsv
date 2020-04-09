@@ -660,7 +660,6 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             self.give_error(e, True)
         else:
             logger.debug("Transaction is_complete %s", tx.is_complete())
-            tx.raw = tx.serialize()
 
 
 class DigitalBitboxPlugin(HW_PluginBase):

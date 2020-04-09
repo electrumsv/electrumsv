@@ -417,7 +417,6 @@ class Ledger_KeyStore(Hardware_KeyStore):
 
         for txin, input, signature in zip(tx.inputs, inputs, signatures):
             txin.signatures[input[4]] = signature
-        tx.raw = tx.serialize()
 
     @set_and_unset_signing
     def show_address(self, derivation_subpath: str) -> None:
