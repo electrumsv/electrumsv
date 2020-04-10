@@ -215,36 +215,6 @@ class TestTransactionCache:
             assert result == actual_result, str(combos[i])
 
     @pytest.mark.timeout(5)
-    def test_add_missing_transaction(self):
-        cache = TransactionCache(self.store)
-
-        tx_bytes_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(tx_bytes_1)
-
-        with SynchronousWriter() as writer:
-            cache.add_missing_transaction(tx_hash_1, 100, 94,
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        assert cache.is_cached(tx_hash_1)
-        entry = cache.get_entry(tx_hash_1)
-        assert TxFlags.HasFee | TxFlags.HasHeight, entry.flags & TxFlags.METADATA_FIELD_MASK
-        assert entry.bytedata is None
-
-        tx_bytes_2 = bytes.fromhex(tx_hex_2)
-        tx_hash_2 = bitcoinx.double_sha256(tx_bytes_2)
-
-        with SynchronousWriter() as writer:
-            cache.add_missing_transaction(tx_hash_2, 200,
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        assert cache.is_cached(tx_hash_2)
-        entry = cache.get_entry(tx_hash_2)
-        assert TxFlags.HasHeight == entry.flags & TxFlags.METADATA_FIELD_MASK
-        assert entry.bytedata is None
-
-    @pytest.mark.timeout(5)
     def test_add_transaction(self):
         cache = TransactionCache(self.store)
 
@@ -253,10 +223,11 @@ class TestTransactionCache:
             cache.add_transaction(tx, completion_callback=writer.get_callback())
             assert writer.succeeded()
 
-        assert cache.is_cached(tx.hash())
-        entry = cache.get_entry(tx.hash())
+        tx_hash = tx.hash()
+        assert cache.is_cached(tx_hash)
+        entry = cache.get_entry(tx_hash)
         assert TxFlags.HasByteData == entry.flags & TxFlags.HasByteData
-        assert entry.bytedata is not None
+        assert cache.have_transaction_data_cached(tx_hash)
 
     @pytest.mark.timeout(5)
     def test_add_transaction_update(self):
@@ -278,9 +249,10 @@ class TestTransactionCache:
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
-        entry = cache.get_entry(tx.hash())
+        tx_hash = tx.hash()
+        entry = cache.get_entry(tx_hash)
         assert entry is not None
-        assert entry.bytedata is not None
+        assert cache.have_transaction_data_cached(tx_hash)
         assert TxFlags.StateCleared == entry.flags & TxFlags.StateCleared
 
     @pytest.mark.timeout(5)
@@ -298,7 +270,7 @@ class TestTransactionCache:
         assert cache.is_cached(tx_hash_1)
         entry = cache.get_entry(tx_hash_1)
         assert TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.StateDispatched == entry.flags
-        assert entry.bytedata is not None
+        assert cache.have_transaction_data_cached(tx_hash_1)
 
         metadata_2 = TxData(fee=10, height=88)
         propagate_flags = TxFlags.HasFee | TxFlags.HasHeight
@@ -311,45 +283,7 @@ class TestTransactionCache:
         expected_flags = propagate_flags | TxFlags.StateDispatched | TxFlags.HasByteData
         assert expected_flags == entry.flags, \
             f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(entry.flags)}"
-        assert entry.bytedata is not None
-
-    @pytest.mark.timeout(5)
-    def test_update_or_add(self):
-        cache = TransactionCache(self.store)
-
-        # Add.
-        bytedata_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
-        metadata_1 = TxData()
-        with SynchronousWriter() as writer:
-            cache.update_or_add([ (tx_hash_1, metadata_1, bytedata_1, TxFlags.StateSettled) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        assert cache.is_cached(tx_hash_1)
-        entry = cache.get_entry(tx_hash_1)
-        assert TxFlags.HasByteData | TxFlags.StateSettled == entry.flags
-        assert entry.bytedata is not None
-
-        # Update.
-        metadata_2 = TxData(position=22)
-        with SynchronousWriter() as writer:
-            updated_ids = cache.update_or_add([
-                (tx_hash_1, metadata_2, None, TxFlags.HasPosition | TxFlags.StateDispatched) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        entry = cache.get_entry(tx_hash_1)
-        _tx_hash, store_flags, _metadata = self.store.read_metadata(tx_hashes=[ tx_hash_1 ])[0]
-        # State flags if present get set in an update otherwise they remain the same.
-        expected_flags = TxFlags.HasPosition | TxFlags.HasByteData | TxFlags.StateDispatched
-        assert expected_flags == store_flags, \
-            f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(store_flags)}"
-        assert expected_flags == entry.flags, \
-            f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(entry.flags)}"
-        assert bytedata_1 == entry.bytedata
-        assert metadata_2.position == entry.metadata.position
-        assert updated_ids == set([ tx_hash_1 ])
+        assert cache.have_transaction_data_cached(tx_hash_1)
 
     @pytest.mark.timeout(5)
     def test_delete(self):
@@ -438,13 +372,11 @@ class TestTransactionCache:
         assert metadata_set_2.fee == metadata_get.fee
         assert metadata_set_2.position == metadata_get.position
 
-        entry = cache.get_cached_entry(tx_hash_1)
-        assert entry.is_metadata_cached()
-        assert entry.is_bytedata_cached()
+        entry = cache._cache[tx_hash_1]
+        assert cache.have_transaction_data_cached(tx_hash_1)
 
-        entry = cache.get_cached_entry(tx_hash_2)
-        assert entry.is_metadata_cached()
-        assert not entry.is_bytedata_cached()
+        entry = cache._cache[tx_hash_2]
+        assert not cache.have_transaction_data_cached(tx_hash_2)
 
     @pytest.mark.timeout(5)
     def test_get_transaction_after_metadata(self):
@@ -462,17 +394,16 @@ class TestTransactionCache:
         assert metadata_get is not None
 
         # Initial priming of cache will be only metadata.
-        cached_entry_1 = cache.get_cached_entry(tx_hash)
-        assert cached_entry_1.is_metadata_cached()
-        assert not cached_entry_1.is_bytedata_cached()
+        cached_entry_1 = cache._cache[tx_hash]
+        assert not cache.have_transaction_data_cached(tx_hash)
 
         # Entry request will hit the database.
         entry = cache.get_entry(tx_hash)
-        assert entry.is_metadata_cached()
-        assert entry.is_bytedata_cached()
+        assert cache.have_transaction_data_cached(tx_hash)
 
-        cached_entry_2 = cache.get_cached_entry(tx_hash)
-        assert entry == cached_entry_2
+        cached_entry_2 = cache._cache[tx_hash]
+        assert entry.metadata == cached_entry_2.metadata
+        assert entry.flags == cached_entry_2.flags
 
     @pytest.mark.timeout(5)
     def test_get_transaction(self):
@@ -540,13 +471,15 @@ class TestTransactionCache:
         mock_store.read = _read
         mock_store.read_metadata = _read_metadata
 
-        cache = TransactionCache(mock_store)
+        cache = TransactionCache(mock_store, 0)
 
         # Verify that we do not hit the store for our cached entry.
         our_entry = TransactionCacheEntry(metadata, TxFlags.HasPosition)
-        cache.set_cache_entries({ b"tx_hash": our_entry })
+        cache._cache[b"tx_hash"] = our_entry
+
         their_entry = cache.get_entry(b"tx_hash")
-        assert our_entry is their_entry
+        assert our_entry.metadata == their_entry.metadata
+        assert our_entry.flags == their_entry.flags
 
     # No complete cache of metadata, tx_hash not in cache, store hit.
     def test_get_entry_cached_on_demand(self) -> None:
@@ -563,7 +496,7 @@ class TestTransactionCache:
         mock_store.read = _read
         mock_store.read_metadata = _read_metadata
 
-        cache = TransactionCache(mock_store)
+        cache = TransactionCache(mock_store, 0)
         their_entry = cache.get_entry(b"tx_hash")
         assert their_entry.metadata == metadata
         assert their_entry.flags == flags
@@ -586,7 +519,7 @@ class TestTransactionCache:
         assert 11 == cache.get_height(tx_hash_1)
 
         cache.update_flags(tx_hash_1, TxFlags.StateReceived, TxFlags.HasByteData)
-        assert cache.get_height(tx_hash_1) is None
+        assert None is cache.get_height(tx_hash_1)
 
     @pytest.mark.timeout(5)
     def test_get_unsynced_hashes(self):

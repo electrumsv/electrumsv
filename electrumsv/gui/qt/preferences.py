@@ -35,7 +35,8 @@ from PyQt5.QtWidgets import (
 
 from electrumsv import qrscanner
 from electrumsv.app_state import app_state
-from electrumsv.constants import ScriptType
+from electrumsv.constants import (MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
+    ScriptType)
 from electrumsv.extensions import label_sync
 from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
@@ -390,9 +391,29 @@ class PreferencesDialog(QDialog):
                 wallet.set_multiple_change(multiple)
         multiple_cb.stateChanged.connect(on_multiple)
 
+        transaction_cache_size = wallet.get_cache_size_for_tx_bytedata()
+        nz_label = HelpLabel(_('Transaction Cache Size (MB)') + ':',
+            _("This allows setting a per-wallet limit on the amount of transaction data cached "
+            "in memory. A value of 0 will disable the cache, and setting low values can cause "
+            "wallet slowness due to continual fetching of transaction data from the database."))
+        nz_modifiable = app_state.config.is_modifiable('tx_bytedata_cache_size')
+        nz = QSpinBox()
+        nz.setMinimum(MINIMUM_TXDATA_CACHE_SIZE_MB)
+        nz.setMaximum(MAXIMUM_TXDATA_CACHE_SIZE_MB)
+        print(transaction_cache_size)
+        nz.setValue(transaction_cache_size)
+        nz.setEnabled(nz_modifiable)
+        def on_nz():
+            value = nz.value()
+            # This will not resize the cache, as we do not want to be doing it with every
+            # change and some changes may be bad to actually put in place.
+            wallet.set_cache_size_for_tx_bytedata(value)
+        nz.valueChanged.connect(on_nz)
+
         return [
             (usechange_cb, ),
             (multiple_cb, ),
+            (nz_label, nz),
         ]
 
     def account_widgets(self, account: AbstractAccount):

@@ -409,8 +409,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         fee = height = conf = timestamp = None
         tx_hash = tx.hash()
         if tx.is_complete():
-            entry = self._wallet._transaction_cache.get_cached_entry(tx_hash)
-            metadata = entry.metadata
+            metadata = self._wallet._transaction_cache.get_metadata(tx_hash)
             fee = metadata.fee
             label = self._account.get_transaction_label(tx_hash)
             value_delta = self._account.get_transaction_delta(tx_hash)
@@ -419,8 +418,9 @@ class TxDialog(QDialog, MessageBoxMixin):
                 # are committed to the database (pending write).
                 value_delta = 0
             if self._account.has_received_transaction(tx_hash):
-                if (entry.flags & TxFlags.StateSettled
-                        or entry.flags & TxFlags.StateCleared and metadata.height > 0):
+                entry_flags = self._wallet._transaction_cache.get_flags(tx_hash)
+                if (entry_flags & TxFlags.StateSettled
+                        or entry_flags & TxFlags.StateCleared and metadata.height > 0):
                     chain = app_state.headers.longest_chain()
                     try:
                         header = app_state.headers.header_at_height(chain, metadata.height)
@@ -428,7 +428,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     except MissingHeader:
                         pass
 
-                    if entry.flags & TxFlags.StateSettled:
+                    if entry_flags & TxFlags.StateSettled:
                         height = metadata.height
                         conf = max(self._wallet.get_local_height() - height + 1, 0)
                         status = _("{:,d} confirmations (in block {:,d})"
