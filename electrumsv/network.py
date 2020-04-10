@@ -21,7 +21,6 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
 from collections import defaultdict
 from contextlib import suppress
 from enum import IntEnum
@@ -352,6 +351,12 @@ class SVSession(RPCSession):
         self.server = server
         self.tip = None
         self.ptuple = (0, )
+
+    def set_throttled(self, flag: bool) -> None:
+        if flag:
+            RPCSession.recalibrate_count = 30
+        else:
+            RPCSession.recalibrate_count = 10000000000
 
     def default_framer(self) -> NewlineFramer:
         return NewlineFramer(max_size=MAX_INCOMING_ELECTRUMX_MESSAGE_SIZE)
