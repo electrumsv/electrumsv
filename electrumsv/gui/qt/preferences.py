@@ -109,8 +109,8 @@ class PreferencesDialog(QDialog):
         customfee_e.setAmount(app_state.config.custom_fee_rate() / 1000.0
                               if app_state.config.has_custom_fee_rate() else None)
         customfee_e.textChanged.connect(on_customfee)
-        customfee_label = HelpLabel(_('Custom Fee Rate'),
-                                    _('Custom Fee Rate in Satoshis per byte'))
+        # customfee_label = HelpLabel(_('Custom Fee Rate'),
+        #                             _('Custom Fee Rate in Satoshis per byte'))
 
         unconf_cb = QCheckBox(_('Spend only confirmed coins'))
         unconf_cb.setToolTip(_('Spend only confirmed inputs.'))
@@ -415,6 +415,7 @@ class PreferencesDialog(QDialog):
         #     "wallet slowness due to continual fetching of transaction data from the database."))
         nz_modifiable = app_state.config.is_modifiable('tx_bytedata_cache_size')
         nz = QSpinBox()
+        nz.setAlignment(Qt.AlignRight)
         nz.setMinimum(MINIMUM_TXDATA_CACHE_SIZE_MB)
         nz.setMaximum(MAXIMUM_TXDATA_CACHE_SIZE_MB)
         nz.setValue(transaction_cache_size)
@@ -426,9 +427,14 @@ class PreferencesDialog(QDialog):
             wallet.set_cache_size_for_tx_bytedata(value)
         nz.valueChanged.connect(on_nz)
 
-        form = FormSectionWidget(minimum_label_width=50)
+        tx_cache_layout = QHBoxLayout()
+        tx_cache_layout.setSpacing(15)
+        tx_cache_layout.addWidget(nz)
+        tx_cache_layout.addWidget(QLabel(_("MiB")))
+
+        form = FormSectionWidget(minimum_label_width=120)
         form.add_row(_('Options'), options_box, True)
-        form.add_row(_('Transaction Cache Size (MB)'), nz)
+        form.add_row(_('Transaction Cache Size'), tx_cache_layout)
 
         vbox = QVBoxLayout()
         vbox.addWidget(form)
