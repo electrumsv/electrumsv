@@ -47,8 +47,9 @@ from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160
 from . import coinchooser
 from .app_state import app_state
 from .bitcoin import compose_chain_string, COINBASE_MATURITY, ScriptTemplate
-from .constants import (AccountType, CHANGE_SUBPATH, DerivationType, KeyInstanceFlag,
-    KeystoreTextType, TxFlags, RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, PaymentState)
+from .constants import (AccountType, CHANGE_SUBPATH, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
+    KeyInstanceFlag, KeystoreTextType, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
+    RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, TxFlags, PaymentState)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
 from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, UnknownTransactionException,
@@ -743,8 +744,7 @@ class AbstractAccount:
             # We have proof now so regardless what TxState is, we can 'upgrade' it to StateSettled.
             # This rests on the commitment that any of the following four tx States *will*
             # Have tx bytedata i.e. "HasByteData" flag is set.
-            entry = self._wallet._transaction_cache.get_entry(tx_hash,
-                flags=TxFlags.STATE_UNCLEARED_MASK)
+            entry = self._wallet._transaction_cache.get_entry(tx_hash, TxFlags.STATE_UNCLEARED_MASK)
             if entry.flags & TxFlags.HasByteData != 0:
                 self._logger.debug("Fast_tracking entry to StateSettled: %r", entry)
             else:
@@ -897,7 +897,7 @@ class AbstractAccount:
         with self.transaction_lock:
             if not self._wallet._transaction_cache.is_cached(tx_hash):
                 raise UnknownTransactionException(f"tx {tx_hash} unknown")
-            existing_flags = self._wallet._transaction_cache.get_cached_entry(tx_hash).flags
+            existing_flags = self._wallet._transaction_cache.get_flags(tx_hash)
             updated_flags = self._wallet._transaction_cache.update_flags(tx_hash, flags)
         self._wallet.trigger_callback('transaction_state_change',
             self._wallet.get_storage_path(), self._id, tx_hash, existing_flags, updated_flags)
@@ -1141,6 +1141,7 @@ class AbstractAccount:
             # those with unconfirmed parents (height < 0). [ (tx_hash, tx_height), ... ]
             self._sync_state.set_key_history(keyinstance_id, hist)
 
+            adds = []
             updates = []
             unique_tx_hashes: Set[bytes] = set([])
             for tx_id, tx_height in hist:
@@ -1153,23 +1154,27 @@ class AbstractAccount:
                 if tx_fee is not None:
                     flags |= TxFlags.HasFee
                 tx_hash = hex_str_to_hash(tx_id)
-                updates.append((tx_hash, data, None, flags))
+                entry_flags = self._wallet._transaction_cache.get_flags(tx_hash)
+                if entry_flags is None:
+                    adds.append((tx_hash, data, None, flags))
+                else:
+                    # If a transaction has bytedata at this point, but no state, then it is likely
+                    # that we added it locally and broadcast it ourselves. Transactions without
+                    # bytedata cannot have a state.
+                    if flags & (TxFlags.HasByteData|TxFlags.StateCleared|TxFlags.StateSettled) \
+                            == TxFlags.HasByteData:
+                        flags |= TxFlags.StateCleared
+                    updates.append((tx_hash, data, None, flags))
                 unique_tx_hashes.add(tx_hash)
-            self._wallet._transaction_cache.update_or_add(updates)
-
-            # If a transaction has bytedata at this point, but no state, then it is likely that
-            # we added it locally and broadcast it ourselves. Transactions without bytedata cannot
-            # have a state.
-            for tx_hash in unique_tx_hashes:
-                entry = self._wallet._transaction_cache.get_cached_entry(tx_hash)
-                if entry.flags & (TxFlags.HasByteData|TxFlags.StateCleared|TxFlags.StateSettled) \
-                        == TxFlags.HasByteData:
-                    self.set_transaction_state(tx_hash, TxFlags.StateCleared | TxFlags.HasByteData)
+            if len(adds):
+                self._wallet._transaction_cache.add(adds)
+            if len(updates):
+                self._wallet._transaction_cache.update(updates)
 
             for tx_id, tx_height in hist:
                 tx_hash = hex_str_to_hash(tx_id)
-                entry = self._wallet._transaction_cache.get_cached_entry(tx_hash)
-                if entry.flags & TxFlags.HasByteData == TxFlags.HasByteData:
+                entry_flags = self._wallet._transaction_cache.get_flags(tx_hash)
+                if entry_flags & TxFlags.HasByteData == TxFlags.HasByteData:
                     tx = self._wallet._transaction_cache.get_transaction(tx_hash)
                     relevant_txos = self.get_relevant_txos(keyinstance_id, tx, tx_id)
                     self.process_key_usage(tx_hash, tx, relevant_txos)
@@ -2018,8 +2023,11 @@ class Wallet(TriggeredCallbacks):
         self._db_context = storage.get_db_context()
 
         if self._db_context is not None:
+            txdata_cache_size = self.get_cache_size_for_tx_bytedata() * (1024 * 1024)
+
             self._transaction_table = TransactionTable(self._db_context)
-            self._transaction_cache = TransactionCache(self._transaction_table)
+            self._transaction_cache = TransactionCache(self._transaction_table,
+                txdata_cache_size=txdata_cache_size)
         self._transaction_descriptions: Dict[bytes, str] = {}
 
         self._masterkey_rows: Dict[int, MasterKeyRow] = {}
@@ -2431,6 +2439,21 @@ class Wallet(TriggeredCallbacks):
 
     def set_multiple_change(self, enabled: bool) -> None:
         return self._storage.put('multiple_change', enabled)
+
+    def get_cache_size_for_tx_bytedata(self) -> int:
+        """
+        This returns the number of megabytes of cache. The caller should convert it to bytes for
+        the cache.
+        """
+        return self._storage.get('tx_bytedata_cache_size', DEFAULT_TXDATA_CACHE_SIZE_MB)
+
+    def set_cache_size_for_tx_bytedata(self, maximum_size: int, force_resize: bool=False) -> None:
+        assert MINIMUM_TXDATA_CACHE_SIZE_MB <= maximum_size <= MAXIMUM_TXDATA_CACHE_SIZE_MB, \
+            f"invalid cache size {maximum_size}"
+        self._storage.put('tx_bytedata_cache_size', maximum_size)
+        maximum_size_bytes = maximum_size * (1024 * 1024)
+        self._transaction_cache.set_maximum_cache_size_for_bytedata(maximum_size_bytes,
+            force_resize)
 
     def start(self, network: 'Network') -> None:
         self._network = network
