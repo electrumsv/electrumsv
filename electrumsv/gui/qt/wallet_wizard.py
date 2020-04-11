@@ -193,7 +193,7 @@ class WalletWizard(BaseWizard):
     - NOT SHOWN: Via the new wallet menu in an already open wallet window.
       - The user should get asked for a password for the creation after which it should open.
     """
-    HELP_DIRNAME = "wallet_wizard"
+    HELP_DIRNAME = "wallet-wizard"
 
     _last_page_id = WalletPage.NONE
     _wallet_type = StorageKind.UNKNOWN

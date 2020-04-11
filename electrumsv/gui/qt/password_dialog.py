@@ -38,7 +38,8 @@ from electrumsv.i18n import _
 
 from .virtual_keyboard import VirtualKeyboard
 from .util import (
-    WindowModalDialog, OkButton, Buttons, CancelButton, icon_path, read_QIcon, ButtonsLineEdit,
+    Buttons, ButtonsLineEdit, CancelButton, FormSectionWidget, icon_path, OkButton, read_QIcon,
+    WindowModalDialog
 )
 
 
@@ -141,12 +142,7 @@ class PasswordLayout(object):
         label = QLabel(msg + "\n")
         label.setWordWrap(True)
 
-        grid = QGridLayout()
-        grid.setSpacing(8)
-        grid.setColumnMinimumWidth(0, 150)
-        grid.setColumnMinimumWidth(1, 100)
-        grid.setColumnStretch(1,1)
-        row = 1
+        form = FormSectionWidget(minimum_label_width=120)
 
         if kind == PasswordAction.PASSPHRASE:
             vbox.addWidget(label)
@@ -165,11 +161,7 @@ class PasswordLayout(object):
             vbox.addLayout(logo_grid)
 
             if kind == PasswordAction.CHANGE:
-                pwlabel = QLabel(_('Current Password') +":")
-                pwlabel.setAlignment(Qt.AlignTop)
-                grid.addWidget(pwlabel, row, 0, Qt.AlignRight | Qt.AlignVCenter)
-                grid.addWidget(self.pw, row, 1, Qt.AlignLeft)
-                row += 1
+                form.add_row(_('Current Password'), self.pw)
 
             m1 = _('New Password') +":" if kind == PasswordAction.CHANGE else _('Password') +":"
             msgs = [m1, _('Confirm Password') +":"]
@@ -179,33 +171,19 @@ class PasswordLayout(object):
 
         if fields is not None:
             for field_label, field_widget in fields:
-                field_label.setAlignment(Qt.AlignTop)
-                grid.addWidget(field_label, row, 0, Qt.AlignRight | Qt.AlignVCenter)
-                grid.addWidget(field_widget, row, 1, Qt.AlignLeft)
-                row += 1
+                form.add_row(field_label, field_widget)
 
-        label0 = QLabel(msgs[0])
-        label0.setAlignment(Qt.AlignTop)
-        grid.addWidget(label0, row, 0, Qt.AlignRight | Qt.AlignVCenter)
-        grid.addWidget(self.new_pw, row, 1, Qt.AlignLeft)
-        row += 1
+        form.add_row(msgs[0], self.new_pw)
+        form.add_row(msgs[1], self.conf_pw)
 
-        label1 = QLabel(msgs[1])
-        label1.setAlignment(Qt.AlignTop)
-        grid.addWidget(label1, row, 0, Qt.AlignRight | Qt.AlignVCenter)
-        grid.addWidget(self.conf_pw, row, 1, Qt.AlignLeft)
-        row += 1
-
-        vbox.addLayout(grid)
+        vbox.addWidget(form)
 
         # Password Strength Label
         if kind != PasswordAction.PASSPHRASE:
-            self._pw_strength_label = QLabel()
             self._pw_strength = QLabel()
-            grid.addWidget(self._pw_strength_label, row, 0, 1, 1, Qt.AlignRight | Qt.AlignVCenter)
-            grid.addWidget(self._pw_strength, row, 1, 1, 1, Qt.AlignLeft)
-            row += 1
+            form.add_row(_("Password Strength"), self._pw_strength)
             self.new_pw.textChanged.connect(self.pw_changed)
+            self.pw_changed()
 
         def enable_OK() -> None:
             new_password = self.new_pw.text().strip()
@@ -238,8 +216,6 @@ class PasswordLayout(object):
                       "Very Strong":"Green"}
             strength = check_password_strength(password)
             strength_text = "<font color="+ colors[strength] + ">" + strength + "</font>"
-            label = _("Password Strength") +":"
-        self._pw_strength_label.setText(label)
         self._pw_strength.setText(strength_text)
 
     def old_password(self):
@@ -336,27 +312,17 @@ class PasswordDialog(WindowModalDialog):
         logo_grid.addWidget(logo,  0, 0)
         logo_grid.addWidget(about_label, 0, 1, 1, 2)
 
-        grid = QGridLayout()
-        grid.setSpacing(8)
-        grid.setColumnStretch(1,1)
-        row = 0
+        form = FormSectionWidget()
 
         if fields is not None:
             for field_label, field_widget in fields:
-                field_label.setAlignment(Qt.AlignTop)
-                grid.addWidget(field_label, row, 0, Qt.AlignRight | Qt.AlignVCenter)
-                grid.addWidget(field_widget, row, 1, Qt.AlignLeft)
-                row += 1
+                form.add_row(field_label, field_widget)
 
-        pwlabel = QLabel(_('Password') +":")
-        pwlabel.setAlignment(Qt.AlignTop)
-        grid.addWidget(pwlabel, row, 0, Qt.AlignRight | Qt.AlignVCenter)
-        grid.addWidget(pw, row, 1, Qt.AlignLeft)
-        row += 1
+        form.add_row(_('Password'), pw)
 
         vbox = QVBoxLayout()
         vbox.addLayout(logo_grid)
-        vbox.addLayout(grid)
+        vbox.addWidget(form)
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CancelButton(self), self._ok_button), Qt.AlignBottom)
         vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)

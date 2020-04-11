@@ -29,8 +29,8 @@ from typing import Optional, TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QTabWidget, QGridLayout, QLabel, QComboBox, QVBoxLayout,
-    QWidget, QSpinBox, QCheckBox, QDialog, QGroupBox
+    QCheckBox, QComboBox, QDialog, QGroupBox, QHBoxLayout, QLabel, QSpinBox, QTabWidget,
+    QVBoxLayout, QWidget
 )
 
 from electrumsv import qrscanner
@@ -44,7 +44,7 @@ from electrumsv.wallet import AbstractAccount, Wallet
 
 from .amountedit import BTCSatsByteEdit
 from .util import (
-    HelpButton, HelpLabel, Buttons, CloseButton, MessageBox,
+    FormSectionWidget, HelpButton, HelpLabel, Buttons, CloseButton, MessageBox,
 )
 
 if TYPE_CHECKING:
@@ -73,40 +73,22 @@ class PreferencesDialog(QDialog):
                 title=_('Success'), parent=self)
         super().accept()
 
-    def lay_out(self, wallet: Wallet, account: Optional[AbstractAccount]):
+    def lay_out(self, wallet: Wallet, account: Optional[AbstractAccount]) -> None:
         tabs_info = [
-            (self.general_widgets(), _('General')),
-            (self.tx_widgets(), _('Transactions')),
-            (self.fiat_widgets(), _('Fiat')),
-            (self.extensions_widgets(account), _('Extensions')),
+            (self.general_widgets, _('General')),
+            (self.tx_widgets, _('Transactions')),
+            (self.fiat_widgets, _('Fiat')),
+            (partial(self.extensions_widgets, account), _('Extensions')),
         ]
-        tabs_info.append((self.wallet_widgets(wallet), _('Wallet')))
+        tabs_info.append((partial(self.wallet_widgets, wallet), _('Wallet')))
         if account is not None:
-            tabs_info.append((self.account_widgets(account), _('Account')))
+            tabs_info.append((partial(self.account_widgets, account), _('Account')))
 
         tabs = QTabWidget()
         tabs.setUsesScrollButtons(False)
-        for widget_rows, name in tabs_info:
+        for widget_func, name in tabs_info:
             tab = QWidget()
-            grid = QGridLayout(tab)
-            grid_width = max(len(widget_row) for widget_row in widget_rows)
-            # Centre grid and push widgets left
-            grid.setColumnStretch(grid_width, 1)
-
-            def widgets(widget_row):
-                prior_widget = None
-                for col, widget in enumerate(widget_row):
-                    if widget:
-                        if prior_widget:
-                            yield start_col, prior_widget, col - start_col
-                        start_col = col
-                        prior_widget = widget
-                yield start_col, prior_widget, grid_width - start_col
-
-            for row, widget_row in enumerate(widget_rows):
-                for col, widget, col_span in widgets(widget_row):
-                    grid.addWidget(widget, row, col, 1, col_span)
-            grid.setRowStretch(row + 1, 1)
+            widget_func(tab)
             tabs.addTab(tab, name)
 
         vbox = QVBoxLayout()
@@ -115,7 +97,7 @@ class PreferencesDialog(QDialog):
         vbox.addLayout(Buttons(CloseButton(self)))
         self.setLayout(vbox)
 
-    def tx_widgets(self):
+    def tx_widgets(self, tab: QWidget) -> None:
         def on_customfee(_text):
             amt = customfee_e.get_amount()
             m = int(amt * 1000.0) if amt is not None else None
@@ -136,21 +118,29 @@ class PreferencesDialog(QDialog):
             app_state.config.set_key('confirmed_only', state != Qt.Unchecked)
         unconf_cb.stateChanged.connect(on_unconf)
 
-        return [
-            # Append None to flush edit left
-            (customfee_label, customfee_e, None),
-            (unconf_cb, ),
-        ]
+        options_box = QGroupBox()
+        options_vbox = QVBoxLayout()
+        options_box.setLayout(options_vbox)
+        options_vbox.addWidget(unconf_cb)
 
-    def general_widgets(self):
+        form = FormSectionWidget(minimum_label_width=120)
+        form.add_row(_('Custom Fee Rate'), customfee_e)
+        form.add_row(_("Options"), options_box, True)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(form)
+        vbox.addStretch(1)
+        tab.setLayout(vbox)
+
+    def general_widgets(self, tab: QWidget) -> None:
         # language
         lang_modifiable = app_state.config.is_modifiable('language')
         lang_pairs = sorted((code, language) for language, code in languages.items())
         language_names, language_keys = zip(*lang_pairs)
 
-        lang_label = HelpLabel(_('Language') + ':',
-                               _('Select which language is used in the GUI (after restart).'))
-        lang_label.setEnabled(lang_modifiable)
+        # lang_label = HelpLabel(_('Language') + ':',
+        #                        _('Select which language is used in the GUI (after restart).'))
+        # lang_label.setEnabled(lang_modifiable)
 
         lang_combo = QComboBox()
         lang_combo.setEnabled(lang_modifiable)
@@ -167,10 +157,10 @@ class PreferencesDialog(QDialog):
         lang_combo.currentIndexChanged.connect(on_lang)
 
         nz_modifiable = app_state.config.is_modifiable('num_zeros')
-        nz_label = HelpLabel(_('Zeros after decimal point') + ':',
-                             _('Number of zeros displayed after the decimal point.  '
-                               'For example, if set to 2, "1." will be displayed as "1.00"'))
-        nz_label.setEnabled(nz_modifiable)
+        # nz_label = HelpLabel(_('Zeros after decimal point') + ':',
+        #                      _('Number of zeros displayed after the decimal point.  '
+        #                        'For example, if set to 2, "1." will be displayed as "1.00"'))
+        # nz_label.setEnabled(nz_modifiable)
         nz = QSpinBox()
         nz.setMinimum(0)
         nz.setMaximum(app_state.decimal_point)
@@ -184,10 +174,10 @@ class PreferencesDialog(QDialog):
                 app_state.app.num_zeros_changed.emit()
         nz.valueChanged.connect(on_nz)
 
-        unit_label = HelpLabel(_('Base unit') + ':', '\n'.join((
-            _('Base unit of display in the application.'),
-            '1 BSV = 1,000 mBSV = 1,000,000 bits.',
-        )))
+        # unit_label = HelpLabel(_('Base unit') + ':', '\n'.join((
+        #     _('Base unit of display in the application.'),
+        #     '1 BSV = 1,000 mBSV = 1,000,000 bits.',
+        # )))
         unit_combo = QComboBox()
         unit_combo.addItems(app_state.base_units)
         unit_combo.setCurrentIndex(app_state.base_units.index(app_state.base_unit()))
@@ -197,7 +187,7 @@ class PreferencesDialog(QDialog):
         unit_combo.currentIndexChanged.connect(on_unit)
 
         msg = _('Choose which online block explorer to use for functions that open a web browser')
-        block_ex_label = HelpLabel(_('Online Block Explorer') + ':', msg)
+        # block_ex_label = HelpLabel(_('Online Block Explorer') + ':', msg)
         block_explorers = web.BE_sorted_list()
         block_ex_combo = QComboBox()
         block_ex_combo.addItems(block_explorers)
@@ -207,8 +197,8 @@ class PreferencesDialog(QDialog):
             app_state.config.set_key('block_explorer', block_explorers[index], True)
         block_ex_combo.currentIndexChanged.connect(on_be)
 
-        qr_label = HelpLabel(_('Video Device') + ':',
-                             _("Install the zbar package to enable this."))
+        # qr_label = HelpLabel(_('Video Device') + ':',
+        #                      _("Install the zbar package to enable this."))
         qr_combo = QComboBox()
         qr_combo.addItem("Default", "default")
         system_cameras = qrscanner.find_system_cameras()
@@ -220,7 +210,7 @@ class PreferencesDialog(QDialog):
             app_state.config.set_key("video_device", qr_combo.itemData(index), True)
         qr_combo.currentIndexChanged.connect(on_video_device)
 
-        updatecheck_box = QGroupBox(_("Software Updates"))
+        updatecheck_box = QGroupBox()
         updatecheck_vbox = QVBoxLayout()
         updatecheck_box.setLayout(updatecheck_vbox)
         # The main checkbox, which turns update checking on or off completely.
@@ -239,16 +229,20 @@ class PreferencesDialog(QDialog):
         updatecheck_unstable_cb.stateChanged.connect(on_set_updatecheck_unstable)
         updatecheck_vbox.addWidget(updatecheck_unstable_cb)
 
-        return [
-            (lang_label, lang_combo),
-            (nz_label, nz),
-            (unit_label, unit_combo),
-            (block_ex_label, block_ex_combo),
-            (qr_label, qr_combo),
-            (updatecheck_box, ),
-        ]
+        form = FormSectionWidget(minimum_label_width=130)
+        form.add_row(_('Language'), lang_combo)
+        form.add_row(_('Zeros after decimal point'), nz)
+        form.add_row(_('Base unit'), unit_combo)
+        form.add_row(_('Online block explorer'), block_ex_combo)
+        form.add_row(_('Video device'), qr_combo)
+        form.add_row(_('Software updates'), updatecheck_box)
 
-    def fiat_widgets(self):
+        vbox = QVBoxLayout()
+        vbox.addWidget(form)
+        vbox.addStretch(1)
+        tab.setLayout(vbox)
+
+    def fiat_widgets(self, tab: QWidget) -> None:
         # Fiat Currency
         hist_checkbox = QCheckBox(_('Show historical rates'))
         fiat_balance_checkbox = QCheckBox(_('Show Fiat balance for addresses'))
@@ -333,35 +327,52 @@ class PreferencesDialog(QDialog):
         fiat_balance_checkbox.stateChanged.connect(on_fiat_balance)
         ex_combo.currentIndexChanged.connect(on_exchange)
 
-        return [
-            (QLabel(_('Fiat currency')), ccy_combo, QLabel(_('Source')), ex_combo),
-            (hist_checkbox, ),
-            (fiat_balance_checkbox, ),
-        ]
+        options_box = QGroupBox()
+        options_vbox = QVBoxLayout()
+        options_box.setLayout(options_vbox)
+        options_vbox.addWidget(hist_checkbox)
+        options_vbox.addWidget(fiat_balance_checkbox)
 
-    def extensions_widgets(self, account: Optional[AbstractAccount]):
+        extension_form = FormSectionWidget()
+        extension_form.add_row(_('Currency'), ccy_combo)
+        extension_form.add_row(_('Source'), ex_combo)
+        extension_form.add_row(_('Options'), options_box, True)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(extension_form)
+        vbox.addStretch(1)
+        tab.setLayout(vbox)
+
+    def extensions_widgets(self, account: Optional[AbstractAccount], tab: QWidget) -> None:
         def cb_clicked(extension, settings_widget, checked):
             extension.set_enabled(checked)
             if settings_widget:
                 settings_widget.setEnabled(checked)
 
-        widgets = []
+        vbox = QVBoxLayout()
+        extension_form = FormSectionWidget()
         for extension in extensions:
-            cb = QCheckBox(extension.name)
+            cb = QCheckBox(_("Enabled"))
             cb.setChecked(extension.is_enabled())
-            # Yes this is ugly
+            help_widget = HelpButton(extension.description)
+            field_layout = QHBoxLayout()
+            field_layout.addWidget(cb)
+            field_layout.addStretch(1)
             if extension is label_sync and account:
                 settings_widget = app_state.app.label_sync.settings_widget(self, account)
                 settings_widget.setEnabled(extension.is_enabled())
+                field_layout.addWidget(settings_widget)
+                cb.clicked.connect(partial(cb_clicked, extension, settings_widget))
             else:
-                settings_widget = None
-            cb.clicked.connect(partial(cb_clicked, extension, settings_widget))
-            help_widget = HelpButton(extension.description)
-            widgets.append((cb, settings_widget, help_widget))
+                cb.clicked.connect(partial(cb_clicked, extension, None))
+            field_layout.addWidget(help_widget)
+            extension_form.add_row(extension.name, field_layout, True)
 
-        return widgets
+        vbox.addWidget(extension_form)
+        vbox.addStretch(1)
+        tab.setLayout(vbox)
 
-    def wallet_widgets(self, wallet: Wallet):
+    def wallet_widgets(self, wallet: Wallet, tab: QWidget) -> None:
         usechange_cb = QCheckBox(_('Use change addresses'))
         usechange_cb.setChecked(wallet.get_use_change())
         usechange_cb.setEnabled(app_state.config.is_modifiable('use_change'))
@@ -390,12 +401,21 @@ class PreferencesDialog(QDialog):
                 wallet.set_multiple_change(multiple)
         multiple_cb.stateChanged.connect(on_multiple)
 
-        return [
-            (usechange_cb, ),
-            (multiple_cb, ),
-        ]
+        options_box = QGroupBox()
+        options_vbox = QVBoxLayout()
+        options_box.setLayout(options_vbox)
+        options_vbox.addWidget(usechange_cb)
+        options_vbox.addWidget(multiple_cb)
 
-    def account_widgets(self, account: AbstractAccount):
+        form = FormSectionWidget(minimum_label_width=50)
+        form.add_row(_('Options'), options_box, True)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(form)
+        vbox.addStretch(1)
+        tab.setLayout(vbox)
+
+    def account_widgets(self, account: AbstractAccount, tab: QWidget) -> None:
         label = QLabel(_("The settings below only affect the account '{}'")
                        .format(account.display_name()))
 
@@ -422,7 +442,11 @@ class PreferencesDialog(QDialog):
 
         update_script_types()
 
-        return [
-            (label, ),
-            (script_type_combo, ),
-        ]
+        form = FormSectionWidget(minimum_label_width=120)
+        form.add_title(_("Account: {}").format(account.display_name()))
+        form.add_row(_("Default script type"), script_type_combo)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(form)
+        vbox.addStretch(1)
+        tab.setLayout(vbox)

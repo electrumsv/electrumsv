@@ -49,7 +49,6 @@ from .main_window import ElectrumWindow
 from .exception_window import Exception_Hook
 from .label_sync import LabelSync
 from .log_window import SVLogWindow, SVLogHandler
-from .network_dialog import NetworkDialog
 from .util import ColorScheme, get_default_language, MessageBox, read_QIcon
 from .wallet_wizard import WalletWizard
 
@@ -213,7 +212,10 @@ class SVApplication(QApplication):
             self.net_dialog.show()
             self.net_dialog.raise_()
             return
-        self.net_dialog = NetworkDialog(app_state.daemon.network, app_state.config)
+        from . import network_dialog
+        from importlib import reload
+        reload(network_dialog)
+        self.net_dialog = network_dialog.NetworkDialog(app_state.daemon.network, app_state.config)
         self.net_dialog.show()
 
     def show_log_viewer(self) -> None:

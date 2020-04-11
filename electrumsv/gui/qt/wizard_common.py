@@ -29,12 +29,10 @@
 import enum
 from typing import NamedTuple, Optional
 
-from PyQt5.QtWidgets import QTextBrowser, QVBoxLayout, QWidget, QWizard, QWizardPage
+from PyQt5.QtWidgets import QWidget, QWizard
 
-from electrumsv.i18n import _
-from electrumsv.util import read_resource_text
-
-from .util import Buttons, FormSectionWidget, OkButton, WindowModalDialog
+from .help_dialog import HelpDialog
+from .util import FormSectionWidget
 
 
 class WizardFlags(enum.IntFlag):
@@ -113,31 +111,6 @@ class BaseWizard(QWizard):
         assert help_context is not None
         h = HelpDialog(page, help_context.title, self.HELP_DIRNAME, help_context.file_name)
         h.run()
-
-
-class HelpDialog(WindowModalDialog):
-    def __init__(self, parent: QWizardPage, title: str, help_dirname: str,
-            help_file_name: str) -> None:
-        WindowModalDialog.__init__(self, parent)
-
-        self.setWindowTitle(_("ElectrumSV - Help for {}").format(title))
-        self.setMinimumSize(450, 400)
-
-        release_html = read_resource_text("wallet-wizard", f"{help_file_name}.html")
-
-        widget = QTextBrowser()
-        widget.document().setDocumentMargin(15)
-        widget.setOpenExternalLinks(True)
-        widget.setAcceptRichText(True)
-        widget.setHtml(release_html)
-
-        vbox = QVBoxLayout(self)
-        # vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
-        vbox.addWidget(widget)
-        vbox.addLayout(Buttons(OkButton(self)))
-
-    def run(self):
-        return self.exec_()
 
 
 class WizardFormSection(FormSectionWidget):

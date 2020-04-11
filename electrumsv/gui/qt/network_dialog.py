@@ -41,9 +41,12 @@ from electrumsv.network import SVServer, SVProxy, SVUserAuth
 from electrumsv.networks import Net
 
 from .password_dialog import PasswordLineEdit
-from .util import Buttons, CloseButton, HelpButton, read_QIcon, MessageBox
+from .util import (Buttons, CloseButton, FormSectionWidget, HelpButton, HelpDialogButton,
+    read_QIcon, MessageBox)
+
 
 logger = logs.get_logger("networkui")
+
 
 class NetworkDialog(QDialog):
     network_updated_signal = pyqtSignal()
@@ -54,10 +57,15 @@ class NetworkDialog(QDialog):
         self.setMinimumSize(500, 200)
         self.resize(560, 400)
         self.nlayout = NetworkChoiceLayout(network, config)
+
+        buttons_layout = Buttons(CloseButton(self))
+        buttons_layout.add_left_button(HelpDialogButton(self, _("Network"), "misc",
+            "network-dialog"))
+
         vbox = QVBoxLayout(self)
         vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         vbox.addLayout(self.nlayout.layout())
-        vbox.addLayout(Buttons(CloseButton(self)))
+        vbox.addLayout(buttons_layout)
         self.network_updated_signal.connect(self.on_update)
         network.register_callback(self.on_network, ['updated', 'sessions'])
 
@@ -308,36 +316,24 @@ class NetworkChoiceLayout(object):
         grid.setRowStretch(7, 1)
 
         # Blockchain Tab
-        grid = QGridLayout(blockchain_tab)
-        msg =  ' '.join([
-            _("ElectrumSV connects to several servers in order to download block headers "
-              "and find out the longest blockchain."),
-            _("This blockchain is used to verify the transactions sent by your "
-              "transaction server.")
-        ])
+        blockchain_layout = QVBoxLayout(blockchain_tab)
+
+        form = FormSectionWidget()
         self.status_label = QLabel('')
-        grid.addWidget(QLabel(_('Status') + ':'), 0, 0)
-        grid.addWidget(self.status_label, 0, 1, 1, 3)
-        grid.addWidget(HelpButton(msg), 0, 4)
-
+        form.add_row(_('Status'), self.status_label, True)
         self.server_label = QLabel('')
-        msg = _("ElectrumSV sends your wallet payment script metadata to a single server, "
-                "in order to receive any transaction history relating to them.")
-        grid.addWidget(QLabel(_('Server') + ':'), 1, 0)
-        grid.addWidget(self.server_label, 1, 1, 1, 3)
-        grid.addWidget(HelpButton(msg), 1, 4)
-
+        form.add_row(_('Server'), self.server_label, True)
         self.height_label = QLabel('')
-        msg = _('This is the height of your local copy of the blockchain.')
-        grid.addWidget(QLabel(_('Blockchain') + ':'), 2, 0)
-        grid.addWidget(self.height_label, 2, 1)
-        grid.addWidget(HelpButton(msg), 2, 4)
+        form.add_row(_('Blockchain'), self.height_label, True)
+
+        blockchain_layout.addWidget(form)
 
         self.split_label = QLabel('')
-        grid.addWidget(self.split_label, 3, 0, 1, 3)
+        form.add_row(QLabel(""), self.split_label)
 
         self.nodes_list_widget = NodesListWidget(self)
-        grid.addWidget(self.nodes_list_widget, 5, 0, 1, 5)
+        blockchain_layout.addWidget(self.nodes_list_widget)
+        blockchain_layout.addStretch(1)
 
         vbox = QVBoxLayout()
         vbox.addWidget(tabs)

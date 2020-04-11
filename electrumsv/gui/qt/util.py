@@ -24,6 +24,7 @@ from electrumsv.util import resource_path
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
 
+
 dialogs = []
 
 pr_icons = {
@@ -171,6 +172,24 @@ class CancelButton(QPushButton):
     def __init__(self, dialog, label=None):
         QPushButton.__init__(self, label or _("Cancel"))
         self.clicked.connect(dialog.reject)
+
+class HelpDialogButton(QPushButton):
+    def __init__(self, parent: QWidget, title: str, dirname: str, filename: str,
+            label: Optional[str]=None) -> None:
+        super().__init__(label or _("Help"))
+
+        self._parent = parent
+        self._title = title
+        self._dirname = dirname
+        self._filename = filename
+
+        self.clicked.connect(self._event_button_clicked)
+
+    def _event_button_clicked(self) -> None:
+        from .help_dialog import HelpDialog
+        h = HelpDialog(self._parent, self._title, self._dirname, self._filename)
+        h.run()
+
 
 class MessageBoxMixin(object):
     def top_level_window_recurse(self, window=None):
@@ -890,7 +909,9 @@ class FormSectionWidget(QWidget):
             self.frame_layout.addWidget(title_object, Qt.AlignTop)
 
     def add_row(self, label_text: Union[str, QLabel], field_object: FieldType,
-            stretch_field: bool=False) -> None:
+            stretch_field: bool=False) -> Optional[QLabel]:
+        result: Optional[QLabel] = None
+
         if self.frame_layout.count() > 0:
             line = QFrame()
             line.setObjectName("FormSeparatorLine")
@@ -904,6 +925,7 @@ class FormSectionWidget(QWidget):
             if not label_text.endswith(":"):
                 label_text += ":"
             label = QLabel(label_text)
+            result = label
         label.setObjectName("FormSectionLabel")
         label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
 
@@ -931,3 +953,4 @@ class FormSectionWidget(QWidget):
         grid_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         self.frame_layout.addLayout(grid_layout)
+        return result
