@@ -44,7 +44,8 @@ from electrumsv.logs import logs
 from electrumsv.platform import platform
 from electrumsv.transaction import tx_output_to_display_text, Transaction, XTxOutput
 from electrumsv.wallet import AbstractAccount
-from .util import MessageBoxMixin, ButtonsLineEdit, Buttons, ColorScheme, read_QIcon
+from .util import (Buttons, ButtonsLineEdit, ColorScheme, FormSectionWidget, MessageBoxMixin,
+    read_QIcon)
 
 
 logger = logs.get_logger("tx-dialog")
@@ -77,30 +78,40 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.setMinimumWidth(1000)
         self.setWindowTitle(_("Transaction"))
 
+        form = FormSectionWidget()
+
         vbox = QVBoxLayout()
+        vbox.addWidget(form)
         self.setLayout(vbox)
 
-        vbox.addWidget(QLabel(_("Transaction ID:")))
         self.tx_hash_e  = ButtonsLineEdit()
         self.tx_hash_e.addButton("qrcode.png",
             self._on_click_show_tx_hash_qr, _("Show as QR code"))
         self.tx_hash_e.addButton("copy.png",
             self._on_click_copy_tx_id, _("Copy to clipboard"))
-
         self.tx_hash_e.setReadOnly(True)
-        vbox.addWidget(self.tx_hash_e)
+        form.add_row(_("Transaction ID"), self.tx_hash_e, True)
+
         self.tx_desc = QLabel()
-        vbox.addWidget(self.tx_desc)
+        form.add_row(_("Description"), self.tx_desc)
+
         self.status_label = QLabel()
-        vbox.addWidget(self.status_label)
+        form.add_row(_('Status'), self.status_label)
+
         self.date_label = QLabel()
-        vbox.addWidget(self.date_label)
+        form.add_row(_("Date"), self.date_label)
+
         self.amount_label = QLabel()
-        vbox.addWidget(self.amount_label)
+        form.add_row(_("Amount"), self.amount_label)
+
         self.size_label = QLabel()
-        vbox.addWidget(self.size_label)
+        form.add_row(_("Size"), self.size_label)
+
         self.fee_label = QLabel()
-        vbox.addWidget(self.fee_label)
+        form.add_row(_("Fee"), self.fee_label)
+
+        if self.tx.locktime > 0:
+            form.add_row(_("Lock time"), QLabel(str(self.tx.locktime)))
 
         self.add_io(vbox)
 
@@ -277,35 +288,35 @@ class TxDialog(QDialog, MessageBoxMixin):
         if self.tx.description is None:
             self.tx_desc.hide()
         else:
-            self.tx_desc.setText(_("Description") + ': ' + self.tx.description)
+            self.tx_desc.setText(self.tx.description)
             self.tx_desc.show()
-        self.status_label.setText(_('Status:') + ' ' + tx_info.status)
+        self.status_label.setText(tx_info.status)
 
         if tx_info.timestamp:
             time_str = datetime.datetime.fromtimestamp(
                 tx_info.timestamp).isoformat(' ')[:-3]
-            self.date_label.setText(_("Date: {}").format(time_str))
+            self.date_label.setText(time_str)
             self.date_label.show()
         else:
             self.date_label.hide()
         if tx_info.amount is None:
             amount_str = _("Transaction unrelated to your wallet")
         elif tx_info.amount > 0:
-            amount_str = '{} {} {}'.format(_("Amount received:"),
+            amount_str = '{} {} {}'.format(_("Received") +" ",
                                            format_amount(tx_info.amount),
                                            base_unit)
         else:
-            amount_str = '{} {} {}'.format(_("Amount sent:"),
+            amount_str = '{} {} {}'.format(_("Sent") +" ",
                                            format_amount(-tx_info.amount),
                                            base_unit)
-        size_str = _("Size:") + ' %d bytes'% size
+        size_str = '%d bytes'% size
         if tx_info_fee is not None:
             fee_amount = '{} {}'.format(format_amount(tx_info_fee), base_unit)
         else:
             fee_amount = _('unknown')
-        fee_str = '{}: {}'.format(_("Fee"), fee_amount)
+        fee_str = '{}'.format(fee_amount)
         if tx_info_fee is not None:
-            fee_str += '  ( {} ) '.format(self._main_window.format_fee_rate(
+            fee_str += ' ({}) '.format(self._main_window.format_fee_rate(
                 tx_info_fee / size * 1000))
         self.amount_label.setText(amount_str)
         self.fee_label.setText(fee_str)
@@ -316,9 +327,6 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.cosigner_button.setVisible(visible)
 
     def add_io(self, vbox: QVBoxLayout) -> None:
-        if self.tx.locktime > 0:
-            vbox.addWidget(QLabel("LockTime: %d\n" % self.tx.locktime))
-
         vbox.addWidget(QLabel(_("Inputs") + ' (%d)'%len(self.tx.inputs)))
 
         i_text = QTextEdit()
