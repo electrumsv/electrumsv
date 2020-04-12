@@ -33,7 +33,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Callable, Iterable, List, Tuple, Optional
+from typing import Any, Callable, Iterable, List, Tuple, Optional
 import weakref
 import webbrowser
 
@@ -2103,39 +2103,32 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             tab.searchable_list.filter(t)
 
     def _show_wallet_information(self) -> None:
-        def file_explorer_label(text: str, callback: Callable[[str], None]) -> QLabel:
-            label = QLabel()
-            display_text = text[:40]
-            if display_text != text:
-                display_text += "..."
-            if can_show_in_file_explorer():
-                label.setText(f"<a href='https://example.com'>{display_text}</a>")
-                label.setTextInteractionFlags(Qt.TextBrowserInteraction)
-                label.linkActivated.connect(callback)
-                label.setToolTip(_("View '{}' in filesystem").format(text))
-            else:
-                label.setText(display_text)
-                label.setToolTip(text)
-            return label
-        def open_file_explorer(path: str, _discard: str) -> None:
+        def open_file_explorer(path: str, *_discard: Iterable[Any]) -> None:
             show_in_file_explorer(path)
 
         dialog = QDialog(self)
         dialog.setWindowTitle(_("Wallet Information"))
-        dialog.setMinimumSize(350, 100)
+        dialog.setMinimumSize(450, 100)
         vbox = QVBoxLayout()
         wallet_filepath = self._wallet.get_storage_path()
         wallet_dirpath = os.path.dirname(wallet_filepath)
         wallet_name = os.path.basename(wallet_filepath)
-        name_label = file_explorer_label(wallet_name,
-            partial(open_file_explorer, wallet_filepath))
-        path_label = file_explorer_label(wallet_dirpath,
-            partial(open_file_explorer, wallet_dirpath))
 
-        file_form = FormSectionWidget(minimum_label_width=100)
-        file_form.add_title(_("File"))
-        file_form.add_row(_("File name"), name_label)
-        file_form.add_row(_("Path"), path_label)
+        name_edit = ButtonsLineEdit(wallet_name)
+        name_edit.setReadOnly(True)
+        name_edit.addButton("icons8-opened-folder-windows.svg",
+            partial(open_file_explorer, wallet_filepath), _("View file in filesystem"))
+        name_edit.addCopyButton(self.app)
+
+        path_edit = ButtonsLineEdit(wallet_dirpath)
+        path_edit.setReadOnly(True)
+        path_edit.addButton("icons8-opened-folder-windows.svg",
+            partial(open_file_explorer, wallet_dirpath), _("View location in filesystem"))
+        path_edit.addCopyButton(self.app)
+
+        file_form = FormSectionWidget()
+        file_form.add_row(_("File name"), name_edit, True)
+        file_form.add_row(_("File path"), path_edit, True)
         vbox.addWidget(file_form)
 
         current_txcachesize_label = QLabel()
