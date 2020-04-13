@@ -45,7 +45,7 @@ from electrumsv.wallet import AbstractAccount, Wallet
 
 from .amountedit import BTCSatsByteEdit
 from .util import (
-    FormSectionWidget, HelpButton, HelpLabel, Buttons, CloseButton, MessageBox,
+    FormSectionWidget, HelpButton, Buttons, CloseButton, MessageBox,
 )
 
 if TYPE_CHECKING:

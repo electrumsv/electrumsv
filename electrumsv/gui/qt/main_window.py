@@ -33,7 +33,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Any, Callable, Iterable, List, Tuple, Optional
+from typing import Any, Iterable, List, Tuple, Optional
 import weakref
 import webbrowser
 
@@ -83,7 +83,7 @@ from .util import (
     WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
     CloseButton, CancelButton, text_dialog, filename_field,
     update_fixed_tree_height, UntrustedMessageDialog, protected,
-    can_show_in_file_explorer, show_in_file_explorer, create_new_wallet,
+    show_in_file_explorer, create_new_wallet,
     FormSectionWidget
 )
 from .wallet_api import WalletAPI
