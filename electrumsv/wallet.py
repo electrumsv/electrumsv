@@ -1119,6 +1119,7 @@ class AbstractAccount:
             self._logger.debug("set_key_history on stopped wallet: %s", keyinstance_id)
             return
 
+        update_state_changes = []
         with self.lock:
             self._logger.debug("set_key_history %s %s", keyinstance_id, tx_fees)
             key = self._keyinstances[keyinstance_id]
@@ -1165,6 +1166,9 @@ class AbstractAccount:
                             (TxFlags.HasByteData|TxFlags.StateCleared|TxFlags.StateSettled) \
                             == TxFlags.HasByteData:
                         flags |= TxFlags.StateCleared
+                        # Event workaround.
+                        update_state_changes.append((tx_hash, entry_flags & TxFlags.STATE_MASK,
+                            flags & TxFlags.STATE_MASK))
                     updates.append((tx_hash, data, None, flags))
                 unique_tx_hashes.add(tx_hash)
             if len(adds):
@@ -1179,6 +1183,12 @@ class AbstractAccount:
                     tx = self._wallet._transaction_cache.get_transaction(tx_hash)
                     relevant_txos = self.get_relevant_txos(keyinstance_id, tx, tx_id)
                     self.process_key_usage(tx_hash, tx, relevant_txos)
+
+        if len(update_state_changes):
+            wallet_path = self._wallet.get_storage_path()
+            for state_change in update_state_changes:
+                self._wallet.trigger_callback('transaction_state_change',
+                    wallet_path, self._id, *state_change)
 
         self.txs_changed_event.set()
         await self._trigger_synchronization()
