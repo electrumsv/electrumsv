@@ -91,11 +91,13 @@ class TransactionCache:
         return flags
 
     @staticmethod
-    def _validate_new_flags(flags: TxFlags) -> None:
+    def _validate_new_flags(tx_hash: bytes, flags: TxFlags) -> None:
         # All current states are expected to have bytedata.
         if (flags & TxFlags.STATE_MASK) == 0 or (flags & TxFlags.HasByteData) != 0:
             return
-        raise InvalidDataError(f"setting uncleared state without bytedata {flags}")
+        tx_id = hash_to_hex_str(tx_hash)
+        raise InvalidDataError("setting uncleared state without bytedata "
+            f"{tx_id} {TxFlags.to_repr(flags)}")
 
     def add_transaction(self, tx: Transaction, flags: Optional[TxFlags]=TxFlags.Unset,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -125,7 +127,7 @@ class TransactionCache:
                 flags |= TxFlags.HasByteData
             assert ((add_flags & TxFlags.METADATA_FIELD_MASK) == 0 or flags == add_flags), \
                 f"{TxFlags.to_repr(flags)} != {TxFlags.to_repr(add_flags)}"
-            self._validate_new_flags(flags)
+            self._validate_new_flags(tx_hash, flags)
             metadata = TxData(metadata.height, metadata.position, metadata.fee, date_added,
                 date_added)
             self._cache[tx_hash] = TransactionCacheEntry(metadata, flags)
@@ -168,8 +170,7 @@ class TransactionCache:
 
             # incoming_flags & HasByteData declares if the bytedata is touched by the update.
             flags &= ~TxFlags.HasByteData
-            update_flags = flags | (incoming_flags & TxFlags.HasByteData)
-            if update_flags & TxFlags.HasByteData:
+            if incoming_flags & TxFlags.HasByteData:
                 flags |= TxFlags.HasByteData if incoming_bytedata is not None else TxFlags.Unset
             else:
                 flags |= entry.flags & TxFlags.HasByteData
@@ -177,7 +178,7 @@ class TransactionCache:
             if entry.metadata == new_metadata and entry.flags == flags:
                 continue
 
-            self._validate_new_flags(flags)
+            self._validate_new_flags(tx_hash, flags)
             new_entry = TransactionCacheEntry(new_metadata, flags, entry.time_loaded)
             self._logger.debug("_update: %s %r %s %s %r %r", hash_to_hex_str(tx_hash),
                 incoming_metadata, TxFlags.to_repr(incoming_flags),
@@ -203,7 +204,7 @@ class TransactionCache:
             date_updated = self._store._get_current_timestamp()
             entry = self._get_entry(tx_hash)
             entry.flags = (entry.flags & mask) | (flags & ~TxFlags.METADATA_FIELD_MASK)
-            self._validate_new_flags(entry.flags)
+            self._validate_new_flags(tx_hash, entry.flags)
             # Update the cached metadata for the new modification date.
             metadata = entry.metadata
             entry.metadata = TxData(metadata.height, metadata.position, metadata.fee,
