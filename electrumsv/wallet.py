@@ -778,7 +778,7 @@ class AbstractAccount:
 
         height, conf, _timestamp = self.get_tx_height(tx_hash)
         self._logger.debug("add_verified_tx %d %d %d", height, conf, timestamp)
-        cast(Network, self._network).trigger_callback(
+        cast('Network', self._network).trigger_callback(
             'verified', self._wallet.get_storage_path(), tx_hash, height, conf, timestamp)
 
     def undo_verifications(self, above_height):
