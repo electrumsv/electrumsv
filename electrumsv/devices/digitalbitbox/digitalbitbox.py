@@ -509,7 +509,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             self.give_error(e)
         return sig
 
-    def sign_transaction(self, tx: Transaction, password: str):
+    def sign_transaction(self, tx: Transaction, password: str) -> None:
         if tx.is_complete():
             return
 

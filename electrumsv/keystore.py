@@ -127,6 +127,9 @@ class KeyStore:
         return any(self.is_signature_candidate(x_pubkey) for txin in tx.inputs
             for x_pubkey in txin.unused_x_pubkeys())
 
+    def sign_transaction(self, tx: Transaction, password: str) -> None:
+        raise NotImplementedError
+
 
 class Software_KeyStore(KeyStore):
     def __init__(self, row: Optional[MasterKeyRow]=None) -> None:
@@ -148,8 +151,7 @@ class Software_KeyStore(KeyStore):
     def check_password(self, password: Optional[str]) -> None:
         raise NotImplementedError
 
-    def sign_transaction(self, tx: Transaction, password: Optional[str]) -> None:
-        assert password is not None
+    def sign_transaction(self, tx: Transaction, password: str) -> None:
         if self.is_watching_only():
             return
         # Raise if password is not correct.
@@ -656,6 +658,7 @@ class Hardware_KeyStore(Xpub, KeyStore):
     #   - wallet_type
     hw_type: str
     device: str
+    handler: Optional[Any]
 
     def __init__(self, data: Dict[str, Any], row: Optional[MasterKeyRow]=None) -> None:
         Xpub.__init__(self)
@@ -718,14 +721,20 @@ class Hardware_KeyStore(Xpub, KeyStore):
     def can_change_password(self):
         return False
 
+    def sign_message(self, derivation_path: Sequence[int], message: bytes, password: str):
+        raise NotImplementedError
 
-MultisigChildKeyStoreType = Union[BIP32_KeyStore, Hardware_KeyStore, Old_KeyStore]
+    def decrypt_message(self, sequence, message, password: str):
+        raise NotImplementedError
+
+
+MultisigChildKeyStoreTypes = Union[BIP32_KeyStore, Hardware_KeyStore, Old_KeyStore]
 
 class Multisig_KeyStore(DerivablePaths, KeyStore):
     # This isn't used, it's mostly included for consistency. Generally this attribute is used
     # only by this class, to classify derivation data of cosigner information.
     derivation_type = DerivationType.ELECTRUM_MULTISIG
-    _cosigner_keystores: List[MultisigChildKeyStoreType]
+    _cosigner_keystores: List[MultisigChildKeyStoreTypes]
 
     def __init__(self, data: Dict[str, Any], row: Optional[MasterKeyRow]=None) -> None:
         self.set_row(row)
@@ -739,7 +748,7 @@ class Multisig_KeyStore(DerivablePaths, KeyStore):
             assert derivation_type in (DerivationType.BIP32, DerivationType.HARDWARE,
                 DerivationType.ELECTRUM_OLD)
             keystore = instantiate_keystore(derivation_type, derivation_data)
-            keystore = cast(MultisigChildKeyStoreType, keystore)
+            keystore = cast(MultisigChildKeyStoreTypes, keystore)
             self.add_cosigner_keystore(keystore)
 
     def type(self) -> KeystoreType:
@@ -789,10 +798,10 @@ class Multisig_KeyStore(DerivablePaths, KeyStore):
             if keystore.can_change_password():
                 keystore.update_password(new_password, old_password)
 
-    def get_cosigner_keystores(self) -> Sequence[MultisigChildKeyStoreType]:
+    def get_cosigner_keystores(self) -> Sequence[MultisigChildKeyStoreTypes]:
         return self._cosigner_keystores
 
-    def add_cosigner_keystore(self, keystore: MultisigChildKeyStoreType) -> None:
+    def add_cosigner_keystore(self, keystore: MultisigChildKeyStoreTypes) -> None:
         if len(self._cosigner_keystores) == self.n:
             raise OverloadedMultisigKeystore()
         self._cosigner_keystores.append(keystore)
@@ -1031,3 +1040,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Unio
         raise NotImplementedError("Unsupported text match type", text_type)
 
     return instantiate_keystore(derivation_type, data)
+
+
+SignableKeystoreTypes = Union[Software_KeyStore, Hardware_KeyStore]
+StandardKeystoreTypes = Union[Old_KeyStore, BIP32_KeyStore]

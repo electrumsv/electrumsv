@@ -70,7 +70,7 @@ class TrezorKeyStore(Hardware_KeyStore):
         msg_sig = client.sign_message(address_path, message)
         return msg_sig.signature
 
-    def sign_transaction(self, tx, password):
+    def sign_transaction(self, tx, password: str) -> None:
         if tx.is_complete():
             return
         # path of the xpubs that are involved
@@ -83,6 +83,7 @@ class TrezorKeyStore(Hardware_KeyStore):
                 if xpub == self.get_master_public_key():
                     xpub_path[xpub] = self.get_derivation()
 
+        assert self.plugin is not None
         self.plugin.sign_transaction(self, tx, xpub_path)
 
 

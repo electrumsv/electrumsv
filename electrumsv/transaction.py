@@ -36,6 +36,7 @@ from bitcoinx import (
     read_le_uint32, read_le_int32, read_le_int64, read_list, read_varbytes, unpack_le_uint16,
 )
 
+from .bitcoin import ScriptTemplate
 from .constants import ScriptType
 from .logs import logs
 from .networks import Net
@@ -48,7 +49,7 @@ dummy_signature = bytes(72)
 logger = logs.get_logger("transaction")
 
 
-def classify_tx_output(tx_output: TxOutput):
+def classify_tx_output(tx_output: TxOutput) -> ScriptTemplate:
     # This returns a P2PKH_Address, P2SH_Address, P2PK_Output, OP_RETURN_Output,
     # P2MultiSig_Output or Unknown_Output
     return classify_output_script(tx_output.script_pubkey, Net.COIN)

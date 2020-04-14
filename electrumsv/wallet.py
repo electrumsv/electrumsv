@@ -37,8 +37,8 @@ import os
 import random
 import threading
 import time
-from typing import (Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Set, Tuple, TypeVar,
-    Union)
+from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence, Set, Tuple,
+    TypeVar, TYPE_CHECKING, Union)
 import weakref
 
 from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160, P2SH_Address,
@@ -55,7 +55,9 @@ from .crypto import pw_encode, sha256
 from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, UnknownTransactionException,
     WalletLoadError)
 from .i18n import _
-from .keystore import (Hardware_KeyStore, Imported_KeyStore, instantiate_keystore, KeyStore)
+from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
+    instantiate_keystore, KeyStore, Multisig_KeyStore, MultisigChildKeyStoreTypes,
+    Old_KeyStore, SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
 from .networks import Net
 from .paymentrequest import InvoiceStore
@@ -71,6 +73,12 @@ from .wallet_database.tables import (AccountRow, AccountTable, KeyInstanceRow, K
     MasterKeyRow, MasterKeyTable, TransactionTable, TransactionOutputTable,
     TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow, PaymentRequestTable,
     PaymentRequestRow)
+from .wallet_database.sqlite_support import DatabaseContext
+
+if TYPE_CHECKING:
+    from .network import Network
+    from electrumsv.gui.qt.main_window import ElectrumWindow
+    from electrumsv.devices.hw_wallet.qt import QtPluginBase
 
 logger = logs.get_logger("wallet")
 
@@ -123,7 +131,8 @@ class UTXO:
 
     def to_tx_input(self, account: 'AbstractAccount') -> XTxInput:
         threshold = account.get_threshold(self.script_type)
-        return XTxInput(
+        # NOTE(rt12) The typing of attrs subclasses is not detected, so have to ignore.
+        return XTxInput( # type: ignore
             prev_hash=self.tx_hash,
             prev_idx=self.out_index,
             script_sig=Script(),
@@ -176,6 +185,7 @@ class SyncState:
 def dust_threshold(network):
     return 546 # hard-coded Bitcoin SV dust threshold. Was changed to this as of Sept. 2018
 
+CachedScriptType = Tuple[Script, bytes, Optional[ScriptTemplate]]
 
 T = TypeVar('T', bound='AbstractAccount')
 
@@ -185,7 +195,7 @@ class AbstractAccount:
     Completion states (watching-only, single account, no seed, etc) are handled inside classes.
     """
 
-    _default_keystore: KeyStore = None
+    _default_keystore: Optional[KeyStore] = None
     _stopped: bool = False
 
     max_change_outputs = 10
@@ -200,7 +210,7 @@ class AbstractAccount:
         self._logger = logs.get_logger("account[{}]".format(self.name()))
         self._network = None
 
-        self._script_cache: Dict[int, Tuple[Script, bytes, Optional[ScriptTemplate]]] = {}
+        self._script_cache: Dict[Tuple[int, ScriptType], CachedScriptType] = {}
 
         # For synchronization.
         self._activated_keys: List[int] = []
@@ -211,7 +221,7 @@ class AbstractAccount:
         self._deactivated_keys_event = app_state.async_.event()
         self._synchronize_event = app_state.async_.event()
         self._synchronized_event = app_state.async_.event()
-        self._subpath_gap_limits = {}
+        self._subpath_gap_limits: Dict[Sequence[int], int] = {}
         self.txs_changed_event = app_state.async_.event()
         self.request_count = 0
         self.response_count = 0
@@ -255,7 +265,8 @@ class AbstractAccount:
                 scripthash = self.scriptpubkey_to_scripthash(script)
                 return self._script_txos[tx_id][scripthash]
             except KeyError as e:
-                return
+                return None
+        return None
 
     def add_tx_to_script_txos(self, tx_id: str, tx: Transaction) -> None:
         """lazy-loads cache as new txids are encountered by set_key_history."""
@@ -294,8 +305,11 @@ class AbstractAccount:
         raise NotImplementedError
 
     def allocate_keys(self, count: int,
-            derivation_path: Sequence[int]) -> List[DeterministicKeyAllocation]:
-        return []
+            derivation_path: Sequence[int]) -> Sequence[DeterministicKeyAllocation]:
+        return ()
+
+    def get_fresh_keys(self, derivation_parent: Sequence[int], count: int) -> List[KeyInstanceRow]:
+        raise NotImplementedError
 
     def get_gap_limit_for_path(self, subpath: Sequence[int]) -> int:
         return self._subpath_gap_limits.get(subpath, 20)  # defaults to 20
@@ -306,7 +320,7 @@ class AbstractAccount:
         self._subpath_gap_limits[subpath] = limit
 
     def create_keys_until(self, derivation: Sequence[int],
-            script_type: Optional[ScriptType]=None) -> List[KeyInstanceRow]:
+            script_type: Optional[ScriptType]=None) -> Sequence[KeyInstanceRow]:
         with self.lock:
             derivation_path = derivation[:-1]
             next_index = self.get_next_derivation_index(derivation_path)
@@ -318,12 +332,12 @@ class AbstractAccount:
             return self.create_keys(required_count, derivation_path, script_type)
 
     def create_keys(self, count: int, derivation_path: Sequence[int],
-            script_type: Optional[ScriptType]=None) -> List[KeyInstanceRow]:
+            script_type: Optional[ScriptType]=None) -> Sequence[KeyInstanceRow]:
         key_allocations = self.allocate_keys(count, derivation_path)
         return self.create_allocated_keys(key_allocations, script_type)
 
-    def create_allocated_keys(self, key_allocations: List[DeterministicKeyAllocation],
-            script_type: Optional[ScriptType]=None) -> List[KeyInstanceRow]:
+    def create_allocated_keys(self, key_allocations: Sequence[DeterministicKeyAllocation],
+            script_type: Optional[ScriptType]=None) -> Sequence[KeyInstanceRow]:
         if not len(key_allocations):
             return []
         if script_type is None:
@@ -438,7 +452,7 @@ class AbstractAccount:
             return self._wallet.get_keystore(self._row.default_masterkey_id)
         return self._default_keystore
 
-    def get_keystores(self) -> List[KeyStore]:
+    def get_keystores(self) -> Sequence[KeyStore]:
         keystore = self.get_keystore()
         return [ keystore ] if keystore is not None else []
 
@@ -459,7 +473,7 @@ class AbstractAccount:
         return self._wallet._transaction_cache.get_metadata(tx_hash)
 
     def get_transaction_metadatas(self, flags: Optional[int]=None, mask: Optional[int]=None,
-            tx_hashes: Optional[Iterable[bytes]]=None,
+            tx_hashes: Optional[Sequence[bytes]]=None,
             require_all: bool=True) -> List[Tuple[str, TxData]]:
         return self._wallet._transaction_cache.get_metadatas(flags, mask, tx_hashes, require_all)
 
@@ -501,7 +515,7 @@ class AbstractAccount:
         maximum_position = 0
         positions: Dict[str, int] = {}
         for tx_hash, _value_delta, keyinstance_id in rows:
-            metadata = self.get_transaction_metadata(tx_hash)
+            metadata = cast(TxData, self.get_transaction_metadata(tx_hash))
             if metadata.height is not None:
                 tx_id = hash_to_hex_str(tx_hash)
                 if metadata.position is not None:
@@ -529,7 +543,7 @@ class AbstractAccount:
     def _load_txos(self, output_rows: List[TransactionOutputRow]) -> None:
         self._stxos.clear()
         self._utxos.clear()
-        self._frozen_coins = set([])
+        self._frozen_coins: Set[Tuple[bytes, int]] = set([])
 
         for row in output_rows:
             txo_key = row.tx_hash, row.tx_index
@@ -601,9 +615,10 @@ class AbstractAccount:
         row = self._wallet.create_payment_requests([ PaymentRequestRow(-1,
             keyinstance_id, state, value, expiration, description, int(time.time())) ])[0]
         key = self._keyinstances[keyinstance_id]
+        flags = key.flags | KeyInstanceFlag.IS_PAYMENT_REQUEST
         self._keyinstances[keyinstance_id] = KeyInstanceRow(keyinstance_id, key.account_id,
             key.masterkey_id, key.derivation_type, key.derivation_data, key.script_type,
-            key.flags | KeyInstanceFlag.IS_PAYMENT_REQUEST, key.description)
+            flags, key.description)
         new_key = self._keyinstances[keyinstance_id]
         self._wallet.update_keyinstance_flags([ (new_key.flags, keyinstance_id) ])
         self._payment_requests[row.paymentrequest_id] = row
@@ -648,20 +663,20 @@ class AbstractAccount:
     def is_hardware_wallet(self) -> bool:
         return any([ isinstance(k, Hardware_KeyStore) for k in self.get_keystores() ])
 
-    def get_label_data(self) -> Any:
+    def get_label_data(self) -> Dict[str, Any]:
         # Create exported data structure for account labels/descriptions.
-        def _derivation_path(key_id: int) -> str:
+        def _derivation_path(key_id: int) -> Optional[str]:
             derivation = self._keypath.get(key_id)
             return None if derivation is None else compose_chain_string(derivation)
-        label_entries = [ [ _derivation_path(key.keyinstance_id),  key.description ]
+        label_entries = [ (_derivation_path(key.keyinstance_id),  key.description)
             for key in self._keyinstances.values() if key.description is not None ]
 
         with TransactionDeltaTable(self._wallet._db_context) as table:
             rows = table.read_descriptions(self._id)
-        transaction_entries = [ [ hash_to_hex_str(tx_hash), description ]
+        transaction_entries = [ (hash_to_hex_str(tx_hash), description)
             for tx_hash, description in rows ]
 
-        data = {}
+        data: Dict[str, Any] = {}
         if len(transaction_entries):
             data["transactions"] = transaction_entries
         if len(label_entries):
@@ -714,6 +729,7 @@ class AbstractAccount:
         for keyinstance_id, keypath in self._keypath.items():
             if keypath == derivation:
                 return keyinstance_id
+        return None
 
     def get_threshold(self, script_type: ScriptType) -> int:
         assert script_type in (ScriptType.P2PKH, ScriptType.P2PK), \
@@ -762,8 +778,8 @@ class AbstractAccount:
 
         height, conf, _timestamp = self.get_tx_height(tx_hash)
         self._logger.debug("add_verified_tx %d %d %d", height, conf, timestamp)
-        self._network.trigger_callback('verified', self._wallet.get_storage_path(),
-            tx_hash, height, conf, timestamp)
+        cast(Network, self._network).trigger_callback(
+            'verified', self._wallet.get_storage_path(), tx_hash, height, conf, timestamp)
 
     def undo_verifications(self, above_height):
         '''Called by network when a reorg has happened'''
@@ -779,7 +795,7 @@ class AbstractAccount:
         """ return the height and timestamp of a verified transaction. """
         with self.lock:
             metadata = self._wallet._transaction_cache.get_metadata(tx_hash)
-            assert metadata.height is not None, f"tx {tx_hash} has no height"
+            assert metadata.height is not None, f"tx {hash_to_hex_str(tx_hash)} has no height"
             timestamp = None
             if metadata.height > 0:
                 chain = app_state.headers.longest_chain()
@@ -815,7 +831,7 @@ class AbstractAccount:
     def get_stxo(self, tx_hash: bytes, output_index: int) -> Optional[int]:
         return self._stxos.get((tx_hash, output_index), None)
 
-    def get_utxo(self, tx_hash: bytes, output_index: int) -> Optional[TransactionOutputRow]:
+    def get_utxo(self, tx_hash: bytes, output_index: int) -> Optional[UTXO]:
         return self._utxos.get((tx_hash, output_index), None)
 
     def get_spendable_coins(self, domain: Optional[List[int]], config, isInvoice = False):
@@ -862,11 +878,12 @@ class AbstractAccount:
                 if exclude_frozen_coins and k in self._frozen_coins:
                     continue
                 o = self._utxos[k]
-                metadata = self.get_transaction_metadata(o.tx_hash)
-                if o.is_coinbase and metadata.height + COINBASE_MATURITY > \
+                metadata = cast(TxData, self.get_transaction_metadata(o.tx_hash))
+                metadata_height = cast(int, metadata.height)
+                if o.is_coinbase and metadata_height + COINBASE_MATURITY > \
                         self._wallet.get_local_height():
                     x += o.value
-                elif metadata.height > 0:
+                elif metadata_height > 0:
                     c += o.value
                 else:
                     u += o.value
@@ -892,11 +909,11 @@ class AbstractAccount:
             self._wallet._transaction_cache.add_transaction(tx, flag, _completion_callback)
             self._process_key_usage(tx_hash, tx, None)
 
-    def set_transaction_state(self, tx_hash: bytes, flags: TxFlags) -> bool:
+    def set_transaction_state(self, tx_hash: bytes, flags: TxFlags) -> None:
         """ raises UnknownTransactionException """
         with self.transaction_lock:
             if not self._wallet._transaction_cache.is_cached(tx_hash):
-                raise UnknownTransactionException(f"tx {tx_hash} unknown")
+                raise UnknownTransactionException(f"tx {hash_to_hex_str(tx_hash)} unknown")
             existing_flags = self._wallet._transaction_cache.get_flags(tx_hash)
             updated_flags = self._wallet._transaction_cache.update_flags(tx_hash, flags)
         self._wallet.trigger_callback('transaction_state_change',
@@ -907,8 +924,7 @@ class AbstractAccount:
         with self.transaction_lock:
             self._process_key_usage(tx_hash, tx, relevant_txos)
 
-    def _get_cached_script(self, keyinstance_id: int) -> Tuple[Script, bytes,
-            Optional[ScriptTemplate]]:
+    def _get_cached_script(self, keyinstance_id: int) -> CachedScriptType:
         keyinstance = self.get_keyinstance(keyinstance_id)
         script_type = keyinstance.script_type
         assert script_type != ScriptType.NONE, "key_id=%s has ScriptType.NONE" % keyinstance_id
@@ -1105,7 +1121,7 @@ class AbstractAccount:
         self.add_tx_to_script_txos(tx_id, tx)
         relevant_indices = self.get_script_txos(tx_id, keyinstance_id)
         if relevant_indices is None:
-            return
+            return None
 
         relevant_outputs = []
         for index in relevant_indices:
@@ -1303,13 +1319,13 @@ class AbstractAccount:
                 change_outs = []
                 for keyinstance in change_keyinstances:
                     script_type = self.get_script_type_for_id(keyinstance.keyinstance_id)
-                    change_outs.append(XTxOutput(0,
+                    change_outs.append(XTxOutput(0, # type: ignore
                         self.get_script_for_id(keyinstance.keyinstance_id, script_type),
                         script_type,
                         self.get_xpubkeys_for_id(keyinstance.keyinstance_id)))
             else:
-                change_outs = [ XTxOutput(0, utxos[0].script_pubkey, inputs[0].script_type,
-                    inputs[0].x_pubkeys) ]
+                change_outs = [ XTxOutput(0, utxos[0].script_pubkey, # type: ignore
+                    inputs[0].script_type, inputs[0].x_pubkeys) ]
             coin_chooser = coinchooser.CoinChooserPrivacy()
             tx = coin_chooser.make_tx(inputs, outputs, change_outs, fee_estimator,
                 self.dust_threshold())
@@ -1317,7 +1333,7 @@ class AbstractAccount:
             sendable = sum(txin.value for txin in inputs)
             outputs[all_index].value = 0
             tx = Transaction.from_io(inputs, outputs)
-            fee = fee_estimator(tx.estimated_size())
+            fee = cast(int, fee_estimator(tx.estimated_size()))
             outputs[all_index].value = max(0, sendable - tx.output_value() - fee)
             tx = Transaction.from_io(inputs, outputs)
 
@@ -1342,7 +1358,7 @@ class AbstractAccount:
         '''Set frozen state of the COINS to FREEZE, True or False.  Note that coin-level freezing
         is set/unset independent of address-level freezing, however both must be satisfied for
         a coin to be defined as spendable.'''
-        update_entries = []
+        update_entries: List[Tuple[TransactionOutputFlag, bytes, int]] = []
         if freeze:
             self._frozen_coins.update(utxo.key() for utxo in utxos)
             update_entries.extend(
@@ -1372,20 +1388,23 @@ class AbstractAccount:
             self._network = None
 
     def can_export(self) -> bool:
-        return not self.is_watching_only() and self.get_keystore().can_export()
+        if self.is_watching_only():
+            return cast(KeyStore, self.get_keystore()).can_export()
+        return False
 
-    def cpfp(self, tx: Transaction, fee: int) -> Transaction:
+    def cpfp(self, tx: Transaction, fee: int) -> Optional[Transaction]:
         tx_hash = tx.hash()
         for output_index, tx_output in enumerate(tx.outputs):
             utxo = self.get_utxo(tx_hash, output_index)
             if utxo is not None:
                 break
         else:
-            return
+            return None
 
         inputs = [utxo.to_tx_input(self)]
         # TODO(rt12) BACKLOG does CPFP need to pay to the parent's output script? If not fix.
-        outputs = [XTxOutput(tx_output.value - fee, utxo.script_pubkey,
+        # NOTE: Typing does not work well with attrs and subclasses attributes.
+        outputs = [XTxOutput(tx_output.value - fee, utxo.script_pubkey, # type: ignore
             utxo.script_type, self.get_xpubkeys_for_id(utxo.keyinstance_id))]
         locktime = self._wallet.get_local_height()
         # note: no need to call tx.BIP_LI01_sort() here - single input/output
@@ -1415,8 +1434,8 @@ class AbstractAccount:
                         if k.is_signature_candidate(xpubkey) ]
                     if len(candidate_keystores) == 0:
                         continue
-                    keyinstance_id = self.get_keyinstance_id_for_derivation(
-                        xpubkey.derivation_path())
+                    keyinstance_id = cast(int, self.get_keyinstance_id_for_derivation(
+                        xpubkey.derivation_path()))
                     keyinstance = self._keyinstances[keyinstance_id]
                     pubkeys = self.get_public_keys_for_id(keyinstance_id)
                     pubkeys = [pubkey.to_hex() for pubkey in pubkeys]
@@ -1426,6 +1445,15 @@ class AbstractAccount:
                     output_items[candidate_keystores[0].get_fingerprint()] = item
             info.append(output_items)
         tx.output_info = info
+
+    def get_xpubkeys_for_id(self, keyinstance_id: int) -> List[XPublicKey]:
+        raise NotImplementedError
+
+    def get_master_public_keys(self):
+        raise NotImplementedError
+
+    def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
+        raise NotImplementedError
 
     def sign_transaction(self, tx: Transaction, password: str) -> None:
         if self.is_watching_only():
@@ -1466,14 +1494,15 @@ class AbstractAccount:
                 confirmations = local_height - tx_height
             else:
                 confirmations = 0
-            l.append((confirmations, req.value))
+            l.append((confirmations, utxo.value))
 
         vsum = 0
+        vrequired = cast(int, req.value)
         for conf, v in reversed(sorted(l)):
             vsum += v
-            if vsum >= req.value:
+            if vsum >= vrequired:
                 return True, conf
-        return False, None
+        return False, 0
 
     # NOTE(rt12) no matches for this
     # def get_request_status(self, pr_id: int) -> Tuple[PaymentState, Optional[int]]:
@@ -1496,7 +1525,8 @@ class AbstractAccount:
     #     return status, conf
 
     def get_sorted_requests(self) -> List[PaymentRequestRow]:
-        return (self.get_payment_request(pr_id) for pr_id in self._payment_requests)
+        return list(cast(PaymentRequestRow, self.get_payment_request(pr_id))
+            for pr_id in self._payment_requests)
 
     def get_fingerprint(self) -> bytes:
         raise NotImplementedError()
@@ -1541,12 +1571,12 @@ class AbstractAccount:
 
     def sign_message(self, keyinstance_id, message, password: str):
         derivation_path = self._keypath[keyinstance_id]
-        keystore = self.get_keystore()
+        keystore = cast(SignableKeystoreTypes, self.get_keystore())
         return keystore.sign_message(derivation_path, message, password)
 
     def decrypt_message(self, keyinstance_id: int, message, password: str):
         derivation_path = self._keypath[keyinstance_id]
-        keystore = self.get_keystore()
+        keystore = cast(SignableKeystoreTypes, self.get_keystore())
         return keystore.decrypt_message(derivation_path, message, password)
 
     def is_watching_only(self) -> bool:
@@ -1560,7 +1590,7 @@ class SimpleAccount(AbstractAccount):
     # wallet with a single keystore
 
     def is_watching_only(self) -> bool:
-        return self.get_keystore().is_watching_only()
+        return cast(KeyStore, self.get_keystore()).is_watching_only()
 
     def can_change_password(self):
         return self.get_keystore().can_change_password()
@@ -1638,9 +1668,6 @@ class ImportedAddressAccount(ImportedAccountBase):
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
         return [ ]
 
-    def get_xpubkeys_for_id(self, keyinstance_id: int) -> List[XPublicKey]:
-        raise NotImplementedError
-
     def get_valid_script_types(self) -> Sequence[ScriptType]:
         return (ScriptType.P2PKH,)
 
@@ -1676,11 +1703,11 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         return True
 
     def _load_keys(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
-        self._default_keystore.load_state(keyinstance_rows)
+        cast(Imported_KeyStore, self._default_keystore).load_state(keyinstance_rows)
 
     def _unload_keys(self, key_ids: List[int]) -> None:
         for key_id in key_ids:
-            self._default_keystore.remove_key(key_id)
+            cast(Imported_KeyStore, self._default_keystore).remove_key(key_id)
         super()._unload_keys(key_ids)
 
     def can_change_password(self):
@@ -1690,12 +1717,13 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         return False
 
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
-        return [ self.get_keystore().get_public_key_for_id(keyinstance_id) ]
+        return [
+            cast(Imported_KeyStore, self.get_keystore()).get_public_key_for_id(keyinstance_id) ]
 
     def import_private_key(self, private_key_text: str, password: str) -> str:
         public_key = PrivateKey.from_text(private_key_text).public_key
 
-        k = self.get_keystore()
+        k = cast(Imported_KeyStore, self.get_keystore())
         # Prevent re-importing existing entries.
         if k.get_keyinstance_id_for_public_key(public_key) is not None:
             return private_key_text
@@ -1718,12 +1746,13 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
 
     def export_private_key(self, keyinstance_id: int, password: str) -> str:
         '''Returned in WIF format.'''
-        keystore = self.get_keystore()
+        keystore = cast(Imported_KeyStore, self.get_keystore())
         pubkey = keystore.get_public_key_for_id(keyinstance_id)
         return keystore.export_private_key(pubkey, password)
 
     def get_xpubkeys_for_id(self, keyinstance_id: int) -> List[XPublicKey]:
-        public_key = self.get_keystore().get_public_key_for_id(keyinstance_id)
+        keystore = cast(Imported_KeyStore, self.get_keystore())
+        public_key = keystore.get_public_key_for_id(keyinstance_id)
         return [XPublicKey(pubkey_bytes=public_key.to_bytes())]
 
     def get_valid_script_types(self) -> Sequence[ScriptType]:
@@ -1762,10 +1791,10 @@ class DeterministicAccount(AbstractAccount):
         AbstractAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
 
     def has_seed(self) -> bool:
-        return self.get_keystore().has_seed()
+        return cast(Deterministic_KeyStore, self.get_keystore()).has_seed()
 
     def get_seed(self, password: Optional[str]) -> str:
-        return self.get_keystore().get_seed(password)
+        return cast(Deterministic_KeyStore, self.get_keystore()).get_seed(password)
 
     def _load_keys(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
         for row in keyinstance_rows:
@@ -1781,7 +1810,7 @@ class DeterministicAccount(AbstractAccount):
 
     def get_next_derivation_index(self, derivation_path: Sequence[int]) -> int:
         with self.lock:
-            keystore = self.get_keystore()
+            keystore = cast(DerivablePaths, self.get_keystore())
             return keystore.get_next_index(derivation_path)
 
     def allocate_keys(self, count: int,
@@ -1790,12 +1819,13 @@ class DeterministicAccount(AbstractAccount):
             return []
         self._logger.info(f'creating {count} new keys within {derivation_path}')
         with self.lock:
-            keystore = self.get_keystore()
-            next_id = keystore.allocate_indexes(derivation_path, count)
+            path_keystore = cast(DerivablePaths, self.get_keystore())
+            next_id = path_keystore.allocate_indexes(derivation_path, count)
+            keystore = cast(Deterministic_KeyStore, self.get_keystore())
             masterkey_id = keystore.get_id()
             self._wallet.update_masterkey_derivation_data(masterkey_id)
         return tuple(DeterministicKeyAllocation(masterkey_id, DerivationType.BIP32_SUBPATH,
-            derivation_path + (i,)) for i in range(next_id, next_id + count))
+            tuple(derivation_path) + (i,)) for i in range(next_id, next_id + count))
 
     # Returns ordered from use first to use last.
     def get_fresh_keys(self, derivation_parent: Sequence[int], count: int) -> List[KeyInstanceRow]:
@@ -1825,7 +1855,8 @@ class DeterministicAccount(AbstractAccount):
         return list(reversed(newest_to_oldest))
 
     async def _synchronize_chain(self, derivation_parent: Sequence[int], wanted: int) -> None:
-        existing_count = self.get_keystore().get_next_index(derivation_parent)
+        path_keystore = cast(DerivablePaths, self.get_keystore())
+        existing_count = path_keystore.get_next_index(derivation_parent)
         fresh_count = len(self.get_existing_fresh_keys(derivation_parent))
         self.get_fresh_keys(derivation_parent, wanted)
         self._logger.info(
@@ -1842,7 +1873,8 @@ class DeterministicAccount(AbstractAccount):
         return [self.get_master_public_key()]
 
     def get_fingerprint(self) -> bytes:
-        return self.get_keystore().get_fingerprint()
+        keystore = cast(Deterministic_KeyStore, self.get_keystore())
+        return keystore.get_fingerprint()
 
 
 class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
@@ -1859,7 +1891,8 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
         return [self._wallet.get_keystore(keyinstance.masterkey_id).get_xpubkey(derivation_path)]
 
     def get_master_public_key(self) -> str:
-        return self.get_keystore().get_master_public_key()
+        keystore = cast(StandardKeystoreTypes, self.get_keystore())
+        return cast(str, keystore.get_master_public_key())
 
     def _get_public_key_for_id(self, keyinstance_id: int) -> PublicKey:
         derivation_path = self._keypath[keyinstance_id]
@@ -1903,7 +1936,8 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
             raise Exception("unsupported script type", script_type)
 
     def derive_pubkeys(self, derivation_path: Sequence[int]) -> PublicKey:
-        return self.get_keystore().derive_pubkey(derivation_path)
+        keystore = cast(Xpub, self.get_keystore())
+        return keystore.derive_pubkey(derivation_path)
 
     def derive_script_template(self, derivation_path: Sequence[int]) -> ScriptTemplate:
         return self.get_script_template(self.derive_pubkeys(derivation_path))
@@ -1919,7 +1953,8 @@ class MultisigAccount(DeterministicAccount):
     def __init__(self, wallet: 'Wallet', row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
             output_rows: List[TransactionOutputRow]) -> None:
-        self._multisig_keystore = wallet.get_keystore(row.default_masterkey_id)
+        self._multisig_keystore = cast(Multisig_KeyStore,
+            wallet.get_keystore(cast(int, row.default_masterkey_id)))
         self.m = self._multisig_keystore.m
         self.n = self._multisig_keystore.n
 
@@ -1982,10 +2017,10 @@ class MultisigAccount(DeterministicAccount):
         public_keys_hex = [pubkey.to_hex() for pubkey in self.derive_pubkeys(derivation_path)]
         return self.get_script_template(public_keys_hex)
 
-    def get_keystore(self):
+    def get_keystore(self) -> Multisig_KeyStore:
         return self._multisig_keystore
 
-    def get_keystores(self) -> List[KeyStore]:
+    def get_keystores(self) -> Sequence[MultisigChildKeyStoreTypes]:
         return self._multisig_keystore.get_cosigner_keystores()
 
     def has_seed(self) -> bool:
@@ -1998,10 +2033,11 @@ class MultisigAccount(DeterministicAccount):
         return self._multisig_keystore.is_watching_only()
 
     def get_master_public_key(self) -> str:
-        return self.get_keystore().get_master_public_key()
+        raise NotImplementedError
+        # return cast(str, self.get_keystore().get_master_public_key())
 
     def get_master_public_keys(self) -> List[str]:
-        return [k.get_master_public_key() for k in self.get_keystores()]
+        return [cast(str, k.get_master_public_key()) for k in self.get_keystores()]
 
     def get_fingerprint(self) -> bytes:
         # Sort the fingerprints in the same order as their master public keys.
@@ -2020,7 +2056,7 @@ class MultisigAccount(DeterministicAccount):
 
 
 class Wallet(TriggeredCallbacks):
-    _network: 'Network' = None
+    _network: Optional['Network'] = None
     _transaction_table: Optional[TransactionTable] = None
     _transaction_cache: Optional[TransactionCache] = None
 
@@ -2052,14 +2088,15 @@ class Wallet(TriggeredCallbacks):
         self.contacts = Contacts(self._storage)
 
     def move_to(self, new_path: str) -> None:
+        assert self._transaction_table is not None
         self._transaction_table.close()
         self._db_context = None
 
         self._storage.move_to(new_path)
 
-        self._db_context = self._storage.get_db_context()
+        self._db_context = cast(DatabaseContext, self._storage.get_db_context())
         self._transaction_table = TransactionTable(self._db_context)
-        self._transaction_cache.set_store(self._transaction_table)
+        cast(TransactionCache, self._transaction_cache).set_store(self._transaction_table)
 
     def load_state(self) -> None:
         if self._db_context is None:
@@ -2079,14 +2116,14 @@ class Wallet(TriggeredCallbacks):
                 self._realize_keystore(row)
 
         with KeyInstanceTable(self._db_context) as table:
-            all_account_keys = defaultdict(list)
+            all_account_keys: Dict[int, List[KeyInstanceRow]] = defaultdict(list)
             keyinstances = {}
             for row in table.read(mask=KeyInstanceFlag.IS_ACTIVE):
                 keyinstances[row.keyinstance_id] = row
                 all_account_keys[row.account_id].append(row)
 
         with TransactionOutputTable(self._db_context) as table:
-            all_account_outputs = defaultdict(list)
+            all_account_outputs: Dict[int, List[TransactionOutputRow]] = defaultdict(list)
             for row in table.read():
                 keyinstance = keyinstances[row.keyinstance_id]
                 all_account_outputs[keyinstance.account_id].append(row)
@@ -2125,7 +2162,7 @@ class Wallet(TriggeredCallbacks):
     def get_keystore(self, keystore_id: int) -> KeyStore:
         return self._keystores[keystore_id]
 
-    def get_keystores(self) -> List[KeyStore]:
+    def get_keystores(self) -> Sequence[KeyStore]:
         return list(self._keystores.values())
 
     def check_password(self, password: str) -> None:
@@ -2140,6 +2177,7 @@ class Wallet(TriggeredCallbacks):
                 if keystore.has_masterkey():
                     self.update_masterkey_derivation_data(keystore.get_id())
                 else:
+                    assert isinstance(keystore, Imported_KeyStore)
                     updates = []
                     for key_id, derivation_data in keystore.get_keyinstance_derivation_data():
                         derivation_bytes = json.dumps(derivation_data).encode()
@@ -2157,25 +2195,26 @@ class Wallet(TriggeredCallbacks):
                 accounts.append(account)
         return accounts
 
-    def get_accounts(self) -> Iterable[AbstractAccount]:
+    def get_accounts(self) -> Sequence[AbstractAccount]:
         return list(self._accounts.values())
 
     def get_default_account(self) -> Optional[AbstractAccount]:
         if len(self._accounts):
             return list(self._accounts.values())[0]
+        return None
 
     def _realize_keystore(self, row: MasterKeyRow) -> None:
         data: Dict[str, Any] = json.loads(row.derivation_data)
         parent_keystore: Optional[KeyStore] = None
         if row.parent_masterkey_id is not None:
-            parent_keystore = self._masterkeys[row.parent_masterkey_id]
+            parent_keystore = self._keystores[row.parent_masterkey_id]
         keystore = instantiate_keystore(row.derivation_type, data, parent_keystore, row)
         self._keystores[row.masterkey_id] = keystore
         self._masterkey_rows[row.masterkey_id] = row
 
     def _realize_account(self, account_row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
-            output_rows: List[TransactionOutputRow]) -> None:
+            output_rows: List[TransactionOutputRow]) -> AbstractAccount:
         account_constructors = {
             DerivationType.BIP32: StandardAccount,
             DerivationType.BIP32_SUBPATH: StandardAccount,
@@ -2268,7 +2307,7 @@ class Wallet(TriggeredCallbacks):
         keyinstance_rows = self.create_keyinstances(account_row.account_id, raw_keyinstance_rows)
         return self._realize_account_from_row(account_row, keyinstance_rows, [])
 
-    def add_masterkeys(self, entries: Iterable[MasterKeyRow]) -> Iterable[MasterKeyRow]:
+    def add_masterkeys(self, entries: Sequence[MasterKeyRow]) -> Sequence[MasterKeyRow]:
         masterkey_id = self._storage.get("next_masterkey_id", 1)
         rows = []
         for entry in entries:
@@ -2278,7 +2317,7 @@ class Wallet(TriggeredCallbacks):
             self._masterkey_rows[masterkey_id] = row
             masterkey_id += 1
         self._storage.put("next_masterkey_id", masterkey_id)
-        with MasterKeyTable(self._db_context) as table:
+        with MasterKeyTable(cast(DatabaseContext, self._db_context)) as table:
             table.create(rows)
         return rows
 
@@ -2292,7 +2331,7 @@ class Wallet(TriggeredCallbacks):
             account_id += 1
 
         self._storage.put("next_account_id", account_id)
-        with AccountTable(self._db_context) as table:
+        with AccountTable(cast(DatabaseContext, self._db_context)) as table:
             table.create(rows)
 
         return rows
@@ -2309,14 +2348,14 @@ class Wallet(TriggeredCallbacks):
             keyinstance_id += 1
         self._storage.put("next_keyinstance_id", keyinstance_id)
 
-        with KeyInstanceTable(self._db_context) as table:
+        with KeyInstanceTable(cast(DatabaseContext, self._db_context)) as table:
             table.create(rows)
 
         return rows
 
     def create_transactionoutputs(self, account_id: int,
             entries: List[TransactionOutputRow]) -> List[TransactionOutputRow]:
-        with TransactionOutputTable(self._db_context) as table:
+        with TransactionOutputTable(cast(DatabaseContext, self._db_context)) as table:
             table.create(entries)
         return entries
 
@@ -2328,7 +2367,7 @@ class Wallet(TriggeredCallbacks):
                 request.value, request.expiration, request.description, request.date_created))
             request_id += 1
         self._storage.put("next_paymentrequest_id", request_id)
-        with PaymentRequestTable(self._db_context) as table:
+        with PaymentRequestTable(cast(DatabaseContext, self._db_context)) as table:
             table.create(rows)
         return rows
 
@@ -2337,50 +2376,51 @@ class Wallet(TriggeredCallbacks):
         for request in requests:
             entries.append((request.state, request.value, request.expiration, request.description,
                 request.paymentrequest_id))
-        with PaymentRequestTable(self._db_context) as table:
+        with PaymentRequestTable(cast(DatabaseContext, self._db_context)) as table:
             table.update(entries)
         return requests
 
     def update_transaction_descriptions(self,
-            entries: Iterable[Tuple[Optional[str], bytes]]) -> None:
+            entries: Sequence[Tuple[Optional[str], bytes]]) -> None:
         for text, tx_hash in entries:
             if text is None:
                 del self._transaction_descriptions[tx_hash]
             else:
                 self._transaction_descriptions[tx_hash] = text
 
-        with TransactionTable(self._db_context) as table:
+        with TransactionTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_descriptions(entries)
 
-    def update_account_script_types(self, entries: Iterable[Tuple[ScriptType, int]]) -> None:
-        with AccountTable(self._db_context) as table:
+    def update_account_script_types(self, entries: Sequence[Tuple[ScriptType, int]]) -> None:
+        with AccountTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_script_type(entries)
 
     def update_masterkey_derivation_data(self, masterkey_id: int) -> None:
         keystore = self.get_keystore(masterkey_id)
         derivation_data = json.dumps(keystore.to_derivation_data()).encode()
-        with MasterKeyTable(self._db_context) as table:
+        with MasterKeyTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_derivation_data([ (derivation_data, masterkey_id) ])
 
-    def update_keyinstance_derivation_data(self, entries: Iterable[Tuple[bytes, int]]) -> None:
-        with KeyInstanceTable(self._db_context) as table:
+    def update_keyinstance_derivation_data(self, entries: Sequence[Tuple[bytes, int]]) -> None:
+        with KeyInstanceTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_derivation_data(entries)
 
-    def update_keyinstance_descriptions(self, entries: Iterable[Tuple[Optional[str], int]]) -> None:
-        with KeyInstanceTable(self._db_context) as table:
+    def update_keyinstance_descriptions(self,
+            entries: Sequence[Tuple[Optional[str], int]]) -> None:
+        with KeyInstanceTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_descriptions(entries)
 
     def update_keyinstance_flags(self, entries: Iterable[Tuple[KeyInstanceFlag, int]]) -> None:
-        with KeyInstanceTable(self._db_context) as table:
+        with KeyInstanceTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_flags(entries)
 
     def update_keyinstance_script_types(self, entries: Iterable[Tuple[ScriptType, int]]) -> None:
-        with KeyInstanceTable(self._db_context) as table:
+        with KeyInstanceTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_script_types(entries)
 
     def update_transactionoutput_flags(self,
             entries: Iterable[Tuple[TransactionOutputFlag, bytes, int]]) -> None:
-        with TransactionOutputTable(self._db_context) as table:
+        with TransactionOutputTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_flags(entries)
 
     # This should only be called by an account that holds it's own transaction lock.
@@ -2389,7 +2429,7 @@ class Wallet(TriggeredCallbacks):
         # Because we do not cache transaction delta entries in an account, the database needs
         # to do extra work to both insert any new record, and adjust the existing record
         # with the relative `value_delta`.
-        with TransactionDeltaTable(self._db_context) as table:
+        with TransactionDeltaTable(cast(DatabaseContext, self._db_context)) as table:
             table.create_or_update_relative_values(entries)
 
     def is_synchronized(self) -> bool:
@@ -2427,12 +2467,14 @@ class Wallet(TriggeredCallbacks):
             for keystore in account.get_keystores():
                 if keystore.is_signature_candidate(x_pubkey):
                     if x_pubkey.kind() == XPublicKeyType.PRIVATE_KEY:
+                        assert isinstance(keystore, Imported_KeyStore)
                         keyinstance_id = keystore.get_keyinstance_id_for_public_key(
                             x_pubkey.to_public_key())
                     else:
                         keyinstance_id = account.get_keyinstance_id_for_derivation(
                             x_pubkey.derivation_path())
                     return account, keyinstance_id
+        return None
 
     def get_local_height(self) -> int:
         """ return last known height if we are offline """
@@ -2463,6 +2505,7 @@ class Wallet(TriggeredCallbacks):
             f"invalid cache size {maximum_size}"
         self._storage.put('tx_bytedata_cache_size', maximum_size)
         maximum_size_bytes = maximum_size * (1024 * 1024)
+        assert self._transaction_cache is not None
         self._transaction_cache.set_maximum_cache_size_for_bytedata(maximum_size_bytes,
             force_resize)
 
@@ -2484,4 +2527,5 @@ class Wallet(TriggeredCallbacks):
     def create_gui_handler(self, window: 'ElectrumWindow', account: AbstractAccount) -> None:
         for keystore in account.get_keystores():
             if isinstance(keystore, Hardware_KeyStore):
-                keystore.plugin.replace_gui_handler(window, keystore)
+                plugin = cast('QtPluginBase', keystore.plugin)
+                plugin.replace_gui_handler(window, keystore)

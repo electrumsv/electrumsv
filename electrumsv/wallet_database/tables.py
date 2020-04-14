@@ -229,7 +229,7 @@ class TxData(NamedTuple):
 
 class TxProof(NamedTuple):
     position: int
-    branch: List[bytes]
+    branch: Sequence[bytes]
 
 class TransactionRow(NamedTuple):
     tx_hash: bytes
@@ -715,7 +715,7 @@ class TransactionOutputRow(NamedTuple):
     tx_index: int
     value: int
     keyinstance_id: int
-    flags: int
+    flags: TransactionOutputFlag
 
 
 class TransactionOutputTable(BaseWalletStore):

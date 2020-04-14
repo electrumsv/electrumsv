@@ -7,7 +7,7 @@ from bitcoinx import (
 )
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import compose_chain_string, int_to_hex
+from electrumsv.bitcoin import compose_chain_string, int_to_hex, ScriptTemplate
 from electrumsv.constants import ScriptType
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -210,6 +210,7 @@ class Ledger_Client():
 class Ledger_KeyStore(Hardware_KeyStore):
     hw_type = 'ledger'
     device = 'Ledger'
+    handler: Optional['Ledger_Handler']
 
     def __init__(self, data: Dict[str, Any], row: 'MasterKeyRow') -> None:
         Hardware_KeyStore.__init__(self, data, row)
@@ -307,16 +308,17 @@ class Ledger_KeyStore(Hardware_KeyStore):
         return bytes([27 + 4 + (signature[0] & 0x01)]) + r + s
 
     @set_and_unset_signing
-    def sign_transaction(self, tx, password):
+    def sign_transaction(self, tx, password: str) -> None:
         if tx.is_complete():
             return
+
+        assert self.handler is not None
         client = self.get_client()
         inputs = []
         inputsPaths = []
         chipInputs = []
         redeemScripts = []
         signatures = []
-        preparedTrustedInputs = []
         changePath = ""
         changeAmount = None
         output = None
@@ -383,12 +385,13 @@ class Ledger_KeyStore(Hardware_KeyStore):
             outputData['outputData'] = txOutput
             transactionOutput = outputData['outputData']
             if outputData['confirmationNeeded']:
-                outputData['address'] = output.to_string()
+                outputData['address'] = cast(ScriptTemplate, output).to_string()
                 self.handler.finished()
                 # the authenticate dialog and returns pin
-                pin = self.handler.get_auth(self, outputData)
-                if not pin:
+                auth_pin = self.handler.get_auth(self, outputData)
+                if not auth_pin:
                     raise UserWarning()
+                pin = auth_pin
                 self.handler.show_message(_("Confirmed. Signing Transaction..."))
             while inputIndex < len(inputs):
                 singleInput = [ chipInputs[inputIndex] ]

@@ -130,7 +130,7 @@ class KeystoreTextType(IntEnum):
     EXTENDED_PUBLIC_KEY = 8
 
 
-class KeyInstanceFlag(IntEnum):
+class KeyInstanceFlag(IntFlag):
     NONE = 0
 
     # This key should be loaded and managed appropriately.
@@ -147,7 +147,7 @@ class KeyInstanceFlag(IntEnum):
     ALLOCATED_MASK = IS_PAYMENT_REQUEST
 
 
-class TransactionOutputFlag(IntEnum):
+class TransactionOutputFlag(IntFlag):
     NONE = 0
 
     # If the UTXO is in a local or otherwise unconfirmed transaction.
