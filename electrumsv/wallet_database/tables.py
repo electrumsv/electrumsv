@@ -1,9 +1,8 @@
-from collections import namedtuple
 from io import BytesIO
 import json
 import sqlite3
 import time
-from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Tuple
+from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple
 
 import bitcoinx
 from bitcoinx import hash_to_hex_str
@@ -57,11 +56,11 @@ class BaseWalletStore:
     def __init__(self, db_context: DatabaseContext) -> None:
         self._logger = logs.get_logger(self.LOGGER_NAME)
         self._db_context = db_context
-        self._db = db_context.acquire_connection()
+        self._db: sqlite3.Connection = db_context.acquire_connection()
 
     def close(self) -> None:
         self._db_context.release_connection(self._db)
-        self._db = None
+        del self._db
 
     def __enter__(self):
         return self
@@ -118,8 +117,8 @@ class WalletDataTable(BaseWalletStore):
         row = cursor.fetchone()
         return json.loads(row[1]) if row is not None else None
 
-    def read(self, keys: Optional[Iterable[str]]=None) -> List[WalletDataRow]:
-        results = []
+    def read(self, keys: Optional[Sequence[str]]=None) -> List[WalletDataRow]:
+        results: List[WalletDataRow] = []
         def _collect_results(cursor, results):
             rows = cursor.fetchall()
             cursor.close()
@@ -206,23 +205,31 @@ class WalletDataTable(BaseWalletStore):
         self._db_context.queue_write(_write, completion_callback)
 
 
-class TxData(namedtuple("TxDataTuple", "height position fee date_added date_updated")):
+class TxData(NamedTuple):
+    height: Optional[int] = None
+    position: Optional[int] = None
+    fee: Optional[int] = None
+    date_added: Optional[int] = None
+    date_updated: Optional[int] = None
+
     def __repr__(self):
         return (f"TxData(height={self.height},position={self.position},fee={self.fee},"
             f"date_added={self.date_added},date_updated={self.date_updated})")
 
-    def __eq__(self, other: 'TxData') -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TxData):
+            return NotImplemented
         return (self.height == other.height and self.position == other.position
             and self.fee == other.fee)
 
-# namedtuple defaults do not get added until 3.7, and are not available in 3.6, so we set them
-# indirectly to be compatible by both.
-TxData.__new__.__defaults__ = (None, None, None, None, None)
+# # namedtuple defaults do not get added until 3.7, and are not available in 3.6, so we set them
+# # indirectly to be compatible by both.
+# TxData.__new__.__defaults__ = (None, None, None, None, None)
 
 
-class TxProof(namedtuple("TxProofTuple", "position branch")):
-    pass
-
+class TxProof(NamedTuple):
+    position: int
+    branch: List[bytes]
 
 class TransactionRow(NamedTuple):
     tx_hash: bytes
@@ -260,7 +267,7 @@ class TransactionTable(BaseWalletStore):
     DELETE_SQL = "DELETE FROM Transactions WHERE tx_hash=?"
 
     @staticmethod
-    def _apply_flags(data: TxData, flags: TxFlags) -> bytes:
+    def _apply_flags(data: TxData, flags: TxFlags) -> TxFlags:
         flags &= ~TxFlags.METADATA_FIELD_MASK
         if data.height is not None:
             flags |= TxFlags.HasHeight
@@ -291,7 +298,7 @@ class TransactionTable(BaseWalletStore):
         raise DataPackingError(f"Unhandled packing format {pack_version}")
 
     @staticmethod
-    def _flag_clause(flags: Optional[int], mask: Optional[int]) -> Tuple[str, Tuple]:
+    def _flag_clause(flags: Optional[int], mask: Optional[int]) -> Tuple[str, List[int]]:
         if flags is None:
             if mask is None:
                 return "", []
@@ -303,7 +310,7 @@ class TransactionTable(BaseWalletStore):
         return "(flags & ?) == ?", [mask, flags]
 
     def _get_many_common(self, query: str, flags: Optional[int]=None, mask: Optional[int]=None,
-            tx_hashes: Optional[Iterable[str]]=None) -> List[Tuple[Any]]:
+            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Any]:
         params = []
         clause, extra_params = self._flag_clause(flags, mask)
 
@@ -328,7 +335,7 @@ class TransactionTable(BaseWalletStore):
             batch_tx_hashes = tx_hashes[:batch_size]
             batch_query = (query +" "+ conjunction +" "+
                 "tx_hash IN ({0})".format(",".join("?" for k in batch_tx_hashes)))
-            cursor = self._db.execute(batch_query, params + batch_tx_hashes)
+            cursor = self._db.execute(batch_query, params + batch_tx_hashes) # type: ignore
             rows = cursor.fetchall()
             cursor.close()
             results.extend(rows)
@@ -355,31 +362,31 @@ class TransactionTable(BaseWalletStore):
             db.executemany(self.CREATE_SQL, datas)
         self._db_context.queue_write(_write, completion_callback, size_hint)
 
-    def read(self, flags: Optional[int]=None, mask: Optional[int]=None,
-            tx_hashes: Optional[Iterable[bytes]]=None) -> List[Tuple[Optional[bytes],
-                int, int, TxData]]:
+    def read(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,
+            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes,
+                Optional[bytes], TxFlags, TxData]]:
         query = self.READ_MANY_BASE_SQL
         return [ (row[0], row[1], row[2], TxData(row[3], row[4], row[5], row[6], row[7]))
             for row in self._get_many_common(query, flags, mask, tx_hashes) ]
 
-    def read_metadata(self, flags: Optional[int]=None, mask: Optional[int]=None,
-            tx_hashes: Optional[Iterable[bytes]]=None) -> List[Tuple[bytes, int, TxData]]:
+    def read_metadata(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,
+            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes, TxFlags, TxData]]:
         query = self.READ_METADATA_MANY_BASE_SQL
         return [ (row[0], row[1], TxData(row[2], row[3], row[4], row[5], row[6]))
             for row in self._get_many_common(query, flags, mask, tx_hashes) ]
 
     def read_descriptions(self,
-            tx_hashes: Optional[Iterable[bytes]]=None) -> Optional[Tuple[bytes, str]]:
+            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes, str]]:
         query = self.READ_DESCRIPTION_SQL
         # This can be used directly as the query results map to the return type.
         return self._get_many_common(query, None, None, tx_hashes)
 
-    def read_proof(self, tx_hashes: Iterable[bytes]) -> Optional[TxProof]:
+    def read_proof(self, tx_hashes: Sequence[bytes]) -> List[Tuple[bytes, Optional[TxProof]]]:
         query = self.READ_PROOF_SQL
         return [ (row[0], self._unpack_proof(row[1]) if row[1] is not None else None)
             for row in self._get_many_common(query, None, None, tx_hashes) ]
 
-    def update(self, entries: List[Tuple[bytes, TxData, bytes, int]],
+    def update(self, entries: List[Tuple[bytes, TxData, Optional[bytes], TxFlags]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         data_rows = []
         metadata_rows = []
@@ -412,7 +419,7 @@ class TransactionTable(BaseWalletStore):
 
         self._db_context.queue_write(_write, completion_callback, size_hint)
 
-    def update_metadata(self, entries: List[Tuple[bytes, TxData, int]],
+    def update_metadata(self, entries: List[Tuple[bytes, TxData, TxFlags]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         datas = []
         for tx_hash, metadata, flags in entries:
@@ -425,7 +432,7 @@ class TransactionTable(BaseWalletStore):
             db.executemany(self.UPDATE_METADATA_MANY_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)
 
-    def update_flags(self, entries: Iterable[Tuple[bytes, int, int, int]],
+    def update_flags(self, entries: Iterable[Tuple[bytes, TxFlags, TxFlags, int]],
             # tx_hash: bytes, flags: int, mask: int, date_updated: int,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         datas = [ (mask, flags, date_updated, tx_hash)
@@ -458,7 +465,7 @@ class TransactionTable(BaseWalletStore):
             db.executemany(self.UPDATE_PROOF_SQL, datas)
         self._db_context.queue_write(_write, completion_callback, size_hint)
 
-    def delete(self, tx_hashes: Iterable[bytes],
+    def delete(self, tx_hashes: Sequence[bytes],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         datas = [(tx_hash,) for tx_hash in tx_hashes]
         def _write(db: sqlite3.Connection):
@@ -644,7 +651,7 @@ class KeyInstanceTable(BaseWalletStore):
 
     def read(self, mask: Optional[KeyInstanceFlag]=None) -> List[KeyInstanceRow]:
         query = self.READ_SQL
-        params = []
+        params: Sequence[int] = []
         if mask is not None:
             query += " WHERE (flags & ?) != 0"
             params = [ mask ]
@@ -732,7 +739,7 @@ class TransactionOutputTable(BaseWalletStore):
 
     def read(self, mask: Optional[TransactionOutputFlag]=None) -> Iterable[TransactionOutputRow]:
         query = self.READ_SQL
-        params = []
+        params: Sequence[int] = []
         if mask is not None:
             query += " WHERE (flags & ?) != 0"
             params = [ mask ]
@@ -798,7 +805,7 @@ class TransactionDeltaTable(BaseWalletStore):
     DELETE_TRANSACTION_SQL = "DELETE FROM TransactionDeltas WHERE tx_hash=?"
 
     def _get_many_common(self, query: str, base_params: Optional[List[Any]]=None,
-            tx_hashes: Optional[Iterable[str]]=None) -> List[Tuple[Any]]:
+            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Any]:
         params = base_params[:] if base_params is not None else []
 
         if tx_hashes is None or not len(tx_hashes):
@@ -817,7 +824,7 @@ class TransactionDeltaTable(BaseWalletStore):
             batch_tx_hashes = tx_hashes[:batch_size]
             batch_query = (query +" "+ conjunction +" "+
                 "tx_hash IN ({0})".format(",".join("?" for k in batch_tx_hashes)))
-            cursor = self._db.execute(batch_query, params + batch_tx_hashes)
+            cursor = self._db.execute(batch_query, params + batch_tx_hashes) # type: ignore
             rows = cursor.fetchall()
             cursor.close()
             results.extend(rows)
@@ -849,7 +856,7 @@ class TransactionDeltaTable(BaseWalletStore):
         return [ TransactionDeltaRow(*t) for t in rows ]
 
     def read_history(self, account_id: int,
-            tx_hashes: Optional[Iterable[bytes]]=None) -> List[Tuple[bytes, int, int]]:
+            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes, int, int]]:
         return self._get_many_common(self.READ_HISTORY_SQL, [ account_id ], tx_hashes)
 
     def read_descriptions(self, account_id: int) -> List[Tuple[bytes, str]]:
@@ -905,7 +912,7 @@ class PaymentRequestTable(BaseWalletStore):
     DELETE_SQL = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
 
     def _get_many_common(self, query: str, base_params: Optional[List[Any]]=None,
-            row_ids: Optional[Iterable[str]]=None) -> List[Tuple[Any]]:
+            row_ids: Optional[Sequence[str]]=None) -> List[Tuple[Any]]:
         params = base_params[:] if base_params is not None else []
 
         if row_ids is None or not len(row_ids):
@@ -924,7 +931,7 @@ class PaymentRequestTable(BaseWalletStore):
             batch_row_ids = row_ids[:batch_size]
             batch_query = (query +" "+ conjunction +" "+
                 "tx_hash IN ({0})".format(",".join("?" for k in batch_row_ids)))
-            cursor = self._db.execute(batch_query, params + batch_row_ids)
+            cursor = self._db.execute(batch_query, params + batch_row_ids) # type: ignore
             rows = cursor.fetchall()
             cursor.close()
             results.extend(rows)
@@ -941,7 +948,7 @@ class PaymentRequestTable(BaseWalletStore):
 
     def read(self, account_id: Optional[int]=None) -> List[PaymentRequestRow]:
         query = self.READ_ALL_SQL
-        params = ()
+        params: Sequence[int] = ()
         if account_id is not None:
             query = self.READ_ACCOUNT_SQL
             params = (account_id,)

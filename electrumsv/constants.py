@@ -1,5 +1,6 @@
 # ...
-from enum import Enum, IntEnum
+from enum import Enum, IntEnum, IntFlag
+from typing import Optional
 
 ## Wallet
 
@@ -23,7 +24,7 @@ DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
 MIGRATION_CURRENT = 22
 
-class TxFlags(IntEnum):
+class TxFlags(IntFlag):
     Unset = 0
 
     # TxData() packed into Transactions.MetaData:
@@ -52,18 +53,18 @@ class TxFlags(IntEnum):
     MASK = 0xFFFFFFFF
 
     def __repr__(self):
-        return f"TxFlags({self.name})"
+        return self.to_repr(self.value)
+        # return f"TxFlags({self.name})"
 
     @staticmethod
-    def to_repr(bitmask: int):
+    def to_repr(bitmask: Optional[int]) -> str:
         if bitmask is None:
             return repr(bitmask)
 
         # Handle existing values.
-        try:
-            return f"TxFlags({TxFlags(bitmask).name})"
-        except ValueError:
-            pass
+        entry = TxFlags(bitmask)
+        if entry.name is not None:
+            return f"TxFlags({entry.name})"
 
         # Handle bit flags.
         mask = int(TxFlags.StateDispatched)
@@ -71,10 +72,11 @@ class TxFlags(IntEnum):
         while mask > 0:
             value = bitmask & mask
             if value == mask:
-                try:
-                    names.append(TxFlags(value).name)
-                except ValueError:
-                    pass
+                entry = TxFlags(value)
+                if entry.name is not None:
+                    names.append(entry.name)
+                else:
+                    names.append(f"{value:x}")
             mask >>= 1
 
         return f"TxFlags({'|'.join(names)})"

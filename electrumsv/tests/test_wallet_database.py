@@ -235,7 +235,7 @@ class TestTransactionCache:
 
         tx = Transaction.from_hex(tx_hex_1)
         data = [ tx.hash(), TxData(height=1295924,position=4,fee=None, date_added=1,
-            date_updated=1), None, TxFlags.Unset ]
+            date_updated=1), None, TxFlags.Unset, None ]
         with SynchronousWriter() as writer:
             cache.add([ data ], completion_callback=writer.get_callback())
             assert writer.succeeded()
@@ -263,7 +263,7 @@ class TestTransactionCache:
         tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
         metadata_1 = TxData(position=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, metadata_1, bytedata_1, TxFlags.StateDispatched) ],
+            cache.add([ (tx_hash_1, metadata_1, bytedata_1, TxFlags.StateDispatched, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -293,7 +293,7 @@ class TestTransactionCache:
         tx_hash_1 = bitcoinx.double_sha256(tx_bytes_1)
         data = TxData(position=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateDispatched) ],
+            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateDispatched, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -316,10 +316,10 @@ class TestTransactionCache:
         data = TxData(position=11)
         for state_flag in TRANSACTION_FLAGS:
             with pytest.raises(wallet_database.InvalidDataError):
-                cache.add([ (tx_hash_1, data, None, state_flag) ])
+                cache.add([ (tx_hash_1, data, None, state_flag, None) ])
 
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateSigned) ],
+            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateSigned, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -338,7 +338,7 @@ class TestTransactionCache:
         tx_hash_1 = bitcoinx.double_sha256(tx_bytes_1)
         data = TxData(position=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateDispatched) ],
+            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateDispatched, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -446,7 +446,7 @@ class TestTransactionCache:
         tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
         data = TxData(position=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, bytedata_1, TxFlags.StateSettled) ],
+            cache.add([ (tx_hash_1, data, bytedata_1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -509,7 +509,7 @@ class TestTransactionCache:
         tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
         metadata_1 = TxData(height=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, metadata_1, bytedata_1, TxFlags.StateSettled) ],
+            cache.add([ (tx_hash_1, metadata_1, bytedata_1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -529,7 +529,7 @@ class TestTransactionCache:
         tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
         metadata_1 = TxData(height=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, metadata_1, None, TxFlags.Unset) ],
+            cache.add([ (tx_hash_1, metadata_1, None, TxFlags.Unset, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -552,7 +552,7 @@ class TestTransactionCache:
         tx_hash_1 = bitcoinx.double_sha256(tx_bytes_1)
         data = TxData(height=11, position=22, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateSettled) ],
+            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -567,7 +567,7 @@ class TestTransactionCache:
 
         data = TxData(height=11, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateSettled) ],
+            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -588,7 +588,7 @@ class TestTransactionCache:
 
         data_y1 = TxData(height=common_height+1, position=33, fee=44, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_y1, data_y1, tx_bytes_y1, TxFlags.StateSettled) ],
+            cache.add([ (tx_hash_y1, data_y1, tx_bytes_y1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -598,7 +598,7 @@ class TestTransactionCache:
 
         data_n1 = TxData(height=common_height-1, position=33, fee=44, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_n1, data_n1, tx_bytes_n1, TxFlags.StateSettled) ],
+            cache.add([ (tx_hash_n1, data_n1, tx_bytes_n1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -608,7 +608,7 @@ class TestTransactionCache:
 
         data_n2 = TxData(height=common_height, position=33, fee=44, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_n2, data_n2, tx_bytes_n2, TxFlags.StateSettled) ],
+            cache.add([ (tx_hash_n2, data_n2, tx_bytes_n2, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -618,7 +618,7 @@ class TestTransactionCache:
 
         data_n3 = TxData(height=111, position=333, fee=444, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_n3, data_n3, tx_bytes_n3, TxFlags.StateDispatched) ],
+            cache.add([ (tx_hash_n3, data_n3, tx_bytes_n3, TxFlags.StateDispatched, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 

@@ -1157,7 +1157,7 @@ class AbstractAccount:
                 tx_hash = hex_str_to_hash(tx_id)
                 entry_flags = self._wallet._transaction_cache.get_flags(tx_hash)
                 if entry_flags is None:
-                    adds.append((tx_hash, data, None, flags))
+                    adds.append((tx_hash, data, None, flags, None))
                 else:
                     # If a transaction has bytedata at this point, but no state, then it is likely
                     # that we added it locally and broadcast it ourselves. Transactions without

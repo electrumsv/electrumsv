@@ -1,3 +1,4 @@
+from enum import Enum
 import queue
 import sqlite3
 import threading
@@ -60,12 +61,13 @@ class WriteDisabledError(Exception):
 
 
 WriteCallbackType = Callable[[sqlite3.Connection], None]
-CompletionCallbackType = Callable[[bool], None]
+CompletionCallbackType = Callable[[Optional[Exception]], None]
 class WriteEntryType(NamedTuple):
     write_callback: WriteCallbackType
     completion_callback: Optional[CompletionCallbackType]
     size_hint: int
 
+CompletionEntryType = Tuple[CompletionCallbackType, Optional[Exception]]
 
 class SqliteWriteDispatcher:
     """
@@ -79,14 +81,15 @@ class SqliteWriteDispatcher:
     TODO: Allow writes to be wrapped with async logic so that async coroutines can do writes
     in their natural fashion.
     """
+
     def __init__(self, db_context: "DatabaseContext") -> None:
         self._db_context = db_context
         self._logger = logs.get_logger("sqlite-writer")
 
-        self._writer_queue = queue.Queue()
+        self._writer_queue: "queue.Queue[WriteEntryType]" = queue.Queue()
         self._writer_thread = threading.Thread(target=self._writer_thread_main, daemon=True)
         self._writer_loop_event = threading.Event()
-        self._callback_queue = queue.Queue()
+        self._callback_queue: "queue.Queue[CompletionEntryType]" = queue.Queue()
         self._callback_thread = threading.Thread(target=self._callback_thread_main, daemon=True)
         self._callback_loop_event = threading.Event()
 
@@ -98,7 +101,7 @@ class SqliteWriteDispatcher:
         self._callback_thread.start()
 
     def _writer_thread_main(self) -> None:
-        self._db = self._db_context.acquire_connection()
+        self._db: sqlite3.Connection = self._db_context.acquire_connection()
 
         maximum_batch_size = 10
         write_entries: List[WriteEntryType] = []
@@ -127,7 +130,7 @@ class SqliteWriteDispatcher:
 
             # Using the connection as a context manager, apply the batch as a transaction.
             time_start = time.time()
-            completion_callbacks: List[Tuple[CompletionCallbackType, bool]] = []
+            completion_callbacks: List[CompletionEntryType] = []
             total_size_hint = 0
             try:
                 with self._db:
@@ -160,8 +163,8 @@ class SqliteWriteDispatcher:
                     self._logger.debug("Invoked %d write callbacks (hinted at %d bytes) in %d ms",
                         len(write_entries), total_size_hint, time_ms)
 
-            for completion_callback in completion_callbacks:
-                self._callback_queue.put_nowait(completion_callback)
+            for dispatchable_callback in completion_callbacks:
+                self._callback_queue.put_nowait(dispatchable_callback)
 
     def _callback_thread_main(self) -> None:
         while self._is_alive:
@@ -201,7 +204,7 @@ class SqliteWriteDispatcher:
         self._writer_loop_event.wait()
         self._writer_thread.join()
         self._db_context.release_connection(self._db)
-        self._db = None
+        del self._db
         self._callback_loop_event.wait()
         self._callback_thread.join()
 
@@ -211,7 +214,7 @@ class SqliteWriteDispatcher:
         return not self._is_alive
 
 
-class JournalModes(NamedTuple):
+class JournalModes(Enum):
     DELETE = "DELETE"
     TRUNCATE = "TRUNCATE"
     PERSIST = "PERSIST"
@@ -228,7 +231,7 @@ class DatabaseContext:
         if not self.is_special_path(wallet_path) and not wallet_path.endswith(DATABASE_EXT):
             wallet_path += DATABASE_EXT
         self._db_path = wallet_path
-        self._connections = []
+        self._connections: List[sqlite3.Connection] = []
         # self._debug_texts = {}
 
         self._logger = logs.get_logger("sqlite-context")
@@ -262,39 +265,39 @@ class DatabaseContext:
         with self._lock:
             cursor = connection.execute(f"PRAGMA journal_mode;")
             journal_mode = cursor.fetchone()[0]
-            if journal_mode.upper() == self.JOURNAL_MODE:
+            if journal_mode.upper() == self.JOURNAL_MODE.value:
                 return
 
             self._logger.debug("Switching database from journal mode %s to journal mode %s",
-                journal_mode.upper(), self.JOURNAL_MODE)
+                journal_mode.upper(), self.JOURNAL_MODE.value)
 
             time_start = time.time()
             attempt = 1
             delay = 0.05
             while True:
                 try:
-                    cursor = connection.execute(f"PRAGMA journal_mode={self.JOURNAL_MODE};")
+                    cursor = connection.execute(f"PRAGMA journal_mode={self.JOURNAL_MODE.value};")
                 except sqlite3.OperationalError:
                     time_delta = time.time() - time_start
                     if time_delta < 10.0:
                         delay = min(delay, max(0.05, 10.0 - time_delta))
                         time.sleep(delay)
                         self._logger.warning("Database %s pragma attempt %d at %ds",
-                            self.JOURNAL_MODE, attempt, time_delta)
+                            self.JOURNAL_MODE.value, attempt, time_delta)
                         delay *= 2
                         attempt += 1
                         continue
                     raise
                 else:
                     journal_mode = cursor.fetchone()[0]
-                    if journal_mode.upper() != self.JOURNAL_MODE:
+                    if journal_mode.upper() != self.JOURNAL_MODE.value:
                         self._logger.error(
                             "Database unable to switch from journal mode %s to journal mode %s",
-                            self.JOURNAL_MODE, journal_mode.upper())
+                            self.JOURNAL_MODE.value, journal_mode.upper())
                         return
                     break
 
-            self._logger.debug("Database now in journal mode %s", self.JOURNAL_MODE)
+            self._logger.debug("Database now in journal mode %s", self.JOURNAL_MODE.value)
 
     def get_path(self) -> str:
         return self._db_path
@@ -336,9 +339,9 @@ class _QueryCompleter:
         self._have_result = False
         self._result: Any = None
 
-    def get_callback(self) -> None:
+    def get_callback(self) -> CompletionCallbackType:
         assert not self._gave_callback, "Query completer cannot be reused"
-        def callback(exc_value: Any) -> None:
+        def callback(exc_value: Optional[Exception]) -> None:
             self._have_result = True
             self._result = exc_value
             self._event.set()
