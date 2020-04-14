@@ -11,8 +11,8 @@ from electrumsv.logs import logs
 from electrumsv.wallet_database import (migration, KeyInstanceTable, MasterKeyTable,
     PaymentRequestTable, TransactionTable, DatabaseContext, TransactionDeltaTable,
     TransactionOutputTable, SynchronousWriter, TxData, TxProof, AccountTable)
-from electrumsv.wallet_database.tables import (MasterKeyRow, AccountRow, KeyInstanceRow,
-    PaymentRequestRow, TransactionDeltaRow)
+from electrumsv.wallet_database.tables import (AccountRow, KeyInstanceRow,
+    MAGIC_UNTOUCHED_BYTEDATA, MasterKeyRow, PaymentRequestRow, TransactionDeltaRow)
 
 logs.set_level("debug")
 
@@ -359,7 +359,10 @@ class TestTransactionTable:
             tx_bytes = os.urandom(10)
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
-            to_add.append((tx_hash, tx_data, tx_bytes, TxFlags.Unset, None))
+            if i % 2:
+                to_add.append((tx_hash, tx_data, tx_bytes, TxFlags.HasByteData, None))
+            else:
+                to_add.append((tx_hash, tx_data, None, TxFlags.Unset, None))
         with SynchronousWriter() as writer:
             self.store.create(to_add, completion_callback=writer.get_callback())
             assert writer.succeeded()
@@ -378,6 +381,70 @@ class TestTransactionTable:
                     assert metadata_get == update_metadata
                     assert bytedata_get == update_tx_bytes
                     continue
+
+    @pytest.mark.timeout(8)
+    def test_update__entry_with_set_bytedata_flag(self):
+        tx_bytes = os.urandom(10)
+        tx_hash = bitcoinx.double_sha256(tx_bytes)
+        tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
+        row = (tx_hash, tx_data, tx_bytes, TxFlags.HasByteData, None)
+        with SynchronousWriter() as writer:
+            self.store.create([ row ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+        # Ensure that a set bytedata flag requires bytedata to be included.
+        with pytest.raises(AssertionError):
+            self.store.update([(tx_hash, tx_data, None, TxFlags.HasByteData)])
+
+    @pytest.mark.timeout(8)
+    def test_update__entry_with_unset_bytedata_flag(self):
+        tx_bytes = os.urandom(10)
+        tx_hash = bitcoinx.double_sha256(tx_bytes)
+        tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
+        row = (tx_hash, tx_data, tx_bytes, TxFlags.HasByteData, None)
+        with SynchronousWriter() as writer:
+            self.store.create([ row ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+        # Ensure that a unset bytedata flag requires bytedata to not be included.
+        with pytest.raises(AssertionError):
+            self.store.update([(tx_hash, tx_data, tx_bytes, TxFlags.Unset)])
+
+    @pytest.mark.timeout(8)
+    def test_update__entry_with_magic_bytedata_and_set_flag(self):
+        tx_bytes = os.urandom(10)
+        tx_hash = bitcoinx.double_sha256(tx_bytes)
+        tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
+        row = (tx_hash, tx_data, tx_bytes, TxFlags.HasByteData, None)
+        with SynchronousWriter() as writer:
+            self.store.create([ row ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+        # Ensure that the magic bytedata requires a set bytedata flag.
+        with pytest.raises(AssertionError):
+            self.store.update([(tx_hash, tx_data, MAGIC_UNTOUCHED_BYTEDATA, TxFlags.Unset)])
+
+    @pytest.mark.timeout(8)
+    def test_update__with_valid_magic_bytedata(self):
+        tx_bytes = os.urandom(10)
+        tx_hash = bitcoinx.double_sha256(tx_bytes)
+        tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
+        row = (tx_hash, tx_data, tx_bytes, TxFlags.HasByteData, None)
+        with SynchronousWriter() as writer:
+            self.store.create([ row ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+        # Ensure that
+        with SynchronousWriter() as writer:
+            self.store.update([(tx_hash, tx_data, MAGIC_UNTOUCHED_BYTEDATA, TxFlags.HasByteData)],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+        rows = self.store.read()
+        assert 1 == len(rows)
+        get_tx_hash, bytedata_get, flags_get, metadata_get = rows[0]
+        assert tx_bytes == bytedata_get
+        assert flags_get & TxFlags.HasByteData != 0
 
     @pytest.mark.timeout(8)
     def test_update_flags(self):

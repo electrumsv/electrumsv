@@ -57,7 +57,7 @@ from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, UnknownTra
 from .i18n import _
 from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
     instantiate_keystore, KeyStore, Multisig_KeyStore, MultisigChildKeyStoreTypes,
-    Old_KeyStore, SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
+    SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
 from .networks import Net
 from .paymentrequest import InvoiceStore

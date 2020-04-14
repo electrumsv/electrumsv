@@ -222,10 +222,7 @@ class TxData(NamedTuple):
         return (self.height == other.height and self.position == other.position
             and self.fee == other.fee)
 
-# # namedtuple defaults do not get added until 3.7, and are not available in 3.6, so we set them
-# # indirectly to be compatible by both.
-# TxData.__new__.__defaults__ = (None, None, None, None, None)
-
+MAGIC_UNTOUCHED_BYTEDATA = b''
 
 class TxProof(NamedTuple):
     position: int
@@ -366,13 +363,13 @@ class TransactionTable(BaseWalletStore):
             tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes,
                 Optional[bytes], TxFlags, TxData]]:
         query = self.READ_MANY_BASE_SQL
-        return [ (row[0], row[1], row[2], TxData(row[3], row[4], row[5], row[6], row[7]))
+        return [ (row[0], row[1], TxFlags(row[2]), TxData(row[3], row[4], row[5], row[6], row[7]))
             for row in self._get_many_common(query, flags, mask, tx_hashes) ]
 
     def read_metadata(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,
             tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes, TxFlags, TxData]]:
         query = self.READ_METADATA_MANY_BASE_SQL
-        return [ (row[0], row[1], TxData(row[2], row[3], row[4], row[5], row[6]))
+        return [ (row[0], TxFlags(row[1]), TxData(row[2], row[3], row[4], row[5], row[6]))
             for row in self._get_many_common(query, flags, mask, tx_hashes) ]
 
     def read_descriptions(self,
@@ -394,15 +391,20 @@ class TransactionTable(BaseWalletStore):
         for tx_hash, metadata, bytedata, flags in entries:
             assert type(tx_hash) is bytes
             flags = self._apply_flags(metadata, flags)
-            if flags & TxFlags.HasByteData:
-                if bytedata is None:
-                    flags &= ~TxFlags.HasByteData
-                else:
-                    size_hint += len(bytedata)
-                data_rows.append((bytedata, flags, metadata.height, metadata.position,
+            if bytedata == MAGIC_UNTOUCHED_BYTEDATA:
+                # This is where we are updating a row which has existing bytedata that is not
+                # changing, but we don't want to still have to  pass it into the update call to
+                # avoid changing it.
+                assert flags & TxFlags.HasByteData != 0, f"{hash_to_hex_str(tx_hash)} flag wrong"
+                metadata_rows.append((flags, metadata.height, metadata.position,
                     metadata.fee, metadata.date_updated, tx_hash))
             else:
-                metadata_rows.append((flags, metadata.height, metadata.position,
+                if bytedata is None:
+                    assert flags & TxFlags.HasByteData == 0, f"{hash_to_hex_str(tx_hash)} no flag"
+                else:
+                    assert flags & TxFlags.HasByteData != 0, f"{hash_to_hex_str(tx_hash)} flag"
+                    size_hint += len(bytedata)
+                data_rows.append((bytedata, flags, metadata.height, metadata.position,
                     metadata.fee, metadata.date_updated, tx_hash))
 
         def _write(db: sqlite3.Connection) -> None:

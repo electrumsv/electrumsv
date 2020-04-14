@@ -272,6 +272,8 @@ class TestTransactionCache:
         assert TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.StateDispatched == entry.flags
         assert cache.have_transaction_data_cached(tx_hash_1)
 
+        # NOTE: We are not updating bytedata, and it should remain the same. The flags we pass
+        # into update are treated specially to achieve this.
         metadata_2 = TxData(fee=10, height=88)
         propagate_flags = TxFlags.HasFee | TxFlags.HasHeight
         with SynchronousWriter() as writer:
@@ -279,11 +281,19 @@ class TestTransactionCache:
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
+        # Check the cache to see that the flags are correct and that bytedata is cached.
         entry = cache.get_entry(tx_hash_1)
         expected_flags = propagate_flags | TxFlags.StateDispatched | TxFlags.HasByteData
         assert expected_flags == entry.flags, \
             f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(entry.flags)}"
         assert cache.have_transaction_data_cached(tx_hash_1)
+
+        # Check the store to see that the flags are correct and the bytedata is retained.
+        rows = self.store.read(tx_hashes=[tx_hash_1])
+        assert 1 == len(rows)
+        get_tx_hash, bytedata_get, flags_get, metadata_get = rows[0]
+        assert bytedata_1 == bytedata_get
+        assert flags_get & TxFlags.HasByteData != 0
 
     @pytest.mark.timeout(5)
     def test_delete(self):

@@ -13,8 +13,8 @@ from bitcoinx import double_sha256, hash_to_hex_str
 from ..constants import TxFlags, MAXIMUM_TXDATA_CACHE_SIZE_MB
 from ..logs import logs
 from ..transaction import Transaction
-from .tables import (byte_repr, CompletionCallbackType, InvalidDataError, MissingRowError,
-    TransactionRow, TransactionTable, TxData, TxProof)
+from .tables import (byte_repr, CompletionCallbackType, InvalidDataError, MAGIC_UNTOUCHED_BYTEDATA,
+    MissingRowError, TransactionRow, TransactionTable, TxData, TxProof)
 from ..util.cache import LRUCache
 
 
@@ -121,6 +121,12 @@ class TransactionCache:
 
     def _add(self, inserts: List[TransactionRow],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        """
+        This infers the bytedata flag from the bytedata value for a given input row, and
+        alters the flags to reflect that inference. This differs from update, which uses
+        the input row's flag to indicate whether to retain the existing bytedata value/flag or
+        overwrite them.
+        """
         date_added = self._store._get_current_timestamp()
         for i, (tx_hash, metadata, bytedata, add_flags, description) in enumerate(inserts):
             assert tx_hash not in self._cache, \
@@ -147,6 +153,15 @@ class TransactionCache:
     def _update(self, updates: List[Tuple[bytes, TxData, Optional[bytes], TxFlags]],
             update_all: bool=True,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        """
+        The flagged changes are applied to the existing entry, leaving the unflagged aspects
+        as they were. An example of this is bytedata, the bytedata in the existing entry should
+        remain the same (and it's flag) if the update row's bytedata flag is clear. If the update
+        row's bytedata flag is set, then the entry will get the update row's bytedata value and
+        the appropriate flag to indicate whether it is None or not (overwriting the existing
+        entry's bytedata/bytedata flag). This differs from add, which sets the flag based on
+        the bytedata.
+        """
         # For any given update entry there are some nuances to how the update is applied w/ flags.
         update_map = { t[0]: t for t in updates }
         desired_update_hashes = set(update_map)
@@ -187,10 +202,15 @@ class TransactionCache:
                 incoming_metadata, TxFlags.to_repr(incoming_flags),
                 byte_repr(incoming_bytedata), entry, new_entry)
             self._cache[tx_hash] = new_entry
-            if incoming_flags & TxFlags.HasByteData != 0:
+            if incoming_flags & TxFlags.HasByteData:
                 self._bytedata_cache.set(tx_hash, incoming_bytedata)
+            elif flags & TxFlags.HasByteData:
+                # Indicate the user is not changing the bytedata, it's a metadata/flags update.
+                incoming_bytedata = MAGIC_UNTOUCHED_BYTEDATA
             updated_entries.append((tx_hash, new_metadata, incoming_bytedata, flags))
 
+        # The reason we don't dispatch metadata and entry updates as separate calls
+        # is that there's no way of reusing a completion context for more than one thing.
         if len(updated_entries):
             self._store.update(updated_entries, completion_callback=completion_callback)
 
@@ -237,7 +257,7 @@ class TransactionCache:
             self._bytedata_cache.set(tx_hash, None)
             self._store.delete([ tx_hash ], completion_callback=completion_callback)
 
-    def get_flags(self, tx_hash: bytes) -> Optional[int]:
+    def get_flags(self, tx_hash: bytes) -> Optional[TxFlags]:
         # We cache all metadata, so this can avoid touching the database.
         entry = self._cache.get(tx_hash)
         if entry is not None:
