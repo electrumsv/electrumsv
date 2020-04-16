@@ -56,7 +56,7 @@ from electrumsv.wallet import Wallet, instantiate_keystore
 
 from .cosigners_view import CosignerState, CosignerList
 from .main_window import ElectrumWindow
-from .util import ChoicesLayout, icon_path, MessageBox, protected, read_QIcon
+from .util import (ChoicesLayout, icon_path, MessageBox, protected, read_QIcon)
 from .wizard_common import BaseWizard, DEFAULT_WIZARD_FLAGS, WizardFlags, WizardFormSection
 
 
@@ -1266,14 +1266,14 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         derivation_text = compose_chain_string(self._derivation_user)
         try:
             mpk = self._plugin.get_master_public_key(device_info.device.id_, derivation_text,
-                wizard.get_main_window())
+                wizard)
         except Exception as e:
             MessageBox.show_error(str(e))
             return False
 
         data = {
             'hw_type': name,
-            'derivation': self._derivation_user,
+            'derivation': derivation_text,
             'xpub': mpk.to_extended_key_string(),
             'label': device_info.label,
         }

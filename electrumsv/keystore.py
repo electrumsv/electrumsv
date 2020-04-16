@@ -35,7 +35,7 @@ from bitcoinx import (
 
 from .i18n import _
 from .app_state import app_state
-from .bitcoin import is_seed, seed_type, is_address_valid
+from .bitcoin import compose_chain_string, is_address_valid, is_seed, seed_type
 from .constants import DerivationType, KeystoreTextType, KeystoreType
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword, OverloadedMultisigKeystore, IncompatibleWalletError
@@ -669,6 +669,9 @@ class Hardware_KeyStore(Xpub, KeyStore):
         # device reconnects
         self.xpub = data['xpub']
         self.derivation = data['derivation']
+        # New hardware account bug stored the derivation as a decomposed list not a string.
+        if isinstance(self.derivation, list):
+            self.derivation = compose_chain_string(self.derivation)
         self.hw_type = data['hw_type']
         self.label = data.get('label')
         self.handler = None
