@@ -1084,22 +1084,13 @@ class AbstractAccount:
 
             key_script_types: List[Tuple[ScriptType, int]] = []
             for utxo in utxos:
-                key_script_types.append((ScriptType.NONE, utxo.keyinstance_id))
-                # Update the cached key to be unused.
-                key = self._keyinstances[utxo.keyinstance_id]
-                key = KeyInstanceRow(key.keyinstance_id, key.account_id, key.masterkey_id,
-                    key.derivation_type, key.derivation_data, ScriptType.NONE, key.flags,
-                    key.description)
-                self._keyinstances[utxo.keyinstance_id] = key
+                self.update_key_script_type(utxo.keyinstance_id, ScriptType.NONE)
                 # Expunge the UTXO.
                 with self._utxos_lock:
                     del self._utxos[(utxo.tx_hash, utxo.out_index)]
 
             if len(txout_flags):
                 self._wallet.update_transactionoutput_flags(txout_flags)
-
-            if len(key_script_types):
-                self._wallet.update_keyinstance_script_types(key_script_types)
 
             # if len(tx_deltas):
             #     self._wallet.create_or_update_transactiondelta_relative(
@@ -1128,6 +1119,14 @@ class AbstractAccount:
             relevant_outputs.append((index, tx.outputs[index]))
         return relevant_outputs
 
+    def update_key_script_type(self, keyinstance_id: int, script_type: ScriptType):
+        key = self._keyinstances[keyinstance_id]
+        key = KeyInstanceRow(key.keyinstance_id, key.account_id, key.masterkey_id,
+                             key.derivation_type, key.derivation_data, script_type, key.flags,
+                             key.description)
+        self._keyinstances[keyinstance_id] = key
+        self._wallet.update_keyinstance_script_types([(script_type, keyinstance_id)])
+
     # Called by network.
     async def set_key_history(self, keyinstance_id: int, script_type: ScriptType,
             hist: List[Tuple[str, int]], tx_fees: Dict[str, int]) -> None:
@@ -1141,11 +1140,7 @@ class AbstractAccount:
             key = self._keyinstances[keyinstance_id]
             if key.script_type == ScriptType.NONE:
                 # This is the first use of the allocated key and we update the key to reflect it.
-                key = KeyInstanceRow(key.keyinstance_id, key.account_id, key.masterkey_id,
-                    key.derivation_type, key.derivation_data, script_type, key.flags,
-                    key.description)
-                self._keyinstances[keyinstance_id] = key
-                self._wallet.update_keyinstance_script_types([ (script_type, keyinstance_id) ])
+                self.update_key_script_type(keyinstance_id, script_type)
             elif key.script_type != script_type:
                 self._logger.error("Received key history from server for key that already "
                     f"has script type {key.script_type}, where server history relates "
@@ -1316,19 +1311,26 @@ class AbstractAccount:
             max_change = self.max_change_outputs if self._wallet.get_multiple_change() else 1
             if self._wallet.get_use_change() and self.is_deterministic():
                 change_keyinstances = self.get_fresh_keys(CHANGE_SUBPATH, max_change)
-                change_outs = []
+                change_outs = {}  # {keyinstance, XTXOutput}
                 for keyinstance in change_keyinstances:
                     script_type = self.get_script_type_for_id(keyinstance.keyinstance_id)
-                    change_outs.append(XTxOutput(0, # type: ignore
+                    out = XTxOutput(0, # type: ignore
                         self.get_script_for_id(keyinstance.keyinstance_id, script_type),
-                        script_type,
-                        self.get_xpubkeys_for_id(keyinstance.keyinstance_id)))
+                        script_type, self.get_xpubkeys_for_id(keyinstance.keyinstance_id))
+                    change_outs[keyinstance] = out
             else:
-                change_outs = [ XTxOutput(0, utxos[0].script_pubkey, # type: ignore
-                    inputs[0].script_type, inputs[0].x_pubkeys) ]
+                out = XTxOutput(0, utxos[0].script_pubkey, # type: ignore
+                    inputs[0].script_type, inputs[0].x_pubkeys)
+                change_outs = {utxos[0].keyinstance_id: out}
+
             coin_chooser = coinchooser.CoinChooserPrivacy()
-            tx = coin_chooser.make_tx(inputs, outputs, change_outs, fee_estimator,
-                self.dust_threshold())
+            tx, used_change_keyinstances = coin_chooser.make_tx(inputs, outputs, change_outs,
+                fee_estimator, self.dust_threshold())
+
+            # Set change keys to allocated to ensure they are not reused
+            for keyinstance in used_change_keyinstances:
+                script_type = self.get_script_type_for_id(keyinstance.keyinstance_id)
+                self.update_key_script_type(keyinstance.keyinstance_id, script_type)
         else:
             sendable = sum(txin.value for txin in inputs)
             outputs[all_index].value = 0
@@ -2118,7 +2120,7 @@ class Wallet(TriggeredCallbacks):
         with KeyInstanceTable(self._db_context) as table:
             all_account_keys: Dict[int, List[KeyInstanceRow]] = defaultdict(list)
             keyinstances = {}
-            for row in table.read(mask=KeyInstanceFlag.IS_ACTIVE):
+            for row in table.read():
                 keyinstances[row.keyinstance_id] = row
                 all_account_keys[row.account_id].append(row)
 

@@ -25,9 +25,10 @@
 
 from collections import defaultdict, namedtuple
 from math import floor, log10
-from typing import List
+from typing import List, Tuple, Callable, Dict, KeysView
 
 from bitcoinx import sha256
+from electrumsv.wallet_database.tables import KeyInstanceRow
 
 from .bitcoin import COIN
 from .logs import logs
@@ -157,7 +158,8 @@ class CoinChooserBase:
 
         return amounts
 
-    def change_outputs(self, tx, change_outs, fee_estimator, dust_threshold):
+    def change_outputs(self, tx: Transaction, change_outs: Dict[KeyInstanceRow, XTxOutput],
+            fee_estimator: Callable, dust_threshold: int):
         amounts = self.change_amounts(tx, len(change_outs), fee_estimator, dust_threshold)
         assert min(amounts) >= 0
         assert len(change_outs) >= len(amounts)
@@ -165,14 +167,20 @@ class CoinChooserBase:
         # size of the change output, add it to the transaction.
         dust = sum(amount for amount in amounts if amount < dust_threshold)
         amounts = [amount for amount in amounts if amount >= dust_threshold]
-        change = [XTxOutput(amount, out.script_pubkey, out.script_type, out.x_pubkeys)
-                  for out, amount in zip(change_outs, amounts)]
+        change = [
+            XTxOutput(amount, out.script_pubkey, out.script_type, out.x_pubkeys)  # type: ignore
+            for out, amount in zip(change_outs.values(), amounts)]
         logger.debug('change %s', change)
         if dust:
             logger.debug('not keeping dust %s', dust)
-        return change, dust
 
-    def make_tx(self, coins, outputs, change_outs, fee_estimator, dust_threshold) -> Transaction:
+        keyinstances: KeysView[KeyInstanceRow] = change_outs.keys()
+        used_change_keyinstances = [keyinstance for keyinstance, amount in
+                                    zip(keyinstances, amounts)]
+        return change, dust, used_change_keyinstances
+
+    def make_tx(self, coins, outputs, change_outs, fee_estimator, dust_threshold) -> \
+            Tuple[Transaction, List[KeyInstanceRow]]:
         '''Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
         the transaction) it is kept, otherwise none is sent and it is
@@ -203,15 +211,16 @@ class CoinChooserBase:
         tx_size = base_size + sum(bucket.size for bucket in buckets)
 
         # This takes a count of change outputs and returns a tx fee;
-        change_output_size = change_outs[0].estimated_size()
+        change_output_size = list(change_outs.values())[0].estimated_size()
         fee = lambda count: fee_estimator(tx_size + count * change_output_size)
-        change, dust = self.change_outputs(tx, change_outs, fee, dust_threshold)
+        change, dust, used_change_keyinstances = self.change_outputs(tx, change_outs, fee,
+            dust_threshold)
         tx.outputs.extend(change)
 
         logger.debug("using %d inputs", len(tx.inputs))
         logger.debug("using buckets: %s", [bucket.desc for bucket in buckets])
 
-        return tx
+        return tx, used_change_keyinstances
 
     def choose_buckets(self, buckets, sufficient_funds, penalty_func):
         raise NotImplementedError('To be subclassed')
