@@ -1199,6 +1199,7 @@ class Network(TriggeredCallbacks):
             if wanted_proof_map:
                 coros.append(self._request_proofs(account, wanted_proof_map))
             if not coros:
+                account.detect_used_keys()
                 await account.txs_changed_event.wait()
                 account.txs_changed_event.clear()
 

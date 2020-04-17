@@ -357,8 +357,8 @@ class AbstractAccount:
         assert key_allocation.derivation_type == DerivationType.BIP32_SUBPATH
         return json.dumps({ "subpath": key_allocation.derivation_path }).encode()
 
-    def set_key_active(self, key_id: int, is_active: bool) -> bool:
-        if is_active:
+    def set_key_active_state(self, key_id: int, set_active: bool) -> bool:
+        if set_active:
             raise NotImplementedError("TODO(rt12) BACKLOG")
             # TODO(rt12) BACKLOG If the key is already active, then flag it as user active.
 
@@ -1561,6 +1561,57 @@ class AbstractAccount:
             self._activated_keys = []
         return result
 
+    def is_used_key(self, keyinstance_id: int) -> bool:
+        # At least 2 txs in history, all confirmed, no utxos (must exclude user activated keys).
+        if self.is_user_active(keyinstance_id):
+            return False
+        # Todo - get_key_utxos() is an expensive call for many keys - probably more efficient to
+        #  lookup key history and then check for membership of outputs in the utxo set?
+        if len(self.get_key_utxos(keyinstance_id)) != 0:
+            return False
+        hist = self.get_key_history(keyinstance_id, script_type=self.get_default_script_type())
+        if len(hist) < 2:
+            return False
+        for tx_id, tx_height in hist:
+            entry = self.get_transaction_entry(hex_str_to_hash(tx_id))
+            if entry is None:
+                self._logger.error("transaction not found for keyinstance_id %s", keyinstance_id)
+                return False
+            if entry.flags & TxFlags.StateSettled == TxFlags.StateSettled:
+                continue
+            else:
+                return False
+        return True
+
+    def is_user_active(self, keyinstance_id: int) -> bool:
+        if self._keyinstances[keyinstance_id].flags & KeyInstanceFlag.USER_SET_ACTIVE != 0:
+            return True
+        return False
+
+    def detect_used_keys(self):
+        if not self._wallet._storage.get('deactivate_used_keys', False):
+            return
+
+        def persist_key_deactivation(keyinstance_id):
+            # update cache KeyInstanceFlag
+            key = self._keyinstances[keyinstance_id]
+            old_flags = key.flags
+            new_flags = cast(KeyInstanceFlag, old_flags & KeyInstanceFlag.INACTIVE_MASK)
+            self._keyinstances[keyinstance_id] = KeyInstanceRow(keyinstance_id, self.get_id(),
+                key.masterkey_id, key.derivation_type, key.derivation_data, key.script_type,
+                new_flags, key.description)
+
+            # persist to database
+            self._wallet.update_keyinstance_flags([(self._keyinstances[keyinstance_id].flags
+                & KeyInstanceFlag.INACTIVE_MASK, keyinstance_id)])
+
+        for keyinstance_id in self.existing_active_keys():
+            if self.is_used_key(keyinstance_id):
+                with self._deactivated_keys_lock:
+                    self._deactivated_keys.append(keyinstance_id)
+                    self._deactivated_keys_event.set()
+                persist_key_deactivation(keyinstance_id)
+
     async def new_deactivated_keys(self) -> List[int]:
         await self._deactivated_keys_event.wait()
         self._deactivated_keys_event.clear()
@@ -2118,7 +2169,7 @@ class Wallet(TriggeredCallbacks):
         with KeyInstanceTable(self._db_context) as table:
             all_account_keys: Dict[int, List[KeyInstanceRow]] = defaultdict(list)
             keyinstances = {}
-            for row in table.read(mask=KeyInstanceFlag.IS_ACTIVE):
+            for row in table.read():
                 keyinstances[row.keyinstance_id] = row
                 all_account_keys[row.account_id].append(row)
 
@@ -2486,6 +2537,9 @@ class Wallet(TriggeredCallbacks):
 
     def set_use_change(self, enabled: bool) -> None:
         return self._storage.put('use_change', enabled)
+
+    def set_deactivate_used_keys(self, enabled: bool) -> None:
+        return self._storage.put('deactivate_used_keys', enabled)
 
     def get_multiple_change(self) -> bool:
         return self._storage.get('multiple_change', False)

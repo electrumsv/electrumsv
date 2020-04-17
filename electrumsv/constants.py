@@ -144,6 +144,7 @@ class KeyInstanceFlag(IntFlag):
     # The mask used to load the subset of keys that are actively cached by accounts.
     CACHE_MASK = IS_ACTIVE
     ACTIVE_MASK = IS_ACTIVE | USER_SET_ACTIVE
+    INACTIVE_MASK = ~ACTIVE_MASK
     ALLOCATED_MASK = IS_PAYMENT_REQUEST
 
 
