@@ -1561,14 +1561,14 @@ class AbstractAccount:
             self._activated_keys = []
         return result
 
-    def is_used_key(self, keyinstance_id: int) -> bool:
+    def is_used_key(self, keyinstance_id: int, keys_in_utxo_set: Set[int]) -> bool:
         # At least 2 txs in history, all confirmed, no utxos (must exclude user activated keys).
         if self.is_user_active(keyinstance_id):
             return False
-        # Todo - get_key_utxos() is an expensive call for many keys - probably more efficient to
-        #  lookup key history and then check for membership of outputs in the utxo set?
-        if len(self.get_key_utxos(keyinstance_id)) != 0:
+
+        if keyinstance_id in keys_in_utxo_set:
             return False
+
         hist = self.get_key_history(keyinstance_id, script_type=self.get_default_script_type())
         if len(hist) < 2:
             return False
@@ -1599,7 +1599,8 @@ class AbstractAccount:
             else:
                 # will not deactivate if USER_SET_ACTIVE flag is set
                 new_flags = cast(KeyInstanceFlag, old_flags & KeyInstanceFlag.INACTIVE_MASK)
-            self._keyinstances[key.keyinstance_id] = KeyInstanceRow(key.keyinstance_id, self.get_id(),
+            self._keyinstances[key.keyinstance_id] = KeyInstanceRow(key.keyinstance_id,
+                self.get_id(),
                 key.masterkey_id, key.derivation_type, key.derivation_data, key.script_type,
                 new_flags, key.description)
             db_updates.append((new_flags, key.keyinstance_id))
@@ -1612,8 +1613,9 @@ class AbstractAccount:
             return
 
         used_keyinstances = []
+        keys_in_utxo_set = set(u.keyinstance_id for u in self._utxos.values())  # performance
         for keyinstance_id in self.existing_active_keys():
-            if self.is_used_key(keyinstance_id):
+            if self.is_used_key(keyinstance_id, keys_in_utxo_set):
                 with self._deactivated_keys_lock:
                     self._deactivated_keys.append(keyinstance_id)
                     self._deactivated_keys_event.set()
