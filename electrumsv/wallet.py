@@ -222,6 +222,7 @@ class AbstractAccount:
         self._synchronize_event = app_state.async_.event()
         self._synchronized_event = app_state.async_.event()
         self._subpath_gap_limits: Dict[Sequence[int], int] = {}
+        self._unsettled_spend_txs: Dict[int, Set[bytes]] = {}
         self.txs_changed_event = app_state.async_.event()
         self.request_count = 0
         self.response_count = 0
@@ -560,6 +561,13 @@ class AbstractAccount:
                 self.register_utxo(row.tx_hash, row.tx_index, row.value, flags,
                     keyinstance, script_template.to_script(), address)
 
+            entry_flags = self._wallet._transaction_cache.get_flags(row.tx_hash)
+            if entry_flags & TxFlags.StateSettled != TxFlags.StateSettled:
+                self.add_unsettled_spend_tx(row.tx_hash, row.keyinstance_id)
+
+        self._logger.debug("cached unsettled spending transactions for %s keys",
+            len(self._unsettled_spend_txs))
+
     def register_utxo(self, tx_hash: bytes, output_index: int, value: int,
             flags: TransactionOutputFlag, keyinstance: KeyInstanceRow,
             script: Script, address: Optional[ScriptTemplate]=None) -> None:
@@ -815,6 +823,20 @@ class AbstractAccount:
         with TransactionDeltaTable(self._wallet._db_context) as table:
             return table.read_transaction_value(tx_hash)
 
+    def add_unsettled_spend_tx(self, tx_hash: bytes, keyinstance_id: int) -> None:
+        entry_flags = self._wallet._transaction_cache.get_flags(tx_hash)
+        if entry_flags & TxFlags.StateSettled != TxFlags.StateSettled:
+            if self._unsettled_spend_txs.get(keyinstance_id) is None:
+                self._unsettled_spend_txs[keyinstance_id] = set()
+            self._unsettled_spend_txs[keyinstance_id].add(tx_hash)
+
+    def remove_unsettled_spend_tx_if_settled(self, tx_hash: bytes, keyinstance_id: int) -> None:
+        entry_flags = self._wallet._transaction_cache.get_flags(tx_hash)
+        if entry_flags & TxFlags.StateSettled == TxFlags.StateSettled:
+            if self._unsettled_spend_txs.get(keyinstance_id) is None:
+                self._unsettled_spend_txs[keyinstance_id] = set()
+            self._unsettled_spend_txs[keyinstance_id].remove(tx_hash)
+
     # Should be called with the transaction lock.
     def set_utxo_spent(self, tx_hash: bytes, output_index: int) -> None:
         with self._utxos_lock:
@@ -824,6 +846,7 @@ class AbstractAccount:
         self._wallet.update_transactionoutput_flags(
             [ (retained_flags | TransactionOutputFlag.IS_SPENT, tx_hash, output_index)  ])
         self._stxos[txo_key] = utxo.keyinstance_id
+        self.add_unsettled_spend_tx(tx_hash, utxo.keyinstance_id)
 
     def is_frozen_utxo(self, utxo):
         return utxo.key() in self._frozen_coins
@@ -1563,6 +1586,8 @@ class AbstractAccount:
 
     def is_used_key(self, keyinstance_id: int, keys_in_utxo_set: Set[int]) -> bool:
         # At least 2 txs in history, all confirmed, no utxos (must exclude user activated keys).
+        # Note: self.get_key_history() only detects cleared or settled txs.
+        # self._unsettled_spend_txs tracks these problematic txs.
         if self.is_user_active(keyinstance_id):
             return False
 
@@ -1582,6 +1607,16 @@ class AbstractAccount:
                 continue
             else:
                 return False
+
+        set_unsettled = self._unsettled_spend_txs.get(keyinstance_id)
+        if set_unsettled is not None and len(set_unsettled) != 0:
+            for tx_hash in set_unsettled:
+                self.remove_unsettled_spend_tx_if_settled(tx_hash, keyinstance_id)
+            if not len(self._unsettled_spend_txs[keyinstance_id]) == 0:
+                self._logger.debug("outstanding unsettled txs remain for this key: %s",
+                                   keyinstance_id)
+                return False
+
         return True
 
     def is_user_active(self, keyinstance_id: int) -> bool:
