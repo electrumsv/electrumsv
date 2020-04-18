@@ -1573,11 +1573,12 @@ class AbstractAccount:
         if len(hist) < 2:
             return False
         for tx_id, tx_height in hist:
-            entry = self.get_transaction_entry(hex_str_to_hash(tx_id))
-            if entry is None:
-                self._logger.error("transaction not found for keyinstance_id %s", keyinstance_id)
+            entry_flags = self._wallet._transaction_cache.get_flags(hex_str_to_hash(tx_id))
+            if entry_flags is None:
+                self._logger.error("transaction flags not found for keyinstance_id %s",
+                                   keyinstance_id)
                 return False
-            if entry.flags & TxFlags.StateSettled == TxFlags.StateSettled:
+            if entry_flags & TxFlags.StateSettled == TxFlags.StateSettled:
                 continue
             else:
                 return False
@@ -1588,29 +1589,38 @@ class AbstractAccount:
             return True
         return False
 
-    def detect_used_keys(self):
+    def update_key_activation_state(self, keyinstances: List[KeyInstanceRow], activate: bool):
+        # update cache KeyInstanceFlag
+        db_updates = []
+        for key in keyinstances:
+            old_flags = key.flags
+            if activate:
+                new_flags = cast(KeyInstanceFlag, old_flags | KeyInstanceFlag.IS_ACTIVE)
+            else:
+                # will not deactivate if USER_SET_ACTIVE flag is set
+                new_flags = cast(KeyInstanceFlag, old_flags & KeyInstanceFlag.INACTIVE_MASK)
+            self._keyinstances[key.keyinstance_id] = KeyInstanceRow(key.keyinstance_id, self.get_id(),
+                key.masterkey_id, key.derivation_type, key.derivation_data, key.script_type,
+                new_flags, key.description)
+            db_updates.append((new_flags, key.keyinstance_id))
+
+        # update db
+        self._wallet.update_keyinstance_flags(db_updates)
+
+    def detect_used_keys(self) -> None:
         if not self._wallet._storage.get('deactivate_used_keys', False):
             return
 
-        def persist_key_deactivation(keyinstance_id):
-            # update cache KeyInstanceFlag
-            key = self._keyinstances[keyinstance_id]
-            old_flags = key.flags
-            new_flags = cast(KeyInstanceFlag, old_flags & KeyInstanceFlag.INACTIVE_MASK)
-            self._keyinstances[keyinstance_id] = KeyInstanceRow(keyinstance_id, self.get_id(),
-                key.masterkey_id, key.derivation_type, key.derivation_data, key.script_type,
-                new_flags, key.description)
-
-            # persist to database
-            self._wallet.update_keyinstance_flags([(self._keyinstances[keyinstance_id].flags
-                & KeyInstanceFlag.INACTIVE_MASK, keyinstance_id)])
-
+        used_keyinstances = []
         for keyinstance_id in self.existing_active_keys():
             if self.is_used_key(keyinstance_id):
                 with self._deactivated_keys_lock:
                     self._deactivated_keys.append(keyinstance_id)
                     self._deactivated_keys_event.set()
-                persist_key_deactivation(keyinstance_id)
+                key = self._keyinstances[keyinstance_id]
+                used_keyinstances.append(key)
+        if len(used_keyinstances) != 0:
+            self.update_key_activation_state(used_keyinstances, activate=False)
 
     async def new_deactivated_keys(self) -> List[int]:
         await self._deactivated_keys_event.wait()
@@ -2539,6 +2549,12 @@ class Wallet(TriggeredCallbacks):
         return self._storage.put('use_change', enabled)
 
     def set_deactivate_used_keys(self, enabled: bool) -> None:
+        current_setting = self._storage.get('deactivate_used_keys', None)
+        if not enabled and current_setting is True:
+            # ensure all keys are re-activated
+            for account in self.get_accounts():
+                account.update_key_activation_state(list(account._keyinstances.values()), True)
+
         return self._storage.put('deactivate_used_keys', enabled)
 
     def get_multiple_change(self) -> bool:
