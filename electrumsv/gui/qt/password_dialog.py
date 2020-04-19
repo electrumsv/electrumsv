@@ -241,8 +241,8 @@ class ChangePasswordDialog(WindowModalDialog):
         WindowModalDialog.__init__(self, parent)
 
         ok_button = OkButton(self)
-        # NOTE(rt12): This preserves existing behaviour for the `is_new` case.
-        ok_button.setEnabled(kind != PasswordAction.NEW)
+        # NOTE(rt12): I think the passphrase cases need to be updated to enable the button.
+        ok_button.setEnabled(kind == PasswordAction.PASSPHRASE)
         self._ok_button = ok_button
 
         def state_change_fn(state: bool) -> None:
