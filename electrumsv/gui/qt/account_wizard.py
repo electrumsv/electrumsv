@@ -56,7 +56,8 @@ from electrumsv.wallet import Wallet, instantiate_keystore
 
 from .cosigners_view import CosignerState, CosignerList
 from .main_window import ElectrumWindow
-from .util import (ChoicesLayout, icon_path, MessageBox, protected, read_QIcon)
+from .util import (ChoicesLayout, icon_path, MessageBox, MessageBoxMixin, protected, query_choice,
+    read_QIcon)
 from .wizard_common import BaseWizard, DEFAULT_WIZARD_FLAGS, WizardFlags, WizardFormSection
 
 
@@ -140,7 +141,7 @@ def request_password(parent: Optional[QWidget], storage: WalletStorage) -> Optio
 
 
 
-class AccountWizard(BaseWizard):
+class AccountWizard(BaseWizard, MessageBoxMixin):
     HELP_DIRNAME = "account-wizard"
 
     _last_page_id: Optional[AccountPage] = None
@@ -179,6 +180,10 @@ class AccountWizard(BaseWizard):
         self.setPage(AccountPage.SETUP_HARDWARE_WALLET, SetupHardwareWalletAccountPage(self))
 
         self.setStartId(AccountPage.ADD_ACCOUNT_MENU)
+
+    # Used by hardware wallets.
+    def query_choice(self, msg, choices):
+        return query_choice(self, msg, choices)
 
     def set_subtitle(self, subtitle: str) -> None:
         suffix = f" - {subtitle}" if len(subtitle) else ""
@@ -1123,9 +1128,10 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         self._plugin_debug_message = None
 
     def _initiate_setup(self) -> None:
-        app_state.app.run_in_thread(self._setup_device, on_done=self._on_setup_complete)
+        self._setup_device()
+    #     app_state.app.run_in_thread(self._setup_device, on_done=self._on_setup_complete)
 
-    def _on_setup_complete(self, future: concurrent.futures.Future) -> None:
+    # def _on_setup_complete(self, future: concurrent.futures.Future) -> None:
         # Display according to result.
         if self._plugin_debug_message is None:
             self._display_setup_success_results()
@@ -1253,7 +1259,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         try:
             self._derivation_user = tuple(bip32_decompose_chain_string(path_text))
         except ValueError:
-            pass
+            self._derivation_user = None
         self.completeChanged.emit()
 
     @protected
@@ -1275,7 +1281,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
             'hw_type': name,
             'derivation': derivation_text,
             'xpub': mpk.to_extended_key_string(),
-            'label': device_info.label,
+            'label': device_info.label.strip(),
         }
         keystore = instantiate_keystore(DerivationType.HARDWARE, data)
         wizard.set_keystore_result(ResultType.HARDWARE, keystore)

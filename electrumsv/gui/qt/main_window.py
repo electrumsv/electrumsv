@@ -80,11 +80,11 @@ from .qrtextedit import ShowQRTextEdit
 from .util import (
     MessageBoxMixin, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
     WindowModalDialog, Buttons, CopyCloseButton, MyTreeWidget, EnterButton,
-    WaitingDialog, ChoicesLayout, OkButton, WWLabel, read_QIcon,
+    WaitingDialog, OkButton, WWLabel, read_QIcon,
     CloseButton, CancelButton, text_dialog, filename_field,
     update_fixed_tree_height, UntrustedMessageDialog, protected,
     show_in_file_explorer, create_new_wallet,
-    FormSectionWidget
+    FormSectionWidget, top_level_window_recurse, query_choice
 )
 from .wallet_api import WalletAPI
 
@@ -373,8 +373,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def top_level_window(self):
         '''Do the right thing in the presence of tx dialog windows'''
-        override = self.tl_windows[-1] if self.tl_windows else None
-        return self.top_level_window_recurse(override)
+        override = self.tl_windows[-1] if self.tl_windows else self
+        return top_level_window_recurse(override)
 
     def is_hidden(self):
         return self.isMinimized() or self.isHidden()
@@ -1747,15 +1747,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         WaitingDialog(window, _('Broadcasting transaction...'), broadcast_tx, on_done=on_done)
 
     def query_choice(self, msg, choices):
-        # Needed by QtHandler for hardware wallets
-        dialog = WindowModalDialog(self.top_level_window())
-        clayout = ChoicesLayout(msg, choices)
-        vbox = QVBoxLayout(dialog)
-        vbox.addLayout(clayout.layout())
-        vbox.addLayout(Buttons(OkButton(dialog)))
-        if not dialog.exec_():
-            return None
-        return clayout.selected_index()
+        return query_choice(self, msg, choices)
 
     def lock_amount(self, b):
         self.amount_e.setFrozen(b)

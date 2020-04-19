@@ -224,6 +224,7 @@ class DigitalBitbox_Client():
         try:
             reply = self.handler.win.query_choice(msg, choices)
         except Exception:
+            logger.exception('Exception caught')
             return # Back button pushed
         if reply == 2:
             self.dbb_erase()
@@ -246,6 +247,7 @@ class DigitalBitbox_Client():
         try:
             reply = self.handler.win.query_choice(msg, choices)
         except Exception:
+            logger.exception('Exception caught')
             return # Back button pushed
         if reply == 0:
             self.dbb_generate_wallet()
@@ -271,6 +273,7 @@ class DigitalBitbox_Client():
         try:
             reply = self.handler.win.query_choice(_('Mobile pairing options'), choices)
         except Exception:
+            logger.exception('Exception caught')
             return # Back button pushed
 
         digitalbitbox_config = self.plugin.digitalbitbox_config
@@ -315,6 +318,7 @@ class DigitalBitbox_Client():
         try:
             f = self.handler.win.query_choice(_("Choose a backup file:"), backups['backup'])
         except Exception:
+            logger.exception('Exception caught')
             return False # Back button pushed
         key = self.backup_password_dialog()
         if key is None:
@@ -390,9 +394,8 @@ class DigitalBitbox_Client():
             r = to_string(r, 'utf8')
             reply = json.loads(r)
         except Exception as e:
-            logger.error('Exception caught %s', e)
+            logger.exception('Exception caught')
         return reply
-
 
     def hid_send_encrypt(self, msg):
         sha256_byte_len = 32
@@ -416,7 +419,7 @@ class DigitalBitbox_Client():
             if 'error' in reply:
                 self.password = None
         except Exception as e:
-            logger.error('Exception caught %s', e)
+            logger.exception('Exception caught')
         return reply
 
 

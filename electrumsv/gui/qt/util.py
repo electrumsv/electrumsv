@@ -191,18 +191,30 @@ class HelpDialogButton(QPushButton):
         h.run()
 
 
-class MessageBoxMixin(object):
-    def top_level_window_recurse(self, window=None):
-        window = window or self
-        classes = (WindowModalDialog, QMessageBox)
-        for n, child in enumerate(window.children()):
-            # Test for visibility as old closed dialogs may not be GC-ed
-            if isinstance(child, classes) and child.isVisible():
-                return self.top_level_window_recurse(child)
-        return window
+def query_choice(win, msg, choices):
+    # Needed by QtHandler for hardware wallets
+    dialog = WindowModalDialog(win.top_level_window())
+    clayout = ChoicesLayout(msg, choices)
+    vbox = QVBoxLayout(dialog)
+    vbox.addLayout(clayout.layout())
+    vbox.addLayout(Buttons(OkButton(dialog)))
+    if not dialog.exec_():
+        return None
+    return clayout.selected_index()
 
+
+def top_level_window_recurse(window) -> QWidget:
+    classes = (WindowModalDialog, QMessageBox)
+    for n, child in enumerate(window.children()):
+        # Test for visibility as old closed dialogs may not be GC-ed
+        if isinstance(child, classes) and child.isVisible():
+            return top_level_window_recurse(child)
+    return window
+
+
+class MessageBoxMixin(object):
     def top_level_window(self):
-        return self.top_level_window_recurse()
+        return top_level_window_recurse(self)
 
     def question(self, msg, parent=None, title=None, icon=None):
         Yes, No = QMessageBox.Yes, QMessageBox.No
