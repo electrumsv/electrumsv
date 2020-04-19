@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import PaymentState
+from electrumsv.constants import DATABASE_EXT, PaymentState
 from electrumsv.crypto import pw_encode
 from electrumsv.i18n import _, languages
 from electrumsv.util import resource_path
@@ -829,6 +829,12 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     assert not os.path.exists(create_filepath)
 
     dirpath, filename = os.path.split(create_filepath)
+
+    if not create_filepath.endswith(DATABASE_EXT):
+        if os.path.exists(create_filepath + DATABASE_EXT):
+            MessageBox.show_error(_("The file name '{}' is already in use.").format(filename))
+            return None
+
     if not dirpath or not os.path.isdir(dirpath) or not os.access(dirpath, os.R_OK | os.W_OK):
         MessageBox.show_error(_("The selected directory is not accessible."))
         return None
