@@ -379,7 +379,9 @@ class TransactionCache:
             if len(missing_tx_hashes):
                 for row in self._store.read(flags, mask, missing_tx_hashes):
                     if row[2] & TxFlags.HasByteData != 0:
-                        results.append((row[0], cast(bytes, row[1])))
+                        bytedata = cast(bytes, row[1])
+                        results.append((row[0], bytedata))
+                        self._bytedata_cache.set(row[0], bytedata)
         return results
 
     def get_entries(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,
