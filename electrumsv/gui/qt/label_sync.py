@@ -329,7 +329,7 @@ class LabelSync(object):
                         if not filename:
                             return
                         json_text = json.dumps(data)
-                        with open(filename) as f:
+                        with open(filename, "w") as f:
                             f.write(json_text)
                 else:
                     dialog.show_message(_("Your labels have been synchronised."))
