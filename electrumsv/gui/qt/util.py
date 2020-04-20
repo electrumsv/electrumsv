@@ -669,6 +669,12 @@ class ButtonsLineEdit(XLineEdit, ButtonsWidget):
     def resizeEvent(self, e):
         o = QLineEdit.resizeEvent(self, e)
         self.resizeButtons()
+
+        buttons_width = 0
+        for button in self.buttons:
+            buttons_width += button.size().width()
+        self.setTextMargins(0, 0, buttons_width, 0)
+
         return o
 
 class ButtonsTextEdit(QPlainTextEdit, ButtonsWidget):
