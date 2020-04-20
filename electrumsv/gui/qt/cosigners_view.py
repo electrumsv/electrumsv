@@ -36,7 +36,7 @@ from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import (QAbstractItemView, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QSizePolicy, QStyle, QStyleOption, QWizard)
 
-from electrumsv.constants import KeystoreTextType
+from electrumsv.constants import DerivationType, KeystoreTextType
 from electrumsv.i18n import _
 from electrumsv.keystore import instantiate_keystore_from_text, KeyStore
 
@@ -204,7 +204,8 @@ class CosignerCard(FormSectionWidget):
         self._show_qr_button.setEnabled(keystore is not None)
         self._key_copy_button.setEnabled(keystore is not None)
         self._show_secured_data_button.setEnabled(
-            keystore is not None and not keystore.is_watching_only())
+            keystore is not None and not keystore.is_watching_only() and
+            keystore.derivation_type != DerivationType.HARDWARE)
         self._cosigner_key_button.setEnabled(self._create)
         self._update_status_label()
 
