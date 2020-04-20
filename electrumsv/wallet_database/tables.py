@@ -794,6 +794,11 @@ class TransactionDeltaTable(BaseWalletStore):
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
             "KI.account_id = ?")
+    READ_CANDIDATE_USED_KEYS = ("SELECT TD.keyinstance_id FROM TransactionDeltas AS TD "
+        "INNER JOIN KeyInstances AS KI "
+        "ON TD.keyinstance_id = KI.keyinstance_id AND KI.account_id = ? "
+        "WHERE TD.keyinstance_id IN ({0}) "
+        "GROUP BY TD.keyinstance_id HAVING SUM(value_delta) = 0")
     READ_ALL_SQL = "SELECT tx_hash, keyinstance_id, value_delta FROM TransactionDeltas"
     # self._READ_ROW_SQL = ("SELECT value_delta, date_created, date_updated "+
     #     "FROM "+ table_name +" WHERE keyinstance_id=? AND tx_hash=?")
@@ -831,6 +836,22 @@ class TransactionDeltaTable(BaseWalletStore):
             cursor.close()
             results.extend(rows)
             tx_hashes = tx_hashes[batch_size:]
+        return results
+
+    def read_candidate_used_keys(self, account_id: int, keyinstance_ids: List[int]) \
+            -> Sequence[Tuple[int]]:
+        results = []
+        params = [account_id]
+        batch_size = SQLITE_MAX_VARS - 1
+        while len(keyinstance_ids):
+            batch_keyinstance_ids = keyinstance_ids[:batch_size]
+            batch_query = (self.READ_CANDIDATE_USED_KEYS.format(",".join("?" for k in
+                batch_keyinstance_ids)))
+            cursor = self._db.execute(batch_query, params + batch_keyinstance_ids)  # type: ignore
+            rows = cursor.fetchall()
+            cursor.close()
+            results.extend(rows)
+            keyinstance_ids = keyinstance_ids[batch_size:]
         return results
 
     def create(self, entries: Iterable[TransactionDeltaRow],

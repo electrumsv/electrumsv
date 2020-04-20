@@ -6,7 +6,7 @@ there will be no reads or
 
 import threading
 import time
-from typing import cast, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import cast, Dict, Iterable, List, Optional, Sequence, Tuple, Any
 
 from bitcoinx import double_sha256, hash_to_hex_str
 
@@ -507,7 +507,8 @@ class TransactionCache:
             if 0 < cast(int, metadata.height) <= watermark_height ]
 
     def apply_reorg(self, reorg_height: int,
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+            completion_callback: Optional[CompletionCallbackType]=None) \
+            -> Tuple[int, List[bytes]]:
         fetch_flags = TxFlags.StateSettled
         fetch_mask = TxFlags.StateSettled
         unverify_mask = ~(TxFlags.HasHeight | TxFlags.HasPosition | TxFlags.HasProofData |
@@ -530,3 +531,4 @@ class TransactionCache:
             if len(store_updates):
                 self._store.update_metadata(store_updates,
                     completion_callback=completion_callback)
+            return len(store_updates), [tx_hash for tx_hash, metadata, flags in store_updates]
