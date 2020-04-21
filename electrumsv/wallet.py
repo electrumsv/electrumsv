@@ -1622,9 +1622,9 @@ class AbstractAccount:
         # update cache KeyInstanceFlag
         db_updates = []
         for key in keyinstances:
-            old_flags = key.flags
+            old_flags = KeyInstanceFlag(key.flags)
             if activate:
-                new_flags = old_flags | KeyInstanceFlag.IS_ACTIVE
+                new_flags = KeyInstanceFlag(old_flags | KeyInstanceFlag.IS_ACTIVE)
             else:
                 # if USER_SET_ACTIVE flag is set - this flag will remain
                 new_flags = old_flags & (KeyInstanceFlag.INACTIVE_MASK |

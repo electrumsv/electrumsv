@@ -2,7 +2,7 @@ from io import BytesIO
 import json
 import sqlite3
 import time
-from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple
 
 import bitcoinx
 from bitcoinx import hash_to_hex_str
@@ -616,7 +616,7 @@ class KeyInstanceRow(NamedTuple):
     derivation_type: DerivationType
     derivation_data: bytes
     script_type: ScriptType
-    flags: Union[KeyInstanceFlag, int]
+    flags: KeyInstanceFlag
     description: Optional[str]
 
 
@@ -794,11 +794,11 @@ class TransactionDeltaTable(BaseWalletStore):
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
             "KI.account_id = ?")
-    READ_CANDIDATE_USED_KEYS = ("""
+    READ_CANDIDATE_USED_KEYS = (f"""
         WITH constants AS (
-            SELECT 1<<0 AS is_active_flag,
-                   1<<8 AS user_set_active_flag,
-                   1<<21 AS settled_tx_flag
+            SELECT {KeyInstanceFlag.IS_ACTIVE} AS is_active_flag,
+                   {KeyInstanceFlag.USER_SET_ACTIVE} AS user_set_active_flag,
+                   {TxFlags.StateSettled} AS settled_tx_flag
             ),
              active_keys AS (
                 SELECT keyinstance_id, account_id, script_type, flags AS key_flags
