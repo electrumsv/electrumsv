@@ -1246,7 +1246,8 @@ class TextStore(AbstractStore):
             seed_version = (self.OLD_SEED_VERSION if len(self.get('master_public_key','')) == 128
                 else self.NEW_SEED_VERSION)
         if seed_version > self.FINAL_SEED_VERSION:
-            raise IncompatibleWalletError("TEXT store has DATABASE store version")
+            raise IncompatibleWalletError("TEXT store has DATABASE store version"
+                f" {seed_version} > {self.FINAL_SEED_VERSION}")
         if seed_version >= 12:
             return seed_version
         if seed_version not in (self.OLD_SEED_VERSION, self.NEW_SEED_VERSION):
