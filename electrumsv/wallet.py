@@ -1592,36 +1592,6 @@ class AbstractAccount:
             self._activated_keys = []
         return result
 
-    def is_key_history_all_settled(self, keyinstance_id: int) -> bool:
-        hist = self.get_key_history(keyinstance_id, script_type=self.get_default_script_type())
-        if len(hist) < 2:
-            return False
-        for tx_id, tx_height in hist:
-            entry_flags = self._wallet._transaction_cache.get_flags(hex_str_to_hash(tx_id))
-            if entry_flags is None:
-                self._logger.error("transaction flags not found for keyinstance_id %s",
-                    keyinstance_id)
-                return False
-            if entry_flags & TxFlags.StateSettled == TxFlags.StateSettled:
-                continue
-            else:
-                return False
-        return True
-
-    def is_user_active(self, keyinstance_id: int) -> bool:
-        if self._keyinstances[keyinstance_id].flags & KeyInstanceFlag.USER_SET_ACTIVE != 0:
-            return True
-        return False
-
-    def is_used_key(self, keyinstance_id: int) -> bool:
-        # At least 2 txs in history, all confirmed, exclude user activated keys and...
-        # Note: zero balance requirement is satisfied via TransactionDelta table query.
-        if self.is_user_active(keyinstance_id):
-            return False
-        if not self.is_key_history_all_settled(keyinstance_id):
-            return False
-        return True
-
     def detect_used_keys(self) -> None:
         # Note: re-activation of keys is dealt with via:
         #   a) reorg detection time - see self.reactivate_reorged_keys()
@@ -1629,22 +1599,20 @@ class AbstractAccount:
         # Therefore, this function only needs to deal with deactivation
         if not self._wallet._storage.get('deactivate_used_keys', False):
             return
+
         # Get all used keys with zero balance (of the ones that are currently active)
-        keyinstance_ids = self.existing_active_keys()
-        self._logger.debug("detect-used-keys: checking %s active keys for deactivation criteria",
-            len(keyinstance_ids))
+        self._logger.debug("detect-used-keys: checking active keys for deactivation criteria")
         with TransactionDeltaTable(self._wallet._db_context) as table:
-            candidate_used_keys = table.read_candidate_used_keys(self._id, keyinstance_ids)
+            used_keyinstance_ids = table.read_candidate_used_keys(self._id)
 
         used_keyinstances = []
-        if len(candidate_used_keys) != 0:
-            for keyinstance_id in candidate_used_keys:
-                if self.is_used_key(keyinstance_id[0]):
-                    with self._deactivated_keys_lock:
-                        self._deactivated_keys.append(keyinstance_id[0])
-                        self._deactivated_keys_event.set()
-                    key = self._keyinstances[keyinstance_id[0]]
+        if len(used_keyinstance_ids) != 0:
+            with self._deactivated_keys_lock:
+                for keyinstance_id in used_keyinstance_ids:
+                    self._deactivated_keys.append(keyinstance_id[0])
+                    key: KeyInstanceRow = self._keyinstances[keyinstance_id[0]]
                     used_keyinstances.append(key)
+                self._deactivated_keys_event.set()
 
         self._logger.debug("found %s used keys for deactivation", len(used_keyinstances))
         if len(used_keyinstances) != 0:
@@ -1656,26 +1624,26 @@ class AbstractAccount:
         for key in keyinstances:
             old_flags = key.flags
             if activate:
-                new_flags = cast(KeyInstanceFlag, old_flags | KeyInstanceFlag.IS_ACTIVE)
+                new_flags = old_flags | KeyInstanceFlag.IS_ACTIVE
             else:
-                # will not deactivate if USER_SET_ACTIVE flag is set
-                new_flags = cast(KeyInstanceFlag, old_flags & KeyInstanceFlag.INACTIVE_MASK)
+                # if USER_SET_ACTIVE flag is set - this flag will remain
+                new_flags = old_flags & (KeyInstanceFlag.INACTIVE_MASK |
+                    KeyInstanceFlag.USER_SET_ACTIVE)
             self._keyinstances[key.keyinstance_id] = KeyInstanceRow(key.keyinstance_id,
-                self.get_id(),
-                key.masterkey_id, key.derivation_type, key.derivation_data, key.script_type,
-                new_flags, key.description)
+                self.get_id(), key.masterkey_id, key.derivation_type, key.derivation_data,
+                key.script_type, new_flags, key.description)
             db_updates.append((new_flags, key.keyinstance_id))
 
         # update db
         self._wallet.update_keyinstance_flags(db_updates)
 
-    def reactivate_reorged_keys(self, updated_txs: List[bytes]):
+    def reactivate_reorged_keys(self, reorged_txs: List[bytes]):
         # There's an edge case where a tx may get dropped from the mempool despite being
         # included in a recent block (very unlikely though). We can only detect
         # such an event via observing a change in history - i.e. a dropped tx). Therefore we should
         # ideally re-activate all of the reorged keys by default and deactivate when confirmed
         # again.
-        txs = self._wallet._transaction_cache.get_transaction_datas(tx_hashes=updated_txs)
+        txs = self._wallet._transaction_cache.get_transaction_datas(tx_hashes=reorged_txs)
         set_key_ids = set()
         for tx_hash in txs.keys():
             key_ids = self._sync_state.get_transaction_key_ids(hash_to_hex_str(tx_hash))

@@ -2,7 +2,7 @@ from io import BytesIO
 import json
 import sqlite3
 import time
-from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple, Union
 
 import bitcoinx
 from bitcoinx import hash_to_hex_str
@@ -616,7 +616,7 @@ class KeyInstanceRow(NamedTuple):
     derivation_type: DerivationType
     derivation_data: bytes
     script_type: ScriptType
-    flags: KeyInstanceFlag
+    flags: Union[KeyInstanceFlag, int]
     description: Optional[str]
 
 
@@ -794,11 +794,34 @@ class TransactionDeltaTable(BaseWalletStore):
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
             "KI.account_id = ?")
-    READ_CANDIDATE_USED_KEYS = ("SELECT TD.keyinstance_id FROM TransactionDeltas AS TD "
-        "INNER JOIN KeyInstances AS KI "
-        "ON TD.keyinstance_id = KI.keyinstance_id AND KI.account_id = ? "
-        "WHERE TD.keyinstance_id IN ({0}) "
-        "GROUP BY TD.keyinstance_id HAVING SUM(value_delta) = 0")
+    READ_CANDIDATE_USED_KEYS = ("""
+        WITH constants AS (
+            SELECT 1<<0 AS is_active_flag,
+                   1<<8 AS user_set_active_flag,
+                   1<<21 AS settled_tx_flag
+            ),
+             active_keys AS (
+                SELECT keyinstance_id, account_id, script_type, flags AS key_flags
+                FROM KeyInstances, constants
+                WHERE flags & constants.is_active_flag = constants.is_active_flag
+                  AND flags & constants.user_set_active_flag != constants.user_set_active_flag
+                  AND account_id = ?
+            ),
+            tx_history_table AS (
+                SELECT TD.keyinstance_id, tx_hash, value_delta, script_type, key_flags 
+                FROM TransactionDeltas AS TD
+                JOIN active_keys ON TD.keyinstance_id = active_keys.keyinstance_id
+            ),
+            settled_history AS (
+                SELECT tx_history_table.keyinstance_id, script_type, key_flags, value_delta, 
+                flags AS tx_flags
+                FROM Transactions AS TX
+                JOIN tx_history_table ON TX.tx_hash = tx_history_table.tx_hash
+                JOIN constants ON constants.settled_tx_flag & TX.flags == constants.settled_tx_flag)
+        
+            SELECT keyinstance_id, key_flags, script_type
+                FROM settled_history
+                GROUP BY keyinstance_id HAVING SUM(value_delta) == 0;""")
     READ_ALL_SQL = "SELECT tx_hash, keyinstance_id, value_delta FROM TransactionDeltas"
     # self._READ_ROW_SQL = ("SELECT value_delta, date_created, date_updated "+
     #     "FROM "+ table_name +" WHERE keyinstance_id=? AND tx_hash=?")
@@ -838,21 +861,13 @@ class TransactionDeltaTable(BaseWalletStore):
             tx_hashes = tx_hashes[batch_size:]
         return results
 
-    def read_candidate_used_keys(self, account_id: int, keyinstance_ids: List[int]) \
+    def read_candidate_used_keys(self, account_id: int) \
             -> Sequence[Tuple[int]]:
-        results = []
         params = [account_id]
-        batch_size = SQLITE_MAX_VARS - 1
-        while len(keyinstance_ids):
-            batch_keyinstance_ids = keyinstance_ids[:batch_size]
-            batch_query = (self.READ_CANDIDATE_USED_KEYS.format(",".join("?" for k in
-                batch_keyinstance_ids)))
-            cursor = self._db.execute(batch_query, params + batch_keyinstance_ids)  # type: ignore
-            rows = cursor.fetchall()
-            cursor.close()
-            results.extend(rows)
-            keyinstance_ids = keyinstance_ids[batch_size:]
-        return results
+        cursor = self._db.execute(self.READ_CANDIDATE_USED_KEYS, params)  # type: ignore
+        rows = cursor.fetchall()
+        cursor.close()
+        return rows
 
     def create(self, entries: Iterable[TransactionDeltaRow],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:

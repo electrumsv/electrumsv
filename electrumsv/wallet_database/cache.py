@@ -6,7 +6,7 @@ there will be no reads or
 
 import threading
 import time
-from typing import cast, Dict, Iterable, List, Optional, Sequence, Tuple, Any
+from typing import cast, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from bitcoinx import double_sha256, hash_to_hex_str
 
