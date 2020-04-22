@@ -227,6 +227,7 @@ class AbstractAccount:
         self.request_count = 0
         self.response_count = 0
         self.progress_event = app_state.async_.event()
+        self.last_poll_time = None
 
         self._load_sync_state()
         self._utxos: Dict[Tuple[bytes, int], UTXO] = {}
@@ -1591,6 +1592,12 @@ class AbstractAccount:
             result = self._activated_keys
             self._activated_keys = []
         return result
+
+    def poll_used_key_detection(self, every_n_seconds):
+        if self.last_poll_time is None or \
+                time.time() - self.last_poll_time > every_n_seconds:
+            self.last_poll_time = time.time()
+            self.detect_used_keys()
 
     def detect_used_keys(self) -> None:
         # Note: re-activation of keys is dealt with via:
