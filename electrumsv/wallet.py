@@ -291,9 +291,10 @@ class AbstractAccount:
     def get_key_text(self, key_id: int) -> str:
         keyinstance = self._keyinstances[key_id]
         text = f"{key_id}:{keyinstance.masterkey_id}"
-        derivation = self._keypath.get(key_id)
-        text += ":"+ ("None" if derivation is None else compose_chain_string(derivation))
-        return text
+        derivation_text = self.get_derivation_path_text(key_id)
+        if derivation_text is not None:
+            return text +":"+ derivation_text
+        return text +":None"
 
     def get_keyinstance(self, key_id: int) -> KeyInstanceRow:
         return self._keyinstances[key_id]
@@ -636,7 +637,7 @@ class AbstractAccount:
         self._payment_requests[paymentrequest_id] = new_req
         return new_req
 
-    def delete_payment_request(self, pr_id: int):
+    def delete_payment_request(self, pr_id: int) -> bool:
         if pr_id in self._payment_requests:
             pr = self._payment_requests.pop(pr_id)
             with PaymentRequestTable(self._wallet._db_context) as table:
@@ -655,10 +656,10 @@ class AbstractAccount:
     def get_payment_request(self, pr_id: int) -> Optional[PaymentRequestRow]:
         return self._payment_requests.get(pr_id)
 
-    def is_deterministic(self):
+    def is_deterministic(self) -> bool:
         # Not all wallets have a keystore, like imported address for instance.
         keystore = self.get_keystore()
-        return keystore and keystore.is_deterministic()
+        return keystore is not None and keystore.is_deterministic()
 
     def is_hardware_wallet(self) -> bool:
         return any([ isinstance(k, Hardware_KeyStore) for k in self.get_keystores() ])
@@ -722,8 +723,17 @@ class AbstractAccount:
         self._row = AccountRow(self._row.account_id, self._row.default_masterkey_id,
             script_type, self._row.account_name)
 
+    def get_key_paths(self) -> Dict[int, Sequence[int]]:
+        return self._keypath
+
     def get_derivation_path(self, keyinstance_id: int) -> Optional[Sequence[int]]:
         return self._keypath.get(keyinstance_id)
+
+    def get_derivation_path_text(self, keyinstance_id: int) -> Optional[str]:
+        derivation = self._keypath.get(keyinstance_id)
+        if derivation is not None:
+            return compose_chain_string(derivation)
+        return None
 
     def get_keyinstance_id_for_derivation(self, derivation: Sequence[int]) -> Optional[int]:
         for keyinstance_id, keypath in self._keypath.items():
@@ -2438,8 +2448,9 @@ class Wallet(TriggeredCallbacks):
 
     def synchronize_incomplete_transaction(self, tx: Transaction) -> None:
         if tx.is_complete():
-            self._logger.debug("synchronize_incomplete_transaction complete")
             return
+
+        self._logger.debug("synchronize_incomplete_transaction complete")
 
         for txin in tx.inputs:
             for xpubkey in txin.unused_x_pubkeys():

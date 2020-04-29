@@ -90,6 +90,9 @@ class KeyStore:
     def has_seed(self) -> bool:
         return False
 
+    def is_deterministic(self) -> bool:
+        return False
+
     def can_change_password(self) -> bool:
         raise NotImplementedError
 
@@ -199,9 +202,6 @@ class Imported_KeyStore(Software_KeyStore):
         for key_id, pubkey in self._public_keys.items():
             datas.append((key_id, { "pub": pubkey.to_hex(), "prv": self._keypairs[pubkey] }))
         return datas
-
-    def is_deterministic(self) -> bool:
-        return False
 
     def can_change_password(self) -> bool:
         return True
@@ -688,7 +688,7 @@ class Hardware_KeyStore(Xpub, KeyStore):
         Xpub.set_row(self, row)
         KeyStore.set_row(self, row)
 
-    def is_deterministic(self):
+    def is_deterministic(self) -> bool:
         return True
 
     def to_derivation_data(self) -> Dict[str, Any]:

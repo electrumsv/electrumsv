@@ -116,6 +116,7 @@ class KeyFlags(enum.IntFlag):
 
 class KeyLine(NamedTuple):
     row: KeyInstanceRow
+    derivation_text: str
     key_text: str
     flags: KeyFlags
     usages: int
@@ -357,6 +358,11 @@ class _ItemModel(QAbstractItemModel):
                         return _("This is an allocated address")
                     elif not line.row.flags & KeyInstanceFlag.IS_ACTIVE:
                         return _("This is an inactive address")
+                elif column == KEY_COLUMN:
+                    key_id = line.row.keyinstance_id
+                    masterkey_id = line.row.masterkey_id
+                    return _("Key instance id: {}\nMaster key id: {}\nDerivation path {}").format(
+                        key_id, masterkey_id, line.derivation_text)
 
             elif role == Qt.EditRole:
                 if column == LABEL_COLUMN:
@@ -745,7 +751,7 @@ class KeyView(QTableView):
             new_flags = EventFlags.KEY_UPDATED | EventFlags.LABEL_UPDATE
 
             for line in self._data:
-                if line.key_text in updates:
+                if line.derivation_text in updates:
                     key, flags = self._pending_state.get(line.row.keyinstance_id,
                         (key, EventFlags.UNSET))
                     self._pending_state[line.row.keyinstance_id] = (key, flags | new_flags)
@@ -787,7 +793,8 @@ class KeyView(QTableView):
             # NOTE(rt12) BACKLOG This is the current usage not the all time usage.
             usages = len(coins)
             key_text = self._account.get_key_text(key.keyinstance_id)
-            line = KeyLine(key, key_text, KeyFlags.UNSET, usages,
+            derivation_text = self._account.get_derivation_path_text(key.keyinstance_id)
+            line = KeyLine(key, derivation_text, key_text, KeyFlags.UNSET, usages,
                 sum(c.value for c in coins))
             lines.append(line)
         return lines
