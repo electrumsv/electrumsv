@@ -273,7 +273,7 @@ class LabelSync(object):
             self.stop_account(account)
 
     def settings_widget(self, *args):
-        return EnterButton(_('Settings'), partial(self.settings_dialog, *args))
+        return EnterButton(_('Export'), partial(self.settings_dialog, *args))
 
     def threaded_button(self, text, dialog, func, *args):
         def on_clicked(_checked):
