@@ -33,7 +33,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Any, Iterable, List, Tuple, Optional
+from typing import Any, Iterable, List, Set, Tuple, Optional
 import weakref
 import webbrowser
 
@@ -2477,29 +2477,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             tx = transaction.Transaction.from_hex(hex_str)
             self.show_transaction(self._account, tx)
 
-    def do_import_labels(self, wallet_id: int) -> None:
-        account = self._wallet.get_account(wallet_id)
+    def do_import_labels(self, account_id: int) -> None:
+        from .import_export import LabelImporter
+        widget = LabelImporter(self, self._wallet, account_id)
+        widget.labels_updated.connect(self._on_labels_updated)
+        widget.run()
 
-        labelsFile = self.getOpenFileName(_("Open labels file"), "*.json")
-        if not labelsFile: return
-
-        try:
-            with open(labelsFile, 'r') as f:
-                data = f.read()
-            updates = json.loads(data).items()
-            for key, value in updates:
-                account.set_label(key, value)
-            self.show_message(_("Your labels were imported from") + " '%s'" % str(labelsFile))
-        except (IOError, os.error) as reason:
-            self.show_critical(_("ElectrumSV was unable to import your labels.") + "\n" +
-                               str(reason))
-
+    def _on_labels_updated(self, account_id: int, key_updates: Set[int],
+            transaction_updates: Set[bytes]) -> None:
         if self.key_view is not None:
-            self.key_view.update_labels(self._wallet.get_storage_path(), account.get_id(),
-                list(updates))
+            self.key_view.update_labels(self._wallet.get_storage_path(), account_id, key_updates)
 
-        self.history_view.update_tx_list()
-        self.history_updated_signal.emit()
+        if len(transaction_updates):
+            self.history_view.update_tx_list()
+            self.history_updated_signal.emit()
 
     def do_export_labels(self, account_id: int) -> None:
         account = self._wallet.get_account(account_id)

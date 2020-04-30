@@ -32,7 +32,7 @@ import threading
 from typing import Any, Optional
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QMessageBox, QPushButton, QFileDialog
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QPushButton, QVBoxLayout
 
 from electrumsv.app_state import app_state
 from electrumsv.crypto import aes_decrypt_with_iv, aes_encrypt_with_iv
@@ -42,7 +42,8 @@ from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount
 
-from electrumsv.gui.qt.util import Buttons, EnterButton, WindowModalDialog, OkButton
+from .util import (Buttons, EnterButton, FormSectionWidget, FramedTextWidget, OkButton,
+    WindowModalDialog)
 
 
 logger = logs.get_logger("labels")
@@ -283,17 +284,23 @@ class LabelSync(object):
 
     def settings_dialog(self, prefs_window, account: AbstractAccount):
         d = WindowModalDialog(prefs_window, _("Label Settings"))
-        hbox = QHBoxLayout()
-        hbox.addWidget(QLabel("Label sync options:"))
-        vbox = QVBoxLayout()
+        form = FormSectionWidget()
+        form.add_title(_("Label sync options"))
+
         if not DISABLE_INTEGRATION:
             upload = self.threaded_button("Force upload", d, self.push_thread, account)
-            vbox.addWidget(upload)
+            form.add_row(_("Upload labels"), upload)
         download = self.threaded_button("Force download", d, self.pull_thread, account, True)
-        vbox.addWidget(download)
-        hbox.addLayout(vbox)
+        form.add_row(_("Export labels"), download)
+
+        label = FramedTextWidget(_("The label sync services are no longer supported. However, "
+            "ElectrumSV will still allow users to download and export their existing labels. These "
+            "exported label files can then be imported, and any entries they have which can be "
+            "matched to wallet contents may be added to the appropriate record."))
+
         vbox = QVBoxLayout(d)
-        vbox.addLayout(hbox)
+        vbox.addWidget(label)
+        vbox.addWidget(form)
         vbox.addSpacing(20)
         vbox.addLayout(Buttons(OkButton(d)))
         return bool(d.exec_())

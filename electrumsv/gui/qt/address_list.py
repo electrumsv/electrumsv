@@ -743,7 +743,7 @@ class KeyView(QTableView):
             self._pending_actions.add(ListActions.RESET_FIAT_BALANCES)
 
     # The user has edited a label either here, or in some other wallet location.
-    def update_labels(self, wallet_path: str, account_id: int, updates: Dict[str, str]) -> None:
+    def update_labels(self, wallet_path: str, account_id: int, key_updates: Set[int]) -> None:
         if not self._validate_event(wallet_path, account_id):
             return
 
@@ -751,10 +751,10 @@ class KeyView(QTableView):
             new_flags = EventFlags.KEY_UPDATED | EventFlags.LABEL_UPDATE
 
             for line in self._data:
-                if line.derivation_text in updates:
-                    key, flags = self._pending_state.get(line.row.keyinstance_id,
-                        (key, EventFlags.UNSET))
-                    self._pending_state[line.row.keyinstance_id] = (key, flags | new_flags)
+                if line.row.keyinstance_id in key_updates:
+                    _key, flags = self._pending_state.get(line.row.keyinstance_id,
+                        (line.row, EventFlags.UNSET))
+                    self._pending_state[line.row.keyinstance_id] = (line.row, flags | new_flags)
 
     def _match_keys(self, keys: List[KeyInstanceRow]) -> List[Tuple[int, KeyLine]]:
         matches = []

@@ -125,9 +125,6 @@ class AccountsView(QSplitter):
         labels_menu = menu.addMenu(_("&Labels"))
         action = labels_menu.addAction(_("&Import"),
             partial(self._main_window.do_import_labels, account_id))
-        # TODO(rt12) BACKLOG The plan is to implement this in a way that lets the user specify
-        # whether to skip importing entries that already have a label (skip / overwrite).
-        action.setEnabled(False)
         labels_menu.addAction(_("&Export"), partial(self._main_window.do_export_labels, account_id))
 
         menu.exec_(self._selection_list.viewport().mapToGlobal(position))

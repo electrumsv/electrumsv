@@ -221,6 +221,7 @@ class AbstractAccount:
         self._deactivated_keys_event = app_state.async_.event()
         self._synchronize_event = app_state.async_.event()
         self._synchronized_event = app_state.async_.event()
+
         self._subpath_gap_limits: Dict[Sequence[int], int] = {}
         self.txs_changed_event = app_state.async_.event()
         self.request_count = 0
@@ -389,7 +390,7 @@ class AbstractAccount:
             self.get_default_script_type())
 
     def get_script_template_for_id(self, keyinstance_id: int,
-            script_type: Optional[ScriptType]=None) -> Any:
+            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         raise NotImplementedError
 
     def get_valid_script_types(self) -> Sequence[ScriptType]:
@@ -1688,7 +1689,7 @@ class ImportedAddressAccount(ImportedAccountBase):
             for script_type in self.get_valid_script_types() ]
 
     def get_script_template_for_id(self, keyinstance_id: int,
-            script_type: Optional[ScriptType]=None) -> Any:
+            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         keyinstance = self._keyinstances[keyinstance_id]
         script_type = (script_type if script_type is not None or
             keyinstance.script_type == ScriptType.NONE else keyinstance.script_type)
@@ -1775,7 +1776,7 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
             for script_type in self.get_valid_script_types() ]
 
     def get_script_template_for_id(self, keyinstance_id: int,
-            script_type: Optional[ScriptType]=None) -> Any:
+            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         public_key = self.get_public_keys_for_id(keyinstance_id)[0]
         keyinstance = self._keyinstances[keyinstance_id]
         script_type = (script_type if script_type is not None or
@@ -1783,7 +1784,7 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         return self.get_script_template(public_key, script_type)
 
     def get_script_template(self, public_key: PublicKey,
-            script_type: Optional[ScriptType]=None) -> Any:
+            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         if script_type is None:
             script_type = self.get_default_script_type()
         if script_type == ScriptType.P2PK:
@@ -1923,19 +1924,19 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
             for script_type in self.get_valid_script_types() ]
 
     def get_script_template_for_id(self, keyinstance_id: int,
-            script_type: Optional[ScriptType]=None) -> Any:
+            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         public_key = self._get_public_key_for_id(keyinstance_id)
         keyinstance = self._keyinstances[keyinstance_id]
         script_type = (script_type if script_type is not None or
             keyinstance.script_type == ScriptType.NONE else keyinstance.script_type)
         return self.get_script_template(public_key, script_type)
 
-    def get_dummy_script_template(self, script_type: Optional[ScriptType]=None) -> Any:
+    def get_dummy_script_template(self, script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         public_key = PrivateKey(os.urandom(32)).public_key
         return self.get_script_template(public_key, script_type)
 
     def get_script_template(self, public_key: PublicKey,
-            script_type: Optional[ScriptType]=None) -> Any:
+            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         if script_type is None:
             script_type = self.get_default_script_type()
         if script_type == ScriptType.P2PK:
@@ -1992,7 +1993,7 @@ class MultisigAccount(DeterministicAccount):
             for script_type in self.get_valid_script_types() ]
 
     def get_script_template_for_id(self, keyinstance_id: int,
-            script_type: Optional[ScriptType]=None) -> Any:
+            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         keyinstance = self._keyinstances[keyinstance_id]
         public_keys = self.get_public_keys_for_id(keyinstance_id)
         public_keys_hex = [pubkey.to_hex() for pubkey in public_keys]
@@ -2000,14 +2001,14 @@ class MultisigAccount(DeterministicAccount):
             keyinstance.script_type == ScriptType.NONE else keyinstance.script_type)
         return self.get_script_template(public_keys_hex, script_type)
 
-    def get_dummy_script_template(self, script_type: Optional[ScriptType]=None) -> Any:
+    def get_dummy_script_template(self, script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         public_keys_hex = []
         for i in range(self.m):
             public_keys_hex.append(PrivateKey(os.urandom(32)).public_key.to_hex())
         return self.get_script_template(public_keys_hex, script_type)
 
     def get_script_template(self, public_keys_hex: List[str],
-            script_type: Optional[ScriptType]=None) -> Any:
+            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         if script_type is None:
             script_type = self.get_default_script_type()
         if script_type == ScriptType.MULTISIG_BARE:

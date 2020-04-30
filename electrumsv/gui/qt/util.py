@@ -978,3 +978,12 @@ class FormSectionWidget(QWidget):
 
         self.frame_layout.addLayout(grid_layout)
         return result
+
+
+class FramedTextWidget(QLabel):
+    def __init__(self, parent: Optional[QWidget]=None) -> None:
+        super().__init__(parent)
+
+        self.setWordWrap(True)
+        self.setFrameStyle(QFrame.Panel | QFrame.Raised)
+        self.setMargin(10)

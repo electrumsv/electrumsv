@@ -64,13 +64,12 @@ cosigner_pool = CosignerPoolExtension(
     ]))
 
 label_sync = LabelSyncExtension(
-    'labels', _('LabelSync'),
-    '\n'.join([
-        _("Save your wallet labels on a remote server, and synchronize "
-          "them across multiple devices where you use ElectrumSV."),
-        _("Labels, transactions IDs and addresses are encrypted before "
-          "they are xsent to the remote server.")
-    ]))
+    'labels', _('Label Sync'),
+    _("Older wallets may have descriptions for addresses and transactions that were "
+    "encrypted before being uploaded to the Electrum Core 'label sync' server. "
+    "ElectrumSV now no longer has a naive JSON storage for it's account data, so "
+    "it has no way to store any descriptions which the account does not know of the "
+    "address or transaction for."))
 
 extensions = [
     cosigner_pool,
