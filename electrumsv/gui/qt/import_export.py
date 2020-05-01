@@ -85,6 +85,7 @@ class LabelImporter(QDialog):
         self._key_state: Dict[int, LabelState] = {}
         self._import_result: Optional[LabelImportResult] = None
         self._problem_count = 0
+        self._change_count = 0
 
         self._file_name_label = QLabel()
         file_name_form = FormSectionWidget()
@@ -103,21 +104,25 @@ class LabelImporter(QDialog):
 
         forms_layout = QHBoxLayout()
 
-        left_form = FormSectionWidget(minimum_label_width=180)
+        left_form = FormSectionWidget(minimum_label_width=190)
         self._updateable_tx_label = QLabel()
-        left_form.add_row(_("Addable Transaction Descriptions"), self._updateable_tx_label)
+        left_form.add_row(_("New transaction descriptions"), self._updateable_tx_label)
+        self._replacement_tx_label = QLabel()
+        left_form.add_row(_("Replacement transaction descriptions"), self._replacement_tx_label)
         self._unchanged_tx_label = QLabel()
-        left_form.add_row(_("Unchanged Transaction Descriptions"), self._unchanged_tx_label)
+        left_form.add_row(_("Unchanged transaction descriptions"), self._unchanged_tx_label)
         self._unmatched_tx_label = QLabel()
-        left_form.add_row(_("Unknown Transactions"), self._unmatched_tx_label)
+        left_form.add_row(_("Unknown transactions"), self._unmatched_tx_label)
 
-        right_form = FormSectionWidget(minimum_label_width=180)
+        right_form = FormSectionWidget(minimum_label_width=190)
         self._matched_key_label = QLabel()
-        right_form.add_row(_("Addable Key Descriptions"), self._matched_key_label)
+        right_form.add_row(_("New key descriptions"), self._matched_key_label)
+        self._replacement_key_label = QLabel()
+        right_form.add_row(_("Replacement key descriptions"), self._replacement_key_label)
         self._unchanged_key_label = QLabel()
-        right_form.add_row(_("Unchanged Key Descriptions"), self._unchanged_key_label)
+        right_form.add_row(_("Unchanged key descriptions"), self._unchanged_key_label)
         self._unrecognized_label = QLabel()
-        right_form.add_row(_("Otherwise Unknown"), self._unrecognized_label)
+        right_form.add_row(_("Otherwise unknown"), self._unrecognized_label)
 
         forms_layout.addWidget(left_form)
         forms_layout.addWidget(right_form)
@@ -240,6 +245,7 @@ class LabelImporter(QDialog):
         row_index = 0
 
         tx_add_count = 0
+        tx_replace_count = 0
         tx_skip_count = 0
         tx_unknown_count = 0
 
@@ -253,6 +259,7 @@ class LabelImporter(QDialog):
                 tx_skip_count += 1
                 continue
             elif label_state == LabelState.REPLACE:
+                tx_replace_count += 1
                 problem_text = _("Replacement (for transaction)")
             elif label_state == LabelState.UNKNOWN:
                 tx_unknown_count += 1
@@ -270,6 +277,7 @@ class LabelImporter(QDialog):
             row_index += 1
 
         key_add_count = 0
+        key_replace_count = 0
         key_skip_count = 0
 
         for keyinstance_id, label_state in self._key_state.items():
@@ -282,6 +290,7 @@ class LabelImporter(QDialog):
                 key_skip_count += 1
                 continue
             elif label_state == LabelState.REPLACE:
+                key_replace_count += 1
                 problem_text = _("Replacement (for key)")
             else:
                 raise NotImplementedError(f"Unrecognized tx label state {label_state}")
@@ -306,13 +315,21 @@ class LabelImporter(QDialog):
             row_index += 1
 
         self._problem_count = row_index
+        self._change_count = tx_add_count + tx_replace_count + key_add_count + key_replace_count
         self._file_name_label.setText(file_name)
 
         self._updateable_tx_label.setText(str(tx_add_count))
+        self._replacement_tx_label.setText(str(tx_replace_count))
         self._unchanged_tx_label.setText(str(tx_skip_count))
         self._unmatched_tx_label.setText(str(tx_unknown_count))
         self._matched_key_label.setText(str(key_add_count))
+        self._replacement_key_label.setText(str(key_replace_count))
         self._unchanged_key_label.setText(str(key_skip_count))
         self._unrecognized_label.setText(str(len(self._import_result.unknown_labels)))
 
-        self._import_button.setEnabled(True)
+        if self._change_count > 0:
+            self._import_button.setEnabled(True)
+            self._import_button.setToolTip(_("Import {} label changes").format(self._change_count))
+        else:
+            self._import_button.setEnabled(False)
+            self._import_button.setToolTip(_("There are no changes to be made"))
