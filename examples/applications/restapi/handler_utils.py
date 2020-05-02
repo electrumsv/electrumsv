@@ -22,6 +22,7 @@ from .errors import Errors
 
 # Request variables
 class VNAME(VARNAMES):
+    AMOUNT = 'amount'
     NETWORK = 'network'
     ACCOUNT_ID = 'account_id'
     WALLET_NAME = 'wallet_name'
@@ -53,7 +54,8 @@ ADDITIONAL_ARGTYPES: Dict[str, type] = {
     VNAME.EXCLUDE_FROZEN: bool,
     VNAME.CONFIRMED_ONLY: bool,
     VNAME.MATURE: bool,
-    VNAME.UTXO_PRESELECTION: bool
+    VNAME.UTXO_PRESELECTION: bool,
+    VNAME.AMOUNT: int
 }
 
 ARGTYPES.update(ADDITIONAL_ARGTYPES)
@@ -61,7 +63,7 @@ ARGTYPES.update(ADDITIONAL_ARGTYPES)
 HEADER_VARS = [VNAME.NETWORK, VNAME.ACCOUNT_ID, VNAME.WALLET_NAME]
 BODY_VARS = [VNAME.PASSWORD, VNAME.RAWTX, VNAME.TXIDS, VNAME.UTXOS, VNAME.OUTPUTS,
              VNAME.UTXO_PRESELECTION, VNAME.REQUIRE_CONFIRMED, VNAME.EXCLUDE_FROZEN,
-             VNAME.CONFIRMED_ONLY, VNAME.MATURE]
+             VNAME.CONFIRMED_ONLY, VNAME.MATURE, VNAME.AMOUNT]
 
 
 class ExtendedHandlerUtils(HandlerUtils):
@@ -444,7 +446,7 @@ class ExtendedHandlerUtils(HandlerUtils):
     async def _broadcast_transaction(self, rawtx: str, tx_hash: bytes, account: AbstractAccount):
         result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
         account.set_transaction_state(tx_hash=tx_hash,
-                                      flags=TxFlags.StateDispatched | TxFlags.HasByteData)
+                                      flags=TxFlags(TxFlags.StateDispatched | TxFlags.HasByteData))
         self.logger.debug("successful broadcast for %s", result)
         return result
 

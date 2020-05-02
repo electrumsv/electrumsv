@@ -30,10 +30,13 @@
 # being used by dark coins like Bitcoin Cash.
 
 import json
-
-from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet
+from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, \
+    BitcoinRegTestnet, PrivateKey, PublicKey, P2PKH_Address
 
 from .util import resource_path
+
+BLOCK_HEIGHT_OUT_OF_RANGE_ERROR = -8
+
 
 def read_json_dict(filename):
     path = resource_path(filename)
@@ -223,6 +226,58 @@ class SVScalingTestnet(object):
     # Note: testnet allegedly supported only by unofficial firmware
     TREZOR_COIN_NAME = 'Bcash Testnet'
     # Really we want to put the difficulty logic in this file
+    TWENTY_MINUTE_RULE = True
+
+
+class SVRegTestnet(object):
+    """The checkpoint cannot be made until the bitcoin node has at least generated 146 blocks (to
+    calculate the DAA). Blocks are therefore generated until there are at least 200. A new
+    checkpoint at height = 200 is then calculated before allowing anything further to proceed.
+
+    Note: RegTest overflows the max nBits field, presumably due to a very short time interval
+    between generated blocks. To modify this field would be to change the hash of the header so
+    as a workaround, bitcoinx is monkeypatched to skip the checking of the difficulty target
+    (see HeadersRegtestMod)."""
+
+    # hardcoded
+    # - WIF private_key:    cT3G2vJGRNbpmoCVXYPYv2JbngzwtznLvioPPJXu39jfQeLpDuX5
+    # - Pubkey hash:        mfs8Y8gAwC2vJHCeSXkHs6LF5nu5PA7nxc
+    REGTEST_FUNDS_PRIVATE_KEY: PrivateKey = PrivateKey(
+        bytes.fromhex('a2d9803c912ab380c1491d3bd1aaab34ca06742d7885a224ec8d386182d26ed2'),
+        coin=BitcoinRegTestnet)
+    REGTEST_FUNDS_PRIVATE_KEY_WIF = REGTEST_FUNDS_PRIVATE_KEY.to_WIF()
+    REGTEST_FUNDS_PUBLIC_KEY: PublicKey = REGTEST_FUNDS_PRIVATE_KEY.public_key
+    REGTEST_P2PKH_ADDRESS: P2PKH_Address = REGTEST_FUNDS_PUBLIC_KEY.to_address().to_string()
+    MIN_CHECKPOINT_HEIGHT = 200
+    ADDRTYPE_P2PKH = 111
+    ADDRTYPE_P2SH = 196
+    CASHADDR_PREFIX = "bchtest"
+    DEFAULT_PORTS = {'t': '51001', 's': '51002'}
+    DEFAULT_SERVERS = read_json_dict('servers_regtest.json')
+    GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
+    NAME = 'regtest'
+    URI_PREFIX = "bitcoin"
+    WIF_PREFIX = 0xef
+    BIP276_VERSION = 2
+    COIN = BitcoinRegTestnet
+
+    CHECKPOINT = CheckPoint(bytes.fromhex(
+        '0000002029f1e3df7fda466242b9b56076792ffdb9e5d7ea51610307bc010000000000007ac1fa84'
+        'ef5f0998232fb01cd6fea2c0199e34218df2fb33e4e80e79d22b6a746994435d41c4021a208bae0a'
+    ), height=123, prev_work=123)
+
+    VERIFICATION_BLOCK_MERKLE_ROOT = (
+        '93414acafdef2dad790c456a424a6a261b66771a3426117125d8c13a1c93f10e'
+    )
+
+    BIP44_COIN_TYPE = 1
+
+    BLOCK_EXPLORERS = {}
+
+    FAUCET_URL = ""
+    KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
+    # Note: testnet allegedly supported only by unofficial firmware
+    TREZOR_COIN_NAME = 'Bcash Testnet'
     TWENTY_MINUTE_RULE = True
 
 

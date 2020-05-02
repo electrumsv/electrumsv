@@ -2,13 +2,13 @@ from typing import Union, Any
 
 import aiorpcx
 from aiohttp import web
-from bitcoinx import hex_str_to_hash
-from electrumsv.constants import TxFlags
 
+from electrumsv.networks import Net
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, good_response, fault_to_http_response
+from electrumsv.regtest_support import regtest_generate_nblocks
 from .errors import Errors
 from .handler_utils import ExtendedHandlerUtils, VNAME
 
@@ -40,6 +40,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.get(self.WALLETS_PARENT, self.get_parent_wallet),
             web.post(self.WALLETS_PARENT + "/load_wallet", self.load_wallet),
             web.get(self.WALLETS_ACCOUNT, self.get_account),
+            web.get(self.WALLETS_ACCOUNT + "/topup_account", self.topup_account),
             web.get(self.ACCOUNT_UTXOS + "/coin_state", self.get_coin_state),
             web.get(self.ACCOUNT_UTXOS, self.get_utxos),
             web.get(self.ACCOUNT_UTXOS + "/balance", self.get_balance),
@@ -103,11 +104,39 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         except Fault as e:
             return fault_to_http_response(e)
 
+    async def topup_account(self, request):
+        """only for regtest"""
+        try:
+            vars = await self.argparser(request,
+                required_vars=[VNAME.WALLET_NAME, VNAME.ACCOUNT_ID])
+            wallet_name = vars[VNAME.WALLET_NAME]
+            account_id = vars[VNAME.ACCOUNT_ID]
+            amount = vars.get(VNAME.AMOUNT, 25)
+
+            account = self._get_account(wallet_name, account_id)
+            txid = account.regtest_topup_account(amount)
+            response = {"value": {"txid": txid}}
+            return good_response(response)
+        except Fault as e:
+            return fault_to_http_response(e)
+
+    async def generate_blocks(self, request):
+        """only for regtest"""
+        try:
+            vars = await self.argparser(request,
+                required_vars=[VNAME.WALLET_NAME, VNAME.ACCOUNT_ID])
+            nblocks = vars.get(VNAME.AMOUNT, 1)
+            txid = regtest_generate_nblocks(nblocks, Net.REGTEST_P2PKH_ADDRESS)
+            response = {"value": {"txid": txid}}
+            return good_response(response)
+        except Fault as e:
+            return fault_to_http_response(e)
+
     async def get_coin_state(self, request):
         """get coin state (unconfirmed and confirmed coin count)"""
         try:
             vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
-                                                                VNAME.ACCOUNT_ID])
+                VNAME.ACCOUNT_ID])
             wallet_name = vars[VNAME.WALLET_NAME]
             account_id = vars[VNAME.ACCOUNT_ID]
 

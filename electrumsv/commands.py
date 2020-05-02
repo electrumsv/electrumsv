@@ -301,6 +301,8 @@ def add_global_options(parser):
                        help="Use Testnet")
     group.add_argument("--scaling-testnet", action="store_true", dest="scalingtestnet",
                        default=False, help="Use Scaling Testnet")
+    group.add_argument("--regtest", action="store_true", dest="regtest",
+                       default=False, help="Use Regression Testnet")
     group.add_argument("--file-logging", action="store_true", dest="file_logging", default=False,
                        help="Redirect logging to log file")
     group.add_argument("--restapi", action="store_true", dest="restapi",

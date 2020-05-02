@@ -85,6 +85,10 @@ class SimpleConfig:
             path = os.path.join(path, 'scalingtestnet')
             make_dir(path)
 
+        if self.get('regtest'):
+            path = os.path.join(path, 'regtest')
+            make_dir(path)
+
         obsolete_file = os.path.join(path, 'recent_servers')
         if os.path.exists(obsolete_file):
             os.remove(obsolete_file)

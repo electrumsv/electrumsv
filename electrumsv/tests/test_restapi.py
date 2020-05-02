@@ -20,6 +20,11 @@ class MockAppStateSTN():
         self.config = {"scalingtestnet": True}
 
 
+class MockAppStateRegTest():
+    def __init__(self):
+        self.config = {"regtest": True}
+
+
 def fake_get_app_state_main():
     return MockAppStateMain()
 
@@ -28,6 +33,9 @@ def fake_get_app_state_test():
 
 def fake_get_app_state_stn():
     return MockAppStateSTN()
+
+def fake_get_app_state_regtest():
+    return MockAppStateRegTest()
 
 
 def test_fault_to_http_response():
