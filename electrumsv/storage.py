@@ -43,8 +43,9 @@ from bitcoinx import DecryptionError, hash_to_hex_str, hex_str_to_hash, PrivateK
 from bitcoinx.address import P2PKH_Address, P2SH_Address
 
 from .bitcoin import is_address_valid, address_from_string
-from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, RECEIVING_SUBPATH,
-    ScriptType, StorageKind, TxFlags, TransactionOutputFlag, KeyInstanceFlag, PaymentState)
+from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, MIGRATION_CURRENT,
+    MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind, TxFlags, TransactionOutputFlag,
+    KeyInstanceFlag, PaymentState)
 from .crypto import pw_encode, pw_decode, InvalidPassword
 from .exceptions import IncompatibleWalletError
 from .i18n import _
@@ -263,9 +264,6 @@ class DatabaseStore(AbstractStore):
     _db_context: DatabaseContext
     _table: WalletDataTable
 
-    INITIAL_MIGRATION = 22
-    CURRENT_MIGRATION = 22
-
     def __init__(self, path: str) -> None:
         super().__init__(path)
 
@@ -301,7 +299,7 @@ class DatabaseStore(AbstractStore):
     def from_text_store(cls: Type['DatabaseStore'], text_store: 'TextStore') -> 'DatabaseStore':
         # Only fully updated text stores can upgrade to a database store.
         data = text_store._data.copy()
-        assert text_store._data.pop("seed_version", -1) == DatabaseStore.INITIAL_MIGRATION
+        assert text_store._data.pop("seed_version", -1) == MIGRATION_FIRST
         return cls(text_store._path)
 
     def get_path(self) -> str:
@@ -336,12 +334,18 @@ class DatabaseStore(AbstractStore):
         return False
 
     def requires_upgrade(self) -> bool:
-        return self.get("migration") < DatabaseStore.CURRENT_MIGRATION
+        return self.get("migration") < MIGRATION_CURRENT
 
     def upgrade(self: StoreType, has_password: bool, new_password: str) -> Optional[StoreType]:
-        from .wallet_database.migration import update_database_file
-        update_database_file(self._path)
-        assert DatabaseStore.CURRENT_MIGRATION == self.get("migration")
+        from .wallet_database.migration import update_database
+        connection = self._db_context.acquire_connection()
+        try:
+            update_database(connection)
+        finally:
+            self._db_context.release_connection(connection)
+        # Refresh the cached data.
+        self.attempt_load_data()
+        assert MIGRATION_CURRENT == self.get("migration")
         return None
 
 
@@ -529,8 +533,8 @@ class TextStore(AbstractStore):
         self._convert_version_16()
         self._convert_version_17()
         self._convert_to_database(has_password, new_password)
-        assert self.get("seed_version") == DatabaseStore.INITIAL_MIGRATION, ("expected "
-            f"{DatabaseStore.INITIAL_MIGRATION}, got {self.get('seed_version')}")
+        assert self.get("seed_version") == MIGRATION_FIRST, ("expected "
+            f"{MIGRATION_FIRST}, got {self.get('seed_version')}")
 
         database_wallet_path = self._path + DATABASE_EXT
         assert os.path.exists(database_wallet_path)
@@ -1238,7 +1242,7 @@ class TextStore(AbstractStore):
         os.remove(self._path)
 
         # Setting this will ensure this store cannot write the TEXT file again.
-        self.put('seed_version', DatabaseStore.INITIAL_MIGRATION)
+        self.put('seed_version', MIGRATION_FIRST)
 
     def _get_version(self) -> int:
         seed_version = self.get('seed_version')

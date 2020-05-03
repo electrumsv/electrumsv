@@ -8,7 +8,7 @@ import bitcoinx
 from bitcoinx import hash_to_hex_str
 
 from ..constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
-    KeyInstanceFlag, PaymentState)
+    KeyInstanceFlag, PaymentState, WalletEventFlag, WalletEventType)
 from ..logs import logs
 from .sqlite_support import SQLITE_MAX_VARS, DatabaseContext, CompletionCallbackType
 
@@ -967,6 +967,73 @@ class PaymentRequestTable(BaseWalletStore):
         datas = [ (date_updated, *entry) for entry in entries ]
         def _write(db: sqlite3.Connection):
             db.executemany(self.UPDATE_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def delete(self, entries: Iterable[Tuple[int]],
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        def _write(db: sqlite3.Connection):
+            db.executemany(self.DELETE_SQL, entries)
+        self._db_context.queue_write(_write, completion_callback)
+
+
+
+class WalletEventRow(NamedTuple):
+    event_id: int
+    event_type: WalletEventType
+    account_id: Optional[int]
+    # NOTE(rt12): sqlite3 python module only allows custom typing if the column name is unique.
+    event_flags: WalletEventFlag
+    date_created: int
+
+
+class WalletEventTable(BaseWalletStore):
+    LOGGER_NAME = "db-table-walletevent"
+
+    CREATE_SQL = ("INSERT INTO WalletEvents "
+        "(event_id, event_type, account_id, event_flags, date_created, date_updated) "
+        "VALUES (?, ?, ?, ?, ?, ?)")
+    READ_ALL_SQL = ("SELECT event_id, event_type, account_id, event_flags, date_created "
+        "FROM WalletEvents ORDER BY date_created")
+    READ_ALL_MASK_SQL = ("SELECT event_id, event_type, account_id, event_flags, date_created "
+        "FROM WalletEvents WHERE (event_flags&?)=? ORDER BY date_created")
+    READ_ACCOUNT_SQL = ("SELECT event_id, event_type, account_id, event_flags, date_created "
+        "FROM WalletEvents WHERE account_id=? ORDER BY date_created")
+    READ_ACCOUNT_MASK_SQL = ("SELECT event_id, event_type, account_id, event_flags, date_created "
+        "FROM WalletEvents WHERE (event_flags&?)=? AND account_id=? ORDER BY date_created")
+    # READ_UNREAD_SQL = ("SELECT event_id, event_type, account_id, event_flags FROM WalletEvents "
+    #     "WHERE event_flags1 ORDER BY date_created")
+    UPDATE_FLAGS_SQL = "UPDATE WalletEvents SET date_updated=?, event_flags=? WHERE event_id=?"
+    DELETE_SQL = "DELETE FROM WalletEvents WHERE event_id=?"
+
+    def create(self, entries: Iterable[WalletEventRow],
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        # Duplicate the last column for date_updated = date_created
+        datas = [ (*t, t[-1]) for t in entries ]
+        def _write(db: sqlite3.Connection):
+            db.executemany(self.CREATE_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def read(self, account_id: Optional[int]=None,
+            mask: WalletEventFlag=WalletEventFlag.NONE) -> List[WalletEventRow]:
+        query = self.READ_ALL_SQL if mask == WalletEventFlag.NONE else self.READ_ALL_MASK_SQL
+        params: Sequence[int] = [] if mask == WalletEventFlag.NONE else [mask, mask]
+        if account_id is not None:
+            query = self.READ_ACCOUNT_SQL if mask == WalletEventFlag.NONE else \
+                self.READ_ACCOUNT_MASK_SQL
+            params.append(account_id)
+        cursor = self._db.execute(query, params)
+        rows = cursor.fetchall()
+        cursor.close()
+        return [ WalletEventRow(*t) for t in rows ]
+
+    def update_flags(self, entries: Iterable[Tuple[WalletEventFlag, int]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection):
+            db.executemany(self.UPDATE_FLAGS_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)
 
     def delete(self, entries: Iterable[Tuple[int]],

@@ -987,3 +987,16 @@ class FramedTextWidget(QLabel):
         self.setWordWrap(True)
         self.setFrameStyle(QFrame.Panel | QFrame.Raised)
         self.setMargin(10)
+
+
+class ClickableLabel(QLabel):
+    clicked = pyqtSignal()
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, ev):
+        self.clicked.emit()
+

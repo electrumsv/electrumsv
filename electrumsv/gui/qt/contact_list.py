@@ -216,8 +216,8 @@ class ContactCard(QWidget):
 
         def _on_pay_button_clicked(checked: Optional[bool]=False) -> None:
             from . import payment
-            from importlib import reload
-            reload(payment)
+            # from importlib import reload
+            # reload(payment)
             self.w = payment.PaymentWindow(self._context.wallet_api, self._identity.identity_id,
                 parent=self)
             self.w.show()

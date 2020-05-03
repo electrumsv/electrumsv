@@ -49,7 +49,8 @@ from .app_state import app_state
 from .bitcoin import compose_chain_string, COINBASE_MATURITY, ScriptTemplate
 from .constants import (AccountType, CHANGE_SUBPATH, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
     KeyInstanceFlag, KeystoreTextType, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
-    RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, TxFlags, PaymentState)
+    PaymentState, RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
+    WalletEventType)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
 from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, UnknownTransactionException,
@@ -72,7 +73,7 @@ from .wallet_database import TxData, TxProof, TransactionCacheEntry, Transaction
 from .wallet_database.tables import (AccountRow, AccountTable, KeyInstanceRow, KeyInstanceTable,
     MasterKeyRow, MasterKeyTable, TransactionTable, TransactionOutputTable,
     TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow, PaymentRequestTable,
-    PaymentRequestRow)
+    PaymentRequestRow, WalletEventRow, WalletEventTable)
 from .wallet_database.sqlite_support import DatabaseContext
 
 if TYPE_CHECKING:
@@ -2345,6 +2346,13 @@ class Wallet(TriggeredCallbacks):
         with AccountTable(cast(DatabaseContext, self._db_context)) as table:
             table.create(rows)
 
+        date_created = int(time.time())
+        events = [ WalletEventRow(0, WalletEventType.SEED_BACKUP_REMINDER,
+            WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, row.account_id, date_created)
+            for row in rows ]
+        for row in rows:
+            self.create_wallet_events(events)
+
         return rows
 
     def create_keyinstances(self, account_id: int,
@@ -2442,6 +2450,29 @@ class Wallet(TriggeredCallbacks):
         # with the relative `value_delta`.
         with TransactionDeltaTable(cast(DatabaseContext, self._db_context)) as table:
             table.create_or_update_relative_values(entries)
+
+    def get_wallet_events(self, mask: WalletEventFlag=WalletEventFlag.NONE) -> List[WalletEventRow]:
+        with WalletEventTable(cast(DatabaseContext, self._db_context)) as table:
+            return table.read(mask=mask)
+
+    def create_wallet_events(self,  entries: List[WalletEventRow]) -> List[WalletEventRow]:
+        next_id = self._storage.get("next_wallet_event_id", 1)
+        rows = []
+        for entry in entries:
+            rows.append(WalletEventRow(next_id, entry.event_type, entry.event_flags,
+                entry.account_id, entry.date_created))
+            next_id += 1
+        with WalletEventTable(cast(DatabaseContext, self._db_context)) as table:
+            table.create(rows)
+        self._storage.put("next_wallet_event_id", next_id)
+        for row in rows:
+            app_state.app.on_new_wallet_event(row)
+        return rows
+
+    def update_wallet_event_flags(self,
+            entries: Iterable[Tuple[WalletEventFlag, int]]) -> None:
+        with WalletEventTable(cast(DatabaseContext, self._db_context)) as table:
+            table.update_flags(entries)
 
     def is_synchronized(self) -> bool:
         "If all the accounts are synchronized"

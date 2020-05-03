@@ -594,7 +594,9 @@ class ChooseWalletPage(QWizardPage):
         cancel_button.show()
 
         self._gui_list_reset()
-        self._recent_wallet_paths.extend(app_state.config.get('recently_open', []))
+        self._recent_wallet_paths.extend([ candidate_path
+            for candidate_path in app_state.config.get('recently_open', [])
+            if os.path.exists(candidate_path) ])
 
         self._list_thread = threading.Thread(target=self._populate_list_in_thread,
             args=(self._list_thread_id,))
@@ -776,24 +778,24 @@ class OlderWalletMigrationPage(QWizardPage):
         entry = self._migration_entry
         storage = self._migration_storage
         wallet_password = self._migration_password
+        has_password = entry.password_state & PasswordState.PASSWORDED == PasswordState.PASSWORDED
 
         try:
-            text_store = storage.get_text_store()
-            has_password = entry.password_state & PasswordState.PASSWORDED == \
-                PasswordState.PASSWORDED
-            if has_password:
-                if entry.password_state & PasswordState.ENCRYPTED == PasswordState.ENCRYPTED:
-                    try:
-                        data = text_store.decrypt(wallet_password)
-                    except DecryptionError:
-                        # To get to this point the password had already been checked.
-                        self._migration_error_text = _("Unexpected wallet migration failure due to "
-                            "invalid password.")
-                        return
-                text_store.load_data(data)
-                # The existing private data will already be encoded with the password.
-            else:
-                assert text_store.attempt_load_data()
+            if storage.is_legacy_format():
+                text_store = storage.get_text_store()
+                if has_password:
+                    if entry.password_state & PasswordState.ENCRYPTED == PasswordState.ENCRYPTED:
+                        try:
+                            data = text_store.decrypt(wallet_password)
+                        except DecryptionError:
+                            # To get to this point the password had already been checked.
+                            self._migration_error_text = _("Unexpected wallet migration failure "
+                                "due to invalid password.")
+                            return
+                    text_store.load_data(data)
+                    # The existing private data will already be encoded with the password.
+                else:
+                    assert text_store.attempt_load_data()
 
             try:
                 storage.upgrade(has_password, wallet_password)

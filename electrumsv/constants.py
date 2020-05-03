@@ -22,7 +22,7 @@ class StorageKind(IntEnum):
 
 DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
-MIGRATION_CURRENT = 22
+MIGRATION_CURRENT = 23
 
 class TxFlags(IntFlag):
     Unset = 0
@@ -198,3 +198,20 @@ class AccountType(Enum):
     MULTISIG = "multisig"
     IMPORTED_ADDRESS = "impaddress"
     IMPORTED_PRIVATE_KEY = "impprvkey"
+
+
+class WalletEventType(IntEnum):
+    # Generate wallet-related events.
+    # ... none ...
+
+    # Account-related events
+    SEED_BACKUP_REMINDER = 100001
+
+
+class WalletEventFlag(IntFlag):
+    NONE = 0
+
+    # Toggle to indicate that the user has dismissed it.
+    UNREAD = 1 << 0
+    # Set to indicate that it is an event the user sees in their notifications.
+    FEATURED = 1 << 1

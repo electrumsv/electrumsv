@@ -210,14 +210,14 @@ class TestContacts(unittest.TestCase):
         storage = MockStorage()
         contacts1 = contacts.Contacts(storage)
         contact1_1 = contacts1.add_contact(contacts.IdentitySystem.OnChain, "name1", pk_hex_1)
-        contacts1.add_identity(contact1_1.contact_id, contacts.IdentitySystem.RyanPay, "xxx")
+        contacts1.add_identity(contact1_1.contact_id, contacts.IdentitySystem.Paymail, "xxx")
 
         contact1_2 = contacts1.get_contact(contact1_1.contact_id)
         self.assertEqual(2, len(contact1_2.identities))
 
         system_ids = set([ v.system_id for v in contact1_2.identities ])
         expected_system_ids = set([
-            contacts.IdentitySystem.OnChain, contacts.IdentitySystem.RyanPay ])
+            contacts.IdentitySystem.OnChain, contacts.IdentitySystem.Paymail ])
         self.assertEqual(expected_system_ids, system_ids)
 
         identity1 = [
@@ -225,7 +225,7 @@ class TestContacts(unittest.TestCase):
         self.assertEqual(pk_hex_1, identity1.system_data)
 
         identity2 = [
-            v for v in contact1_2.identities if v.system_id == contacts.IdentitySystem.RyanPay ][0]
+            v for v in contact1_2.identities if v.system_id == contacts.IdentitySystem.Paymail ][0]
         self.assertEqual("xxx", identity2.system_data)
 
     def test_contacts_remove_identity(self):
@@ -233,7 +233,7 @@ class TestContacts(unittest.TestCase):
         contacts1 = contacts.Contacts(storage)
         contact1_1 = contacts1.add_contact(contacts.IdentitySystem.OnChain, "name1", pk_hex_1)
         identity1 = contact1_1.identities[0]
-        identity2 = contacts1.add_identity(contact1_1.contact_id, contacts.IdentitySystem.RyanPay, "xxx")
+        identity2 = contacts1.add_identity(contact1_1.contact_id, contacts.IdentitySystem.Paymail, "xxx")
         self.assertEqual(2, len(contact1_1.identities))
 
         contact1_2 = contacts1.get_contact(contact1_1.contact_id)
@@ -241,7 +241,7 @@ class TestContacts(unittest.TestCase):
         self.assertEqual(1, len(contact1_2.identities))
 
         system_ids = set([ v.system_id for v in contact1_2.identities ])
-        expected_system_ids = set([ contacts.IdentitySystem.RyanPay ])
+        expected_system_ids = set([ contacts.IdentitySystem.Paymail ])
         self.assertEqual(expected_system_ids, system_ids)
 
 

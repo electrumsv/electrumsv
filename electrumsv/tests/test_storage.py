@@ -4,7 +4,7 @@ import shutil
 
 from unittest.mock import patch
 
-from electrumsv.constants import DATABASE_EXT, StorageKind
+from electrumsv.constants import MIGRATION_CURRENT, MIGRATION_FIRST, DATABASE_EXT, StorageKind
 from electrumsv.storage import (backup_wallet_file, categorise_file, get_categorised_files,
     DatabaseStore, TextStore, WalletStorageInfo, IncompatibleWalletError, WalletStorage)
 
@@ -158,8 +158,8 @@ def test_store__write(tmp_path) -> None:
 # process to then apply subsequent database store migrations.
 @pytest.mark.parametrize("data", (
     {},
-    { "seed_version": DatabaseStore.INITIAL_MIGRATION-1 },
-    { "seed_version": DatabaseStore.INITIAL_MIGRATION+1 })
+    { "seed_version": MIGRATION_FIRST-1 },
+    { "seed_version": MIGRATION_FIRST+1 })
 )
 def test_database_store_from_text_store_initial_version(tmp_path, data) -> None:
     wallet_path = os.path.join(tmp_path, "database")
@@ -183,10 +183,10 @@ def test_database_store_from_text_store_version_init_set(tmp_path) -> None:
     wallet_path = os.path.join(tmp_path, "database")
     try:
         text_store = TextStore(wallet_path,
-            data={ "seed_version": DatabaseStore.INITIAL_MIGRATION })
+            data={ "seed_version": MIGRATION_FIRST })
         # Verify that the seed version is accepted (no assertion hit).
         db_store = DatabaseStore.from_text_store(text_store)
-        _check_database_store_version_init_set(db_store, DatabaseStore.INITIAL_MIGRATION)
+        _check_database_store_version_init_set(db_store, MIGRATION_CURRENT)
     finally:
         db_store.close()
         text_store.close()
@@ -195,7 +195,7 @@ def test_database_store_version_init_set(tmp_path) -> None:
     wallet_path = os.path.join(tmp_path, "database")
     db_store = DatabaseStore(wallet_path)
     try:
-        _check_database_store_version_init_set(db_store, DatabaseStore.CURRENT_MIGRATION)
+        _check_database_store_version_init_set(db_store, MIGRATION_CURRENT)
     finally:
         db_store.close()
 
@@ -221,7 +221,7 @@ def test_database_store_version_requires_upgrade(tmp_path) -> None:
     wallet_path = os.path.join(tmp_path, "database")
     db_store = DatabaseStore(wallet_path)
     try:
-        db_store.put("migration", DatabaseStore.INITIAL_MIGRATION - 1)
+        db_store.put("migration", MIGRATION_FIRST - 1)
         assert db_store.requires_upgrade()
     finally:
         db_store.close()
@@ -292,6 +292,6 @@ def test_wallet_storage_database_nonexistent_creates(tmp_path) -> None:
     storage = WalletStorage(wallet_filepath)
     try:
         assert type(storage._store) is DatabaseStore
-        assert storage.get("migration") == DatabaseStore.CURRENT_MIGRATION
+        assert storage.get("migration") == MIGRATION_CURRENT
     finally:
         storage.close()

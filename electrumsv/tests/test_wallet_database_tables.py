@@ -6,13 +6,14 @@ import tempfile
 from typing import List
 
 from electrumsv.constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
-    PaymentState)
+    PaymentState, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
-from electrumsv.wallet_database import (migration, KeyInstanceTable, MasterKeyTable,
-    PaymentRequestTable, TransactionTable, DatabaseContext, TransactionDeltaTable,
-    TransactionOutputTable, SynchronousWriter, TxData, TxProof, AccountTable)
+from electrumsv.wallet_database import (AccountTable, DatabaseContext, KeyInstanceTable,
+    MasterKeyTable, migration, PaymentRequestTable, SynchronousWriter, TransactionTable,
+    TransactionDeltaTable, TransactionOutputTable, TxData, TxProof)
 from electrumsv.wallet_database.tables import (AccountRow, KeyInstanceRow,
-    MAGIC_UNTOUCHED_BYTEDATA, MasterKeyRow, PaymentRequestRow, TransactionDeltaRow)
+    MAGIC_UNTOUCHED_BYTEDATA, MasterKeyRow, PaymentRequestRow, TransactionDeltaRow,
+    WalletEventRow, WalletEventTable)
 
 logs.set_level("debug")
 
@@ -1047,3 +1048,88 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     db_lines = table.read()
     assert 1 == len(db_lines)
     assert db_lines[0].paymentrequest_id == line1.paymentrequest_id
+
+
+@pytest.mark.timeout(8)
+def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
+    table = WalletEventTable(db_context)
+
+    table._get_current_timestamp = lambda: 10
+
+    MASTERKEY_ID = 1
+    ACCOUNT_ID = 1
+
+    line1 = WalletEventRow(1, WalletEventType.SEED_BACKUP_REMINDER, ACCOUNT_ID,
+        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, table._get_current_timestamp())
+    line2 = WalletEventRow(2, WalletEventType.SEED_BACKUP_REMINDER, None,
+        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, table._get_current_timestamp())
+
+    # No effect: The transactionoutput foreign key constraint will fail as the key instance
+    # does not exist.
+    with pytest.raises(sqlite3.IntegrityError):
+        with SynchronousWriter() as writer:
+            table.create([ line1 ], completion_callback=writer.get_callback())
+            assert not writer.succeeded()
+
+    # Satisfy the masterkey foreign key constraint by creating the masterkey.
+    masterkey_table = MasterKeyTable(db_context)
+    with SynchronousWriter() as writer:
+        masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    # Satisfy the account foreign key constraint by creating the account.
+    account_table = AccountTable(db_context)
+    with SynchronousWriter() as writer:
+        account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    with SynchronousWriter() as writer:
+        table.create([ line1, line2 ], completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    # No effect: The primary key constraint will prevent any conflicting entry from being added.
+    with pytest.raises(sqlite3.IntegrityError):
+        with SynchronousWriter() as writer:
+            table.create([ line1 ], completion_callback=writer.get_callback())
+            assert not writer.succeeded()
+
+    db_lines = table.read()
+    assert 2 == len(db_lines)
+    db_line1 = [ db_line for db_line in db_lines if db_line == line1 ][0]
+    assert line1 == db_line1
+    db_line2 = [ db_line for db_line in db_lines if db_line == line2 ][0]
+    assert line2 == db_line2
+
+    date_updated = 20
+
+    with SynchronousWriter() as writer:
+        table.update_flags([ (WalletEventFlag.UNREAD, line2.event_id) ],
+            date_updated,
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    db_lines = table.read()
+    assert 2 == len(db_lines)
+    db_line2 = [ db_line for db_line in db_lines
+        if db_line.event_id == line2.event_id ][0]
+    assert db_line2.event_flags == WalletEventFlag.UNREAD
+
+    # Account does not exist.
+    db_lines = table.read(1000)
+    assert 0 == len(db_lines)
+
+    # This account is matched.
+    db_lines = table.read(ACCOUNT_ID)
+    assert 1 == len(db_lines)
+
+    with SynchronousWriter() as writer:
+        table.delete([ (line2.event_id,) ], completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    db_lines = table.read()
+    assert 1 == len(db_lines)
+    assert db_lines[0].event_id == line1.event_id
+
+
