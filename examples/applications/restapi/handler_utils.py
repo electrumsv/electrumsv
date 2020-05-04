@@ -446,7 +446,7 @@ class ExtendedHandlerUtils(HandlerUtils):
     async def _broadcast_transaction(self, rawtx: str, tx_hash: bytes, account: AbstractAccount):
         result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
         account.set_transaction_state(tx_hash=tx_hash,
-                                      flags=TxFlags(TxFlags.StateDispatched | TxFlags.HasByteData))
+            flags=(TxFlags.StateDispatched | TxFlags.HasByteData))
         self.logger.debug("successful broadcast for %s", result)
         return result
 

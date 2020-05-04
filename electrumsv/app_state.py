@@ -41,7 +41,7 @@ from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
 from .regtest_support import regtest_import_privkey_to_node, delete_headers_file, \
-    calculate_regtest_checkpoint, HeadersRegTestMod
+    calculate_regtest_checkpoint, HeadersRegTestMod, setup_regtest
 
 logger = logs.get_logger("app_state")
 
@@ -90,19 +90,9 @@ class AppStateProxy(object):
     def headers_filename(self) -> str:
         return os.path.join(self.config.path, 'headers')
 
-    def setup_regtest(self) -> HeadersRegTestMod:
-        regtest_import_privkey_to_node()
-        delete_headers_file(self.headers_filename())
-        Net.CHECKPOINT, Net.VERIFICATION_BLOCK_MERKLE_ROOT = calculate_regtest_checkpoint(
-            Net.MIN_CHECKPOINT_HEIGHT)
-        logger.info("using regtest network - miner funds go to: '%s' (not part of this wallet)",
-                    Net.REGTEST_P2PKH_ADDRESS)
-        logger.info("top-up via 'regtest_topup_account' method")
-        return HeadersRegTestMod.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
-
     def read_headers(self) -> None:
         if self.config.get('regtest'):
-            self.headers = self.setup_regtest()
+            self.headers = setup_regtest(self)
         else:
             self.headers = Headers.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
         for n, chain in enumerate(self.headers.chains(), start=1):  # type: ignore

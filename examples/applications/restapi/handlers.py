@@ -2,13 +2,14 @@ from typing import Union, Any
 
 import aiorpcx
 from aiohttp import web
+from electrumsv.constants import RECEIVING_SUBPATH
 
 from electrumsv.networks import Net
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, good_response, fault_to_http_response
-from electrumsv.regtest_support import regtest_generate_nblocks
+from electrumsv.regtest_support import regtest_generate_nblocks, regtest_topup_account
 from .errors import Errors
 from .handler_utils import ExtendedHandlerUtils, VNAME
 
@@ -40,7 +41,6 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.get(self.WALLETS_PARENT, self.get_parent_wallet),
             web.post(self.WALLETS_PARENT + "/load_wallet", self.load_wallet),
             web.get(self.WALLETS_ACCOUNT, self.get_account),
-            web.get(self.WALLETS_ACCOUNT + "/topup_account", self.topup_account),
             web.get(self.ACCOUNT_UTXOS + "/coin_state", self.get_coin_state),
             web.get(self.ACCOUNT_UTXOS, self.get_utxos),
             web.get(self.ACCOUNT_UTXOS + "/balance", self.get_balance),
@@ -52,6 +52,12 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.post(self.ACCOUNT_TXS + "/create_and_broadcast", self.create_and_broadcast),
             web.post(self.ACCOUNT_TXS + "/broadcast", self.broadcast)
         ]
+
+        if app_state.config.get('regtest'):
+            self.routes.extend([
+                web.get(self.WALLETS_ACCOUNT + "/topup_account", self.topup_account),
+                web.get(self.WALLETS_ACCOUNT + "/generate_blocks", self.generate_blocks)
+            ])
 
     # ----- Extends electrumsv/restapi_endpoints ----- #
 
@@ -114,7 +120,10 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             amount = vars.get(VNAME.AMOUNT, 25)
 
             account = self._get_account(wallet_name, account_id)
-            txid = account.regtest_topup_account(amount)
+
+            receive_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
+            receive_address = account.get_script_template_for_id(receive_key.keyinstance_id)
+            txid = regtest_topup_account(receive_address, amount)
             response = {"value": {"txid": txid}}
             return good_response(response)
         except Fault as e:

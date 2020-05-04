@@ -29,8 +29,9 @@
 
 from collections import defaultdict
 from datetime import datetime
-
 import attr
+from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160, P2SH_Address,
+    P2PK_Output, Script, hex_str_to_hash, hash_to_hex_str, MissingHeader)
 import itertools
 import json
 import os
@@ -40,10 +41,6 @@ import time
 from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence, Set, Tuple,
     TypeVar, TYPE_CHECKING, Union)
 import weakref
-
-import requests
-from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160, P2SH_Address,
-    P2PK_Output, Script, hex_str_to_hash, hash_to_hex_str, MissingHeader)
 
 from . import coinchooser
 from .app_state import app_state
@@ -62,7 +59,6 @@ from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore
 from .logs import logs
 from .networks import Net
 from .paymentrequest import InvoiceStore
-from .regtest_support import regtest_get_mined_balance
 from .script import AccumulatorMultiSigOutput
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
@@ -1302,27 +1298,6 @@ class AbstractAccount:
 
     def dust_threshold(self):
         return dust_threshold(self._network)
-
-    def regtest_topup_account(self, max_amount: int=25) -> str:
-        matured_balance = regtest_get_mined_balance()
-        receive_key = self.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-        receive_address = self.get_script_template_for_id(receive_key.keyinstance_id)
-        # Sweep up to 25 coins to wallet receive address
-        amount = min(max_amount, matured_balance)
-        if not amount > 0:
-            self._logger.error("Insufficient funds in regtest slush fund to topup wallet. Mine "
-                "more blocks")
-
-        # Note: for bare multi-sig support may need to craft rawtxs manually via bitcoind's
-        #  'signrawtransaction' jsonrpc method - AustEcon
-        payload = json.dumps({"jsonrpc": "2.0", "method": "sendtoaddress",
-                              "params": [receive_address.to_string(), amount], "id": 0})
-        result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
-        result.raise_for_status()
-        txid = result.json()['result']
-        logger.info("topped up wallet with %s coins to receive address='%s'. txid=%s", amount,
-            receive_address.to_string(), txid)
-        return txid
 
     def make_unsigned_transaction(self, utxos: List[UTXO], outputs: List[XTxOutput],
             config: SimpleConfig, fixed_fee: Optional[int]=None) -> Transaction:

@@ -4,7 +4,7 @@ import os
 from typing import List
 
 import requests
-from bitcoinx import Headers, MissingHeader, CheckPoint, bits_to_work
+from bitcoinx import Headers, MissingHeader, CheckPoint, bits_to_work, P2PKH_Address
 from electrumsv.bitcoin import COINBASE_MATURITY
 
 from electrumsv.networks import Net, BLOCK_HEIGHT_OUT_OF_RANGE_ERROR
@@ -36,6 +36,37 @@ class HeadersRegTestMod(Headers):
 def delete_headers_file(path_to_headers):
     if os.path.exists(path_to_headers):
         os.remove(path_to_headers)
+
+
+def setup_regtest(app_state) -> HeadersRegTestMod:
+    regtest_import_privkey_to_node()
+    delete_headers_file(app_state.headers_filename())
+    Net.CHECKPOINT, Net.VERIFICATION_BLOCK_MERKLE_ROOT = calculate_regtest_checkpoint(
+        Net.MIN_CHECKPOINT_HEIGHT)
+    logger.info("using regtest network - miner funds go to: '%s' (not part of this wallet)",
+                Net.REGTEST_P2PKH_ADDRESS)
+    logger.info("top-up via 'regtest_topup_account' method")
+    return HeadersRegTestMod.from_file(Net.COIN, app_state.headers_filename(), Net.CHECKPOINT)
+
+
+def regtest_topup_account(receive_address: P2PKH_Address, max_amount: int=25) -> str:
+    matured_balance = regtest_get_mined_balance()
+    # Sweep up to 25 coins to wallet receive address
+    amount = min(max_amount, matured_balance)
+    if not amount > 0:
+        logger.error("Insufficient funds in regtest slush fund to topup wallet. Mine "
+            "more blocks")
+
+    # Note: for bare multi-sig support may need to craft rawtxs manually via bitcoind's
+    #  'signrawtransaction' jsonrpc method - AustEcon
+    payload = json.dumps({"jsonrpc": "2.0", "method": "sendtoaddress",
+                          "params": [receive_address.to_string(), amount], "id": 0})
+    result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
+    result.raise_for_status()
+    txid = result.json()['result']
+    logger.info("topped up wallet with %s coins to receive address='%s'. txid=%s", amount,
+        receive_address.to_string(), txid)
+    return txid
 
 
 def regtest_import_privkey_to_node():
