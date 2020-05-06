@@ -51,7 +51,7 @@ from .i18n import _
 from .logs import logs
 from .transaction import Transaction
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
-from .networks import Net, SVRegTestnet
+from .networks import Net
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
 
 

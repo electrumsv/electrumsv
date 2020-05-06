@@ -55,8 +55,8 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
 
         if app_state.config.get('regtest'):
             self.routes.extend([
-                web.get(self.WALLETS_ACCOUNT + "/topup_account", self.topup_account),
-                web.get(self.WALLETS_ACCOUNT + "/generate_blocks", self.generate_blocks)
+                web.post(self.WALLETS_ACCOUNT + "/topup_account", self.topup_account),
+                web.post(self.WALLETS_ACCOUNT + "/generate_blocks", self.generate_blocks)
             ])
 
     # ----- Extends electrumsv/restapi_endpoints ----- #

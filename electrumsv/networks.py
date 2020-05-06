@@ -31,7 +31,7 @@
 
 import json
 from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, \
-    BitcoinRegTestnet, PrivateKey, PublicKey, P2PKH_Address
+    BitcoinRegtest, PrivateKey, PublicKey, P2PKH_Address
 
 from .util import resource_path
 
@@ -244,10 +244,15 @@ class SVRegTestnet(object):
     # - Pubkey hash:        mfs8Y8gAwC2vJHCeSXkHs6LF5nu5PA7nxc
     REGTEST_FUNDS_PRIVATE_KEY: PrivateKey = PrivateKey(
         bytes.fromhex('a2d9803c912ab380c1491d3bd1aaab34ca06742d7885a224ec8d386182d26ed2'),
-        coin=BitcoinRegTestnet)
+        coin=BitcoinRegtest)
     REGTEST_FUNDS_PRIVATE_KEY_WIF = REGTEST_FUNDS_PRIVATE_KEY.to_WIF()
     REGTEST_FUNDS_PUBLIC_KEY: PublicKey = REGTEST_FUNDS_PRIVATE_KEY.public_key
     REGTEST_P2PKH_ADDRESS: P2PKH_Address = REGTEST_FUNDS_PUBLIC_KEY.to_address().to_string()
+
+    # For CI/CD use (restapi will by default reset everything back to empty wallet with this seed)
+    REGTEST_DEFAULT_ACCOUNT_SEED = 'tprv8ZgxMBicQKsPd4wsdaJ11eH84eq4hHLX1K6Mx8EQQhJzq8jr25WH1m8hg' \
+        'GkCqnksJDCZPZbDoMbQ6QtroyCyn5ZckCmsLeiHDb1MAxhNUHN'
+
     MIN_CHECKPOINT_HEIGHT = 200
     ADDRTYPE_P2PKH = 111
     ADDRTYPE_P2SH = 196
@@ -259,7 +264,7 @@ class SVRegTestnet(object):
     URI_PREFIX = "bitcoin"
     WIF_PREFIX = 0xef
     BIP276_VERSION = 2
-    COIN = BitcoinRegTestnet
+    COIN = BitcoinRegtest
 
     CHECKPOINT = CheckPoint(bytes.fromhex(
         '0000002029f1e3df7fda466242b9b56076792ffdb9e5d7ea51610307bc010000000000007ac1fa84'

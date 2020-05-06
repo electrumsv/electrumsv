@@ -40,8 +40,7 @@ from .async_ import ASync
 from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
-from .regtest_support import regtest_import_privkey_to_node, delete_headers_file, \
-    calculate_regtest_checkpoint, HeadersRegTestMod, setup_regtest
+from .regtest_support import setup_regtest
 
 logger = logs.get_logger("app_state")
 
