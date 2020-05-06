@@ -36,7 +36,7 @@ from electrumsv.app_state import app_state, AppStateProxy, DefaultApp
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.logs import logs
-from electrumsv.networks import Net, SVTestnet, SVScalingTestnet
+from electrumsv.networks import Net, SVTestnet, SVScalingTestnet, SVRegTestnet
 from electrumsv.platform import platform
 from electrumsv.simple_config import SimpleConfig
 from electrumsv import startup
@@ -350,6 +350,8 @@ def main():
         Net.set_to(SVTestnet)
     elif config_options.get('scalingtestnet'):
         Net.set_to(SVScalingTestnet)
+    elif config_options.get('regtest'):
+        Net.set_to(SVRegTestnet)
 
     # check uri
     uri = config_options.get('url')

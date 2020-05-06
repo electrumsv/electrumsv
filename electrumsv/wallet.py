@@ -29,8 +29,9 @@
 
 from collections import defaultdict
 from datetime import datetime
-
 import attr
+from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160, P2SH_Address,
+    P2PK_Output, Script, hex_str_to_hash, hash_to_hex_str, MissingHeader)
 import itertools
 import json
 import os
@@ -40,9 +41,6 @@ import time
 from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence, Set, Tuple,
     TypeVar, TYPE_CHECKING, Union)
 import weakref
-
-from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160, P2SH_Address,
-    P2PK_Output, Script, hex_str_to_hash, hash_to_hex_str, MissingHeader)
 
 from . import coinchooser
 from .app_state import app_state

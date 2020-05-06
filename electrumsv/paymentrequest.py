@@ -37,7 +37,7 @@ import requests
 from .constants import RECEIVING_SUBPATH, PaymentState
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .logs import logs
-from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet
+from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
 from .wallet_database.tables import PaymentRequestRow
 
 
@@ -240,6 +240,8 @@ class PaymentRequest:
             network = BIP276Network.NETWORK_TESTNET
         elif isinstance(Net._net, SVScalingTestnet):
             network = BIP276Network.NETWORK_SCALINGTESTNET
+        elif isinstance(Net._net, SVRegTestnet):
+            network = BIP276Network.NETWORK_REGTEST
         else:
             raise Exception("unhandled network", Net)
         return bip276_encode(PREFIX_SCRIPT, bytes(self.outputs[0].script), network)

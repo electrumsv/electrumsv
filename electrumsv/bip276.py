@@ -13,6 +13,7 @@ class BIP276Network(enum.IntEnum):
     NETWORK_MAINNET = 1
     NETWORK_TESTNET = 2
     NETWORK_SCALINGTESTNET = 3
+    NETWORK_REGTEST = 4
 
 
 class ChecksumMismatchError(Exception):

@@ -32,17 +32,15 @@ app_state.func()
 
 etc.
 '''
-
 import os
 import time
-
 from bitcoinx import Headers
 
 from .async_ import ASync
 from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
-
+from .regtest_support import setup_regtest
 
 logger = logs.get_logger("app_state")
 
@@ -92,7 +90,10 @@ class AppStateProxy(object):
         return os.path.join(self.config.path, 'headers')
 
     def read_headers(self) -> None:
-        self.headers = Headers.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
+        if self.config.get('regtest'):
+            self.headers = setup_regtest(self)
+        else:
+            self.headers = Headers.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
         for n, chain in enumerate(self.headers.chains(), start=1):  # type: ignore
             logger.info(f'chain #{n}: {chain.desc()}')
 

@@ -13,6 +13,7 @@ from .util import to_bytes, to_string, constant_time_compare
 MAINNET = 'main'
 TESTNET = 'test'
 SCALINGTESTNET = 'stn'
+REGTESTNET = 'regtest'
 
 
 def get_app_state():
@@ -26,6 +27,8 @@ def get_network_type():
         return TESTNET
     elif app_state.config.get('scalingtestnet'):
         return SCALINGTESTNET
+    elif app_state.config.get('regtest'):
+        return REGTESTNET
     else:
         return MAINNET
 
@@ -161,7 +164,7 @@ class AiohttpServer(BaseAiohttpServer):
 
     @web.middleware
     async def check_network(self, request, handler):
-        supported_networks = [MAINNET, SCALINGTESTNET, TESTNET]
+        supported_networks = [MAINNET, SCALINGTESTNET, TESTNET, REGTESTNET]
         network = request.match_info.get('network', None)
 
         # paths without {network} are okay
