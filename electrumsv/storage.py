@@ -336,7 +336,8 @@ class DatabaseStore(AbstractStore):
     def requires_upgrade(self) -> bool:
         return self.get("migration") < MIGRATION_CURRENT
 
-    def upgrade(self: StoreType, has_password: bool, new_password: str) -> Optional[StoreType]:
+    def upgrade(self: 'DatabaseStore', has_password: bool, new_password: str) \
+            -> Optional['DatabaseStore']:
         from .wallet_database.migration import update_database
         connection = self._db_context.acquire_connection()
         try:

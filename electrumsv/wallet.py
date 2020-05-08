@@ -2250,6 +2250,12 @@ class Wallet(TriggeredCallbacks):
         account = self._realize_account(account_row, keyinstance_rows, output_rows)
         self.register_account(account_row.account_id, account)
         self.trigger_callback("on_account_created", account_row.account_id)
+
+        self.create_wallet_events([
+            WalletEventRow(0, WalletEventType.SEED_BACKUP_REMINDER, account_row.account_id,
+                WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, int(time.time()))
+        ])
+
         if self._network is not None:
             account.start(self._network)
         return account
@@ -2343,13 +2349,6 @@ class Wallet(TriggeredCallbacks):
         self._storage.put("next_account_id", account_id)
         with AccountTable(cast(DatabaseContext, self._db_context)) as table:
             table.create(rows)
-
-        date_created = int(time.time())
-        events = [ WalletEventRow(0, WalletEventType.SEED_BACKUP_REMINDER,
-            WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, row.account_id, date_created)
-            for row in rows ]
-        for row in rows:
-            self.create_wallet_events(events)
 
         return rows
 
@@ -2457,8 +2456,8 @@ class Wallet(TriggeredCallbacks):
         next_id = self._storage.get("next_wallet_event_id", 1)
         rows = []
         for entry in entries:
-            rows.append(WalletEventRow(next_id, entry.event_type, entry.event_flags,
-                entry.account_id, entry.date_created))
+            rows.append(WalletEventRow(next_id, entry.event_type,
+                entry.account_id, entry.event_flags, entry.date_created))
             next_id += 1
         with WalletEventTable(cast(DatabaseContext, self._db_context)) as table:
             table.create(rows)
