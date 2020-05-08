@@ -337,7 +337,9 @@ class TestLegacyWalletCreation:
 
         check_create_keys(wallet, account_row.default_script_type)
 
-    def test_imported_privkey(self, tmp_storage) -> None:
+    @unittest.mock.patch('electrumsv.wallet.app_state')
+    def test_imported_privkey(self, mock_app_state, tmp_storage) -> None:
+        mock_app_state.app = unittest.mock.Mock()
         wallet = Wallet(tmp_storage)
         account = wallet.create_account_from_text_entries(KeystoreTextType.PRIVATE_KEYS,
             ScriptType.P2PKH,
@@ -346,10 +348,12 @@ class TestLegacyWalletCreation:
 
         keypairs = {'02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997':
             'KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6'}
+        mock_app_state.app.on_new_wallet_event.assert_called_once()
         check_legacy_parent_of_imported_privkey_wallet(wallet, keypairs=keypairs,
             password='password')
 
-    def test_imported_pubkey(self, tmp_storage) -> None:
+    @unittest.mock.patch('electrumsv.wallet.app_state')
+    def test_imported_pubkey(self, mock_app_state, tmp_storage) -> None:
         text = """
         15hETetDmcXm1mM4sEf7U2KXC9hDHFMSzz
         1GPHVTY8UD9my6jyP4tb2TYJwUbDetyNC6
@@ -359,6 +363,7 @@ class TestLegacyWalletCreation:
             ScriptType.NONE,
             [ "15hETetDmcXm1mM4sEf7U2KXC9hDHFMSzz", "1GPHVTY8UD9my6jyP4tb2TYJwUbDetyNC6" ],
             "password")
+        mock_app_state.app.on_new_wallet_event.assert_called_once()
         check_legacy_parent_of_imported_address_wallet(wallet)
 
     def test_multisig(self, tmp_storage) -> None:
