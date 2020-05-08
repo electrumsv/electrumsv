@@ -1016,7 +1016,7 @@ class WalletEventTable(BaseWalletStore):
     def read(self, account_id: Optional[int]=None,
             mask: WalletEventFlag=WalletEventFlag.NONE) -> List[WalletEventRow]:
         query = self.READ_ALL_SQL if mask == WalletEventFlag.NONE else self.READ_ALL_MASK_SQL
-        params: Sequence[int] = [] if mask == WalletEventFlag.NONE else [mask, mask]
+        params: List[int] = [] if mask == WalletEventFlag.NONE else [mask, mask]
         if account_id is not None:
             query = self.READ_ACCOUNT_SQL if mask == WalletEventFlag.NONE else \
                 self.READ_ACCOUNT_MASK_SQL
