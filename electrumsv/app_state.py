@@ -34,13 +34,15 @@ etc.
 '''
 import os
 import time
+from typing import Optional, Union
+
 from bitcoinx import Headers
 
 from .async_ import ASync
 from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
-from .regtest_support import setup_regtest
+from .regtest_support import HeadersRegTestMod, setup_regtest
 
 logger = logs.get_logger("app_state")
 
@@ -74,7 +76,7 @@ class AppStateProxy(object):
         AppState.set_proxy(self)
         self.device_manager = DeviceMgr()
         self.fx = None
-        self.headers = None
+        self.headers: Optional[Union[Headers, HeadersRegTestMod]] = None
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get('decimal_point', 8)
         self.num_zeros = config.get('num_zeros', 0)

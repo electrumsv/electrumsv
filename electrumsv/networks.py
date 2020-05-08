@@ -30,6 +30,8 @@
 # being used by dark coins like Bitcoin Cash.
 
 import json
+from typing import Dict, Tuple
+
 from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, \
     BitcoinRegtest, PrivateKey, PublicKey, P2PKH_Address
 
@@ -277,7 +279,7 @@ class SVRegTestnet(object):
 
     BIP44_COIN_TYPE = 1
 
-    BLOCK_EXPLORERS = {}
+    BLOCK_EXPLORERS: Dict[str, Tuple[str, Dict[str, str]]] = {}
 
     FAUCET_URL = ""
     KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'

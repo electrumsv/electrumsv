@@ -41,7 +41,7 @@ def delete_headers_file(path_to_headers):
 def setup_regtest(app_state) -> HeadersRegTestMod:
     regtest_import_privkey_to_node()
     delete_headers_file(app_state.headers_filename())
-    Net.CHECKPOINT, Net.VERIFICATION_BLOCK_MERKLE_ROOT = calculate_regtest_checkpoint(
+    Net._net.CHECKPOINT, Net._net.VERIFICATION_BLOCK_MERKLE_ROOT = calculate_regtest_checkpoint(
         Net.MIN_CHECKPOINT_HEIGHT)
     logger.info("using regtest network - miner funds go to: '%s' (not part of this wallet)",
                 Net.REGTEST_P2PKH_ADDRESS)
