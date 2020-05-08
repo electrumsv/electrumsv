@@ -1,13 +1,80 @@
 from typing import Optional, Tuple
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtGui import QPainter, QPixmap
 from PyQt5.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QLineEdit, QSizePolicy, QStatusBar,
-    QToolButton, QWidget, QWidgetAction)
+    QStyle, QStyleOptionToolButton, QToolButton, QWidget, QWidgetAction)
 
 from electrumsv.i18n import _
 
-from .util import icon_path
+from .util import icon_path, read_QIcon
+
+
+class XToolButton(QToolButton):
+    # This class enables the tool button icon to fill the whole button space.
+    def __init__(self, parent: QWidget=None) -> None:
+        super().__init__(parent)
+
+        self.pad = 2     # padding between the icon and the button frame
+        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.setSizePolicy(sizePolicy)
+
+    def paintEvent(self, event) -> None:
+        qp = QPainter()
+        qp.begin(self)
+
+        # Get default style.
+        opt = QStyleOptionToolButton()
+        self.initStyleOption(opt)
+        # Scale icon to button size.
+        Rect = opt.rect
+        h = Rect.height()
+        w = Rect.width()
+        iconSize = max(h, w) # - 2 * self.pad
+        opt.iconSize = QSize(iconSize, iconSize)
+        # Draw
+        self.style().drawComplexControl(QStyle.CC_ToolButton, opt, qp, self)
+        qp.end()
+
+
+class NotificationIndicator(XToolButton):
+    def __init__(self, main_window: 'ElectrumWindow', parent: QWidget=None) -> None:
+        super().__init__(parent)
+        self._main_window = main_window
+
+        # Special case icons
+        self._notification_urgent_icon = read_QIcon("icons8-topic-32-windows-urgent.png")
+        self._notification_many_icon = read_QIcon("icons8-topic-32-windows-plus.png")
+
+        self._notification_default_icon = read_QIcon("icons8-topic-32.png")
+        self._notification_indexable_icons = [
+            self._notification_default_icon,
+        ]
+        for i in range(1, 5+1):
+            self._notification_indexable_icons.append(
+                read_QIcon(f"icons8-topic-32-windows-{i}.png"))
+
+        self.set_notification_state(0)
+        self.setMinimumWidth(32)
+
+        self.clicked.connect(self._on_notifications_clicked)
+
+    def set_notification_state(self, how_many: int=0, is_urgent: bool=False) -> None:
+        if is_urgent and how_many > 0:
+            icon = self._notification_urgent_icon
+            text = _("There are urgent unread notifications")
+        elif how_many >= len(self._notification_indexable_icons):
+            icon = self._notification_many_icon
+            text = _("There are many unread notifications")
+        else:
+            icon = self._notification_indexable_icons[how_many]
+            text = _("There are {} unread notifications").format(how_many)
+
+        self.setIcon(icon)
+        self.setToolTip(text)
+
+    def _on_notifications_clicked(self) -> None:
+        self._main_window.toggle_tab(self._main_window.notifications_tab, True, to_front=True)
 
 
 class BalancePopup(QWidget):
@@ -63,6 +130,7 @@ class StatusBar(QStatusBar):
 
     def __init__(self, main_window: 'ElectrumWindow') -> None:
         super().__init__(None)
+        self._main_window = main_window
 
         balance_widget = QToolButton()
         balance_widget.setAutoRaise(True)
@@ -127,6 +195,13 @@ class StatusBar(QStatusBar):
         self.search_box.textChanged.connect(main_window.do_search)
         self.search_box.hide()
         self.addPermanentWidget(self.search_box)
+
+        self._notification_default_icon = read_QIcon("icons8-topic-32.png")
+        self._notification_urgent_icon = read_QIcon("icons8-topic-32-windows-urgent.png")
+        self._notification_many_icon = read_QIcon("icons8-topic-32-windows-plus.png")
+
+        self.notification_widget = NotificationIndicator(main_window)
+        self.addPermanentWidget(self.notification_widget)
 
     def set_balance_status(self, bsv_text: str, fiat_text: Optional[str]) -> None:
         have_fiat_text = bool(fiat_text)

@@ -42,12 +42,12 @@ class IdentityCheckResult(IntEnum):
 
 class IdentitySystem(IntEnum):
     OnChain = 1
-    RyanPay = 2
+    Paymail = 2
 
 
 IDENTITY_SYSTEM_NAMES = {
     IdentitySystem.OnChain: "OnChain",
-    IdentitySystem.RyanPay: "RyanPay",
+    IdentitySystem.Paymail: "Paymail",
 }
 
 

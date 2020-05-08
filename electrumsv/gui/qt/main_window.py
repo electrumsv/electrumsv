@@ -109,6 +109,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     transaction_state_signal = pyqtSignal(object, object, object, object, object)
     transaction_added_signal = pyqtSignal(object, object, object)
     transaction_deleted_signal = pyqtSignal(object, object, object)
+    show_secured_data_signal = pyqtSignal(object)
 
     def __init__(self, wallet: Wallet):
         QMainWindow.__init__(self)
@@ -183,6 +184,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.payment_request_ok_signal.connect(self.payment_request_ok)
         self.payment_request_error_signal.connect(self.payment_request_error)
         self.notify_transactions_signal.connect(self.notify_transactions)
+        self.show_secured_data_signal.connect(self._on_show_secured_data)
         self.history_view.setFocus(True)
 
         # Link wallet synchronisation to throttled UI updates.
@@ -228,6 +230,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.send_tab = self.create_send_tab()
         self.receive_tab = self.create_receive_tab()
+        self.notifications_tab = self.create_notifications_tab()
         self.keys_tab = self.create_keys_tab()
         self.utxo_tab = self.create_utxo_tab()
         self.console_tab = self.create_console_tab()
@@ -240,7 +243,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tabs.addTab(self.send_tab, read_QIcon("tab_send.png"), _('Send'))
         tabs.addTab(self.receive_tab, read_QIcon("tab_receive.png"), _('Receive'))
 
-        self._add_optional_tab(tabs, self.keys_tab, read_QIcon("tab_addresses.png"),
+        tabs.setTabToolTip(0, _("Published transactions"))
+        tabs.setTabToolTip(1, _("Unpublished transactions"))
+        tabs.setTabToolTip(2, _("Create a transaction"))
+        tabs.setTabToolTip(3, _("Receive a transaction"))
+
+        self._add_optional_tab(tabs, self.notifications_tab,
+            read_QIcon("icons8-event-64-cute-clipart.png"), _("Notifications"), "notifications",
+            True)
+        self._add_optional_tab(tabs, self.keys_tab, read_QIcon("tab_keys.png"),
             _("&Keys"), "keys")
         self._add_optional_tab(tabs, self.utxo_tab, read_QIcon("tab_coins.png"),
             _("Co&ins"), "utxo")
@@ -251,7 +262,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._add_optional_tab(tabs, self.coinsplitting_tab, read_QIcon("tab_coins.png"),
             _("Coin Splitting"), "coinsplitter", True)
 
-    def _add_optional_tab(self, tabs, tab, icon, description, name, default=False):
+    def _add_optional_tab(self, tabs, tab, icon, description: str, name: str,
+            default: bool=False) -> None:
         tab.tab_icon = icon
         tab.tab_description = description
         tab.tab_pos = len(tabs)
@@ -295,19 +307,22 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # logger.debug("_on_keys_updated %r", keys)
         self.keys_updated_signal.emit(wallet_name, account_id, keys)
 
-    def _on_history(self, b):
+    def _on_show_secured_data(self, account_id: int) -> None:
+        self._accounts_view._view_secured_data(main_window=self, account_id=account_id)
+
+    def _on_history(self, b) -> None:
         self.new_fx_history_signal.emit()
 
-    def on_fx_history(self):
+    def on_fx_history(self) -> None:
         self.history_view.update_tx_headers()
         self.history_view.update_tx_list()
         # inform things like address_dialog that there's a new history
         self.history_updated_signal.emit()
 
-    def on_quotes(self, b):
+    def on_quotes(self, b) -> None:
         self.new_fx_quotes_signal.emit()
 
-    def on_fx_quotes(self):
+    def on_fx_quotes(self) -> None:
         self.update_status()
         # Refresh edits with the new rate
         edit = self.fiat_send_e if self.fiat_send_e.is_last_edited else self.amount_e
@@ -341,34 +356,39 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.account_change_signal.emit(new_account_id)
 
-    def toggle_tab(self, tab):
+    def toggle_tab(self, tab: QWidget, desired_state: Optional[bool]=None,
+            to_front: bool=False) -> None:
         show = self._tab_widget.indexOf(tab) == -1
-        self.config.set_key('show_{}_tab'.format(tab.tab_name), show)
-        item_text = (_("Hide") if show else _("Show")) + " " + tab.tab_description
-        tab.menu_action.setText(item_text)
-        if show:
-            # Find out where to place the tab
-            index = len(self._tab_widget)
-            for i in range(len(self._tab_widget)):
-                try:
-                    if tab.tab_pos < self._tab_widget.widget(i).tab_pos:
-                        index = i
-                        break
-                except AttributeError:
-                    pass
-            self._tab_widget.insertTab(index, tab, tab.tab_icon,
-                tab.tab_description.replace("&", ""))
-        else:
-            i = self._tab_widget.indexOf(tab)
-            self._tab_widget.removeTab(i)
+        if desired_state is None or desired_state == show:
+            self.config.set_key('show_{}_tab'.format(tab.tab_name), show)
+            item_text = (_("Hide") if show else _("Show")) + " " + tab.tab_description
+            tab.menu_action.setText(item_text)
+            if show:
+                # Find out where to place the tab
+                index = len(self._tab_widget)
+                for i in range(len(self._tab_widget)):
+                    try:
+                        if tab.tab_pos < self._tab_widget.widget(i).tab_pos:
+                            index = i
+                            break
+                    except AttributeError:
+                        pass
+                self._tab_widget.insertTab(index, tab, tab.tab_icon,
+                    tab.tab_description.replace("&", ""))
+            else:
+                i = self._tab_widget.indexOf(tab)
+                self._tab_widget.removeTab(i)
 
-    def push_top_level_window(self, window):
+        if self._tab_widget.indexOf(tab) != -1 and to_front:
+            self._tab_widget.setCurrentWidget(tab)
+
+    def push_top_level_window(self, window) -> None:
         '''Used for e.g. tx dialog box to ensure new dialogs are appropriately
         parented.  This used to be done by explicitly providing the parent
         window, but that isn't something hardware wallet prompts know.'''
         self.tl_windows.append(window)
 
-    def pop_top_level_window(self, window):
+    def pop_top_level_window(self, window) -> None:
         self.tl_windows.remove(window)
 
     def top_level_window(self):
@@ -376,28 +396,28 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         override = self.tl_windows[-1] if self.tl_windows else self
         return top_level_window_recurse(override)
 
-    def is_hidden(self):
+    def is_hidden(self) -> bool:
         return self.isMinimized() or self.isHidden()
 
-    def show_or_hide(self):
+    def show_or_hide(self) -> None:
         if self.is_hidden():
             self.bring_to_top()
         else:
             self.hide()
 
-    def bring_to_top(self):
+    def bring_to_top(self) -> None:
         self.show()
         self.raise_()
 
-    def on_exception(self, exception):
+    def on_exception(self, exception: Exception) -> None:
         if not isinstance(exception, UserCancelled):
             self.logger.exception("")
             self.show_error(str(exception))
 
-    def on_error(self, exc_info):
+    def on_error(self, exc_info) -> None:
         self.on_exception(exc_info[1])
 
-    def on_network(self, event, *args):
+    def on_network(self, event, *args) -> None:
         if event == 'updated':
             self.need_update.set()
 
@@ -593,6 +613,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         add_toggle_action(view_menu, self.contacts_tab)
         add_toggle_action(view_menu, self.coinsplitting_tab)
         add_toggle_action(view_menu, self.console_tab)
+        add_toggle_action(view_menu, self.notifications_tab)
 
         tools_menu = menubar.addMenu(_("&Tools"))
 
@@ -761,8 +782,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def add_account(self) -> None:
         from . import account_wizard
-        from importlib import reload
-        reload(account_wizard)
+        # from importlib import reload
+        # reload(account_wizard)
         wizard_window = account_wizard.AccountWizard(self)
         result = wizard_window.run()
         if result != QDialog.Accepted:
@@ -771,8 +792,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def new_payment(self) -> None:
         from . import payment
-        from importlib import reload
-        reload(payment)
+        # from importlib import reload
+        # reload(payment)
         self.w = payment.PaymentWindow(self._api, parent=self)
         self.w.show()
 
@@ -1064,8 +1085,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         '''tx_desc is set only for txs created in the Send tab'''
         self._wallet.synchronize_incomplete_transaction(tx)
         from . import transaction_dialog
-        from importlib import reload
-        reload(transaction_dialog)
+        # from importlib import reload
+        # reload(transaction_dialog)
         tx_dialog = transaction_dialog.TxDialog(account, tx, self, tx_desc, prompt_if_unsaved)
         tx_dialog.finished.connect(partial(self.on_tx_dialog_finished, tx_dialog))
         self.tx_dialogs.append(tx_dialog)
@@ -1861,9 +1882,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.utxo_list.update()
         self.update_fee()
 
-    def create_coinsplitting_tab(self):
+    def create_coinsplitting_tab(self) -> QWidget:
         from .coinsplitting_tab import CoinSplittingTab
         return CoinSplittingTab(self)
+
+    def create_notifications_tab(self) -> QWidget:
+        from .notifications_view import View
+        return View(self._api, self)
 
     def create_list_tab(self, l, list_header=None):
         w = QWidget()
@@ -1882,7 +1907,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return w
 
     def create_keys_tab(self):
-        from .address_list import KeyView
+        from .keys_view import KeyView
         self.key_view = l = KeyView(self)
         return self.create_list_tab(l)
 
@@ -2618,8 +2643,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def preferences_dialog(self):
         from . import preferences
-        from importlib import reload
-        reload(preferences)
+        # from importlib import reload
+        # reload(preferences)
         dialog = preferences.PreferencesDialog(self, self._wallet, self._account)
         dialog.exec_()
 

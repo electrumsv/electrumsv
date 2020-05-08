@@ -239,7 +239,7 @@ class DatabaseContext:
         self._write_dispatcher = SqliteWriteDispatcher(self)
 
     def acquire_connection(self) -> sqlite3.Connection:
-            return self._acquire_connection()
+        return self._acquire_connection()
 
     def _acquire_connection(self) -> sqlite3.Connection:
         # debug_text = traceback.format_stack()

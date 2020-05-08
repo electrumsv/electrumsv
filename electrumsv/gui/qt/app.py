@@ -42,6 +42,7 @@ from electrumsv.contacts import ContactEntry, ContactIdentity
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount, Wallet
+from electrumsv.wallet_database.tables import WalletEventRow
 
 from . import dialogs
 from .cosigner_pool import CosignerPool
@@ -96,6 +97,7 @@ class SVApplication(QApplication):
     contact_removed_signal = pyqtSignal(object)
     identity_added_signal = pyqtSignal(object, object)
     identity_removed_signal = pyqtSignal(object, object)
+    new_notification = pyqtSignal(object)
 
     def __init__(self, argv):
         QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_X11InitThreads)
@@ -213,8 +215,8 @@ class SVApplication(QApplication):
             self.net_dialog.raise_()
             return
         from . import network_dialog
-        from importlib import reload
-        reload(network_dialog)
+        # from importlib import reload
+        # reload(network_dialog)
         self.net_dialog = network_dialog.NetworkDialog(app_state.daemon.network, app_state.config)
         self.net_dialog.show()
 
@@ -261,6 +263,9 @@ class SVApplication(QApplication):
 
     def _on_contact_removed(self, contact: ContactEntry) -> None:
         self.contact_removed_signal.emit(contact)
+
+    def on_new_wallet_event(self, row: WalletEventRow) -> None:
+        self.new_notification.emit(row)
 
     def get_wallet_window(self, path: str) -> Optional[ElectrumWindow]:
         for w in self.windows:

@@ -1,12 +1,14 @@
 
 from decimal import Decimal
 from functools import partial
-from typing import Any, Optional, Iterable, Tuple
+from typing import Any, Optional, Iterable, List, Tuple
 
 from PyQt5.QtCore import pyqtSignal, QObject
 
 from electrumsv.app_state import app_state
-from electrumsv.contacts import (ContactEntry, ContactIdentity, IdentitySystem, IdentityCheckResult)
+from electrumsv.constants import WalletEventFlag
+from electrumsv.contacts import ContactEntry, ContactIdentity, IdentitySystem, IdentityCheckResult
+from electrumsv.wallet_database.tables import WalletEventRow
 
 
 class WalletAPI(QObject):
@@ -16,6 +18,7 @@ class WalletAPI(QObject):
     fiat_currency_changed = pyqtSignal(str)
 
     contact_changed = pyqtSignal(bool, object, object)
+    new_notification = pyqtSignal(object)
 
     def __init__(self, wallet_window: 'ElectrumWindow') -> None:
         self.wallet_window = wallet_window
@@ -26,6 +29,7 @@ class WalletAPI(QObject):
         app_state.app.identity_removed_signal.connect(partial(self._on_contact_change, False))
         app_state.app.contact_added_signal.connect(partial(self._on_contact_change, True))
         app_state.app.contact_removed_signal.connect(partial(self._on_contact_change, False))
+        app_state.app.new_notification.connect(self._on_new_notification)
 
     # Contact related:
 
@@ -57,6 +61,10 @@ class WalletAPI(QObject):
     def check_identity_valid(self, system_id: IdentitySystem, system_data: Any,
             skip_exists: Optional[bool]=False) -> IdentityCheckResult:
         return self.wallet_window.contacts.check_identity_valid(system_id, system_data, skip_exists)
+
+    def get_account_name(self, account_id: int) -> str:
+        account = self.wallet_window._wallet.get_account(account_id)
+        return account.display_name()
 
     # Balance related.
 
@@ -92,3 +100,22 @@ class WalletAPI(QObject):
     def _on_contact_change(self, added: bool, contact: ContactEntry,
             identity: Optional[ContactIdentity]=None) -> None:
         self.contact_changed.emit(added, contact, identity)
+
+    # Notification related.
+
+    def get_notification_rows(self) -> List[WalletEventRow]:
+        return self.wallet_window._wallet.get_wallet_events(
+            WalletEventFlag.UNREAD|WalletEventFlag.FEATURED)
+
+    def update_notification_flags(self, updates: List[Tuple[WalletEventFlag, int]]) -> None:
+        self.wallet_window._wallet.update_wallet_event_flags(updates)
+
+    def _on_new_notification(self, row: WalletEventRow) -> None:
+        self.new_notification.emit(row)
+
+    def prompt_to_show_secured_data(self, account_id: int) -> None:
+        self.wallet_window.show_secured_data_signal.emit(account_id)
+
+    def update_displayed_notification_count(self, entry_count: int) -> None:
+        self.wallet_window._status_bar.notification_widget.set_notification_state(entry_count)
+
