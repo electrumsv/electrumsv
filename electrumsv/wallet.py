@@ -1400,7 +1400,7 @@ class AbstractAccount:
     def can_export(self) -> bool:
         if self.is_watching_only():
             keystore = self.get_keystore()
-            if self.keystore is not None:
+            if keystore is not None:
                 return cast(KeyStore, keystore).can_export()
         return True
 
