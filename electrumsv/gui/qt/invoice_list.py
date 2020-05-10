@@ -87,14 +87,20 @@ class InvoiceList(MyTreeWidget):
         self.setVisible(len(inv_list))
         self._main_window.invoices_label.setVisible(len(inv_list))
 
-    def import_invoices(self):
-        wallet_folder = self._main_window.get_wallet_folder()
-        filename, __ = QFileDialog.getOpenFileName(self._main_window, "Select your wallet file",
+    def import_invoices(self, account_id: int) -> None:
+        try:
+            wallet_folder = self.config.get_preferred_wallet_dirpath()
+        except FileNotFoundError as e:
+            self._main_window.show_error(str(e))
+            return
+
+        filename, __ = QFileDialog.getOpenFileName(self._main_window, _("Select your wallet file"),
             wallet_folder)
         if not filename:
             return
+        account = self._main_window._wallet.get_account(account_id)
         try:
-            self._main_window._account.invoices.import_file(filename)
+            account.invoices.import_file(filename)
         except FileImportFailed as e:
             self._main_window.show_message(str(e))
         self.on_update()
