@@ -1,11 +1,12 @@
-pyaes>=0.1a1
-requests>=2.22.0
+aiohttp
+aiorpcX>=0.18.0,<0.19
 certifi
-qrcode
 dnspython
 ecdsa>=0.13.3
+electrumsv-hosting>=0.1.2
 jsonrpclib-pelix
-aiorpcX>=0.18.0,<0.19
+pyaes>=0.1a1
+requests>=2.22.0
 python-dateutil>=2.8.0
-aiohttp
+qrcode
 setuptools<45.0.0
