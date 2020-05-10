@@ -127,6 +127,10 @@ class AccountsView(QSplitter):
             partial(self._main_window.do_import_labels, account_id))
         labels_menu.addAction(_("&Export"), partial(self._main_window.do_export_labels, account_id))
 
+        invoices_menu = menu.addMenu(_("Invoices"))
+        invoices_menu.addAction(_("Import"),
+            partial(self._main_window._import_invoices, account_id))
+
         menu.exec_(self._selection_list.viewport().mapToGlobal(position))
 
     def _show_account_information(self, account_id: int) -> None:
