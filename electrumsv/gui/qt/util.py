@@ -844,7 +844,9 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     create_filepath, __ = QFileDialog.getSaveFileName(parent, _("Enter a new wallet file name"),
         initial_dirpath)
 
-    assert not os.path.exists(create_filepath)
+    if os.path.exists(create_filepath):
+        MessageBox.show_error(_("Overwriting existing files not supported at this time."))
+        return None
 
     dirpath, filename = os.path.split(create_filepath)
 

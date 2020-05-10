@@ -1399,8 +1399,10 @@ class AbstractAccount:
 
     def can_export(self) -> bool:
         if self.is_watching_only():
-            return cast(KeyStore, self.get_keystore()).can_export()
-        return False
+            keystore = self.get_keystore()
+            if self.keystore is not None:
+                return cast(KeyStore, keystore).can_export()
+        return True
 
     def cpfp(self, tx: Transaction, fee: int) -> Optional[Transaction]:
         tx_hash = tx.hash()

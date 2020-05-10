@@ -594,8 +594,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         contacts_menu = wallet_menu.addMenu(_("Contacts"))
         contacts_menu.addAction(_("&New"), partial(edit_contact_dialog, self._api))
-        invoices_menu = wallet_menu.addMenu(_("Invoices"))
-        invoices_menu.addAction(_("Import"), self._import_invoices)
         hist_menu = wallet_menu.addMenu(_("&History"))
         hist_menu.addAction("Export", self.export_history_dialog)
 
@@ -647,9 +645,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.setMenuBar(menubar)
 
-    def _import_invoices(self) -> None:
+    def _import_invoices(self, account_id: int) -> None:
         if self.invoice_list is not None:
-            self.invoice_list.import_invoices()
+            self.invoice_list.import_invoices(account_id)
 
     def init_toolbar(self):
         self.toolbar = toolbar = QToolBar(self)
