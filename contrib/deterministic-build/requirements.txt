@@ -23,8 +23,6 @@ attrs==19.3.0 \
 bitcoinX==0.2.4 \
     --hash=sha256:576908b4641cad8c33afe44f092811e59d9ee304cccb637d3515dec5007fcce6 \
     --hash=sha256:dc4caf363f5cc427dcbc18811f7a9c132a689f5cdf0ed16feb3902d4ed1bff58
-cbor2==5.1.0 \
-    --hash=sha256:43ce11e8c2fe4971d386d1a60cf83bfa0a4a667b97668ba76acbf5e6398821aa
 certifi==2020.4.5.1 \
     --hash=sha256:1d987a998c75633c40847cc966fcf5904906c920a7f17ef374f5aa4282abd304 \
     --hash=sha256:51fcb31174be6e6664c5f69e3e1691a2d72a1a12e90f872cbdb1567eb47b6519
@@ -69,8 +67,8 @@ dnspython==1.16.0 \
 ecdsa==0.15 \
     --hash=sha256:867ec9cf6df0b03addc8ef66b56359643cb5d0c1dc329df76ba7ecfe256c8061 \
     --hash=sha256:8f12ac317f8a1318efa75757ef0a651abe12e51fc1af8838fb91079445227277
-electrumsv-hosting==0.1.2 \
-    --hash=sha256:1a3db11f9c114c39acfd34bd0a6ba853a5522ad9a8802bccfdc0010596f4dc73
+electrumsv-hosting==0.1.3 \
+    --hash=sha256:4ea873963ba1e09fda86b79f1b7ac2543d397572ba6a25921066dcd677a7f28e
 electrumsv-secp256k1==0.9.1 \
     --hash=sha256:087b292f2a59b9d30fa4bad63f1ff0c0f31efb670b6d8536d2cb3ef643df6fd4 \
     --hash=sha256:4c6c1ea0d4fd885ce64341e168c99c4afa3b663f2b248bb6bfe140f337d97ea3 \
