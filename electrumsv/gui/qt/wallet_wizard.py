@@ -351,7 +351,7 @@ class ReleaseNotesPage(QWizardPage):
 
 
 class ChooseWalletPage(QWizardPage):
-    HELP_CONTEXT = HelpContext("choose-wallet", "Choose a Wallet")
+    HELP_CONTEXT = HelpContext("choose-wallet")
 
     _force_completed = False
     _list_thread: Optional[threading.Thread] = None
@@ -679,7 +679,7 @@ class ChooseWalletPage(QWizardPage):
 
 
 class OlderWalletMigrationPage(QWizardPage):
-    HELP_CONTEXT = HelpContext("migrate-wallet", "Wallet Migration")
+    HELP_CONTEXT = HelpContext("migrate-wallet")
 
     _migration_completed = False
     _migration_successful = False

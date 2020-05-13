@@ -59,8 +59,7 @@ class NetworkDialog(QDialog):
         self.nlayout = NetworkChoiceLayout(network, config)
 
         buttons_layout = Buttons(CloseButton(self))
-        buttons_layout.add_left_button(HelpDialogButton(self, _("Network"), "misc",
-            "network-dialog"))
+        buttons_layout.add_left_button(HelpDialogButton(self, "misc", "network-dialog"))
 
         vbox = QVBoxLayout(self)
         vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)

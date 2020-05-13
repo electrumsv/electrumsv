@@ -56,7 +56,6 @@ DEFAULT_WIZARD_FLAGS = WizardFlags.STANDARD_MODE | WizardFlags.ACCOUNT_RESULT
 
 class HelpContext(NamedTuple):
     file_name: str
-    title: str
 
 
 class BaseWizard(QWizard):
@@ -109,7 +108,7 @@ class BaseWizard(QWizard):
         page = self.currentPage()
         help_context: Optional[HelpContext] = getattr(page, "HELP_CONTEXT", None)
         assert help_context is not None
-        h = HelpDialog(page, help_context.title, self.HELP_DIRNAME, help_context.file_name)
+        h = HelpDialog(page, self.HELP_DIRNAME, help_context.file_name)
         h.run()
 
 

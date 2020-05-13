@@ -174,12 +174,11 @@ class CancelButton(QPushButton):
         self.clicked.connect(dialog.reject)
 
 class HelpDialogButton(QPushButton):
-    def __init__(self, parent: QWidget, title: str, dirname: str, filename: str,
+    def __init__(self, parent: QWidget, dirname: str, filename: str,
             label: Optional[str]=None) -> None:
         super().__init__(label or _("Help"))
 
         self._parent = parent
-        self._title = title
         self._dirname = dirname
         self._filename = filename
 
@@ -187,7 +186,7 @@ class HelpDialogButton(QPushButton):
 
     def _event_button_clicked(self) -> None:
         from .help_dialog import HelpDialog
-        h = HelpDialog(self._parent, self._title, self._dirname, self._filename)
+        h = HelpDialog(self._parent, self._dirname, self._filename)
         h.run()
 
 
