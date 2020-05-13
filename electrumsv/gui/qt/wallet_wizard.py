@@ -756,6 +756,8 @@ class OlderWalletMigrationPage(QWizardPage):
         self._future = app_state.app.run_in_thread(self._migrate_wallet,
             on_done=self._on_migration_completed)
 
+        wizard.button(QWizard.HelpButton).setFocus(Qt.OtherFocusReason)
+
     def on_leave(self) -> None:
         self._future.cancel()
         self._future = None
