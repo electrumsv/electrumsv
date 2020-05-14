@@ -36,6 +36,27 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.3.0
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-0-227ce8ddbb8a
+  * Wallet storage: A wallet is now stored in a database, and not a text file.
+  * Wallet creation: A new wallet wizard streamlines opening or creating wallets.
+  * Wallet accounts: The groundwork is in place for wallets to have multiple accounts,
+    although they can currently only have one. A new account wizard streamlines adding
+    new accounts to a wallet.
+  * Multi-signature: The multi-signature account creation process has been streamlined
+    and polished. New multi-signature accounts send funds in the form of a "bare
+    multi-signature" transaction, replacing the now non-functional "P2SH multi-signature"
+    transaction that no longer works after the Genesis upgrade to the Bitcoin SV protocol.
+  * Notifications: A new notification center and notification display have been added
+    to the wallet UI. These will be used to highlight important events and information
+    for the wallet owner. Initially only one notification is posted, relating to reminding
+    the user to back up their wallet.
+  * Memory usage: Wallets now have a configurable limit on how much transaction data they
+    will hold in memory, which defaults to 32 MiB.
+  * Translations: Updated the translations from Crowdin, thanks to all people who
+    contributed translations.
+
+
 # Release 1.3.0b5
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-0b5-b8ec2ee0ef73
   * Hardware wallets: Signing was no longer working for Ledger and Digital Bitbox.

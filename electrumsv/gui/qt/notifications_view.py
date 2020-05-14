@@ -296,19 +296,16 @@ class NotificationCard(Card):
             title_label = QLabel(_("Backup your wallet"))
             title_label.setObjectName("CardTitle")
 
-            def linkActivated(url: str) -> None:
-                if url == "view-secured-data":
-                    self._context.wallet_api.prompt_to_show_secured_data(self._row.account_id)
-
             description_label = QLabel(_("You should make sure you back up your wallet. If you "
                 "lose access to it, you may not have any way to access or recover your funds and "
                 "any other information it may contain. In the worst case, you may be able to "
                 "write down and use your "
-                "<a href=\"view-secured-data\">account's secured data</a>."))
+                "<a href=\"action:view-secured-data\">account's secured data</a>. More information "
+                "is <a href=\"help:view-secured-data\">available here</a>."))
             description_label.setObjectName("CardDescription")
             description_label.setWordWrap(True)
             description_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
-            description_label.linkActivated.connect(linkActivated)
+            description_label.linkActivated.connect(self.on_link_activated)
 
             date_context_label = QLabel(format_time(self._row.date_created, _("Unknown")))
             date_context_label.setAlignment(Qt.AlignRight)
@@ -329,9 +326,10 @@ class NotificationCard(Card):
             layout.addWidget(QLabel("Not yet implemented"))
         layout.addStretch(1)
 
-    def add_actions(self, layout: QLayout) -> None:
+    def add_actions(self, layout: QVBoxLayout) -> None:
         dismiss_label = ClickableLabel()
-        dismiss_label.setPixmap(QPixmap(icon_path("icons8-delete.svg")).scaledToWidth(15))
+        dismiss_label.setPixmap(QPixmap(icon_path("icons8-delete.svg"))
+            .scaledToWidth(15, Qt.SmoothTransformation))
         dismiss_label.setToolTip(_("Dismiss this notification"))
         dismiss_label.clicked.connect(self._on_dismiss_button_clicked)
 
@@ -343,3 +341,14 @@ class NotificationCard(Card):
         self._context.wallet_api.update_notification_flags([ (new_flags, self._row.event_id) ])
         self._context.entry_removed.emit(self._row)
 
+    def on_link_activated(self, url: str) -> None:
+        url_type, url_path = url.split(":", 1)
+        if url_type == "action":
+            if url_path == "view-secured-data":
+                self._context.wallet_api.prompt_to_show_secured_data(self._row.account_id)
+                return
+        elif url_type == "help":
+            if url_path == "view-secured-data":
+                self._context.wallet_api.show_help("misc", "secured-data")
+                return
+        raise NotImplementedError

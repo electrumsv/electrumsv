@@ -546,9 +546,11 @@ def read_resource_file(filename: str) -> str:
     with open(path, 'r') as f:
         return f.read()
 
+def text_resource_path(*parts: Sequence[str]) -> str:
+    return resource_path("text", *parts) # type: ignore
+
 def read_resource_text(*parts: Sequence[str]) -> str:
-    subpath = os.path.join("text", *parts) # type: ignore
-    return read_resource_file(subpath)
+    return read_resource_file(os.path.join("text", *parts)) # type: ignore
 
 def get_update_check_dates(new_date):
     from dateutil.parser import isoparse

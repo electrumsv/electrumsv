@@ -27,28 +27,30 @@
 # SOFTWARE.
 
 
+from PyQt5.QtCore import QUrl
 from PyQt5.QtWidgets import QTextBrowser, QVBoxLayout, QWidget
 
 from electrumsv.i18n import _
-from electrumsv.util import read_resource_text
+from electrumsv.util import text_resource_path
 
 from .util import Buttons, OkButton, WindowModalDialog
 
 
 class HelpDialog(WindowModalDialog):
-    def __init__(self, parent: QWidget, title: str, help_dirname: str, help_file_name: str) -> None:
+    def __init__(self, parent: QWidget, help_dirname: str, help_file_name: str) -> None:
         super().__init__(parent)
 
-        self.setWindowTitle(_("ElectrumSV - Help for {}").format(title))
+        self.setWindowTitle(_("ElectrumSV - In-Wallet Help"))
         self.setMinimumSize(450, 400)
 
-        release_html = read_resource_text(help_dirname, f"{help_file_name}.html")
+        source_path = text_resource_path(help_dirname, f"{help_file_name}.html")
 
         widget = QTextBrowser()
         widget.document().setDocumentMargin(15)
+        widget.setOpenLinks(True)
         widget.setOpenExternalLinks(True)
         widget.setAcceptRichText(True)
-        widget.setHtml(release_html)
+        widget.setSource(QUrl.fromLocalFile(source_path))
 
         vbox = QVBoxLayout(self)
         vbox.addWidget(widget)

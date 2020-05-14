@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (QDialog, QLabel, QLineEdit, QListWidget, QListWidge
 from electrumsv.bitcoin import address_from_string, script_template_to_string
 from electrumsv.constants import DerivationType
 from electrumsv.i18n import _
-from electrumsv.wallet import MultisigAccount, Wallet
+from electrumsv.wallet import AbstractAccount, MultisigAccount, Wallet
 
 from .cosigners_view import CosignerState, CosignerList
 from .main_window import ElectrumWindow
@@ -137,16 +137,24 @@ class AccountsView(QSplitter):
         dialog = AccountInformationDialog(self._main_window, self._wallet, account_id, self)
         dialog.exec_()
 
+    def can_view_secured_data(self, account: AbstractAccount) -> None:
+        return not account.is_watching_only() and not isinstance(account, MultisigAccount) \
+            and not account.is_hardware_wallet()
+
     @protected
     def _view_secured_data(self, main_window: ElectrumWindow, account_id: int=-1,
             password: Optional[str]=None) -> None:
         # account_id is a keyword argument so that 'protected' can identity the correct wallet
         # window to do the password request in the context of.
         account = self._wallet.get_account(account_id)
-        keystore = account.get_keystore()
-        from .secured_data_dialog import SecuredDataDialog
-        d = SecuredDataDialog(self._main_window, self, keystore, password)
-        d.exec_()
+        if self.can_view_secured_data(account):
+            keystore = account.get_keystore()
+            from .secured_data_dialog import SecuredDataDialog
+            d = SecuredDataDialog(self._main_window, self, keystore, password)
+            d.exec_()
+        else:
+            MessageBox.show_message(_("This type of account has no secured data. You are advised "
+                "to manually back up this wallet."), self._main_window)
 
     @protected
     def _import_privkey(self, main_window: ElectrumWindow, account_id: int=-1,
@@ -177,7 +185,7 @@ class AccountsView(QSplitter):
         account = self._wallet.get_account(account_id)
 
         if isinstance(self._wallet, MultisigAccount):
-            self.show_message(
+            MessageBox.show_message(
                 _('WARNING: This is a multi-signature wallet.') + '\n' +
                 _('It can not be "backed up" by simply exporting these private keys.')
             )
@@ -265,7 +273,7 @@ class AccountsView(QSplitter):
             ])
             MessageBox.show_error(txt, title=_("Unable to create csv"))
         except Exception as e:
-            self.show_message(str(e))
+            MessageBox.show_message(str(e), self._main_window)
             return
 
         MessageBox.show_message(_('Private keys exported'), self._main_window)

@@ -284,8 +284,8 @@ class Deterministic_KeyStore(Software_KeyStore):
     def __init__(self, data: Dict[str, Any], row: Optional[MasterKeyRow]=None) -> None:
         Software_KeyStore.__init__(self, row)
 
-        self.seed = data.get('seed', '')
-        self.passphrase = data.get('passphrase', '')
+        self.seed = data.get('seed', None)
+        self.passphrase = data.get('passphrase', None)
         self.label = data.get('label')
 
     def is_deterministic(self) -> bool:
@@ -1031,7 +1031,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Unio
         data['derivation'] = derivation_text
         data['xpub'] = xprv.public_key.to_extended_key_string()
     elif text_type == KeystoreTextType.ELECTRUM_OLD_SEED_WORDS:
-        derivation_type = DerivationType.BIP32
+        derivation_type = DerivationType.ELECTRUM_OLD
         assert isinstance(text_match, str)
         assert passphrase is None
         # `watch_only` is ignored.
