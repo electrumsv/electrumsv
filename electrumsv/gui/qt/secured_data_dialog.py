@@ -85,7 +85,7 @@ class SecuredDataDialog(QDialog):
             passphrase_edit = ShowQRTextEdit(self)
             passphrase_edit.setFixedHeight(80)
             passphrase_edit.addCopyButton(self._main_window.app)
-            passphrase_edit.setText(seed_text)
+            passphrase_edit.setText(passphrase_text)
             passphrase_widget = passphrase_edit
         else:
             passphrase_widget = QLabel(_("None"))
