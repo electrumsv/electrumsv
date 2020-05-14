@@ -284,8 +284,8 @@ class Deterministic_KeyStore(Software_KeyStore):
     def __init__(self, data: Dict[str, Any], row: Optional[MasterKeyRow]=None) -> None:
         Software_KeyStore.__init__(self, row)
 
-        self.seed = data.get('seed', '')
-        self.passphrase = data.get('passphrase', '')
+        self.seed = data.get('seed', None)
+        self.passphrase = data.get('passphrase', None)
         self.label = data.get('label')
 
     def is_deterministic(self) -> bool:
