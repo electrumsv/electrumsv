@@ -134,7 +134,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.qr_window = None
         self.not_enough_funds = False
         self.require_fee_update = False
-        self.tx_notifications: Tuple[Transaction, AbstractAccount] = []
+        self.tx_notifications: List[Tuple[Transaction, AbstractAccount]] = []
         self.tx_notify_timer = None
         self.tx_dialogs = []
         self.tl_windows = []
@@ -255,8 +255,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             _("&Keys"), "keys")
         self._add_optional_tab(tabs, self.utxo_tab, read_QIcon("tab_coins.png"),
             _("Co&ins"), "utxo")
-        self._add_optional_tab(tabs, self.contacts_tab, read_QIcon("tab_contacts.png"),
-            _("Con&tacts"), "contacts")
+        # self._add_optional_tab(tabs, self.contacts_tab, read_QIcon("tab_contacts.png"),
+        #     _("Con&tacts"), "contacts")
         self._add_optional_tab(tabs, self.console_tab, read_QIcon("tab_console.png"),
             _("Con&sole"), "console")
         self._add_optional_tab(tabs, self.coinsplitting_tab, read_QIcon("tab_coins.png"),
@@ -608,7 +608,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         view_menu = menubar.addMenu(_("&View"))
         add_toggle_action(view_menu, self.keys_tab)
         add_toggle_action(view_menu, self.utxo_tab)
-        add_toggle_action(view_menu, self.contacts_tab)
+        # add_toggle_action(view_menu, self.contacts_tab)
         add_toggle_action(view_menu, self.coinsplitting_tab)
         add_toggle_action(view_menu, self.console_tab)
         add_toggle_action(view_menu, self.notifications_tab)
@@ -636,9 +636,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         help_menu.addAction(_("&Check for updates"), self.show_update_check)
         help_menu.addAction(_("&Official website"), lambda: webbrowser.open("http://electrumsv.io"))
         help_menu.addSeparator()
-        help_menu.addAction(_("Documentation"),
-            lambda: webbrowser.open("http://electrumsv.readthedocs.io/")
-        ).setShortcut(QKeySequence.HelpContents)
+        help_menu.addAction(_("Documentation"), self._open_documentation).setShortcut(
+            QKeySequence.HelpContents)
         help_menu.addAction(_("&Report Bug"), self.show_report_bug)
         help_menu.addSeparator()
         help_menu.addAction(_("&Donate to server"), self.donate_to_server)
@@ -648,6 +647,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _import_invoices(self, account_id: int) -> None:
         if self.invoice_list is not None:
             self.invoice_list.import_invoices(account_id)
+
+    def _open_documentation(self) -> None:
+        from .help_dialog import HelpDialog
+        h = HelpDialog(self, "misc", "index")
+        h.run()
 
     def init_toolbar(self):
         self.toolbar = toolbar = QToolBar(self)
