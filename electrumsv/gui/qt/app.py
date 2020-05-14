@@ -97,7 +97,7 @@ class SVApplication(QApplication):
     contact_removed_signal = pyqtSignal(object)
     identity_added_signal = pyqtSignal(object, object)
     identity_removed_signal = pyqtSignal(object, object)
-    new_notification = pyqtSignal(object)
+    new_notification = pyqtSignal(object, object)
 
     def __init__(self, argv):
         QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_X11InitThreads)
@@ -264,18 +264,18 @@ class SVApplication(QApplication):
     def _on_contact_removed(self, contact: ContactEntry) -> None:
         self.contact_removed_signal.emit(contact)
 
-    def on_new_wallet_event(self, row: WalletEventRow) -> None:
-        self.new_notification.emit(row)
+    def on_new_wallet_event(self, wallet_path: str, row: WalletEventRow) -> None:
+        self.new_notification.emit(wallet_path, row)
 
     def get_wallet_window(self, path: str) -> Optional[ElectrumWindow]:
         for w in self.windows:
             if w._wallet.get_storage_path() == path:
                 return w
 
-    def get_wallet_window_by_id(self, wallet_id: int) -> Optional[ElectrumWindow]:
+    def get_wallet_window_by_id(self, account_id: int) -> Optional[ElectrumWindow]:
         for w in self.windows:
-            for child_wallet in w._wallet.get_accounts():
-                if child_wallet.get_id() == wallet_id:
+            for account in w._wallet.get_accounts():
+                if account.get_id() == account_id:
                     return w
 
     def start_new_window(self, wallet_path: Optional[str], uri: Optional[str]=None,

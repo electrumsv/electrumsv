@@ -2467,7 +2467,7 @@ class Wallet(TriggeredCallbacks):
             table.create(rows)
         self._storage.put("next_wallet_event_id", next_id)
         for row in rows:
-            app_state.app.on_new_wallet_event(row)
+            app_state.app.on_new_wallet_event(self.get_storage_path(), row)
         return rows
 
     def update_wallet_event_flags(self,

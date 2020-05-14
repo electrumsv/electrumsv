@@ -110,8 +110,9 @@ class WalletAPI(QObject):
     def update_notification_flags(self, updates: List[Tuple[WalletEventFlag, int]]) -> None:
         self.wallet_window._wallet.update_wallet_event_flags(updates)
 
-    def _on_new_notification(self, row: WalletEventRow) -> None:
-        self.new_notification.emit(row)
+    def _on_new_notification(self, wallet_path: str, row: WalletEventRow) -> None:
+        if wallet_path == self.wallet_window._wallet.get_storage_path():
+            self.new_notification.emit(row)
 
     def prompt_to_show_secured_data(self, account_id: int) -> None:
         self.wallet_window.show_secured_data_signal.emit(account_id)
