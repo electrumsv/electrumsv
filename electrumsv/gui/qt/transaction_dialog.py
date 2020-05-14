@@ -172,7 +172,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.update()
 
     def cosigner_send(self) -> None:
-        app_state.app.cosigner_pool.do_send(self._account, self.tx)
+        app_state.app.cosigner_pool.do_send(self._main_window, self._account, self.tx)
 
     def copy_tx_to_clipboard(self) -> None:
         self._main_window.app.clipboard().setText(str(self.tx))
@@ -235,7 +235,9 @@ class TxDialog(QDialog, MessageBoxMixin):
                 # If the signing was successful the hash will have changed.
                 self._tx_hash = self.tx.hash()
                 self.prompt_if_unsaved = True
-                self.saved = False
+                # If the signature(s) from this wallet complete the transaction, then it is
+                # effectively saved in the local transactions list.
+                self.saved = self.tx.is_complete()
             self.update()
             self._main_window.pop_top_level_window(self)
 
@@ -323,7 +325,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.size_label.setText(size_str)
 
         # Cosigner button
-        visible = app_state.app.cosigner_pool.show_send_to_cosigner_button(self._account, self.tx)
+        visible = app_state.app.cosigner_pool.show_send_to_cosigner_button(self._main_window,
+            self._account, self.tx)
         self.cosigner_button.setVisible(visible)
 
     def add_io(self, vbox: QVBoxLayout) -> None:

@@ -158,19 +158,21 @@ class CosignerPool:
                     xpub_set.add(x_pubkey.bip32_extended_key())
         return cosigner_xpub in xpub_set
 
-    def _is_theirs(self, account_id: int, item: CosignerItem, tx: Transaction) -> bool:
-        return (item.account_id == account_id and item.watching_only and
+    def _is_theirs(self, window: 'ElectrumWindow', account_id: int, item: CosignerItem,
+            tx: Transaction) -> bool:
+        return (item.window is window and item.account_id == account_id and item.watching_only and
             self._cosigner_can_sign(tx, item.xpub))
 
     # Externally invoked to find out if the transaction can be sent to cosigners.
-    def show_send_to_cosigner_button(self, account: AbstractAccount, tx: Transaction) -> bool:
+    def show_send_to_cosigner_button(self, window: 'ElectrumWindow', account: AbstractAccount,
+            tx: Transaction) -> bool:
         if tx.is_complete() or account.can_sign(tx):
             return False
         account_id = account.get_id()
-        return any(self._is_theirs(account_id, item, tx) for item in self._items)
+        return any(self._is_theirs(window, account_id, item, tx) for item in self._items)
 
     # Externally invoked to send the transaction to cosigners.
-    def do_send(self, account: AbstractAccount, tx: Transaction) -> None:
+    def do_send(self, window: 'ElectrumWindow', account: AbstractAccount, tx: Transaction) -> None:
         def on_done(window, future):
             try:
                 future.result()
@@ -187,7 +189,7 @@ class CosignerPool:
 
         account_id = account.get_id()
         for item in self._items:
-            if self._is_theirs(account_id, item, tx):
+            if self._is_theirs(window, account_id, item, tx):
                 raw_tx_bytes = json.dumps(tx.to_dict()).encode()
                 public_key = PublicKey.from_bytes(item.pubkey_bytes)
                 message = public_key.encrypt_message_to_base64(raw_tx_bytes)
