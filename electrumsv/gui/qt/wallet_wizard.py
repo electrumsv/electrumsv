@@ -356,6 +356,7 @@ class ChooseWalletPage(QWizardPage):
     _force_completed = False
     _list_thread: Optional[threading.Thread] = None
     _list_thread_id: int = 0
+    _commit_pressed = False
 
     update_list_entry = pyqtSignal(int, object)
     remove_list_entry = pyqtSignal(int, object)
@@ -366,11 +367,6 @@ class ChooseWalletPage(QWizardPage):
         self.setTitle(_("Select an existing wallet"))
         self.setButtonText(QWizard.CommitButton, "  "+ _("Open &Selected Wallet") +"  ")
         self.setCommitPage(True)
-        # The commit button will try and do a "next page" and fail because the next page
-        # will be -1, and there is no next page. The click event will follow that and we will
-        # do the correct next page or finish action depending on wallet type.
-        commit_button = parent.button(QWizard.CommitButton)
-        commit_button.clicked.connect(self._event_click_open_selected_file)
 
         self._recent_wallet_paths: List[str] = []
         self._recent_wallet_entries: Dict[str, FileState] = {}
@@ -473,12 +469,19 @@ class ChooseWalletPage(QWizardPage):
     def isComplete(self) -> bool:
         # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
         # Overriding this requires us to emit the 'completeChanges' signal where applicable.
-        if self._force_completed:
-            return True
-        return len(self._wallet_table.selectedIndexes())
+        if self._commit_pressed:
+            # The default "Commit" button page switching should be prevented by this flag.
+            result = False
+        elif self._force_completed:
+            result = True
+        else:
+            result = len(self._wallet_table.selectedIndexes()) > 0
+        # logger.debug("isComplete %s", result)
+        return result
 
     def validatePage(self) -> bool:
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
+        # logger.debug("validatePage %s", self.isComplete())
         return self.isComplete()
 
     def _attempt_open_wallet(self, wallet_path: str, change_page: bool=False) -> bool:
@@ -546,13 +549,27 @@ class ChooseWalletPage(QWizardPage):
             self._attempt_open_wallet(wallet_filepath, change_page=True)
 
     def _event_click_open_selected_file(self) -> None:
+        logger.debug("ChooseWalletPage._event_click_open_selected_file")
+        # The default "Commit" button page switching should have been prevented by this flag.
+        # This event should come after it, and clear the flag so it can manually switch the
+        # page itself.
+        self._commit_pressed = False
         # This should be someone clicking the next/commit button.
         selected_indexes = self._wallet_table.selectedIndexes()
         wallet_path = self._recent_wallet_paths[selected_indexes[0].row()]
         self._attempt_open_wallet(wallet_path, change_page=True)
 
+    def _event_press_open_selected_file(self) -> None:
+        logger.debug("ChooseWalletPage._event_press_open_selected_file")
+        # The default "Commit" button page switching should be prevented by this flag.
+        # Ensure both `validatePage` and `isComplete` fail until the click event happens. The
+        # click event happens last, after the press, the release, and the default "Commit" button
+        # page switching.
+        self._commit_pressed = True
+
     def _event_selection_changed(self, selected: QItemSelection, deselected: QItemSelection) \
             -> None:
+        logger.debug("ChooseWalletPage._event_selection_changed")
         # Selecting an entry should change the page elements to be ready to either move to another
         # page, or whatever else is applicable.
         if len(selected.indexes()):
@@ -568,11 +585,13 @@ class ChooseWalletPage(QWizardPage):
         self.completeChanged.emit()
 
     def _event_key_selection(self) -> None:
+        logger.debug("ChooseWalletPage._event_key_selection")
         selected_indexes = self._wallet_table.selectedIndexes()
         if len(selected_indexes):
             self._select_row(selected_indexes[0].row())
 
     def _event_entry_doubleclicked(self, index: QModelIndex) -> None:
+        logger.debug("ChooseWalletPage._event_entry_doubleclicked")
         self._select_row(index.row())
 
     def _select_row(self, row: int) -> None:
@@ -582,11 +601,13 @@ class ChooseWalletPage(QWizardPage):
     def _clear_selection(self) -> None:
         self._force_completed = False
         self._on_reset_next_page()
+        self._commit_pressed = False
 
         wizard: WalletWizard = self.wizard()
         wizard.set_wallet_path(None)
 
-    def on_enter(self) -> None:
+    # Qt default QWizardPage event when page is entered.
+    def initializePage(self) -> None:
         self._clear_selection()
 
         wizard: WalletWizard = self.wizard()
@@ -597,6 +618,13 @@ class ChooseWalletPage(QWizardPage):
 
         cancel_button = wizard.button(QWizard.CancelButton)
         cancel_button.show()
+
+        # The commit button will try and do a "next page" and fail because the next page
+        # will be -1, and there is no next page. The click event will follow that and we will
+        # do the correct next page or finish action depending on wallet type.
+        commit_button = wizard.button(QWizard.CommitButton)
+        commit_button.clicked.connect(self._event_click_open_selected_file)
+        commit_button.pressed.connect(self._event_press_open_selected_file)
 
         self._gui_list_reset()
         self._recent_wallet_paths.extend(
@@ -611,14 +639,19 @@ class ChooseWalletPage(QWizardPage):
 
         self._wallet_table.setFocus()
 
-    def on_leave(self) -> None:
+    # Qt default QWizardPage event when page is exited.
+    def cleanupPage(self) -> None:
         if self._list_thread is not None:
             self._list_thread_id += 1
             self._list_thread = None
 
-        button = self.wizard().button(QWizard.CustomButton1)
+        wizard: WalletWizard = self.wizard()
+        button = wizard.button(QWizard.CustomButton1)
         button.setVisible(False)
-        button.clicked.disconnect()
+        # button.clicked.disconnect(self._event_click_create_wallet)
+
+        # commit_button = wizard.button(QWizard.CommitButton)
+        # commit_button.clicked.disconnect(self._event_click_open_selected_file)
 
     def _populate_list_in_thread(self, list_thread_id: int) -> None:
         for file_path in self._recent_wallet_paths:
