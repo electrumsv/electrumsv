@@ -721,7 +721,10 @@ class Hardware_KeyStore(Xpub, KeyStore):
         assert not self.has_seed()
         return False
 
-    def can_change_password(self):
+    def can_change_password(self) -> bool:
+        return False
+
+    def can_export(self) -> bool:
         return False
 
     def sign_message(self, derivation_path: Sequence[int], message: bytes, password: str):
