@@ -415,6 +415,7 @@ class ChooseWalletPage(QWizardPage):
                     show_in_file_explorer(path)
 
         self._wallet_table = TableWidget()
+        self._wallet_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._wallet_table.selectionModel().selectionChanged.connect(
             self._event_selection_changed)
         self._wallet_table.doubleClicked.connect(self._event_entry_doubleclicked)
@@ -594,8 +595,9 @@ class ChooseWalletPage(QWizardPage):
         cancel_button.show()
 
         self._gui_list_reset()
-        self._recent_wallet_paths.extend([ candidate_path
-            for candidate_path in app_state.config.get('recently_open', [])
+        self._recent_wallet_paths.extend(
+            [ candidate_path for candidate_path in [ os.path.normpath(candidate_path)
+            for candidate_path in app_state.config.get('recently_open', []) ]
             if os.path.exists(candidate_path) ])
 
         self._list_thread = threading.Thread(target=self._populate_list_in_thread,
@@ -618,14 +620,13 @@ class ChooseWalletPage(QWizardPage):
         for file_path in self._recent_wallet_paths:
             if list_thread_id != self._list_thread_id:
                 return
-            if os.path.exists(file_path):
-                # We can assume that the state does not exist because we doing initial population.
-                entry = create_file_state(file_path)
-                # This should filter out invalid wallets. But if there's an Sqlite error it will
-                # skip them. In theory the retrying in the Sqlite support code should prevent
-                # this from happening.
-                if entry is not None:
-                    self.update_list_entry.emit(list_thread_id, entry)
+            # We can assume that the state does not exist because we doing initial population.
+            entry = create_file_state(file_path)
+            # This should filter out invalid wallets. But if there's an Sqlite error it will
+            # skip them. In theory the retrying in the Sqlite support code should prevent
+            # this from happening.
+            if entry is not None:
+                self.update_list_entry.emit(list_thread_id, entry)
 
     def _get_file_state(self, wallet_path: str) -> Optional[FileState]:
         if not os.path.exists(wallet_path):
