@@ -482,6 +482,10 @@ class ChooseWalletPage(QWizardPage):
         return self.isComplete()
 
     def _attempt_open_wallet(self, wallet_path: str, change_page: bool=False) -> bool:
+        if not os.path.exists(wallet_path):
+            MessageBox.show_error(_("Unable to open a deleted wallet."))
+            return
+
         entry: Optional[FileState] = None
         for entry in self._recent_wallet_entries.values():
             if entry.path == wallet_path:
