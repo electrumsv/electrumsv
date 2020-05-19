@@ -390,6 +390,7 @@ class TransactionTable(BaseWalletStore):
         size_hint = 0
         for tx_hash, metadata, bytedata, flags in entries:
             assert type(tx_hash) is bytes
+            assert type(bytedata) is bytes or bytedata is None
             flags = self._apply_flags(metadata, flags)
             if bytedata == MAGIC_UNTOUCHED_BYTEDATA:
                 # This is where we are updating a row which has existing bytedata that is not

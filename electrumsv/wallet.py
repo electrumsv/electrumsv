@@ -931,7 +931,8 @@ class AbstractAccount:
         with self.transaction_lock:
             self._logger.debug("adding tx data %s (flags: %s)", hash_to_hex_str(tx_hash),
                 TxFlags.to_repr(flag))
-            self._wallet._transaction_cache.add_transaction(tx, flag, _completion_callback)
+            self._wallet._transaction_cache.add_transaction(tx_hash, tx, flag,
+                _completion_callback)
             self._process_key_usage(tx_hash, tx, None)
 
     def set_transaction_state(self, tx_hash: bytes, flags: TxFlags) -> None:

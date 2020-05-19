@@ -2,6 +2,8 @@ import sys
 from threading import RLock
 from typing import Dict, List, Optional, Tuple
 
+from electrumsv.transaction import Transaction
+
 from ..constants import MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB
 
 class Node:
@@ -48,11 +50,11 @@ class LRUCache:
     def get_sizes(self) -> Tuple[int, int]:
         return (self.current_size, self._max_size)
 
-    def _add(self, key: bytes, value: bytes) -> Node:
+    def _add(self, key: bytes, value: Transaction, size: int) -> Node:
         most_recent_node = self._root.previous
         new_node = Node(most_recent_node, self._root, key, value)
         most_recent_node.next = self._root.previous = self._cache[key] = new_node
-        self.current_size += len(value)
+        self.current_size += size
         return new_node
 
     def __len__(self) -> int:
@@ -61,9 +63,10 @@ class LRUCache:
     def __contains__(self, key: bytes) -> bool:
         return key in self._cache
 
-    def set(self, key: bytes, value: Optional[bytes]) -> Tuple[bool, List[Tuple[bytes, bytes]]]:
+    def set(self, key: bytes, value: Optional[Transaction]) -> Tuple[bool, List[Tuple[
+        bytes, Transaction]]]:
         added = False
-        removals: List[Tuple[bytes, bytes]] = []
+        removals: List[Tuple[bytes, Transaction]] = []
         with self._lock:
             node = self._cache.get(key, None)
             if node is not None:
@@ -75,8 +78,9 @@ class LRUCache:
                 del self._cache[key]
                 removals.append((key, old_value))
 
-            if value is not None and len(value) <= self._max_size:
-                added_node = self._add(key, value)
+            size = len(value.to_bytes())
+            if value is not None and self.current_size + size <= self._max_size:
+                added_node = self._add(key, value, size)
                 added = True
                 # Discount the root node when considering count.
                 resize_removals = self._resize()
@@ -103,7 +107,7 @@ class LRUCache:
 
     def _resize(self) -> List[Tuple[bytes, bytes]]:
         removals = []
-        while len(self._cache)-1 >= self._max_count or self.current_size > self._max_size:
+        while len(self._cache)-1 >= self._max_count:
             node = self._root.next
             previous_node, next_node, discard_key, discard_value = \
                 node.previous, node.next, node.key, node.value
