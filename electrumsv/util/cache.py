@@ -1,19 +1,24 @@
+import bitcoinx
+from collections import deque
+from itertools import chain
 import sys
+from sys import getsizeof
 from threading import RLock
 from typing import Dict, List, Optional, Tuple
 
-from electrumsv.transaction import Transaction
+from ..transaction import Transaction, XPublicKey, XTxOutput, XTxInput
+from ..constants import MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, \
+    ScriptType
 
-from ..constants import MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB
 
 class Node:
     previous: 'Node'
     next: 'Node'
     key: bytes
-    value: bytes
+    value: Transaction
 
     def __init__(self, previous: Optional['Node']=None, next: Optional['Node']=None,
-            key: bytes=b'', value: bytes=b'') -> None:
+            key: bytes=b'', value: Transaction=None) -> None:
         self.previous = previous if previous is not None else self
         self.next = previous if previous is not None else self
         self.key = key
@@ -74,11 +79,11 @@ class LRUCache:
                 assert value != old_value, "duplicate set not supported"
                 previous_node.next = next_node
                 next_node.previous = previous_node
-                self.current_size -= len(old_value)
+                self.current_size -= self.obj_size(old_value)
                 del self._cache[key]
                 removals.append((key, old_value))
 
-            size = len(value.to_bytes())
+            size = self.obj_size(value)
             if value is not None and self.current_size + size <= self._max_size:
                 added_node = self._add(key, value, size)
                 added = True
@@ -89,7 +94,7 @@ class LRUCache:
 
         return added, removals
 
-    def get(self, key: bytes) -> Optional[bytes]:
+    def get(self, key: bytes) -> Optional[Transaction]:
         with self._lock:
             node = self._cache.get(key)
             if node is not None:
@@ -113,7 +118,70 @@ class LRUCache:
                 node.previous, node.next, node.key, node.value
             previous_node.next = next_node
             next_node.previous = previous_node
-            self.current_size -= len(discard_value)
+            self.current_size -= self.obj_size(discard_value)
             del self._cache[discard_key]
             removals.append((discard_key, discard_value))
         return removals
+
+    def obj_size(self, o, handlers={}):
+        """This is a modified version of: https://code.activestate.com/recipes/577504/
+        to suit our bitcoin-specific needs
+
+        Returns the approximate memory footprint of an object and all of its contents.
+
+        Automatically finds the contents of the following builtin containers and
+        their subclasses:  tuple, list, deque, dict, set.
+
+        Additionally calculates the size of:
+        - electrumsv.transaction.Transaction
+        - electrumsv.transaction.XTxInput
+        - electrumsv.transaction.XTxOutput
+        - electrumsv.constants.ScriptType
+        - bitcoinx.Script
+        - bitcoinx.XPublicKey - approximation based on their serialized bytes footprint
+        """
+        dict_handler = lambda d: chain.from_iterable(d.items())
+
+        def attrs_object_iterator(obj):
+            """This is for iterating over attributes on classes produced via the 3rd
+            party library "attrs"""
+            return (getattr(obj, field.name) for field in obj.__attrs_attrs__)
+
+        all_handlers = {
+            tuple: iter,
+            list: iter,
+            deque: iter,
+            dict: dict_handler,
+            set: iter,
+            Transaction: attrs_object_iterator,
+            XTxInput: attrs_object_iterator,
+            XTxOutput: attrs_object_iterator}
+
+        all_handlers.update(handlers)  # user handlers take precedence
+        seen = set()  # track which object id's have already been seen
+        default_size = getsizeof(0)  # estimate sizeof object without __sizeof__
+
+        def sizeof(o):
+
+            if id(o) in seen:  # do not double count the same object
+                return 0
+            seen.add(id(o))
+            s = getsizeof(o, default_size)
+
+            if isinstance(o, bitcoinx.Script):
+                s = len(o)
+
+            if isinstance(o, ScriptType):
+                s = 28
+
+            if isinstance(o, XPublicKey):
+                s = len(o.to_bytes())  # easiest approximation
+
+            for typ, handler in all_handlers.items():
+                if isinstance(o, typ):
+                    s += sum(map(sizeof, handler(o)))
+                    break
+
+            return s
+
+        return sizeof(o)
