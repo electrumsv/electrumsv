@@ -18,7 +18,7 @@ class Node:
     value: Transaction
 
     def __init__(self, previous: Optional['Node']=None, next: Optional['Node']=None,
-            key: bytes=b'', value: Transaction=None) -> None:
+            key: bytes=b'', value=None) -> None:
         self.previous = previous if previous is not None else self
         self.next = previous if previous is not None else self
         self.key = key
@@ -110,7 +110,7 @@ class LRUCache:
             self.misses += 1
         return None
 
-    def _resize(self) -> List[Tuple[bytes, bytes]]:
+    def _resize(self) -> List[Tuple[bytes, Transaction]]:
         removals = []
         while len(self._cache)-1 >= self._max_count or self.current_size > self._max_size:
             node = self._root.next

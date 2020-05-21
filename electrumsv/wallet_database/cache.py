@@ -14,7 +14,7 @@ from ..constants import TxFlags, MAXIMUM_TXDATA_CACHE_SIZE_MB
 from ..logs import logs
 from ..transaction import Transaction
 from .tables import (CompletionCallbackType, InvalidDataError, MAGIC_UNTOUCHED_BYTEDATA,
-    MissingRowError, TransactionRow, TransactionTable, TxData, TxProof)
+    MissingRowError, TransactionTable, TxData, TxProof)
 from ..util.cache import LRUCache
 
 
@@ -109,17 +109,16 @@ class TransactionCache:
             self.update([ (tx_hash, TxData(date_added=date_updated, date_updated=date_updated),
                 tx, flags | TxFlags.HasByteData) ], completion_callback=completion_callback)
         else:
-            self.add([
-                TransactionRow(tx_hash, TxData(date_added=date_updated, date_updated=date_updated),
-                    tx, flags | TxFlags.HasByteData, None) ],
+            self.add([(tx_hash, TxData(date_added=date_updated, date_updated=date_updated),
+                    tx, flags | TxFlags.HasByteData, None)],
                 completion_callback=completion_callback)
 
-    def add(self, inserts: List[TransactionRow],
+    def add(self, inserts: List[Tuple[bytes, TxData, Transaction, TxFlags, Optional[str]]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         with self._lock:
             return self._add(inserts, completion_callback=completion_callback)
 
-    def _add(self, inserts: List[TransactionRow],
+    def _add(self, inserts: List[Tuple[bytes, TxData, Transaction, TxFlags, Optional[str]]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         """
         This infers the bytedata flag from the bytedata value for a given input row, and
@@ -144,16 +143,15 @@ class TransactionCache:
             if tx is not None:
                 self._txdata_cache.set(tx_hash, tx)
                 bytedata = tx.to_bytes()
-            inserts[i] = TransactionRow(tx_hash, metadata, bytedata, flags,
-                description)
+            inserts[i] = (tx_hash, metadata, bytedata, flags, description)
         self._store.create(inserts, completion_callback=completion_callback)
 
-    def update(self, updates: List[Tuple[bytes, TxData, Optional[bytes], TxFlags]],
+    def update(self, updates: List[Tuple[bytes, TxData, Optional[Transaction], TxFlags]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         with self._lock:
             self._update(updates, completion_callback=completion_callback)
 
-    def _update(self, updates: List[Tuple[bytes, TxData, Optional[bytes], TxFlags]],
+    def _update(self, updates: List[Tuple[bytes, TxData, Optional[Transaction], TxFlags]],
             update_all: bool=True,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         """
@@ -208,7 +206,7 @@ class TransactionCache:
                 incoming_tx, entry, new_entry)
             self._cache[tx_hash] = new_entry
             if incoming_tx:  # serialize txs -> binary before all db writes
-                incoming_bytedata = incoming_tx.to_bytes()
+                incoming_bytedata: Optional[bytes] = incoming_tx.to_bytes()
             else:
                 incoming_bytedata = None
 
@@ -298,8 +296,8 @@ class TransactionCache:
             if mask is not None and (mask & TxFlags.HasByteData) == 0:
                 return entry
             # If they do, and we have it cached, then give them the entry.
-            bytedata = self._txdata_cache.get(tx_hash)
-            if bytedata is not None:
+            tx = self._txdata_cache.get(tx_hash)
+            if tx is not None:
                 return entry
             force_store_fetch = True
         if not force_store_fetch:
@@ -373,7 +371,7 @@ class TransactionCache:
         return None
 
     def get_transaction_datas(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,
-            tx_hashes: Optional[Iterable[bytes]]=None) -> List[Tuple[bytes, bytes]]:
+            tx_hashes: Optional[Iterable[bytes]]=None) -> List[Tuple[bytes, Transaction]]:
         with self._lock:
             results = []
             missing_tx_hashes = []
@@ -391,7 +389,7 @@ class TransactionCache:
                     if row[2] & TxFlags.HasByteData != 0:
                         bytedata = cast(bytes, row[1])
                         tx = Transaction.from_bytes(bytedata)
-                        results.append((row[0], tx))
+                        results.append((row[0], tx))  # type: ignore
                         self._txdata_cache.set(row[0], tx)
         return results
 
