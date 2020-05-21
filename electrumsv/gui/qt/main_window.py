@@ -2266,7 +2266,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 return
         else:
             public_key = account.get_public_keys_for_id(key_id)[0]
-            address = public_key.to_address()
+            address = public_key.to_address(coin=Net.COIN)
 
         message = message.toPlainText().strip()
         try:
@@ -2358,6 +2358,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self.logger.exception("")
                 self.show_warning(_('Invalid Public key'))
                 return
+            public_key._coin = Net.COIN
         encrypted = public_key.encrypt_message_to_base64(message)
         encrypted_e.setText(encrypted)
 
