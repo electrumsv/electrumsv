@@ -201,6 +201,8 @@ class WalletWizard(BaseWizard):
     _password_state = PasswordState.UNKNOWN
     _wallet: Optional[Wallet] = None
 
+    DISABLE_ENTER_LEAVE = True
+
     def __init__(self, is_startup: bool=False,
             migration_data: Optional[MigrationContext]=None) -> None:
         super().__init__(None)
@@ -313,7 +315,7 @@ class SplashScreenPage(QWizardPage):
     def nextId(self) -> WalletPage:
         return self._next_page_id
 
-    def on_enter(self) -> None:
+    def initializePage(self) -> None:
         self._on_reset_next_page()
 
         button = self.wizard().button(QWizard.CustomButton1)
@@ -322,7 +324,7 @@ class SplashScreenPage(QWizardPage):
         button.setContentsMargins(10, 0, 10, 0)
         button.clicked.connect(self._on_release_notes_clicked)
 
-    def on_leave(self) -> None:
+    def cleanupPage(self) -> None:
         button = self.wizard().button(QWizard.CustomButton1)
         button.setVisible(False)
         button.clicked.disconnect()
@@ -615,6 +617,7 @@ class ChooseWalletPage(QWizardPage):
         button.setVisible(True)
         button.setText("  "+ _("Create &New Wallet") +"  ")
         button.clicked.connect(self._event_click_create_wallet)
+        button.show()
 
         cancel_button = wizard.button(QWizard.CancelButton)
         cancel_button.show()
@@ -659,6 +662,8 @@ class ChooseWalletPage(QWizardPage):
                 return
             # We can assume that the state does not exist because we doing initial population.
             entry = create_file_state(file_path)
+            if list_thread_id != self._list_thread_id:
+                return
             # This should filter out invalid wallets. But if there's an Sqlite error it will
             # skip them. In theory the retrying in the Sqlite support code should prevent
             # this from happening.
@@ -774,7 +779,7 @@ class OlderWalletMigrationPage(QWizardPage):
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         return self.isComplete()
 
-    def on_enter(self) -> None:
+    def initializePage(self) -> None:
         wizard: WalletWizard = self.wizard()
         wizard.setOption(QWizard.HaveCustomButton1, False)
         wizard.setOption(QWizard.NoCancelButton, True)
@@ -796,7 +801,7 @@ class OlderWalletMigrationPage(QWizardPage):
 
         wizard.button(QWizard.HelpButton).setFocus(Qt.OtherFocusReason)
 
-    def on_leave(self) -> None:
+    def cleanupPage(self) -> None:
         self._future.cancel()
         self._future = None
 
