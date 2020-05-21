@@ -1414,10 +1414,11 @@ class AbstractAccount:
 
     def can_export(self) -> bool:
         if self.is_watching_only():
-            keystore = self.get_keystore()
-            if keystore is not None:
-                return cast(KeyStore, keystore).can_export()
-        return True
+            return False
+        keystore = self.get_keystore()
+        if keystore is not None:
+            return cast(KeyStore, keystore).can_export()
+        return False
 
     def cpfp(self, tx: Transaction, fee: int) -> Optional[Transaction]:
         tx_hash = tx.hash()
