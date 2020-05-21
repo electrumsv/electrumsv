@@ -193,7 +193,9 @@ class Imported_KeyStore(Software_KeyStore):
 
         for row in keyinstance_rows:
             data = json.loads(row.derivation_data)
+            # TODO(rt12): No way to set coin in the 'PublicKey.from_' call.
             public_key = PublicKey.from_hex(data['pub'])
+            public_key._coin = Net.COIN
             self._public_keys[row.keyinstance_id] = public_key
             self._keypairs[public_key] = cast(str, data['prv'])
 
@@ -528,7 +530,9 @@ class Old_KeyStore(DerivablePaths, Deterministic_KeyStore):
 
     @classmethod
     def _mpk_to_PublicKey(cls, mpk: str) -> PublicKey:
-        return PublicKey.from_hex('04' + mpk)
+        public_key = PublicKey.from_hex('04' + mpk)
+        public_key._coin = Net.COIN
+        return public_key
 
     @classmethod
     def from_seed(cls, seed) -> 'Old_KeyStore':

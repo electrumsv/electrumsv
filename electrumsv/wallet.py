@@ -715,6 +715,21 @@ class AbstractAccount:
         self._wallet.update_keyinstance_descriptions([ (text, key_id) ])
         app_state.app.on_keyinstance_label_change(self, key_id, text)
 
+    def get_dummy_script_template(self, script_type: Optional[ScriptType]=None) -> ScriptTemplate:
+        public_key = PrivateKey(os.urandom(32)).public_key
+        return self.get_script_template(public_key, script_type)
+
+    def get_script_template(self, public_key: PublicKey,
+            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
+        if script_type is None:
+            script_type = self.get_default_script_type()
+        if script_type == ScriptType.P2PK:
+            return P2PK_Output(public_key)
+        elif script_type == ScriptType.P2PKH:
+            return public_key.to_address()
+        else:
+            raise Exception("unsupported script type", script_type)
+
     def get_default_script_type(self) -> ScriptType:
         return ScriptType(self._row.default_script_type)
 
@@ -1786,18 +1801,6 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
             keyinstance.script_type == ScriptType.NONE else keyinstance.script_type)
         return self.get_script_template(public_key, script_type)
 
-    def get_script_template(self, public_key: PublicKey,
-            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
-        if script_type is None:
-            script_type = self.get_default_script_type()
-        if script_type == ScriptType.P2PK:
-            return P2PK_Output(public_key)
-        elif script_type == ScriptType.P2PKH:
-            return public_key.to_address()
-        else:
-            raise Exception("unsupported script type", script_type)
-
-
 class DeterministicAccount(AbstractAccount):
     def __init__(self, wallet: 'Wallet', row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
@@ -1933,21 +1936,6 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
         script_type = (script_type if script_type is not None or
             keyinstance.script_type == ScriptType.NONE else keyinstance.script_type)
         return self.get_script_template(public_key, script_type)
-
-    def get_dummy_script_template(self, script_type: Optional[ScriptType]=None) -> ScriptTemplate:
-        public_key = PrivateKey(os.urandom(32)).public_key
-        return self.get_script_template(public_key, script_type)
-
-    def get_script_template(self, public_key: PublicKey,
-            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
-        if script_type is None:
-            script_type = self.get_default_script_type()
-        if script_type == ScriptType.P2PK:
-            return P2PK_Output(public_key)
-        elif script_type == ScriptType.P2PKH:
-            return public_key.to_address()
-        else:
-            raise Exception("unsupported script type", script_type)
 
     def derive_pubkeys(self, derivation_path: Sequence[int]) -> PublicKey:
         keystore = cast(Xpub, self.get_keystore())
