@@ -35,7 +35,7 @@ class TransactionCache:
 
         self._logger = logs.get_logger("cache-tx")
         self._cache: Dict[bytes, TransactionCacheEntry] = {}
-        self._bytedata_cache = LRUCache(max_size=txdata_cache_size)
+        self._txdata_cache = LRUCache(max_size=txdata_cache_size)
         self._store = store
 
         self._lock = threading.RLock()
@@ -49,7 +49,7 @@ class TransactionCache:
             self._logger.debug("attempting to cache unsettled transaction bytedata")
             rows = self._store.read(TxFlags.HasByteData, TxFlags.HasByteData|TxFlags.StateSettled)
             for row in rows:
-                self._bytedata_cache.set(row[0], Transaction.from_bytes(row[1]))
+                self._txdata_cache.set(row[0], Transaction.from_bytes(row[1]))
             self._logger.debug("matched/cached %d unsettled transactions", len(rows))
 
     def set_store(self, store: TransactionTable) -> None:
@@ -57,7 +57,7 @@ class TransactionCache:
 
     def set_maximum_cache_size_for_bytedata(self, maximum_size: int,
             force_resize: bool=False) -> None:
-        self._bytedata_cache.set_maximum_size(maximum_size, force_resize)
+        self._txdata_cache.set_maximum_size(maximum_size, force_resize)
 
     def _validate_transaction_bytes(self, tx_hash: bytes, bytedata: Optional[bytes]) -> bool:
         if bytedata is None:
@@ -142,7 +142,7 @@ class TransactionCache:
             self._cache[tx_hash] = TransactionCacheEntry(metadata, flags)
             bytedata = None
             if tx is not None:
-                self._bytedata_cache.set(tx_hash, tx)
+                self._txdata_cache.set(tx_hash, tx)
                 bytedata = tx.to_bytes()
             inserts[i] = TransactionRow(tx_hash, metadata, bytedata, flags,
                 description)
@@ -213,7 +213,7 @@ class TransactionCache:
                 incoming_bytedata = None
 
             if incoming_flags & TxFlags.HasByteData:
-                self._bytedata_cache.set(tx_hash, incoming_tx)
+                self._txdata_cache.set(tx_hash, incoming_tx)
             elif flags & TxFlags.HasByteData:
                 # Indicate the user is not changing the bytedata, it's a metadata/flags update.
                 incoming_bytedata = MAGIC_UNTOUCHED_BYTEDATA
@@ -264,7 +264,7 @@ class TransactionCache:
         with self._lock:
             self._logger.debug("cache_deletion: %s", hash_to_hex_str(tx_hash))
             del self._cache[tx_hash]
-            self._bytedata_cache.set(tx_hash, None)
+            self._txdata_cache.set(tx_hash, None)
             self._store.delete([ tx_hash ], completion_callback=completion_callback)
 
     def get_flags(self, tx_hash: bytes) -> Optional[TxFlags]:
@@ -298,7 +298,7 @@ class TransactionCache:
             if mask is not None and (mask & TxFlags.HasByteData) == 0:
                 return entry
             # If they do, and we have it cached, then give them the entry.
-            bytedata = self._bytedata_cache.get(tx_hash)
+            bytedata = self._txdata_cache.get(tx_hash)
             if bytedata is not None:
                 return entry
             force_store_fetch = True
@@ -314,7 +314,7 @@ class TransactionCache:
                 entry = TransactionCacheEntry(metadata, flags_get)
                 self._cache.update({ tx_hash: entry })
                 if bytedata is not None:
-                    self._bytedata_cache.set(tx_hash, Transaction.from_bytes(bytedata))
+                    self._txdata_cache.set(tx_hash, Transaction.from_bytes(bytedata))
                 self._logger.debug("get_entry/cache_change: %r", (hash_to_hex_str(tx_hash),
                     entry, TxFlags.to_repr(flags), TxFlags.to_repr(mask)))
                 # If they filter the entry they request, we only give them a matched result.
@@ -346,7 +346,7 @@ class TransactionCache:
         return entry is not None and (entry.flags & TxFlags.HasByteData) != 0
 
     def have_transaction_data_cached(self, tx_hash: bytes) -> bool:
-        return tx_hash in self._bytedata_cache
+        return tx_hash in self._txdata_cache
 
     def get_transaction(self, tx_hash: bytes, flags: Optional[TxFlags]=None,
             mask: Optional[TxFlags]=None) -> Optional[Transaction]:
@@ -380,7 +380,7 @@ class TransactionCache:
             for tx_hash, entry in self._get_entries(flags, mask, tx_hashes):
                 if entry.flags & TxFlags.HasByteData == 0:
                     continue
-                tx = self._bytedata_cache.get(tx_hash)
+                tx = self._txdata_cache.get(tx_hash)
                 if tx is not None:
                     results.append((tx_hash, tx))
                 else:
@@ -392,7 +392,7 @@ class TransactionCache:
                         bytedata = cast(bytes, row[1])
                         tx = Transaction.from_bytes(bytedata)
                         results.append((row[0], tx))
-                        self._bytedata_cache.set(row[0], tx)
+                        self._txdata_cache.set(row[0], tx)
         return results
 
     def get_entries(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,

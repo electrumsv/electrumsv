@@ -84,7 +84,7 @@ class LRUCache:
                 removals.append((key, old_value))
 
             size = self.obj_size(value)
-            if value is not None and self.current_size + size <= self._max_size:
+            if value is not None and size <= self._max_size:
                 added_node = self._add(key, value, size)
                 added = True
                 # Discount the root node when considering count.
@@ -112,7 +112,7 @@ class LRUCache:
 
     def _resize(self) -> List[Tuple[bytes, bytes]]:
         removals = []
-        while len(self._cache)-1 >= self._max_count:
+        while len(self._cache)-1 >= self._max_count or self.current_size > self._max_size:
             node = self._root.next
             previous_node, next_node, discard_key, discard_value = \
                 node.previous, node.next, node.key, node.value
@@ -123,7 +123,7 @@ class LRUCache:
             removals.append((discard_key, discard_value))
         return removals
 
-    def obj_size(self, o, handlers={}):
+    def obj_size(self, o):
         """This is a modified version of: https://code.activestate.com/recipes/577504/
         to suit our bitcoin-specific needs
 
@@ -157,7 +157,6 @@ class LRUCache:
             XTxInput: attrs_object_iterator,
             XTxOutput: attrs_object_iterator}
 
-        all_handlers.update(handlers)  # user handlers take precedence
         seen = set()  # track which object id's have already been seen
         default_size = getsizeof(0)  # estimate sizeof object without __sizeof__
 
