@@ -429,9 +429,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self.need_update.set()
         elif event == 'on_header_backfill':
             self.history_view.update()
-        elif event in ['status', 'banner', 'verified']:
+        elif event in ['status', 'banner']:
             # Handle in GUI thread
             self.network_signal.emit(event, args)
+        elif event == 'verified':
+            if args[0] == self._wallet.get_storage_path():
+                self.network_signal.emit(event, args)
         else:
             self.logger.debug("unexpected network message event='%s' args='%s'", event, args)
 
