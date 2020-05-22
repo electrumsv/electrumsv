@@ -121,13 +121,11 @@ class HistoryView(MyTreeWidget):
 
     @profiler
     def _on_update_history_list(self):
-        account_id = self._account_id
         item = self.currentItem()
         current_tx = item.data(0, Qt.UserRole)[1] if item else None
         self.clear()
-        if account_id is None:
+        if self._account is None:
             return
-        account = self._wallet.get_account(account_id)
         fx = app_state.fx
         if fx:
             fx.history_used_spot = False
@@ -135,7 +133,7 @@ class HistoryView(MyTreeWidget):
         header_at_height = app_state.headers.header_at_height
         chain = app_state.headers.longest_chain()
         missing_header_heights = []
-        for line, balance in account.get_history(self.get_domain()):
+        for line, balance in self._account.get_history(self.get_domain()):
             tx_id = hash_to_hex_str(line.tx_hash)
             conf = 0 if line.height <= 0 else max(local_height - line.height + 1, 0)
             timestamp = False
@@ -144,13 +142,13 @@ class HistoryView(MyTreeWidget):
                     timestamp = header_at_height(chain, line.height).timestamp
                 except MissingHeader:
                     missing_header_heights.append(line.height)
-            status = get_tx_status(account, line.tx_hash, line.height, conf, timestamp)
+            status = get_tx_status(self._account, line.tx_hash, line.height, conf, timestamp)
             status_str = get_tx_desc(status, timestamp)
-            has_invoice = account.invoices.paid.get(tx_id)
+            has_invoice = self._account.invoices.paid.get(tx_id)
             icon = get_tx_icon(status)
             v_str = self._main_window.format_amount(line.value_delta, True, whitespaces=True)
             balance_str = self._main_window.format_amount(balance, whitespaces=True)
-            label = account.get_transaction_label(line.tx_hash)
+            label = self._account.get_transaction_label(line.tx_hash)
             entry = ['', tx_id, status_str, label, v_str, balance_str]
             if fx and fx.show_history():
                 date = timestamp_to_datetime(time.time() if conf <= 0 else timestamp)
@@ -172,7 +170,7 @@ class HistoryView(MyTreeWidget):
             if line.value_delta and line.value_delta < 0:
                 item.setForeground(3, self.withdrawalBrush)
                 item.setForeground(4, self.withdrawalBrush)
-            item.setData(0, Qt.UserRole, (account_id, line.tx_hash))
+            item.setData(0, Qt.UserRole, (self._account_id, line.tx_hash))
             self.insertTopLevelItem(0, item)
             if current_tx == line.tx_hash:
                 self.setCurrentItem(item)
@@ -203,6 +201,9 @@ class HistoryView(MyTreeWidget):
             item.setText(3, label)
 
     def update_tx_item(self, tx_hash: bytes, height: int, conf, timestamp) -> None:
+        # External event may be called before the UI element has an account.
+        if self._account is None:
+            return
         status = get_tx_status(self._account, tx_hash, height, conf, timestamp)
         icon = get_tx_icon(status)
         tx_id = hash_to_hex_str(tx_hash)
