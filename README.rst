@@ -30,6 +30,11 @@ Qt interface, install the Qt dependencies::
 If you downloaded the source archive (zip or tar.gz), you can run ElectrumSV from its top-level
 directory, without installing it on your system.
 
+If you are running from the Github repository, you are advised to use the latest release branch,
+which at this time is `releases/1.3`. The `master` branch is used for the latest development
+changes and is not guaranteed to be as stable, or to guarantee support for more advanced features
+we may have merged and later reconsider.
+
 To run ElectrumSV from its top-level directory, first install the core dependencies::
 
     pip3 install --user -r contrib/deterministic-build/requirements.txt
