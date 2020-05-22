@@ -339,7 +339,7 @@ class TransactionTable(BaseWalletStore):
             tx_hashes = tx_hashes[batch_size:]
         return results
 
-    def create(self, entries: List[Any], completion_callback: Optional[
+    def create(self, entries: List[TransactionRow], completion_callback: Optional[
         CompletionCallbackType]=None) -> None:
         datas = []
         size_hint = 0

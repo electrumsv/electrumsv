@@ -8,7 +8,7 @@ import pytest
 from electrumsv.transaction import Transaction, XPublicKey
 
 from electrumsv.networks import Net, SVMainnet, SVTestnet
-from electrumsv.util.cache import LRUCache
+from electrumsv.util.misc import obj_size
 
 
 @pytest.fixture(params=(SVMainnet, SVTestnet))
@@ -42,14 +42,12 @@ def get_small_tx() -> Transaction:
     return tx
 
 def get_tx_datacarrier_size() -> int:
-    cache = LRUCache(10, 1000)
     # the sizes vary depending on 32 vs 64 bit and versions of python (maybe linux vs windows too)
-    return cache.obj_size(get_datacarrier_tx())
+    return obj_size(get_datacarrier_tx())
 
 def get_tx_small_size() -> int:
-    cache = LRUCache(10, 1000)
     # the sizes vary depending on 32 vs 64 bit and versions of python (maybe linux vs windows too)
-    return cache.obj_size(get_small_tx())
+    return obj_size(get_small_tx())
 
 @pytest.fixture
 def test_tx_datacarrier()-> Transaction:

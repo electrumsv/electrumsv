@@ -14,7 +14,7 @@ from ..constants import TxFlags, MAXIMUM_TXDATA_CACHE_SIZE_MB
 from ..logs import logs
 from ..transaction import Transaction
 from .tables import (CompletionCallbackType, InvalidDataError, MAGIC_UNTOUCHED_BYTEDATA,
-    MissingRowError, TransactionTable, TxData, TxProof)
+    MissingRowError, TransactionTable, TxData, TxProof, TransactionRow)
 from ..util.cache import LRUCache
 
 
@@ -143,8 +143,9 @@ class TransactionCache:
             if tx is not None:
                 self._txdata_cache.set(tx_hash, tx)
                 bytedata = tx.to_bytes()
-            inserts[i] = (tx_hash, metadata, bytedata, flags, description)
-        self._store.create(inserts, completion_callback=completion_callback)
+            inserts[i] = TransactionRow(  # type:ignore
+                tx_hash, metadata, bytedata, flags, description)
+        self._store.create(inserts, completion_callback=completion_callback)  # type:ignore
 
     def update(self, updates: List[Tuple[bytes, TxData, Optional[Transaction], TxFlags]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
