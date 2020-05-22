@@ -252,6 +252,7 @@ class SVRegTestnet(object):
     REGTEST_P2PKH_ADDRESS: P2PKH_Address = REGTEST_FUNDS_PUBLIC_KEY.to_address().to_string()
 
     # For CI/CD use (restapi will by default reset everything back to empty wallet with this seed)
+    # First receive address: mwv1WZTsrtKf3S9mRQABEeMaNefLbQbKpg
     REGTEST_DEFAULT_ACCOUNT_SEED = 'tprv8ZgxMBicQKsPd4wsdaJ11eH84eq4hHLX1K6Mx8EQQhJzq8jr25WH1m8hg' \
         'GkCqnksJDCZPZbDoMbQ6QtroyCyn5ZckCmsLeiHDb1MAxhNUHN'
 

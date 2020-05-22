@@ -4,6 +4,12 @@ import unittest
 from electrumsv.util import format_satoshis, get_identified_release_signers
 from electrumsv.util.cache import LRUCache
 
+from .conftest import get_tx_datacarrier_size, get_tx_small_size
+
+
+SIZEOF_TEST_TX_DATA = get_tx_datacarrier_size()
+SIZEOF_TEST_TX_SMALL = get_tx_small_size()
+
 
 class TestUtil(unittest.TestCase):
     def test_format_satoshis(self):
@@ -96,15 +102,16 @@ def test_lrucache_count_empty(max_count: int, max_size: int):
     assert cache.hits == 0
     assert cache.misses == 1
 
-@pytest.mark.parametrize("max_count,max_size", [ (10, None), (None, 10), (10, 10) ])
-def test_lrucache_add_single(max_count: int, max_size: int) -> None:
+@pytest.mark.parametrize("max_count,max_size", [ (10, None), (None, 10 * SIZEOF_TEST_TX_DATA),
+    (10, 10 * SIZEOF_TEST_TX_DATA) ])
+def test_lrucache_add_single(max_count: int, max_size: int, test_tx_datacarrier) -> None:
     k = b'1'
-    v = b'2'
+    v = test_tx_datacarrier
     cache = LRUCache(max_count=max_count, max_size=max_size)
     added, removals = cache.set(k, v)
     assert added
     assert len(removals) == 0
-    assert cache.current_size == 1
+    assert cache.current_size == SIZEOF_TEST_TX_DATA
 
     cached_value = cache.get(k)
     assert cached_value == v
@@ -117,18 +124,19 @@ def test_lrucache_add_single(max_count: int, max_size: int) -> None:
     assert cache.hits == 2
     assert cache.misses == 0
 
-@pytest.mark.parametrize("max_count,max_size", [ (3, None), (None, 3), (3, 3) ])
-def test_lrucache_add_to_limit(max_count: int, max_size: int):
+@pytest.mark.parametrize("max_count,max_size", [ (3, None), (None, 3*SIZEOF_TEST_TX_DATA),
+    (3, 3*SIZEOF_TEST_TX_DATA) ])
+def test_lrucache_add_to_limit(max_count: int, max_size: int, test_tx_datacarrier):
     entries = []
     cache = LRUCache(max_count=max_count, max_size=max_size)
     for i in range(1, 1+3):
         k = chr(i).encode()
-        v = chr(i*2).encode()
+        v = test_tx_datacarrier
         entries.append((k, v))
         added, removals = cache.set(k, v)
         assert added
         assert len(removals) == 0
-    assert cache.current_size == 3
+    assert cache.current_size == 3*SIZEOF_TEST_TX_DATA
     assert cache.hits == 0
     assert cache.misses == 0
 
@@ -142,13 +150,14 @@ def test_lrucache_add_to_limit(max_count: int, max_size: int):
     assert v is None
     assert cache.misses == 1
 
-@pytest.mark.parametrize("max_count,max_size", [ (3, None), (None, 3), (3, 3) ])
-def test_lrucache_add_past_limit(max_count: int, max_size: int) -> None:
+@pytest.mark.parametrize("max_count,max_size", [ (3, None), (None, 3*SIZEOF_TEST_TX_DATA),
+    (3, 3*SIZEOF_TEST_TX_DATA) ])
+def test_lrucache_add_past_limit(max_count: int, max_size: int, test_tx_datacarrier) -> None:
     entries = []
     cache = LRUCache(max_count=max_count, max_size=max_size)
     for i in range(1, 1+4):
         k = chr(i).encode()
-        v = chr(i*2).encode()
+        v = test_tx_datacarrier
         entries.append((k, v))
         added, removals = cache.set(k, v)
         if i < 4:
@@ -156,7 +165,7 @@ def test_lrucache_add_past_limit(max_count: int, max_size: int) -> None:
         else:
             assert len(removals) == 1
             assert removals[0] == entries[0]
-    assert cache.current_size == 3
+    assert cache.current_size == 3*SIZEOF_TEST_TX_DATA
     assert cache.hits == 0
     assert cache.misses == 0
 
@@ -175,7 +184,8 @@ def test_lrucache_add_past_limit(max_count: int, max_size: int) -> None:
         assert cache.hits == i
         assert cache.misses == 1
 
-@pytest.mark.parametrize("max_count,max_size", [ (3, None), (None, 3), (3, 3) ])
+@pytest.mark.parametrize("max_count,max_size", [ (3, None), (None, 3*SIZEOF_TEST_TX_DATA),
+    (3, 3*SIZEOF_TEST_TX_DATA) ])
 def test_lrucache_add_replacement(max_count: int, max_size: int) -> None:
     cache = LRUCache(max_count=max_count, max_size=max_size)
     added, removals = cache.set(b'1', b'2')
@@ -187,48 +197,48 @@ def test_lrucache_add_replacement(max_count: int, max_size: int) -> None:
     assert cache.get(b'1') == b'3'
 
 # Have key value smaller than max size, set key value larger than max size, neither set.
-def test_lrucache_size_add_replacement_fails() -> None:
-    cache = LRUCache(max_size=10)
-    added, removals = cache.set(b'1', b'2'*10)
+def test_lrucache_size_add_replacement_fails(test_tx_small, test_tx_datacarrier) -> None:
+    cache = LRUCache(max_size=SIZEOF_TEST_TX_SMALL)
+    added, removals = cache.set(b'1', test_tx_small)
     assert added
     assert len(removals) == 0
-    assert cache.current_size == 10
-    added, removals = cache.set(b'1', b'3'*11)
+    assert cache.current_size == SIZEOF_TEST_TX_SMALL
+
+    added, removals = cache.set(b'1', test_tx_datacarrier)  # same key larger than max size of cache
     assert not added
-    assert removals == [(b'1', b'2'*10)]
+    assert removals == [(b'1', test_tx_small)]
     assert cache.get(b'1') is None
     assert cache.current_size == 0
 
-def test_lrucache_size_add_fails() -> None:
-    cache = LRUCache(max_size=10)
-    added, removals = cache.set(b'1', b'2'*11)
+def test_lrucache_size_add_fails(test_tx_datacarrier) -> None:
+    cache = LRUCache(max_size=1000)
+    added, removals = cache.set(b'1', test_tx_datacarrier)
     assert not added
     assert len(removals) == 0
     assert cache.current_size == 0
 
-def test_lrucache_contains() -> None:
-    cache = LRUCache(10, 10)
+def test_lrucache_contains(test_tx_small) -> None:
+    cache = LRUCache(10, 10*SIZEOF_TEST_TX_SMALL)
     assert b'1' not in cache
-    cache.set(b'1', b'2')
+    cache.set(b'1', test_tx_small)
     assert b'1' in cache
 
-@pytest.mark.parametrize("max_count,max_size", [ (3, None), (None, 3), (3, 3) ])
-def test_lrucache_add_past_limit_lru_ordering(max_count: int, max_size: int) -> None:
-    entries = []
-    limit = max_count if max_count is not None else max_size
+@pytest.mark.parametrize("max_count,max_size", [ (3, None), (None, 3*SIZEOF_TEST_TX_SMALL),
+    (3, 3*SIZEOF_TEST_TX_SMALL) ])
+def test_lrucache_add_past_limit_lru_ordering(max_count: int, max_size: int, test_tx_small) -> None:
     cache = LRUCache(max_count=max_count, max_size=max_size)
-    cache.set(b'1', b'1')
-    cache.set(b'2', b'2')
-    cache.set(b'3', b'3')
-    assert cache.get(b'1') == b'1'
-    assert cache.get(b'3') == b'3'
-    added, removals = cache.set(b'4', b'4')
+    cache.set(b'1', test_tx_small)
+    cache.set(b'2', test_tx_small)
+    cache.set(b'3', test_tx_small)
+    assert cache.get(b'1') == test_tx_small
+    assert cache.get(b'3') == test_tx_small
+    added, removals = cache.set(b'4', test_tx_small)
     assert added
-    assert removals == [(b'2', b'2')]
-    assert cache.get(b'3') == b'3'
-    added, removals = cache.set(b'5', b'5')
+    assert removals == [(b'2', test_tx_small)]
+    assert cache.get(b'3') == test_tx_small
+    added, removals = cache.set(b'5', test_tx_small)
     assert added
-    assert removals == [(b'1', b'1')]
-    added, removals = cache.set(b'6', b'6')
+    assert removals == [(b'1', test_tx_small)]
+    added, removals = cache.set(b'6', test_tx_small)
     assert added
-    assert removals == [(b'4', b'4')]
+    assert removals == [(b'4', test_tx_small)]

@@ -31,6 +31,19 @@ tx_hex_2 = ("010000000113529b6e34ceebfa3911c569b568ef48b95cc25d4c5c6a5b2435d30c9
     "87b1812206fd4efc9ada388acc0dd3e00000000001976a914337106761eb441a326d4027f6d5aa19eed550c298"+
     "8ac00000000")
 
+tx_hex_3 = ("01000000011953528c5b35f5ec81031738445eab87607214e7206a72b94c74653e1bf962ce00000000"+
+    "6a47304402205cbc645cc4fc9e3c303ca1ec25439819482e88c2fd1297ca7d4de60c1cc9971702204a903faebe"+
+    "1373d16d832ef1f97043ddd5a4759114017894d57891186277cb1f412103e2a28ed23d71e7747e12b60c425319"+
+    "57839e0a07503c4baecf679f73222b63e2ffffffff03000000000000000009006a0648656c6c6f0a68c18e4500"+
+    "0000001976a9143037f09afa26dca90a4870fe94e8efdec9992faa88ac1e37744f000000001976a914adcbfd68"+
+    "6766d3dadfdd8c438185608cd727441288aceb000000")
+
+tx_hex_4 = ("0100000001ee315ce3d4792c50f3b8a7ea3c4e848dd6fa17bb8da4244166563bb98d1084cb01000000"+
+    "6b483045022100a509bb7f733863a2f677e5feae921cfbaa43077bc5567bf05a4d26fcb02d344a02206b0f16dc"+
+    "1ff0f540601ca480c7af27241e3c5080ab56a65a28a55f0d5d6315c041210205e928059e9fbfd9a981f5e8f878"+
+    "429ede9d69f90d9122b32619f4f225659dd2ffffffff02000000000000000009006a0648656c6c6f0af5030000"+
+    "000000001976a914adcbfd686766d3dadfdd8c438185608cd727441288aceb000000")
+
 
 
 class TestWalletDataTable:
@@ -219,11 +232,11 @@ class TestTransactionCache:
         cache = TransactionCache(self.store)
 
         tx = Transaction.from_hex(tx_hex_1)
+        tx_hash = tx.hash()
         with SynchronousWriter() as writer:
-            cache.add_transaction(tx, completion_callback=writer.get_callback())
+            cache.add_transaction(tx_hash, tx, completion_callback=writer.get_callback())
             assert writer.succeeded()
 
-        tx_hash = tx.hash()
         assert cache.is_cached(tx_hash)
         entry = cache.get_entry(tx_hash)
         assert TxFlags.HasByteData == entry.flags & TxFlags.HasByteData
@@ -234,22 +247,22 @@ class TestTransactionCache:
         cache = TransactionCache(self.store)
 
         tx = Transaction.from_hex(tx_hex_1)
+        tx_hash = tx.hash()
         data = [ tx.hash(), TxData(height=1295924,position=4,fee=None, date_added=1,
             date_updated=1), None, TxFlags.Unset, None ]
         with SynchronousWriter() as writer:
             cache.add([ data ], completion_callback=writer.get_callback())
             assert writer.succeeded()
 
-        entry = cache.get_entry(tx.hash())
+        entry = cache.get_entry(tx_hash)
         assert entry is not None
         assert TxFlags.Unset == entry.flags & TxFlags.STATE_MASK
 
         with SynchronousWriter() as writer:
-            cache.add_transaction(tx, TxFlags.StateCleared,
+            cache.add_transaction(tx_hash, tx, TxFlags.StateCleared,
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
-        tx_hash = tx.hash()
         entry = cache.get_entry(tx_hash)
         assert entry is not None
         assert cache.have_transaction_data_cached(tx_hash)
@@ -259,11 +272,11 @@ class TestTransactionCache:
     def test_add_then_update(self):
         cache = TransactionCache(self.store)
 
-        bytedata_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
+        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_1 = tx_1.hash()
         metadata_1 = TxData(position=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, metadata_1, bytedata_1, TxFlags.StateDispatched, None) ],
+            cache.add([ (tx_hash_1, metadata_1, tx_1, TxFlags.StateDispatched, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -292,18 +305,18 @@ class TestTransactionCache:
         rows = self.store.read(tx_hashes=[tx_hash_1])
         assert 1 == len(rows)
         get_tx_hash, bytedata_get, flags_get, metadata_get = rows[0]
-        assert bytedata_1 == bytedata_get
+        assert tx_1.to_bytes() == bytedata_get
         assert flags_get & TxFlags.HasByteData != 0
 
     @pytest.mark.timeout(5)
     def test_delete(self):
         cache = TransactionCache(self.store)
 
-        tx_bytes_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(tx_bytes_1)
+        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_1 = tx_1.hash()
         data = TxData(position=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateDispatched, None) ],
+            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateDispatched, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -321,15 +334,15 @@ class TestTransactionCache:
     def test_uncleared_bytedata_requirements(self) -> None:
         cache = TransactionCache(self.store)
 
-        tx_bytes_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(tx_bytes_1)
+        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_1 = tx_1.hash()
         data = TxData(position=11)
         for state_flag in TRANSACTION_FLAGS:
             with pytest.raises(wallet_database.InvalidDataError):
                 cache.add([ (tx_hash_1, data, None, state_flag, None) ])
 
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateSigned, None) ],
+            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSigned, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -344,11 +357,11 @@ class TestTransactionCache:
 
         assert cache.get_flags(os.urandom(10).hex()) is None
 
-        tx_bytes_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(tx_bytes_1)
+        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_1 = tx_1.hash()
         data = TxData(position=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateDispatched, None) ],
+            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateDispatched, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -359,10 +372,10 @@ class TestTransactionCache:
     @pytest.mark.timeout(5)
     def test_get_metadata(self):
         # Full entry caching for non-settled transactions, otherwise only metadata.
-        bytedata_set_1 = os.urandom(10)
+        bytedata_set_1 = bytes.fromhex(tx_hex_1)
         tx_hash_1 = bitcoinx.double_sha256(bytedata_set_1)
         metadata_set_1 = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
-        bytedata_set_2 = os.urandom(10)
+        bytedata_set_2 = bytes.fromhex(tx_hex_2)
         tx_hash_2 = bitcoinx.double_sha256(bytedata_set_2)
         metadata_set_2 = TxData(height=1, fee=2, position=10, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
@@ -391,7 +404,7 @@ class TestTransactionCache:
     @pytest.mark.timeout(5)
     def test_get_transaction_after_metadata(self):
         # Getting an entry for a settled transaction should update from metadata-only to full.
-        bytedata_set = os.urandom(10)
+        bytedata_set = bytes.fromhex(tx_hex_1)
         tx_hash = bitcoinx.double_sha256(bytedata_set)
         metadata_set = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
@@ -452,11 +465,11 @@ class TestTransactionCache:
     def test_get_entry(self):
         cache = TransactionCache(self.store)
 
-        bytedata_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
+        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_1 = tx_1.hash()
         data = TxData(position=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, bytedata_1, TxFlags.StateSettled, None) ],
+            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -515,11 +528,11 @@ class TestTransactionCache:
     def test_get_height(self):
         cache = TransactionCache(self.store)
 
-        bytedata_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
+        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_1 = tx_1.hash()
         metadata_1 = TxData(height=11)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, metadata_1, bytedata_1, TxFlags.StateSettled, None) ],
+            cache.add([ (tx_hash_1, metadata_1, tx_1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -535,8 +548,8 @@ class TestTransactionCache:
     def test_get_unsynced_hashes(self):
         cache = TransactionCache(self.store)
 
-        bytedata_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
+        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_1 = tx_1.hash()
         metadata_1 = TxData(height=11)
         with SynchronousWriter() as writer:
             cache.add([ (tx_hash_1, metadata_1, None, TxFlags.Unset, None) ],
@@ -548,7 +561,7 @@ class TestTransactionCache:
 
         metadata_2 = TxData()
         with SynchronousWriter() as writer:
-            cache.update([ (tx_hash_1, metadata_2, bytedata_1, TxFlags.HasByteData) ],
+            cache.update([ (tx_hash_1, metadata_2, tx_1, TxFlags.HasByteData) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -558,11 +571,11 @@ class TestTransactionCache:
     def test_get_unverified_entries_too_high(self):
         cache = TransactionCache(self.store)
 
-        tx_bytes_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(tx_bytes_1)
+        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_1 = tx_1.hash()
         data = TxData(height=11, position=22, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateSettled, None) ],
+            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -572,12 +585,12 @@ class TestTransactionCache:
     def test_get_unverified_entries(self) -> None:
         cache = TransactionCache(self.store)
 
-        tx_bytes_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(tx_bytes_1)
+        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_1 = tx_1.hash()
 
         data = TxData(height=11, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_bytes_1, TxFlags.StateSettled, None) ],
+            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -593,42 +606,42 @@ class TestTransactionCache:
         cache = TransactionCache(self.store)
 
         # Add the transaction that should be reset back to settled, with data fields cleared.
-        tx_bytes_y1 = bytes.fromhex(tx_hex_1) + b"y1"
-        tx_hash_y1 = bitcoinx.double_sha256(tx_bytes_y1)
+        tx_y1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_y1 = tx_y1.hash()
 
         data_y1 = TxData(height=common_height+1, position=33, fee=44, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_y1, data_y1, tx_bytes_y1, TxFlags.StateSettled, None) ],
+            cache.add([ (tx_hash_y1, data_y1, tx_y1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
         # Add the transaction that would be reset but is below the common height.
-        tx_bytes_n1 = bytes.fromhex(tx_hex_1) + b"n1"
-        tx_hash_n1 = bitcoinx.double_sha256(tx_bytes_n1)
+        tx_n1 = Transaction.from_hex(tx_hex_2)
+        tx_hash_n1 = tx_n1.hash()
 
         data_n1 = TxData(height=common_height-1, position=33, fee=44, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_n1, data_n1, tx_bytes_n1, TxFlags.StateSettled, None) ],
+            cache.add([ (tx_hash_n1, data_n1, tx_n1, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
         # Add the transaction that would be reset but is the common height.
-        tx_bytes_n2 = bytes.fromhex(tx_hex_1) + b"n2"
-        tx_hash_n2 = bitcoinx.double_sha256(tx_bytes_n2)
+        tx_n2 = Transaction.from_hex(tx_hex_3)
+        tx_hash_n2 = tx_n2.hash()
 
         data_n2 = TxData(height=common_height, position=33, fee=44, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_n2, data_n2, tx_bytes_n2, TxFlags.StateSettled, None) ],
+            cache.add([ (tx_hash_n2, data_n2, tx_n2, TxFlags.StateSettled, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
         # Add a canary transaction that should remain untouched due to non-cleared state.
-        tx_bytes_n3 = bytes.fromhex(tx_hex_2)
-        tx_hash_n3 = bitcoinx.double_sha256(tx_bytes_n3)
+        tx_n3 = Transaction.from_hex(tx_hex_4)
+        tx_hash_n3 = tx_n3.hash()
 
         data_n3 = TxData(height=111, position=333, fee=444, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_n3, data_n3, tx_bytes_n3, TxFlags.StateDispatched, None) ],
+            cache.add([ (tx_hash_n3, data_n3, tx_n3, TxFlags.StateDispatched, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 

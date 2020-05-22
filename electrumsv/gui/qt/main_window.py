@@ -2161,7 +2161,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         def update_txcachesizes():
             nonlocal current_txcachesize_label, maximum_txcachesize_label
             nonlocal hits_label, misses_label
-            cache = self._wallet._transaction_cache._bytedata_cache
+            cache = self._wallet._transaction_cache._txdata_cache
             current_size, max_size = cache.get_sizes()
             current_txcachesize_label.setText(str(current_size))
             maximum_txcachesize_label.setText(str(max_size))
