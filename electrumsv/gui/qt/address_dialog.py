@@ -89,7 +89,7 @@ class KeyDialog(WindowModalDialog):
 
     def got_verified_tx(self, event: str, args) -> None:
         if event == 'verified' and args[0] == self._main_window._wallet.get_storage_path():
-            self._history_list.update_item(*args[1:])
+            self._history_list.update_tx_item(*args[1:])
 
     def update_key(self) -> None:
         script_template = self._account.get_script_template_for_id(self._key_id)
