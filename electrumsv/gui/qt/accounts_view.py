@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (QDialog, QLabel, QLineEdit, QListWidget, QListWidge
     QSplitter, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from electrumsv.bitcoin import address_from_string, script_template_to_string
-from electrumsv.constants import DerivationType
+from electrumsv.constants import AccountType, DerivationType
 from electrumsv.i18n import _
 from electrumsv.wallet import AbstractAccount, MultisigAccount, Wallet
 
@@ -107,7 +107,8 @@ class AccountsView(QSplitter):
             partial(self._view_secured_data, main_window=self._main_window, account_id=account_id))
         seed_menu.setEnabled(
             not account.is_watching_only() and not isinstance(account, MultisigAccount) \
-            and not account.is_hardware_wallet())
+            and not account.is_hardware_wallet() \
+            and account.type() != AccountType.IMPORTED_PRIVATE_KEY)
         menu.addSeparator()
 
         private_keys_menu = menu.addMenu(_("&Private keys"))
