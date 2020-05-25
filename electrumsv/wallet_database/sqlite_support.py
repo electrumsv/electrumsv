@@ -101,7 +101,7 @@ class SqliteWriteDispatcher:
         self._callback_thread.start()
 
     def _writer_thread_main(self) -> None:
-        self._db: sqlite3.Connection = self._db_context.acquire_connection()
+        self._db: sqlite3.Connection = self._db_context.get_connection()
 
         maximum_batch_size = 10
         write_entries: List[WriteEntryType] = []
@@ -203,8 +203,7 @@ class SqliteWriteDispatcher:
         # Wait for both threads to exit.
         self._writer_loop_event.wait()
         self._writer_thread.join()
-        self._db_context.release_connection(self._db)
-        del self._db
+        self._db_context.put_connection(self._db)
         self._callback_loop_event.wait()
         self._callback_thread.join()
 
@@ -227,21 +226,39 @@ class DatabaseContext:
     MEMORY_PATH = ":memory:"
     JOURNAL_MODE = JournalModes.WAL
 
+    SQLITE_CONN_POOL_SIZE = 8
+
     def __init__(self, wallet_path: str) -> None:
         if not self.is_special_path(wallet_path) and not wallet_path.endswith(DATABASE_EXT):
             wallet_path += DATABASE_EXT
         self._db_path = wallet_path
-        self._connections: List[sqlite3.Connection] = []
+        self._connection_pool: queue.Queue = queue.Queue()
         # self._debug_texts = {}
 
         self._logger = logs.get_logger("sqlite-context")
         self._lock = threading.Lock()
+        self._init_connection_pool()
         self._write_dispatcher = SqliteWriteDispatcher(self)
 
-    def acquire_connection(self) -> sqlite3.Connection:
+    def _init_connection_pool(self):
+        for conn in range(self.SQLITE_CONN_POOL_SIZE):
+            self.acquire_connection()
+
+    def get_connection(self) -> sqlite3.Connection:
+        try:
+            return self._connection_pool.get_nowait()
+        except queue.Empty as e:
+            self._logger.exception(e)
+            raise
+
+    def put_connection(self, connection: sqlite3.Connection) -> None:
+        self._connection_pool.put(connection)
+
+    def acquire_connection(self) -> None:
+        """adds 1 more connection to the pool"""
         return self._acquire_connection()
 
-    def _acquire_connection(self) -> sqlite3.Connection:
+    def _acquire_connection(self) -> None:
         # debug_text = traceback.format_stack()
         connection = sqlite3.connect(self._db_path, check_same_thread=False,
             isolation_level=None)
@@ -253,12 +270,12 @@ class DatabaseContext:
             self._ensure_journal_mode(connection)
 
         # self._debug_texts[connection] = debug_text
-        self._connections.append(connection)
-        return connection
+        self._connection_pool.put(connection)
 
-    def release_connection(self, connection: sqlite3.Connection) -> None:
+    def release_connection(self) -> None:
+        """release 1 more connection from the pool - raises empty queue error"""
         # del self._debug_texts[connection]
-        self._connections.remove(connection)
+        connection = self.get_connection()
         connection.close()
 
     def _ensure_journal_mode(self, connection: sqlite3.Connection) -> None:
@@ -312,10 +329,12 @@ class DatabaseContext:
         self._write_dispatcher.stop()
         # for connection in self._connections:
         #     print(self._debug_texts[connection])
-        assert self.is_closed(), f"{len(self._connections)}/{self._write_dispatcher.is_stopped()}"
+        for conn in range(self.SQLITE_CONN_POOL_SIZE):
+            self.release_connection()
+        assert self.is_closed(), f"{self._write_dispatcher.is_stopped()}"
 
     def is_closed(self) -> bool:
-        return len(self._connections) == 0 and self._write_dispatcher.is_stopped()
+        return self._connection_pool.qsize() == 0 and self._write_dispatcher.is_stopped()
 
     def is_special_path(self, path: str) -> bool:
         # Each connection has a private database.

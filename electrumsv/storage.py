@@ -339,11 +339,11 @@ class DatabaseStore(AbstractStore):
     def upgrade(self: 'DatabaseStore', has_password: bool, new_password: str) \
             -> Optional['DatabaseStore']:
         from .wallet_database.migration import update_database
-        connection = self._db_context.acquire_connection()
+        connection = self._db_context.get_connection()
         try:
             update_database(connection)
         finally:
-            self._db_context.release_connection(connection)
+            self._db_context.put_connection(connection)
         # Refresh the cached data.
         self.attempt_load_data()
         assert MIGRATION_CURRENT == self.get("migration")

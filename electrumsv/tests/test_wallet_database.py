@@ -54,7 +54,7 @@ class TestWalletDataTable:
         cls.db_context = DatabaseContext(cls.db_filename)
         # We hold onto an open connection to ensure that the database persists for the
         # lifetime of the tests.
-        cls.db = cls.db_context.acquire_connection()
+        cls.db = cls.db_context.get_connection()
         create_database(cls.db)
         update_database(cls.db)
         cls.store = wallet_database.WalletDataTable(cls.db_context)
@@ -63,7 +63,7 @@ class TestWalletDataTable:
     def teardown_class(cls):
         del cls.store._get_current_timestamp
         cls.store.close()
-        cls.db_context.release_connection(cls.db)
+        cls.db_context.put_connection(cls.db)
         cls.db_context.close()
 
     def setup_method(self):
@@ -195,7 +195,7 @@ class TestTransactionCache:
         cls.db_context = DatabaseContext(cls.db_filename)
         # We hold onto an open connection to ensure that the database persists for the
         # lifetime of the tests.
-        cls.db = cls.db_context.acquire_connection()
+        cls.db = cls.db_context.get_connection()
         create_database(cls.db)
         update_database(cls.db)
         cls.store = wallet_database.TransactionTable(cls.db_context)
@@ -203,7 +203,7 @@ class TestTransactionCache:
     @classmethod
     def teardown_class(cls):
         cls.store.close()
-        cls.db_context.release_connection(cls.db)
+        cls.db_context.put_connection(cls.db)
         cls.db_context.close()
 
     def setup_method(self):
@@ -691,7 +691,7 @@ class TestSqliteWriteDispatcher:
     def setup_method(self):
         self.dispatcher = None
         self._logger = logs.get_logger("...")
-        class DbConnection:
+        class MockSqlite3Connection:
             def __enter__(self, *args, **kwargs):
                 pass
             def __exit__(self, *args, **kwargs):
@@ -699,9 +699,9 @@ class TestSqliteWriteDispatcher:
             def execute(self, query: str) -> None:
                 pass
         class DbContext:
-            def acquire_connection(self):
-                return DbConnection()
-            def release_connection(self, conn):
+            def get_connection(self):
+                return MockSqlite3Connection()
+            def put_connection(self, connection):
                 pass
         self.db_context = DbContext()
 
