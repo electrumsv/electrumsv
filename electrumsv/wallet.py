@@ -724,7 +724,7 @@ class AbstractAccount:
         if script_type == ScriptType.P2PK:
             return P2PK_Output(public_key)
         elif script_type == ScriptType.P2PKH:
-            return public_key.to_address()
+            return public_key.to_address(coin=Net.COIN)
         else:
             raise Exception("unsupported script type", script_type)
 

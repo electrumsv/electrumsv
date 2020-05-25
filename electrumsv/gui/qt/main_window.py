@@ -2361,7 +2361,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self.logger.exception("")
                 self.show_warning(_('Invalid Public key'))
                 return
-            public_key._coin = Net.COIN
         encrypted = public_key.encrypt_message_to_base64(message)
         encrypted_e.setText(encrypted)
 

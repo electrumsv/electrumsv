@@ -1019,6 +1019,9 @@ class TextStore(AbstractStore):
                 # Reconcile spending of outputs.
                 for tx_id, tx_state in tx_states.items():
                     for n, tx_input in enumerate(tx_state.tx.inputs):
+                        if tx_input.is_coinbase():
+                            continue
+
                         script_data: Dict[str, Any] = {}
                         parse_script_sig(tx_input.script_sig.to_bytes(), script_data)
                         address_string = script_data["address"].to_string()
@@ -1108,7 +1111,7 @@ class TextStore(AbstractStore):
 
                 for pubkey_hex, enc_prvkey in keypairs.items():
                     pubkey = PublicKey.from_hex(pubkey_hex)
-                    address_string = pubkey.to_address()
+                    address_string = pubkey.to_address(coin=Net.COIN).to_string()
                     description = labels.pop(address_string, None)
                     address_states[address_string] = _AddressState(next_keyinstance_id,
                         len(keyinstance_rows), ScriptType.P2PKH)
