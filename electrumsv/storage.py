@@ -1019,6 +1019,9 @@ class TextStore(AbstractStore):
                 # Reconcile spending of outputs.
                 for tx_id, tx_state in tx_states.items():
                     for n, tx_input in enumerate(tx_state.tx.inputs):
+                        if tx_input.is_coinbase():
+                            continue
+
                         script_data: Dict[str, Any] = {}
                         parse_script_sig(tx_input.script_sig.to_bytes(), script_data)
                         address_string = script_data["address"].to_string()
