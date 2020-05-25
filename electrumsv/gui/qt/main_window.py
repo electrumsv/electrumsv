@@ -1346,7 +1346,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.set_receive_key(fresh_key)
 
     # Bound to mouse release in `_create_receive_form_layout`.
-    def _toggle_qr_window(self):
+    def _toggle_qr_window(self) -> None:
+        if self._receive_key_id is None:
+            self.show_message(_("No available receiving destination."))
+            return
+
         from . import qrwindow
         if not self.qr_window:
             self.qr_window = qrwindow.QR_Window(self)
