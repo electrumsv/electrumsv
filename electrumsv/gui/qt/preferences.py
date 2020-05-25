@@ -464,7 +464,10 @@ class PreferencesDialog(QDialog):
             account.set_default_script_type(new_script_type)
             self._main_window.update_receive_address_widget()
 
-        script_type_combo.currentIndexChanged.connect(on_script_type_change)
+        if account.is_watching_only():
+            script_type_combo.setEnabled(False)
+        else:
+            script_type_combo.currentIndexChanged.connect(on_script_type_change)
 
         update_script_types()
 
