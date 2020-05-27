@@ -1201,9 +1201,9 @@ class AbstractAccount:
                 if entry_flags is None:
                     adds.append((tx_hash, data, None, flags, None))
                 else:
-                    # If a transaction has bytedata at this point, but no state, then it is likely
-                    # that we added it locally and broadcast it ourselves. Transactions without
-                    # bytedata cannot have a state.
+                    # If a transaction has bytedata at this point, but no state, then it is
+                    # likely that we added it locally and broadcast it ourselves. Transactions
+                    # without bytedata cannot have a state.
                     if entry_flags & \
                             (TxFlags.HasByteData|TxFlags.StateCleared|TxFlags.StateSettled) \
                             == TxFlags.HasByteData:

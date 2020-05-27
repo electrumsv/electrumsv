@@ -592,10 +592,14 @@ class TriggeredCallbacks:
     def __init__(self) -> None:
         self._callbacks: Dict[str, List[Any]] = defaultdict(list)
         self._callback_lock = threading.Lock()
+        self._callback_logger = logs.get_logger("callback-logger")
 
     def register_callback(self, callback: Any, events: List[str]) -> None:
         with self._callback_lock:
             for event in events:
+                if callback in self._callbacks[event]:
+                    self._callback_logger.error("Callback reregistered %s %s", event, callback)
+                    continue
                 self._callbacks[event].append(callback)
 
     def unregister_callback(self, callback) -> None:
