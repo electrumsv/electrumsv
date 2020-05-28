@@ -26,6 +26,7 @@
 
 import ast
 import base64
+import binascii
 import copy
 import hashlib
 import json
@@ -46,8 +47,8 @@ from .bitcoin import is_address_valid, address_from_string
 from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, MIGRATION_CURRENT,
     MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind, TxFlags, TransactionOutputFlag,
     KeyInstanceFlag, PaymentState)
-from .crypto import pw_encode, pw_decode, InvalidPassword
-from .exceptions import IncompatibleWalletError
+from .crypto import pw_encode, pw_decode
+from .exceptions import IncompatibleWalletError, InvalidPassword
 from .i18n import _
 from .keystore import bip44_derivation
 from .logs import logs
@@ -391,6 +392,10 @@ class TextStore(AbstractStore):
             self.decrypt(password)
         except DecryptionError:
             raise InvalidPassword
+        except binascii.Error:
+            # Someone opens something that isn't a wallet and gets asked for a password.
+            # Decryption can't happen because base64 decoding fails.
+            raise IncompatibleWalletError
 
     def decrypt(self, password: str) -> bytes:
         assert self._raw is not None

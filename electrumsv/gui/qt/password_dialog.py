@@ -34,12 +34,13 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QGridLayout, QLabel, QLineEdit, QWidget
 )
 
+from electrumsv.exceptions import IncompatibleWalletError
 from electrumsv.i18n import _
 
 from .virtual_keyboard import VirtualKeyboard
 from .util import (
-    Buttons, ButtonsLineEdit, CancelButton, FormSectionWidget, icon_path, OkButton, read_QIcon,
-    WindowModalDialog
+    Buttons, ButtonsLineEdit, CancelButton, FormSectionWidget, icon_path, MessageBox, OkButton,
+    read_QIcon, WindowModalDialog
 )
 
 
@@ -337,7 +338,13 @@ class PasswordDialog(WindowModalDialog):
             self.pw.textChanged.connect(self._on_text_changed)
 
     def _on_text_changed(self, text: str) -> None:
-        if self._password_check_fn(text):
+        is_password_valid = False
+        try:
+            is_password_valid = self._password_check_fn(text)
+        except IncompatibleWalletError:
+            MessageBox.show_error(_("Please check that this is a valid wallet."))
+
+        if is_password_valid:
             self._ok_button.setEnabled(True)
         else:
             self._ok_button.setEnabled(False)
