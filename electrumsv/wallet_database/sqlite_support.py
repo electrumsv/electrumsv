@@ -226,7 +226,7 @@ class DatabaseContext:
     MEMORY_PATH = ":memory:"
     JOURNAL_MODE = JournalModes.WAL
 
-    SQLITE_CONN_POOL_SIZE = 8
+    SQLITE_CONN_POOL_SIZE = 0
 
     def __init__(self, wallet_path: str) -> None:
         if not self.is_special_path(wallet_path) and not wallet_path.endswith(DATABASE_EXT):
@@ -237,28 +237,22 @@ class DatabaseContext:
 
         self._logger = logs.get_logger("sqlite-context")
         self._lock = threading.Lock()
-        self._init_connection_pool()
         self._write_dispatcher = SqliteWriteDispatcher(self)
-
-    def _init_connection_pool(self):
-        for conn in range(self.SQLITE_CONN_POOL_SIZE):
-            self.increase_connection_pool()
 
     def acquire_connection(self) -> sqlite3.Connection:
         try:
             return self._connection_pool.get_nowait()
         except queue.Empty as e:
-            self._logger.exception(e)
-            raise
+            self.increase_connection_pool()
+            return self._connection_pool.get_nowait()
 
     def release_connection(self, connection: sqlite3.Connection) -> None:
         self._connection_pool.put(connection)
 
     def increase_connection_pool(self) -> None:
         """adds 1 more connection to the pool"""
-        return self._increase_connection_pool()
+        self.SQLITE_CONN_POOL_SIZE += 1
 
-    def _increase_connection_pool(self) -> None:
         # debug_text = traceback.format_stack()
         connection = sqlite3.connect(self._db_path, check_same_thread=False,
             isolation_level=None)
@@ -274,8 +268,7 @@ class DatabaseContext:
 
     def decrease_connection_pool(self) -> None:
         """release 1 more connection from the pool - raises empty queue error"""
-        # del self._debug_texts[connection]
-        connection = self.acquire_connection()
+        connection = self._connection_pool.get_nowait()
         connection.close()
 
     def _ensure_journal_mode(self, connection: sqlite3.Connection) -> None:
@@ -327,10 +320,14 @@ class DatabaseContext:
 
     def close(self) -> None:
         self._write_dispatcher.stop()
-        # for connection in self._connections:
-        #     print(self._debug_texts[connection])
-        for conn in range(self.SQLITE_CONN_POOL_SIZE):
-            self.release_connection()
+        try:
+            for conn in range(self.SQLITE_CONN_POOL_SIZE):
+                self.decrease_connection_pool()
+        except queue.Empty:
+            self._logger.exception(
+                "one of the connections in the pool was not released prior to"
+                "closing of the database context instance.")
+            raise
         assert self.is_closed(), f"{self._write_dispatcher.is_stopped()}"
 
     def is_closed(self) -> bool:
