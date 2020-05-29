@@ -36,6 +36,12 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.3.2
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-2-9893a10d8987
+  * Wallet migration: Pre-1.3 wallets with coinbase transactions, likely only occuring for miners
+    or people being paid by miners, would error when migrating.
+  * Notifications: The notification center displayed notifications incorrectly on Linux.
+
 # Release 1.3.0
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-0-227ce8ddbb8a
   * Wallet storage: A wallet is now stored in a database, and not a text file.
