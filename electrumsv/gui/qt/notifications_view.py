@@ -32,7 +32,7 @@ from typing import Any, List
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
 from PyQt5.QtGui import QPainter, QPixmap
 from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QLayout, QWidget,
-    QHBoxLayout, QSizePolicy, QStyle, QStyleOption, QToolBar, QAction, QListWidget,
+    QHBoxLayout, QStyle, QStyleOption, QToolBar, QAction, QListWidget,
     QListWidgetItem)
 
 from electrumsv.constants import WalletEventFlag, WalletEventType
@@ -250,13 +250,14 @@ class Card(QWidget):
         image_container_label.setObjectName("CardImage")
 
         image_label = QLabel(image_text)
-        image_label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
         image_label.setAlignment(Qt.AlignHCenter)
 
         name_layout = QVBoxLayout()
         name_layout.setContentsMargins(0, 0, 0, 0)
+        name_layout.addStretch(1)
         name_layout.addWidget(image_container_label)
         name_layout.addWidget(image_label)
+        name_layout.addStretch(1)
 
         action_layout = QVBoxLayout()
         action_layout.setSpacing(0)
@@ -265,7 +266,7 @@ class Card(QWidget):
 
         self._layout = QHBoxLayout()
         self._layout.setSpacing(8)
-        self._layout.setContentsMargins(20, 10, 20, 10)
+        self._layout.setContentsMargins(10, 10, 10, 10)
         self._layout.addLayout(name_layout)
         self.add_main_content(self._layout)
         self._layout.addLayout(action_layout)
@@ -288,7 +289,7 @@ class Card(QWidget):
 class NotificationCard(Card):
     def add_main_content(self, parent_layout: QHBoxLayout) -> None:
         layout = QVBoxLayout()
-        parent_layout.addLayout(layout, 1)
+        parent_layout.addLayout(layout)
 
         layout.addStretch(1)
         if self._row.event_type == WalletEventType.SEED_BACKUP_REMINDER:
