@@ -65,7 +65,7 @@ class LRUCache:
         return key in self._cache
 
     def set(self, key: bytes, value: Optional[Transaction]) -> Tuple[bool, List[Tuple[
-        bytes, Transaction]]]:
+            bytes, Transaction]]]:
         added = False
         removals: List[Tuple[bytes, Transaction]] = []
         with self._lock:
@@ -82,11 +82,12 @@ class LRUCache:
             size = obj_size(value)
             if value is not None and size <= self._max_size:
                 added_node = self._add(key, value, size)
-                added = True
-                # Discount the root node when considering count.
+                a, b, c, d = len(self._cache)-1, self._max_count, self.current_size, self._max_size
                 resize_removals = self._resize()
-                assert all(t[0] != added_node.key for t in resize_removals), "removed added node"
+                assert all(t[0] != added_node.key for t in resize_removals), \
+                    f"removed added node {a} {b} {c} {d}"
                 removals.extend(resize_removals)
+                added = True
 
         return added, removals
 
@@ -108,7 +109,8 @@ class LRUCache:
 
     def _resize(self) -> List[Tuple[bytes, Transaction]]:
         removals = []
-        while len(self._cache)-1 >= self._max_count or self.current_size > self._max_size:
+        # Discount the root node when considering count.
+        while len(self._cache) > self._max_count or self.current_size > self._max_size:
             node = self._root.next
             previous_node, next_node, discard_key, discard_value = \
                 node.previous, node.next, node.key, node.value
