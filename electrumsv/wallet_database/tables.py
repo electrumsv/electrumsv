@@ -56,10 +56,10 @@ class BaseWalletStore:
     def __init__(self, db_context: DatabaseContext) -> None:
         self._logger = logs.get_logger(self.LOGGER_NAME)
         self._db_context = db_context
-        self._db: sqlite3.Connection = db_context.get_connection()
+        self._db: sqlite3.Connection = db_context.acquire_connection()
 
     def close(self) -> None:
-        self._db_context.put_connection(self._db)
+        self._db_context.release_connection(self._db)
 
     def __enter__(self):
         return self

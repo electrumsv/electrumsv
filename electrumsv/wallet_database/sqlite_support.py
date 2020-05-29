@@ -101,7 +101,7 @@ class SqliteWriteDispatcher:
         self._callback_thread.start()
 
     def _writer_thread_main(self) -> None:
-        self._db: sqlite3.Connection = self._db_context.get_connection()
+        self._db: sqlite3.Connection = self._db_context.acquire_connection()
 
         maximum_batch_size = 10
         write_entries: List[WriteEntryType] = []
@@ -203,7 +203,7 @@ class SqliteWriteDispatcher:
         # Wait for both threads to exit.
         self._writer_loop_event.wait()
         self._writer_thread.join()
-        self._db_context.put_connection(self._db)
+        self._db_context.release_connection(self._db)
         self._callback_loop_event.wait()
         self._callback_thread.join()
 
@@ -242,23 +242,23 @@ class DatabaseContext:
 
     def _init_connection_pool(self):
         for conn in range(self.SQLITE_CONN_POOL_SIZE):
-            self.acquire_connection()
+            self.increase_connection_pool()
 
-    def get_connection(self) -> sqlite3.Connection:
+    def acquire_connection(self) -> sqlite3.Connection:
         try:
             return self._connection_pool.get_nowait()
         except queue.Empty as e:
             self._logger.exception(e)
             raise
 
-    def put_connection(self, connection: sqlite3.Connection) -> None:
+    def release_connection(self, connection: sqlite3.Connection) -> None:
         self._connection_pool.put(connection)
 
-    def acquire_connection(self) -> None:
+    def increase_connection_pool(self) -> None:
         """adds 1 more connection to the pool"""
-        return self._acquire_connection()
+        return self._increase_connection_pool()
 
-    def _acquire_connection(self) -> None:
+    def _increase_connection_pool(self) -> None:
         # debug_text = traceback.format_stack()
         connection = sqlite3.connect(self._db_path, check_same_thread=False,
             isolation_level=None)
@@ -272,10 +272,10 @@ class DatabaseContext:
         # self._debug_texts[connection] = debug_text
         self._connection_pool.put(connection)
 
-    def release_connection(self) -> None:
+    def decrease_connection_pool(self) -> None:
         """release 1 more connection from the pool - raises empty queue error"""
         # del self._debug_texts[connection]
-        connection = self.get_connection()
+        connection = self.acquire_connection()
         connection.close()
 
     def _ensure_journal_mode(self, connection: sqlite3.Connection) -> None:
