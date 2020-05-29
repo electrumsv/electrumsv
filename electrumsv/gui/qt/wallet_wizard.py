@@ -695,8 +695,9 @@ class ChooseWalletPage(QWizardPage):
             return
 
         row_index = self._wallet_table.rowCount()
-        if entry.path not in self._recent_wallet_entries:
-            self._wallet_table.insertRow(row_index)
+        if entry.path in self._recent_wallet_entries:
+            return
+        self._wallet_table.insertRow(row_index)
         self._recent_wallet_entries[entry.path] = entry
 
         row_widget = QWidget()

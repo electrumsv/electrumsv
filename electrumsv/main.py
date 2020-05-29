@@ -34,7 +34,7 @@ import time
 from electrumsv import daemon, web
 from electrumsv.app_state import app_state, AppStateProxy, DefaultApp
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
-from electrumsv.exceptions import InvalidPassword
+from electrumsv.exceptions import IncompatibleWalletError, InvalidPassword
 from electrumsv.logs import logs
 from electrumsv.networks import Net, SVTestnet, SVScalingTestnet, SVRegTestnet
 from electrumsv.platform import platform
@@ -186,7 +186,7 @@ def run_offline_command(config, config_options):
     if cmd.requires_password:
         try:
             wallet.check_password(password)
-        except InvalidPassword:
+        except (InvalidPassword, IncompatibleWalletError):
             print("Error: This password cannot access the wallet's private data.")
             sys.exit(1)
     if cmd.requires_network:
