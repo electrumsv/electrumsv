@@ -29,10 +29,11 @@
 from functools import partial
 from typing import Any, List
 
-from PyQt5.QtCore import QObject, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, pyqtSignal
 from PyQt5.QtGui import QPainter, QPixmap
-from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QLayout, QWidget, QHBoxLayout, QSizePolicy,
-    QStyle, QStyleOption, QToolBar, QAction, QListWidget, QListWidgetItem)
+from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QLayout, QWidget,
+    QHBoxLayout, QSizePolicy, QStyle, QStyleOption, QToolBar, QAction, QListWidget,
+    QListWidgetItem)
 
 from electrumsv.constants import WalletEventFlag, WalletEventType
 from electrumsv.i18n import _
@@ -186,15 +187,13 @@ class Cards(QWidget):
             self._layout.addWidget(self._list)
 
         card = self._context.card_factory(row)
-        card.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
-
         item_label_text = self._context.get_entry_text(row)
 
         list_item = QListWidgetItem()
         list_item.setText(item_label_text)
         # The item won't display unless it gets a size hint. It seems to resize horizontally
         # but unless the height is a minimal amount it won't do anything proactive..
-        list_item.setSizeHint(QSize(256, 130))
+        list_item.setSizeHint(card.sizeHint())
         self._list.addItem(list_item)
         self._list.setItemWidget(list_item, card)
 
