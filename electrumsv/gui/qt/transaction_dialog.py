@@ -27,7 +27,7 @@ from collections import namedtuple
 import copy
 import datetime
 import json
-from typing import Optional, Tuple
+from typing import Optional, Set, Tuple
 
 from PyQt5.QtGui import QFont, QBrush, QTextCharFormat, QCursor
 from PyQt5.QtWidgets import (
@@ -363,7 +363,11 @@ class TxDialog(QDialog, MessageBoxMixin):
                     return account.get_script_for_id(keyinstance_id) == output.script_pubkey
             return False
 
-        known_txos = set(self._account._utxos) | set(self._account._stxos)
+        known_txos: Set[Tuple[bytes, int]]
+        if self._account is None:
+            known_txos = set()
+        else:
+            known_txos = set(self._account._utxos) | set(self._account._stxos)
 
         def text_format(utxo_key: Tuple[bytes, int]) -> QTextCharFormat:
             nonlocal known_txos
@@ -421,14 +425,16 @@ class TxDialog(QDialog, MessageBoxMixin):
         tx_hash = tx.hash()
         if tx.is_complete():
             metadata = self._wallet._transaction_cache.get_metadata(tx_hash)
-            fee = metadata.fee
-            label = self._account.get_transaction_label(tx_hash)
-            value_delta = self._account.get_transaction_delta(tx_hash)
+            if metadata is not None:
+                fee = metadata.fee
+            if self._account is not None:
+                label = self._account.get_transaction_label(tx_hash)
+                value_delta = self._account.get_transaction_delta(tx_hash)
             if value_delta is None:
                 # When the transaction is fully signed and updated before the delta changes
                 # are committed to the database (pending write).
                 value_delta = 0
-            if self._account.has_received_transaction(tx_hash):
+            if self._account and self._account.has_received_transaction(tx_hash):
                 entry_flags = self._wallet._transaction_cache.get_flags(tx_hash)
                 if (entry_flags & TxFlags.StateSettled
                         or entry_flags & TxFlags.StateCleared and metadata.height > 0):
