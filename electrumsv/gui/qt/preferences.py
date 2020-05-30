@@ -44,9 +44,7 @@ import electrumsv.web as web
 from electrumsv.wallet import AbstractAccount, Wallet
 
 from .amountedit import BTCSatsByteEdit
-from .util import (
-    FormSectionWidget, HelpButton, Buttons, CloseButton, MessageBox,
-)
+from .util import Buttons, CloseButton, FormSectionWidget, HelpButton, HelpLabel, MessageBox
 
 if TYPE_CHECKING:
     from electrumsv.gui.qt.main_window import ElectrumWindow
@@ -84,6 +82,7 @@ class PreferencesDialog(QDialog):
         tabs_info.append((partial(self.wallet_widgets, wallet), _('Wallet')))
         if account is not None:
             tabs_info.append((partial(self.account_widgets, account), _('Account')))
+        tabs_info.append((self.network_widgets, _('Network')))
 
         tabs = QTabWidget()
         tabs.setUsesScrollButtons(False)
@@ -474,6 +473,43 @@ class PreferencesDialog(QDialog):
         form = FormSectionWidget(minimum_label_width=120)
         form.add_title(_("Account: {}").format(account.display_name()))
         form.add_row(_("Default script type"), script_type_combo)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(form)
+        vbox.addStretch(1)
+        tab.setLayout(vbox)
+
+    def network_widgets(self, tab: QWidget) -> None:
+        size_limit = app_state.electrumx_message_size_limit()
+        nz_label = HelpLabel(_('Message size limit') + ':',
+            _("This provides a denial of service limit for incoming messages. Messages that "
+            "exceed this limit will be dropped. At this time our service connections work with "
+            "JSON messages, so any included data will have been convered to text and will be at "
+            "least twice the size. Make this at least double the size of the largest transaction "
+            "you expect to receive.\n\nChanges only apply to new connections, not existing ones. "
+            "For now you must restart ElectrumSV to be sure that any changes are applied."))
+        nz_modifiable = app_state.config.is_modifiable('electrumx_message_size_limit')
+        nz = QSpinBox()
+        nz.setAlignment(Qt.AlignRight)
+        nz.setMinimum(0)
+        nz.setMaximum(MAXIMUM_TXDATA_CACHE_SIZE_MB) # This is a UI hard limit, not txdata..
+        nz.setValue(size_limit)
+        nz.setEnabled(nz_modifiable)
+        def on_nz():
+            value = nz.value()
+            # This will not resize the cache, as we do not want to be doing it with every
+            # change and some changes may be bad to actually put in place.
+            app_state.set_electrumx_message_size_limit(value)
+        nz.valueChanged.connect(on_nz)
+
+        tx_cache_layout = QHBoxLayout()
+        tx_cache_layout.setSpacing(15)
+        tx_cache_layout.addWidget(nz)
+        tx_cache_layout.addWidget(QLabel(_("MiB")))
+
+        form = FormSectionWidget(minimum_label_width=120)
+        form.add_row(nz_label, tx_cache_layout)
+        # form.add_row(_('Message size limit'), tx_cache_layout)
 
         vbox = QVBoxLayout()
         vbox.addWidget(form)
