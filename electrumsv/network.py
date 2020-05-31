@@ -46,7 +46,7 @@ from bitcoinx import (
 
 from .app_state import app_state
 from .bitcoin import scripthash_hex
-from .constants import TxFlags, MAX_INCOMING_ELECTRUMX_MESSAGE_SIZE
+from .constants import TxFlags
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
@@ -359,7 +359,8 @@ class SVSession(RPCSession):
             RPCSession.recalibrate_count = 10000000000
 
     def default_framer(self) -> NewlineFramer:
-        return NewlineFramer(max_size=MAX_INCOMING_ELECTRUMX_MESSAGE_SIZE)
+        max_size = app_state.electrumx_message_size_limit()*1024*1024
+        return NewlineFramer(max_size=max_size)
 
     @classmethod
     def _required_checkpoint_headers(cls):

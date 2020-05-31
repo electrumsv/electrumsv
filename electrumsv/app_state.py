@@ -39,6 +39,7 @@ from typing import Optional, Union
 from bitcoinx import Headers
 
 from .async_ import ASync
+from .constants import MAX_INCOMING_ELECTRUMX_MESSAGE_MB
 from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
@@ -110,6 +111,15 @@ class AppStateProxy(object):
         if self.decimal_point != prior:
             self.config.set_key('decimal_point', self.decimal_point, True)
         return self.decimal_point != prior
+
+    def electrumx_message_size_limit(self) -> int:
+        return max(0,
+            self.config.get('electrumx_message_size_limit', MAX_INCOMING_ELECTRUMX_MESSAGE_MB))
+
+    def set_electrumx_message_size_limit(self, maximum_size: int) -> None:
+        assert maximum_size >= 0, f"invalid cache size {maximum_size}"
+        self.config.set_key('electrumx_message_size_limit', max(0, maximum_size))
+
 
 
 class _AppStateMeta(type):
