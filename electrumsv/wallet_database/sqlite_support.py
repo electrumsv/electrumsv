@@ -4,7 +4,7 @@ import sqlite3
 import threading
 import time
 import traceback
-from typing import Any, Callable, List, NamedTuple, Optional, Tuple
+from typing import Any, Callable, List, NamedTuple, Optional, Tuple, Set
 
 from ..constants import DATABASE_EXT
 from ..logs import logs
@@ -233,6 +233,7 @@ class DatabaseContext:
             wallet_path += DATABASE_EXT
         self._db_path = wallet_path
         self._connection_pool: queue.Queue = queue.Queue()
+        self._active_connections: Set = set()
         # self._debug_texts = {}
 
         self._logger = logs.get_logger("sqlite-context")
@@ -241,12 +242,17 @@ class DatabaseContext:
 
     def acquire_connection(self) -> sqlite3.Connection:
         try:
-            return self._connection_pool.get_nowait()
+            conn = self._connection_pool.get_nowait()
+            self._active_connections.add(conn)
+            return conn
         except queue.Empty as e:
             self.increase_connection_pool()
-            return self._connection_pool.get_nowait()
+            conn = self._connection_pool.get_nowait()
+            self._active_connections.add(conn)
+            return conn
 
     def release_connection(self, connection: sqlite3.Connection) -> None:
+        self._active_connections.remove(connection)
         self._connection_pool.put(connection)
 
     def increase_connection_pool(self) -> None:
@@ -320,14 +326,10 @@ class DatabaseContext:
 
     def close(self) -> None:
         self._write_dispatcher.stop()
-        try:
-            for conn in range(self.SQLITE_CONN_POOL_SIZE):
-                self.decrease_connection_pool()
-        except queue.Empty:
-            self._logger.exception(
-                "one of the connections in the pool was not released prior to"
-                "closing of the database context instance.")
-            raise
+        for conn in self._active_connections:
+            self.release_connection(conn)
+        for conn in range(self.SQLITE_CONN_POOL_SIZE):
+            self.decrease_connection_pool()
         assert self.is_closed(), f"{self._write_dispatcher.is_stopped()}"
 
     def is_closed(self) -> bool:
