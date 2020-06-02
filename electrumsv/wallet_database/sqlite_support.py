@@ -10,6 +10,10 @@ from ..constants import DATABASE_EXT
 from ..logs import logs
 
 
+class LeakedSQLiteConnectionError(Exception):
+    pass
+
+
 # TODO(rt12): Remove the special case exception for WAL journal mode and see if the in-memory
 #     databases work now that there's locking preventing concurrent enabling of the WAL mode,
 #     in addition to the backing off of retries at enabling it. I vaguely recall that it perhaps
@@ -326,10 +330,18 @@ class DatabaseContext:
 
     def close(self) -> None:
         self._write_dispatcher.stop()
-        for conn in self._active_connections:
+
+        # Force close all outstanding connections
+        outstanding_connections = list(self._active_connections)
+        for conn in outstanding_connections:
             self.release_connection(conn)
+
         for conn in range(self.SQLITE_CONN_POOL_SIZE):
             self.decrease_connection_pool()
+
+        if len(outstanding_connections) != 0:
+            raise LeakedSQLiteConnectionError("There were still outstanding SQLite connections "
+                "when attempting to close DatabaseContext! Force closed all connections.")
         assert self.is_closed(), f"{self._write_dispatcher.is_stopped()}"
 
     def is_closed(self) -> bool:
