@@ -1,3 +1,5 @@
+import time
+
 import bitcoinx
 import os
 import pytest
@@ -11,6 +13,7 @@ from electrumsv.logs import logs
 from electrumsv.wallet_database import (AccountTable, DatabaseContext, KeyInstanceTable,
     MasterKeyTable, migration, PaymentRequestTable, SynchronousWriter, TransactionTable,
     TransactionDeltaTable, TransactionOutputTable, TxData, TxProof)
+from electrumsv.wallet_database.sqlite_support import LeakedSQLiteConnectionError
 from electrumsv.wallet_database.tables import (AccountRow, KeyInstanceRow,
     MAGIC_UNTOUCHED_BYTEDATA, MasterKeyRow, PaymentRequestRow, TransactionDeltaRow,
     WalletEventRow, WalletEventTable)
@@ -48,6 +51,36 @@ def test_migrations() -> None:
     # Do all the migrations apply cleanly?
     wallet_path = os.path.join(tempfile.mkdtemp(), "wallet_create")
     migration.create_database_file(wallet_path)
+
+
+def test_database_context(db_context: DatabaseContext) -> None:
+    time.sleep(0.5)  # gives time for writer thread to start and acquire 1st connection
+
+    # initial state
+    assert db_context._connection_pool.qsize() == 0
+    assert len(db_context._active_connections) == 1  # for writer thread
+
+    # should autoincrement additional connections as needed
+    conn = db_context.acquire_connection()
+    assert db_context._connection_pool.qsize() == 0
+    assert len(db_context._active_connections) == 2
+
+    # return 1 connection to the pool
+    db_context.release_connection(conn)
+    assert db_context._connection_pool.qsize() == 1
+    assert len(db_context._active_connections) == 1
+
+    # an exception is raised immediately on closing due to outstanding connections
+    conn = db_context.acquire_connection()
+    with pytest.raises(LeakedSQLiteConnectionError):
+        db_context.close()
+
+    assert db_context._connection_pool.qsize() == 0
+    assert len(db_context._active_connections) == 0
+
+    # any further use of the outstanding connection raises an exception too
+    with pytest.raises(sqlite3.ProgrammingError):
+        conn.commit()
 
 
 @pytest.mark.timeout(8)

@@ -691,7 +691,7 @@ class TestSqliteWriteDispatcher:
     def setup_method(self):
         self.dispatcher = None
         self._logger = logs.get_logger("...")
-        class DbConnection:
+        class MockSqlite3Connection:
             def __enter__(self, *args, **kwargs):
                 pass
             def __exit__(self, *args, **kwargs):
@@ -700,8 +700,8 @@ class TestSqliteWriteDispatcher:
                 pass
         class DbContext:
             def acquire_connection(self):
-                return DbConnection()
-            def release_connection(self, conn):
+                return MockSqlite3Connection()
+            def release_connection(self, connection):
                 pass
         self.db_context = DbContext()
 

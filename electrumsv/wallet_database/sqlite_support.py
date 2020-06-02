@@ -4,10 +4,14 @@ import sqlite3
 import threading
 import time
 import traceback
-from typing import Any, Callable, List, NamedTuple, Optional, Tuple
+from typing import Any, Callable, List, NamedTuple, Optional, Tuple, Set
 
 from ..constants import DATABASE_EXT
 from ..logs import logs
+
+
+class LeakedSQLiteConnectionError(Exception):
+    pass
 
 
 # TODO(rt12): Remove the special case exception for WAL journal mode and see if the in-memory
@@ -204,7 +208,6 @@ class SqliteWriteDispatcher:
         self._writer_loop_event.wait()
         self._writer_thread.join()
         self._db_context.release_connection(self._db)
-        del self._db
         self._callback_loop_event.wait()
         self._callback_thread.join()
 
@@ -227,11 +230,14 @@ class DatabaseContext:
     MEMORY_PATH = ":memory:"
     JOURNAL_MODE = JournalModes.WAL
 
+    SQLITE_CONN_POOL_SIZE = 0
+
     def __init__(self, wallet_path: str) -> None:
         if not self.is_special_path(wallet_path) and not wallet_path.endswith(DATABASE_EXT):
             wallet_path += DATABASE_EXT
         self._db_path = wallet_path
-        self._connections: List[sqlite3.Connection] = []
+        self._connection_pool: queue.Queue = queue.Queue()
+        self._active_connections: Set = set()
         # self._debug_texts = {}
 
         self._logger = logs.get_logger("sqlite-context")
@@ -239,9 +245,24 @@ class DatabaseContext:
         self._write_dispatcher = SqliteWriteDispatcher(self)
 
     def acquire_connection(self) -> sqlite3.Connection:
-        return self._acquire_connection()
+        try:
+            conn = self._connection_pool.get_nowait()
+            self._active_connections.add(conn)
+            return conn
+        except queue.Empty as e:
+            self.increase_connection_pool()
+            conn = self._connection_pool.get_nowait()
+            self._active_connections.add(conn)
+            return conn
 
-    def _acquire_connection(self) -> sqlite3.Connection:
+    def release_connection(self, connection: sqlite3.Connection) -> None:
+        self._active_connections.remove(connection)
+        self._connection_pool.put(connection)
+
+    def increase_connection_pool(self) -> None:
+        """adds 1 more connection to the pool"""
+        self.SQLITE_CONN_POOL_SIZE += 1
+
         # debug_text = traceback.format_stack()
         connection = sqlite3.connect(self._db_path, check_same_thread=False,
             isolation_level=None)
@@ -253,12 +274,11 @@ class DatabaseContext:
             self._ensure_journal_mode(connection)
 
         # self._debug_texts[connection] = debug_text
-        self._connections.append(connection)
-        return connection
+        self._connection_pool.put(connection)
 
-    def release_connection(self, connection: sqlite3.Connection) -> None:
-        # del self._debug_texts[connection]
-        self._connections.remove(connection)
+    def decrease_connection_pool(self) -> None:
+        """release 1 more connection from the pool - raises empty queue error"""
+        connection = self._connection_pool.get_nowait()
         connection.close()
 
     def _ensure_journal_mode(self, connection: sqlite3.Connection) -> None:
@@ -310,12 +330,22 @@ class DatabaseContext:
 
     def close(self) -> None:
         self._write_dispatcher.stop()
-        # for connection in self._connections:
-        #     print(self._debug_texts[connection])
-        assert self.is_closed(), f"{len(self._connections)}/{self._write_dispatcher.is_stopped()}"
+
+        # Force close all outstanding connections
+        outstanding_connections = list(self._active_connections)
+        for conn in outstanding_connections:
+            self.release_connection(conn)
+
+        for conn in range(self.SQLITE_CONN_POOL_SIZE):
+            self.decrease_connection_pool()
+
+        if len(outstanding_connections) != 0:
+            raise LeakedSQLiteConnectionError("There were still outstanding SQLite connections "
+                "when attempting to close DatabaseContext! Force closed all connections.")
+        assert self.is_closed(), f"{self._write_dispatcher.is_stopped()}"
 
     def is_closed(self) -> bool:
-        return len(self._connections) == 0 and self._write_dispatcher.is_stopped()
+        return self._connection_pool.qsize() == 0 and self._write_dispatcher.is_stopped()
 
     def is_special_path(self, path: str) -> bool:
         # Each connection has a private database.

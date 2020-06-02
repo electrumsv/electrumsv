@@ -60,7 +60,6 @@ class BaseWalletStore:
 
     def close(self) -> None:
         self._db_context.release_connection(self._db)
-        del self._db
 
     def __enter__(self):
         return self
