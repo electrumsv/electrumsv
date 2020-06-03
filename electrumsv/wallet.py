@@ -133,6 +133,7 @@ class UTXO:
     def to_tx_input(self, account: 'AbstractAccount') -> XTxInput:
         threshold = account.get_threshold(self.script_type)
         # NOTE(rt12) The typing of attrs subclasses is not detected, so have to ignore.
+        x_pubkeys = account.get_xpubkeys_for_id(self.keyinstance_id)
         return XTxInput( # type: ignore
             prev_hash=self.tx_hash,
             prev_idx=self.out_index,
@@ -140,8 +141,8 @@ class UTXO:
             sequence=0xffffffff,
             threshold=threshold,
             script_type=self.script_type,
-            signatures=[NO_SIGNATURE] * threshold,
-            x_pubkeys=account.get_xpubkeys_for_id(self.keyinstance_id),
+            signatures=[NO_SIGNATURE] * len(x_pubkeys),
+            x_pubkeys=x_pubkeys,
             value=self.value,
             keyinstance_id=self.keyinstance_id
         )
