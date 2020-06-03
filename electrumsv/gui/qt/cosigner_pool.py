@@ -166,6 +166,8 @@ class CosignerPool:
     # Externally invoked to find out if the transaction can be sent to cosigners.
     def show_send_to_cosigner_button(self, window: 'ElectrumWindow', account: AbstractAccount,
             tx: Transaction) -> bool:
+        if window.network is None:
+            return False
         if tx.is_complete() or account.can_sign(tx):
             return False
         account_id = account.get_id()
