@@ -822,9 +822,11 @@ class TransactionDeltaTable(BaseWalletStore):
             SELECT keyinstance_id, key_flags, script_type
                 FROM settled_history
                 GROUP BY keyinstance_id HAVING SUM(value_delta) == 0;""")
+    DEACTIVATE_KEYINSTANCE_FLAGS = (f"""
+        UPDATE KeyInstances
+        SET date_updated=?, flags=({KeyInstanceFlag.INACTIVE_MASK | KeyInstanceFlag.USER_SET_ACTIVE})
+        """ + "WHERE keyinstance_id IN ({0})")
     READ_ALL_SQL = "SELECT tx_hash, keyinstance_id, value_delta FROM TransactionDeltas"
-    # self._READ_ROW_SQL = ("SELECT value_delta, date_created, date_updated "+
-    #     "FROM "+ table_name +" WHERE keyinstance_id=? AND tx_hash=?")
     UPDATE_SQL = ("UPDATE TransactionDeltas SET date_updated=?, value_delta=? "
         "WHERE tx_hash=? AND keyinstance_id=?")
     UPDATE_RELATIVE_SQL = ("UPDATE TransactionDeltas SET date_updated=?, value_delta=value_delta+? "
@@ -861,13 +863,28 @@ class TransactionDeltaTable(BaseWalletStore):
             tx_hashes = tx_hashes[batch_size:]
         return results
 
-    def read_candidate_used_keys(self, account_id: int) \
+    def update_used_keys(self, account_id: int) \
             -> Sequence[Tuple[int]]:
+
         params = [account_id]
         cursor = self._db.execute(self.READ_CANDIDATE_USED_KEYS, params)  # type: ignore
-        rows = cursor.fetchall()
+        key_id_rows = cursor.fetchall()
         cursor.close()
-        return rows
+
+        key_ids = [key_id[0] for key_id in key_id_rows]
+        keys = key_ids.copy()
+        timestamp = self._get_current_timestamp()
+        params = [timestamp]
+        batch_size = SQLITE_MAX_VARS - len(params)
+        while len(keys):
+            keys = keys[:batch_size]
+            batch_query = (self.DEACTIVATE_KEYINSTANCE_FLAGS.format(",".join("?" for k in keys)))
+            cursor = self._db.execute(batch_query, keys + params) # type: ignore
+            _rows = cursor.fetchall()
+            cursor.close()
+            keys = keys[batch_size:]
+
+        return key_ids
 
     def create(self, entries: Iterable[TransactionDeltaRow],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:

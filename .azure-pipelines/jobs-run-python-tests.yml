@@ -15,7 +15,7 @@ jobs:
       architecture: x64
   - template: prepare-general-environment.yml
   - script: |
-      python3 -m pip install pytest pytest-cov pytest-timeout
+      python3 -m pip install pytest pytest-cov pytest-timeout pytest-mock
       python3 -m pytest -v -v -v --doctest-modules --junitxml=junit/test-results.xml --cov=electrumsv --cov-report=xml --cov-report=html electrumsv/tests
     displayName: 'Test with pytest'
   - script: |

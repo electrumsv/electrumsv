@@ -1,5 +1,5 @@
+import json
 import time
-
 import bitcoinx
 import os
 import pytest
@@ -8,15 +8,17 @@ import tempfile
 from typing import List
 
 from electrumsv.constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
-    PaymentState, WalletEventFlag, WalletEventType)
+    PaymentState, KeyInstanceFlag, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
-from electrumsv.wallet_database import (AccountTable, DatabaseContext, KeyInstanceTable,
-    MasterKeyTable, migration, PaymentRequestTable, SynchronousWriter, TransactionTable,
-    TransactionDeltaTable, TransactionOutputTable, TxData, TxProof)
+from electrumsv.transaction import Transaction
+from electrumsv.wallet_database import (migration, KeyInstanceTable, MasterKeyTable,
+    PaymentRequestTable, TransactionTable, DatabaseContext, TransactionDeltaTable,
+    TransactionOutputTable, SynchronousWriter, TxData, TxProof, AccountTable)
 from electrumsv.wallet_database.sqlite_support import LeakedSQLiteConnectionError
-from electrumsv.wallet_database.tables import (AccountRow, KeyInstanceRow,
-    MAGIC_UNTOUCHED_BYTEDATA, MasterKeyRow, PaymentRequestRow, TransactionDeltaRow,
-    WalletEventRow, WalletEventTable)
+from electrumsv.wallet_database.tables import (AccountRow, KeyInstanceRow, MAGIC_UNTOUCHED_BYTEDATA,
+    MasterKeyRow, PaymentRequestRow, TransactionDeltaRow, TransactionRow, WalletEventTable,
+    WalletEventRow)
+
 
 logs.set_level("debug")
 
@@ -1166,3 +1168,118 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
     assert db_lines[0].event_id == line1.event_id
 
 
+def test_update_used_keys():
+    """3 main scenarios to test:
+    - 2 x settled txs and zero balance -> used key gets deactivated
+    - 2 x unsettled tx -> not yet used (until settled)
+    - 2 x settled tx BUT user_set_active -> keeps it activated until manually deactivated"""
+
+    db_context = _db_context()
+    masterkey_table = MasterKeyTable(db_context)
+    accounts_table = AccountTable(db_context)
+    transaction_deltas_table = TransactionDeltaTable(db_context)
+    keyinstance_table = KeyInstanceTable(db_context)
+    tx_table = TransactionTable(db_context)
+
+    timestamp = tx_table._get_current_timestamp()
+    tx_entries = [
+        # 2 x Settled txs -> Used keyinstance (key_id = 1)
+        TransactionRow(
+            tx_hash=b'1', tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
+                date_updated=timestamp), tx_bytes=b'tx_bytes1',
+            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
+            description=None),
+        TransactionRow(tx_hash=b'2',
+            tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
+                date_updated=timestamp), tx_bytes=b'tx_bytes1',
+            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
+            description=None),
+        # 2 x Unsettled txs -> Not yet "Used" until settled (key_id = 2)
+        TransactionRow(tx_hash=b'3',
+            tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
+                date_updated=timestamp), tx_bytes=b'tx_bytes3',
+            flags=TxFlags(TxFlags.StateCleared | TxFlags.HasByteData | TxFlags.HasHeight),
+            description=None),
+        TransactionRow(tx_hash=b'4',
+            tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
+                date_updated=timestamp), tx_bytes=b'tx_bytes4',
+            flags=TxFlags(TxFlags.StateCleared | TxFlags.HasByteData | TxFlags.HasHeight),
+            description=None),
+        # 2 x Settled txs BUT keyinstance has flag: USER_SET_ACTIVE manually so not deactivated.
+        TransactionRow(tx_hash=b'5',
+            tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
+                date_updated=timestamp), tx_bytes=b'tx_bytes5',
+            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
+            description=None),
+        TransactionRow(tx_hash=b'6',
+            tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
+                date_updated=timestamp), tx_bytes=b'tx_bytes6',
+            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
+            description=None),
+    ]
+    tx_delta_entries = [
+        TransactionDeltaRow(tx_hash=b'1',keyinstance_id=1,value_delta=10),
+        TransactionDeltaRow(tx_hash=b'2',keyinstance_id=1,value_delta=-10),
+        TransactionDeltaRow(tx_hash=b'3', keyinstance_id=2, value_delta=10),
+        TransactionDeltaRow(tx_hash=b'4', keyinstance_id=2, value_delta=-10),
+        TransactionDeltaRow(tx_hash=b'5', keyinstance_id=3, value_delta=10),
+        TransactionDeltaRow(tx_hash=b'6', keyinstance_id=3, value_delta=-10)
+    ]
+
+    keyinstance_entries = [
+        KeyInstanceRow(keyinstance_id=1, account_id=1,masterkey_id=1,
+            derivation_type=DerivationType.BIP32, derivation_data=json.dumps({"subpath": [0, 0]}),
+            script_type=ScriptType.P2PKH, flags=KeyInstanceFlag.IS_ACTIVE, description=""),
+        KeyInstanceRow(keyinstance_id=2,account_id=1,masterkey_id=1,
+            derivation_type=DerivationType.BIP32, derivation_data=json.dumps({"subpath": [0, 1]}),
+            script_type=ScriptType.P2PKH, flags=KeyInstanceFlag.IS_ACTIVE, description=""),
+        KeyInstanceRow(keyinstance_id=3, account_id=1, masterkey_id=1,
+            derivation_type=DerivationType.BIP32, derivation_data=json.dumps({"subpath": [0, 1]}),
+            script_type=ScriptType.P2PKH, flags=KeyInstanceFlag.USER_SET_ACTIVE, description=""),
+    ]
+
+    with SynchronousWriter() as writer:
+        masterkey_table.create([(1, None, 2, b'1234')],
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    with SynchronousWriter() as writer:
+        accounts_table.create([(1, 1, ScriptType.P2PKH, 'name')],
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    with SynchronousWriter() as writer:
+        tx_table.create(tx_entries, completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    with SynchronousWriter() as writer:
+        keyinstance_table.create(keyinstance_entries, completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    with SynchronousWriter() as writer:
+        transaction_deltas_table.create(tx_delta_entries, completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    q = transaction_deltas_table.read()
+    assert len(q) == 6
+
+    q = tx_table.read()
+    assert len(q) == 6
+
+    q = keyinstance_table.read()
+    assert len(q) == 3
+
+    used_keys = transaction_deltas_table.update_used_keys(1)
+    assert len(used_keys) == 1
+    assert used_keys == [1]  # 2 x settled txs and zero balance for key
+    assert (2,1,2) not in used_keys  # unsettled
+    assert (3,1,2) not in used_keys  # USER_SET_ACTIVE
+
+    masterkey_table.close()
+    accounts_table.close()
+    transaction_deltas_table.close()
+    keyinstance_table.close()
+    tx_table.close()
+    db_context._write_dispatcher.stop()
+    time.sleep(1)
+    db_context.close()

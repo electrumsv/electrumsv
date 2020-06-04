@@ -1,23 +1,28 @@
+import asyncio
+import json
+import logging
 import os
 import shutil
 import sys
 import tempfile
+import threading
 from typing import Dict, Optional, List, Set
 import unittest
+from unittest.mock import patch
 
 import pytest
 
 from electrumsv.constants import (DATABASE_EXT, DerivationType, KeystoreTextType, ScriptType,
-    StorageKind, CHANGE_SUBPATH, RECEIVING_SUBPATH)
+    StorageKind, CHANGE_SUBPATH, RECEIVING_SUBPATH, KeyInstanceFlag)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (from_seed, from_xpub, Old_KeyStore, Multisig_KeyStore)
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
-from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount,
-    MultisigAccount, Wallet, StandardAccount)
+from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount, MultisigAccount,
+    Wallet, StandardAccount, AbstractAccount)
 from electrumsv.wallet_database import DatabaseContext
-from electrumsv.wallet_database.tables import AccountRow, KeyInstanceRow
+from electrumsv.wallet_database.tables import AccountRow, KeyInstanceRow, TransactionDeltaTable
 
 from .util import setup_async, tear_down_async, TEST_WALLET_PATH
 
@@ -476,6 +481,51 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
 
     if "testnet" == expected_network:
         Net.set_to(SVMainnet)
+
+
+def test_detect_used_keys(mocker):
+    class MockDatabaseContext:
+        def acquire_connection(self):
+            return
+        def release_connection(self, connection):
+            return
+
+    class MockWallet:
+        def __init__(self):
+            self._db_context = MockDatabaseContext()
+            self._storage = {'deactivate_used_keys':True}
+
+    class MockAccount(AbstractAccount):
+        def __init__(self):
+            self._id = 1
+            self._wallet = MockWallet()
+            self._deactivated_keys_lock = threading.Lock()
+            self._deactivated_keys = []
+            self._keyinstances = {
+                1: KeyInstanceRow(1, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 1]}),
+                    ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, ""),
+                2: KeyInstanceRow(2, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 2]}),
+                    ScriptType.P2PKH, KeyInstanceFlag.USER_SET_ACTIVE, ""),
+                3: KeyInstanceRow(3, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 3]}),
+                    ScriptType.P2PKH,
+                    (KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE), "")}
+            self._deactivated_keys_event = asyncio.Event()
+            self._logger = logging.getLogger("MockAccount")
+
+    def mock_update_used_keys(self, account_id):
+        """test coverage of this in 'test_wallet_database_tables.test_update_used_keys'"""
+        return [1,2,3]  # keyinstance_ids
+
+    mocker.patch.object(TransactionDeltaTable, 'update_used_keys', mock_update_used_keys)
+    account = MockAccount()
+    assert account._keyinstances[1].flags == KeyInstanceFlag.IS_ACTIVE
+    assert account._keyinstances[2].flags == KeyInstanceFlag.USER_SET_ACTIVE
+    assert account._keyinstances[3].flags == KeyInstanceFlag.IS_ACTIVE | \
+           KeyInstanceFlag.USER_SET_ACTIVE
+    account.detect_used_keys()
+    assert account._keyinstances[1].flags == KeyInstanceFlag.NONE
+    assert account._keyinstances[2].flags == KeyInstanceFlag.USER_SET_ACTIVE
+    assert account._keyinstances[3].flags == KeyInstanceFlag.USER_SET_ACTIVE
 
 
 # class TestImportedPrivkeyAccount:
