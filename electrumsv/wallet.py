@@ -461,8 +461,16 @@ class AbstractAccount:
     def get_master_public_key(self):
         return None
 
+    def have_transaction(self, tx_hash: bytes) -> bool:
+        return self._wallet._transaction_cache.is_cached(tx_hash)
+
     def have_transaction_data(self, tx_hash: bytes) -> bool:
         return self._wallet._transaction_cache.have_transaction_data(tx_hash)
+
+    def has_received_transaction(self, tx_hash: bytes) -> bool:
+        # At this time, this means received over the P2P network.
+        flags = self._wallet._transaction_cache.get_flags(tx_hash)
+        return flags is not None and (flags & (TxFlags.StateCleared | TxFlags.StateSettled)) != 0
 
     def get_transaction(self, tx_hash: bytes, flags: Optional[int]=None) -> Optional[Transaction]:
         return self._wallet._transaction_cache.get_transaction(tx_hash, flags)
@@ -478,11 +486,6 @@ class AbstractAccount:
             tx_hashes: Optional[Sequence[bytes]]=None,
             require_all: bool=True) -> List[Tuple[str, TxData]]:
         return self._wallet._transaction_cache.get_metadatas(flags, mask, tx_hashes, require_all)
-
-    def has_received_transaction(self, tx_hash: bytes) -> bool:
-        # At this time, this means received over the P2P network.
-        flags = self._wallet._transaction_cache.get_flags(tx_hash)
-        return flags is not None and (flags & (TxFlags.StateCleared | TxFlags.StateSettled)) != 0
 
     def __str__(self):
         return self.name()
@@ -939,7 +942,7 @@ class AbstractAccount:
     def set_transaction_state(self, tx_hash: bytes, flags: TxFlags) -> None:
         """ raises UnknownTransactionException """
         with self.transaction_lock:
-            if not self._wallet._transaction_cache.is_cached(tx_hash):
+            if not self.have_transaction(tx_hash):
                 raise UnknownTransactionException(f"tx {hash_to_hex_str(tx_hash)} unknown")
             existing_flags = self._wallet._transaction_cache.get_flags(tx_hash)
             updated_flags = self._wallet._transaction_cache.update_flags(tx_hash, flags)

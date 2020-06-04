@@ -1748,7 +1748,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 result = self.network.broadcast_transaction_and_wait(tx)
 
-                if result == tx.txid():
+                if result == tx.txid() and account.have_transaction(tx.hash()):
                     account.set_transaction_state(tx.hash(),
                         (TxFlags.StateDispatched | TxFlags.HasByteData))
                 return result
@@ -1758,7 +1758,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             try:
                 tx_id = future.result()
             except Exception as exception:
-                self.logger.info(f'raw server error (untrusted): {exception}')
+                self.logger.exception(f'raw server error (untrusted): {exception}')
                 reason = broadcast_failure_reason(exception)
                 d = UntrustedMessageDialog(
                     window, _("Transaction Broadcast Error"),
