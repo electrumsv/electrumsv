@@ -806,7 +806,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         server = self.network.main_server
         addr = server.state.donation_address
         if is_address_valid(addr):
-            addr = address_from_string(addr)
             self.pay_to_URI(web.create_URI(addr, 0, _('Donation for {}').format(server.host)))
         else:
             self.show_error(_('The server {} has not provided a valid donation address')
