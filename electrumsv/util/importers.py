@@ -29,7 +29,7 @@
 
 from enum import IntEnum
 import json
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from bitcoinx import Address, Base58Error, bip32_decompose_chain_string, hex_str_to_hash
 
@@ -100,7 +100,7 @@ class LabelImport:
     @classmethod
     def parse_label_sync_json(klass, account: AbstractAccount, text: str) -> LabelImportResult:
         addresses = klass._get_addresses(account)
-        updates: Tuple[str, str] = json.loads(text).items()
+        updates: List[Tuple[str, str]] = json.loads(text).items()
         results = LabelImportResult(LabelImportFormat.LABELSYNC)
         for label_reference, label_text in updates:
             if len(label_reference) == 64: # length of the transaction id (hex of hash)
