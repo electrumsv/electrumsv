@@ -174,7 +174,7 @@ class HistoryView(MyTreeWidget):
             self.insertTopLevelItem(0, item)
             if current_tx == line.tx_hash:
                 self.setCurrentItem(item)
-        if len(missing_header_heights):
+        if len(missing_header_heights) and self._main_window.network:
             self._main_window.network.backfill_headers_at_heights(missing_header_heights)
 
     def on_doubleclick(self, item, column):
