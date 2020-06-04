@@ -385,6 +385,19 @@ def multisig_script(x_pubkeys: List[XPublicKey], threshold: int) -> bytes:
     parts.append(pack_byte(Ops.OP_CHECKMULTISIG))
     return b''.join(parts)
 
+def bare_multisignatures(threshold: int, signatures: List[bytes]) -> List[bytes]:
+    '''
+    Forms of bare multi-signature need to only provide a number of signatures meeting the
+    threshold level. The signing protocol keeps track of the signature of each co-signer
+    which usually counts more than the threshold. If there are not enough signatures it is
+    padded out with NO_SIGNATURE entries to keep the script in correct structure, this only
+    happens for incomplete transactions.
+    '''
+    present_signatures = [ value for value in signatures if value != NO_SIGNATURE ][:threshold]
+    while len(present_signatures) < threshold:
+        present_signatures.append(NO_SIGNATURE)
+    return present_signatures
+
 
 def create_script_sig(script_type: ScriptType, threshold: int, x_pubkeys: List[XPublicKey],
         signatures: List[bytes]) -> Script:
@@ -393,14 +406,16 @@ def create_script_sig(script_type: ScriptType, threshold: int, x_pubkeys: List[X
     elif script_type == ScriptType.P2PKH:
         return Script(push_item(signatures[0]) + push_item(x_pubkeys[0].to_bytes()))
     elif script_type == ScriptType.MULTISIG_P2SH:
+        prepared_signatures = bare_multisignatures(threshold, signatures)
         parts = [pack_byte(Ops.OP_0)]
-        parts.extend(push_item(signature) for signature in signatures)
+        parts.extend(push_item(signature) for signature in prepared_signatures)
         nested_script = multisig_script(x_pubkeys, threshold)
         parts.append(push_item(nested_script))
         return Script(b''.join(parts))
     elif script_type == ScriptType.MULTISIG_BARE:
+        prepared_signatures = bare_multisignatures(threshold, signatures)
         parts = [pack_byte(Ops.OP_0)]
-        parts.extend(push_item(signature) for signature in signatures)
+        parts.extend(push_item(signature) for signature in prepared_signatures)
         return Script(b''.join(parts))
     elif script_type == ScriptType.MULTISIG_ACCUMULATOR:
         parts = []

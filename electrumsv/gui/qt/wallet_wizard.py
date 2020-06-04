@@ -201,8 +201,6 @@ class WalletWizard(BaseWizard):
     _password_state = PasswordState.UNKNOWN
     _wallet: Optional[Wallet] = None
 
-    DISABLE_ENTER_LEAVE = True
-
     def __init__(self, is_startup: bool=False,
             migration_data: Optional[MigrationContext]=None) -> None:
         super().__init__(None)
@@ -315,7 +313,7 @@ class SplashScreenPage(QWizardPage):
     def nextId(self) -> WalletPage:
         return self._next_page_id
 
-    def initializePage(self) -> None:
+    def on_enter(self) -> None:
         self._on_reset_next_page()
 
         button = self.wizard().button(QWizard.CustomButton1)
@@ -324,7 +322,7 @@ class SplashScreenPage(QWizardPage):
         button.setContentsMargins(10, 0, 10, 0)
         button.clicked.connect(self._on_release_notes_clicked)
 
-    def cleanupPage(self) -> None:
+    def on_leave(self) -> None:
         button = self.wizard().button(QWizard.CustomButton1)
         button.setVisible(False)
         button.clicked.disconnect()
@@ -609,7 +607,7 @@ class ChooseWalletPage(QWizardPage):
         wizard.set_wallet_path(None)
 
     # Qt default QWizardPage event when page is entered.
-    def initializePage(self) -> None:
+    def on_enter(self) -> None:
         self._clear_selection()
 
         wizard: WalletWizard = self.wizard()
@@ -643,7 +641,7 @@ class ChooseWalletPage(QWizardPage):
         self._wallet_table.setFocus()
 
     # Qt default QWizardPage event when page is exited.
-    def cleanupPage(self) -> None:
+    def on_leave(self) -> None:
         if self._list_thread is not None:
             self._list_thread_id += 1
             self._list_thread = None
@@ -780,7 +778,7 @@ class OlderWalletMigrationPage(QWizardPage):
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         return self.isComplete()
 
-    def initializePage(self) -> None:
+    def on_enter(self) -> None:
         wizard: WalletWizard = self.wizard()
         wizard.setOption(QWizard.HaveCustomButton1, False)
         wizard.setOption(QWizard.NoCancelButton, True)
@@ -802,7 +800,7 @@ class OlderWalletMigrationPage(QWizardPage):
 
         wizard.button(QWizard.HelpButton).setFocus(Qt.OtherFocusReason)
 
-    def cleanupPage(self) -> None:
+    def on_leave(self) -> None:
         self._future.cancel()
         self._future = None
 

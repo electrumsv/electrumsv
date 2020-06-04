@@ -31,9 +31,9 @@ from typing import Optional
 
 from bitcoinx import bip32_key_from_string, BIP32PublicKey
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QPainter
-from PyQt5.QtWidgets import (QAbstractItemView, QLabel, QLineEdit, QListWidget,
+from PyQt5.QtWidgets import (QAbstractItemView, QAbstractScrollArea, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QSizePolicy, QStyle, QStyleOption, QWizard)
 
 from electrumsv.constants import DerivationType, KeystoreTextType
@@ -247,6 +247,9 @@ class CosignerList(QListWidget):
 
         self.setSortingEnabled(False)
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustToContents)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
     def add_state(self, state: CosignerState) -> CosignerCard:
         card = CosignerCard(self._main_window, state, self._create)

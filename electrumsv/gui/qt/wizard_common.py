@@ -87,9 +87,7 @@ class BaseWizard(QWizard):
     # between them.
     # TODO: Look at using `initializePage` and `cleanupPage`.
     def _event_wizard_page_changed(self, page_id: int) -> None:
-        skip_page_events = getattr(self, "DISABLE_ENTER_LEAVE", False)
-
-        if self._last_page_id and not skip_page_events:
+        if self._last_page_id:
             page = self.page(self._last_page_id)
             if hasattr(page, "on_leave"):
                 page.on_leave()
@@ -100,13 +98,11 @@ class BaseWizard(QWizard):
         help_context: Optional[HelpContext] = getattr(page, "HELP_CONTEXT", None)
         self.button(QWizard.HelpButton).setVisible(help_context is not None)
 
-        if not skip_page_events:
-            if hasattr(page, "on_enter"):
-                page.on_enter()
-            else:
-                print("HIDE CUSTOM BUTTON")
-                button = self.button(QWizard.CustomButton1)
-                button.setVisible(False)
+        if hasattr(page, "on_enter"):
+            page.on_enter()
+        else:
+            button = self.button(QWizard.CustomButton1)
+            button.setVisible(False)
 
     def _event_help_requested(self) -> None:
         page = self.currentPage()

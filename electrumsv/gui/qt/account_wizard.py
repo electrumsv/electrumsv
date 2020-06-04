@@ -308,7 +308,7 @@ class AddAccountWizardPage(QWizardPage):
         option_list.itemDoubleClicked.connect(self._event_double_click_item)
 
     # Qt default QWizardPage event when page is entered.
-    def initializePage(self) -> None:
+    def on_enter(self) -> None:
         wizard: AccountWizard = self.wizard()
         # Clear the result. This shouldn't be needed except in the case of an unexpected error
         # where the wizard does not exit and the user returns back to this page.
@@ -319,8 +319,7 @@ class AddAccountWizardPage(QWizardPage):
         next_button.clicked.connect(self._event_click_next_button)
         self._restore_button_text = wizard.buttonText(QWizard.NextButton)
 
-    # Qt default QWizardPage event when page is exited.
-    def cleanupPage(self) -> None:
+    def on_leave(self) -> None:
         wizard: AccountWizard = self.wizard()
         next_button = wizard.button(QWizard.NextButton)
         next_button.clicked.disconnect(self._event_click_next_button)
@@ -1556,30 +1555,33 @@ class CreateMultisigAccountCustomPage(QWizardPage):
 
 
 class MultisigAccountCosignerListPage(QWizardPage):
-    _cosigner_states: List[CosignerState]
+    _cosigner_states: List[CosignerState] = []
 
     _list: Optional[QListWidget] = None
 
-    def __init__(self, wizard: AccountWizard):
+    def __init__(self, wizard: AccountWizard) -> None:
         super().__init__(wizard)
 
         self.setTitle(_("Create a Multi-signature Account") +" - "+ _("Cosigners"))
 
+        self._list = CosignerList(wizard.get_main_window())
+
         vbox = QVBoxLayout()
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+        vbox.addWidget(self._list)
         self.setLayout(vbox)
 
-    # Qt default QWizardPage event when page is entered.
-    def initializePage(self) -> None:
+    def on_enter(self) -> None:
+        self._list.clear()
         cosigner_count = self.field("multisig-n")
         self._cosigner_states = [ CosignerState(i) for i in range(cosigner_count) ]
 
-        # Create a new page layout that reflects the current user selected values.
-        discardable = QWidget()
-        discardable.setLayout(self.layout())
-        self.setLayout(self._create_layout())
+        for cosigner_state in self._cosigner_states:
+            card = self._list.add_state(cosigner_state)
+            card.cosigner_updated.connect(self.event_cosigner_updated)
 
-    # Qt default QWizardPage event when page is exited.
-    def cleanupPage(self) -> None:
+    def on_leave(self) -> None:
         pass
 
     # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
@@ -1606,20 +1608,7 @@ class MultisigAccountCosignerListPage(QWizardPage):
     # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
     # Overriding this requires us to emit the 'completeChanges' signal where applicable.
     def isComplete(self) -> bool:
-        return all(s.is_complete() for s in self._cosigner_states)
-
-    def _create_layout(self) -> QVBoxLayout:
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        wizard: AccountWizard = self.wizard()
-        self._list = CosignerList(wizard.get_main_window())
-        for cosigner_state in self._cosigner_states:
-            card = self._list.add_state(cosigner_state)
-            card.cosigner_updated.connect(self.event_cosigner_updated)
-        layout.addWidget(self._list)
-        return layout
+        return len(self._cosigner_states) and all(s.is_complete() for s in self._cosigner_states)
 
     def event_cosigner_updated(self, cosigner_index: int) -> None:
         self.completeChanged.emit()
