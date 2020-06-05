@@ -2,8 +2,10 @@ from enum import IntEnum
 from functools import partial, lru_cache
 import os.path
 import sys
+import traceback
 from typing import Any, Iterable, Callable, Optional, TYPE_CHECKING, Union
 
+from aiorpcx import RPCError
 from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QTimer,
     QModelIndex)
 from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette
@@ -291,7 +293,11 @@ class UntrustedMessageDialog(QDialog):
         ))
         text_label.setWordWrap(True)
         vbox.addWidget(text_label)
-        text_edit = QPlainTextEdit(str(exception))
+        if isinstance(exception, RPCError):
+            exc_text = str(exception)
+        else:
+            exc_text = "".join(traceback.TracebackException.from_exception(exception).format())
+        text_edit = QPlainTextEdit(exc_text)
         text_edit.setReadOnly(True)
         vbox.addWidget(text_edit)
         vbox.addStretch(1)
