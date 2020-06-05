@@ -1758,11 +1758,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             try:
                 tx_id = future.result()
             except Exception as exception:
-                self.logger.exception(f'raw server error (untrusted): {exception}')
+                self.logger.exception('unhandled exception broadcasting transaction')
                 reason = broadcast_failure_reason(exception)
                 d = UntrustedMessageDialog(
                     window, _("Transaction Broadcast Error"),
-                    _("Your transaction was not sent: ") + reason + ".",
+                    _("Your transaction was not sent: ") + reason +".",
                     exception)
                 d.exec()
             else:
