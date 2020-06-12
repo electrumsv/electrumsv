@@ -92,11 +92,11 @@ class HistoryView(MyTreeWidget):
         self.withdrawalBrush = QBrush(QColor("#BC1E1E"))
         self.invoiceIcon = read_QIcon("seal")
 
-    def _on_account_change(self, new_account_id: int) -> None:
+    def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
         self.clear()
         old_account_id = self._account_id
         self._account_id = new_account_id
-        self._account = self._main_window._wallet.get_account(self._account_id)
+        self._account = new_account
 
     def update_tx_headers(self):
         headers = ['', '', _('Date'), _('Description') , _('Amount'), _('Balance')]

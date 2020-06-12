@@ -2190,8 +2190,8 @@ class Wallet(TriggeredCallbacks):
                         updates.append((derivation_bytes, key_id))
                     self.update_keyinstance_derivation_data(updates)
 
-    def get_account(self, account_id: int) -> AbstractAccount:
-        return self._accounts[account_id]
+    def get_account(self, account_id: int) -> Optional[AbstractAccount]:
+        return self._accounts.get(account_id)
 
     def get_accounts_for_keystore(self, keystore: KeyStore) -> List[AbstractAccount]:
         accounts = []

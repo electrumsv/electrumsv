@@ -48,22 +48,21 @@ class RequestList(MyTreeWidget):
 
         MyTreeWidget.__init__(self, parent, parent, self.create_menu, [
             _('Date'), _('Destination'), '', _('Description'), _('Amount'), _('Status')], 3)
-        self.currentItemChanged.connect(self.item_changed)
-        self.itemClicked.connect(self.item_changed)
+        self.currentItemChanged.connect(self._on_item_changed)
+        self.itemClicked.connect(self._on_item_changed)
         self.setSortingEnabled(True)
         self.setColumnWidth(0, 180)
         self.hideColumn(1)
 
         self._main_window.account_change_signal.connect(self._on_account_change)
 
-    def _on_account_change(self, new_account_id: int) -> None:
-        old_account_id = self._account_id
+    def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
         self._account_id = new_account_id
-        self._account = self._main_window._wallet.get_account(self._account_id)
+        self._account = new_account
 
         self.update()
 
-    def item_changed(self, item):
+    def _on_item_changed(self, item):
         if item is None:
             return
         if not item.isSelected():

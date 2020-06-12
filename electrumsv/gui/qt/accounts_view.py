@@ -1,12 +1,13 @@
 import csv
 from functools import partial
 import json
-from typing import Optional
 import os
 import threading
 import time
+from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal, QSize, Qt
+from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, pyqtSignal, QSize, Qt
+# from PyQt5.QtGui import QModel
 from PyQt5.QtWidgets import (QDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
     QSplitter, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
@@ -34,65 +35,104 @@ class AccountsView(QSplitter):
 
         self._main_window.account_created_signal.connect(self._on_account_created)
 
-        self._selection_list = QListWidget()
-        self._selection_list.setMinimumWidth(150)
+        # We subclass QListWidget so accounts cannot be deselected.
+        class CustomListWidget(QListWidget):
+            def selectionCommand(self, index: QModelIndex, event: Optional[QEvent]) \
+                    -> QItemSelectionModel.SelectionFlags:
+                flags = super().selectionCommand(index, event)
+                if flags == QItemSelectionModel.Deselect:
+                    return QItemSelectionModel.NoUpdate
+                return flags
+
+        self._account_ids: List[int] = []
         self._tab_widget = QTabWidget()
+
+        self._selection_list = CustomListWidget()
+        self._selection_list.setMinimumWidth(150)
+        self._selection_list.setIconSize(QSize(32, 32))
+        self._selection_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._selection_list.customContextMenuRequested.connect(self._show_account_menu)
+        self._selection_list.currentItemChanged.connect(self._on_current_item_changed)
+
+        self._current_account_id: Optional[int] = None
 
         self.addWidget(self._selection_list)
         self.addWidget(self._tab_widget)
 
         self.setStretchFactor(1, 2)
 
-        self._selection_list.setIconSize(QSize(32, 32))
-        self._selection_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self._selection_list.customContextMenuRequested.connect(self._create_account_menu)
+    def on_wallet_loaded(self) -> None:
+        self._initialize_account_list()
 
-        self._update_account_list()
+    def _on_account_created(self, new_account_id: int, new_account: AbstractAccount) -> None:
+        self._add_account_to_list(new_account)
 
-    def _on_account_created(self, new_account_id: int) -> None:
-        self._update_account_list()
+    def _on_current_item_changed(self, item: QListWidgetItem, last_item: QListWidgetItem) -> None:
+        account_id = item.data(Qt.UserRole)
+        self._update_active_account(account_id)
+
+    def _update_active_account(self, account_id: int) -> None:
+        if account_id == self._current_account_id:
+            return
+        self._current_account_id = account_id
+        account = self._main_window._wallet.get_account(account_id)
+        self._main_window.set_active_account(account)
 
     def get_tab_widget(self) -> QTabWidget:
         return self._tab_widget
 
-    def _update_account_list(self) -> None:
+    def _initialize_account_list(self) -> None:
         self._selection_list.clear()
-        for account in self._wallet.get_accounts():
-            item = QListWidgetItem()
-            keystore = account.get_keystore()
-            derivation_type = keystore.derivation_type if keystore is not None \
-                else DerivationType.NONE
-            is_watching_only = keystore.is_watching_only() if keystore is not None else True
-            icon_state = "inactive" if is_watching_only else "active"
-            if derivation_type == DerivationType.ELECTRUM_MULTISIG:
-                tooltip_text = _("Multi-signature account")
-                icon_filename = "icons8-group-task-80-blueui-{}.png"
-            elif derivation_type == DerivationType.HARDWARE:
-                tooltip_text = _("Hardware wallet account")
-                icon_filename = "icons8-usb-2-80-blueui-{}.png"
-            elif derivation_type == DerivationType.IMPORTED:
-                # This should not be watch only as imported public keys have no keystore.
-                tooltip_text = _("Imported private key account")
-                icon_filename = "icons8-key-80-plus-blueui-{}.png"
-            elif derivation_type == DerivationType.ELECTRUM_OLD:
-                tooltip_text = _("Old-style Electrum account")
-                icon_filename = "icons8-password-1-80-blueui-{}.png"
-            elif derivation_type == DerivationType.BIP32:
-                tooltip_text = _("BIP32 account")
-                icon_filename ="icons8-grand-master-key-80-blueui-{}.png"
-            else:
-                # This should always be watch only as imported public keys have no keystore.
-                tooltip_text = _("Imported public key account")
-                icon_filename = "icons8-key-80-plus-blueui-{}.png"
-            if is_watching_only:
-                tooltip_text += f" ({_('watch only')})"
-            item.setIcon(read_QIcon(icon_filename.format(icon_state)))
-            item.setData(Qt.UserRole, account.get_id())
-            item.setText(account.display_name())
-            item.setToolTip(tooltip_text)
-            self._selection_list.addItem(item)
+        self._account_ids.clear()
 
-    def _create_account_menu(self, position) -> None:
+        # TODO(rt12): These should respect user ordering, and perhaps also later hierarchy.
+        for account in self._wallet.get_accounts():
+            self._add_account_to_list(account)
+
+        if len(self._account_ids):
+            self._selection_list.setCurrentRow(0)
+            currentItem = self._selection_list.currentItem()
+            new_account_id = currentItem.data(Qt.UserRole)
+            self._update_active_account(new_account_id)
+
+    def _add_account_to_list(self, account: AbstractAccount) -> None:
+        account_id = account.get_id()
+        item = QListWidgetItem()
+        keystore = account.get_keystore()
+        derivation_type = keystore.derivation_type if keystore is not None \
+            else DerivationType.NONE
+        is_watching_only = keystore.is_watching_only() if keystore is not None else True
+        icon_state = "inactive" if is_watching_only else "active"
+        if derivation_type == DerivationType.ELECTRUM_MULTISIG:
+            tooltip_text = _("Multi-signature account")
+            icon_filename = "icons8-group-task-80-blueui-{}.png"
+        elif derivation_type == DerivationType.HARDWARE:
+            tooltip_text = _("Hardware wallet account")
+            icon_filename = "icons8-usb-2-80-blueui-{}.png"
+        elif derivation_type == DerivationType.IMPORTED:
+            # This should not be watch only as imported public keys have no keystore.
+            tooltip_text = _("Imported private key account")
+            icon_filename = "icons8-key-80-plus-blueui-{}.png"
+        elif derivation_type == DerivationType.ELECTRUM_OLD:
+            tooltip_text = _("Old-style Electrum account")
+            icon_filename = "icons8-password-1-80-blueui-{}.png"
+        elif derivation_type == DerivationType.BIP32:
+            tooltip_text = _("BIP32 account")
+            icon_filename ="icons8-grand-master-key-80-blueui-{}.png"
+        else:
+            # This should always be watch only as imported public keys have no keystore.
+            tooltip_text = _("Imported public key account")
+            icon_filename = "icons8-key-80-plus-blueui-{}.png"
+        if is_watching_only:
+            tooltip_text += f" ({_('watch only')})"
+        item.setIcon(read_QIcon(icon_filename.format(icon_state)))
+        item.setData(Qt.UserRole, account_id)
+        item.setText(account.display_name())
+        item.setToolTip(tooltip_text)
+        self._selection_list.addItem(item)
+        self._account_ids.append(account_id)
+
+    def _show_account_menu(self, position) -> None:
         item = self._selection_list.currentItem()
         if not item:
             return
@@ -138,7 +178,7 @@ class AccountsView(QSplitter):
         dialog = AccountInformationDialog(self._main_window, self._wallet, account_id, self)
         dialog.exec_()
 
-    def can_view_secured_data(self, account: AbstractAccount) -> None:
+    def _can_view_secured_data(self, account: AbstractAccount) -> None:
         return not account.is_watching_only() and not isinstance(account, MultisigAccount) \
             and not account.is_hardware_wallet()
 
@@ -148,7 +188,7 @@ class AccountsView(QSplitter):
         # account_id is a keyword argument so that 'protected' can identity the correct wallet
         # window to do the password request in the context of.
         account = self._wallet.get_account(account_id)
-        if self.can_view_secured_data(account):
+        if self._can_view_secured_data(account):
             keystore = account.get_keystore()
             from .secured_data_dialog import SecuredDataDialog
             d = SecuredDataDialog(self._main_window, self, keystore, password)
@@ -266,7 +306,7 @@ class AccountsView(QSplitter):
             return
 
         try:
-            self.do_export_privkeys(filename, private_keys, csv_button.isChecked())
+            self._do_export_privkeys(filename, private_keys, csv_button.isChecked())
         except (IOError, os.error) as reason:
             txt = "\n".join([
                 _("ElectrumSV was unable to produce a private key-export."),
@@ -279,7 +319,7 @@ class AccountsView(QSplitter):
 
         MessageBox.show_message(_('Private keys exported'), self._main_window)
 
-    def do_export_privkeys(self, fileName: str, pklist, is_csv):
+    def _do_export_privkeys(self, fileName: str, pklist, is_csv):
         with open(fileName, "w+") as f:
             if is_csv:
                 transaction = csv.writer(f)

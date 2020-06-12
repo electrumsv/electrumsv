@@ -76,7 +76,7 @@ class KeyDialog(WindowModalDialog):
 
         vbox.addWidget(QLabel(_("History")))
         self._history_list = HistoryView(self._main_window, self._main_window)
-        self._history_list._on_account_change(self._account_id)
+        self._history_list._on_account_change(self._account_id, self._account)
         self._history_list.get_domain = self.get_domain
         vbox.addWidget(self._history_list)
 

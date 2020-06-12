@@ -55,7 +55,7 @@ from bitcoinx import Address
 
 from PyQt5.QtCore import (QAbstractItemModel, QModelIndex, QVariant, Qt, QSortFilterProxyModel,
     QTimer)
-from PyQt5.QtGui import QFont, QBrush, QColor, QKeySequence
+from PyQt5.QtGui import QFont, QFontMetrics, QBrush, QColor, QKeySequence
 from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 
 from electrumsv.i18n import _
@@ -138,6 +138,7 @@ class _ItemModel(QAbstractItemModel):
 
         self._column_names = column_names
         self._balances = None
+        self._account_id: Optional[int] = None
 
         self._monospace_font = QFont(platform.monospace_font)
 
@@ -153,8 +154,9 @@ class _ItemModel(QAbstractItemModel):
     def set_column_name(self, column_index: int, column_name: str) -> None:
         self._column_names[column_index] = column_name
 
-    def set_data(self, data: List[KeyLine]) -> None:
+    def set_data(self, account_id: int, data: List[KeyLine]) -> None:
         self.beginResetModel()
+        self._account_id = account_id
         self._data = data
         self.endResetModel()
 
@@ -271,6 +273,10 @@ class _ItemModel(QAbstractItemModel):
         return len(self._column_names)
 
     def data(self, model_index: QModelIndex, role: int) -> QVariant:
+        if self._view._account_id != self._account_id:
+            print("SKIP UPDATE ACC")
+            return None
+
         row = model_index.row()
         column = model_index.column()
         if row >= len(self._data):
@@ -338,7 +344,7 @@ class _ItemModel(QAbstractItemModel):
                     return self._monospace_font
 
             elif role == Qt.BackgroundRole:
-                if column == STATE_COLUMN:
+                if False and column == STATE_COLUMN:
                     if line.row.flags & KeyInstanceFlag.ALLOCATED_MASK:
                         return self._frozen_brush
                     elif not line.row.flags & KeyInstanceFlag.IS_ACTIVE:
@@ -485,7 +491,7 @@ class KeyView(QTableView):
         self._main_window.account_change_signal.connect(self._on_account_change)
 
         model = _ItemModel(self, self._headers)
-        model.set_data([])
+        model.set_data(self._account_id, [])
         self._base_model = model
 
         # If the underlying model changes, observe it in the sort.
@@ -502,12 +508,19 @@ class KeyView(QTableView):
         self.sortByColumn(TYPE_COLUMN, Qt.AscendingOrder)
         self.setSortingEnabled(True)
 
-        self.horizontalHeader().setSectionResizeMode(LABEL_COLUMN, QHeaderView.Stretch)
+        horizontalHeader = self.horizontalHeader()
+        horizontalHeader.setSectionResizeMode(LABEL_COLUMN, QHeaderView.Stretch)
         for i in range(FIAT_BALANCE_COLUMN):
             if i != LABEL_COLUMN:
-                self.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
-        self.horizontalHeader().setMinimumSectionSize(20)
-        self.verticalHeader().setMinimumSectionSize(20)
+                horizontalHeader.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        horizontalHeader.setMinimumSectionSize(20)
+
+        verticalHeader = self.verticalHeader()
+        verticalHeader.setSectionResizeMode(QHeaderView.Fixed)
+        # This value will get pushed out if the contents are larger, so it does not have to be
+        # correct, it just has to be minimal.
+        lineHeight = QFontMetrics(app_state.app.font()).height()
+        verticalHeader.setDefaultSectionSize(lineHeight)
 
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -539,14 +552,14 @@ class KeyView(QTableView):
         self._proxy_model.set_filter_match(text)
         # self.resizeRowsToContents()
 
-    def _on_account_change(self, new_account_id: int) -> None:
+    def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
         with self._update_lock:
             self._pending_state.clear()
             self._pending_actions = set([ ListActions.RESET ])
 
             old_account_id = self._account_id
             self._account_id = new_account_id
-            self._account = self._main_window._wallet.get_account(self._account_id)
+            self._account = new_account
             if old_account_id is None:
                 self._timer.start()
             self._proxy_model.set_account(self._account)
@@ -608,11 +621,14 @@ class KeyView(QTableView):
     @profiler
     def _dispatch_updates(self, pending_actions: Set[ListActions],
             pending_state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
+        account_id = self._account_id
+        account = self._main_window._wallet.get_account(account_id)
+
         if ListActions.RESET in pending_actions:
             self._logger.debug("_on_update_check reset")
 
-            self._data = self._create_data_snapshot()
-            self._base_model.set_data(self._data)
+            self._data = self._create_data_snapshot(account_id)
+            self._base_model.set_data(account_id, self._data)
             # This is very slow for large numbers of rows.
             # self.resizeRowsToContents()
             return
@@ -632,8 +648,8 @@ class KeyView(QTableView):
         #     pending_actions, len(additions), len(updates), len(removals))
 
         self._remove_keys(removals)
-        self._add_keys(additions, pending_state)
-        self._update_keys(updates, pending_state)
+        self._add_keys(account, additions, pending_state)
+        self._update_keys(account, updates, pending_state)
 
         for action in pending_actions:
             if ListActions.RESET_BALANCES:
@@ -677,14 +693,14 @@ class KeyView(QTableView):
             key_, flags = self._pending_state.get(key.keyinstance_id, (key, EventFlags.UNSET))
             self._pending_state[key.keyinstance_id] = key, flags | new_flags
 
-    def _add_keys(self, keys: List[KeyInstanceRow],
+    def _add_keys(self, account: AbstractAccount, keys: List[KeyInstanceRow],
             state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
         self._logger.debug("_add_keys %d", len(keys))
 
-        for line in self._create_entries(keys, state):
+        for line in self._create_entries(account, keys, state):
             self._base_model.add_line(line)
 
-    def _update_keys(self, keys: List[KeyInstanceRow],
+    def _update_keys(self, account: AbstractAccount, keys: List[KeyInstanceRow],
             state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
         self._logger.debug("_update_keys %d", len(keys))
 
@@ -694,7 +710,7 @@ class KeyView(QTableView):
             self._logger.debug("_update_keys missing entries %s",
                 [ k.keyinstance_id for k in keys if k.keyinstance_id not in matched_key_ids ])
 
-        new_lines = { l.row.keyinstance_id: l for l in self._create_entries(keys, state) }
+        new_lines = { l.row.keyinstance_id: l for l in self._create_entries(account, keys, state) }
         for row, line in matches:
             self._data[row] = new_lines[line.row.keyinstance_id]
             self._base_model.invalidate_row(row)
@@ -766,9 +782,10 @@ class KeyView(QTableView):
                     break
         return matches
 
-    def _create_data_snapshot(self) -> None:
-        keys = list(self._account._keyinstances.values())
-        lines = self._create_entries(keys, {})
+    def _create_data_snapshot(self, account_id: int) -> None:
+        account = self._main_window._wallet.get_account(account_id)
+        keys = list(account._keyinstances.values())
+        lines = self._create_entries(account, keys, {})
         return sorted(lines, key=get_sort_key)
 
     def _set_fiat_columns_enabled(self, flag: bool) -> None:
@@ -780,11 +797,11 @@ class KeyView(QTableView):
 
         self.setColumnHidden(FIAT_BALANCE_COLUMN, not flag)
 
-    def _create_entries(self, keys: List[KeyInstanceRow],
+    def _create_entries(self, account: AbstractAccount, keys: List[KeyInstanceRow],
             state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> List[KeyLine]:
 
         utxos = defaultdict(list)
-        for utxo in self._account._utxos.values():
+        for utxo in account._utxos.values():
             utxos[utxo.keyinstance_id].append(utxo)
 
         lines = []
@@ -792,8 +809,8 @@ class KeyView(QTableView):
             coins = utxos.get(key.keyinstance_id, [])
             # NOTE(rt12) BACKLOG This is the current usage not the all time usage.
             usages = len(coins)
-            key_text = self._account.get_key_text(key.keyinstance_id)
-            derivation_text = self._account.get_derivation_path_text(key.keyinstance_id)
+            key_text = account.get_key_text(key.keyinstance_id)
+            derivation_text = account.get_derivation_path_text(key.keyinstance_id)
             line = KeyLine(key, derivation_text, key_text, KeyFlags.UNSET, usages,
                 sum(c.value for c in coins))
             lines.append(line)

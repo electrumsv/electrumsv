@@ -10,7 +10,7 @@ import webbrowser
 from bitcoinx import hash_to_hex_str
 from PyQt5.QtCore import (QAbstractItemModel, QModelIndex, QVariant, Qt, QSortFilterProxyModel,
     QTimer)
-from PyQt5.QtGui import QFont, QBrush, QColor, QKeySequence
+from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu, QWidget
 
 from electrumsv.i18n import _
@@ -384,7 +384,13 @@ class TransactionView(QTableView):
             if i != LABEL_COLUMN:
                 self.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
         self.horizontalHeader().setMinimumSectionSize(20)
-        self.verticalHeader().setMinimumSectionSize(20)
+
+        verticalHeader = self.verticalHeader()
+        verticalHeader.setSectionResizeMode(QHeaderView.Fixed)
+        # This value will get pushed out if the contents are larger, so it does not have to be
+        # correct, it just has to be minimal.
+        lineHeight = QFontMetrics(app_state.app.font()).height()
+        verticalHeader.setDefaultSectionSize(lineHeight)
 
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -409,14 +415,15 @@ class TransactionView(QTableView):
         self._timer.setInterval(1000)
         self._timer.timeout.connect(self._on_update_check)
 
-    def _on_account_change(self, new_account_id: int) -> None:
+    def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
         with self._update_lock:
+            # The account change event should ~immediately clear the list.
             self._pending_state.clear()
             self._pending_actions = set([ ListActions.RESET ])
 
             old_account_id = self._account_id
             self._account_id = new_account_id
-            self._account = self._main_window._wallet.get_account(self._account_id)
+            self._account = new_account
             if old_account_id is None:
                 self._timer.start()
 
