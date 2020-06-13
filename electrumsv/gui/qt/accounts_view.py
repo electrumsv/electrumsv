@@ -20,7 +20,7 @@ from .cosigners_view import CosignerState, CosignerList
 from .main_window import ElectrumWindow
 from .qrtextedit import ShowQRTextEdit
 from .util import (Buttons, CancelButton, CloseButton, filename_field,
-    FormSectionWidget, MessageBox, OkButton, protected, read_QIcon, WindowModalDialog)
+    FormSectionWidget, line_dialog, MessageBox, OkButton, protected, read_QIcon, WindowModalDialog)
 
 
 class AccountsView(QSplitter):
@@ -34,6 +34,7 @@ class AccountsView(QSplitter):
         self._wallet = wallet
 
         self._main_window.account_created_signal.connect(self._on_account_created)
+        self._main_window.account_change_signal.connect(self._on_account_changed)
 
         # We subclass QListWidget so accounts cannot be deselected.
         class CustomListWidget(QListWidget):
@@ -65,17 +66,29 @@ class AccountsView(QSplitter):
         self._initialize_account_list()
 
     def _on_account_created(self, new_account_id: int, new_account: AbstractAccount) -> None:
+        # It should be made the active wallet account and followed up with the change event.
         self._add_account_to_list(new_account)
+
+    def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount) -> None:
+        # The list is being told what to focus on.
+        if self._update_active_account(new_account_id):
+            row = self._account_ids.index(new_account_id)
+            self._selection_list.setCurrentRow(row)
 
     def _on_current_item_changed(self, item: QListWidgetItem, last_item: QListWidgetItem) -> None:
         account_id = item.data(Qt.UserRole)
-        self._update_active_account(account_id)
+        # This should update the internal tracking, and also the active wallet account.
+        if self._update_active_account(account_id):
+            account = self._main_window._wallet.get_account(account_id)
+            self._update_window_account(account)
 
-    def _update_active_account(self, account_id: int) -> None:
+    def _update_active_account(self, account_id: int) -> bool:
         if account_id == self._current_account_id:
-            return
+            return False
         self._current_account_id = account_id
-        account = self._main_window._wallet.get_account(account_id)
+        return True
+
+    def _update_window_account(self, account: AbstractAccount) -> None:
         self._main_window.set_active_account(account)
 
     def get_tab_widget(self) -> QTabWidget:
@@ -92,8 +105,10 @@ class AccountsView(QSplitter):
         if len(self._account_ids):
             self._selection_list.setCurrentRow(0)
             currentItem = self._selection_list.currentItem()
-            new_account_id = currentItem.data(Qt.UserRole)
-            self._update_active_account(new_account_id)
+            account_id = currentItem.data(Qt.UserRole)
+            if self._update_active_account(account_id):
+                account = self._main_window._wallet.get_account(account_id)
+                self._update_window_account(account)
 
     def _add_account_to_list(self, account: AbstractAccount) -> None:
         account_id = account.get_id()
@@ -149,6 +164,8 @@ class AccountsView(QSplitter):
             not account.is_watching_only() and not isinstance(account, MultisigAccount) \
             and not account.is_hardware_wallet() \
             and account.type() != AccountType.IMPORTED_PRIVATE_KEY)
+        menu.addAction(_("&Rename"),
+            partial(self._rename_account, account_id))
         menu.addSeparator()
 
         private_keys_menu = menu.addMenu(_("&Private keys"))
@@ -173,6 +190,17 @@ class AccountsView(QSplitter):
             partial(self._main_window._import_invoices, account_id))
 
         menu.exec_(self._selection_list.viewport().mapToGlobal(position))
+
+    def _rename_account(self, account_id: int) -> None:
+        account = self._main_window._wallet.get_account(self._current_account_id)
+        new_account_name = line_dialog(self, _("Rename account"), _("Account name"), _("OK"),
+            account.get_name())
+        if new_account_name is None:
+            return
+        account.set_name(new_account_name)
+        account_row = self._account_ids.index(account_id)
+        item: QListWidgetItem = self._selection_list.item(account_row)
+        item.setText(new_account_name)
 
     def _show_account_information(self, account_id: int) -> None:
         dialog = AccountInformationDialog(self._main_window, self._wallet, account_id, self)

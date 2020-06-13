@@ -296,8 +296,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         task = app_state.async_.spawn(self._monitor_wallet_network_status, account)
         self._monitor_wallet_network_status_tasks.append(task)
 
-        self.set_active_account(account)
         self.account_created_signal.emit(new_account_id, account)
+        self.set_active_account(account)
 
     def set_active_account(self, account: AbstractAccount) -> None:
         account_id = account.get_id()

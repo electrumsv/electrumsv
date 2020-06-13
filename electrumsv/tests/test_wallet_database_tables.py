@@ -192,7 +192,7 @@ def test_table_accounts_crud(db_context: DatabaseContext) -> None:
         assert writer.succeeded()
 
     with SynchronousWriter() as writer:
-        table.update_name([ ('new_name', line2[0]) ],
+        table.update_name([ (line2[0], 'new_name') ],
             date_updated,
             completion_callback=writer.get_callback())
         assert writer.succeeded()

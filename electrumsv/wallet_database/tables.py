@@ -584,7 +584,7 @@ class AccountTable(BaseWalletStore):
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         date_updated = self._get_current_timestamp() if date_updated is None else date_updated
         datas = []
-        for account_name, account_id in entries:
+        for account_id, account_name in entries:
             datas.append((date_updated, account_name, account_id))
         def _write(db: sqlite3.Connection):
             db.executemany(self.UPDATE_NAME_SQL, datas)

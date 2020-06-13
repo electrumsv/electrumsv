@@ -274,7 +274,6 @@ class _ItemModel(QAbstractItemModel):
 
     def data(self, model_index: QModelIndex, role: int) -> QVariant:
         if self._view._account_id != self._account_id:
-            print("SKIP UPDATE ACC")
             return None
 
         row = model_index.row()

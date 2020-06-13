@@ -490,6 +490,16 @@ class AbstractAccount:
     def __str__(self):
         return self.name()
 
+    def get_name(self) -> str:
+        return self._row.account_name
+
+    def set_name(self, name: str) -> None:
+        with AccountTable(self._wallet._db_context) as table:
+            table.update_name([ (self._row.account_id, name) ])
+
+        self._row = AccountRow(self._row.account_id, self._row.default_masterkey_id,
+            self._row.default_script_type, name)
+
     # Displayed in the regular user UI.
     def display_name(self) -> str:
         return self._row.account_name if self._row.account_name else _("unnamed account")

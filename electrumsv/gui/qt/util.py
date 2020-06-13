@@ -6,8 +6,7 @@ import traceback
 from typing import Any, Iterable, Callable, Optional, TYPE_CHECKING, Union
 
 from aiorpcx import RPCError
-from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QTimer,
-    QModelIndex)
+from PyQt5.QtCore import pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QModelIndex
 from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette
 from PyQt5.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QGridLayout, QGroupBox, QMessageBox, QHBoxLayout,
@@ -331,19 +330,30 @@ class WaitingDialog(WindowModalDialog):
         self.show()
 
 
-def line_dialog(parent, title, label, ok_label, default=None):
+def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,
+        default: Optional[str]=None) -> Optional[str]:
     dialog = WindowModalDialog(parent, title)
     dialog.setMinimumWidth(500)
     l = QVBoxLayout()
     dialog.setLayout(l)
     l.addWidget(QLabel(label))
+    ok_button = OkButton(dialog, ok_label)
     txt = QLineEdit()
+    def enable_OK() -> None:
+        nonlocal txt, ok_button
+        new_text = txt.text().strip()
+        ok_button.setEnabled(len(new_text))
+    txt.textChanged.connect(enable_OK)
     if default:
+        default = default.strip()
         txt.setText(default)
     l.addWidget(txt)
-    l.addLayout(Buttons(CancelButton(dialog), OkButton(dialog, ok_label)))
+    enable_OK()
+    txt.setFocus(True)
+    txt.selectAll()
+    l.addLayout(Buttons(CancelButton(dialog), ok_button))
     if dialog.exec_():
-        return txt.text()
+        return txt.text().strip()
 
 def text_dialog(parent, title, label, ok_label, default=None, allow_multi=False):
     from .qrtextedit import ScanQRTextEdit
