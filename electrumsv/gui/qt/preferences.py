@@ -407,6 +407,7 @@ class PreferencesDialog(QDialog):
         options_vbox.addWidget(usechange_cb)
         options_vbox.addWidget(multiple_cb)
 
+        # Todo - add ability here to toggle deactivation of used keys - AustEcon
         transaction_cache_size = wallet.get_cache_size_for_tx_bytedata()
         # nz_label = HelpLabel(_('Transaction Cache Size (MB)') + ':',
         #     _("This allows setting a per-wallet limit on the amount of transaction data cached "

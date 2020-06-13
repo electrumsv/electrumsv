@@ -227,6 +227,7 @@ class AbstractAccount:
         self.request_count = 0
         self.response_count = 0
         self.progress_event = app_state.async_.event()
+        self.last_poll_time = None
 
         self._load_sync_state()
         self._utxos: Dict[Tuple[bytes, int], UTXO] = {}
@@ -359,8 +360,8 @@ class AbstractAccount:
         assert key_allocation.derivation_type == DerivationType.BIP32_SUBPATH
         return json.dumps({ "subpath": key_allocation.derivation_path }).encode()
 
-    def set_key_active(self, key_id: int, is_active: bool) -> bool:
-        if is_active:
+    def set_key_active_state(self, key_id: int, set_active: bool) -> bool:
+        if set_active:
             raise NotImplementedError("TODO(rt12) BACKLOG")
             # TODO(rt12) BACKLOG If the key is already active, then flag it as user active.
 
@@ -827,8 +828,9 @@ class AbstractAccount:
             return
 
         with self.lock:
-            reorg_count = self._wallet._transaction_cache.apply_reorg(above_height)
+            reorg_count, updated_txs = self._wallet._transaction_cache.apply_reorg(above_height)
             self._logger.info(f'removing verification of {reorg_count} transactions')
+            self.reactivate_reorged_keys(updated_txs)
 
     def get_tx_height(self, tx_hash: bytes) -> Tuple[int, int, Union[int, bool]]:
         """ return the height and timestamp of a verified transaction. """
@@ -1604,6 +1606,71 @@ class AbstractAccount:
             self._activated_keys = []
         return result
 
+    def poll_used_key_detection(self, every_n_seconds):
+        if self.last_poll_time is None or \
+                time.time() - self.last_poll_time > every_n_seconds:
+            self.last_poll_time = time.time()
+            self.detect_used_keys()
+
+    def detect_used_keys(self) -> None:
+        """Note: re-activation of keys is dealt with via:
+          a) reorg detection time - see self.reactivate_reorged_keys()
+          b) manual re-activation by the user
+
+        Therefore, this function only needs to deal with deactivation"""
+
+        if not self._wallet._storage.get('deactivate_used_keys', False):
+            return
+
+        # Get all used keys with zero balance (of the ones that are currently active)
+        self._logger.debug("detect-used-keys: checking active keys for deactivation criteria")
+        with TransactionDeltaTable(self._wallet._db_context) as table:
+            used_keyinstance_ids = table.update_used_keys(self._id)
+
+        used_keyinstances = []
+        if len(used_keyinstance_ids) != 0:
+            with self._deactivated_keys_lock:
+                for keyinstance_id in used_keyinstance_ids:
+                    self._deactivated_keys.append(keyinstance_id)
+                    key: KeyInstanceRow = self._keyinstances[keyinstance_id]
+                    used_keyinstances.append(key)
+                self._deactivated_keys_event.set()
+
+        self.update_key_activation_state_cache(used_keyinstances, False)
+        self._logger.debug("deactivated %s used keys", len(used_keyinstance_ids))
+
+    def update_key_activation_state_cache(self, keyinstances: List[KeyInstanceRow], activate: bool):
+        db_updates = []
+        for key in keyinstances:
+            old_flags = KeyInstanceFlag(key.flags)
+            if activate:
+                new_flags = KeyInstanceFlag(old_flags | KeyInstanceFlag.IS_ACTIVE)
+            else:
+                # if USER_SET_ACTIVE flag is set - this flag will remain
+                new_flags = old_flags & (KeyInstanceFlag.INACTIVE_MASK |
+                    KeyInstanceFlag.USER_SET_ACTIVE)
+            self._keyinstances[key.keyinstance_id] = KeyInstanceRow(key.keyinstance_id,
+                self.get_id(), key.masterkey_id, key.derivation_type, key.derivation_data,
+                key.script_type, new_flags, key.description)
+            db_updates.append((new_flags, key.keyinstance_id))
+        return db_updates
+
+    def update_key_activation_state(self, keyinstances: List[KeyInstanceRow], activate: bool):
+        db_updates = self.update_key_activation_state_cache(keyinstances, activate)
+        self._wallet.update_keyinstance_flags(db_updates)
+
+    def reactivate_reorged_keys(self, reorged_txs: List[bytes]):
+        """re-activate all of the reorged keys and allow deactivation to occur via the usual
+        mechanisms."""
+        txs = self._wallet._transaction_cache.get_transaction_datas(tx_hashes=reorged_txs)
+        set_key_ids = set()
+        for tx_hash in txs.keys():
+            key_ids = self._sync_state.get_transaction_key_ids(hash_to_hex_str(tx_hash))
+            for key in key_ids:
+                set_key_ids.add(key)
+        for key_id in set_key_ids:
+            self.set_key_active_state(key_id=key_id, set_active=True)
+
     async def new_deactivated_keys(self) -> List[int]:
         await self._deactivated_keys_event.wait()
         self._deactivated_keys_event.clear()
@@ -2134,7 +2201,7 @@ class Wallet(TriggeredCallbacks):
         with KeyInstanceTable(self._db_context) as table:
             all_account_keys: Dict[int, List[KeyInstanceRow]] = defaultdict(list)
             keyinstances = {}
-            for row in table.read(mask=KeyInstanceFlag.IS_ACTIVE):
+            for row in table.read():
                 keyinstances[row.keyinstance_id] = row
                 all_account_keys[row.account_id].append(row)
 
@@ -2532,6 +2599,15 @@ class Wallet(TriggeredCallbacks):
 
     def set_use_change(self, enabled: bool) -> None:
         return self._storage.put('use_change', enabled)
+
+    def set_deactivate_used_keys(self, enabled: bool) -> None:
+        current_setting = self._storage.get('deactivate_used_keys', None)
+        if not enabled and current_setting is True:
+            # ensure all keys are re-activated
+            for account in self.get_accounts():
+                account.update_key_activation_state(list(account._keyinstances.values()), True)
+
+        return self._storage.put('deactivate_used_keys', enabled)
 
     def get_multiple_change(self) -> bool:
         return self._storage.get('multiple_change', False)

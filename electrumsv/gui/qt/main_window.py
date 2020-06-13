@@ -1944,7 +1944,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if self.question(_("Do you want to remove this key from your wallet?") + extra_text):
             keyinstance = self._account.get_keyinstance(key_id)
             # This if successful will unload the key from the account (not delete).
-            if account.set_key_active(key_id, False):
+            if account.set_key_active_state(key_id, False):
                 if self.key_view is not None:
                     self.key_view.remove_keys([ keyinstance ])
                 self.history_view.update_tx_list()
