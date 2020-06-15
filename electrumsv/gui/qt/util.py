@@ -8,12 +8,12 @@ from typing import Any, Iterable, Callable, Optional, TYPE_CHECKING, Union
 from aiorpcx import RPCError
 from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QTimer,
     QModelIndex)
-from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette
+from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QResizeEvent
 from PyQt5.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QGridLayout, QGroupBox, QMessageBox, QHBoxLayout,
     QHeaderView, QLabel, QLayout, QLineEdit, QFileDialog, QFrame, QPlainTextEdit, QPushButton,
-    QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QToolButton, QToolTip, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout, QWidget
+    QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QTableWidget, QToolButton, QToolTip,
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 )
 from PyQt5.uic import loadUi
 
@@ -244,6 +244,7 @@ class MessageBoxMixin(object):
         parent = parent or self.top_level_window()
         d = QMessageBox(icon, title, str(text), buttons, parent)
         d.setWindowModality(Qt.WindowModal)
+        d.setWindowFlags(d.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
@@ -271,13 +272,15 @@ class MessageBox:
     def msg_box(cls, icon, parent, title, text, buttons=QMessageBox.Ok,
                 defaultButton=QMessageBox.NoButton):
         d = QMessageBox(icon, title, str(text), buttons, parent)
+        d.setWindowFlags(d.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
 
 class UntrustedMessageDialog(QDialog):
     def __init__(self, parent, title, description, exception):
-        QDialog.__init__(self, parent)
+        QDialog.__init__(self, parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
         self.setWindowTitle(title)
         self.setMinimumSize(500, 280)
         self.setMaximumSize(1000, 400)
@@ -308,7 +311,8 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
     '''Handy wrapper; window modal dialogs are better for our multi-window
     daemon model as other wallet windows can still be accessed.'''
     def __init__(self, parent, title=None):
-        QDialog.__init__(self, parent)
+        QDialog.__init__(self, parent, flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
         self.setWindowModality(Qt.WindowModal)
         if title:
             self.setWindowTitle(title)
@@ -649,50 +653,70 @@ class ButtonsWidget(QWidget):
         frame_width = self.style().pixelMetric(QStyle.PM_DefaultFrameWidth)
         if self.buttons_mode == ButtonsMode.TOOLBAR_RIGHT:
             self.button_padding = max(button.sizeHint().width() for button in self.buttons) + 4
-            self.setStyleSheet("QPlainTextEdit { margin-right: "+ str(self.button_padding) +"px; }")
+            self.setStyleSheet(self.qt_css_class +
+                " { margin-right: "+ str(self.button_padding) +"px; }")
         elif self.buttons_mode == ButtonsMode.TOOLBAR_BOTTOM:
             self.button_padding = max(button.sizeHint().height() for button in self.buttons) + \
                 frame_width
             self.setStyleSheet(
-                "QPlainTextEdit { margin-bottom: "+ str(self.button_padding) +"px; }")
+                self.qt_css_class +" { margin-bottom: "+ str(self.button_padding) +"px; }")
         return button
 
-    def addCopyButton(self, app):
+    def addCopyButton(self, app, tooltipText: Optional[str]=None) -> QAbstractButton:
+        if tooltipText is None:
+            tooltipText = _("Copy to clipboard")
         self.app = app
-        return self.addButton("icons8-copy-to-clipboard-32.png", self.on_copy,
-            _("Copy to clipboard"))
+        return self.addButton("icons8-copy-to-clipboard-32.png", self._on_copy,
+            tooltipText)
 
-    def on_copy(self):
+    def _on_copy(self) -> None:
         self.app.clipboard().setText(self.text())
         QToolTip.showText(QCursor.pos(), _("Text copied to clipboard"), self)
 
+
 class ButtonsLineEdit(XLineEdit, ButtonsWidget):
+    qt_css_class = "QLineEdit"
+
     def __init__(self, text=''):
         QLineEdit.__init__(self, text, None)
         self.buttons: Iterable[QAbstractButton] = []
 
-    def resizeEvent(self, e):
-        o = QLineEdit.resizeEvent(self, e)
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        QLineEdit.resizeEvent(self, event)
         self.resizeButtons()
-
         buttons_width = 0
         for button in self.buttons:
             buttons_width += button.size().width()
         self.setTextMargins(0, 0, buttons_width, 0)
 
-        return o
 
 class ButtonsTextEdit(QPlainTextEdit, ButtonsWidget):
-    def __init__(self, text=None):
+    qt_css_class = "QPlainTextEdit"
+
+    def __init__(self, text: Optional[str]=None) -> None:
         QPlainTextEdit.__init__(self, text)
         self.setText = self.setPlainText
         self.text = self.toPlainText
         self.buttons: Iterable[QAbstractButton] = []
 
-    def resizeEvent(self, e):
-        o = QPlainTextEdit.resizeEvent(self, e)
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        QPlainTextEdit.resizeEvent(self, event)
         self.resizeButtons()
-        return o
+
+
+class ButtonsTableWidget(QTableWidget, ButtonsWidget):
+    buttons_mode = ButtonsMode.TOOLBAR_BOTTOM
+    qt_css_class = "QTableWidget"
+
+    def __init__(self, parent: Optional[QWidget]=None,
+            buttons_mode: ButtonsMode=ButtonsMode.TOOLBAR_RIGHT) -> None:
+        self.buttons_mode = buttons_mode
+        QTableWidget.__init__(self, parent)
+        self.buttons: Iterable[QAbstractButton] = []
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        QTableWidget.resizeEvent(self, event)
+        self.resizeButtons()
 
 
 class ColorSchemeItem:

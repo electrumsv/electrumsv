@@ -54,7 +54,8 @@ class PreferencesDialog(QDialog):
     def __init__(self, main_window: 'ElectrumWindow', wallet: Wallet,
             account: Optional[AbstractAccount]=None):
         '''The preferences dialog has a account tab only if account is given.'''
-        super().__init__()
+        super().__init__(main_window, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
         self.setWindowTitle(_('Preferences'))
         self._main_window = main_window
         self.lay_out(wallet, account)

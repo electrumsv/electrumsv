@@ -29,6 +29,7 @@
 import enum
 from typing import NamedTuple, Optional
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget, QWizard
 
 from .help_dialog import HelpDialog
@@ -62,7 +63,8 @@ class BaseWizard(QWizard):
     HELP_DIRNAME: str
 
     def __init__(self, parent: Optional[QWidget]=None) -> None:
-        super().__init__(parent)
+        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
 
         self.setOption(QWizard.IndependentPages, False)
         self.setOption(QWizard.NoDefaultButton, True)

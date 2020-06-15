@@ -29,7 +29,8 @@ import datetime
 import json
 from typing import Optional, Set, Tuple
 
-from PyQt5.QtGui import QFont, QBrush, QTextCharFormat, QCursor
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QBrush, QCursor, QFont, QTextCharFormat
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit, QToolTip
 )
@@ -60,7 +61,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         Pass desc to give a description for txs not yet in the wallet.
         '''
         # We want to be a top-level window
-        QDialog.__init__(self, parent=None)
+        QDialog.__init__(self, parent=None, flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
         # Take a copy; it might get updated in the main window by the FX thread.  If this
         # happens during or after a long sign operation the signatures are lost.
         self.tx = copy.deepcopy(tx)

@@ -64,7 +64,8 @@ class LabelImporter(QDialog):
     labels_updated = pyqtSignal(int, object, object)
 
     def __init__(self, main_window: 'ElectrumWindow', wallet: Wallet, account_id: int) -> None:
-        super().__init__(main_window)
+        super().__init__(main_window, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
 
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle(_("Label Importer"))

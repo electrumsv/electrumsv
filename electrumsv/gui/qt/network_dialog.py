@@ -52,7 +52,8 @@ class NetworkDialog(QDialog):
     network_updated_signal = pyqtSignal()
 
     def __init__(self, network, config):
-        QDialog.__init__(self)
+        super().__init__(flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
         self.setWindowTitle(_('Network'))
         self.setMinimumSize(500, 200)
         self.resize(560, 400)

@@ -822,7 +822,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def show_update_check(self):
         from . import update_check
-        update_check.UpdateCheckDialog()
+        update_check.UpdateCheckDialog(self)
 
     def show_report_bug(self):
         msg = ' '.join([

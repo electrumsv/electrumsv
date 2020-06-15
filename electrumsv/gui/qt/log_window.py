@@ -26,6 +26,7 @@
 from collections import deque
 import logging
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QPlainTextEdit, QHBoxLayout, QVBoxLayout, QLabel, QComboBox,
 )
@@ -71,7 +72,8 @@ class SVLogHandler(logging.Handler):
 class SVLogWindow(QDialog):
 
     def __init__(self, parent, log_handler):
-        super().__init__(parent)
+        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
         self.setModal(False)
         self.setWindowTitle('ElectrumSV Log Viewer')
         self.log_handler = log_handler
