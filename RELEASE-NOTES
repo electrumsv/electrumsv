@@ -44,7 +44,7 @@ ElectrumSV
     broadcast would succeed, but the user would see an unhelpful error after the fact.
 
 # Release 1.3.3
-  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-4-9408b74fd397
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-3-79a202be658e
   * Multi-signature: Bugs were present in the signing of multi-signature transactions, depending
     on which cosigners were signing off on a transaction.
   * Wizards: The wallet and account wizards were using the wrong approach to setting up their
