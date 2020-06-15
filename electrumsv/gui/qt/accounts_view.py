@@ -133,7 +133,7 @@ class AccountsView(QSplitter):
             partial(self._main_window._import_invoices, account_id))
 
         payments_menu = menu.addMenu(_("Payments"))
-        payments_menu.addAction(_("Generate destinations"),
+        payments_menu.addAction(_("Export destinations"),
             partial(self._generate_destinations, account_id))
 
         menu.exec_(self._selection_list.viewport().mapToGlobal(position))

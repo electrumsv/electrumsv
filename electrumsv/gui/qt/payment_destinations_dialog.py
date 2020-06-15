@@ -65,12 +65,12 @@ class PaymentDestinationsDialog(QDialog):
 
     def _show_warning(self, prefix: str) -> None:
         MessageBox.show_warning(prefix +" "+ _("Note that "
-            "this does not reserve the addresses, and that until the wallet includes transactions "
-            "that use them, they might be used for other purposes."))
+            "this does not reserve the destinations, and that until the wallet includes "
+            "transactions that use them, they might be used for other purposes."))
 
     def _on_copy_button_click(self) -> None:
         self._main_window.app.clipboard().setText(self._get_text())
-        self._show_warning(_("The addresses have been copied to the clipboard."))
+        self._show_warning(_("The destinations have been copied to the clipboard."))
 
     def _on_save_as_button_click(self) -> None:
         name = "payment-destinations.txt"
@@ -79,7 +79,7 @@ class PaymentDestinationsDialog(QDialog):
         if filepath:
             with open(filepath, "w") as f:
                 f.write(self._get_text())
-        self._show_warning(_("The addresses have been written to the file."))
+        self._show_warning(_("The destinations have been written to the file."))
 
     def _on_value_changed(self, new_value: int) -> None:
         keyinstances = self._account.get_fresh_keys(RECEIVING_SUBPATH, new_value)
