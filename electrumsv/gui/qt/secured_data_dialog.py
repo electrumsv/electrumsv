@@ -28,6 +28,7 @@
 
 from bitcoinx import bip32_key_from_string
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
 
 from electrumsv.bitcoin import is_new_seed
@@ -43,7 +44,8 @@ from .util import Buttons, CloseButton, FormSectionWidget
 class SecuredDataDialog(QDialog):
     def __init__(self, main_window: ElectrumWindow, parent: QWidget, keystore: KeyStore,
             password: str) -> None:
-        super().__init__(parent)
+        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
 
         self._main_window = main_window
 

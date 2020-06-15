@@ -36,6 +36,21 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.3.4
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-4-9408b74fd397
+  * Payment destinations: New export feature for bulk access to types of payment destinations
+    like addresses, for accounts.
+  * Transaction broadcasting: Broadcasting external transactions in a wallet would error. The
+    broadcast would succeed, but the user would see an unhelpful error after the fact.
+
+# Release 1.3.3
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-3-79a202be658e
+  * Multi-signature: Bugs were present in the signing of multi-signature transactions, depending
+    on which cosigners were signing off on a transaction.
+  * Wizards: The wallet and account wizards were using the wrong approach to setting up their
+    state when a user viewed a page, and cleaning it up when they left. This created unreliable
+    behaviour.
+
 # Release 1.3.2
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-2-9893a10d8987
   * Wallet migration: Pre-1.3 wallets with coinbase transactions, likely only occuring for miners

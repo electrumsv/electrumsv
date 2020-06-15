@@ -2,14 +2,16 @@ from distutils.version import StrictVersion
 import requests
 
 from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QProgressBar, QLabel, QDialogButtonBox
+from PyQt5.QtWidgets import QDialogButtonBox, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from electrumsv.app_state import app_state
-from electrumsv.gui.qt.util import read_qt_ui, icon_path
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.util import get_update_check_dates, get_identified_release_signers
 from electrumsv.version import PACKAGE_VERSION
+
+from .main_window import ElectrumWindow
+from .util import icon_path, read_qt_ui, WindowModalDialog
 
 
 MSG_TITLE_CHECK = "Checking ElectrumSV.io for Updates"
@@ -42,13 +44,12 @@ MSG_BODY_NO_SIGNEDS_AVAILABLE = ("<img src='"+ icon_path("icons8-warning-shield-
 logger = logs.get_logger("update_check.ui")
 
 
-class UpdateCheckDialog(QWidget):
+class UpdateCheckDialog(WindowModalDialog):
     _timer = None
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent: ElectrumWindow) -> None:
+        super().__init__(parent, 'ElectrumSV - ' + _('Update Check'))
 
-        self.setWindowTitle('ElectrumSV - ' + _('Update Check'))
         self.resize(600, 400)
 
         widget: QWidget = read_qt_ui("updater_widget.ui")

@@ -827,7 +827,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def show_update_check(self):
         from . import update_check
-        update_check.UpdateCheckDialog()
+        update_check.UpdateCheckDialog(self)
 
     def show_report_bug(self):
         msg = ' '.join([
@@ -1372,6 +1372,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     # Bound to text fields in `_create_receive_form_layout`.
     def _update_receive_qr(self):
+        if self._receive_key_id is None:
+            return
+
         amount = self.receive_amount_e.get_amount()
         message = self.receive_message_e.text()
         self._save_request_button.setEnabled((amount is not None) or (message != ""))

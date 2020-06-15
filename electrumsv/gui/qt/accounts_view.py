@@ -189,6 +189,10 @@ class AccountsView(QSplitter):
         invoices_menu.addAction(_("Import"),
             partial(self._main_window._import_invoices, account_id))
 
+        payments_menu = menu.addMenu(_("Payments"))
+        payments_menu.addAction(_("Export destinations"),
+            partial(self._generate_destinations, account_id))
+
         menu.exec_(self._selection_list.viewport().mapToGlobal(position))
 
     def _rename_account(self, account_id: int) -> None:
@@ -204,6 +208,14 @@ class AccountsView(QSplitter):
 
     def _show_account_information(self, account_id: int) -> None:
         dialog = AccountInformationDialog(self._main_window, self._wallet, account_id, self)
+        dialog.exec_()
+
+    def _generate_destinations(self, account_id) -> None:
+        from . import payment_destinations_dialog
+        from importlib import reload
+        reload(payment_destinations_dialog)
+        dialog = payment_destinations_dialog.PaymentDestinationsDialog(self._main_window,
+            self._wallet, account_id, self)
         dialog.exec_()
 
     def _can_view_secured_data(self, account: AbstractAccount) -> None:
@@ -364,7 +376,8 @@ class AccountInformationDialog(QDialog):
 
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet, account_id: int,
             parent: QWidget) -> None:
-        super().__init__(parent)
+        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
 
         self._main_window = main_window
         self._wallet = wallet
@@ -424,3 +437,4 @@ class AccountInformationDialog(QDialog):
 
         vbox.addLayout(self._buttons)
         self.setLayout(vbox)
+

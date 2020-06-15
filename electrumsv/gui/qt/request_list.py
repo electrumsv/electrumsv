@@ -47,7 +47,7 @@ class RequestList(MyTreeWidget):
         self._account_id: Optional[int] = None
 
         MyTreeWidget.__init__(self, parent, parent, self.create_menu, [
-            _('Date'), _('Destination'), '', _('Description'), _('Amount'), _('Status')], 3)
+            _('Date'), _('Destination'), '', _('Description'), _('Amount'), _('Status')], 3, [])
         self.currentItemChanged.connect(self._on_item_changed)
         self.itemClicked.connect(self._on_item_changed)
         self.setSortingEnabled(True)

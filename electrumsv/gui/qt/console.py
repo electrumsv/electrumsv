@@ -30,7 +30,7 @@ import sys
 import traceback
 
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtGui import QFont, QTextCursor, QTextOption
+from PyQt5.QtGui import QFont, QResizeEvent, QTextCursor, QTextOption
 
 from electrumsv import util
 from electrumsv.i18n import _
@@ -97,8 +97,9 @@ class Console(QtWidgets.QPlainTextEdit):
         )
         self.messageOverlay = OverlayLabel(warning_text, self)
 
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+
         scrollbar_width = self.verticalScrollBar().width() * self.verticalScrollBar().isVisible()
         self.messageOverlay.on_resize(self.width() - scrollbar_width)
 
