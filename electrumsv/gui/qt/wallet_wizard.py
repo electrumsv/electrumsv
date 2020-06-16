@@ -649,10 +649,10 @@ class ChooseWalletPage(QWizardPage):
         wizard: WalletWizard = self.wizard()
         button = wizard.button(QWizard.CustomButton1)
         button.setVisible(False)
-        # button.clicked.disconnect(self._event_click_create_wallet)
+        button.clicked.disconnect(self._event_click_create_wallet)
 
-        # commit_button = wizard.button(QWizard.CommitButton)
-        # commit_button.clicked.disconnect(self._event_click_open_selected_file)
+        commit_button = wizard.button(QWizard.CommitButton)
+        commit_button.clicked.disconnect(self._event_click_open_selected_file)
 
     def _populate_list_in_thread(self, list_thread_id: int) -> None:
         for file_path in self._recent_wallet_paths:
