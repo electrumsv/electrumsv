@@ -1549,26 +1549,6 @@ class AbstractAccount:
                 return True, conf
         return False, 0
 
-    # NOTE(rt12) no matches for this
-    # def get_request_status(self, pr_id: int) -> Tuple[PaymentState, Optional[int]]:
-    #     pr = self._payment_requests.get(pr_id)
-    #     if pr is None:
-    #         return PaymentState.UNKNOWN
-
-    #     conf = None
-    #     if pr.value:
-    #         if self.is_synchronized():
-    #             paid, conf = self.get_payment_status(pr)
-    #             status = PaymentState.PAID if paid else PaymentState.UNPAID
-    #             if (status == PaymentState.UNPAID and pr.expiration is not None and
-    #                     time.time() > pr.date_created + pr.expiration):
-    #                 status = PaymentState.EXPIRED
-    #         else:
-    #             status = PaymentState.UNKNOWN
-    #     else:
-    #         status = PaymentState.UNKNOWN
-    #     return status, conf
-
     def get_sorted_requests(self) -> List[PaymentRequestRow]:
         return list(cast(PaymentRequestRow, self.get_payment_request(pr_id))
             for pr_id in self._payment_requests)
