@@ -43,8 +43,8 @@ class RequestList(MyTreeWidget):
 
     def __init__(self, parent: ElectrumWindow) -> None:
         self._main_window = parent
-        self._account: AbstractAccount = None
-        self._account_id: Optional[int] = None
+        self._account: Optional[AbstractAccount] = parent._account
+        self._account_id: Optional[int] = parent._account_id
 
         MyTreeWidget.__init__(self, parent, parent, self.create_menu, [
             _('Date'), _('Destination'), '', _('Description'), _('Amount'), _('Status')], 3, [])
