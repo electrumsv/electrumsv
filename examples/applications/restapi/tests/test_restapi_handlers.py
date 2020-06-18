@@ -78,7 +78,7 @@ rawtx = "0100000001c2f9bbe87ab222fa84954a9f8140696eafdeb578e8a7555c1db60c7cb4b39
         "92c1bcaad98b387aa5d8db3f7d88ac7c761400"
 
 
-def _fake_history_dto_succeeded(wallet) -> List[Dict[Any, Any]]:
+def _fake_history_dto_succeeded(account) -> List[Dict[Any, Any]]:
     result = [
         {"tx_hash": '...',
          "height": 0,
@@ -104,7 +104,7 @@ def _fake_balance_dto_succeeded(wallet) -> Dict[Any, Any]:
             "unconfirmed_balance": unconfirmed_bal}
 
 
-def _fake_transaction_state_dto_succeeded(wallet, tx_ids) -> Dict[Any, Any]:
+def _fake_transaction_state_dto_succeeded(account, tx_ids) -> Dict[Any, Any]:
     results = {
         "txid1...": {"block_id": 1,
                      "height": 1,
@@ -412,7 +412,7 @@ class TestDefaultEndpoints:
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/history")
 
         # check
-        expected_json = {"value": _fake_history_dto_succeeded(wallet=None)}
+        expected_json = {"value": _fake_history_dto_succeeded(account=None)}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json

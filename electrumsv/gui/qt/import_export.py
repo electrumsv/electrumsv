@@ -176,7 +176,7 @@ class LabelImporter(QDialog):
 
         # TODO This should be done in bulk rather than a per-description write.
         for tx_hash, description_text in self._import_result.transaction_labels.items():
-            account.set_transaction_label(tx_hash, description_text)
+            self._wallet.set_transaction_label(tx_hash, description_text)
 
         for keyinstance_id, description_text in self._import_result.key_labels.items():
             account.set_keyinstance_label(keyinstance_id, description_text)
@@ -206,7 +206,7 @@ class LabelImporter(QDialog):
             if not self._wallet._transaction_cache.is_cached(tx_hash):
                 self._tx_state[tx_hash] = LabelState.UNKNOWN
             else:
-                existing_description = account.get_transaction_label(tx_hash)
+                existing_description = self._wallet.get_transaction_label(tx_hash)
                 if existing_description == "":
                     self._tx_state[tx_hash] = LabelState.ADD
                 elif existing_description == tx_description:

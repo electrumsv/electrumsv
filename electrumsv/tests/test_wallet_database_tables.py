@@ -10,14 +10,13 @@ from typing import List
 from electrumsv.constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
     PaymentState, KeyInstanceFlag, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
-from electrumsv.transaction import Transaction
 from electrumsv.wallet_database import (migration, KeyInstanceTable, MasterKeyTable,
     PaymentRequestTable, TransactionTable, DatabaseContext, TransactionDeltaTable,
     TransactionOutputTable, SynchronousWriter, TxData, TxProof, AccountTable)
 from electrumsv.wallet_database.sqlite_support import LeakedSQLiteConnectionError
 from electrumsv.wallet_database.tables import (AccountRow, KeyInstanceRow, MAGIC_UNTOUCHED_BYTEDATA,
-    MasterKeyRow, PaymentRequestRow, TransactionDeltaRow, TransactionRow, WalletEventTable,
-    WalletEventRow)
+    MasterKeyRow, PaymentRequestRow, TransactionDeltaRow, TransactionRow, TransactionOutputRow,
+    WalletEventTable, WalletEventRow)
 
 
 logs.set_level("debug")
@@ -303,6 +302,11 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
     assert b'234' == db_line1[4]
     db_line2 = [ db_line for db_line in db_lines if db_line[0] == line2[0] ][0]
     assert not db_line2[6]
+
+    # Selective reading of only one record based on it's id.
+    db_lines = table.read(key_ids=[KEYINSTANCE_ID+1])
+    assert 1 == len(db_lines)
+    assert KEYINSTANCE_ID+1 == db_lines[0].keyinstance_id
 
     with SynchronousWriter() as writer:
         table.delete([ line2[0] ], completion_callback=writer.get_callback())
@@ -754,15 +758,16 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     TX_HASH = bitcoinx.double_sha256(TX_BYTES)
     TX_INDEX = 1
     TXOUT_FLAGS = 1 << 15
-    KEYINSTANCE_ID = 1
+    KEYINSTANCE_ID_1 = 1
+    KEYINSTANCE_ID_2 = 2
     ACCOUNT_ID = 10
     MASTERKEY_ID = 20
     DERIVATION_DATA1 = b'111'
     DERIVATION_DATA2 = b'222'
     SCRIPT_TYPE = 40
 
-    line1 = (TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID, TXOUT_FLAGS)
-    line2 = (TX_HASH, TX_INDEX+1, 200, KEYINSTANCE_ID, TXOUT_FLAGS)
+    line1 = TransactionOutputRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID_1, TXOUT_FLAGS)
+    line2 = TransactionOutputRow(TX_HASH, TX_INDEX+1, 200, KEYINSTANCE_ID_2, TXOUT_FLAGS)
 
     # No effect: The transactionoutput foreign key constraint will fail as the transactionoutput
     # does not exist.
@@ -797,9 +802,12 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
     keyinstance_table = KeyInstanceTable(db_context)
     with SynchronousWriter() as writer:
-        keyinstance_table.create([ (KEYINSTANCE_ID, ACCOUNT_ID, MASTERKEY_ID,
-            DerivationType.BIP32, DERIVATION_DATA1, SCRIPT_TYPE, True, None) ],
-            completion_callback=writer.get_callback())
+        keyinstance_table.create([
+            (KEYINSTANCE_ID_1, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32, DERIVATION_DATA1,
+                SCRIPT_TYPE, True, None),
+            (KEYINSTANCE_ID_2, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32, DERIVATION_DATA2,
+                SCRIPT_TYPE, True, None),
+            ], completion_callback=writer.get_callback())
         assert writer.succeeded()
 
     # Create the first row.
@@ -828,8 +836,8 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     date_updated = 20
 
     with SynchronousWriter() as writer:
-        table.update_flags([ (TransactionOutputFlag.IS_SPENT, line2[0], line2[1])], date_updated,
-            completion_callback=writer.get_callback())
+        table.update_flags([ (TransactionOutputFlag.IS_SPENT, line2.tx_hash, line2.tx_index)],
+            date_updated, completion_callback=writer.get_callback())
         assert writer.succeeded()
 
     db_lines = table.read()
@@ -838,6 +846,7 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     db_line2 = [ db_line for db_line in db_lines if db_line[0:2] == line2[0:2] ][0]
     assert db_line2.flags == TransactionOutputFlag.IS_SPENT
 
+    # Read based on mask variations.
     db_lines = table.read(mask=~TransactionOutputFlag.IS_SPENT)
     assert 1 == len(db_lines)
     assert db_lines[0].flags & TransactionOutputFlag.IS_SPENT == 0
@@ -845,6 +854,12 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     db_lines = table.read(mask=TransactionOutputFlag.IS_SPENT)
     assert 1 == len(db_lines)
     assert db_lines[0].flags & TransactionOutputFlag.IS_SPENT == TransactionOutputFlag.IS_SPENT
+
+    # Read based on different key ids.
+    for line in [ line1, line2 ]:
+        db_lines = table.read(key_ids=[ line.keyinstance_id ])
+        assert 1 == len(db_lines)
+        assert line.keyinstance_id == db_lines[0].keyinstance_id
 
     with SynchronousWriter() as writer:
         table.delete([ line2[0:2] ], completion_callback=writer.get_callback())
@@ -868,6 +883,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     TXOUT_FLAGS = 1 << 15
     KEYINSTANCE_ID = 1
     ACCOUNT_ID = 10
+    ACCOUNT_ID_OTHER = 11
     MASTERKEY_ID = 20
     DERIVATION_DATA = b'111'
     SCRIPT_TYPE = 40
@@ -957,6 +973,26 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
         table.create_or_update_relative_values([ line2_delta, line3 ],
             completion_callback=writer.get_callback())
         assert writer.succeeded()
+
+    db_lines = table.read()
+    assert 3 == len(db_lines)
+
+    expected_total = 100 + 220 + 999
+
+    # Query all deltas for the given transaction.
+    result = table.read_transaction_value(TX_HASH)
+    assert 3 == result.match_count
+    assert expected_total == result.total
+
+    # Query all deltas for the given transaction for the correct account.
+    result = table.read_transaction_value(TX_HASH, ACCOUNT_ID)
+    assert 3 == result.match_count
+    assert expected_total == result.total
+
+    # Query all deltas for the given transaction for an unrelated account.
+    result = table.read_transaction_value(TX_HASH, ACCOUNT_ID_OTHER)
+    assert 0 == result.match_count
+    assert 0 == result.total
 
     db_lines = table.read()
     assert 3 == len(db_lines)

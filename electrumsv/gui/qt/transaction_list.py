@@ -239,7 +239,7 @@ class _ItemModel(QAbstractItemModel):
                     else:
                         return 3
                 elif column == LABEL_COLUMN:
-                    return self._view._account.get_transaction_label(line.hash)
+                    return self._view._wallet.get_transaction_label(line.hash)
                 elif column in (VALUE_COLUMN, FIAT_VALUE_COLUMN):
                     return line.value
 
@@ -260,7 +260,7 @@ class _ItemModel(QAbstractItemModel):
                         return _("Signed")
                     return _("Unknown")
                 elif column == LABEL_COLUMN:
-                    return self._view._account.get_transaction_label(line.hash)
+                    return self._view._wallet.get_transaction_label(line.hash)
                 elif column == VALUE_COLUMN:
                     return self._view._main_window.format_amount(line.value, whitespaces=True)
                 elif column == FIAT_VALUE_COLUMN:
@@ -291,7 +291,7 @@ class _ItemModel(QAbstractItemModel):
 
             elif role == Qt.EditRole:
                 if column == LABEL_COLUMN:
-                    return self._view._account.get_transaction_label(line.hash)
+                    return self._view._wallet.get_transaction_label(line.hash)
 
     def flags(self, model_index: QModelIndex) -> int:
         if model_index.isValid():
@@ -325,7 +325,7 @@ class _ItemModel(QAbstractItemModel):
             if model_index.column() == LABEL_COLUMN:
                 if value.strip() == "":
                     value = None
-                self._view._account.set_transaction_label(line.hash, value)
+                self._view._wallet.set_transaction_label(line.hash, value)
             self.dataChanged.emit(model_index, model_index)
             return True
         return False
@@ -344,6 +344,7 @@ class TransactionView(QTableView):
 
         self._main_window = main_window
         self._logger = logs.get_logger("transaction-list")
+        self._wallet = main_window._wallet
         self._account_id: Optional[int] = None
         self._account: Optional[AbstractAccount] = None
         self._update_lock = threading.Lock()
@@ -454,7 +455,7 @@ class TransactionView(QTableView):
         if not self._have_pending_updates() or (time.time() - self._last_not_synced) < 5.0:
             return
         # We do not update if there has been a recent sync.
-        if self._main_window.network and not self._main_window._wallet.is_synchronized():
+        if self._main_window.network and not self._wallet.is_synchronized():
             self._last_not_synced = time.time()
             return
         self._last_not_synced = 0
@@ -515,16 +516,17 @@ class TransactionView(QTableView):
 
         self.resizeRowsToContents()
 
-    def _validate_event(self, wallet_path: str, account_id: int) -> bool:
-        if account_id != self._account_id:
-            return False
-        if wallet_path != self._main_window._wallet.get_storage_path():
-            return False
-        return True
+    def _validate_account_event(self, account_id: int) -> bool:
+        return account_id == self._account_id
 
-    def _on_transaction_state_change(self, wallet_path: str, account_id: int, tx_hash: bytes,
-            old_state: TxFlags, new_state: TxFlags) -> None:
-        if not self._validate_event(wallet_path, account_id):
+    def _validate_application_event(self, wallet_path: str, account_id: int) -> bool:
+        if wallet_path == self._wallet.get_storage_path():
+            return self._validate_account_event(account_id)
+        return False
+
+    def _on_transaction_state_change(self, account_id: int, tx_hash: bytes, old_state: TxFlags,
+            new_state: TxFlags) -> None:
+        if not self._validate_account_event(account_id):
             return
 
         self._logger.debug("_on_transaction_state_change %s %s %s", tx_hash,
@@ -535,15 +537,15 @@ class TransactionView(QTableView):
         else:
             self.update_transactions([ tx_hash ])
 
-    def _on_transaction_added(self, wallet_path: str, account_id: int, tx_hash: bytes) -> None:
-        if not self._validate_event(wallet_path, account_id):
+    def _on_transaction_added(self, account_id: int, tx_hash: bytes) -> None:
+        if not self._validate_account_event(account_id):
             return
 
         with self._update_lock:
             self._pending_state[tx_hash] = EventFlags.TX_ADDED
 
-    def _on_transaction_deleted(self, wallet_path: str, account_id: int, tx_hash: bytes) -> None:
-        if not self._validate_event(wallet_path, account_id):
+    def _on_transaction_deleted(self, account_id: int, tx_hash: bytes) -> None:
+        if not self._validate_account_event(account_id):
             return
 
         self._logger.debug("_on_transaction_deleted %s", hash_to_hex_str(tx_hash))
@@ -608,16 +610,9 @@ class TransactionView(QTableView):
         with self._update_lock:
             self._pending_actions.add(ListActions.RESET_FIAT_VALUES)
 
-    def _validate_event(self, wallet_path: str, account_id: int) -> bool:
-        if account_id != self._account_id:
-            return False
-        if wallet_path != self._main_window._wallet.get_storage_path():
-            return False
-        return True
-
     # The user has edited a label either here, or in some other wallet location.
     def update_labels(self, wallet_path: str, account_id: int, updates: Dict[bytes, str]) -> None:
-        if not self._validate_event(wallet_path, account_id):
+        if not self._validate_application_event(wallet_path, account_id):
             return
 
         with self._update_lock:
@@ -678,7 +673,7 @@ class TransactionView(QTableView):
             f"{hash_to_hex_str(tx_hash)} has no valid date_added"
         tx_entry = self._account.get_transaction_entry(tx_hash)
         flags = tx_entry.flags & TxFlags.STATE_MASK
-        delta_value = self._account.get_transaction_delta(tx_hash)
+        delta_value = self._wallet.get_transaction_delta(tx_hash)
         return TxLine(tx_hash, tx_data.date_added, tx_data.date_updated, flags, delta_value)
 
     def _event_double_clicked(self, model_index: QModelIndex) -> None:

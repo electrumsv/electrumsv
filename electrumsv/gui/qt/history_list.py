@@ -148,7 +148,7 @@ class HistoryView(MyTreeWidget):
             icon = get_tx_icon(status)
             v_str = self._main_window.format_amount(line.value_delta, True, whitespaces=True)
             balance_str = self._main_window.format_amount(balance, whitespaces=True)
-            label = self._account.get_transaction_label(line.tx_hash)
+            label = self._wallet.get_transaction_label(line.tx_hash)
             entry = ['', tx_id, status_str, label, v_str, balance_str]
             if fx and fx.show_history():
                 date = timestamp_to_datetime(time.time() if conf <= 0 else timestamp)
@@ -196,8 +196,7 @@ class HistoryView(MyTreeWidget):
         for i in range(child_count):
             item = root.child(i)
             account_id, tx_hash = item.data(0, Qt.UserRole)
-            account = self._wallet.get_account(account_id)
-            label = account.get_transaction_label(tx_hash)
+            label = self._wallet.get_transaction_label(tx_hash)
             item.setText(3, label)
 
     def update_tx_item(self, tx_hash: bytes, height: int, conf, timestamp) -> None:
@@ -236,7 +235,7 @@ class HistoryView(MyTreeWidget):
 
         tx_id = hash_to_hex_str(tx_hash)
         tx_URL = web.BE_URL(self.config, 'tx', tx_id)
-        height, _conf, _timestamp = account.get_tx_height(tx_hash)
+        height, _conf, _timestamp = self._wallet.get_tx_height(tx_hash)
         tx = account.get_transaction(tx_hash)
         if not tx: return # this happens sometimes on account synch when first starting up.
         is_unconfirmed = height <= 0
@@ -250,7 +249,7 @@ class HistoryView(MyTreeWidget):
             # reported issue.
             menu.addAction(_("Edit {}").format(column_title),
                 lambda: self.currentItem() and self.editItem(self.currentItem(), column))
-        label = account.get_transaction_label(tx_hash) or None
+        label = self._wallet.get_transaction_label(tx_hash) or None
         menu.addAction(_("Details"), lambda: self._main_window.show_transaction(account,
             tx, label))
         if is_unconfirmed and tx:

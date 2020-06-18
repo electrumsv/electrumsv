@@ -666,25 +666,24 @@ class KeyView(QTableView):
         # ...
         # self.resizeRowsToContents()
 
-    def _validate_event(self, wallet_path: str, account_id: int) -> bool:
-        if account_id != self._account_id:
-            return False
-        if wallet_path != self._main_window._wallet.get_storage_path():
-            return False
-        return True
+    def _validate_account_event(self, account_id: int) -> bool:
+        return account_id == self._account_id
 
-    def _on_keys_created(self, wallet_path: str, account_id: int,
-            keys: Iterable[KeyInstanceRow]) -> None:
-        if not self._validate_event(wallet_path, account_id):
+    def _validate_application_event(self, wallet_path: str, account_id: int) -> bool:
+        if wallet_path == self._main_window._wallet.get_storage_path():
+            return self._validate_account_event(account_id)
+        return False
+
+    def _on_keys_created(self, account_id: int, keys: Iterable[KeyInstanceRow]) -> None:
+        if not self._validate_account_event(account_id):
             return
 
         flags = EventFlags.KEY_ADDED
         for key in keys:
             self._pending_state[key.keyinstance_id] = (key, flags)
 
-    def _on_keys_updated(self, wallet_path: str, account_id: int,
-            keys: Iterable[KeyInstanceRow]) -> None:
-        if not self._validate_event(wallet_path, account_id):
+    def _on_keys_updated(self, account_id: int, keys: Iterable[KeyInstanceRow]) -> None:
+        if not self._validate_account_event(account_id):
             return
 
         new_flags = EventFlags.KEY_UPDATED
@@ -759,7 +758,7 @@ class KeyView(QTableView):
 
     # The user has edited a label either here, or in some other wallet location.
     def update_labels(self, wallet_path: str, account_id: int, key_updates: Set[int]) -> None:
-        if not self._validate_event(wallet_path, account_id):
+        if not self._validate_application_event(wallet_path, account_id):
             return
 
         with self._update_lock:

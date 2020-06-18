@@ -104,7 +104,7 @@ class WalletAPI(QObject):
     # Notification related.
 
     def get_notification_rows(self) -> List[WalletEventRow]:
-        return self.wallet_window._wallet.get_wallet_events(
+        return self.wallet_window._wallet.read_wallet_events(
             WalletEventFlag.UNREAD|WalletEventFlag.FEATURED)
 
     def update_notification_flags(self, updates: List[Tuple[WalletEventFlag, int]]) -> None:

@@ -31,7 +31,7 @@ import re
 import ssl
 import stat
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import certifi
 from aiorpcx import (
@@ -53,6 +53,9 @@ from .transaction import Transaction
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
 from .networks import Net
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
+
+if TYPE_CHECKING:
+    from .wallet import AbstractAccount, Wallet
 
 
 logger = logs.get_logger("network")
@@ -801,7 +804,7 @@ class SVSession(RPCSession):
         item = (script_hash, status)
         self._network._on_status_queue.put_nowait(item)
 
-    async def subscribe_to_triples(self, account, triples) -> None:
+    async def subscribe_to_triples(self, account: 'AbstractAccount', triples) -> None:
         '''triples is an iterable of (keyinstance_id, script_type, script_hash) triples.
 
         Raises: RPCError, TaskTimeout'''
@@ -821,15 +824,15 @@ class SVSession(RPCSession):
 
             # ensure GUI doesn't keep showing synchronizing...(100/101) when there are only 100 subs
             account.request_count += len(set(triples) - set(subs))
-            account.progress_event.set()
+            account._wallet.progress_event.set()
 
             while await group.next_done():
                 account.response_count += 1
-                account.progress_event.set()
+                account._wallet.progress_event.set()
 
         assert len(set(subs)) == len(subs), "account subscribed to the same keys twice"
 
-    async def unsubscribe_from_pairs(self, account, pairs) -> None:
+    async def unsubscribe_from_pairs(self, account: 'AbstractAccount', pairs) -> None:
         '''pairs is an iterable of (keyinstance_id, script_hash) pairs.
 
         Raises: RPCError, TaskTimeout'''
@@ -847,7 +850,7 @@ class SVSession(RPCSession):
                 await group.spawn(self._unsubscribe_from_script_hash(script_hash))
 
     @classmethod
-    def _get_exclusive_set(cls, account, subs: List[str]) -> set:
+    def _get_exclusive_set(cls, account: 'AbstractAccount', subs: List[str]) -> set:
         # This returns the script hashes the given account is subscribed to, that no other
         # account is also subscribed to. This ensures that when we unsubscribe script hashes for
         # the given account, as the server subscription is shared between wallets, we only
@@ -860,7 +863,7 @@ class SVSession(RPCSession):
         return subs_set
 
     @classmethod
-    async def unsubscribe_account(cls, account, session):
+    async def unsubscribe_account(cls, account: 'AbstractAccount', session):
         subs = cls._subs_by_account.pop(account, None)
         if subs is None:
             return
@@ -904,6 +907,8 @@ class Network(TriggeredCallbacks):
 
         # Add an account, remove an account, or redo all account verifications
         self.account_jobs = app_state.async_.queue()
+        # Add an wallet, remove an wallet, or redo all wallet verifications
+        self._wallet_jobs = app_state.async_.queue()
 
         # Feed pub-sub notifications to currently active SVSession for processing
         self._on_status_queue = app_state.async_.queue()
@@ -922,6 +927,7 @@ class Network(TriggeredCallbacks):
                 await group.spawn(self._monitor_lagging_sessions)
                 await group.spawn(self._monitor_main_chain)
                 await group.spawn(self._monitor_accounts, group)
+                await group.spawn(self._monitor_wallets, group)
         finally:
             self.shutdown_complete_event.set()
             app_state.config.set_key('servers', list(SVServer.all_servers.values()), True)
@@ -1001,6 +1007,26 @@ class Network(TriggeredCallbacks):
                 await self.sessions_changed_event.wait()
             await self._maybe_switch_main_server(SwitchReason.lagging)
 
+    async def _monitor_wallets(self, group):
+        tasks = {}
+        while True:
+            job, wallet = await self._wallet_jobs.get()
+            if job == 'add':
+                if wallet not in tasks:
+                    tasks[wallet] = await group.spawn(self._maintain_wallet(wallet))
+            elif job == 'remove':
+                if wallet in tasks:
+                    tasks.pop(wallet).cancel()
+            elif job == 'undo_verifications':
+                above_height = wallet
+                for wallet in tasks:
+                    wallet.undo_verifications(above_height)
+            elif job == 'check_verifications':
+                for wallet in tasks:
+                    wallet.txs_changed_event.set()
+            else:
+                logger.error(f'unknown wallet job {job}')
+
     async def _monitor_accounts(self, group):
         account_tasks = {}
         while True:
@@ -1011,13 +1037,6 @@ class Network(TriggeredCallbacks):
             elif job == 'remove':
                 if account in account_tasks:
                     account_tasks.pop(account).cancel()
-            elif job == 'undo_verifications':
-                above_height = account
-                for account in account_tasks:
-                    account.undo_verifications(above_height)
-            elif job == 'check_verifications':
-                for account in account_tasks:
-                    account.txs_changed_event.set()
             else:
                 logger.error(f'unknown account job {job}')
 
@@ -1030,13 +1049,13 @@ class Network(TriggeredCallbacks):
             new_main_chain = main_session.chain
             if main_chain != new_main_chain and main_chain:
                 _chain, above_height = main_chain.common_chain_and_height(new_main_chain)
-                logger.info(f'main chain updated; undoing account verifications '
+                logger.info(f'main chain updated; undoing wallet verifications '
                             f'above height {above_height:,d}')
-                await self.account_jobs.put(('undo_verifications', above_height))
+                await self._wallet_jobs.put(('undo_verifications', above_height))
             # It has been observed that we may receive headers after all the history events that
             # relate to the height of those headers. Queueing a check here will cover those new
             # headers and also due to sequential nature of jobs undo any existing ones first.
-            await self.account_jobs.put(('check_verifications', None))
+            await self._wallet_jobs.put(('check_verifications', None))
             main_chain = new_main_chain
             self.trigger_callback('updated')
             self.trigger_callback('main_chain', main_chain, new_main_chain)
@@ -1086,9 +1105,9 @@ class Network(TriggeredCallbacks):
         logger.info(f'main server: {main_server}; proxy: {proxy}')
         return main_server, proxy
 
-    async def _request_transactions(self, account, missing_hashes: List[bytes]) -> bool:
-        account.request_count += len(missing_hashes)
-        account.progress_event.set()
+    async def _request_transactions(self, wallet, missing_hashes: List[bytes]) -> bool:
+        wallet.request_count += len(missing_hashes)
+        wallet.progress_event.set()
         had_timeout = False
         session = await self._main_session()
         session.logger.debug(f'requesting {len(missing_hashes)} missing transactions')
@@ -1100,8 +1119,8 @@ class Network(TriggeredCallbacks):
 
             while tasks:
                 task = await group.next_done()
-                account.response_count += 1
-                account.progress_event.set()
+                wallet.response_count += 1
+                wallet.progress_event.set()
                 tx_hash = tasks.pop(task)
                 tx_id = hash_to_hex_str(tx_hash)
                 try:
@@ -1114,8 +1133,7 @@ class Network(TriggeredCallbacks):
                     logger.exception(e)
                     logger.error(f'fetching transaction {tx_id}: {e}')
                 else:
-                    account.add_transaction(tx_hash, tx, TxFlags.StateCleared | TxFlags.HasByteData)
-                    self.trigger_callback('new_transaction', tx, account)
+                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared | TxFlags.HasByteData)
         return had_timeout
 
     def _available_servers(self, protocol):
@@ -1135,7 +1153,7 @@ class Network(TriggeredCallbacks):
                 return server
             await sleep(10)
 
-    async def _request_proofs(self, account, wanted_map):
+    async def _request_proofs(self, wallet: 'Wallet', wanted_map) -> bool:
         had_timeout = False
         session = await self._main_session()
         session.logger.debug(f'requesting {len(wanted_map)} proofs')
@@ -1164,8 +1182,8 @@ class Network(TriggeredCallbacks):
                 else:
                     if header.merkle_root == proven_root:
                         logger.debug(f'received valid proof for {tx_id}')
-                        account.add_verified_tx(tx_hash,
-                            tx_height, header.timestamp, tx_pos, tx_pos, branch)
+                        wallet.add_transaction_proof(tx_hash, tx_height, header.timestamp, tx_pos,
+                            tx_pos, branch)
                     else:
                         hhts = hash_to_hex_str
                         logger.error(f'invalid proof for tx {tx_id} in block '
@@ -1180,9 +1198,9 @@ class Network(TriggeredCallbacks):
             script_hash, status = await self._on_status_queue.get()
             await group.spawn(session._on_status_changed, script_hash, status)
 
-    async def _monitor_txs(self, account):
+    async def _monitor_txs(self, wallet: 'Wallet') -> None:
         '''Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError'''
-        # When the account receives notification of new transactions, it signals that this
+        # When the wallet receives notification of new transactions, it signals that this
         # monitoring loop should awaken. The loop retrieves all outstanding transaction data and
         # proofs in parallel. However, the prerequisite for needing a proof for a transaction is
         # first having it's data. So after fetching transactions, it becomes necessary to fetch
@@ -1190,19 +1208,21 @@ class Network(TriggeredCallbacks):
         # there are no outstanding needs for either transaction data or proof.
         while True:
             # The set of transactions we know about, but lack the actual transaction data for.
-            wanted_tx_map = account.missing_transactions()
+            wanted_tx_map = wallet.missing_transactions()
             # The set of transactions we have data for, but not proof for.
-            wanted_proof_map = account.unverified_transactions()
+            wanted_proof_map = wallet.unverified_transactions()
 
             coros = []
             if wanted_tx_map:
-                coros.append(self._request_transactions(account, wanted_tx_map))
+                coros.append(self._request_transactions(wallet, wanted_tx_map))
             if wanted_proof_map:
-                coros.append(self._request_proofs(account, wanted_proof_map))
+                coros.append(self._request_proofs(wallet, wanted_proof_map))
             if not coros:
-                account.poll_used_key_detection(every_n_seconds=20)
-                await account.txs_changed_event.wait()
-                account.txs_changed_event.clear()
+                for account in wallet.get_accounts():
+                    account.poll_used_key_detection(every_n_seconds=20)
+
+                await wallet.txs_changed_event.wait()
+                wallet.txs_changed_event.clear()
 
             async with TaskGroup() as group:
                 for coro in coros:
@@ -1232,6 +1252,23 @@ class Network(TriggeredCallbacks):
                 for script_type, script in account.get_possible_scripts_for_id(k) ]
             await session.unsubscribe_from_pairs(account, pairs)
 
+    async def _maintain_wallet(self, wallet: 'Wallet') -> None:
+        '''Put all tasks for a single wallet in a group so they can be cancelled together.'''
+        logger.info(f'maintaining wallet {wallet}')
+        try:
+            while True:
+                try:
+                    async with TaskGroup() as group:
+                        await group.spawn(self._monitor_txs, wallet)
+                except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
+                    blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
+                    session = self.main_session()
+                    if session:
+                        await session.disconnect(str(error), blacklist=blacklist)
+                        await self.sessions_changed_event.wait()
+        finally:
+            logger.info(f'stopped maintaining wallet {wallet}')
+
     async def _maintain_account(self, account):
         '''Put all tasks for a single account in a group so they can be cancelled together.'''
         logger.info(f'maintaining account {account}')
@@ -1239,7 +1276,6 @@ class Network(TriggeredCallbacks):
             while True:
                 try:
                     async with TaskGroup() as group:
-                        await group.spawn(self._monitor_txs, account)
                         await group.spawn(self._monitor_active_keys, account)
                         await group.spawn(self._monitor_inactive_keys, account)
                         await group.spawn(account.synchronize_loop)
@@ -1315,6 +1351,12 @@ class Network(TriggeredCallbacks):
 
     def get_servers(self):
         return SVServer.all_servers.values()
+
+    def add_wallet(self, wallet: 'Wallet') -> None:
+        app_state.async_.spawn(self._wallet_jobs.put, ('add', wallet))
+
+    def remove_wallet(self, wallet: 'Wallet') -> None:
+        app_state.async_.spawn(self._wallet_jobs.put, ('remove', wallet))
 
     def add_account(self, account):
         app_state.async_.spawn(self.account_jobs.put, ('add', account))

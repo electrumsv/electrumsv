@@ -46,6 +46,7 @@ class UTXOList(MyTreeWidget):
             _('Output point'), _('Label'), _('Amount'), _('Height')], 1)
 
         self._main_window = main_window
+        self._wallet = main_window._wallet
         self._account_id: Optional[int] = None
         self._account: Optional[AbstractAccount] = None
 
@@ -81,7 +82,7 @@ class UTXOList(MyTreeWidget):
             metadata = self._account.get_transaction_metadata(utxo.tx_hash)
             prevout_str = utxo.key_str()
             prevout_str = prevout_str[0:10] + '...' + prevout_str[-2:]
-            label = self._account.get_transaction_label(utxo.tx_hash)
+            label = self._wallet.get_transaction_label(utxo.tx_hash)
             amount = self._main_window.format_amount(utxo.value, whitespaces=True)
             utxo_item = SortableTreeWidgetItem(
                 [ prevout_str, label, amount, str(metadata.height) ])

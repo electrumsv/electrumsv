@@ -360,20 +360,20 @@ class ExtendedHandlerUtils(HandlerUtils):
             utxos_as_dicts.append(self.utxo_as_dict(utxo))
         return utxos_as_dicts
 
-    def _history_dto(self, wallet: AbstractAccount) -> List[Dict[Any, Any]]:
-        history = wallet.export_history()
+    def _history_dto(self, account: AbstractAccount) -> List[Dict[Any, Any]]:
+        history = account.export_history()
         return history
 
-    def _transaction_state_dto(self, wallet: AbstractAccount,
+    def _transaction_state_dto(self, account: AbstractAccount,
         tx_ids: Optional[Iterable[str]]=None) -> Union[Fault, Dict[Any, Any]]:
         chain = self.app_state.daemon.network.chain()
 
         result = {}
         for tx_id in tx_ids:
             tx_hash = hex_str_to_hash(tx_id)
-            if wallet.has_received_transaction(tx_hash):
+            if account.has_received_transaction(tx_hash):
                 # height, conf, timestamp
-                height, conf, timestamp = wallet.get_tx_height(tx_hash)
+                height, conf, timestamp = account._wallet.get_tx_height(tx_hash)
                 block_id = None
                 if timestamp:
                     block_id = self.app_state.headers.header_at_height(chain, height).hex_str()

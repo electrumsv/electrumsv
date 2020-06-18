@@ -104,14 +104,15 @@ class TransactionCache:
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         assert isinstance(tx, Transaction)
 
-        date_updated = self._store._get_current_timestamp()
-        if tx_hash in self._cache:
-            self.update([ (tx_hash, TxData(date_added=date_updated, date_updated=date_updated),
-                tx, flags | TxFlags.HasByteData) ], completion_callback=completion_callback)
-        else:
-            self.add([(tx_hash, TxData(date_added=date_updated, date_updated=date_updated),
-                    tx, flags | TxFlags.HasByteData, None)],
-                completion_callback=completion_callback)
+        with self._lock:
+            date_updated = self._store._get_current_timestamp()
+            if tx_hash in self._cache:
+                self.update([ (tx_hash, TxData(date_added=date_updated, date_updated=date_updated),
+                    tx, flags | TxFlags.HasByteData) ], completion_callback=completion_callback)
+            else:
+                self.add([(tx_hash, TxData(date_added=date_updated, date_updated=date_updated),
+                        tx, flags | TxFlags.HasByteData, None)],
+                    completion_callback=completion_callback)
 
     def add(self, inserts: List[Tuple[bytes, TxData, Transaction, TxFlags, Optional[str]]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:

@@ -104,11 +104,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     network_status_signal = pyqtSignal()
     account_created_signal = pyqtSignal(int, object)
     account_change_signal = pyqtSignal(int, object)
-    keys_updated_signal = pyqtSignal(object, object, object)
-    keys_created_signal = pyqtSignal(object, object, object)
-    transaction_state_signal = pyqtSignal(object, object, object, object, object)
-    transaction_added_signal = pyqtSignal(object, object, object)
-    transaction_deleted_signal = pyqtSignal(object, object, object)
+    keys_updated_signal = pyqtSignal(object, object)
+    keys_created_signal = pyqtSignal(object, object)
+    transaction_state_signal = pyqtSignal(object, object, object, object)
+    transaction_added_signal = pyqtSignal(object, object)
+    transaction_deleted_signal = pyqtSignal(object, object)
     show_secured_data_signal = pyqtSignal(object)
 
     def __init__(self, wallet: Wallet):
@@ -134,7 +134,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.qr_window = None
         self.not_enough_funds = False
         self.require_fee_update = False
-        self.tx_notifications: List[Tuple[Transaction, AbstractAccount]] = []
+        self.tx_notifications: List[Transaction] = []
         self.tx_notify_timer = None
         self.tx_dialogs = []
         self.tl_windows = []
@@ -189,10 +189,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         # Link wallet synchronisation to throttled UI updates.
         self._wallet_sync_event = app_state.async_.event()
-        self._monitor_wallet_network_status_tasks = []
-        for account in self._wallet.get_accounts():
-            task = app_state.async_.spawn(self._monitor_wallet_network_status, account)
-            self._monitor_wallet_network_status_tasks.append(task)
+        self._monitor_wallet_network_status_task = app_state.async_.spawn(
+            self._monitor_wallet_network_status)
         self.network_status_task = app_state.async_.spawn(self._maintain_network_status)
 
         # network callbacks
@@ -277,24 +275,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if self.config.get('show_{}_tab'.format(name), default):
             tabs.addTab(tab, icon, description.replace("&", ""))
 
-    def _on_transaction_state_change(self, event_name: str, wallet_path: str, account_id: int,
-            tx_hash: bytes, old_state: TxFlags, new_state: TxFlags) -> None:
-        self.transaction_state_signal.emit(wallet_path, account_id, tx_hash, old_state, new_state)
+    def _on_transaction_state_change(self, event_name: str, account_id: int, tx_hash: bytes,
+            old_state: TxFlags, new_state: TxFlags) -> None:
+        self.transaction_state_signal.emit(account_id, tx_hash, old_state, new_state)
 
-    def _on_transaction_added(self, event_name: str, wallet_path: str, account_id: int,
-            tx_hash: bytes) -> None:
-        self.transaction_added_signal.emit(wallet_path, account_id, tx_hash)
+    def _on_transaction_added(self, event_name: str, account_id: int, tx_hash: bytes) -> None:
+        self.transaction_added_signal.emit(account_id, tx_hash)
 
-    def _on_transaction_deleted(self, event_name: str, wallet_path: str, account_id: int,
-            tx_hash: bytes) -> None:
-        self.transaction_deleted_signal.emit(wallet_path, account_id, tx_hash)
+    def _on_transaction_deleted(self, event_name: str, account_id: int, tx_hash: bytes) -> None:
+        self.transaction_deleted_signal.emit(account_id, tx_hash)
 
     def _on_account_created(self, event_name: str, new_account_id: int) -> None:
         account = self._wallet.get_account(new_account_id)
 
         self._wallet.create_gui_handler(self, account)
-        task = app_state.async_.spawn(self._monitor_wallet_network_status, account)
-        self._monitor_wallet_network_status_tasks.append(task)
 
         self.account_created_signal.emit(new_account_id, account)
         self.set_active_account(account)
@@ -324,14 +318,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # care of triggering an update.
         self.need_update.set()
 
-    def _on_keys_created(self, event_name: str, wallet_path: str, account_id: int,
+    def _on_keys_created(self, event_name: str, account_id: int,
             keys: Iterable[KeyInstanceRow]) -> None:
-        self.keys_created_signal.emit(wallet_path, account_id, keys)
+        self.keys_created_signal.emit(account_id, keys)
 
-    def _on_keys_updated(self, event_name: str, wallet_name: str, account_id: int,
+    def _on_keys_updated(self, event_name: str, account_id: int,
             keys: Iterable[KeyInstanceRow]) -> None:
         # logger.debug("_on_keys_updated %r", keys)
-        self.keys_updated_signal.emit(wallet_name, account_id, keys)
+        self.keys_updated_signal.emit(account_id, keys)
 
     def _on_show_secured_data(self, account_id: int) -> None:
         self._accounts_view._view_secured_data(main_window=self, account_id=account_id)
@@ -426,23 +420,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def on_network(self, event, *args) -> None:
         if event == 'updated':
             self.need_update.set()
-
         elif event == 'new_transaction':
-            tx, account = args
+            tx, accounts = args
             # Always notify of incoming transactions regardless of the active account.
-            self.tx_notifications.append((tx, account))
+            self.tx_notifications.append(tx)
             self.notify_transactions_signal.emit()
             # Only update the display for the new transaction if it is in the current account?
-            if self._account is account:
+            if self._account in accounts:
                 self.need_update.set()
         elif event == 'on_header_backfill':
             self.history_view.update()
-        elif event in ['status', 'banner']:
+        elif event in ['status', 'banner', 'verified']:
             # Handle in GUI thread
             self.network_signal.emit(event, args)
-        elif event == 'verified':
-            if args[0] == self._wallet.get_storage_path():
-                self.network_signal.emit(event, args)
         else:
             self.logger.debug("unexpected network message event='%s' args='%s'", event, args)
 
@@ -850,12 +840,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if num_txns:
                 # Combine the transactions
                 total_amount = 0
-                for tx, account in self.tx_notifications:
+                for tx in self.tx_notifications:
                     if tx:
-                        v = account.get_transaction_delta(tx.hash())
-                        if v:
-                            total_amount += v
-                            n_ok += 1
+                        result = self._wallet.get_transaction_delta(tx.hash())
+                        total_amount += result.total
+                        n_ok += 1
                 if n_ok:
                     self.logger.debug("Notifying GUI %d tx", n_ok)
                     if n_ok > 1:
@@ -865,18 +854,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     else:
                         self.notify(_("New transaction received: {}").format(
                             self.format_amount_and_units(total_amount)))
-        self.tx_notifications = list()
+        self.tx_notifications = []
         self.last_notify_tx_time = time.time() if n_ok else self.last_notify_tx_time
         if self.tx_notify_timer:
             self.tx_notify_timer.stop()
             self.tx_notify_timer = None
-
 
     def notify_transactions(self):
         if self.tx_notify_timer or not len(self.tx_notifications) or self.cleaned_up:
             # common case: extant notify timer -- we already enqueued to notify. So bail
             # and wait for timer to handle it.
             return
+
         elapsed = time.time() - self.last_notify_tx_time
         if elapsed < self.notify_tx_rate:
             # spam control. force tx notify popup to not appear more often than every 30
@@ -892,7 +881,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # it's been a while since we got a tx notify -- so do it immediately (no timer
             # necessary)
             self.notify_tx_cb()
-
 
     def notify(self, message):
         self.app.tray.showMessage("ElectrumSV", message,
@@ -996,10 +984,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         btc_e.textChanged.connect(partial(edit_changed, btc_e))
         fiat_e.is_last_edited = False
 
-    async def _monitor_wallet_network_status(self, account: AbstractAccount) -> None:
+    async def _monitor_wallet_network_status(self) -> None:
         while True:
-            await account.progress_event.wait()
-            account.progress_event.clear()
+            await self._wallet.progress_event.wait()
+            self._wallet.progress_event.clear()
             self._wallet_sync_event.set()
 
     async def _maintain_network_status(self) -> None:
@@ -1036,8 +1024,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         "Update the network status portion of the status bar."
         text = _("Offline")
         if self.network:
-            request_count = 0
-            response_count = 0
+            request_count = self._wallet.request_count
+            response_count = self._wallet.response_count
             for account in self._wallet.get_accounts():
                 if account.request_count > account.response_count:
                     request_count += account.request_count
@@ -1776,7 +1764,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 if tx_id:
                     if tx_desc is not None and tx.is_complete():
-                        self._account.set_transaction_label(tx.hash(), tx_desc)
+                        self._wallet.set_transaction_label(tx.hash(), tx_desc)
                     window.show_message(success_text + '\n' + tx_id)
                     self.invoice_list.update()
                     self.do_clear()
@@ -1940,14 +1928,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         account = self._wallet.get_account(account_id)
 
         extra_text = ""
-        coin_count = len(account.get_key_utxos(key_id))
+        coin_count = len(account.get_key_utxos({ key_id }))
         if coin_count > 0:
             extra_text += " "+ _("It has {} known coins associated with it.").format(coin_count)
 
         if self.question(_("Do you want to remove this key from your wallet?") + extra_text):
             keyinstance = self._account.get_keyinstance(key_id)
             # This if successful will unload the key from the account (not delete).
-            if account.set_key_active_state(key_id, False):
+            if account.archive_keys({ key_id }):
                 if self.key_view is not None:
                     self.key_view.remove_keys([ keyinstance ])
                 self.history_view.update_tx_list()
@@ -2687,9 +2675,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.tx_notify_timer = None
 
         self.network_status_task.cancel()
-
-        for task in self._monitor_wallet_network_status_tasks:
-            task.cancel()
+        self._monitor_wallet_network_status_task.cancel()
 
         # We catch these errors with the understanding that there is no recovery at
         # this point, given user has likely performed an action we cannot recover

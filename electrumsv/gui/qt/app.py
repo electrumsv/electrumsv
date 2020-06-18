@@ -186,12 +186,12 @@ class SVApplication(QApplication):
         else:
             return read_QIcon('electrumsv_light_icon.png')
 
-    def _toggle_tray_icon(self):
+    def _toggle_tray_icon(self) -> None:
         self.dark_icon = not self.dark_icon
         app_state.config.set_key("dark_icon", self.dark_icon, True)
         self.tray.setIcon(self._tray_icon())
 
-    def _tray_activated(self, reason):
+    def _tray_activated(self, reason) -> None:
         if reason == QSystemTrayIcon.DoubleClick:
             if all([w.is_hidden() for w in self.windows]):
                 for w in self.windows:
@@ -225,20 +225,18 @@ class SVApplication(QApplication):
             self.log_window = SVLogWindow(None, self.log_handler)
         self.log_window.show()
 
-    def _last_window_closed(self):
+    def _last_window_closed(self) -> None:
         for dialog in (self.net_dialog, self.log_window):
             if dialog:
                 dialog.accept()
 
-    def on_transaction_label_change(self, account: AbstractAccount, tx_hash: bytes,
-            text: str) -> None:
-        self.label_sync.set_transaction_label(account, tx_hash, text)
+    def on_transaction_label_change(self, wallet: Wallet, tx_hash: bytes, text: str) -> None:
+        self.label_sync.set_transaction_label(wallet, tx_hash, text)
 
-    def on_keyinstance_label_change(self, account: AbstractAccount, key_id: int,
-            text: str) -> None:
+    def on_keyinstance_label_change(self, account: AbstractAccount, key_id: int, text: str) -> None:
         self.label_sync.set_keyinstance_label(account, key_id, text)
 
-    def _create_window_for_wallet(self, wallet: Wallet):
+    def _create_window_for_wallet(self, wallet: Wallet) -> ElectrumWindow:
         w = ElectrumWindow(wallet)
         self.windows.append(w)
         self._build_tray_menu()

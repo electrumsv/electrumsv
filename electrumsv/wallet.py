@@ -65,13 +65,14 @@ from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, XPublicKey, NO_SIGNATURE, XTxInput, XTxOutput,
     XPublicKeyType)
+from .types import TxoKeyType
 from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime,
     TriggeredCallbacks)
 from .wallet_database import TxData, TxProof, TransactionCacheEntry, TransactionCache
 from .wallet_database.tables import (AccountRow, AccountTable, KeyInstanceRow, KeyInstanceTable,
     MasterKeyRow, MasterKeyTable, TransactionTable, TransactionOutputTable,
-    TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow, PaymentRequestTable,
-    PaymentRequestRow, WalletEventRow, WalletEventTable)
+    TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow, TransactionDeltaSumRow,
+    PaymentRequestTable, PaymentRequestRow, WalletEventRow, WalletEventTable)
 from .wallet_database.sqlite_support import DatabaseContext
 
 if TYPE_CHECKING:
@@ -107,10 +108,10 @@ class HistoryLine(NamedTuple):
 class UTXO:
     value = attr.ib()
     script_pubkey = attr.ib()
-    script_type = attr.ib()
-    tx_hash = attr.ib()
-    out_index = attr.ib()
-    keyinstance_id = attr.ib()
+    script_type: ScriptType = attr.ib()
+    tx_hash: bytes = attr.ib()
+    out_index: int = attr.ib()
+    keyinstance_id: int = attr.ib()
     address = attr.ib()
     # To determine if matured and spendable
     is_coinbase = attr.ib()
@@ -122,8 +123,8 @@ class UTXO:
     def __hash__(self):
         return hash(self.key())
 
-    def key(self) -> Tuple[bytes, int]:
-        return (self.tx_hash, self.out_index)
+    def key(self) -> TxoKeyType:
+        return TxoKeyType(self.tx_hash, self.out_index)
 
     def key_str(self) -> str:
         return f"{hash_to_hex_str(self.tx_hash)}:{self.out_index}"
@@ -223,16 +224,14 @@ class AbstractAccount:
         self._synchronized_event = app_state.async_.event()
 
         self._subpath_gap_limits: Dict[Sequence[int], int] = {}
-        self.txs_changed_event = app_state.async_.event()
         self.request_count = 0
         self.response_count = 0
-        self.progress_event = app_state.async_.event()
-        self.last_poll_time = None
+        self.last_poll_time: Optional[float] = None
 
         self._load_sync_state()
-        self._utxos: Dict[Tuple[bytes, int], UTXO] = {}
+        self._utxos: Dict[TxoKeyType, UTXO] = {}
         self._utxos_lock = threading.RLock()
-        self._stxos: Dict[Tuple[bytes, int], int] = {}
+        self._stxos: Dict[TxoKeyType, int] = {}
         self._keypath: Dict[int, Sequence[int]] = {}
         self._keyinstances: Dict[int, KeyInstanceRow] = { r.keyinstance_id: r for r
             in keyinstance_rows }
@@ -360,30 +359,73 @@ class AbstractAccount:
         assert key_allocation.derivation_type == DerivationType.BIP32_SUBPATH
         return json.dumps({ "subpath": key_allocation.derivation_path }).encode()
 
-    def set_key_active_state(self, key_id: int, set_active: bool) -> bool:
-        if set_active:
-            raise NotImplementedError("TODO(rt12) BACKLOG")
-            # TODO(rt12) BACKLOG If the key is already active, then flag it as user active.
+    def archive_keys(self, key_ids: Set[int]) -> Set[int]:
+        assert len(key_ids), "should never be called with no keys to deactivate"
+        candidate_key_ids: Set[int] = set()
+        keyinstance_updates: List[Tuple[KeyInstanceFlag, int]] = []
+        for key_id in key_ids:
+            keyinstance = self._keyinstances.get(key_id)
+            if keyinstance is None:
+                continue
+            assert keyinstance.flags & KeyInstanceFlag.IS_ACTIVE, \
+                f"unexpected deactivated key {key_id}"
+            # Persist the removal of the active state from the key.
+            keyinstance_updates.append((keyinstance.flags & ~KeyInstanceFlag.ACTIVE_MASK, key_id))
+            candidate_key_ids.add(key_id)
 
-        if key_id not in self._keyinstances:
-            return False
-        # Persist the removal of the active state from the key.
-        self._wallet.update_keyinstance_flags([
-            (self._keyinstances[key_id].flags & ~KeyInstanceFlag.ACTIVE_MASK, key_id) ])
+        if len(candidate_key_ids):
+            self._unload_keys(candidate_key_ids)
+            self._wallet.update_keyinstance_flags(keyinstance_updates)
+        return candidate_key_ids
+
+    def unarchive_transaction_keys(self, tx_key_ids: List[Tuple[bytes, Set[int]]]) -> None:
+        """
+        This should reload key and transaction output state for archived keys.
+        """
+        candidate_key_ids: Set[int] = set()
+        for tx_hash, key_ids in tx_key_ids:
+            candidate_key_ids |= key_ids
+
+        assert len(candidate_key_ids), "should never be called with no keys to activate"
+
+        for txo_row in self._wallet.read_transactionoutputs(key_ids=candidate_key_ids):
+            self._load_txo(txo_row)
+
+        keyinstance_updates: List[Tuple[KeyInstanceFlag, int]] = []
+        for row in self._wallet.read_keyinstances(key_ids=candidate_key_ids):
+            # TODO: Work out the correct thing to do for these assertions? Ignore these keys?
+            assert row.keyinstance_id not in self._keyinstances
+            assert row.flags & KeyInstanceFlag.IS_ACTIVE != KeyInstanceFlag.IS_ACTIVE
+
+            flags = row.flags | KeyInstanceFlag.IS_ACTIVE
+            self._keyinstances[row.keyinstance_id] = KeyInstanceRow(row.keyinstance_id, self._id,
+                row.masterkey_id, row.derivation_type, row.derivation_data, row.script_type,
+                flags, row.description)
+            keyinstance_updates.append((flags, row.keyinstance_id))
+
+        if len(keyinstance_updates):
+            self._wallet.update_keyinstance_flags(keyinstance_updates)
+
+    def _unload_keys(self, key_ids: Set[int]) -> None:
+        utxokeys, stxokeys = self.get_key_txokeys(key_ids)
         # Flush the associated UTXO state and account state from memory.
         with self._utxos_lock:
-            for utxo in self.get_key_utxos(key_id):
-                del self._utxos[utxo.key()]
-        self._unload_keys([ key_id ])
-        return True
-
-    def _unload_keys(self, key_ids: List[int]) -> None:
+            for utxokey in utxokeys:
+                del self._utxos[utxokey]
+        for stxokey in stxokeys:
+            del self._stxos[stxokey]
         for key_id in key_ids:
             del self._keyinstances[key_id]
 
-    def get_key_utxos(self, key_id: int) -> List[UTXO]:
+    def get_key_txokeys(self, key_ids: Set[int]) -> Tuple[List[TxoKeyType], List[TxoKeyType]]:
         with self._utxos_lock:
-            return [ u for u in self._utxos.values() if u.keyinstance_id == key_id ]
+            utxo_keys = [ k for (k, v) in self._utxos.items() if v.keyinstance_id in key_ids ]
+        stxo_keys = [ k for (k, v) in self._stxos.items() if v in key_ids ]
+        return utxo_keys, stxo_keys
+
+    def get_key_utxos(self, key_ids: Set[int]) -> List[UTXO]:
+        with self._utxos_lock:
+            return [ u for u in self._utxos.values() if u.keyinstance_id in key_ids ]
 
     def get_script_type_for_id(self, key_id: int) -> ScriptType:
         keyinstance = self._keyinstances[key_id]
@@ -405,50 +447,39 @@ class AbstractAccount:
         script_template = self.get_script_template_for_id(keyinstance_id, script_type)
         return script_template.to_script()
 
-    def missing_transactions(self) -> List[bytes]:
-        '''Returns a set of tx_hashes.'''
-        return self._wallet._transaction_cache.get_unsynced_hashes()
-
-    def unverified_transactions(self):
-        '''Returns a map of tx_hash to tx_height.'''
-        results = self._wallet._transaction_cache.get_unverified_entries(
-            self._wallet.get_local_height())
-        self._logger.debug("unverified_transactions: %s",
-            [(hash_to_hex_str(r[0]), r[1]) for r in results])
-        return { t[0]: t[1].metadata.height for t in results }
-
-    async def synchronize_loop(self):
+    # This is started by the network `maintain_account` loop.
+    async def synchronize_loop(self) -> None:
         while True:
             await self._synchronize()
             await self._synchronize_event.wait()
 
-    async def _trigger_synchronization(self):
-        if self._network:
-            self._synchronize_event.set()
-        else:
-            await self._synchronize()
-
-    async def _synchronize_wallet(self) -> None:
+    async def _synchronize_account(self) -> None:
         '''Class-specific synchronization (generation of missing addresses).'''
         pass
 
-    async def _synchronize(self):
+    async def _synchronize(self) -> None:
         self._logger.debug('synchronizing...')
         self._synchronize_event.clear()
         self._synchronized_event.clear()
-        await self._synchronize_wallet()
+        await self._synchronize_account()
         self._synchronized_event.set()
         self._logger.debug('synchronized.')
         if self._network:
             self._network.trigger_callback('updated')
 
-    def synchronize(self):
+    def synchronize(self) -> None:
         app_state.async_.spawn_and_wait(self._trigger_synchronization)
         app_state.async_.spawn_and_wait(self._synchronized_event.wait)
 
-    def is_synchronized(self):
+    async def _trigger_synchronization(self) -> None:
+        if self._network:
+            self._synchronize_event.set()
+        else:
+            await self._synchronize()
+
+    def is_synchronized(self) -> bool:
         return (self._synchronized_event.is_set() and
-                not (self._network and self.missing_transactions()))
+                not (self._network and self._wallet.missing_transactions()))
 
     def get_keystore(self) -> Optional[KeyStore]:
         if self._row.default_masterkey_id is not None:
@@ -500,6 +531,8 @@ class AbstractAccount:
 
         self._row = AccountRow(self._row.account_id, self._row.default_masterkey_id,
             self._row.default_script_type, name)
+
+        self._wallet.trigger_callback('on_account_renamed', self._id, name)
 
     # Displayed in the regular user UI.
     def display_name(self) -> str:
@@ -559,28 +592,31 @@ class AbstractAccount:
     def _load_txos(self, output_rows: List[TransactionOutputRow]) -> None:
         self._stxos.clear()
         self._utxos.clear()
-        self._frozen_coins: Set[Tuple[bytes, int]] = set([])
+        self._frozen_coins: Set[TxoKeyType] = set([])
 
         for row in output_rows:
-            txo_key = row.tx_hash, row.tx_index
-            if row.flags & TransactionOutputFlag.IS_SPENT:
-                self._stxos[txo_key] = row.keyinstance_id
-            else:
-                keyinstance = self._keyinstances[row.keyinstance_id]
-                script_template = self.get_script_template_for_id(row.keyinstance_id)
-                metadata = self._wallet._transaction_cache.get_metadata(row.tx_hash)
-                flags = row.flags
-                if metadata.position==0:
-                    flags |= TransactionOutputFlag.IS_COINBASE
-                address = script_template if isinstance(script_template, Address) else None
-                self.register_utxo(row.tx_hash, row.tx_index, row.value, flags,
-                    keyinstance, script_template.to_script(), address)
+            self._load_txo(row)
+
+    def _load_txo(self, row: TransactionOutputRow) -> None:
+        txo_key = TxoKeyType(row.tx_hash, row.tx_index)
+        if row.flags & TransactionOutputFlag.IS_SPENT:
+            self._stxos[txo_key] = row.keyinstance_id
+        else:
+            keyinstance = self._keyinstances[row.keyinstance_id]
+            script_template = self.get_script_template_for_id(row.keyinstance_id)
+            metadata = self._wallet._transaction_cache.get_metadata(row.tx_hash)
+            flags = row.flags
+            if metadata.position==0:
+                flags |= TransactionOutputFlag.IS_COINBASE
+            address = script_template if isinstance(script_template, Address) else None
+            self.register_utxo(row.tx_hash, row.tx_index, row.value, flags,
+                keyinstance, script_template.to_script(), address)
 
     def register_utxo(self, tx_hash: bytes, output_index: int, value: int,
             flags: TransactionOutputFlag, keyinstance: KeyInstanceRow,
             script: Script, address: Optional[ScriptTemplate]=None) -> None:
         is_coinbase = (flags & TransactionOutputFlag.IS_COINBASE) != 0
-        utxo_key = (tx_hash, output_index)
+        utxo_key = TxoKeyType(tx_hash, output_index)
         with self._utxos_lock:
             self._utxos[utxo_key] = UTXO(
                 value=value,
@@ -603,7 +639,7 @@ class AbstractAccount:
         if metadata.position == 0:
             flags |= TransactionOutputFlag.IS_COINBASE
         if flags & TransactionOutputFlag.IS_SPENT:
-            self._stxos[(tx_hash, output_index)] = keyinstance.keyinstance_id
+            self._stxos[TxoKeyType(tx_hash, output_index)] = keyinstance.keyinstance_id
         else:
             self.register_utxo(tx_hash, output_index, value, flags, keyinstance,
                 script, address)
@@ -638,8 +674,7 @@ class AbstractAccount:
         new_key = self._keyinstances[keyinstance_id]
         self._wallet.update_keyinstance_flags([ (new_key.flags, keyinstance_id) ])
         self._payment_requests[row.paymentrequest_id] = row
-        self._wallet.trigger_callback('on_keys_updated', self._wallet.get_storage_path(), self._id,
-            [ new_key ])
+        self._wallet.trigger_callback('on_keys_updated', self._id, [ new_key ])
         return row
 
     def update_payment_request(self, paymentrequest_id: int, state: PaymentState,
@@ -663,8 +698,7 @@ class AbstractAccount:
                 key.script_type, key.flags & ~KeyInstanceFlag.IS_PAYMENT_REQUEST, key.description)
             new_key = self._keyinstances[pr.keyinstance_id]
             self._wallet.update_keyinstance_flags([ (new_key.flags, pr.keyinstance_id) ])
-            self._wallet.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),
-                self._id, [ new_key ])
+            self._wallet.trigger_callback('on_keys_updated', self._id, [ new_key ])
             return True
         return False
 
@@ -701,18 +735,6 @@ class AbstractAccount:
                 "entries": label_entries,
             }
         return data
-
-    def get_transaction_label(self, tx_hash: bytes) -> str:
-        label = self._wallet._transaction_descriptions.get(tx_hash)
-        return "" if label is None else label
-
-    def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) -> None:
-        text = None if text is None or text.strip() == "" else text.strip()
-        label = self._wallet._transaction_descriptions.get(tx_hash)
-        if label == text:
-            return
-        self._wallet.update_transaction_descriptions([ (text, tx_hash) ])
-        app_state.app.on_transaction_label_change(self, tx_hash, text)
 
     def get_keyinstance_label(self, key_id: int) -> str:
         return self._keyinstances[key_id].description or ""
@@ -786,80 +808,10 @@ class AbstractAccount:
         secret, compressed = keystore.get_private_key(derivation_path, password)
         return PrivateKey(secret).to_WIF(compressed=compressed, coin=Net.COIN)
 
-    # Called by network.
-    def add_verified_tx(self, tx_hash: bytes, height: int, timestamp: int, position: int,
-            proof_position: int, proof_branch: Sequence[bytes]) -> None:
-        tx_id = hash_to_hex_str(tx_hash)
-        if self._stopped:
-            self._logger.debug("add_verified_tx on stopped wallet: %s", tx_id)
-            return
-        entry = self._wallet._transaction_cache.get_entry(tx_hash, TxFlags.StateCleared) # HasHeight
-
-        # Ensure we are not verifying transactions multiple times.
-        if entry is None:
-            # We have proof now so regardless what TxState is, we can 'upgrade' it to StateSettled.
-            # This rests on the commitment that any of the following four tx States *will*
-            # Have tx bytedata i.e. "HasByteData" flag is set.
-            entry = self._wallet._transaction_cache.get_entry(tx_hash, TxFlags.STATE_UNCLEARED_MASK)
-            if entry.flags & TxFlags.HasByteData != 0:
-                self._logger.debug("Fast_tracking entry to StateSettled: %r", entry)
-            else:
-                self._logger.error("Transaction bytedata absent for %s %r", tx_id, entry)
-                return
-
-        # We only update a subset.
-        flags = TxFlags.HasHeight | TxFlags.HasPosition
-        data = TxData(height=height, position=position)
-        self._wallet._transaction_cache.update(
-            [ (tx_hash, data, None, flags | TxFlags.StateSettled) ])
-
-        proof = TxProof(proof_position, proof_branch)
-        self._wallet._transaction_cache.update_proof(tx_hash, proof)
-
-        height, conf, _timestamp = self.get_tx_height(tx_hash)
-        self._logger.debug("add_verified_tx %d %d %d", height, conf, timestamp)
-        cast('Network', self._network).trigger_callback(
-            'verified', self._wallet.get_storage_path(), tx_hash, height, conf, timestamp)
-
-    def undo_verifications(self, above_height):
-        '''Called by network when a reorg has happened'''
-        if self._stopped:
-            self._logger.debug("undo_verifications on stopped wallet: %d", above_height)
-            return
-
-        with self.lock:
-            reorg_count, updated_txs = self._wallet._transaction_cache.apply_reorg(above_height)
-            self._logger.info(f'removing verification of {reorg_count} transactions')
-            self.reactivate_reorged_keys(updated_txs)
-
-    def get_tx_height(self, tx_hash: bytes) -> Tuple[int, int, Union[int, bool]]:
-        """ return the height and timestamp of a verified transaction. """
-        with self.lock:
-            metadata = self._wallet._transaction_cache.get_metadata(tx_hash)
-            assert metadata.height is not None, f"tx {hash_to_hex_str(tx_hash)} has no height"
-            timestamp = None
-            if metadata.height > 0:
-                chain = app_state.headers.longest_chain()
-                try:
-                    header = app_state.headers.header_at_height(chain, metadata.height)
-                    timestamp = header.timestamp
-                except MissingHeader:
-                    pass
-            if timestamp is not None:
-                conf = max(self._wallet.get_local_height() - metadata.height + 1, 0)
-                return metadata.height, conf, timestamp
-            else:
-                return metadata.height, 0, False
-
-    def get_transaction_delta(self, tx_hash: bytes) -> Optional[int]:
-        assert type(tx_hash) is bytes, f"tx_hash is {type(tx_hash)}, expected bytes"
-        with TransactionDeltaTable(self._wallet._db_context) as table:
-            return table.read_transaction_value(tx_hash)
-
     # Should be called with the transaction lock.
     def set_utxo_spent(self, tx_hash: bytes, output_index: int) -> None:
         with self._utxos_lock:
-            txo_key = (tx_hash, output_index)
+            txo_key = TxoKeyType(tx_hash, output_index)
             utxo = self._utxos.pop(txo_key)
         retained_flags = utxo.flags & TransactionOutputFlag.IS_COINBASE
         self._wallet.update_transactionoutput_flags(
@@ -870,10 +822,10 @@ class AbstractAccount:
         return utxo.key() in self._frozen_coins
 
     def get_stxo(self, tx_hash: bytes, output_index: int) -> Optional[int]:
-        return self._stxos.get((tx_hash, output_index), None)
+        return self._stxos.get(TxoKeyType(tx_hash, output_index), None)
 
     def get_utxo(self, tx_hash: bytes, output_index: int) -> Optional[UTXO]:
-        return self._utxos.get((tx_hash, output_index), None)
+        return self._utxos.get(TxoKeyType(tx_hash, output_index), None)
 
     def get_spendable_coins(self, domain: Optional[List[int]], config, isInvoice = False):
         confirmed_only = config.get('confirmed_only', False)
@@ -930,27 +882,6 @@ class AbstractAccount:
                     u += o.value
             return c, u, x
 
-    # Also called by network.
-    def add_transaction(self, tx_hash: bytes, tx: Transaction, flag: TxFlags) -> None:
-        if self._stopped:
-            tx_id = hash_to_hex_str(tx_hash)
-            self._logger.debug("add_transaction on stopped wallet: %s", tx_id)
-            return
-
-        def _completion_callback(exc_value: Any) -> None:
-            if exc_value is not None:
-                raise exc_value # pylint: disable=raising-bad-type
-
-            self._wallet.trigger_callback('transaction_added', self._wallet.get_storage_path(),
-                self._id, tx_hash)
-
-        with self.transaction_lock:
-            self._logger.debug("adding tx data %s (flags: %s)", hash_to_hex_str(tx_hash),
-                TxFlags.to_repr(flag))
-            self._wallet._transaction_cache.add_transaction(tx_hash, tx, flag,
-                _completion_callback)
-            self._process_key_usage(tx_hash, tx, None)
-
     def set_transaction_state(self, tx_hash: bytes, flags: TxFlags) -> None:
         """ raises UnknownTransactionException """
         with self.transaction_lock:
@@ -958,13 +889,8 @@ class AbstractAccount:
                 raise UnknownTransactionException(f"tx {hash_to_hex_str(tx_hash)} unknown")
             existing_flags = self._wallet._transaction_cache.get_flags(tx_hash)
             updated_flags = self._wallet._transaction_cache.update_flags(tx_hash, flags)
-        self._wallet.trigger_callback('transaction_state_change',
-            self._wallet.get_storage_path(), self._id, tx_hash, existing_flags, updated_flags)
-
-    def process_key_usage(self, tx_hash: bytes, tx: Transaction,
-            relevant_txos: Optional[List[Tuple[int, XTxOutput]]]) -> None:
-        with self.transaction_lock:
-            self._process_key_usage(tx_hash, tx, relevant_txos)
+        self._wallet.trigger_callback('transaction_state_change', self._id, tx_hash,
+            existing_flags, updated_flags)
 
     def _get_cached_script(self, keyinstance_id: int) -> CachedScriptType:
         keyinstance = self.get_keyinstance(keyinstance_id)
@@ -980,6 +906,11 @@ class AbstractAccount:
             self._script_cache[cache_key] = cache_value
         return cache_value
 
+    def process_key_usage(self, tx_hash: bytes, tx: Transaction,
+            relevant_txos: Optional[List[Tuple[int, XTxOutput]]]) -> bool:
+        with self.transaction_lock:
+            return self._process_key_usage(tx_hash, tx, relevant_txos)
+
     # def _process_key_usage(self, tx_hash: bytes, tx: Transaction) -> None:
     #     import cProfile, pstats, io
     #     from pstats import SortKey
@@ -994,7 +925,7 @@ class AbstractAccount:
     #     print(s.getvalue())
 
     def _process_key_usage(self, tx_hash: bytes, tx: Transaction,
-            relevant_txos: Optional[List[Tuple[int, XTxOutput]]]) -> None:
+            relevant_txos: Optional[List[Tuple[int, XTxOutput]]]) -> bool:
         tx_id = hash_to_hex_str(tx_hash)
         key_ids = self._sync_state.get_transaction_key_ids(tx_id)
         key_matches = [(self.get_keyinstance(key_id),
@@ -1058,18 +989,19 @@ class AbstractAccount:
             self._wallet.create_or_update_transactiondelta_relative(
                 [ TransactionDeltaRow(k[0], k[1], v) for k, v in tx_deltas.items() ])
 
-        if len(tx_deltas):
             affected_keys = [self._keyinstances[k] for (_x, k) in tx_deltas.keys()]
-            self._wallet.trigger_callback('on_keys_updated', self._wallet.get_storage_path(),
-                self._id, affected_keys)
+            self._wallet.trigger_callback('on_keys_updated', self._id, affected_keys)
+
+            return True
+
+        return False
 
     def delete_transaction(self, tx_hash: bytes) -> None:
         def _completion_callback(exc_value: Any) -> None:
             if exc_value is not None:
                 raise exc_value # pylint: disable=raising-bad-type
 
-            self._wallet.trigger_callback('transaction_deleted', self._wallet.get_storage_path(),
-                self._id, tx_hash)
+            self._wallet.trigger_callback('transaction_deleted', self._id, tx_hash)
 
         tx_id = hash_to_hex_str(tx_hash)
         with self.transaction_lock:
@@ -1084,58 +1016,58 @@ class AbstractAccount:
 
             tx = self._wallet._transaction_cache.get_transaction(tx_hash)
             # tx_deltas: Dict[Tuple[bytes, int], int] = defaultdict(int)
-            txout_flags: List[Tuple[TransactionOutputFlag, bytes, int]] = []
 
+            txo_key: TxoKeyType
             utxos: List[UTXO] = []
             for output_index, txout in enumerate(tx.outputs):
-                txo_key = tx_hash, output_index
+                txo_key = TxoKeyType(tx_hash, output_index)
                 # Check if any outputs of this transaction have been spent already.
                 if txo_key in self._stxos:
                     raise Exception("Cannot remove as spent by child")
                 with self._utxos_lock:
                     if txo_key in self._utxos:
-                        utxo = self._utxos[txo_key]
-                        utxos.append(utxo)
+                        utxos.append(self._utxos[txo_key])
 
-            # TODO(rt12) BACKLOG only read the outputs we are recreating.
-            with TransactionOutputTable(self._wallet._db_context) as table:
-                output_rows = table.read()
-
+            # Collect the spent key metadata.
+            candidate_spent_keys: Dict[TxoKeyType, int] = {}
             for input_index, txin in enumerate(tx.inputs):
-                txo_key = (txin.prev_hash, txin.prev_idx)
+                txo_key = TxoKeyType(txin.prev_hash, txin.prev_idx)
                 if txo_key in self._stxos:
                     spent_keyinstance_id = self._stxos.pop(txo_key)
-                    # This may incur database read latency, but deletion should be uncommon.
-                    spent_tx = self._wallet._transaction_cache.get_transaction(txin.prev_hash)
-                    spent_value = spent_tx.outputs[txin.prev_idx].value
-                    # Need to set the TXO to non-spent.s
-                    # tx_deltas[(txin.prev_hash, spent_keyinstance_id)] = spent_value
+                    candidate_spent_keys[txo_key] = spent_keyinstance_id
 
-                    # TODO(rt12) BACKLOG lookup the existing flags less painfully.
-                    txo_flags = [ row for row in output_rows if row.tx_hash == txin.prev_hash
-                        and row.tx_index == txin.prev_idx ][0].flags
-                    txo_flags &= ~TransactionOutputFlag.IS_SPENT
-                    spent_keyinstance = self._keyinstances[spent_keyinstance_id]
-                    script_template = self.get_script_template_for_id(spent_keyinstance_id,
-                        spent_keyinstance.script_type)
-                    script = script_template.to_script()
-                    address = script_template if isinstance(script_template, Address) else None
-                    self.register_utxo(txin.prev_hash, txin.prev_idx, spent_value, txo_flags,
-                        spent_keyinstance, script, address)
-                    txout_flags.append((txo_flags, *txo_key))
+            # Read the transaction outputs for any collected spent keys.
+            txos: Dict[TxoKeyType, TransactionOutputRow] = {}
+            with TransactionOutputTable(self._wallet._db_context) as table:
+                output_rows = table.read(key_ids=list(candidate_spent_keys.values()))
+                txos.update((TxoKeyType(row.tx_hash, row.tx_index), row) for row in output_rows)
+
+            txout_flags: List[Tuple[TransactionOutputFlag, bytes, int]] = []
+            for txo_key, spent_keyinstance_id in candidate_spent_keys.items():
+                txo = txos[txo_key]
+                # Need to set the TXO to non-spent.
+                # tx_deltas[(txin.prev_hash, spent_keyinstance_id)] = txo.value
+                txo_flags = txo.flags & ~TransactionOutputFlag.IS_SPENT
+                spent_keyinstance = self._keyinstances[spent_keyinstance_id]
+                script_template = self.get_script_template_for_id(spent_keyinstance_id,
+                    spent_keyinstance.script_type)
+                script = script_template.to_script()
+                address = script_template if isinstance(script_template, Address) else None
+                self.register_utxo(txo_key.tx_hash, txo_key.tx_index, txo.value, txo_flags,
+                    spent_keyinstance, script, address)
+                txout_flags.append((txo_flags, txo_key.tx_hash, txo_key.tx_index))
 
             key_script_types: List[Tuple[ScriptType, int]] = []
             for utxo in utxos:
                 key_script_types.append((ScriptType.NONE, utxo.keyinstance_id))
                 # Update the cached key to be unused.
                 key = self._keyinstances[utxo.keyinstance_id]
-                key = KeyInstanceRow(key.keyinstance_id, key.account_id, key.masterkey_id,
-                    key.derivation_type, key.derivation_data, ScriptType.NONE, key.flags,
-                    key.description)
-                self._keyinstances[utxo.keyinstance_id] = key
+                self._keyinstances[utxo.keyinstance_id] = KeyInstanceRow(key.keyinstance_id,
+                    key.account_id, key.masterkey_id, key.derivation_type, key.derivation_data,
+                    ScriptType.NONE, key.flags, key.description)
                 # Expunge the UTXO.
                 with self._utxos_lock:
-                    del self._utxos[(utxo.tx_hash, utxo.out_index)]
+                    del self._utxos[utxo.key()]
 
             if len(txout_flags):
                 self._wallet.update_transactionoutput_flags(txout_flags)
@@ -1243,12 +1175,10 @@ class AbstractAccount:
                     self.process_key_usage(tx_hash, tx, relevant_txos)
 
         if len(update_state_changes):
-            wallet_path = self._wallet.get_storage_path()
             for state_change in update_state_changes:
-                self._wallet.trigger_callback('transaction_state_change',
-                    wallet_path, self._id, *state_change)
+                self._wallet.trigger_callback('transaction_state_change', self._id, *state_change)
 
-        self.txs_changed_event.set()
+        self._wallet.txs_changed_event.set()
         await self._trigger_synchronization()
 
     def get_history(self, domain: Optional[Set[int]]=None) -> List[Tuple[HistoryLine, int]]:
@@ -1320,7 +1250,7 @@ class AbstractAccount:
                 'value': format_satoshis(history_line.value_delta,
                             is_diff=True) if history_line.value_delta is not None else '--',
                 'balance': format_satoshis(balance),
-                'label': self.get_transaction_label(history_line.tx_hash)
+                'label': self._wallet.get_transaction_label(history_line.tx_hash)
             }
             if fx:
                 date = timestamp
@@ -1525,7 +1455,7 @@ class AbstractAccount:
         # require signature threshold. We do not store these until they are fully signed.
         if tx.is_complete():
             tx_hash = tx.hash()
-            self.add_transaction(tx_hash, tx, TxFlags.StateSigned)
+            self._wallet.add_transaction(tx_hash, tx, TxFlags.StateSigned)
 
     def get_payment_status(self, req: PaymentRequestRow) -> Tuple[bool, int]:
         local_height = self._wallet.get_local_height()
@@ -1575,8 +1505,7 @@ class AbstractAccount:
         self._activated_keys_event.set()
 
         # There is no unique id for the account, so we just pass the wallet for now.
-        self._wallet.trigger_callback('on_keys_created', self._wallet.get_storage_path(),
-            self._id, keys)
+        self._wallet.trigger_callback('on_keys_created', self._id, keys)
 
     async def new_activated_keys(self) -> List[int]:
         await self._activated_keys_event.wait()
@@ -1586,9 +1515,8 @@ class AbstractAccount:
             self._activated_keys = []
         return result
 
-    def poll_used_key_detection(self, every_n_seconds):
-        if self.last_poll_time is None or \
-                time.time() - self.last_poll_time > every_n_seconds:
+    def poll_used_key_detection(self, every_n_seconds: int) -> None:
+        if self.last_poll_time is None or time.time() - self.last_poll_time > every_n_seconds:
             self.last_poll_time = time.time()
             self.detect_used_keys()
 
@@ -1607,49 +1535,51 @@ class AbstractAccount:
         with TransactionDeltaTable(self._wallet._db_context) as table:
             used_keyinstance_ids = table.update_used_keys(self._id)
 
+        if len(used_keyinstance_ids) == 0:
+            return
+
         used_keyinstances = []
-        if len(used_keyinstance_ids) != 0:
-            with self._deactivated_keys_lock:
-                for keyinstance_id in used_keyinstance_ids:
-                    self._deactivated_keys.append(keyinstance_id)
-                    key: KeyInstanceRow = self._keyinstances[keyinstance_id]
-                    used_keyinstances.append(key)
-                self._deactivated_keys_event.set()
+        with self._deactivated_keys_lock:
+            for keyinstance_id in used_keyinstance_ids:
+                self._deactivated_keys.append(keyinstance_id)
+                key: KeyInstanceRow = self._keyinstances[keyinstance_id]
+                used_keyinstances.append(key)
+            self._deactivated_keys_event.set()
 
         self.update_key_activation_state_cache(used_keyinstances, False)
         self._logger.debug("deactivated %s used keys", len(used_keyinstance_ids))
 
-    def update_key_activation_state_cache(self, keyinstances: List[KeyInstanceRow], activate: bool):
+    def update_key_activation_state(self, keyinstances: List[KeyInstanceRow], activate: bool) \
+            -> None:
+        db_updates = self.update_key_activation_state_cache(keyinstances, activate)
+        self._wallet.update_keyinstance_flags(db_updates)
+
+    def update_key_activation_state_cache(self, keyinstances: List[KeyInstanceRow], activate: bool)\
+            -> List[Tuple[KeyInstanceFlag, int]]:
         db_updates = []
         for key in keyinstances:
             old_flags = KeyInstanceFlag(key.flags)
             if activate:
-                new_flags = KeyInstanceFlag(old_flags | KeyInstanceFlag.IS_ACTIVE)
+                new_flags = old_flags | KeyInstanceFlag.IS_ACTIVE
             else:
                 # if USER_SET_ACTIVE flag is set - this flag will remain
                 new_flags = old_flags & (KeyInstanceFlag.INACTIVE_MASK |
                     KeyInstanceFlag.USER_SET_ACTIVE)
             self._keyinstances[key.keyinstance_id] = KeyInstanceRow(key.keyinstance_id,
-                self.get_id(), key.masterkey_id, key.derivation_type, key.derivation_data,
+                self._id, key.masterkey_id, key.derivation_type, key.derivation_data,
                 key.script_type, new_flags, key.description)
             db_updates.append((new_flags, key.keyinstance_id))
         return db_updates
 
-    def update_key_activation_state(self, keyinstances: List[KeyInstanceRow], activate: bool):
-        db_updates = self.update_key_activation_state_cache(keyinstances, activate)
-        self._wallet.update_keyinstance_flags(db_updates)
-
-    def reactivate_reorged_keys(self, reorged_txs: List[bytes]):
+    def reactivate_reorged_keys(self, reorged_tx_hashes: List[bytes]) -> None:
         """re-activate all of the reorged keys and allow deactivation to occur via the usual
         mechanisms."""
-        txs = self._wallet._transaction_cache.get_transaction_datas(tx_hashes=reorged_txs)
-        set_key_ids = set()
-        for tx_hash in txs.keys():
-            key_ids = self._sync_state.get_transaction_key_ids(hash_to_hex_str(tx_hash))
-            for key in key_ids:
-                set_key_ids.add(key)
-        for key_id in set_key_ids:
-            self.set_key_active_state(key_id=key_id, set_active=True)
+        with self.lock:
+            tx_key_ids: List[Tuple[bytes, Set[int]]] = []
+            for tx_hash in reorged_tx_hashes:
+                tx_key_ids.append((tx_hash, self._sync_state.get_transaction_key_ids(
+                    hash_to_hex_str(tx_hash))))
+            self.unarchive_transaction_keys(tx_key_ids)
 
     async def new_deactivated_keys(self) -> List[int]:
         await self._deactivated_keys_event.wait()
@@ -1672,7 +1602,7 @@ class AbstractAccount:
     def is_watching_only(self) -> bool:
         raise NotImplementedError
 
-    def can_change_password(self):
+    def can_change_password(self) -> bool:
         raise NotImplementedError
 
 
@@ -1682,15 +1612,15 @@ class SimpleAccount(AbstractAccount):
     def is_watching_only(self) -> bool:
         return cast(KeyStore, self.get_keystore()).is_watching_only()
 
-    def can_change_password(self):
-        return self.get_keystore().can_change_password()
+    def can_change_password(self) -> bool:
+        return cast(KeyStore, self.get_keystore()).can_change_password()
 
 
 class ImportedAccountBase(SimpleAccount):
-    def can_delete_key(self):
+    def can_delete_key(self) -> bool:
         return True
 
-    def has_seed(self):
+    def has_seed(self) -> bool:
         return False
 
     def get_master_public_keys(self):
@@ -1726,7 +1656,7 @@ class ImportedAddressAccount(ImportedAccountBase):
             assert row.derivation_type == DerivationType.PUBLIC_KEY_HASH
             self._hashes[row.keyinstance_id] = derivation_data['hash']
 
-    def _unload_keys(self, key_ids: List[int]) -> None:
+    def _unload_keys(self, key_ids: Set[int]) -> None:
         for key_id in key_ids:
             del self._hashes[key_id]
         super()._unload_keys(key_ids)
@@ -1795,15 +1725,15 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
     def _load_keys(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
         cast(Imported_KeyStore, self._default_keystore).load_state(keyinstance_rows)
 
-    def _unload_keys(self, key_ids: List[int]) -> None:
+    def _unload_keys(self, key_ids: Set[int]) -> None:
         for key_id in key_ids:
             cast(Imported_KeyStore, self._default_keystore).remove_key(key_id)
         super()._unload_keys(key_ids)
 
-    def can_change_password(self):
+    def can_change_password(self) -> bool:
         return True
 
-    def can_import_address(self):
+    def can_import_address(self) -> bool:
         return False
 
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
@@ -1880,7 +1810,7 @@ class DeterministicAccount(AbstractAccount):
             assert row.derivation_type == DerivationType.BIP32_SUBPATH
             self._keypath[row.keyinstance_id] = tuple(derivation_data["subpath"])
 
-    def _unload_keys(self, key_ids: List[int]) -> None:
+    def _unload_keys(self, key_ids: Set[int]) -> None:
         for key_id in key_ids:
             if key_id in self._keypath:
                 del self._keypath[key_id]
@@ -1940,7 +1870,7 @@ class DeterministicAccount(AbstractAccount):
         self._logger.info(
             f'derivation {derivation_parent} has {existing_count:,d} keys, {fresh_count:,d} fresh')
 
-    async def _synchronize_wallet(self) -> None:
+    async def _synchronize_account(self) -> None:
         '''Class-specific synchronization (generation of missing addresses).'''
         await self._synchronize_chain(RECEIVING_SUBPATH,
             self.get_gap_limit_for_path(RECEIVING_SUBPATH))
@@ -2120,8 +2050,9 @@ class MultisigAccount(DeterministicAccount):
 
 class Wallet(TriggeredCallbacks):
     _network: Optional['Network'] = None
-    _transaction_table: Optional[TransactionTable] = None
-    _transaction_cache: Optional[TransactionCache] = None
+    # _transaction_table: Optional[TransactionTable] = None
+    # _transaction_cache: Optional[TransactionCache] = None
+    _stopped: bool = False
 
     def __init__(self, storage: WalletStorage) -> None:
         TriggeredCallbacks.__init__(self)
@@ -2131,13 +2062,14 @@ class Wallet(TriggeredCallbacks):
         self._storage = storage
         self._logger = logs.get_logger(f"wallet[{self.name()}]")
         self._db_context = storage.get_db_context()
+        assert self._db_context is not None
 
-        if self._db_context is not None:
-            txdata_cache_size = self.get_cache_size_for_tx_bytedata() * (1024 * 1024)
+        # if self._db_context is not None:
+        txdata_cache_size = self.get_cache_size_for_tx_bytedata() * (1024 * 1024)
 
-            self._transaction_table = TransactionTable(self._db_context)
-            self._transaction_cache = TransactionCache(self._transaction_table,
-                txdata_cache_size=txdata_cache_size)
+        self._transaction_table = TransactionTable(self._db_context)
+        self._transaction_cache = TransactionCache(self._transaction_table,
+            txdata_cache_size=txdata_cache_size)
         self._transaction_descriptions: Dict[bytes, str] = {}
 
         self._masterkey_rows: Dict[int, MasterKeyRow] = {}
@@ -2150,6 +2082,11 @@ class Wallet(TriggeredCallbacks):
 
         self.contacts = Contacts(self._storage)
 
+        self.txs_changed_event = app_state.async_.event()
+        self.progress_event = app_state.async_.event()
+        self.request_count = 0
+        self.response_count = 0
+
     def move_to(self, new_path: str) -> None:
         assert self._transaction_table is not None
         self._transaction_table.close()
@@ -2159,7 +2096,7 @@ class Wallet(TriggeredCallbacks):
 
         self._db_context = cast(DatabaseContext, self._storage.get_db_context())
         self._transaction_table = TransactionTable(self._db_context)
-        cast(TransactionCache, self._transaction_cache).set_store(self._transaction_table)
+        self._transaction_cache.set_store(self._transaction_table)
 
     def load_state(self) -> None:
         if self._db_context is None:
@@ -2460,6 +2397,18 @@ class Wallet(TriggeredCallbacks):
         with TransactionTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_descriptions(entries)
 
+    def get_transaction_label(self, tx_hash: bytes) -> str:
+        label = self._transaction_descriptions.get(tx_hash)
+        return "" if label is None else label
+
+    def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) -> None:
+        text = None if text is None or text.strip() == "" else text.strip()
+        label = self._transaction_descriptions.get(tx_hash)
+        if label == text:
+            return
+        self.update_transaction_descriptions([ (text, tx_hash) ])
+        app_state.app.on_transaction_label_change(self, tx_hash, text)
+
     def update_account_script_types(self, entries: Sequence[Tuple[ScriptType, int]]) -> None:
         with AccountTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_script_type(entries)
@@ -2469,6 +2418,11 @@ class Wallet(TriggeredCallbacks):
         derivation_data = json.dumps(keystore.to_derivation_data()).encode()
         with MasterKeyTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_derivation_data([ (derivation_data, masterkey_id) ])
+
+    def read_keyinstances(self, mask: Optional[KeyInstanceFlag]=None,
+            key_ids: Optional[List[int]]=None) -> List[KeyInstanceRow]:
+        with KeyInstanceTable(cast(DatabaseContext, self._db_context)) as table:
+            return table.read(mask, key_ids)
 
     def update_keyinstance_derivation_data(self, entries: Sequence[Tuple[bytes, int]]) -> None:
         with KeyInstanceTable(cast(DatabaseContext, self._db_context)) as table:
@@ -2487,6 +2441,11 @@ class Wallet(TriggeredCallbacks):
         with KeyInstanceTable(cast(DatabaseContext, self._db_context)) as table:
             table.update_script_types(entries)
 
+    def read_transactionoutputs(self, mask: Optional[TransactionOutputFlag]=None,
+            key_ids: Optional[List[int]]=None) -> List[TransactionOutputRow]:
+        with TransactionOutputTable(cast(DatabaseContext, self._db_context)) as table:
+            return table.read(mask, key_ids)
+
     def update_transactionoutput_flags(self,
             entries: Iterable[Tuple[TransactionOutputFlag, bytes, int]]) -> None:
         with TransactionOutputTable(cast(DatabaseContext, self._db_context)) as table:
@@ -2501,7 +2460,14 @@ class Wallet(TriggeredCallbacks):
         with TransactionDeltaTable(cast(DatabaseContext, self._db_context)) as table:
             table.create_or_update_relative_values(entries)
 
-    def get_wallet_events(self, mask: WalletEventFlag=WalletEventFlag.NONE) -> List[WalletEventRow]:
+    def get_transaction_delta(self, tx_hash: bytes, account_id: Optional[int]=None) \
+            -> TransactionDeltaSumRow:
+        assert type(tx_hash) is bytes, f"tx_hash is {type(tx_hash)}, expected bytes"
+        with TransactionDeltaTable(cast(DatabaseContext, self._db_context)) as table:
+            return table.read_transaction_value(tx_hash)
+
+    def read_wallet_events(self, mask: WalletEventFlag=WalletEventFlag.NONE) \
+            -> List[WalletEventRow]:
         with WalletEventTable(cast(DatabaseContext, self._db_context)) as table:
             return table.read(mask=mask)
 
@@ -2528,6 +2494,97 @@ class Wallet(TriggeredCallbacks):
         "If all the accounts are synchronized"
         return all(w.is_synchronized() for w in self.get_accounts())
 
+    def get_tx_height(self, tx_hash: bytes) -> Tuple[int, int, Union[int, bool]]:
+        """ return the height and timestamp of a verified transaction. """
+        metadata = self._transaction_cache.get_metadata(tx_hash)
+        assert metadata is not None, f"tx {hash_to_hex_str(tx_hash)} is unknown"
+        assert metadata.height is not None, f"tx {hash_to_hex_str(tx_hash)} has no height"
+        timestamp = None
+        if metadata.height > 0:
+            chain = app_state.headers.longest_chain()
+            try:
+                header = app_state.headers.header_at_height(chain, metadata.height)
+                timestamp = header.timestamp
+            except MissingHeader:
+                pass
+        if timestamp is not None:
+            conf = max(self.get_local_height() - metadata.height + 1, 0)
+            return metadata.height, conf, timestamp
+        else:
+            return metadata.height, 0, False
+
+    def missing_transactions(self) -> List[bytes]:
+        '''Returns a set of tx_hashes.'''
+        return self._transaction_cache.get_unsynced_hashes()
+
+    def unverified_transactions(self) -> Dict[bytes, int]:
+        '''Returns a map of tx_hash to tx_height.'''
+        results = self._transaction_cache.get_unverified_entries(self.get_local_height())
+        self._logger.debug("unverified_transactions: %s",
+            [(hash_to_hex_str(r[0]), r[1]) for r in results])
+        return { t[0]: cast(int, t[1].metadata.height) for t in results }
+
+    # Also called by network.
+    def add_transaction(self, tx_hash: bytes, tx: Transaction, flag: TxFlags) -> None:
+        if self._stopped:
+            tx_id = hash_to_hex_str(tx_hash)
+            self._logger.debug("add_transaction on stopped wallet: %s", tx_id)
+            return
+
+        def _completion_callback(exc_value: Any) -> None:
+            if exc_value is not None:
+                raise exc_value # pylint: disable=raising-bad-type
+
+            self.trigger_callback('transaction_added', self._id, tx_hash)
+
+        self._logger.debug("adding tx data %s (flags: %r)", hash_to_hex_str(tx_hash), flag)
+        self._transaction_cache.add_transaction(tx_hash, tx, flag, _completion_callback)
+
+        # TODO: It should be possible to determine what accounts are involved with this without
+        # entering the processing stage.
+        # TODO: It should be possible to parallelise each account's processing.
+        involved_accounts: List[AbstractAccount] = []
+        for account in self._accounts.values():
+            if account.process_key_usage(tx_hash, tx, None):
+                involved_accounts.append(account)
+
+        self.trigger_callback('new_transaction', tx, involved_accounts)
+
+    # Called by network.
+    def add_transaction_proof(self, tx_hash: bytes, height: int, timestamp: int, position: int,
+            proof_position: int, proof_branch: Sequence[bytes]) -> None:
+        tx_id = hash_to_hex_str(tx_hash)
+        if self._stopped:
+            self._logger.debug("add_transaction_proof on stopped wallet: %s", tx_id)
+            return
+        entry = self._transaction_cache.get_entry(tx_hash, TxFlags.StateCleared) # HasHeight
+
+        # Ensure we are not verifying transactions multiple times.
+        if entry is None:
+            # We have proof now so regardless what TxState is, we can 'upgrade' it to StateSettled.
+            # This rests on the commitment that any of the following four tx States *will*
+            # Have tx bytedata i.e. "HasByteData" flag is set.
+            entry = self._transaction_cache.get_entry(tx_hash, TxFlags.STATE_UNCLEARED_MASK)
+            assert entry is not None, f"expected uncleared tx {hash_to_hex_str(tx_hash)}"
+            if entry.flags & TxFlags.HasByteData != 0:
+                self._logger.debug("Fast_tracking entry to StateSettled: %r", entry)
+            else:
+                self._logger.error("Transaction bytedata absent for %s %r", tx_id, entry)
+                return
+
+        # We only update a subset.
+        flags = TxFlags.HasHeight | TxFlags.HasPosition
+        data = TxData(height=height, position=position)
+        self._transaction_cache.update(
+            [ (tx_hash, data, None, flags | TxFlags.StateSettled) ])
+
+        proof = TxProof(proof_position, proof_branch)
+        self._transaction_cache.update_proof(tx_hash, proof)
+
+        height, conf, _timestamp = self.get_tx_height(tx_hash)
+        self._logger.debug("add_transaction_proof %d %d %d", height, conf, timestamp)
+        self.trigger_callback('verified', tx_hash, height, conf, timestamp)
+
     def synchronize_incomplete_transaction(self, tx: Transaction) -> None:
         if tx.is_complete():
             return
@@ -2553,6 +2610,17 @@ class Wallet(TriggeredCallbacks):
                 account, keyinstance_id = result
                 if keyinstance_id is None:
                     account.create_keys_until(xpubkey.derivation_path(), txout.script_type)
+
+    def undo_verifications(self, above_height: int) -> None:
+        '''Called by network when a reorg has happened'''
+        if self._stopped:
+            self._logger.debug("undo_verifications on stopped wallet: %d", above_height)
+            return
+
+        reorg_count, updated_tx_hashes = self._transaction_cache.apply_reorg(above_height)
+        self._logger.info(f'removing verification of {reorg_count} transactions')
+        for account in self._accounts.values():
+            account.reactivate_reorged_keys(updated_tx_hashes)
 
     def resolve_xpubkey(self,
             x_pubkey: XPublicKey) -> Optional[Tuple[AbstractAccount, Optional[int]]]:
@@ -2607,24 +2675,30 @@ class Wallet(TriggeredCallbacks):
             f"invalid cache size {maximum_size}"
         self._storage.put('tx_bytedata_cache_size', maximum_size)
         maximum_size_bytes = maximum_size * (1024 * 1024)
-        assert self._transaction_cache is not None
         self._transaction_cache.set_maximum_cache_size_for_bytedata(maximum_size_bytes,
             force_resize)
 
     def start(self, network: 'Network') -> None:
         self._network = network
+        if network is not None:
+            network.add_wallet(self)
         for account in self.get_accounts():
             account.start(network)
+        self._stopped = False
 
     def stop(self) -> None:
+        assert not self._stopped
         self._storage.put('stored_height', self.get_local_height())
 
         for account in self.get_accounts():
             account.stop()
+        if self._network is not None:
+            self._network.remove_wallet(self)
         if self._transaction_table is not None:
             self._transaction_table.close()
         self._storage.close()
         self._network = None
+        self._stopped = True
 
     def create_gui_handler(self, window: 'ElectrumWindow', account: AbstractAccount) -> None:
         for keystore in account.get_keystores():

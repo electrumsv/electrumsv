@@ -55,7 +55,7 @@ TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
                     'fee height conf timestamp')
 
 class TxDialog(QDialog, MessageBoxMixin):
-    def __init__(self, account: AbstractAccount, tx, main_window: 'ElectrumWindow',
+    def __init__(self, account: Optional[AbstractAccount], tx, main_window: 'ElectrumWindow',
             desc: Optional[str], prompt_if_unsaved: bool) -> None:
         '''Transactions in the wallet will show their description.
         Pass desc to give a description for txs not yet in the wallet.
@@ -73,6 +73,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._main_window = main_window
         self._wallet = main_window._wallet
         self._account = account
+        self._account_id = account.get_id() if account is not None else None
         self.prompt_if_unsaved = prompt_if_unsaved
         self.saved = False
         self.monospace_font = QFont(platform.monospace_font)
@@ -155,18 +156,19 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         # connect slots so we update in realtime as blocks come in, etc
         main_window.history_updated_signal.connect(self.update_tx_if_in_wallet)
-        main_window.network_signal.connect(self.got_verified_tx)
+        main_window.network_signal.connect(self._on_transaction_verified)
         main_window.transaction_added_signal.connect(self._on_transaction_added)
 
-    def _validate_event(self, wallet_path: str, account_id: int) -> bool:
-        if account_id != self._account.get_id():
-            return False
-        if wallet_path != self._wallet.get_storage_path():
-            return False
-        return True
+    def _validate_account_event(self, account_id: int) -> bool:
+        return account_id == self._account_id
 
-    def _on_transaction_added(self, wallet_path: str, account_id: int, tx_hash: bytes) -> None:
-        if not self._validate_event(wallet_path, account_id):
+    def _validate_application_event(self, wallet_path: str, account_id: int) -> bool:
+        if wallet_path == self._main_window._wallet.get_storage_path():
+            return self._validate_account_event(account_id)
+        return False
+
+    def _on_transaction_added(self, account_id: int, tx_hash: bytes) -> None:
+        if not self._validate_account_event(account_id):
             return
 
         # This will happen when the partially signed transaction is fully signed.
@@ -186,14 +188,12 @@ class TxDialog(QDialog, MessageBoxMixin):
         app_state.app.clipboard().setText(hash_to_hex_str(self._tx_hash))
         QToolTip.showText(QCursor.pos(), _("Transaction ID copied to clipboard"), self)
 
-    def got_verified_tx(self, event, args):
-        if (event == 'verified' and args[0] == self._wallet.get_storage_path()
-                and args[1] == self.tx.hash()):
+    def _on_transaction_verified(self, event, args):
+        if event == 'verified' and args[1] == self._tx_hash:
             self.update()
 
     def update_tx_if_in_wallet(self) -> None:
-        tx_hash = self.tx.hash()
-        if tx_hash and self._account.has_received_transaction(tx_hash):
+        if self._tx_hash and self._account.has_received_transaction(self._tx_hash):
             self.update()
 
     def do_broadcast(self) -> None:
@@ -398,7 +398,6 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         o_text.clear()
         cursor = o_text.textCursor()
-        tx_hash: bytes = self.tx.hash()
         for tx_index, tx_output in enumerate(self.tx.outputs):
             text, kind = tx_output_to_display_text(tx_output)
 
@@ -424,20 +423,15 @@ class TxDialog(QDialog, MessageBoxMixin):
         can_broadcast = False
         label = ''
         fee = height = conf = timestamp = None
-        tx_hash = tx.hash()
         if tx.is_complete():
-            metadata = self._wallet._transaction_cache.get_metadata(tx_hash)
+            metadata = self._wallet._transaction_cache.get_metadata(self._tx_hash)
             if metadata is not None:
                 fee = metadata.fee
-            if self._account is not None:
-                label = self._account.get_transaction_label(tx_hash)
-                value_delta = self._account.get_transaction_delta(tx_hash)
-            if value_delta is None:
-                # When the transaction is fully signed and updated before the delta changes
-                # are committed to the database (pending write).
-                value_delta = 0
-            if self._account and self._account.has_received_transaction(tx_hash):
-                entry_flags = self._wallet._transaction_cache.get_flags(tx_hash)
+            label = self._wallet.get_transaction_label(self._tx_hash)
+            delta_result = self._wallet.get_transaction_delta(self._tx_hash, self._account_id)
+            value_delta += delta_result.total
+            if self._account and self._account.has_received_transaction(self._tx_hash):
+                entry_flags = self._wallet._transaction_cache.get_flags(self._tx_hash)
                 if (entry_flags & TxFlags.StateSettled
                         or entry_flags & TxFlags.StateCleared and metadata.height > 0):
                     chain = app_state.headers.longest_chain()
@@ -480,5 +474,5 @@ class TxDialog(QDialog, MessageBoxMixin):
         else:
             amount = None
 
-        return TxInfo(tx_hash, status, label, can_broadcast, amount, fee,
+        return TxInfo(self._tx_hash, status, label, can_broadcast, amount, fee,
                       height, conf, timestamp)

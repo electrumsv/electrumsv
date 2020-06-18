@@ -13,6 +13,7 @@ from electrumsv.constants import ADDRESSABLE_SCRIPT_TYPES, RECEIVING_SUBPATH
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.networks import Net
+from electrumsv.transaction import Transaction
 from electrumsv.wallet import AbstractAccount
 
 from .main_window import ElectrumWindow
@@ -59,6 +60,7 @@ class CoinSplittingTab(QWidget):
 
         self._main_window = main_window
         self._main_window.account_change_signal.connect(self._on_account_change)
+        self._wallet = main_window._wallet
 
         self._account: AbstractAccount = None
         self._account_id: Optional[int] = None
@@ -80,7 +82,7 @@ class CoinSplittingTab(QWidget):
         self.split_stage = STAGE_PREPARING
         self.new_transaction_cv = threading.Condition()
 
-        self._main_window.network.register_callback(self._on_network_event, ['new_transaction'])
+        self._main_window._wallet.register_callback(self._on_wallet_event, ['new_transaction'])
         self.waiting_dialog = SplitWaitingDialog(self._main_window, self, self._split_prepare_task,
             on_done=self._on_split_prepare_done, on_cancel=self._on_split_abort)
 
@@ -184,7 +186,7 @@ class CoinSplittingTab(QWidget):
         self._main_window.sign_tx_with_password(tx, sign_done, password)
 
     def _cleanup_tx_created(self):
-        self._main_window.network.unregister_callback(self._on_network_event)
+        self._main_window._wallet.unregister_callback(self._on_wallet_event)
 
         # This may have already been done, given that we want our split to consider the dust
         # usabel.
@@ -201,20 +203,22 @@ class CoinSplittingTab(QWidget):
         self.split_button.setText(_("Split"))
         self.split_button.setEnabled(True)
 
-    def _on_network_event(self, event, *args):
+    def _on_wallet_event(self, event, *args):
         if event == 'new_transaction':
-            tx, account = args
-            if account is self._account: # filter out tx's not for this account
-                our_script = self.receiving_script_template.to_script_bytes()
-                for tx_output in tx.outputs:
-                    if tx_output.script_pubkey == our_script:
-                        extra_text = _("Dust from BSV faucet")
-                        account.set_transaction_label(tx.hash(), f"{TX_DESC_PREFIX}: {extra_text}")
-                        break
+            if self.receiving_script_template is None:
+                return
 
-                # Notify the progress dialog task thread.
-                with self.new_transaction_cv:
-                    self.new_transaction_cv.notify()
+            our_script = self.receiving_script_template.to_script_bytes()
+            tx: Transaction = args[0]
+            for tx_output in tx.outputs:
+                if tx_output.script_pubkey == our_script:
+                    extra_text = _("Dust from BSV faucet")
+                    self._wallet.set_transaction_label(tx.hash(), f"{TX_DESC_PREFIX}: {extra_text}")
+                    # Notify the progress dialog task thread.
+                    with self.new_transaction_cv:
+                        self.new_transaction_cv.notify()
+                    break
+
 
     def update_balances(self):
         wallet = self._main_window._wallet

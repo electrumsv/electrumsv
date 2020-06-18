@@ -215,7 +215,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account_id = vars[VNAME.ACCOUNT_ID]
 
             account = self._get_account(wallet_name, account_id)
-            ret_val = self._history_dto(wallet=account)
+            ret_val = self._history_dto(account=account)
             response = {"value": ret_val}
             return good_response(response)
         except Fault as e:

@@ -40,7 +40,7 @@ from electrumsv.exceptions import UserCancelled
 from electrumsv.extensions import label_sync
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.wallet import AbstractAccount
+from electrumsv.wallet import AbstractAccount, Wallet
 
 from .util import (Buttons, EnterButton, FormSectionWidget, FramedTextWidget, OkButton,
     WindowModalDialog)
@@ -61,6 +61,7 @@ logger = logs.get_logger("labels")
 #   to the masterkey fingerprint combined with the derivation path. However, this still leaves
 #   room for the presence of unsynced keys.
 # - There is no per-account storage for "wallet_nonce" to be get/set from/to.
+# TODO: Need to fix `set_transaction_label` before this can work again as well, work grows.
 DISABLE_INTEGRATION = True
 
 class LabelSync(object):
@@ -97,13 +98,14 @@ class LabelSync(object):
         # TODO BACKLOG there is no working account get/set
         account.put("wallet_nonce", nonce)
 
-    def set_transaction_label(self, account: AbstractAccount, tx_hash: bytes, text: str) -> None:
+    def set_transaction_label(self, wallet: Wallet, tx_hash: bytes, text: Optional[str]) -> None:
         if DISABLE_INTEGRATION:
             return
-        label_key = tx_hash
-        assert label_key != tx_hash, "Label sync transaction support not implemented"
-        # label_key = "tx:"+ hash_to_hex_str(tx_hash)
-        self._set_label(account, label_key, text)
+        raise NotImplementedError("Transaction labels not supported")
+        # label_key = tx_hash
+        # assert label_key != tx_hash, "Label sync transaction support not implemented"
+        # # label_key = "tx:"+ hash_to_hex_str(tx_hash)
+        # self._set_label(account, label_key, text)
 
     def set_keyinstance_label(self, account: AbstractAccount, key_id: int, text: str) -> None:
         if DISABLE_INTEGRATION:
