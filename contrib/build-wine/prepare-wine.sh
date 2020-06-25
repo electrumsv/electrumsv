@@ -135,7 +135,7 @@ mkdir pyinstaller
 echo "Installing PyInstaller ..."
 $PYTHON -m pip install ./pyinstaller || { echo "PyInstaller install failed" ; exit 1; }
 
-wine "$PYHOME/scripts/pyinstaller.exe" -v || { echo "Pyinstaller installed but cannot be run." ; exit 1; }
+wine "$PYHOME/scripts/pyinstaller.exe" --log-level DEBUG -v || { echo "Pyinstaller installed but cannot be run." ; exit 1; }
 
 # Install ZBar
 download_if_not_exist $ZBAR_FILENAME "$ZBAR_URL"
