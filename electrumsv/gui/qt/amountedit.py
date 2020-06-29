@@ -23,6 +23,7 @@
 # SOFTWARE.
 
 from decimal import Decimal
+from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QPalette, QPainter
@@ -93,22 +94,22 @@ class AmountEdit(MyLineEdit):
 
 
 class BTCAmountEdit(AmountEdit):
-
-    def __init__(self, parent=None):
+    def __init__(self, parent=None) -> None:
         super().__init__(app_state.base_unit, parent)
 
     def decimal_point(self):
         return app_state.decimal_point
 
-    def get_amount(self):
+    def get_amount(self) -> Optional[int]:
         try:
             x = Decimal(str(self.text()))
         except Exception:
             return None
+
         p = pow(10, self.decimal_point())
         return int( p * x )
 
-    def setAmount(self, amount):
+    def setAmount(self, amount: int) -> None:
         if amount is None:
             self.setText(" ") # Space forces repaint in case units changed
         else:

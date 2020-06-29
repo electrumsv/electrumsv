@@ -24,6 +24,7 @@
 # SOFTWARE.
 
 import enum
+from functools import partial
 import time
 from typing import List, Optional, Union
 import webbrowser
@@ -146,8 +147,8 @@ class HistoryView(MyTreeWidget):
             status_str = get_tx_desc(status, timestamp)
             has_invoice = self._account.invoices.paid.get(tx_id)
             icon = get_tx_icon(status)
-            v_str = self._main_window.format_amount(line.value_delta, True, whitespaces=True)
-            balance_str = self._main_window.format_amount(balance, whitespaces=True)
+            v_str = app_state.format_amount(line.value_delta, True, whitespaces=True)
+            balance_str = app_state.format_amount(balance, whitespaces=True)
             label = self._wallet.get_transaction_label(line.tx_hash)
             entry = ['', tx_id, status_str, label, v_str, balance_str]
             if fx and fx.show_history():
@@ -259,10 +260,13 @@ class HistoryView(MyTreeWidget):
                     lambda: self._main_window.cpfp(account, tx, child_tx))
         if pr_key:
             menu.addAction(read_QIcon("seal"), _("View invoice"),
-                           lambda: self._main_window.show_invoice(pr_key))
+                partial(self._show_invoice_window, pr_key))
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
         menu.exec_(self.viewport().mapToGlobal(position))
+
+    def _show_invoice_window(self, request_id: str) -> None:
+        self._main_window.show_invoice(self._account, request_id)
 
 
 def get_tx_status(account: AbstractAccount, tx_hash: bytes, height: int, conf: int,

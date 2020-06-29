@@ -82,7 +82,7 @@ class WalletAPI(QObject):
             return fx.get_currency()
 
     def get_amount_and_units(self, amount: int) -> Tuple[str, str]:
-        return self.wallet_window.get_amount_and_units(amount)
+        return app_state.get_amount_and_units(amount)
 
     # Fiat related.
 
@@ -95,7 +95,7 @@ class WalletAPI(QObject):
         return app_state.base_unit()
 
     def get_base_amount(self, sv_value: int) -> str:
-        return self.wallet_window.format_amount(sv_value)
+        return app_state.format_amount(sv_value)
 
     def _on_contact_change(self, added: bool, contact: ContactEntry,
             identity: Optional[ContactIdentity]=None) -> None:

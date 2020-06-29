@@ -5,6 +5,7 @@ from PyQt5.QtGui import QPainter, QPixmap
 from PyQt5.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QLineEdit, QSizePolicy, QStatusBar,
     QStyle, QStyleOptionToolButton, QToolButton, QWidget, QWidgetAction)
 
+from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 
 from .util import icon_path, read_QIcon
@@ -96,7 +97,7 @@ class BalancePopup(QWidget):
 
         balances = (cc, uu, xx)
         for i, balance in enumerate(balances):
-            bsv_status, fiat_status = main_window.get_amount_and_units(balance)
+            bsv_status, fiat_status = app_state.get_amount_and_units(balance)
             grid_layout.addWidget(QLabel(bsv_status), i, 1, 1, 1, Qt.AlignRight)
             if status_bar._fiat_widget.isVisible():
                 grid_layout.addWidget(QLabel(fiat_status), i, 2, 1, 1, Qt.AlignRight)

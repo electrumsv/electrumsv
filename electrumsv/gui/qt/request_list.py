@@ -23,11 +23,13 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from functools import partial
 from typing import Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
 
+from electrumsv.app_state import app_state
 from electrumsv.bitcoin import script_template_to_string
 from electrumsv.constants import RECEIVING_SUBPATH, PaymentState
 from electrumsv.i18n import _
@@ -62,13 +64,14 @@ class RequestList(MyTreeWidget):
 
         self.update()
 
-    def _on_item_changed(self, item):
+    def _on_item_changed(self, item) -> None:
         if item is None:
             return
         if not item.isSelected():
             return
         pr_id = item.data(0, Qt.UserRole)
-        pr = self._account.get_payment_request(pr_id)
+        with self._account._wallet.get_payment_request_table() as table:
+            pr = table.read_one(pr_id)
         expires = age(pr.date_created + pr.expiration) if pr.expiration else _('Never')
 
         self._main_window._receive_key_id = pr.keyinstance_id
@@ -86,11 +89,17 @@ class RequestList(MyTreeWidget):
         if self._account_id is None:
             return
 
+        wallet = self._account._wallet
+
+        with wallet.get_payment_request_table() as table:
+            rows = table.read(self._account_id, flags=PaymentState.NONE,
+                mask=PaymentState.ARCHIVED)
+
         # hide receive tab if no receive requests available
-        b = len(self._account._payment_requests) > 0
-        self.setVisible(b)
-        self._main_window.receive_requests_label.setVisible(b)
-        if not b:
+        is_visible = len(rows) > 0
+        self.setVisible(is_visible)
+        self._main_window.receive_requests_label.setVisible(is_visible)
+        if not is_visible:
             self._main_window.expires_label.hide()
             self._main_window.expires_combo.show()
 
@@ -107,29 +116,27 @@ class RequestList(MyTreeWidget):
         self._main_window.new_request_button.setEnabled(
             current_key_id != keyinstance.keyinstance_id)
 
-        account_id = self._account.get_id()
-
         # clear the list and fill it again
         self.clear()
-        for req in self._account.get_sorted_requests():
-            date = format_time(req.date_created, _("Unknown"))
-            amount_str = self._main_window.format_amount(req.value) if req.value else ""
+        for row in rows:
+            date = format_time(row.date_created, _("Unknown"))
+            amount_str = app_state.format_amount(row.value) if row.value else ""
 
-            script_template = self._account.get_script_template_for_id(req.keyinstance_id)
+            script_template = self._account.get_script_template_for_id(row.keyinstance_id)
             address_text = script_template_to_string(script_template)
 
-            item = QTreeWidgetItem([date, address_text, '', req.description or "",
-                amount_str, pr_tooltips.get(req.state,'')])
-            item.setData(0, Qt.UserRole, req.paymentrequest_id)
-            if req.state != PaymentState.UNKNOWN:
-                item.setIcon(6, read_QIcon(pr_icons.get(req.state)))
+            item = QTreeWidgetItem([date, address_text, '', row.description or "",
+                amount_str, pr_tooltips.get(row.state,'')])
+            item.setData(0, Qt.UserRole, row.paymentrequest_id)
+            if row.state != PaymentState.UNKNOWN:
+                item.setIcon(6, read_QIcon(pr_icons.get(row.state)))
             self.addTopLevelItem(item)
 
     def create_menu(self, position):
         item = self.itemAt(position)
         if not item:
             return
-        pr_id = item.data(0, Qt.UserRole)
+        request_id = item.data(0, Qt.UserRole)
         column = self.currentColumn()
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
@@ -137,10 +144,16 @@ class RequestList(MyTreeWidget):
         menu.addAction(_("Copy {}").format(column_title),
                        lambda: self._main_window.app.clipboard().setText(column_data))
         menu.addAction(_("Copy URI"),
-                       lambda: self._main_window.view_and_paste(
-                           'URI', '', self._main_window.get_request_URI(pr_id)))
+            lambda: self._main_window.view_and_paste(
+                'URI', '', self._main_window.get_request_URI(request_id)))
         menu.addAction(_("Save as BIP270 file"),
-            lambda: self._main_window.export_payment_request(pr_id))
-        menu.addAction(_("Delete"),
-            lambda: self._main_window.delete_payment_request(pr_id))
+            lambda: self._main_window.export_payment_request(request_id))
+        menu.addAction(_("Delete"), partial(self._delete_payment_request, request_id))
         menu.exec_(self.viewport().mapToGlobal(position))
+
+    def _delete_payment_request(self, request_id: int) -> None:
+        self._account.delete_payment_request(request_id)
+        self.update()
+        # The key may have been freed up and should be used first.
+        # TODO: This should have a reference to the receive "tab" and update that.
+        self._main_window._update_receive_tab_contents()

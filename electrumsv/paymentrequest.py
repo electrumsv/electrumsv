@@ -287,6 +287,7 @@ class PaymentRequest:
             # Some other errors might display an entire HTML document.
             # Hide those and just display the name of the error code.
             return False, response.get_reason()
+
         try:
             payment_ack = PaymentACK.from_json(response.get_content())
         except Exception:

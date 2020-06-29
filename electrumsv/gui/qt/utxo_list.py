@@ -29,6 +29,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QAbstractItemView, QMenu, QWidget
 
+from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.platform import platform
 from electrumsv.util import profiler
@@ -83,7 +84,7 @@ class UTXOList(MyTreeWidget):
             prevout_str = utxo.key_str()
             prevout_str = prevout_str[0:10] + '...' + prevout_str[-2:]
             label = self._wallet.get_transaction_label(utxo.tx_hash)
-            amount = self._main_window.format_amount(utxo.value, whitespaces=True)
+            amount = app_state.format_amount(utxo.value, whitespaces=True)
             utxo_item = SortableTreeWidgetItem(
                 [ prevout_str, label, amount, str(metadata.height) ])
             # set this here to avoid sorting based on Qt.UserRole+1

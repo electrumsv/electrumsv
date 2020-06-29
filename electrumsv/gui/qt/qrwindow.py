@@ -73,7 +73,7 @@ class QR_Window(QWidget):
     def set_content(self, address_text, amount, message, url):
         self._address_edit.setPlainText(address_text)
         if amount:
-            amount_text = '{} {}'.format(self.win.format_amount(amount), app_state.base_unit())
+            amount_text = '{} {}'.format(app_state.format_amount(amount), app_state.base_unit())
         else:
             amount_text = ''
         self._amount_edit.setText(amount_text)

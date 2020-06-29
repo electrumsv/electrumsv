@@ -34,7 +34,7 @@ etc.
 '''
 import os
 import time
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 from bitcoinx import Headers
 
@@ -44,6 +44,7 @@ from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
 from .regtest_support import HeadersRegTestMod, setup_regtest
+from .util import format_satoshis
 
 logger = logs.get_logger("app_state")
 
@@ -111,6 +112,26 @@ class AppStateProxy(object):
         if self.decimal_point != prior:
             self.config.set_key('decimal_point', self.decimal_point, True)
         return self.decimal_point != prior
+
+    def format_amount(self, x: Optional[int], is_diff: bool=False, whitespaces: bool=False) -> str:
+        return format_satoshis(x, self.num_zeros, self.decimal_point, is_diff=is_diff,
+            whitespaces=whitespaces)
+
+    def format_amount_and_units(self, amount: Optional[int]) -> str:
+        text = self.format_amount(amount) + ' ' + self.base_unit()
+        if self.fx and self.fx.is_enabled():
+            x = self.fx.format_amount_and_units(amount)
+            if text and x:
+                text += ' (%s)'%x
+        return text
+
+    def get_amount_and_units(self, amount: int) -> Tuple[str, str]:
+        bitcoin_text = self.format_amount(amount) + ' ' + self.base_unit()
+        if self.fx and self.fx.is_enabled():
+            fiat_text = self.fx.format_amount_and_units(amount)
+        else:
+            fiat_text = ''
+        return bitcoin_text, fiat_text
 
     def electrumx_message_size_limit(self) -> int:
         return max(0,

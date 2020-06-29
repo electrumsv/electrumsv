@@ -45,7 +45,7 @@ from PyQt5.QtWidgets import (
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import DATABASE_EXT, StorageKind
-from electrumsv.exceptions import IncompatibleWalletError
+from electrumsv.exceptions import DatabaseMigrationError, IncompatibleWalletError
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage, categorise_file
@@ -843,7 +843,7 @@ class OlderWalletMigrationPage(QWizardPage):
 
             try:
                 storage.upgrade(has_password, wallet_password)
-            except IncompatibleWalletError as e:
+            except (IncompatibleWalletError, DatabaseMigrationError) as e:
                 logger.exception("wallet migration error '%s'", entry.path)
                 self._migration_error_text += "\n"+ e.args[0]
             else:
@@ -884,5 +884,12 @@ class OlderWalletMigrationPage(QWizardPage):
         backup_filepaths = self._migration_storage.get_backup_filepaths()
         if backup_filepaths is not None:
             original_filepath, backup_filepath = backup_filepaths
+            logger.debug("Restoring '%s' to '%s'", backup_filepath, original_filepath)
             shutil.move(backup_filepath, original_filepath)
-            os.remove(self._migration_storage.get_storage_path() + DATABASE_EXT)
+            db_path = self._migration_storage.get_storage_path() + DATABASE_EXT
+            # The move was possibly an overwrite, if they were both 1.3 wallets. In which case
+            # this delete would be data loss of the original wallet.
+            if db_path != original_filepath:
+                logger.debug("Removing failed db '%s'", db_path)
+                os.remove(db_path)
+

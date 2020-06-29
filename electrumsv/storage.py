@@ -46,7 +46,7 @@ from bitcoinx.address import P2PKH_Address, P2SH_Address
 from .bitcoin import is_address_valid, address_from_string
 from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, MIGRATION_CURRENT,
     MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind, TxFlags, TransactionOutputFlag,
-    KeyInstanceFlag, PaymentState)
+    KeyInstanceFlag)
 from .crypto import pw_encode, pw_decode
 from .exceptions import IncompatibleWalletError, InvalidPassword
 from .i18n import _
@@ -1016,10 +1016,8 @@ class TextStore(AbstractStore):
 
                             # We now update the key to reflect the existence of the output.
                             key = keyinstance_rows[address_state.row_index]
-                            keyinstance_rows[address_state.row_index] = KeyInstanceRow(
-                                key.keyinstance_id, key.account_id, key.masterkey_id,
-                                key.derivation_type, key.derivation_data, address_state.script_type,
-                                key.flags, key.description)
+                            keyinstance_rows[address_state.row_index] = \
+                                key._replace(script_type=address_state.script_type)
 
                 # Reconcile spending of outputs.
                 for tx_id, tx_state in tx_states.items():
@@ -1157,7 +1155,7 @@ class TextStore(AbstractStore):
                 address_state = address_states[address_string]
                 paymentrequest_rows.append(PaymentRequestRow(next_paymentrequest_id,
                     address_state.keyinstance_id,
-                    request_data.get('status', PaymentState.UNKNOWN),
+                    request_data.get('status', 2), # PaymentState.UNKNOWN = 2
                     request_data.get('amount', None), request_data.get('exp', None),
                     request_data.get('memo', None), request_data.get('time', time.time())))
                 next_paymentrequest_id += 1

@@ -50,8 +50,8 @@ expiration_values = [
 
 
 class EnterButton(QPushButton):
-    def __init__(self, text, func):
-        QPushButton.__init__(self, text)
+    def __init__(self, text, func, parent: Optional[QWidget]=None):
+        super().__init__(text, parent)
         self.func = func
         self.clicked.connect(func)
 
@@ -77,9 +77,8 @@ class WWLabel(QLabel):
 
 
 class HelpLabel(QLabel):
-
-    def __init__(self, text, help_text):
-        QLabel.__init__(self, text)
+    def __init__(self, text, help_text, parent: Optional[QWidget]=None):
+        super().__init__(text, parent)
         self.app = QCoreApplication.instance()
         self.font = QFont()
         self.set_help_text(help_text)

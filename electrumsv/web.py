@@ -109,7 +109,7 @@ class URIError(Exception):
     pass
 
 
-def parse_URI(uri: str, on_pr=None):
+def parse_URI(uri: str, on_pr=None) -> Dict[str, Any]:
     if is_address_valid(uri):
         return {'address': uri}
 

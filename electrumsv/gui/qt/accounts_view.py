@@ -186,14 +186,17 @@ class AccountsView(QSplitter):
         labels_menu.addAction(_("&Export"), partial(self._main_window.do_export_labels, account_id))
 
         invoices_menu = menu.addMenu(_("Invoices"))
-        invoices_menu.addAction(_("Import"),
-            partial(self._main_window._import_invoices, account_id))
+        invoices_menu.addAction(_("Import"), partial(self._on_menu_import_invoices, account_id))
 
         payments_menu = menu.addMenu(_("Payments"))
         payments_menu.addAction(_("Export destinations"),
             partial(self._generate_destinations, account_id))
 
         menu.exec_(self._selection_list.viewport().mapToGlobal(position))
+
+    def _on_menu_import_invoices(self, account_id: int) -> None:
+        send_view = self._main_window.get_send_view(account_id)
+        send_view.import_invoices()
 
     def _rename_account(self, account_id: int) -> None:
         account = self._main_window._wallet.get_account(self._current_account_id)

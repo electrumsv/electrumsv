@@ -164,8 +164,8 @@ class CoinSplittingTab(QWidget):
         fee = tx.get_fee()
 
         msg = [
-            _("Amount to be sent") + ": " + self._main_window.format_amount_and_units(amount),
-            _("Mining fee") + ": " + self._main_window.format_amount_and_units(fee),
+            _("Amount to be sent") + ": " + app_state.format_amount_and_units(amount),
+            _("Mining fee") + ": " + app_state.format_amount_and_units(fee),
         ]
 
         msg.append("")
@@ -233,7 +233,7 @@ class CoinSplittingTab(QWidget):
         # unsplittable_amount = unfrozen_unmature + frozen_confirmed + frozen_unconfirmed
         # + frozen_unmature
 
-        splittable_amount_text = self._main_window.format_amount(splittable_amount)
+        splittable_amount_text = app_state.format_amount(splittable_amount)
         unit_text = app_state.base_unit()
 
         text = [

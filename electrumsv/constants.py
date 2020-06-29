@@ -22,7 +22,7 @@ class StorageKind(IntEnum):
 
 DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
-MIGRATION_CURRENT = 23
+MIGRATION_CURRENT = 24
 
 class TxFlags(IntFlag):
     Unset = 0
@@ -165,11 +165,14 @@ class TransactionOutputFlag(IntFlag):
     FROZEN_MASK = IS_FROZEN | USER_SET_FROZEN
 
 
-class PaymentState(IntEnum):
-    UNPAID  = 0
-    EXPIRED = 1
-    UNKNOWN = 2     # sent but not propagated
-    PAID    = 3     # send and propagated
+class PaymentState(IntFlag):
+    NONE =     0
+    UNPAID  =  1 << 0
+    EXPIRED =  1 << 1
+    UNKNOWN =  1 << 2     # sent but not propagated
+    PAID    =  1 << 3     # send and propagated
+    ARCHIVED = 1 << 4
+
 
 # Transaction limits
 MAX_MESSAGE_BYTES = 99000

@@ -55,8 +55,8 @@ TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
                     'fee height conf timestamp')
 
 class TxDialog(QDialog, MessageBoxMixin):
-    def __init__(self, account: Optional[AbstractAccount], tx, main_window: 'ElectrumWindow',
-            desc: Optional[str], prompt_if_unsaved: bool) -> None:
+    def __init__(self, account: Optional[AbstractAccount], tx: Transaction,
+            main_window: 'ElectrumWindow', desc: Optional[str], prompt_if_unsaved: bool) -> None:
         '''Transactions in the wallet will show their description.
         Pass desc to give a description for txs not yet in the wallet.
         '''
@@ -376,7 +376,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             return rec if utxo_key in known_txos else ext
 
         def format_amount(amt: int) -> str:
-            return self._main_window.format_amount(amt, whitespaces = True)
+            return app_state.format_amount(amt, whitespaces = True)
 
         i_text.clear()
         cursor = i_text.textCursor()

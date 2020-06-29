@@ -215,6 +215,117 @@ def test_table_accounts_crud(db_context: DatabaseContext) -> None:
 
 
 @pytest.mark.timeout(8)
+def test_account_transactions(db_context: DatabaseContext) -> None:
+    ACCOUNT_ID_1 = 10
+    ACCOUNT_ID_2 = 11
+    MASTERKEY_ID_1 = 20
+    MASTERKEY_ID_2 = 21
+
+    # Create master keys.
+    masterkey1 = MasterKeyRow(MASTERKEY_ID_1, None, DerivationType.BIP32, b'111')
+    masterkey2 = MasterKeyRow(MASTERKEY_ID_2, None, DerivationType.BIP32, b'222')
+
+    with MasterKeyTable(db_context) as mktable:
+        with SynchronousWriter() as writer:
+            mktable.create([ masterkey1, masterkey2 ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+    # Create the accounts.
+    account1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID_1, ScriptType.P2PKH, 'name1')
+    account2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID_2, ScriptType.P2PK, 'name2')
+
+    with AccountTable(db_context) as table:
+        with SynchronousWriter() as writer:
+            table.create([ account1, account2 ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+    # Create the key instances.
+    KEYINSTANCE_ID_1 = 100
+    KEYINSTANCE_ID_2 = 101
+
+    key1 = KeyInstanceRow(KEYINSTANCE_ID_1, ACCOUNT_ID_1, MASTERKEY_ID_1, DerivationType.BIP32,
+        b'333', ScriptType.P2PKH, KeyInstanceFlag.NONE, None)
+    key2 = KeyInstanceRow(KEYINSTANCE_ID_2, ACCOUNT_ID_2, MASTERKEY_ID_2, DerivationType.BIP32,
+        b'444', ScriptType.P2PKH, KeyInstanceFlag.NONE, None)
+
+    with KeyInstanceTable(db_context) as keyinstance_table:
+        with SynchronousWriter() as writer:
+            keyinstance_table.create([ key1, key2 ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+    # Create the transaction.
+    TX_BYTES_1 = os.urandom(10)
+    TX_HASH_1 = bitcoinx.double_sha256(TX_BYTES_1)
+    tx1 = TransactionRow(
+        tx_hash=TX_HASH_1, tx_data=TxData(height=1, position=1, fee=250, date_added=1,
+        date_updated=2), tx_bytes=TX_BYTES_1,
+        flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
+        description=None)
+    TX_BYTES_2 = os.urandom(10)
+    TX_HASH_2 = bitcoinx.double_sha256(TX_BYTES_2)
+    tx2 = TransactionRow(
+        tx_hash=TX_HASH_2, tx_data=TxData(height=1, position=1, fee=250, date_added=1,
+        date_updated=2), tx_bytes=TX_BYTES_2,
+        flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
+        description=None)
+    with TransactionTable(db_context) as transaction_table:
+        with SynchronousWriter() as writer:
+            transaction_table.create([ tx1, tx2 ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+    # Create the transaction deltas.
+    txd1 = TransactionDeltaRow(TX_HASH_1, KEYINSTANCE_ID_1, 100)
+    txd2 = TransactionDeltaRow(TX_HASH_2, KEYINSTANCE_ID_2, 200)
+    with TransactionDeltaTable(db_context) as table:
+        with SynchronousWriter() as writer:
+            table.create([ txd1, txd2 ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+    # Now finally, test the account linkages.
+    with TransactionTable(db_context) as table:
+        ## Test `TransactionTable.read_metadata`.
+        # Both tx should be matched.
+        metadatas = table.read_metadata()
+        print(metadatas)
+        assert 2 == len(metadatas)
+        assert { TX_HASH_1, TX_HASH_2 } == { t[0] for t in metadatas }
+
+        # Only tx1 which is linked to account1 should be matched.
+        metadatas_1 = table.read_metadata(account_id=ACCOUNT_ID_1)
+        assert 1 == len(metadatas_1)
+        assert TX_HASH_1 == metadatas_1[0][0]
+
+        # Only tx2 which is linked to account2 should be matched.
+        metadatas_2 = table.read_metadata(account_id=ACCOUNT_ID_2)
+        assert 1 == len(metadatas_2)
+        assert TX_HASH_2 == metadatas_2[0][0]
+
+        # No tx are linked to this non-existent account.
+        metadatas_3 = table.read_metadata(account_id=-1)
+        assert 0 == len(metadatas_3)
+
+        ## Test `TransactionTable.read`.
+        # Both tx should be matched.
+        matches = table.read()
+        assert 2 == len(matches)
+        assert { TX_HASH_1, TX_HASH_2 } == { t[0] for t in matches }
+
+        # Only tx1 which is linked to account1 should be matched.
+        matches_1 = table.read(account_id=ACCOUNT_ID_1)
+        assert 1 == len(matches_1)
+        assert TX_HASH_1 == matches_1[0][0]
+
+        # Only tx2 which is linked to account2 should be matched.
+        matches_2 = table.read(account_id=ACCOUNT_ID_2)
+        assert 1 == len(matches_2)
+        assert TX_HASH_2 == matches_2[0][0]
+
+        # No tx are linked to this non-existent account.
+        matches_3 = table.read(account_id=-1)
+        assert 0 == len(matches_3)
+
+
+@pytest.mark.timeout(8)
 def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
     table = KeyInstanceTable(db_context)
     assert [] == table.read()
@@ -226,12 +337,11 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
     MASTERKEY_ID = 20
     DERIVATION_DATA1 = b'111'
     DERIVATION_DATA2 = b'222'
-    SCRIPT_TYPE = 40
 
     line1 = KeyInstanceRow(KEYINSTANCE_ID+1, ACCOUNT_ID+1, MASTERKEY_ID+1, DerivationType.BIP32,
-        DERIVATION_DATA1, SCRIPT_TYPE+1, True, None)
+        DERIVATION_DATA1, ScriptType.P2PKH, True, None)
     line2 = KeyInstanceRow(KEYINSTANCE_ID+2, ACCOUNT_ID+1, MASTERKEY_ID+1, DerivationType.HARDWARE,
-        DERIVATION_DATA2, SCRIPT_TYPE+2, True, None)
+        DERIVATION_DATA2, ScriptType.P2PKH, True, None)
 
     # No effect: The masterkey foreign key constraint will fail as the masterkey does not exist.
     with pytest.raises(sqlite3.IntegrityError):
@@ -566,18 +676,39 @@ class TestTransactionTable:
         assert get_tx_hashes == result_tx_hashes
 
     @pytest.mark.timeout(8)
-    def test_get(self):
-        bytedata = os.urandom(10)
-        tx_hash = bitcoinx.double_sha256(bytedata)
-        metadata = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
+    def test_read(self):
+        to_add = []
+        for i in range(10):
+            tx_bytes = os.urandom(10)
+            tx_hash = bitcoinx.double_sha256(tx_bytes)
+            tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
+            to_add.append((tx_hash, tx_data, tx_bytes, TxFlags.HasFee, None))
         with SynchronousWriter() as writer:
-            self.store.create([ (tx_hash, metadata, bytedata, TxFlags.Unset, None) ],
-                completion_callback=writer.get_callback())
+            self.store.create(to_add, completion_callback=writer.get_callback())
             assert writer.succeeded()
 
-        assert tx_hash in self._get_store_hashes()
-        assert self.store.read(tx_hashes=[tx_hash])
-        assert self.store.read(TxFlags.HasByteData, TxFlags.HasByteData, [tx_hash])
+        # Test the first "add" hash is matched.
+        tx_hash_1 = to_add[0][0]
+        matches = self.store.read(tx_hashes=[tx_hash_1])
+        assert tx_hash_1 == matches[0][0]
+        assert self.store.read(TxFlags.HasByteData, TxFlags.HasByteData, [tx_hash_1])
+
+        # Test no id is matched.
+        matches = self.store.read(tx_hashes=[b"aaaa"])
+        assert 0 == len(matches)
+
+        # Test flag and mask combinations.
+        matches = self.store.read(flags=TxFlags.HasFee)
+        assert 10 == len(matches)
+
+        matches = self.store.read(flags=TxFlags.Unset, mask=TxFlags.HasHeight)
+        assert 10 == len(matches)
+
+        matches = self.store.read(flags=TxFlags.HasFee, mask=TxFlags.HasFee)
+        assert 10 == len(matches)
+
+        matches = self.store.read(flags=TxFlags.Unset, mask=TxFlags.HasFee)
+        assert 0 == len(matches)
 
     @pytest.mark.timeout(8)
     def test_read_metadata(self) -> None:
@@ -647,39 +778,6 @@ class TestTransactionTable:
             assert metadata.height == rowidx * 200
             assert metadata.fee == rowidx * 2000
             assert metadata.position is None
-
-    @pytest.mark.timeout(8)
-    def test_read(self):
-        to_add = []
-        for i in range(10):
-            tx_bytes = os.urandom(10)
-            tx_hash = bitcoinx.double_sha256(tx_bytes)
-            tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
-            to_add.append((tx_hash, tx_data, tx_bytes, TxFlags.HasFee, None))
-        with SynchronousWriter() as writer:
-            self.store.create(to_add, completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        # Test the first "add" hash is matched.
-        matches = self.store.read(tx_hashes=[to_add[0][0]])
-        assert to_add[0][0] == matches[0][0]
-
-        # Test no id is matched.
-        matches = self.store.read(tx_hashes=[b"aaaa"])
-        assert 0 == len(matches)
-
-        # Test flag and mask combinations.
-        matches = self.store.read(flags=TxFlags.HasFee)
-        assert 10 == len(matches)
-
-        matches = self.store.read(flags=TxFlags.Unset, mask=TxFlags.HasHeight)
-        assert 10 == len(matches)
-
-        matches = self.store.read(flags=TxFlags.HasFee, mask=TxFlags.HasFee)
-        assert 10 == len(matches)
-
-        matches = self.store.read(flags=TxFlags.Unset, mask=TxFlags.HasFee)
-        assert 0 == len(matches)
 
     @pytest.mark.timeout(8)
     def test_proof(self):
@@ -764,7 +862,6 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     MASTERKEY_ID = 20
     DERIVATION_DATA1 = b'111'
     DERIVATION_DATA2 = b'222'
-    SCRIPT_TYPE = 40
 
     line1 = TransactionOutputRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID_1, TXOUT_FLAGS)
     line2 = TransactionOutputRow(TX_HASH, TX_INDEX+1, 200, KEYINSTANCE_ID_2, TXOUT_FLAGS)
@@ -804,9 +901,9 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     with SynchronousWriter() as writer:
         keyinstance_table.create([
             (KEYINSTANCE_ID_1, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32, DERIVATION_DATA1,
-                SCRIPT_TYPE, True, None),
+                ScriptType.P2PKH, True, None),
             (KEYINSTANCE_ID_2, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32, DERIVATION_DATA2,
-                SCRIPT_TYPE, True, None),
+                ScriptType.P2PKH, True, None),
             ], completion_callback=writer.get_callback())
         assert writer.succeeded()
 
@@ -886,7 +983,6 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     ACCOUNT_ID_OTHER = 11
     MASTERKEY_ID = 20
     DERIVATION_DATA = b'111'
-    SCRIPT_TYPE = 40
 
     TX_BYTES2 = os.urandom(10)
     TX_HASH2 = bitcoinx.double_sha256(TX_BYTES2)
@@ -934,7 +1030,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     keyinstance_table = KeyInstanceTable(db_context)
     with SynchronousWriter() as writer:
         entries = [ (KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            DERIVATION_DATA, SCRIPT_TYPE, True, None) for i in range(LINE_COUNT) ]
+            DERIVATION_DATA, ScriptType.P2PKH, True, None) for i in range(LINE_COUNT) ]
         keyinstance_table.create(entries, completion_callback=writer.get_callback())
         assert writer.succeeded()
 
@@ -1029,7 +1125,6 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     ACCOUNT_ID = 10
     MASTERKEY_ID = 20
     DERIVATION_DATA = b'111'
-    SCRIPT_TYPE = 40
 
     TX_BYTES2 = os.urandom(10)
     TX_HASH2 = bitcoinx.double_sha256(TX_BYTES2)
@@ -1065,7 +1160,7 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     keyinstance_table = KeyInstanceTable(db_context)
     with SynchronousWriter() as writer:
         entries = [ (KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            DERIVATION_DATA, SCRIPT_TYPE, True, None) for i in range(LINE_COUNT) ]
+            DERIVATION_DATA, ScriptType.P2PKH, True, None) for i in range(LINE_COUNT) ]
         keyinstance_table.create(entries, completion_callback=writer.get_callback())
         assert writer.succeeded()
 
@@ -1079,12 +1174,40 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
             table.create([ line1 ], completion_callback=writer.get_callback())
             assert not writer.succeeded()
 
+    # Read all rows in the table.
     db_lines = table.read()
     assert 2 == len(db_lines)
     db_line1 = [ db_line for db_line in db_lines if db_line == line1 ][0]
     assert line1 == db_line1
     db_line2 = [ db_line for db_line in db_lines if db_line == line2 ][0]
     assert line2 == db_line2
+
+    # Read all PAID rows in the table.
+    db_lines = table.read(mask=PaymentState.PAID)
+    assert 1 == len(db_lines)
+    assert 1 == db_lines[0].paymentrequest_id
+    assert KEYINSTANCE_ID == db_lines[0].keyinstance_id
+
+    # Read all UNPAID rows in the table.
+    db_lines = table.read(mask=PaymentState.UNPAID)
+    assert 1 == len(db_lines)
+    assert 2 == db_lines[0].paymentrequest_id
+    assert KEYINSTANCE_ID+1 == db_lines[0].keyinstance_id
+
+    # Require ARCHIVED flag.
+    db_lines = table.read(mask=PaymentState.ARCHIVED)
+    assert 0 == len(db_lines)
+
+    # Require no ARCHIVED flag.
+    db_lines = table.read(flags=PaymentState.NONE, mask=PaymentState.ARCHIVED)
+    assert 2 == len(db_lines)
+
+    row = table.read_one(1)
+    assert row is not None
+    assert 1 == row.paymentrequest_id
+
+    row = table.read_one(100101)
+    assert row is None
 
     date_updated = 20
 

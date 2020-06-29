@@ -25,7 +25,7 @@
 
 import time
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 from bitcoinx import Address, cashaddr, Script
 
@@ -39,9 +39,12 @@ from electrumsv.network import Net
 from electrumsv.transaction import XTxOutput
 from electrumsv.web import is_URI
 
-from .main_window import ElectrumWindow
 from .qrtextedit import ScanQRTextEdit
 from . import util
+
+
+if TYPE_CHECKING:
+    from .send_view import SendView
 
 
 RE_ALIAS = '^(.*?)\s*\<([0-9A-Za-z:]{26,})\>$'
@@ -53,10 +56,11 @@ class PayToEdit(ScanQRTextEdit):
     ''' timestamp indicating when the user was last warned about using cash addresses. '''
     last_cashaddr_warning = None
 
-    def __init__(self, main_window: ElectrumWindow) -> None:
-        ScanQRTextEdit.__init__(self)
-        self._main_window = main_window
-        self.amount_edit = main_window.amount_e
+    def __init__(self, send_view: 'SendView') -> None:
+        super().__init__()
+
+        self._send_view = send_view
+        self._main_window = send_view._main_window
         self.document().contentsChanged.connect(self.update_size)
         self.heightMin = 0
         self.heightMax = 150
@@ -67,11 +71,9 @@ class PayToEdit(ScanQRTextEdit):
         self.is_pr = False
         self.is_alias = False
         self._ignore_uris = False
-        self.scan_f = main_window.pay_to_URI
+        self.scan_f = send_view._main_window.pay_to_URI
         self.update_size()
         self.payto_script: Optional[Script] = None
-
-        self.previous_payto = ''
 
     def setFrozen(self, b):
         self.setReadOnly(b)
@@ -140,7 +142,7 @@ class PayToEdit(ScanQRTextEdit):
     def _parse_amount(self, x):
         if x.strip() == '!':
             return all
-        p = pow(10, self.amount_edit.decimal_point())
+        p = pow(10, self._send_view.amount_e.decimal_point())
         return int(p * Decimal(x.strip()))
 
     def setPlainText(self, text: str, ignore_uris: bool=False) -> None:
@@ -171,7 +173,7 @@ class PayToEdit(ScanQRTextEdit):
             except Exception:
                 pass
             if self.payto_script is not None:
-                self._main_window.lock_amount(False)
+                self._send_view.lock_amount(False)
                 return
 
         is_max = False
@@ -188,15 +190,15 @@ class PayToEdit(ScanQRTextEdit):
             else:
                 total += tx_output.value
 
-        self._main_window.is_max = is_max
+        self._send_view.is_max = is_max
         self.outputs = outputs
         self.payto_script = None
 
-        if self._main_window.is_max:
-            self._main_window.do_update_fee()
+        if self._send_view.is_max:
+            self._send_view.do_update_fee()
         else:
-            self.amount_edit.setAmount(total if outputs else None)
-            self._main_window.lock_amount(total or len(lines)>1)
+            self._send_view.amount_e.setAmount(total if outputs else None)
+            self._send_view.lock_amount(total or len(lines)>1)
 
     def get_errors(self):
         return self.errors
@@ -209,7 +211,7 @@ class PayToEdit(ScanQRTextEdit):
             if is_max:
                 amount = all
             else:
-                amount = self.amount_edit.get_amount()
+                amount = self.send_view.amount_e.get_amount()
             self.outputs = [XTxOutput(amount, self.payto_script)]
         return self.outputs[:]
 
@@ -299,15 +301,15 @@ class PayToEdit(ScanQRTextEdit):
             self.scan_f(data)
             # TODO: update fee
 
-    def resolve(self):
-        self.is_alias = False
-        if self.hasFocus():
-            return
-        if self._is_multiline():  # only supports single line entries atm
-            return
-        if self.is_pr:
-            return
-        key = str(self.toPlainText())
-        if key == self.previous_payto:
-            return
-        self.previous_payto = key
+    # def resolve(self):
+    #     self.is_alias = False
+    #     if self.hasFocus():
+    #         return
+    #     if self._is_multiline():  # only supports single line entries atm
+    #         return
+    #     if self.is_pr:
+    #         return
+    #     key = str(self.toPlainText())
+    #     if key == self.previous_payto:
+    #         return
+    #     self.previous_payto = key

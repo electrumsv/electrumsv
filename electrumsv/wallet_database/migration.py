@@ -50,6 +50,9 @@ def update_database(db: sqlite3.Connection) -> None:
     with db:
         if version == 22:
             migrations.migration_0023_add_wallet_events.execute(db)
+            version += 1
+        if version == 23:
+            migrations.migration_0024_account_transactions.execute(db)
 
     _ensure_matching_migration(db, MIGRATION_CURRENT)
 

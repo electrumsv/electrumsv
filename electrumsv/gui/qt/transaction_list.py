@@ -262,7 +262,7 @@ class _ItemModel(QAbstractItemModel):
                 elif column == LABEL_COLUMN:
                     return self._view._wallet.get_transaction_label(line.hash)
                 elif column == VALUE_COLUMN:
-                    return self._view._main_window.format_amount(line.value, whitespaces=True)
+                    return app_state.format_amount(line.value, whitespaces=True)
                 elif column == FIAT_VALUE_COLUMN:
                     fx = app_state.fx
                     rate = fx.exchange_rate()
@@ -360,7 +360,7 @@ class TransactionView(QTableView):
         self._main_window.transaction_state_signal.connect(self._on_transaction_state_change)
         self._main_window.transaction_added_signal.connect(self._on_transaction_added)
         self._main_window.transaction_deleted_signal.connect(self._on_transaction_deleted)
-        self._main_window.account_change_signal.connect(self._on_account_change)
+        self._main_window.account_change_signal.connect(self._on_account_changed)
 
         model = _ItemModel(self, self._headers)
         model.set_data([])
@@ -416,7 +416,7 @@ class TransactionView(QTableView):
         self._timer.setInterval(1000)
         self._timer.timeout.connect(self._on_update_check)
 
-    def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
+    def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount) -> None:
         with self._update_lock:
             # The account change event should ~immediately clear the list.
             self._pending_state.clear()
@@ -533,9 +533,9 @@ class TransactionView(QTableView):
             TxFlags.to_repr(old_state), TxFlags.to_repr(new_state))
 
         if new_state & TxFlags.STATE_BROADCAST_MASK:
-            self.remove_transactions([ tx_hash ])
+            self._mark_transactions_removed([ tx_hash ])
         else:
-            self.update_transactions([ tx_hash ])
+            self._mark_transactions_updated([ tx_hash ])
 
     def _on_transaction_added(self, account_id: int, tx_hash: bytes) -> None:
         if not self._validate_account_event(account_id):
@@ -549,29 +549,39 @@ class TransactionView(QTableView):
             return
 
         self._logger.debug("_on_transaction_deleted %s", hash_to_hex_str(tx_hash))
-        self.remove_transactions([ tx_hash ])
+        self._mark_transactions_removed([ tx_hash ])
 
     def _add_transactions(self, tx_hashes: List[bytes], state: Dict[bytes, EventFlags]) -> None:
         self._logger.debug("_add_transactions %d", len(tx_hashes))
+        if not len(tx_hashes):
+            return
 
+        candidate_tx_hashes = set(tx_hashes)
         # The default for getting the transaction metadata in this way is requiring all exist.
-        for tx_hash, tx_data in self._account.get_transaction_metadatas(tx_hashes=tx_hashes,
-                mask=TxFlags.STATE_UNCLEARED_MASK):
+        for tx_hash, tx_flags, tx_data in self._wallet.read_transaction_metadatas(
+                tx_hashes=tx_hashes, mask=TxFlags.STATE_UNCLEARED_MASK,
+                account_id=self._account_id):
             assert tx_hash in tx_hashes, f"got bad result {hash_to_hex_str(tx_hash)}"
             self._base_model.add_line(self._create_transaction_entry(tx_hash, tx_data))
+            candidate_tx_hashes.remove(tx_hash)
+
+        assert len(candidate_tx_hashes) == 0, f"Missing transactions {candidate_tx_hashes}"
 
     def _update_transactions(self, tx_hashes: List[bytes], state: Dict[bytes, EventFlags]) -> None:
         self._logger.debug("_update_transactions %d", len(tx_hashes))
+        if not len(tx_hashes):
+            return
 
         matches = self._match_transactions(tx_hashes)
         if len(matches) != len(tx_hashes):
             matched_tx_hashes = [ line.hash for (row, line) in matches ]
             self._logger.debug("_update_transactions missing entries %s",
                 [ hash_to_hex_str(a) for a in tx_hashes if a not in matched_tx_hashes ])
+
         matches_by_hash = dict((t[1].hash, t) for t in matches)
         matched_tx_hashes = matches_by_hash.keys()
-        for tx_hash, tx_data in self._account.get_transaction_metadatas(
-                tx_hashes=matched_tx_hashes):
+        for tx_hash, tx_flags, tx_data in self._wallet.read_transaction_metadatas(
+                tx_hashes=matched_tx_hashes, account_id=self._account_id):
             row, line = matches_by_hash[tx_hash]
             new_line = self._create_transaction_entry(tx_hash, tx_data)
             self._data[row] = new_line
@@ -584,17 +594,18 @@ class TransactionView(QTableView):
             matched_tx_hashes = [ line.hash for (row, line) in matches ]
             self._logger.debug("_remove_transactions missing entries %s",
                 [ hash_to_hex_str(a) for a in tx_hashes if a not in matched_tx_hashes ])
+
         # Make sure that we will be removing rows from the last to the first, to preserve offsets.
         for row, line in sorted(matches, reverse=True, key=lambda v: v[0]):
             self._base_model.remove_row(row)
 
-    def update_transactions(self, tx_hashes: List[bytes]) -> List[bytes]:
+    def _mark_transactions_updated(self, tx_hashes: List[bytes]) -> List[bytes]:
         with self._update_lock:
             for tx_hash in tx_hashes:
                 flags = self._pending_state.get(tx_hash, EventFlags.UNSET)
                 self._pending_state[tx_hash] = flags | EventFlags.TX_UPDATED
 
-    def remove_transactions(self, tx_hashes: List[bytes]) -> None:
+    def _mark_transactions_removed(self, tx_hashes: List[bytes]) -> None:
         with self._update_lock:
             for tx_hash in tx_hashes:
                 flags = self._pending_state.get(tx_hash, EventFlags.UNSET)
@@ -654,8 +665,9 @@ class TransactionView(QTableView):
 
     def _create_data_snapshot(self) -> None:
         lines = []
-        for tx_hash, tx_data in self._account.get_transaction_metadatas(
-                mask=TxFlags.STATE_UNCLEARED_MASK):
+        rows = self._wallet.read_transaction_metadatas(
+                mask=TxFlags.STATE_UNCLEARED_MASK, account_id=self._account_id)
+        for tx_hash, tx_flags, tx_data in rows:
             lines.append(self._create_transaction_entry(tx_hash, tx_data))
         return sorted(lines, key=get_sort_key)
 
@@ -673,8 +685,8 @@ class TransactionView(QTableView):
             f"{hash_to_hex_str(tx_hash)} has no valid date_added"
         tx_entry = self._account.get_transaction_entry(tx_hash)
         flags = tx_entry.flags & TxFlags.STATE_MASK
-        delta_value = self._wallet.get_transaction_delta(tx_hash)
-        return TxLine(tx_hash, tx_data.date_added, tx_data.date_updated, flags, delta_value)
+        delta_sum = self._wallet.get_transaction_delta(tx_hash)
+        return TxLine(tx_hash, tx_data.date_added, tx_data.date_updated, flags, delta_sum.total)
 
     def _event_double_clicked(self, model_index: QModelIndex) -> None:
         base_index = get_source_index(model_index, _ItemModel)

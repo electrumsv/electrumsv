@@ -2,7 +2,7 @@ from io import BytesIO
 import json
 import sqlite3
 import time
-from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple, TypeVar
 
 import bitcoinx
 from bitcoinx import hash_to_hex_str
@@ -48,6 +48,19 @@ def byte_repr(value):
         return str(value)
     return f"ByteData(length={len(value)})"
 
+
+T = TypeVar('T')
+
+def flag_clause(column: str, flags: Optional[T], mask: Optional[T]) -> Tuple[str, List[T]]:
+    if flags is None:
+        if mask is None:
+            return "", []
+        return f"({column} & ?) != 0", [mask]
+
+    if mask is None:
+        return f"({column} & ?) != 0", [flags]
+
+    return f"({column} & ?) == ?", [mask, flags]
 
 
 class BaseWalletStore:
@@ -241,17 +254,15 @@ class TransactionTable(BaseWalletStore):
     CREATE_SQL = ("INSERT INTO Transactions (tx_hash, tx_data, flags, "
         "block_height, block_position, fee_value, description, date_created, date_updated) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    READ_BASE_SQL = ("SELECT tx_data, flags, block_height, block_position, fee_value, "
-        "date_created, date_updated FROM Transactions WHERE tx_hash=?")
-    READ_DESCRIPTION_SQL = ("SELECT tx_hash, description FROM Transactions "
+    READ_DESCRIPTION_SQL = ("SELECT tx_hash, description FROM Transactions T "
         "WHERE description IS NOT NULL")
     READ_MANY_BASE_SQL = ("SELECT tx_hash, tx_data, flags, block_height, block_position, "
-        "fee_value, date_created, date_updated FROM Transactions")
+        "fee_value, date_created, date_updated FROM Transactions T")
     READ_METADATA_BASE_SQL = ("SELECT flags, block_height, block_position, fee_value, "
-        "date_created, date_updated FROM Transactions WHERE tx_hash=?")
+        "date_created, date_updated FROM Transactions T WHERE tx_hash=?")
     READ_METADATA_MANY_BASE_SQL = ("SELECT tx_hash, flags, block_height, block_position, "
-        "fee_value, date_created, date_updated FROM Transactions")
-    READ_PROOF_SQL = "SELECT tx_hash, proof_data FROM Transactions"
+        "fee_value, date_created, date_updated FROM Transactions T")
+    READ_PROOF_SQL = "SELECT tx_hash, proof_data FROM Transactions T"
     UPDATE_DESCRIPTION_SQL = "UPDATE Transactions SET date_updated=?, description=? WHERE tx_hash=?"
     UPDATE_FLAGS_SQL = "UPDATE Transactions SET flags=((flags&?)|?),date_updated=? WHERE tx_hash=?"
     UPDATE_MANY_SQL = ("UPDATE Transactions SET tx_data=?,flags=?,block_height=?,"
@@ -293,25 +304,19 @@ class TransactionTable(BaseWalletStore):
             return TxProof(position, merkle_branch)
         raise DataPackingError(f"Unhandled packing format {pack_version}")
 
-    @staticmethod
-    def _flag_clause(flags: Optional[int], mask: Optional[int]) -> Tuple[str, List[int]]:
-        if flags is None:
-            if mask is None:
-                return "", []
-            return "(flags & ?) != 0", [mask]
-
-        if mask is None:
-            return "(flags & ?) != 0", [flags]
-
-        return "(flags & ?) == ?", [mask, flags]
-
     def _get_many_common(self, query: str, flags: Optional[int]=None, mask: Optional[int]=None,
-            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Any]:
+            tx_hashes: Optional[Sequence[bytes]]=None, account_id: Optional[int]=None) -> List[Any]:
         params = []
-        clause, extra_params = self._flag_clause(flags, mask)
+        clause, extra_params = flag_clause("flags", flags, mask)
 
         conjunction = "WHERE"
         if " WHERE " in query:
+            assert account_id is None, "This query is incompatible with account filtering"
+            conjunction = "AND"
+
+        if account_id is not None:
+            query += " INNER JOIN AccountTransactions ATX USING(tx_hash) WHERE ATX.account_id=?"
+            params.append(account_id)
             conjunction = "AND"
 
         if clause:
@@ -359,24 +364,27 @@ class TransactionTable(BaseWalletStore):
         self._db_context.queue_write(_write, completion_callback, size_hint)
 
     def read(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,
-            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes,
-                Optional[bytes], TxFlags, TxData]]:
+            tx_hashes: Optional[Sequence[bytes]]=None, account_id: Optional[int]=None) \
+            -> List[Tuple[bytes, Optional[bytes], TxFlags, TxData]]:
         query = self.READ_MANY_BASE_SQL
         return [ (row[0], row[1], TxFlags(row[2]), TxData(row[3], row[4], row[5], row[6], row[7]))
-            for row in self._get_many_common(query, flags, mask, tx_hashes) ]
+            for row in self._get_many_common(query, flags, mask, tx_hashes, account_id) ]
 
     def read_metadata(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,
-            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes, TxFlags, TxData]]:
+            tx_hashes: Optional[Sequence[bytes]]=None, account_id: Optional[int]=None) \
+                -> List[Tuple[bytes, TxFlags, TxData]]:
         query = self.READ_METADATA_MANY_BASE_SQL
         return [ (row[0], TxFlags(row[1]), TxData(row[2], row[3], row[4], row[5], row[6]))
-            for row in self._get_many_common(query, flags, mask, tx_hashes) ]
+            for row in self._get_many_common(query, flags, mask, tx_hashes, account_id) ]
 
+    # Shared wallet data between all accounts.
     def read_descriptions(self,
             tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes, str]]:
         query = self.READ_DESCRIPTION_SQL
         # This can be used directly as the query results map to the return type.
         return self._get_many_common(query, None, None, tx_hashes)
 
+    # Not called outside of the unit tests (at this time).
     def read_proof(self, tx_hashes: Sequence[bytes]) -> List[Tuple[bytes, Optional[TxProof]]]:
         query = self.READ_PROOF_SQL
         return [ (row[0], self._unpack_proof(row[1]) if row[1] is not None else None)
@@ -656,7 +664,8 @@ class KeyInstanceTable(BaseWalletStore):
             rows = cursor.fetchall()
             cursor.close()
             for row in rows:
-                results.append(KeyInstanceRow(*row))
+                results.append(KeyInstanceRow(row[0], row[1], row[2], DerivationType(row[3]),
+                    row[4], ScriptType(row[5]), KeyInstanceFlag(row[6]), row[7]))
 
         query = self.READ_SQL
         params: List[int] = []
@@ -1008,38 +1017,17 @@ class PaymentRequestTable(BaseWalletStore):
         "date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     READ_ALL_SQL = ("SELECT P.paymentrequest_id, P.keyinstance_id, P.state, P.value, P.expiration, "
         "P.description, P.date_created FROM PaymentRequests P")
-    READ_ACCOUNT_SQL = (READ_ALL_SQL +" INNER JOIN KeyInstances K "
-        "ON K.keyinstance_id = P.keyinstance_id WHERE K.account_id=?")
+    READ_ACCOUNT_SQL = (READ_ALL_SQL +" INNER JOIN KeyInstances K USING(keyinstance_id) "
+        "WHERE K.account_id=?")
     UPDATE_SQL = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, expiration=?, "
         "description=? WHERE paymentrequest_id=?")
     DELETE_SQL = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
-
-    def _get_many_common(self, query: str, base_params: Optional[List[Any]]=None,
-            row_ids: Optional[Sequence[str]]=None) -> List[Tuple[Any]]:
-        params = base_params[:] if base_params is not None else []
-
-        if row_ids is None or not len(row_ids):
-            cursor = self._db.execute(query, params)
-            rows = cursor.fetchall()
-            cursor.close()
-            return rows
-
-        conjunction = "WHERE"
-        if " WHERE " in query:
-            conjunction = "AND"
-
-        results = []
-        batch_size = SQLITE_MAX_VARS - len(params)
-        while len(row_ids):
-            batch_row_ids = row_ids[:batch_size]
-            batch_query = (query +" "+ conjunction +" "+
-                "tx_hash IN ({0})".format(",".join("?" for k in batch_row_ids)))
-            cursor = self._db.execute(batch_query, params + batch_row_ids) # type: ignore
-            rows = cursor.fetchall()
-            cursor.close()
-            results.extend(rows)
-            row_ids = row_ids[batch_size:]
-        return results
+    ARCHIVE_SQL = f"""
+    UPDATE PaymentRequests SET state=state|{PaymentState.ARCHIVED} WHERE paymentrequest_id=%d;
+    UPDATE KeyInstances SET flags=flags&{int((~KeyInstanceFlag.IS_PAYMENT_REQUEST) & 0xFFFFFFFF)}
+        WHERE keyinstance_id = (SELECT keyinstance_id FROM PaymentRequests
+            WHERE paymentrequest_id=%d);
+    """
 
     def create(self, entries: Iterable[PaymentRequestRow],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -1049,16 +1037,43 @@ class PaymentRequestTable(BaseWalletStore):
             db.executemany(self.CREATE_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)
 
-    def read(self, account_id: Optional[int]=None) -> List[PaymentRequestRow]:
+    def read_one(self, request_id: Optional[int]=None, keyinstance_id: Optional[int]=None) \
+            -> Optional[PaymentRequestRow]:
         query = self.READ_ALL_SQL
-        params: Sequence[int] = ()
+        if request_id is not None:
+            query += f" WHERE P.paymentrequest_id=?"
+            params = [ request_id ]
+        elif keyinstance_id is not None:
+            query += f" WHERE P.keyinstance_id=?"
+            params = [ keyinstance_id ]
+        else:
+            raise Exception("bad read, no id")
+        cursor = self._db.execute(query, params)
+        t = cursor.fetchone()
+        cursor.close()
+        if t is not None:
+            return PaymentRequestRow(t[0], t[1], PaymentState(t[2]), t[3], t[4], t[5], t[6])
+        return None
+
+    def read(self, account_id: Optional[int]=None, flags: Optional[int]=None,
+            mask: Optional[int]=None) -> List[PaymentRequestRow]:
+        query = self.READ_ALL_SQL
+        params: List[Any] = []
+        conjunction = "WHERE"
         if account_id is not None:
             query = self.READ_ACCOUNT_SQL
-            params = (account_id,)
+            params.append(account_id)
+            conjunction = "AND"
+        clause, extra_params = flag_clause("state", flags, mask)
+        if clause:
+            query += f" {conjunction} {clause}"
+            params.extend(extra_params)
+            conjunction = "AND"
         cursor = self._db.execute(query, params)
         rows = cursor.fetchall()
         cursor.close()
-        return [ PaymentRequestRow(*t) for t in rows ]
+        return [ PaymentRequestRow(t[0], t[1], PaymentState(t[2]), t[3], t[4], t[5], t[6])
+            for t in rows ]
 
     def update(self, entries: Iterable[Tuple[Optional[int], Optional[int], Optional[str], int]],
             date_updated: Optional[int]=None,
