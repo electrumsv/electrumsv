@@ -271,9 +271,11 @@ class Daemon(DaemonThread):
         storage = WalletStorage(wallet_filepath)
         if storage.requires_split():
             storage.close()
+            logger.debug("Wallet '%s' requires an split", wallet_filepath)
             return
         if storage.requires_upgrade():
             storage.close()
+            logger.debug("Wallet '%s' requires an upgrade", wallet_filepath)
             return
 
         wallet = Wallet(storage)

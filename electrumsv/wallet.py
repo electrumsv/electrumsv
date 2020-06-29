@@ -2464,6 +2464,9 @@ class Wallet(TriggeredCallbacks):
         "If all the accounts are synchronized"
         return all(w.is_synchronized() for w in self.get_accounts())
 
+    def get_transaction_cache(self) -> TransactionCache:
+        return self._transaction_cache
+
     def get_tx_height(self, tx_hash: bytes) -> Tuple[int, int, Union[int, bool]]:
         """ return the height and timestamp of a verified transaction. """
         metadata = self._transaction_cache.get_metadata(tx_hash)
