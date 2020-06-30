@@ -27,11 +27,12 @@
 #   - StandardAccount: one keystore, P2PKH
 #   - MultisigAccount: several keystores, P2SH
 
-from collections import defaultdict
-from datetime import datetime
 import attr
 from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160, P2SH_Address,
     P2PK_Output, Script, hex_str_to_hash, hash_to_hex_str, MissingHeader)
+from collections import defaultdict
+from datetime import datetime
+from functools import partial
 import itertools
 import json
 import os
@@ -2499,30 +2500,42 @@ class Wallet(TriggeredCallbacks):
 
     # Also called by network.
     def add_transaction(self, tx_hash: bytes, tx: Transaction, flag: TxFlags) -> None:
+        tx_id = hash_to_hex_str(tx_hash)
         if self._stopped:
-            tx_id = hash_to_hex_str(tx_hash)
             self._logger.debug("add_transaction on stopped wallet: %s", tx_id)
             return
+
+        involved_account_ids: List[int] = []
+        attempts_left = 2
+        checklist_lock = threading.Lock()
+
+        def attempt_callback() -> None:
+            nonlocal attempts_left, tx_hash, tx, involved_account_ids
+            with checklist_lock:
+                attempts_left -= 1
+                do_broadcast = attempts_left == 0
+
+            if do_broadcast:
+                self._logger.debug("wallet.add_transaction: %s = %s", tx_id, involved_account_ids)
+                self.trigger_callback('transaction_added', tx_hash, tx, involved_account_ids)
 
         def _completion_callback(exc_value: Any) -> None:
             if exc_value is not None:
                 raise exc_value # pylint: disable=raising-bad-type
 
-            self._logger.debug("wallet.add_transaction %d")
-            self.trigger_callback('transaction_added', self._id, tx_hash)
+            attempt_callback()
 
-        self._logger.debug("adding tx data %s (flags: %r)", hash_to_hex_str(tx_hash), flag)
+        self._logger.debug("adding tx data %s (flags: %r)", tx_id, flag)
         self._transaction_cache.add_transaction(tx_hash, tx, flag, _completion_callback)
 
         # TODO: It should be possible to determine what accounts are involved with this without
         # entering the processing stage.
         # TODO: It should be possible to parallelise each account's processing.
-        involved_account_ids: List[int] = []
         for account in self._accounts.values():
             if account.process_key_usage(tx_hash, tx, None):
                 involved_account_ids.append(account.get_id())
 
-        self.trigger_callback('transaction_added', tx_hash, tx, involved_account_ids)
+        attempt_callback()
 
     # Called by network.
     def add_transaction_proof(self, tx_hash: bytes, height: int, timestamp: int, position: int,
