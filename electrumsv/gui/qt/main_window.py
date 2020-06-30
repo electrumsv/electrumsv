@@ -2726,7 +2726,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.app.close_window(self)
 
     def cpfp(self, account: AbstractAccount, parent_tx: Transaction, new_tx: Transaction) -> None:
-        total_size = parent_tx.estimated_size() + new_tx.estimated_size()
+        total_size = parent_tx.size() + new_tx.estimated_size()
         d = WindowModalDialog(self, _('Child Pays for Parent'))
         vbox = QVBoxLayout(d)
         msg = (
