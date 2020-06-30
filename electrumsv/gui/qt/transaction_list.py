@@ -579,7 +579,7 @@ class TransactionView(QTableView):
                 [ hash_to_hex_str(a) for a in tx_hashes if a not in matched_tx_hashes ])
 
         matches_by_hash = dict((t[1].hash, t) for t in matches)
-        matched_tx_hashes = matches_by_hash.keys()
+        matched_tx_hashes = list(matches_by_hash.keys())
         for tx_hash, tx_flags, tx_data in self._wallet.read_transaction_metadatas(
                 tx_hashes=matched_tx_hashes, account_id=self._account_id):
             row, line = matches_by_hash[tx_hash]

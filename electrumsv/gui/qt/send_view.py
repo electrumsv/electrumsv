@@ -353,7 +353,7 @@ class SendView(QWidget):
         fee = tx.get_fee()
 
         if preview:
-            self.show_transaction(self._account, tx, tx_desc)
+            self._main_window.show_transaction(self._account, tx, tx_desc)
             return
 
         # confirmation dialog
@@ -376,11 +376,11 @@ class SendView(QWidget):
         def sign_done(success: bool) -> None:
             if success:
                 if not tx.is_complete():
-                    self.show_transaction(self._account, tx)
+                    self._main_window.show_transaction(self._account, tx)
                     self.clear()
                 else:
-                    self.broadcast_transaction(self._account, tx, tx_desc)
-        self.sign_tx_with_password(tx, sign_done, password)
+                    self._main_window.broadcast_transaction(self._account, tx, tx_desc)
+        self._main_window.sign_tx_with_password(tx, sign_done, password)
 
     def _read(self) -> Tuple[List[XTxOutput], Optional[int], str, List[UTXO]]:
         isInvoice = False
