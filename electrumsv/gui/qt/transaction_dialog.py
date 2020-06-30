@@ -189,7 +189,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         QToolTip.showText(QCursor.pos(), _("Transaction ID copied to clipboard"), self)
 
     def _on_transaction_verified(self, event, args):
-        if event == 'verified' and args[1] == self._tx_hash:
+        if event == 'verified' and args[0] == self._tx_hash:
             self.update()
 
     def update_tx_if_in_wallet(self) -> None:
@@ -265,7 +265,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     def update(self) -> None:
         base_unit = app_state.base_unit()
-        format_amount = self._main_window.format_amount
+        format_amount = app_state.format_amount
         tx_info = self.get_tx_info(self.tx)
         tx_info_fee = tx_info.fee
 
