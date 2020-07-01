@@ -2297,7 +2297,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             for keystore in account.get_keystores():
                 if isinstance(keystore, Hardware_KeyStore):
                     app_state.device_manager.unpair_xpub(keystore.xpub)
-            self.logger.debug(f'closing wallet {self._wallet.get_storage_path()}')
+
+        self.logger.debug('closing wallet %s', self._wallet.get_storage_path())
 
         self.app.timer.timeout.disconnect(self.timer_actions)
         self.app.close_window(self)
