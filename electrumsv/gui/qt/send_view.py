@@ -419,20 +419,24 @@ class SendView(QWidget):
             return self.pay_from
         return self._account.get_spendable_coins(None, self._main_window.config, isInvoice)
 
-    def maybe_send_payment_request(self, tx: Transaction) -> None:
+    def maybe_send_payment_request(self, tx: Transaction) -> bool:
         pr = self.payment_request
         if pr:
             if pr.has_expired():
-                self.payment_request = None
-                raise Exception(_("Payment request has expired"))
+                pr.error = _("The payment request has expired")
+                self.payment_request_error_signal.emit()
+                return False
 
-            ack_status, _ack_msg = pr.send_payment(self._account, str(tx))
-            if ack_status:
-                self._account.invoices.set_paid(pr, tx.txid())
-                self._account.invoices.save()
-                self.payment_request = None
-            return True
-        return False
+            if not pr.send_payment(self._account, str(tx)):
+                self.payment_request_error_signal.emit()
+                return False
+
+            self._account.invoices.set_paid(pr, tx.txid())
+            self._account.invoices.save()
+            self.payment_request = None
+            # On success we broadcast as well, but it is assumed that the merchant also
+            # broadcasts.
+        return True
 
     def prepare_for_payment_request(self) -> None:
         self.payto_e.is_pr = True
@@ -443,10 +447,7 @@ class SendView(QWidget):
 
     def on_payment_request(self, request: PaymentRequest) -> None:
         self.payment_request = request
-        if self.payment_request.verify(self._main_window.contacts):
-            self.payment_request_ok_signal.emit()
-        else:
-            self.payment_request_error_signal.emit()
+        self.payment_request_ok_signal.emit()
 
     def set_payment_request_data(self, data: Dict[str, Any]) -> None:
         address = data.get('address')

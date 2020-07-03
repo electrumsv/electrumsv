@@ -578,6 +578,9 @@ class TransactionView(QTableView):
             self._logger.debug("_update_transactions missing entries %s",
                 [ hash_to_hex_str(a) for a in tx_hashes if a not in matched_tx_hashes ])
 
+        if not len(matches):
+            return
+
         matches_by_hash = dict((t[1].hash, t) for t in matches)
         matched_tx_hashes = list(matches_by_hash.keys())
         for tx_hash, tx_flags, tx_data in self._wallet.read_transaction_metadatas(

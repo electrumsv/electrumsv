@@ -1429,12 +1429,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         def broadcast_tx() -> None:
             # non-GUI thread
             if not self._send_view.maybe_send_payment_request(tx):
-                result = self.network.broadcast_transaction_and_wait(tx)
+                return None
 
-                if result == tx.txid() and account.have_transaction(tx.hash()):
-                    account.set_transaction_state(tx.hash(),
-                        (TxFlags.StateDispatched | TxFlags.HasByteData))
-                return result
+            result = self.network.broadcast_transaction_and_wait(tx)
+
+            if result == tx.txid() and account.have_transaction(tx.hash()):
+                account.set_transaction_state(tx.hash(),
+                    (TxFlags.StateDispatched | TxFlags.HasByteData))
+            return result
 
         def on_done(future):
             # GUI thread
@@ -1572,7 +1574,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def show_invoice(self, account: AbstractAccount, request_id: str) -> None:
         external_request = account.invoices.get(request_id)
-        external_request.verify(self.contacts)
         self.show_pr_details(account, external_request)
 
     def show_pr_details(self, account: AbstractAccount, req: PaymentRequest) -> None:
@@ -1618,12 +1619,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         req = self._account.invoices.get(req_id)
         self.payment_request = req
         self.prepare_for_payment_request()
-        req.error = None  # this forces verify() to re-run
         send_view = self.get_send_view(self._account_id)
-        if req.verify(self.contacts):
-            send_view.payment_request_ok()
-        else:
-            send_view.payment_request_error()
+        send_view.payment_request_ok()
 
     def create_console_tab(self):
         from .console import Console

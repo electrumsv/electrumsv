@@ -26,7 +26,7 @@
 import json
 import os
 import time
-from typing import Any, List, Optional, Tuple, Dict, TYPE_CHECKING
+from typing import Any, List, Optional, Dict, TYPE_CHECKING
 import urllib.parse
 
 from .bip276 import bip276_encode, BIP276Network, PREFIX_SCRIPT
@@ -36,6 +36,7 @@ import requests
 
 from .constants import RECEIVING_SUBPATH, PaymentState
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
+from .i18n import _
 from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
 from .wallet_database.tables import PaymentRequestRow
@@ -118,6 +119,8 @@ class Output:
 class PaymentRequest:
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
+    error: Optional[str] = None
+
     def __init__(self, outputs, creation_timestamp=None, expiration_timestamp=None, memo=None,
                  payment_url=None, merchant_data=None):
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
@@ -160,7 +163,7 @@ class PaymentRequest:
         d = json.loads(s)
 
         network = d.get('network')
-        if network != 'bitcoin':
+        if network != 'bitcoin-sv':
             raise Bip270Exception(f"Invalid json network: {network}")
 
         if 'outputs' not in d:
@@ -204,7 +207,7 @@ class PaymentRequest:
 
     def to_json(self) -> str:
         d = {}
-        d['network'] = 'bitcoin'
+        d['network'] = 'bitcoin-sv'
         d['outputs'] = [output.to_dict() for output in self.outputs]  # type: ignore
         d['creationTimestamp'] = self.creation_timestamp
         if self.expiration_timestamp is not None:
@@ -234,23 +237,23 @@ class PaymentRequest:
         return sum(x.amount for x in self.outputs)
 
     def get_address(self) -> str:
-        if isinstance(Net._net, SVMainnet):
+        if Net._net is SVMainnet:
             network = BIP276Network.NETWORK_MAINNET
-        elif isinstance(Net._net, SVTestnet):
+        elif Net._net is SVTestnet:
             network = BIP276Network.NETWORK_TESTNET
-        elif isinstance(Net._net, SVScalingTestnet):
+        elif Net._net is SVScalingTestnet:
             network = BIP276Network.NETWORK_SCALINGTESTNET
         elif isinstance(Net._net, SVRegTestnet):
             network = BIP276Network.NETWORK_REGTEST
         else:
-            raise Exception("unhandled network", Net)
+            raise Exception("unhandled network", Net._net)
         return bip276_encode(PREFIX_SCRIPT, bytes(self.outputs[0].script), network)
 
     def get_requestor(self) -> str:
         return self.requestor if self.requestor else self.get_address()
 
     def get_verify_status(self) -> str:
-        return self.error if self.requestor else "No Signature"  # type: ignore
+        return self.error if self.requestor else _("No Signature")  # type: ignore
 
     def get_memo(self) -> str:
         return self.memo
@@ -261,11 +264,12 @@ class PaymentRequest:
     def get_outputs(self) -> List[TxOutput]:
         return [output.to_tx_output() for output in self.outputs]
 
-    def send_payment(self, account: 'DeterministicAccount',
-            transaction_hex: str) -> Tuple[bool, Optional[str]]:
+    def send_payment(self, account: 'DeterministicAccount', transaction_hex: str) -> bool:
+        self.error = None
 
         if not self.payment_url:
-            return False, "no url"
+            self.error = _("No URL")
+            return False
 
         refund_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
         script_template = account.get_script_template_for_id(refund_key.keyinstance_id)
@@ -276,35 +280,38 @@ class PaymentRequest:
 
         parsed_url = urllib.parse.urlparse(self.payment_url)
         response = self._make_request(parsed_url.geturl(), payment.to_json())
-        if response is None:
-            return False, "Payment Message/PaymentACK Failed"
-
         if response.get_status_code() != 200:
             # Propagate 'Bad request' (HTTP 400) messages to the user since they
             # contain valuable information.
             if response.get_status_code() == 400:
-                return False, f"{response.get_reason()}: {response.get_content().decode('UTF-8')}"
+                self.error = f"{response.get_reason()}: {response.get_content().decode('UTF-8')}"
+                return False
             # Some other errors might display an entire HTML document.
             # Hide those and just display the name of the error code.
-            return False, response.get_reason()
+            self.error = response.get_reason()
+            return False
 
+        ack_json = response.get_content()
+        ack_data = json.loads(ack_json)
+
+        # Handcash response.
+        # https://handcash.github.io/handcash-merchant-integration/#/merchant-payments?id=examples
+        if "success" in ack_data and ack_data["success"] is True:
+            return True
+
+        # BIP270 response.
         try:
-            payment_ack = PaymentACK.from_json(response.get_content())
-        except Exception:
-            return False, ("PaymentACK could not be processed. Payment was sent; "
-                           "please manually verify that payment was received.")
+            payment_ack = PaymentACK.from_json(ack_json)
+        except Bip270Exception as e:
+            self.error = e.args[0]
+            return False
 
         logger.debug("PaymentACK message received: %s", payment_ack.memo)
-        return True, payment_ack.memo
+        return True
 
     # The following function and classes is abstracted to allow unit testing.
     def _make_request(self, url, message):
-        try:
-            r = requests.post(url, data=message, headers=ACK_HEADERS, verify=ca_path)
-        except requests.exceptions.SSLError:
-            logger.exception("Payment Message/PaymentACK")
-            return None
-
+        r = requests.post(url, data=message, headers=ACK_HEADERS, verify=ca_path)
         return self._RequestsResponseWrapper(r)
 
     class _RequestsResponseWrapper:
@@ -332,23 +339,32 @@ class Payment:
         self.memo = memo
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'Payment':
-        if 'merchantData' not in data:
+    def from_dict(cls, data: dict, ack: bool=False) -> 'Payment':
+        merchant_data: Any
+        if 'merchantData' in data:
+            merchant_data = data['merchantData']
+        elif ack:
+            merchant_data = {}
+        else:
             raise Bip270Exception("Missing required json 'merchantData' field")
-        merchant_data = data['merchantData']
 
-        if 'transaction' not in data:
+        if 'transaction' in data:
+            transaction_hex = data['transaction']
+            if type(transaction_hex) is not str:
+                raise Bip270Exception("Invalid json 'transaction' field")
+        else:
             raise Bip270Exception("Missing required json 'transaction' field")
-        transaction_hex = data['transaction']
-        if type(transaction_hex) is not str:
-            raise Bip270Exception("Invalid json 'transaction' field")
 
-        if 'refundTo' not in data:
+        refund_outputs: List[Output]
+        if 'refundTo' in data:
+            refundTo = data['refundTo']
+            if type(refundTo) is not list:
+                raise Bip270Exception("Invalid json 'refundTo' field")
+            refund_outputs = [ Output.from_dict(data) for data in refundTo ]
+        elif ack:
+            refund_outputs = []
+        else:
             raise Bip270Exception("Missing required json 'refundTo' field")
-        refundTo = data['refundTo']
-        if type(refundTo) is not list:
-            raise Bip270Exception("Invalid json 'refundTo' field")
-        refund_outputs = [ Output.from_dict(data) for data in refundTo ]
 
         memo = data.get('memo')
         if memo is not None and type(memo) is not str:
@@ -385,8 +401,8 @@ class PaymentACK:
         self.memo = memo
 
     def to_dict(self) -> Dict[str, Any]:
-        data = {
-            'payment': self.payment.to_json(),
+        data: Dict[str, Any] = {
+            'payment': self.payment.to_dict(),
         }
         if self.memo:
             data['memo'] = self.memo
@@ -401,7 +417,7 @@ class PaymentACK:
         if memo is not None and type(memo) is not str:
             raise Bip270Exception("Invalid json 'memo' field")
 
-        payment = Payment.from_json(data['payment'])
+        payment = Payment.from_dict(data['payment'], ack=True)
         return cls(payment, memo)
 
     def to_json(self) -> str:
@@ -426,8 +442,9 @@ def get_payment_request(url: str) -> PaymentRequest:
             response = requests.request('GET', url, headers=REQUEST_HEADERS)
             response.raise_for_status()
             # Guard against `bitcoin:`-URIs with invalid payment request URLs
-            if "Content-Type" not in response.headers \
-            or response.headers["Content-Type"] != "application/bitcoin-paymentrequest":
+            contentType = response.headers.get("Content-Type", "")
+            if "application/json" not in contentType:
+                logger.debug("Failed payment request, content type '%s'", contentType)
                 data = None
                 error = "payment URL not pointing to a bitcoinSV payment request handling server"
             else:
