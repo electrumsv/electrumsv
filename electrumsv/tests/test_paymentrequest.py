@@ -136,7 +136,7 @@ class TestPaymentACK(unittest.TestCase):
 
     def test_json_restoration_required(self):
         outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
-        payment = paymentrequest.Payment("merchant_data", "transaction_hex", outputs)
+        payment = paymentrequest.Payment({}, "transaction_hex", outputs)
         original = paymentrequest.PaymentACK(payment)
         json_value = original.to_json()
         restored = paymentrequest.PaymentACK.from_json(json_value)
@@ -233,12 +233,11 @@ class TestPaymentRequest(unittest.TestCase):
         payment_request = PaymentRequestTestable(
             outputs, creation_timestamp, expiration_timestamp, "memo", "pay_url", "merchant_data")
 
-        response_status, response_message = payment_request.send_payment(
-            TRANSACTION_HEX)
+        response_status = payment_request.send_payment(TRANSACTION_HEX)
         # The response was successful.
         self.assertTrue(response_status)
         # The ack memo is the response message.
-        self.assertEqual(ack_memo, response_message)
+        self.assertEqual(ack_memo, payment_request.error)
 
     @pytest.mark.skip(reason="no way of currently testing this")
     def test_send_payment_ssl_exception(self):
@@ -252,8 +251,7 @@ class TestPaymentRequest(unittest.TestCase):
         payment_request = PaymentRequestTestable(
             outputs, creation_timestamp, expiration_timestamp, "memo", "pay_url", "merchant_data")
 
-        response_status, response_message = payment_request.send_payment(
-            TRANSACTION_HEX)
+        response_status = payment_request.send_payment(TRANSACTION_HEX)
         self.assertFalse(response_status)
 
     @pytest.mark.skip(reason="no way of currently testing this")
@@ -268,10 +266,9 @@ class TestPaymentRequest(unittest.TestCase):
         payment_request = PaymentRequestTestable(
             outputs, creation_timestamp, expiration_timestamp, "memo", "pay_url", "merchant_data")
 
-        response_status, response_message = payment_request.send_payment(
-            TRANSACTION_HEX)
+        response_status = payment_request.send_payment(TRANSACTION_HEX)
         self.assertFalse(response_status)
-        self.assertEqual("reason", response_message)
+        self.assertEqual("reason", payment_request.error)
 
     @pytest.mark.skip(reason="no way of currently testing this")
     def test_send_payment_400_error(self):
@@ -285,7 +282,6 @@ class TestPaymentRequest(unittest.TestCase):
         payment_request = PaymentRequestTestable(
             outputs, creation_timestamp, expiration_timestamp, "memo", "pay_url", "merchant_data")
 
-        response_status, response_message = payment_request.send_payment(
-            TRANSACTION_HEX)
+        response_status = payment_request.send_payment(TRANSACTION_HEX)
         self.assertFalse(response_status)
-        self.assertEqual("reason: content", response_message)
+        self.assertEqual("reason: content", payment_request.error)

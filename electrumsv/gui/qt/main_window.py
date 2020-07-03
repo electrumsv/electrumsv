@@ -1734,27 +1734,29 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         def broadcast_tx() -> None:
             # non-GUI thread
-            status = False
-            msg = "Failed"
             pr = self.payment_request
             if pr:
                 if pr.has_expired():
-                    self.payment_request = None
-                    raise Exception(_("Payment request has expired"))
-                ack_status, ack_msg = pr.send_payment(account, str(tx))
-                msg = ack_msg
-                if ack_status:
-                    self._account.invoices.set_paid(pr, tx.txid())
-                    self._account.invoices.save()
-                    self.payment_request = None
-                return
-            else:
-                result = self.network.broadcast_transaction_and_wait(tx)
+                    pr.error = _("The payment request has expired")
+                    self.payment_request_error_signal.emit()
+                    return None
 
-                if result == tx.txid() and account.have_transaction(tx.hash()):
-                    account.set_transaction_state(tx.hash(),
-                        (TxFlags.StateDispatched | TxFlags.HasByteData))
-                return result
+                if not pr.send_payment(account, str(tx)):
+                    self.payment_request_error_signal.emit()
+                    return None
+
+                self._account.invoices.set_paid(pr, tx.txid())
+                self._account.invoices.save()
+                self.payment_request = None
+                # On success we broadcast as well, but it is assumed that the merchant also
+                # broadcasts.
+
+            result = self.network.broadcast_transaction_and_wait(tx)
+
+            if result == tx.txid() and account.have_transaction(tx.hash()):
+                account.set_transaction_state(tx.hash(),
+                    (TxFlags.StateDispatched | TxFlags.HasByteData))
+            return result
 
         def on_done(future):
             # GUI thread
@@ -1826,10 +1828,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def on_pr(self, request):
         self.payment_request = request
-        if self.payment_request.verify(self.contacts):
-            self.payment_request_ok_signal.emit()
-        else:
-            self.payment_request_error_signal.emit()
+        self.payment_request_ok_signal.emit()
 
     def pay_to_URI(self, URI: str) -> None:
         if not URI:
@@ -1992,7 +1991,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def show_invoice(self, request_id: str) -> None:
         external_request = self._account.invoices.get(request_id)
-        external_request.verify(self.contacts)
         self.show_pr_details(external_request)
 
     def show_pr_details(self, req):
@@ -2038,11 +2036,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         req = self._account.invoices.get(req_id)
         self.payment_request = req
         self.prepare_for_payment_request()
-        req.error = None  # this forces verify() to re-run
-        if req.verify(self.contacts):
-            self.payment_request_ok()
-        else:
-            self.payment_request_error()
+        self.payment_request_ok()
 
     def create_console_tab(self):
         from .console import Console

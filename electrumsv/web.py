@@ -74,7 +74,7 @@ def BE_sorted_list():
 
 
 def create_URI(dest: str, amount: int, message: str) -> str:
-    scheme = Net.URI_PREFIX
+    scheme = Net.BITCOIN_URI_PREFIX
     query_parts = ['sv']
     scheme_idx = dest.find(":")
     if scheme_idx != -1:
@@ -100,7 +100,7 @@ def is_URI(text):
     scheme_idx = text.find(":")
     if scheme_idx > -1:
         scheme = text[:scheme_idx].lower()
-        if scheme == Net.URI_PREFIX or scheme == PREFIX_SCRIPT:
+        if scheme in (Net.BITCOIN_URI_PREFIX, Net.PAY_URI_PREFIX) or scheme == PREFIX_SCRIPT:
             return True
     return False
 
@@ -117,7 +117,8 @@ def parse_URI(uri: str, on_pr=None):
 
     # The scheme always comes back in lower case
     pq = urllib.parse.parse_qs(u.query, keep_blank_values=True)
-    if not (u.scheme == Net.URI_PREFIX and 'sv' in pq or u.scheme == PREFIX_SCRIPT):
+    if not (u.scheme == Net.BITCOIN_URI_PREFIX and 'sv' in pq or
+            u.scheme in (PREFIX_SCRIPT, Net.PAY_URI_PREFIX)):
         raise URIError(_('invalid BitcoinSV URI: {}').format(uri))
 
     for k, v in pq.items():
@@ -126,7 +127,7 @@ def parse_URI(uri: str, on_pr=None):
 
     out: Dict[str, Any] = {k: v[0] for k, v in pq.items()}
 
-    if u.scheme == Net.URI_PREFIX and is_address_valid(u.path):
+    if u.scheme == Net.BITCOIN_URI_PREFIX and is_address_valid(u.path):
         out['address'] = u.path
     elif u.scheme == PREFIX_SCRIPT:
         try:

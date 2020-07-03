@@ -49,7 +49,8 @@ class SVMainnet(object):
     DEFAULT_SERVERS = read_json_dict('servers.json')
     GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
     NAME = 'mainnet'
-    URI_PREFIX = "bitcoin"
+    BITCOIN_URI_PREFIX = "bitcoin"
+    PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0x80
     BIP276_VERSION = 1
 
@@ -108,7 +109,8 @@ class SVTestnet(object):
     DEFAULT_SERVERS = read_json_dict('servers_testnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
     NAME = 'testnet'
-    URI_PREFIX = "bitcoin"
+    BITCOIN_URI_PREFIX = "bitcoin"
+    PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0xef
     BIP276_VERSION = 2
 
@@ -168,7 +170,8 @@ class SVScalingTestnet(object):
     DEFAULT_SERVERS = read_json_dict('servers_scalingtestnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
     NAME = 'scalingtestnet'
-    URI_PREFIX = "bitcoin"
+    BITCOIN_URI_PREFIX = "bitcoin"
+    PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0xef
     BIP276_VERSION = 3
 
