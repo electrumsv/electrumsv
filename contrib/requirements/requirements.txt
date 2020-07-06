@@ -3,7 +3,6 @@ aiorpcX>=0.18.0,<0.19
 certifi
 dnspython
 ecdsa>=0.13.3
-electrumsv-hosting>=0.1.2
 jsonrpclib-pelix
 pyaes>=0.1a1
 requests>=2.22.0
