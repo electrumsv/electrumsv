@@ -216,7 +216,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_ready(self) -> None:
         self._accounts_view.on_wallet_loaded()
-        self._add_account_action.setEnabled(True)
+
+        # NOTE(rt12) single-account At this time we disallow more than one account.
+        # This code should go when we enable multiple-accounts.
+        self._add_account_action.setDisabled(len(self._wallet.get_accounts()) > 0)
+        self._add_account_action.setToolTip("Accounts are limited to one at this time.")
+
+        # This is what should normally happen when the window is ready, and multiple-accounts
+        # are allowed.
+        # self._add_account_action.setEnabled(True)
 
     def _create_tabs(self) -> None:
         tabs = self._tab_widget
@@ -284,6 +292,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_account_created(self, event_name: str, new_account_id: int) -> None:
         account = self._wallet.get_account(new_account_id)
+
+        # NOTE(rt12) single-account At this time we disallow more than one account.
+        self._add_account_action.setDisabled(True)
 
         self._wallet.create_gui_handler(self, account)
 
