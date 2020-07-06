@@ -36,6 +36,9 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.3.5
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-5-ea885204a2ce
+
 # Release 1.3.4
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-4-9408b74fd397
   * Payment destinations: New export feature for bulk access to types of payment destinations
