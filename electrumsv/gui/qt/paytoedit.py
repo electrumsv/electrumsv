@@ -47,8 +47,6 @@ if TYPE_CHECKING:
     from .send_view import SendView
 
 
-RE_ALIAS = '^(.*?)\s*\<([0-9A-Za-z:]{26,})\>$'
-
 frozen_style = "QWidget { background-color:none; border:none;}"
 normal_style = "QPlainTextEdit { }"
 

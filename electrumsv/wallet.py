@@ -32,7 +32,6 @@ from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160
     P2PK_Output, Script, hex_str_to_hash, hash_to_hex_str, MissingHeader)
 from collections import defaultdict
 from datetime import datetime
-from functools import partial
 import itertools
 import json
 import os
