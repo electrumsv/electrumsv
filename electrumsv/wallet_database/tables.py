@@ -344,7 +344,7 @@ class TransactionTable(BaseWalletStore):
         return results
 
     def create(self, entries: List[TransactionRow], completion_callback: Optional[
-        CompletionCallbackType]=None) -> None:
+            CompletionCallbackType]=None) -> None:
         datas = []
         size_hint = 0
         for tx_hash, metadata, bytedata, flags, description in entries:

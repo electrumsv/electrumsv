@@ -162,7 +162,7 @@ class SqliteWriteDispatcher:
                 if write_entries[0][1] is not None:
                     completion_callbacks.append((write_entries[0][1], e))
             else:
-                if len(write_entries) > 1:
+                if len(write_entries):
                     time_ms = int((time.time() - time_start) * 1000)
                     self._logger.debug("Invoked %d write callbacks (hinted at %d bytes) in %d ms",
                         len(write_entries), total_size_hint, time_ms)

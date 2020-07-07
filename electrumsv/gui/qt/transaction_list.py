@@ -517,17 +517,17 @@ class TransactionView(QTableView):
             else:
                 self._logger.error("_on_update_check action %s not applied", action)
 
-    def _validate_account_event(self, account_id: int) -> bool:
-        return account_id == self._account_id
+    def _validate_account_event(self, account_ids: Set[int]) -> bool:
+        return self._account_id in account_ids
 
     def _validate_application_event(self, wallet_path: str, account_id: int) -> bool:
         if wallet_path == self._wallet.get_storage_path():
-            return self._validate_account_event(account_id)
+            return self._validate_account_event({ account_id })
         return False
 
     def _on_transaction_state_change(self, account_id: int, tx_hash: bytes, old_state: TxFlags,
             new_state: TxFlags) -> None:
-        if not self._validate_account_event(account_id):
+        if not self._validate_account_event({ account_id }):
             return
 
         self._logger.debug("_on_transaction_state_change %s old=%s new=%s", tx_hash,
@@ -538,9 +538,9 @@ class TransactionView(QTableView):
         else:
             self._mark_transactions_updated([ tx_hash ])
 
-    def _on_transaction_added(self, tx_hash: bytes, tx: Transaction, account_ids: List[int]) \
+    def _on_transaction_added(self, tx_hash: bytes, tx: Transaction, account_ids: Set[int]) \
             -> None:
-        if not any(self._validate_account_event(account_id) for account_id in account_ids):
+        if not self._validate_account_event(account_ids):
             return
 
         self._logger.debug("_on_transaction_added %s", hash_to_hex_str(tx_hash))
@@ -548,7 +548,7 @@ class TransactionView(QTableView):
             self._pending_state[tx_hash] = EventFlags.TX_ADDED
 
     def _on_transaction_deleted(self, account_id: int, tx_hash: bytes) -> None:
-        if not self._validate_account_event(account_id):
+        if not self._validate_account_event({ account_id }):
             return
 
         self._logger.debug("_on_transaction_deleted %s", hash_to_hex_str(tx_hash))

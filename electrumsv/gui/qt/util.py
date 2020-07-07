@@ -21,11 +21,14 @@ from electrumsv.app_state import app_state
 from electrumsv.constants import DATABASE_EXT, PaymentState
 from electrumsv.crypto import pw_encode
 from electrumsv.i18n import _, languages
+from electrumsv.logs import logs
 from electrumsv.util import resource_path
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
 
+
+logger = logs.get_logger("qt-util")
 
 dialogs = []
 
@@ -923,6 +926,7 @@ class FormSectionWidget(QWidget):
             self.minimum_label_width = minimum_label_width
 
         self.frame_layout = QVBoxLayout()
+        self._resizable_rows: List[QVBoxLayout] = []
 
         frame = QFrame()
         frame.setObjectName("FormFrame")
@@ -977,6 +981,7 @@ class FormSectionWidget(QWidget):
 
         if isinstance(label_text, QLabel):
             label = label_text
+            label_text = label.text()
         else:
             if not label_text.endswith(":"):
                 label_text += ":"
@@ -984,6 +989,11 @@ class FormSectionWidget(QWidget):
             result = label
         label.setObjectName("FormSectionLabel")
         label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+
+        label_width = label.fontMetrics().boundingRect(label_text).width() + 10
+        old_minimum_width = self.minimum_label_width
+        if label_width > self.minimum_label_width:
+            self.minimum_label_width = label_width
 
         grid_layout = QGridLayout()
         grid_layout.setContentsMargins(0, 0, 0, 0)
@@ -1008,7 +1018,12 @@ class FormSectionWidget(QWidget):
         grid_layout.setHorizontalSpacing(10)
         grid_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
+        if self.minimum_label_width != old_minimum_width:
+            for layout in self._resizable_rows:
+                layout.setColumnMinimumWidth(0, self.minimum_label_width)
+
         self.frame_layout.addLayout(grid_layout)
+        self._resizable_rows.append(grid_layout)
         return result
 
 

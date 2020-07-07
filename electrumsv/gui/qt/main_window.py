@@ -34,7 +34,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Any, Dict, Iterable, List, Set, Optional
+from typing import Any, Dict, Iterable, List, Set, Tuple, Optional, Union
 import weakref
 import webbrowser
 
@@ -113,7 +113,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._api = WalletAPI(self)
 
-        self.logger = logger
+        self._logger = logger
         self.config = app_state.config
 
         self._wallet = wallet
@@ -277,10 +277,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.transaction_state_signal.emit(account_id, tx_hash, old_state, new_state)
 
     def _on_transaction_added(self, event_name: str, tx_hash: bytes, tx: Transaction,
-            account_ids: List[int]) -> None:
-        # Always notify of incoming transactions regardless of the active account.
-        self.tx_notifications.append(tx)
-        self.notify_transactions_signal.emit()
+            account_ids: Set[int], is_external: bool) -> None:
+        # Account ids is the accounts that have changed the balance.
+        self._logger.debug("_on_transaction_added %s %s %s", self._wallet.get_account_ids(),
+            account_ids, is_external)
+        if self._wallet.get_account_ids() & account_ids and is_external:
+            # Always notify of incoming transactions regardless of the active account.
+            self.tx_notifications.append(tx)
+            self.notify_transactions_signal.emit()
+
         # Only update the display for the new transaction if it is in the current account?
         if self._account_id in account_ids:
             self.need_update.set()
@@ -422,7 +427,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def on_exception(self, exception: Exception) -> None:
         if not isinstance(exception, UserCancelled):
-            self.logger.exception("")
+            self._logger.exception("")
             self.show_error(str(exception))
 
     def on_error(self, exc_info) -> None:
@@ -437,7 +442,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # Handle in GUI thread
             self.network_signal.emit(event, args)
         else:
-            self.logger.debug("unexpected network message event='%s' args='%s'", event, args)
+            self._logger.debug("unexpected network message event='%s' args='%s'", event, args)
 
     def on_network_qt(self, event, args=None):
         # Handle a network message in the GUI thread
@@ -448,11 +453,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         elif event == 'verified':
             self.history_view.update_tx_item(*args[1:])
         else:
-            self.logger.debug("unexpected network_qt signal event='%s' args='%s'", event, args)
+            self._logger.debug("unexpected network_qt signal event='%s' args='%s'", event, args)
 
     def load_wallet(self) -> None:
         wallet = self._wallet
-        self.logger = logs.get_logger(f"mainwindow[{wallet.name()}]")
+        self._logger = logs.get_logger(f"mainwindow[{wallet.name()}]")
         self.init_geometry()
         self.update_recently_visited(wallet.get_storage_path())
         self.update_console()
@@ -480,7 +485,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             assert screen.contains(QRect(*winpos))
             self.setGeometry(*winpos)
         except Exception:
-            self.logger.exception("using default geometry")
+            self._logger.exception("using default geometry")
             self.setGeometry(100, 100, 840, 400)
 
     def _update_window_title(self):
@@ -847,13 +852,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if num_txns:
                 # Combine the transactions
                 total_amount = 0
+                total_delta = 0
                 for tx in self.tx_notifications:
                     if tx:
                         result = self._wallet.get_transaction_delta(tx.hash())
                         total_amount += result.total
+                        total_delta += abs(result.total)
                         n_ok += 1
-                if n_ok:
-                    self.logger.debug("Notifying GUI %d tx", n_ok)
+                if n_ok and total_delta:
+                    self._logger.debug("Notifying GUI %d tx", n_ok)
                     if n_ok > 1:
                         self.notify(_("{} new transactions received: Total amount received "
                                       "in the new transactions {}")
@@ -881,7 +888,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.tx_notify_timer.setSingleShot(True)
             self.tx_notify_timer.timeout.connect(self._notify_tx_cb)
             when = (self.notify_tx_rate - elapsed)
-            self.logger.debug("Notify spam control: will notify GUI of %d new tx's in %f seconds",
+            self._logger.debug("Notify spam control: will notify GUI of %d new tx's in %f seconds",
                               len(self.tx_notifications), when)
             self.tx_notify_timer.start(when * 1e3) # time in ms
         else:
@@ -1454,7 +1461,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             try:
                 tx_id: Optional[str] = future.result()
             except Exception as exception:
-                self.logger.exception('unhandled exception broadcasting transaction')
+                self._logger.exception('unhandled exception broadcasting transaction')
                 reason = broadcast_failure_reason(exception)
                 d = UntrustedMessageDialog(
                     window, _("Transaction Broadcast Error"),
@@ -1697,7 +1704,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         try:
             self._wallet.update_password(new_password, password)
         except Exception as e:
-            self.logger.exception("")
+            self._logger.exception("")
             self.show_error(_('Failed to update password'))
             return
         msg = (_('Password was updated successfully') if new_password
@@ -1806,7 +1813,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         try:
             privkey_text = account.export_private_key(keyinstance_id, password)
         except Exception as e:
-            self.logger.exception("")
+            self._logger.exception("")
             self.show_message(str(e))
             return
 
@@ -1950,7 +1957,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             try:
                 public_key = PublicKey.from_hex(pubkey_e.text())
             except Exception as e:
-                self.logger.exception("")
+                self._logger.exception("")
                 self.show_warning(_('Invalid Public key'))
                 return
         encrypted = public_key.encrypt_message_to_base64(message)
@@ -2007,11 +2014,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         layout.addLayout(hbox, 4, 1)
         d.exec_()
 
-    def password_dialog(self, msg: Optional[str]=None, parent: Optional[QWidget]=None) -> str:
+    def password_dialog(self, msg: Optional[str]=None, parent: Optional[QWidget]=None,
+            fields: List[Tuple[Union[str, QLabel], QWidget]]=None) -> str:
         from .password_dialog import PasswordDialog
         parent = parent or self
         storage = self._wallet.get_storage()
-        d = PasswordDialog(parent, msg, password_check_fn=storage.is_password_valid)
+        d = PasswordDialog(parent, msg, password_check_fn=storage.is_password_valid, fields=fields)
         return d.run()
 
     def tx_from_text(self, txt: str) -> Optional[Transaction]:
@@ -2055,7 +2063,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if tx:
                 self.show_transaction(self._account, tx)
         except Exception as reason:
-            self.logger.exception(reason)
+            self._logger.exception(reason)
             self.show_critical(_("ElectrumSV was unable to read the transaction:") +
                                "\n" + str(reason))
 
@@ -2067,7 +2075,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if tx:
                 self.show_transaction(self._account, tx)
         except Exception as reason:
-            self.logger.exception(reason)
+            self._logger.exception(reason)
             self.show_critical(_("ElectrumSV was unable to read the transaction:") +
                                "\n" + str(reason))
 
@@ -2077,7 +2085,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if tx:
                 self.show_transaction(self._account, tx)
         except Exception as reason:
-            self.logger.exception(reason)
+            self._logger.exception(reason)
             self.show_critical(_("ElectrumSV was unable to read the transaction:") +
                                "\n" + str(reason))
 
@@ -2185,7 +2193,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 func(key)
                 good.append(key)
             except Exception as e:
-                self.logger.exception("import")
+                self._logger.exception("import")
                 bad.append(key)
                 continue
         if good:
@@ -2281,7 +2289,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.config.set_key("is_maximized", self.isMaximized())
             self.config.set_key("console-history", self.console.history[-50:], True)
         except (OSError, PermissionError):
-            self.logger.exception("unable to write to config (directory removed?)")
+            self._logger.exception("unable to write to config (directory removed?)")
 
         if not self.isMaximized():
             try:
@@ -2289,7 +2297,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self._wallet.get_storage().put(
                     "winpos-qt", [g.left(),g.top(),g.width(),g.height()])
             except (OSError, PermissionError):
-                self.logger.exception("unable to write to wallet storage (directory removed?)")
+                self._logger.exception("unable to write to wallet storage (directory removed?)")
 
         # Should be no side-effects in this function relating to file access past this point.
         if self.qr_window:
@@ -2306,7 +2314,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 if isinstance(keystore, Hardware_KeyStore):
                     app_state.device_manager.unpair_xpub(keystore.xpub)
 
-        self.logger.debug('closing wallet %s', self._wallet.get_storage_path())
+        self._logger.debug('closing wallet %s', self._wallet)
 
         self.app.timer.timeout.disconnect(self.timer_actions)
         self.app.close_window(self)

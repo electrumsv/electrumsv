@@ -162,7 +162,7 @@ def request_password(parent: Optional[QWidget], storage: WalletStorage, entry: F
     name_edit = QLabel(entry.name)
     name_edit.setAlignment(Qt.AlignTop)
     fields = [
-        (QLabel(_("Wallet") +":"), name_edit),
+        (_("Wallet"), name_edit),
     ]
 
     if entry.password_state & PasswordState.PASSWORDED:

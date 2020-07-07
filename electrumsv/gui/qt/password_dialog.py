@@ -124,7 +124,7 @@ class PasswordLineEdit(QWidget):
             self.reveal_button.setIcon(read_QIcon(self.reveal_png))
 
 
-LayoutFields = List[Tuple[QWidget, QWidget]]
+LayoutFields = List[Tuple[Union[str, QLabel], QWidget]]
 PasswordCheckCallbackType = Optional[Callable[[str], bool]]
 
 class PasswordLayout(object):

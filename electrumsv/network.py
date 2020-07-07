@@ -1133,7 +1133,8 @@ class Network(TriggeredCallbacks):
                     logger.exception(e)
                     logger.error(f'fetching transaction {tx_id}: {e}')
                 else:
-                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared | TxFlags.HasByteData)
+                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared | TxFlags.HasByteData,
+                        True)
         return had_timeout
 
     def _available_servers(self, protocol):
@@ -1254,7 +1255,7 @@ class Network(TriggeredCallbacks):
 
     async def _maintain_wallet(self, wallet: 'Wallet') -> None:
         '''Put all tasks for a single wallet in a group so they can be cancelled together.'''
-        logger.info(f'maintaining wallet {wallet}')
+        logger.info('maintaining wallet %s', wallet)
         try:
             while True:
                 try:
@@ -1267,7 +1268,7 @@ class Network(TriggeredCallbacks):
                         await session.disconnect(str(error), blacklist=blacklist)
                         await self.sessions_changed_event.wait()
         finally:
-            logger.info(f'stopped maintaining wallet {wallet}')
+            logger.info('stopped maintaining %s', wallet)
 
     async def _maintain_account(self, account):
         '''Put all tasks for a single account in a group so they can be cancelled together.'''

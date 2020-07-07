@@ -501,7 +501,14 @@ class AbstractAccount:
         return flags is not None and (flags & (TxFlags.StateCleared | TxFlags.StateSettled)) != 0
 
     def get_transaction(self, tx_hash: bytes, flags: Optional[int]=None) -> Optional[Transaction]:
-        return self._wallet._transaction_cache.get_transaction(tx_hash, flags)
+        tx = self._wallet._transaction_cache.get_transaction(tx_hash, flags)
+        if tx is not None:
+            # Populate the description.
+            desc = self._wallet.get_transaction_label(tx_hash)
+            if desc:
+                tx.description = desc
+            return tx
+        return None
 
     def get_transaction_entry(self, tx_hash: bytes, flags: Optional[int]=None,
             mask: Optional[int]=None) -> Optional[TransactionCacheEntry]:
@@ -2047,7 +2054,7 @@ class Wallet(TriggeredCallbacks):
         self.response_count = 0
 
     def __str__(self) -> str:
-        return f"Wallet(path='{self._storage.get_path()}')"
+        return f"wallet(path='{self._storage.get_path()}')"
 
     def get_db_context(self) -> DatabaseContext:
         assert self._db_context is not None, "This wallet does not have a database context"
@@ -2160,6 +2167,9 @@ class Wallet(TriggeredCallbacks):
             if keystore is account_keystore:
                 accounts.append(account)
         return accounts
+
+    def get_account_ids(self) -> Set[int]:
+        return set(self._accounts)
 
     def get_accounts(self) -> Sequence[AbstractAccount]:
         return list(self._accounts.values())
@@ -2502,13 +2512,14 @@ class Wallet(TriggeredCallbacks):
         return { t[0]: cast(int, t[1].metadata.height) for t in results }
 
     # Also called by network.
-    def add_transaction(self, tx_hash: bytes, tx: Transaction, flag: TxFlags) -> None:
+    def add_transaction(self, tx_hash: bytes, tx: Transaction, flag: TxFlags,
+            external: bool=False) -> None:
         tx_id = hash_to_hex_str(tx_hash)
         if self._stopped:
             self._logger.debug("add_transaction on stopped wallet: %s", tx_id)
             return
 
-        involved_account_ids: List[int] = []
+        involved_account_ids: Set[int] = set()
         attempts_left = 2
         checklist_lock = threading.Lock()
 
@@ -2516,11 +2527,12 @@ class Wallet(TriggeredCallbacks):
             nonlocal attempts_left, tx_hash, tx, involved_account_ids
             with checklist_lock:
                 attempts_left -= 1
-                do_broadcast = attempts_left == 0
+                is_add_complete = attempts_left == 0
 
-            if do_broadcast:
+            if is_add_complete:
                 self._logger.debug("wallet.add_transaction: %s = %s", tx_id, involved_account_ids)
-                self.trigger_callback('transaction_added', tx_hash, tx, involved_account_ids)
+                self.trigger_callback('transaction_added', tx_hash, tx, involved_account_ids,
+                    external)
 
         def _completion_callback(exc_value: Any) -> None:
             if exc_value is not None:
@@ -2536,7 +2548,7 @@ class Wallet(TriggeredCallbacks):
         # TODO: It should be possible to parallelise each account's processing.
         for account in self._accounts.values():
             if account.process_key_usage(tx_hash, tx, None):
-                involved_account_ids.append(account.get_id())
+                involved_account_ids.add(account.get_id())
 
         attempt_callback()
 

@@ -360,11 +360,12 @@ class SendView(QWidget):
             return
 
         # confirmation dialog
-        msg = [
-            _("Amount to be sent") + ": " + app_state.format_amount_and_units(amount),
-            _("Mining fee") + ": " + app_state.format_amount_and_units(fee),
+        fields = [
+            (_("Amount to send"), QLabel(app_state.format_amount_and_units(amount))),
+            (_("Mining fee"), QLabel(app_state.format_amount_and_units(fee))),
         ]
 
+        msg = []
         if fee < round(tx.estimated_size() * 0.5):
             msg.append(_('Warning') + ': ' +
                        _('The fee is less than 500 sats/kb.  '
@@ -372,7 +373,7 @@ class SendView(QWidget):
 
         msg.append("")
         msg.append(_("Enter your password to proceed"))
-        password = self._main_window.password_dialog('\n'.join(msg))
+        password = self._main_window.password_dialog('\n'.join(msg), fields=fields)
         if not password:
             return
 

@@ -27,7 +27,7 @@ from collections import namedtuple
 import copy
 import datetime
 import json
-from typing import List, Optional, Set, Tuple
+from typing import Optional, Set, Tuple
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QBrush, QCursor, QFont, QTextCharFormat
@@ -159,17 +159,17 @@ class TxDialog(QDialog, MessageBoxMixin):
         main_window.network_signal.connect(self._on_transaction_verified)
         main_window.transaction_added_signal.connect(self._on_transaction_added)
 
-    def _validate_account_event(self, account_id: int) -> bool:
-        return account_id == self._account_id
+    def _validate_account_event(self, account_ids: Set[int]) -> bool:
+        return self._account_id in account_ids
 
     def _validate_application_event(self, wallet_path: str, account_id: int) -> bool:
         if wallet_path == self._main_window._wallet.get_storage_path():
-            return self._validate_account_event(account_id)
+            return self._validate_account_event({ account_id })
         return False
 
-    def _on_transaction_added(self, tx_hash: bytes, tx: Transaction, account_ids: List[int]) \
+    def _on_transaction_added(self, tx_hash: bytes, tx: Transaction, account_ids: Set[int]) \
             -> None:
-        if not any(self._validate_account_event(account_id) for account_id in account_ids):
+        if not self._validate_account_event(account_ids):
             return
 
         # This will happen when the partially signed transaction is fully signed.
