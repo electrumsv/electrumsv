@@ -34,6 +34,7 @@ import stat
 import sys
 import threading
 import time
+import types
 from typing import Any, cast, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from bitcoinx import PublicKey, be_bytes_to_int
@@ -607,6 +608,14 @@ class TriggeredCallbacks:
             for callbacks in self._callbacks.values():
                 if callback in callbacks:
                     callbacks.remove(callback)
+
+    def unregister_callbacks_for_object(self, owner: object) -> None:
+        with self._callback_lock:
+            for callbacks in self._callbacks.values():
+                for callback in callbacks[:]:
+                    if isinstance(callback, types.MethodType):
+                        if callback.__self__ is owner:
+                            callbacks.remove(callback)
 
     def trigger_callback(self, event: str, *args) -> None:
         with self._callback_lock:

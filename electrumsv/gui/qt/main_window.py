@@ -181,7 +181,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._wallet_sync_event = app_state.async_.event()
         self._monitor_wallet_network_status_task = app_state.async_.spawn(
             self._monitor_wallet_network_status)
-        self.network_status_task = app_state.async_.spawn(self._maintain_network_status)
+        self._network_status_task = app_state.async_.spawn(self._maintain_network_status)
 
         # network callbacks
         if self.network:
@@ -2272,14 +2272,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             event.ignore()
 
     def clean_up(self):
+        self._wallet.unregister_callbacks_for_object(self)
+
         if self.network:
-            self.network.unregister_callback(self.on_network)
+            self.network.unregister_callbacks_for_object(self)
 
         if self.tx_notify_timer:
             self.tx_notify_timer.stop()
             self.tx_notify_timer = None
 
-        self.network_status_task.cancel()
+        self._network_status_task.cancel()
         self._monitor_wallet_network_status_task.cancel()
 
         # We catch these errors with the understanding that there is no recovery at
