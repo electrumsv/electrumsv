@@ -173,7 +173,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                       lambda i=i: wrtabs.setCurrentIndex(i))
 
         self.network_status_signal.connect(self._update_network_status)
-        self.notify_transactions_signal.connect(self.notify_transactions)
+        self.notify_transactions_signal.connect(self._notify_transactions)
         self.show_secured_data_signal.connect(self._on_show_secured_data)
         self.history_view.setFocus(True)
 
@@ -469,7 +469,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         # Once GUI has been initialized check if we want to announce something since the
         # callback has been called before the GUI was initialized
-        self.notify_transactions()
+        self._notify_transactions()
 
     def init_geometry(self):
         winpos = self._wallet.get_storage().get("winpos-qt")
@@ -826,7 +826,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from . import update_check
         update_check.UpdateCheckDialog(self)
 
-    def show_report_bug(self):
+    def show_report_bug(self) -> None:
         msg = ' '.join([
             _("Please report any bugs as issues on github:<br/>"),
             "<a href=\"https://github.com/ElectrumSV/ElectrumSV/issues"
@@ -840,7 +840,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     last_notify_tx_time = 0.0
     notify_tx_rate = 30.0
 
-    def notify_tx_cb(self):
+    def _notify_tx_cb(self) -> None:
         n_ok = 0
         if self.network and self.network.is_connected():
             num_txns = len(self.tx_notifications)
@@ -867,7 +867,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.tx_notify_timer.stop()
             self.tx_notify_timer = None
 
-    def notify_transactions(self):
+    def _notify_transactions(self) -> None:
         if self.tx_notify_timer or not len(self.tx_notifications) or self.cleaned_up:
             # common case: extant notify timer -- we already enqueued to notify. So bail
             # and wait for timer to handle it.
@@ -879,7 +879,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # seconds by enqueing the request for a timer to handle it sometime later
             self.tx_notify_timer = QTimer(self)
             self.tx_notify_timer.setSingleShot(True)
-            self.tx_notify_timer.timeout.connect(self.notify_tx_cb)
+            self.tx_notify_timer.timeout.connect(self._notify_tx_cb)
             when = (self.notify_tx_rate - elapsed)
             self.logger.debug("Notify spam control: will notify GUI of %d new tx's in %f seconds",
                               len(self.tx_notifications), when)
@@ -887,7 +887,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         else:
             # it's been a while since we got a tx notify -- so do it immediately (no timer
             # necessary)
-            self.notify_tx_cb()
+            self._notify_tx_cb()
 
     def notify(self, message):
         self.app.tray.showMessage("ElectrumSV", message,
@@ -1628,9 +1628,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def do_pay_invoice(self, req_id: str) -> None:
         req = self._account.invoices.get(req_id)
-        self.payment_request = req
-        self.prepare_for_payment_request()
         send_view = self.get_send_view(self._account_id)
+        send_view.payment_request = req
+        send_view.prepare_for_payment_request()
         send_view.payment_request_ok()
 
     def create_console_tab(self):

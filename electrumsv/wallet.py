@@ -798,16 +798,14 @@ class AbstractAccount:
     def get_utxo(self, tx_hash: bytes, output_index: int) -> Optional[UTXO]:
         return self._utxos.get(TxoKeyType(tx_hash, output_index), None)
 
-    def get_spendable_coins(self, domain: Optional[List[int]], config, isInvoice = False):
+    def get_spendable_coins(self, domain: Optional[List[int]], config) -> List[UTXO]:
         confirmed_only = config.get('confirmed_only', False)
-        if isInvoice:
-            confirmed_only = True
         utxos = self.get_utxos(exclude_frozen=True, mature=True, confirmed_only=confirmed_only)
         if domain is not None:
             return [ utxo for utxo in utxos if utxo.keyinstance_id in domain ]
         return utxos
 
-    def get_utxos(self, exclude_frozen=False, mature=False, confirmed_only=False):
+    def get_utxos(self, exclude_frozen=False, mature=False, confirmed_only=False) -> List[UTXO]:
         '''Note exclude_frozen=True checks for coin-level frozen status. '''
         mempool_height = self._wallet.get_local_height() + 1
         def is_spendable_utxo(utxo):
@@ -1081,7 +1079,7 @@ class AbstractAccount:
 
         update_state_changes = []
         with self.lock:
-            self._logger.debug("set_key_history %s %s", keyinstance_id, tx_fees)
+            self._logger.debug("set_key_history key_id=%s fees=%s", keyinstance_id, tx_fees)
             key = self._keyinstances[keyinstance_id]
             if key.script_type == ScriptType.NONE:
                 # This is the first use of the allocated key and we update the key to reflect it.
@@ -2048,6 +2046,9 @@ class Wallet(TriggeredCallbacks):
         self.request_count = 0
         self.response_count = 0
 
+    def __str__(self) -> str:
+        return f"Wallet(path='{self._storage.get_path()}')"
+
     def get_db_context(self) -> DatabaseContext:
         assert self._db_context is not None, "This wallet does not have a database context"
         return self._db_context
@@ -2330,6 +2331,9 @@ class Wallet(TriggeredCallbacks):
 
     def get_payment_request_table(self) -> PaymentRequestTable:
         return PaymentRequestTable(self.get_db_context())
+
+    def get_transaction_delta_table(self) -> TransactionDeltaTable:
+        return TransactionDeltaTable(self.get_db_context())
 
     def create_payment_requests(self, requests: List[PaymentRequestRow]) -> List[PaymentRequestRow]:
         request_id = self._storage.get("next_paymentrequest_id", 1)

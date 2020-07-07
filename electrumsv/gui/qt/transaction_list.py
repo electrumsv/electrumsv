@@ -18,6 +18,7 @@ from electrumsv.app_state import app_state
 from electrumsv.constants import TxFlags
 from electrumsv.logs import logs
 from electrumsv.platform import platform
+from electrumsv.transaction import Transaction
 from electrumsv.util import profiler, format_time
 from electrumsv.wallet import AbstractAccount
 from electrumsv.wallet_database import TxData
@@ -425,6 +426,10 @@ class TransactionView(QTableView):
             old_account_id = self._account_id
             self._account_id = new_account_id
             self._account = new_account
+
+            self._logger = logs.get_logger(
+                f"transaction-list[{new_account.get_wallet().name()}/{new_account_id}]")
+
             if old_account_id is None:
                 self._timer.start()
 
@@ -479,8 +484,6 @@ class TransactionView(QTableView):
 
             self._data = self._create_data_snapshot()
             self._base_model.set_data(self._data)
-
-            self.resizeRowsToContents()
             return
 
         additions = []
@@ -514,8 +517,6 @@ class TransactionView(QTableView):
             else:
                 self._logger.error("_on_update_check action %s not applied", action)
 
-        self.resizeRowsToContents()
-
     def _validate_account_event(self, account_id: int) -> bool:
         return account_id == self._account_id
 
@@ -529,7 +530,7 @@ class TransactionView(QTableView):
         if not self._validate_account_event(account_id):
             return
 
-        self._logger.debug("_on_transaction_state_change %s %s %s", tx_hash,
+        self._logger.debug("_on_transaction_state_change %s old=%s new=%s", tx_hash,
             TxFlags.to_repr(old_state), TxFlags.to_repr(new_state))
 
         if new_state & TxFlags.STATE_BROADCAST_MASK:
@@ -537,10 +538,12 @@ class TransactionView(QTableView):
         else:
             self._mark_transactions_updated([ tx_hash ])
 
-    def _on_transaction_added(self, account_id: int, tx_hash: bytes) -> None:
-        if not self._validate_account_event(account_id):
+    def _on_transaction_added(self, tx_hash: bytes, tx: Transaction, account_ids: List[int]) \
+            -> None:
+        if not any(self._validate_account_event(account_id) for account_id in account_ids):
             return
 
+        self._logger.debug("_on_transaction_added %s", hash_to_hex_str(tx_hash))
         with self._update_lock:
             self._pending_state[tx_hash] = EventFlags.TX_ADDED
 
@@ -552,20 +555,19 @@ class TransactionView(QTableView):
         self._mark_transactions_removed([ tx_hash ])
 
     def _add_transactions(self, tx_hashes: List[bytes], state: Dict[bytes, EventFlags]) -> None:
-        self._logger.debug("_add_transactions %d", len(tx_hashes))
         if not len(tx_hashes):
             return
 
-        candidate_tx_hashes = set(tx_hashes)
-        # The default for getting the transaction metadata in this way is requiring all exist.
+        # We will ignore those that have arrived in the cleared state from the server.
+        add_count = 0
         for tx_hash, tx_flags, tx_data in self._wallet.read_transaction_metadatas(
                 tx_hashes=tx_hashes, mask=TxFlags.STATE_UNCLEARED_MASK,
                 account_id=self._account_id):
             assert tx_hash in tx_hashes, f"got bad result {hash_to_hex_str(tx_hash)}"
             self._base_model.add_line(self._create_transaction_entry(tx_hash, tx_data))
-            candidate_tx_hashes.remove(tx_hash)
+            add_count += 1
 
-        assert len(candidate_tx_hashes) == 0, f"Missing transactions {candidate_tx_hashes}"
+        self._logger.debug("_add_transactions %d (%d actual)", len(tx_hashes), add_count)
 
     def _update_transactions(self, tx_hashes: List[bytes], state: Dict[bytes, EventFlags]) -> None:
         self._logger.debug("_update_transactions %d", len(tx_hashes))
@@ -575,6 +577,7 @@ class TransactionView(QTableView):
         matches = self._match_transactions(tx_hashes)
         if len(matches) != len(tx_hashes):
             matched_tx_hashes = [ line.hash for (row, line) in matches ]
+            # The add database write has not completed yet.
             self._logger.debug("_update_transactions missing entries %s",
                 [ hash_to_hex_str(a) for a in tx_hashes if a not in matched_tx_hashes ])
 

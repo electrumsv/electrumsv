@@ -27,7 +27,7 @@ from collections import namedtuple
 import copy
 import datetime
 import json
-from typing import Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QBrush, QCursor, QFont, QTextCharFormat
@@ -167,8 +167,9 @@ class TxDialog(QDialog, MessageBoxMixin):
             return self._validate_account_event(account_id)
         return False
 
-    def _on_transaction_added(self, account_id: int, tx_hash: bytes) -> None:
-        if not self._validate_account_event(account_id):
+    def _on_transaction_added(self, tx_hash: bytes, tx: Transaction, account_ids: List[int]) \
+            -> None:
+        if not any(self._validate_account_event(account_id) for account_id in account_ids):
             return
 
         # This will happen when the partially signed transaction is fully signed.

@@ -157,12 +157,10 @@ class MockAccount(AbstractAccount):
     def __init__(self):
         self._id = 1
 
-
     def dumps(self):
         return None
 
-    def get_spendable_coins(self, domain=None, config={}, isInvoice=False) \
-            -> List[UTXO]:
+    def get_spendable_coins(self, domain=None, config={}) -> List[UTXO]:
         return SPENDABLE_UTXOS
 
     def get_utxos(self, domain=None, exclude_frozen=False, mature=False, confirmed_only=False) \

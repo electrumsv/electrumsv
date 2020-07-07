@@ -549,7 +549,6 @@ class KeyView(QTableView):
 
     def filter(self, text: Optional[str]) -> None:
         self._proxy_model.set_filter_match(text)
-        # self.resizeRowsToContents()
 
     def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
         with self._update_lock:
@@ -559,6 +558,10 @@ class KeyView(QTableView):
             old_account_id = self._account_id
             self._account_id = new_account_id
             self._account = new_account
+
+            self._logger = logs.get_logger(
+                f"key-view[{new_account.get_wallet().name()}/{new_account_id}]")
+
             if old_account_id is None:
                 self._timer.start()
             self._proxy_model.set_account(self._account)
@@ -628,8 +631,6 @@ class KeyView(QTableView):
 
             self._data = self._create_data_snapshot(account_id)
             self._base_model.set_data(account_id, self._data)
-            # This is very slow for large numbers of rows.
-            # self.resizeRowsToContents()
             return
 
         additions = []
@@ -662,9 +663,6 @@ class KeyView(QTableView):
                 self._base_model.invalidate_column(FIAT_BALANCE_COLUMN)
             else:
                 self._logger.error("_on_update_check action %s not applied", action)
-
-        # ...
-        # self.resizeRowsToContents()
 
     def _validate_account_event(self, account_id: int) -> bool:
         return account_id == self._account_id
