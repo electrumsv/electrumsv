@@ -25,7 +25,7 @@ jobs:
   steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: 3.6
+      versionSpec: 3.7
       addToPath: true
       architecture: x64
     condition: |
@@ -122,7 +122,7 @@ jobs:
   steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: 3.6
+      versionSpec: 3.7
       addToPath: true
       architecture: x64
   - script: |
@@ -152,7 +152,7 @@ jobs:
   steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: 3.6
+      versionSpec: 3.7
       addToPath: true
       architecture: x64
   - script: |
@@ -180,7 +180,7 @@ jobs:
   steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: 3.6
+      versionSpec: 3.7
       addToPath: true
       architecture: x64
   - script: |
@@ -244,11 +244,6 @@ jobs:
     inputs:
       artifactName: 'build-files'
       targetPath: $(Build.ArtifactStagingDirectory)
-- template: jobs-run-python-tests.yml
-  parameters:
-    name: TestPythonPackages36
-    vmImage: 'ubuntu-16.04'
-    pythonVersion: '3.6'
 - template: jobs-run-python-tests.yml
   parameters:
     name: TestPythonPackages37

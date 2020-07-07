@@ -29,8 +29,8 @@ import sys
 
 
 vtuple = sys.version_info[:3]
-if vtuple < (3, 6, 0):
-    sys.exit('error: ElectrumSV requires Python version 3.6 or higher; you are running Python {}'
+if vtuple < (3, 7, 0):
+    sys.exit('error: ElectrumSV requires Python version 3.7 or higher; you are running Python {}'
              .format('.'.join(str(part) for part in vtuple)))
 
 

@@ -30,6 +30,9 @@ datas += collect_data_files('electrumsv_secp256k1')
 # We don't put these files in to actually include them in the script but to make the
 # Analysis method scan them for imports
 a = Analysis([home+'electrum-sv'],
+             # Workaround setuptools changes.
+             # https://github.com/pypa/setuptools/issues/1963#issuecomment-574265532
+             hiddenimports=['pkg_resources.py2_warn'],
              binaries=binaries,
              datas=datas)
 

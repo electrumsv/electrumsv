@@ -12,11 +12,10 @@ ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 LIBUSB_REPO='https://github.com/libusb/libusb.git'
 LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 
-# 3.6
 PYINSTALLER_REPO='https://github.com/pyinstaller/pyinstaller.git'
 PYINSTALLER_COMMIT=6d4cce1f8eb80c0bf49d35876d28daa55a05800f
 
-PYTHON_VERSION=3.7.6
+PYTHON_VERSION=3.7.8
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
