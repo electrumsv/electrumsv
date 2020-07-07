@@ -209,7 +209,7 @@ class PayToEdit(ScanQRTextEdit):
             if is_max:
                 amount = all
             else:
-                amount = self.send_view.amount_e.get_amount()
+                amount = self._send_view.amount_e.get_amount()
             self.outputs = [XTxOutput(amount, self.payto_script)]
         return self.outputs[:]
 
