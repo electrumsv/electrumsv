@@ -24,6 +24,7 @@
 # SOFTWARE.
 
 from typing import List, Optional
+import weakref
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -46,7 +47,7 @@ class UTXOList(MyTreeWidget):
         MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [
             _('Output point'), _('Label'), _('Amount'), _('Height')], 1)
 
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
         self._wallet = main_window._wallet
         self._account_id: Optional[int] = None
         self._account: Optional[AbstractAccount] = None

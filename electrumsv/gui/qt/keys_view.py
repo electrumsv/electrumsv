@@ -49,6 +49,7 @@ from functools import partial
 import threading
 import time
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple, Union
+import weakref
 import webbrowser
 
 from bitcoinx import Address
@@ -472,7 +473,7 @@ class KeyView(QTableView):
         super().__init__(main_window)
         self._logger = logs.get_logger("key-view")
 
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
         self._account: AbstractAccount = None
         self._account_id: Optional[int] = None
 

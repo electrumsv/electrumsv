@@ -3,7 +3,8 @@ from functools import partial, lru_cache
 import os.path
 import sys
 import traceback
-from typing import Any, Iterable, Callable, Optional, TYPE_CHECKING, Union
+from typing import Any, Iterable, List, Callable, Optional, TYPE_CHECKING, Union
+import weakref
 
 from aiorpcx import RPCError
 
@@ -466,7 +467,8 @@ class MyTreeWidget(QTreeWidget):
     def __init__(self, parent: QWidget, main_window: 'ElectrumWindow', create_menu, headers,
             stretch_column=None, editable_columns=None):
         QTreeWidget.__init__(self, parent)
-        self._main_window = main_window
+
+        self._main_window = weakref.proxy(main_window)
         self.config = self._main_window.config
         self.stretch_column = stretch_column
         self.setContextMenuPolicy(Qt.CustomContextMenu)

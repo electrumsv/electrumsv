@@ -22,7 +22,7 @@ class StorageKind(IntEnum):
 
 DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
-MIGRATION_CURRENT = 24
+MIGRATION_CURRENT = 24 # 25
 
 class TxFlags(IntFlag):
     Unset = 0
@@ -140,12 +140,13 @@ class KeyInstanceFlag(IntFlag):
     # mark it inactive without good reason.
     USER_SET_ACTIVE = 1 << 8
     IS_PAYMENT_REQUEST = 1 << 9
+    IS_INVOICE = 1 << 10
 
     # The mask used to load the subset of keys that are actively cached by accounts.
     CACHE_MASK = IS_ACTIVE
     ACTIVE_MASK = IS_ACTIVE | USER_SET_ACTIVE
     INACTIVE_MASK = ~IS_ACTIVE
-    ALLOCATED_MASK = IS_PAYMENT_REQUEST
+    ALLOCATED_MASK = IS_PAYMENT_REQUEST | IS_INVOICE
 
 
 class TransactionOutputFlag(IntFlag):
@@ -172,6 +173,8 @@ class PaymentState(IntFlag):
     UNKNOWN =  1 << 2     # sent but not propagated
     PAID    =  1 << 3     # send and propagated
     ARCHIVED = 1 << 4
+
+    UNPAID_MASK = ~(PAID | ARCHIVED)
 
 
 # Transaction limits

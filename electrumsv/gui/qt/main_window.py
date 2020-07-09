@@ -146,12 +146,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setCentralWidget(self._accounts_view)
 
-        # Some tabs may want to be refreshed to show current state when selected.
-        def on_tab_changed(to_tab_index):
-            current_tab = self._tab_widget.currentWidget()
-            if current_tab is self.coinsplitting_tab:
-                self.coinsplitting_tab.update_layout()
-        self._tab_widget.currentChanged.connect(on_tab_changed)
+        self._tab_widget.currentChanged.connect(self._on_tab_changed)
 
         if self.config.get("is_maximized"):
             self.showMaximized()
@@ -159,18 +154,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.init_menubar()
         self.init_toolbar()
 
-        wrtabs = weakref.proxy(tabs)
         QShortcut(QKeySequence("Ctrl+W"), self, self.close)
         QShortcut(QKeySequence("Ctrl+Q"), self, self.close)
         QShortcut(QKeySequence("Ctrl+R"), self, self.refresh_wallet_display)
         QShortcut(QKeySequence("Ctrl+PgUp"), self,
-                  lambda: wrtabs.setCurrentIndex((wrtabs.currentIndex() - 1)%wrtabs.count()))
+                  lambda: tabs.setCurrentIndex((tabs.currentIndex() - 1)%tabs.count()))
         QShortcut(QKeySequence("Ctrl+PgDown"), self,
-                  lambda: wrtabs.setCurrentIndex((wrtabs.currentIndex() + 1)%wrtabs.count()))
+                  lambda: tabs.setCurrentIndex((tabs.currentIndex() + 1)%tabs.count()))
 
-        for i in range(wrtabs.count()):
+        for i in range(tabs.count()):
             QShortcut(QKeySequence("Alt+" + str(i + 1)), self,
-                      lambda i=i: wrtabs.setCurrentIndex(i))
+                      lambda i=i: tabs.setCurrentIndex(i))
 
         self.network_status_signal.connect(self._update_network_status)
         self.notify_transactions_signal.connect(self._notify_transactions)
@@ -213,6 +207,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._on_ready()
 
         self.app.timer.timeout.connect(self.timer_actions)
+
+    def reference(self) -> 'ElectrumWindow':
+        return self
+
+    def __del__(self) -> None:
+        logger.debug("A main window was garbage collected")
+
+    def _on_tab_changed(self, to_tab_index: int) -> None:
+        # Some tabs may want to be refreshed to show current state when selected.
+        current_tab = self._tab_widget.currentWidget()
+        if current_tab is self.coinsplitting_tab:
+            self.coinsplitting_tab.update_layout()
 
     def _on_ready(self) -> None:
         self._accounts_view.on_wallet_loaded()
@@ -609,10 +615,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         wallet_menu.addSeparator()
         wallet_menu.addAction(_("Find"), self.toggle_search).setShortcut(QKeySequence("Ctrl+F"))
 
+        # Make sure the lambda reference does not prevent garbage collection.
+        weakself = weakref.proxy(self)
         def add_toggle_action(view_menu, tab) -> None:
             is_shown = self._tab_widget.indexOf(tab) > -1
             item_name = (_("Hide") if is_shown else _("Show")) + " " + tab.tab_description
-            tab.menu_action = view_menu.addAction(item_name, lambda: self.toggle_tab(tab))
+            tab.menu_action = view_menu.addAction(item_name, lambda: weakself.toggle_tab(tab))
 
         view_menu = menubar.addMenu(_("&View"))
         add_toggle_action(view_menu, self.keys_tab)
@@ -625,7 +633,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tools_menu = menubar.addMenu(_("&Tools"))
 
         tools_menu.addAction(_("Preferences"), self.preferences_dialog)
-        tools_menu.addAction(_("&Network"), lambda: self.app.show_network_dialog(self))
+        tools_menu.addAction(_("&Network"), self._show_network_dialog)
         tools_menu.addSeparator()
         tools_menu.addAction(_("&Sign/verify message"), self.sign_verify_message)
         tools_menu.addAction(_("&Encrypt/decrypt message"), self.encrypt_message)
@@ -661,6 +669,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _reset_menus(self, account_id: Optional[int]=None) -> None:
         self._paytomany_menu.setEnabled(account_id is not None)
 
+    def _show_network_dialog(self) -> None:
+        self.app.show_network_dialog(self)
+
     def _open_documentation(self) -> None:
         from .help_dialog import HelpDialog
         h = HelpDialog(self, "misc", "index")
@@ -694,7 +705,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         toolbar.addAction(log_action)
 
         network_action = QAction(read_QIcon("network.png"), _("Network"), self)
-        network_action.triggered.connect(lambda: self.app.show_network_dialog(self))
+        network_action.triggered.connect(self._show_network_dialog)
         toolbar.addAction(network_action)
 
         preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
@@ -704,9 +715,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._update_check_state = "default"
         update_action = QAction(
             read_QIcon("icons8-available-updates-80-blue"), _("Update Check"), self)
-        def _update_show_menu(checked: bool = False):
-            self._update_menu.exec(QCursor.pos())
-        update_action.triggered.connect(_update_show_menu)
+        update_action.triggered.connect(self._update_show_menu)
         self._update_action = update_action
         toolbar.addAction(update_action)
         self._update_check_toolbar_update()
@@ -718,6 +727,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def add_toolbar_action(self, action: QAction) -> None:
         self.toolbar.insertAction(self.spacer_action, action)
+
+    def _update_show_menu(self, checked: bool = False) -> None:
+        self._update_menu.exec(QCursor.pos())
 
     def _update_check_toolbar_update(self):
         update_check_state = "default"
@@ -736,16 +748,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                         update_check_state = "update-present-prolonged"
                 stable_version = stable_result["version"]
 
-        def _on_check_for_updates(checked: bool=False):
-            self.show_update_check()
-
         def _on_view_pending_update(checked: bool=False):
             QDesktopServices.openUrl(QUrl("https://electrumsv.io/download.html"))
 
         menu = QMenu()
         self._update_menu = menu
         self._update_check_action = menu.addAction(
-            _("Check for Updates"), _on_check_for_updates)
+            _("Check for Updates"), self._on_check_for_updates)
 
         if update_check_state == "default":
             icon_path = "icons8-available-updates-80-blue"
@@ -774,6 +783,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._update_action.setText(icon_text)
         self._update_action.setToolTip(tooltip)
         self._update_check_state = update_check_state
+
+    def _on_check_for_updates(self, checked: bool=False) -> None:
+        self.show_update_check()
 
     def on_update_check(self, success, result):
         if success:
@@ -1194,10 +1206,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.new_request_button.clicked.connect(self.new_payment_request)
 
         self._receive_qr = QRCodeWidget(fixedSize=200)
-        self._receive_qr.mouseReleaseEvent = lambda x: self._toggle_qr_window()
-        self._receive_qr.enterEvent = lambda x: self.app.setOverrideCursor(
-            QCursor(Qt.PointingHandCursor))
-        self._receive_qr.leaveEvent = lambda x: self.app.setOverrideCursor(QCursor(Qt.ArrowCursor))
+        self._receive_qr.link_to_window(self)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -1338,7 +1347,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.set_receive_key(fresh_key)
 
     # Bound to mouse release in `_create_receive_form_layout`.
-    def _toggle_qr_window(self) -> None:
+    def toggle_qr_window(self) -> None:
         if self._receive_key_id is None:
             self.show_message(_("No available receiving destination."))
             return
@@ -1591,29 +1600,30 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.history_updated_signal.emit()
 
     def show_invoice(self, account: AbstractAccount, request_id: str) -> None:
-        external_request = account.invoices.get(request_id)
-        self.show_pr_details(account, external_request)
+        pr = account.invoices.get(request_id)
+        self._show_pr_details(account, pr)
 
-    def show_pr_details(self, account: AbstractAccount, req: PaymentRequest) -> None:
+    def _show_pr_details(self, account: AbstractAccount, req: PaymentRequest) -> None:
         d = WindowModalDialog(self, _("Invoice"))
         vbox = QVBoxLayout(d)
         grid = QGridLayout()
-        grid.addWidget(QLabel(_("Requestor") + ':'), 0, 0)
-        grid.addWidget(QLabel(req.get_requestor()), 0, 1)
+
         grid.addWidget(QLabel(_("Amount") + ':'), 1, 0)
         outputs_str = '\n'.join(app_state.format_amount(tx_output.value) + app_state.base_unit() +
                                 ' @ ' + tx_output_to_display_text(tx_output)[0]
                                 for tx_output in req.get_outputs())
         grid.addWidget(QLabel(outputs_str), 1, 1)
-        expires = req.get_expiration_date()
+
         grid.addWidget(QLabel(_("Memo") + ':'), 2, 0)
         grid.addWidget(QLabel(req.get_memo()), 2, 1)
-        grid.addWidget(QLabel(_("Signature") + ':'), 3, 0)
-        grid.addWidget(QLabel(req.get_verify_status()), 3, 1)
+
+        expires = req.get_expiration_date()
         if expires:
             grid.addWidget(QLabel(_("Expires") + ':'), 4, 0)
             grid.addWidget(QLabel(format_time(expires, _("Unknown"))), 4, 1)
+
         vbox.addLayout(grid)
+
         def do_export():
             fn = self.getSaveFileName(_("Save invoice to file"), "*.bip270.json")
             if not fn:
@@ -1622,6 +1632,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 data = f.write(req.to_json())
             self.show_message(_('Invoice saved as' + ' ' + fn))
         exportButton = EnterButton(_('Save'), do_export)
+
         def do_delete():
             if self.question(_('Delete invoice?')):
                 self._account.invoices.remove(req.get_id())
@@ -1630,11 +1641,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self._send_view.update_widgets()
                 d.close()
         deleteButton = EnterButton(_('Delete'), do_delete)
+
         vbox.addLayout(Buttons(exportButton, deleteButton, CloseButton(d)))
         d.exec_()
 
     def do_pay_invoice(self, req_id: str) -> None:
         req = self._account.invoices.get(req_id)
+
         send_view = self.get_send_view(self._account_id)
         send_view.payment_request = req
         send_view.prepare_for_payment_request()
@@ -1663,8 +1676,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             'window': self,
         })
 
-        c = commands.Commands(self.config, self._wallet, self.network,
-                              lambda: self.console.set_json(True))
+        c = commands.Commands(self.config, self._wallet, self.network, self.console.set_json)
         methods = {}
         def mkfunc(f, method):
             return lambda *args, **kwargs: f(method, *args, password_getter=self.password_dialog,
@@ -2240,14 +2252,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             tx_dialog.update()
 
     # App event broadcast to all wallet windows.
-    def on_fiat_history_changed(self):
+    def on_fiat_history_changed(self) -> None:
         self.history_view.update_tx_headers()
 
     # App event broadcast to all wallet windows.
-    def on_fiat_balance_changed(self):
+    def on_fiat_balance_changed(self) -> None:
         pass
 
-    def preferences_dialog(self):
+    def preferences_dialog(self) -> None:
         from . import preferences
         # from importlib import reload
         # reload(preferences)
@@ -2261,7 +2273,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 return False
         return True
 
-    def closeEvent(self, event):
+    def closeEvent(self, event) -> None:
         if self.ok_to_close():
             # It seems in some rare cases this closeEvent() is called twice
             if not self.cleaned_up:
@@ -2301,9 +2313,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             except (OSError, PermissionError):
                 self._logger.exception("unable to write to wallet storage (directory removed?)")
 
+        self.console.clean_up()
+        self._receive_qr.clean_up()
+
         # Should be no side-effects in this function relating to file access past this point.
         if self.qr_window:
             self.qr_window.close()
+
+        for send_view in self._send_views.values():
+            send_view.clean_up()
+        self._send_views.clear()
 
         if self.key_view:
             self.key_view.clean_up()

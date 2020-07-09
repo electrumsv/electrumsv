@@ -651,12 +651,14 @@ class AbstractAccount:
 
     def create_payment_request(self, keyinstance_id: int, state: PaymentState, value: Optional[int],
             expiration: Optional[int], description: Optional[str]) -> PaymentRequestRow:
-        row = self._wallet.create_payment_requests([ PaymentRequestRow(-1,
-            keyinstance_id, state, value, expiration, description, int(time.time())) ])[0]
+        # Update the key first.
         key = self._keyinstances[keyinstance_id]
         flags = key.flags | KeyInstanceFlag.IS_PAYMENT_REQUEST
         new_key = self._keyinstances[keyinstance_id] = key._replace(flags=flags)
         self._wallet.update_keyinstance_flags([ (new_key.flags, keyinstance_id) ])
+        # Update the payment request next.
+        row = self._wallet.create_payment_requests([ PaymentRequestRow(-1,
+            keyinstance_id, state, value, expiration, description, int(time.time())) ])[0]
         self._wallet.trigger_callback('on_keys_updated', self._id, [ new_key ])
         return row
 

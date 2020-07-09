@@ -1,5 +1,6 @@
 import threading
 from typing import Optional
+import weakref
 
 from PyQt5.QtCore import Qt, pyqtSignal, QUrl
 from PyQt5.QtGui import QDesktopServices
@@ -58,7 +59,7 @@ class CoinSplittingTab(QWidget):
     def __init__(self, main_window: ElectrumWindow) -> None:
         super().__init__(main_window)
 
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
         self._main_window.account_change_signal.connect(self._on_account_change)
         self._wallet = main_window._wallet
 
@@ -83,8 +84,9 @@ class CoinSplittingTab(QWidget):
         self.new_transaction_cv = threading.Condition()
 
         self._main_window._wallet.register_callback(self._on_wallet_event, ['new_transaction'])
-        self.waiting_dialog = SplitWaitingDialog(self._main_window, self, self._split_prepare_task,
-            on_done=self._on_split_prepare_done, on_cancel=self._on_split_abort)
+        self.waiting_dialog = SplitWaitingDialog(self._main_window.reference(), self,
+            self._split_prepare_task, on_done=self._on_split_prepare_done,
+            on_cancel=self._on_split_abort)
 
     def _split_prepare_task(self, our_dialog: 'SplitWaitingDialog'):
         self.split_stage = STAGE_OBTAINING_DUST

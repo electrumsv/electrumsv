@@ -23,8 +23,9 @@
 
 from functools import partial
 from typing import TYPE_CHECKING
+import weakref
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QFileDialog, QMenu
 
@@ -51,7 +52,7 @@ class InvoiceList(MyTreeWidget):
             _('Expires'), _('Requestor'), _('Description'), _('Amount'), _('Status')], 2)
 
         self._send_view = parent
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
 
         self.monospace_font = QFont(platform.monospace_font)
         self.setSortingEnabled(True)
@@ -69,7 +70,7 @@ class InvoiceList(MyTreeWidget):
         self.clear()
         for pr in inv_list:
             request_id = pr.get_id()
-            status = invoices.get_status(request_id)
+            status = invoices.get_status(pr)
             requestor = pr.get_requestor()
             exp = pr.get_expiration_date()
             date_str = format_time(exp, _("Unknown")) if exp else _('Never')
@@ -104,7 +105,7 @@ class InvoiceList(MyTreeWidget):
             self._main_window.show_message(str(e))
         self.on_update()
 
-    def create_menu(self, position):
+    def create_menu(self, position: QPoint) -> None:
         menu = QMenu()
         item = self.itemAt(position)
         if not item:
@@ -115,7 +116,7 @@ class InvoiceList(MyTreeWidget):
 
         key = item.data(0, Qt.UserRole)
         pr = self._send_view._account.invoices.get(key)
-        status = self._send_view._account.invoices.get_status(key)
+        status = self._send_view._account.invoices.get_status(pr)
         if column_data:
             menu.addAction(_("Copy {}").format(column_title),
                            lambda: self._main_window.app.clipboard().setText(column_data))

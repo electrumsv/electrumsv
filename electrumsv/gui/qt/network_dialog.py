@@ -37,7 +37,7 @@ from bitcoinx import hash_to_hex_str
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.network import SVServer, SVProxy, SVUserAuth
+from electrumsv.network import Network, SVServer, SVProxy, SVUserAuth
 from electrumsv.networks import Net
 
 from .password_dialog import PasswordLineEdit
@@ -51,21 +51,22 @@ logger = logs.get_logger("networkui")
 class NetworkDialog(QDialog):
     network_updated_signal = pyqtSignal()
 
-    def __init__(self, network, config):
+    def __init__(self, network: Network, config) -> None:
         super().__init__(flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
             Qt.WindowCloseButtonHint)
         self.setWindowTitle(_('Network'))
         self.setMinimumSize(500, 200)
         self.resize(560, 400)
-        self.nlayout = NetworkChoiceLayout(network, config)
+        self._nlayout = NetworkChoiceLayout(network, config)
 
         buttons_layout = Buttons(CloseButton(self))
         buttons_layout.add_left_button(HelpDialogButton(self, "misc", "network-dialog"))
 
         vbox = QVBoxLayout(self)
         vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
-        vbox.addLayout(self.nlayout.layout())
+        vbox.addLayout(self._nlayout.layout())
         vbox.addLayout(buttons_layout)
+
         self.network_updated_signal.connect(self.on_update)
         network.register_callback(self.on_network, ['updated', 'sessions'])
 
@@ -75,7 +76,7 @@ class NetworkDialog(QDialog):
 
     def on_update(self):
         ''' This always runs in main GUI thread '''
-        self.nlayout.update()
+        self._nlayout.update()
 
 
 class NodesListWidget(QTreeWidget):

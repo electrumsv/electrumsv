@@ -5,6 +5,7 @@ import os
 import threading
 import time
 from typing import List, Optional
+import weakref
 
 from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, pyqtSignal, QSize, Qt
 # from PyQt5.QtGui import QModel
@@ -30,7 +31,7 @@ class AccountsView(QSplitter):
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet) -> None:
         super().__init__(main_window)
 
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
         self._wallet = wallet
 
         self._main_window.account_created_signal.connect(self._on_account_created)
@@ -382,7 +383,7 @@ class AccountInformationDialog(QDialog):
         super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
             Qt.WindowCloseButtonHint)
 
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
         self._wallet = wallet
 
         self._account = account = self._wallet.get_account(account_id)

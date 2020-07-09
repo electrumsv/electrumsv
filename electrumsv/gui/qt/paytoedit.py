@@ -58,7 +58,7 @@ class PayToEdit(ScanQRTextEdit):
         super().__init__()
 
         self._send_view = send_view
-        self._main_window = send_view._main_window
+        # self._main_window = send_view._main_window
         self.document().contentsChanged.connect(self.update_size)
         self.heightMin = 0
         self.heightMax = 150
@@ -72,6 +72,9 @@ class PayToEdit(ScanQRTextEdit):
         self.scan_f = send_view._main_window.pay_to_URI
         self.update_size()
         self.payto_script: Optional[Script] = None
+
+    def clean_up(self) -> None:
+        del self.scan_f
 
     def setFrozen(self, b):
         self.setReadOnly(b)

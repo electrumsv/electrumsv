@@ -2,6 +2,7 @@
 from decimal import Decimal
 from functools import partial
 from typing import Any, Optional, Iterable, List, Tuple
+import weakref
 
 from PyQt5.QtCore import pyqtSignal, QObject
 
@@ -21,9 +22,9 @@ class WalletAPI(QObject):
     new_notification = pyqtSignal(object)
 
     def __init__(self, wallet_window: 'ElectrumWindow') -> None:
-        self.wallet_window = wallet_window
-
         super().__init__(wallet_window)
+
+        self.wallet_window = weakref.proxy(wallet_window)
 
         app_state.app.identity_added_signal.connect(partial(self._on_contact_change, True))
         app_state.app.identity_removed_signal.connect(partial(self._on_contact_change, False))

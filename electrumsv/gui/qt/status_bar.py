@@ -1,4 +1,5 @@
 from typing import Optional, Tuple
+import weakref
 
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPainter, QPixmap
@@ -41,7 +42,7 @@ class XToolButton(QToolButton):
 class NotificationIndicator(XToolButton):
     def __init__(self, main_window: 'ElectrumWindow', parent: QWidget=None) -> None:
         super().__init__(parent)
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
 
         # Special case icons
         self._notification_urgent_icon = read_QIcon("icons8-topic-32-windows-urgent.png")
@@ -111,7 +112,7 @@ class BalancePopupAction(QWidgetAction):
         super().__init__(parent)
 
         self._status_bar = status_bar
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
 
     def createWidget(self, parent: QWidget) -> QWidget:
         return BalancePopup(self._main_window, self._status_bar, parent)
@@ -131,7 +132,7 @@ class StatusBar(QStatusBar):
 
     def __init__(self, main_window: 'ElectrumWindow') -> None:
         super().__init__(None)
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
 
         balance_widget = QToolButton()
         balance_widget.setAutoRaise(True)

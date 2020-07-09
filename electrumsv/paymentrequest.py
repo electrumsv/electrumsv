@@ -30,7 +30,7 @@ from typing import Any, List, Optional, Dict, TYPE_CHECKING
 import urllib.parse
 
 from .bip276 import bip276_encode, BIP276Network, PREFIX_SCRIPT
-from bitcoinx import TxOutput, Script
+from bitcoinx import Script
 import certifi
 import requests
 
@@ -39,6 +39,7 @@ from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Excep
 from .i18n import _
 from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
+from .transaction import XTxOutput
 from .wallet_database.tables import PaymentRequestRow
 
 
@@ -77,8 +78,10 @@ class Output:
         self.description = description
         self.amount = amount
 
-    def to_tx_output(self):
-        return TxOutput(self.amount, self.script)
+    def to_tx_output(self) -> XTxOutput:
+        # NOTE(rt12) This seems to be some attrs/mypy clash, the base class attrs should come before
+        # the XTxOutput attrs, but typing expects these to be the XTxOutput attrs.
+        return XTxOutput(self.amount, self.script) # type: ignore
 
     @classmethod
     def from_dict(cls, data: dict) -> 'Output':
@@ -125,8 +128,6 @@ class PaymentRequest:
                  payment_url=None, merchant_data=None):
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
         self.id = os.urandom(16).hex()
-        # This is related to identity.
-        self.requestor = None # known after verify
         self.tx = None
 
         self.outputs = outputs
@@ -223,10 +224,6 @@ class PaymentRequest:
     def is_pr(self) -> bool:
         return self.get_amount() != 0
 
-    def verify(self, contacts) -> bool:
-        self.requestor = None
-        return True
-
     def has_expired(self) -> bool:
         return self.expiration_timestamp and self.expiration_timestamp < int(time.time())
 
@@ -250,18 +247,16 @@ class PaymentRequest:
         return bip276_encode(PREFIX_SCRIPT, bytes(self.outputs[0].script), network)
 
     def get_requestor(self) -> str:
-        return self.requestor if self.requestor else self.get_address()
-
-    def get_verify_status(self) -> str:
-        return self.error if self.requestor else _("No Signature")  # type: ignore
+        assert self.payment_url is not None
+        return self.payment_url
 
     def get_memo(self) -> str:
         return self.memo
 
     def get_id(self) -> str:
-        return self.id if self.requestor else self.get_address()
+        return self.id
 
-    def get_outputs(self) -> List[TxOutput]:
+    def get_outputs(self) -> List[XTxOutput]:
         return [output.to_tx_output() for output in self.outputs]
 
     def send_payment(self, account: 'DeterministicAccount', transaction_hex: str) -> bool:
@@ -315,16 +310,16 @@ class PaymentRequest:
         return self._RequestsResponseWrapper(r)
 
     class _RequestsResponseWrapper:
-        def __init__(self, response):
+        def __init__(self, response: requests.Response) -> None:
             self._response = response
 
-        def get_status_code(self):
+        def get_status_code(self) -> int:
             return self._response.status_code
 
-        def get_reason(self):
+        def get_reason(self) -> str:
             return self._response.reason
 
-        def get_content(self):
+        def get_content(self) -> bytes:
             return self._response.content
 
 
@@ -490,7 +485,6 @@ class InvoiceStore:
             try:
                 pr = PaymentRequest(bytes.fromhex(v.get('hex')))
                 pr.tx = v.get('txid')
-                pr.requestor = v.get('requestor')
                 self.invoices[k] = pr
                 if pr.tx:
                     self.paid[pr.tx] = k
@@ -514,16 +508,11 @@ class InvoiceStore:
         l = {}
         for k, pr in self.invoices.items():
             l[k] = {
-                'requestor': pr.requestor,
                 'txid': pr.tx
             }
         self._wallet_data['invoices'] = l
 
-    def get_status(self, request_id: str) -> PaymentState:
-        pr = self.get(request_id)
-        if pr is None:
-            logger.debug("[InvoiceStore] get_status() can't find pr for %s", request_id)
-            return PaymentState.UNKNOWN
+    def get_status(self, pr: PaymentRequest) -> PaymentState:
         if pr.tx is not None:
             return PaymentState.PAID
         if pr.has_expired():
@@ -553,5 +542,5 @@ class InvoiceStore:
         return list(self.invoices.values())
 
     def unpaid_invoices(self) -> List[PaymentRequest]:
-        return [invoice for key, invoice in self.invoices.items()
-                if self.get_status(key) != PaymentState.PAID]
+        return [invoice for invoice in self.invoices.values()
+                if self.get_status(invoice) & PaymentState.UNPAID_MASK != 0]

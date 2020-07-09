@@ -27,6 +27,7 @@
 # SOFTWARE.
 
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+import weakref
 
 from bitcoinx import hash_to_hex_str
 
@@ -67,7 +68,7 @@ class SendView(QWidget):
     def __init__(self, main_window: 'ElectrumWindow', account_id: int) -> None:
         super().__init__(main_window)
 
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
         self._account_id = account_id
         self._account = main_window._wallet.get_account(account_id)
         self._logger = logs.get_logger(f"send_view[{self._account_id}]")
@@ -103,7 +104,7 @@ class SendView(QWidget):
         self._from_label.setAlignment(Qt.AlignTop)
         grid.addWidget(self._from_label, 1, 0)
 
-        self._from_list = MyTreeWidget(self, self._main_window, self.from_list_menu,
+        self._from_list = MyTreeWidget(self, self._main_window.reference(), self.from_list_menu,
             ['Address / Outpoint','Amount'])
         self._from_list.setMaximumHeight(80)
         grid.addWidget(self._from_list, 1, 1, 1, -1)
@@ -186,7 +187,7 @@ class SendView(QWidget):
         self.amount_e.textChanged.connect(self._on_entry_changed)
 
         self.invoices_label = QLabel(_('Invoices'), self)
-        self._invoice_list = InvoiceList(self, self._main_window)
+        self._invoice_list = InvoiceList(self, self._main_window.reference())
 
         vbox0 = QVBoxLayout()
         vbox0.addLayout(grid)
@@ -203,6 +204,9 @@ class SendView(QWidget):
         self.searchable_list = self._invoice_list
 
         return vbox
+
+    def clean_up(self) -> None:
+        self._payto_e.clean_up()
 
     def _on_entry_changed(self) -> None:
         text = ""
@@ -448,6 +452,7 @@ class SendView(QWidget):
 
     def on_payment_request(self, request: PaymentRequest) -> None:
         self.payment_request = request
+        # Proceed to process the payment request on the GUI thread.
         self.payment_request_ok_signal.emit()
 
     def set_payment_request_data(self, data: Dict[str, Any]) -> None:
@@ -472,7 +477,7 @@ class SendView(QWidget):
     def payment_request_ok(self) -> None:
         pr = self.payment_request
         key = self._account.invoices.add(pr)
-        status = self._account.invoices.get_status(key)
+        status = self._account.invoices.get_status(pr)
         self._invoice_list.update()
         if status == PaymentState.PAID:
             self._main_window.show_message("invoice already paid")

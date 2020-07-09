@@ -26,6 +26,7 @@
 
 from functools import partial
 from typing import Optional, TYPE_CHECKING
+import weakref
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -57,7 +58,7 @@ class PreferencesDialog(QDialog):
         super().__init__(main_window, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
             Qt.WindowCloseButtonHint)
         self.setWindowTitle(_('Preferences'))
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
         self.lay_out(wallet, account)
         self.initial_language = app_state.config.get('language', None)
 

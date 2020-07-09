@@ -97,13 +97,16 @@ class Console(QtWidgets.QPlainTextEdit):
         )
         self.messageOverlay = OverlayLabel(warning_text, self)
 
+    def clean_up(self) -> None:
+        self.namespace.clear()
+
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
 
         scrollbar_width = self.verticalScrollBar().width() * self.verticalScrollBar().isVisible()
         self.messageOverlay.on_resize(self.width() - scrollbar_width)
 
-    def set_json(self, b):
+    def set_json(self, b: bool=True) -> None:
         self.is_json = b
 
     def run_script(self, filename):

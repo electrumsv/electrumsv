@@ -27,6 +27,7 @@ import enum
 from functools import partial
 import time
 from typing import List, Optional, Union
+import weakref
 import webbrowser
 
 from bitcoinx import hash_to_hex_str, MissingHeader
@@ -77,7 +78,7 @@ class HistoryView(MyTreeWidget):
     def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
         MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [], 3)
 
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
         self._account_id: Optional[int] = None
         self._account: AbstractAccount = None
         self._wallet = main_window._wallet

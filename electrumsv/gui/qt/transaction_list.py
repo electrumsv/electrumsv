@@ -5,6 +5,7 @@ import enum
 import threading
 import time
 from typing import List, Any, Optional, Dict, Tuple, Set
+import weakref
 import webbrowser
 
 from bitcoinx import hash_to_hex_str
@@ -343,7 +344,7 @@ class TransactionView(QTableView):
     def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
         super().__init__(parent)
 
-        self._main_window = main_window
+        self._main_window = weakref.proxy(main_window)
         self._logger = logs.get_logger("transaction-list")
         self._wallet = main_window._wallet
         self._account_id: Optional[int] = None

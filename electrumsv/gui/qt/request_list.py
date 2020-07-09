@@ -25,6 +25,7 @@
 
 from functools import partial
 from typing import Optional
+import weakref
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
@@ -44,7 +45,7 @@ class RequestList(MyTreeWidget):
     filter_columns = [0, 1, 2, 3, 4]  # Date, Account, Destination, Description, Amount
 
     def __init__(self, parent: ElectrumWindow) -> None:
-        self._main_window = parent
+        self._main_window = weakref.proxy(parent)
         self._account: Optional[AbstractAccount] = parent._account
         self._account_id: Optional[int] = parent._account_id
 

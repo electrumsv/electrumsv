@@ -291,7 +291,7 @@ def edit_contact_dialog(wallet_api, contact_key=None):
     else:
         title = _("New Contact")
 
-    d = WindowModalDialog(wallet_api.wallet_window, title)
+    d = WindowModalDialog(wallet_api.wallet_window.reference(), title)
     vbox = QVBoxLayout(d)
     vbox.addWidget(QLabel(title + ':'))
 
