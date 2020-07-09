@@ -15,11 +15,12 @@ BUILDDIR=/tmp/electrum-sv-build
 PACKAGE=ElectrumSV
 GIT_REPO_ACCT=https://github.com/electrumsv
 GIT_REPO=$GIT_REPO_ACCT/electrumsv
-LIBSECP_VERSION=452d8e4d2a2f9f1b5be6b02e18f1ba102e5ca0b4
 
 which xcodebuild > /dev/null 2>&1 || fail "Please install Xcode and xcode command line tools to continue"
 
 which msgfmt > /dev/null 2>&1 || fail "Please install xgettext.  For brew users: brew install gettext && brew link gettext --force"
+
+brew upgrade sqlite3
 
 # Code Signing: See https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/Procedures/Procedures.html
 APP_SIGN=""
@@ -47,11 +48,14 @@ else
   curl -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash > /dev/null 2>&1
 fi
 # https://github.com/pyenv/pyenv/issues/1066#issuecomment-536700708
+
+# -I$(xcrun --show-sdk-path)/usr/include
+CFLAGS="-I$(brew --prefix sqlite3)/include" \
+LDFLAGS="-L$(brew --prefix sqlite3)/lib" \
 SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX10.14.sdk MACOSX_DEPLOYMENT_TARGET=10.14 \
 PYTHON_CONFIGURE_OPTS="--enable-framework" pyenv install -s $PYTHON_VERSION && \
 pyenv global $PYTHON_VERSION || \
 fail "Unable to use Python $PYTHON_VERSION"
-
 rm -rf ./dist
 
 git submodule init
@@ -70,6 +74,7 @@ python3 -m pip install pyinstaller -I || fail "Could not install pyinstaller"
 info "Using these versions for building $PACKAGE:"
 sw_vers
 python3 --version
+python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
 
 info "Installing requirements..."
 python3 -m pip install -Ir ./contrib/deterministic-build/requirements.txt && \
