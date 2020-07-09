@@ -34,7 +34,7 @@ from bitcoinx import Script
 import certifi
 import requests
 
-from .constants import RECEIVING_SUBPATH, PaymentState
+from .constants import RECEIVING_SUBPATH, PaymentFlag
 from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
 from .i18n import _
 from .logs import logs
@@ -512,12 +512,12 @@ class InvoiceStore:
             }
         self._wallet_data['invoices'] = l
 
-    def get_status(self, pr: PaymentRequest) -> PaymentState:
+    def get_status(self, pr: PaymentRequest) -> PaymentFlag:
         if pr.tx is not None:
-            return PaymentState.PAID
+            return PaymentFlag.PAID
         if pr.has_expired():
-            return PaymentState.EXPIRED
-        return PaymentState.UNPAID
+            return PaymentFlag.EXPIRED
+        return PaymentFlag.UNPAID
 
     def add(self, pr: PaymentRequest) -> str:
         request_id = pr.get_id()
@@ -543,4 +543,4 @@ class InvoiceStore:
 
     def unpaid_invoices(self) -> List[PaymentRequest]:
         return [invoice for invoice in self.invoices.values()
-                if self.get_status(invoice) & PaymentState.UNPAID_MASK != 0]
+                if self.get_status(invoice) & PaymentFlag.UNPAID_MASK != 0]

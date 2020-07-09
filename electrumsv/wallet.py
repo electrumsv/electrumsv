@@ -47,7 +47,7 @@ from .app_state import app_state
 from .bitcoin import compose_chain_string, COINBASE_MATURITY, ScriptTemplate
 from .constants import (AccountType, CHANGE_SUBPATH, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
     KeyInstanceFlag, KeystoreTextType, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
-    PaymentState, RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
+    PaymentFlag, RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
     WalletEventType)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
@@ -649,7 +649,7 @@ class AbstractAccount:
         self._wallet.create_transactionoutputs(self._id, [ TransactionOutputRow(tx_hash,
             output_index, value, keyinstance.keyinstance_id, flags) ])
 
-    def create_payment_request(self, keyinstance_id: int, state: PaymentState, value: Optional[int],
+    def create_payment_request(self, keyinstance_id: int, state: PaymentFlag, value: Optional[int],
             expiration: Optional[int], description: Optional[str]) -> PaymentRequestRow:
         # Update the key first.
         key = self._keyinstances[keyinstance_id]
@@ -662,7 +662,7 @@ class AbstractAccount:
         self._wallet.trigger_callback('on_keys_updated', self._id, [ new_key ])
         return row
 
-    def update_payment_request(self, paymentrequest_id: int, state: PaymentState,
+    def update_payment_request(self, paymentrequest_id: int, state: PaymentFlag,
             value: Optional[int], expiration: Optional[int],
             description: Optional[str]) -> PaymentRequestRow:
         # NOTE: This should be one update operation on the table if SQL statements

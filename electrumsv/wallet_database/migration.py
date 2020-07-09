@@ -1,6 +1,13 @@
 import json
 import os
-import sqlite3
+try:
+    # Linux expects the latest package version of 3.31.1 (as of p)
+    import pysqlite3 as sqlite3
+except ModuleNotFoundError:
+    # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
+    # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
+    import sqlite3 # type: ignore
+
 
 from electrumsv.constants import DATABASE_EXT, MIGRATION_CURRENT, MIGRATION_FIRST
 from electrumsv.exceptions import DatabaseMigrationError
@@ -53,6 +60,12 @@ def update_database(db: sqlite3.Connection) -> None:
             version += 1
         if version == 23:
             migrations.migration_0024_account_transactions.execute(db)
+            version += 1
+
+        if version != MIGRATION_CURRENT:
+            db.rollback()
+            assert version == MIGRATION_CURRENT, \
+                f"Expected migration {MIGRATION_CURRENT}, got {version}"
 
     _ensure_matching_migration(db, MIGRATION_CURRENT)
 

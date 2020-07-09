@@ -30,7 +30,7 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QFileDialog, QMenu
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import PaymentState
+from electrumsv.constants import PaymentFlag
 from electrumsv.i18n import _
 from electrumsv.platform import platform
 from electrumsv.exceptions import FileImportFailed
@@ -121,7 +121,7 @@ class InvoiceList(MyTreeWidget):
             menu.addAction(_("Copy {}").format(column_title),
                            lambda: self._main_window.app.clipboard().setText(column_data))
         menu.addAction(_("Details"), partial(self._show_invoice_window, key))
-        if status == PaymentState.UNPAID:
+        if status == PaymentFlag.UNPAID:
             menu.addAction(_("Pay Now"), lambda: self._main_window.do_pay_invoice(key))
         menu.addAction(_("Delete"), lambda: self._main_window.delete_invoice(key))
         menu.exec_(self.viewport().mapToGlobal(position))

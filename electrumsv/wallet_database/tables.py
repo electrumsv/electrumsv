@@ -1,6 +1,12 @@
 from io import BytesIO
 import json
-import sqlite3
+try:
+    # Linux expects the latest package version of 3.31.1 (as of p)
+    import pysqlite3 as sqlite3
+except ModuleNotFoundError:
+    # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
+    # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
+    import sqlite3 # type: ignore
 import time
 from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple, TypeVar
 
@@ -8,7 +14,7 @@ import bitcoinx
 from bitcoinx import hash_to_hex_str
 
 from ..constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
-    KeyInstanceFlag, PaymentState, WalletEventFlag, WalletEventType)
+    KeyInstanceFlag, PaymentFlag, WalletEventFlag, WalletEventType)
 from ..logs import logs
 from .sqlite_support import SQLITE_MAX_VARS, DatabaseContext, CompletionCallbackType
 
@@ -160,38 +166,18 @@ class WalletDataTable(BaseWalletStore):
             return WalletDataRow(row[0], json.loads(row[1]))
         return None
 
-    # NOTE 1. This is not currently reliable in the case that we do not have the supporting
-    #         version of sqlite. The reason is that there can be up to two completion calls
-    #         and we have no mechanism of catching the completion event twice.
-    #      2. When we get AppImage support for Linux, we can require that Linux users who
-    #         run from source are responsible for getting the correct sqlite version to run
-    #         and everyone else can have the build take care of it for them.
-    #
     def upsert(self, entries: Iterable[WalletDataRow],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        # Some operating systems like Linux effectively lock the sqlite version to something
-        # very old, like 3.11.0.
-        if sqlite3.sqlite_version_info > (3, 24, 0):
-            timestamp = self._get_current_timestamp()
-            datas = []
-            for entry in entries:
-                datas.append((entry.key, json.dumps(entry.value), timestamp, timestamp))
+        timestamp = self._get_current_timestamp()
+        datas = []
+        for entry in entries:
+            datas.append((entry.key, json.dumps(entry.value), timestamp, timestamp))
 
-            def _write(db: sqlite3.Connection) -> None:
-                self._logger.debug("upsert '%s'", [ t.key for t in entries ])
-                db.executemany(self.UPSERT_SQL, datas)
+        def _write(db: sqlite3.Connection) -> None:
+            self._logger.debug("upsert '%s'", [ t.key for t in entries ])
+            db.executemany(self.UPSERT_SQL, datas)
 
-            self._db_context.queue_write(_write, completion_callback)
-        else:
-            # We expect higher-level usageto  prevent overlapping reads and writes.
-            rows = self.read()
-            existing_keys = set(row[0] for row in rows)
-            create_entries = [ t for t in entries if t.key not in existing_keys ]
-            update_entries = [ t for t in entries if t.key in existing_keys ]
-            if len(create_entries):
-                self.create(create_entries, completion_callback=completion_callback)
-            if len(update_entries):
-                self.update(update_entries, completion_callback=completion_callback)
+        self._db_context.queue_write(_write, completion_callback)
 
     def update(self, entries: Iterable[WalletDataRow],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -1002,7 +988,7 @@ class TransactionDeltaTable(BaseWalletStore):
 class PaymentRequestRow(NamedTuple):
     paymentrequest_id: int
     keyinstance_id: int
-    state: PaymentState
+    state: PaymentFlag
     value: Optional[int]
     expiration: Optional[int]
     description: Optional[str]
@@ -1023,7 +1009,7 @@ class PaymentRequestTable(BaseWalletStore):
         "description=? WHERE paymentrequest_id=?")
     DELETE_SQL = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
     ARCHIVE_SQL = f"""
-    UPDATE PaymentRequests SET state=state|{PaymentState.ARCHIVED} WHERE paymentrequest_id=%d;
+    UPDATE PaymentRequests SET state=state|{PaymentFlag.ARCHIVED} WHERE paymentrequest_id=%d;
     UPDATE KeyInstances SET flags=flags&{int((~KeyInstanceFlag.IS_PAYMENT_REQUEST) & 0xFFFFFFFF)}
         WHERE keyinstance_id = (SELECT keyinstance_id FROM PaymentRequests
             WHERE paymentrequest_id=%d);
@@ -1052,7 +1038,7 @@ class PaymentRequestTable(BaseWalletStore):
         t = cursor.fetchone()
         cursor.close()
         if t is not None:
-            return PaymentRequestRow(t[0], t[1], PaymentState(t[2]), t[3], t[4], t[5], t[6])
+            return PaymentRequestRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6])
         return None
 
     def read(self, account_id: Optional[int]=None, flags: Optional[int]=None,
@@ -1072,7 +1058,7 @@ class PaymentRequestTable(BaseWalletStore):
         cursor = self._db.execute(query, params)
         rows = cursor.fetchall()
         cursor.close()
-        return [ PaymentRequestRow(t[0], t[1], PaymentState(t[2]), t[3], t[4], t[5], t[6])
+        return [ PaymentRequestRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6])
             for t in rows ]
 
     def update(self, entries: Iterable[Tuple[Optional[int], Optional[int], Optional[str], int]],

@@ -3,12 +3,18 @@ import time
 import bitcoinx
 import os
 import pytest
-import sqlite3
+try:
+    # Linux expects the latest package version of 3.31.1 (as of p)
+    import pysqlite3 as sqlite3
+except ModuleNotFoundError:
+    # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
+    # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
+    import sqlite3 # type: ignore
 import tempfile
 from typing import List
 
 from electrumsv.constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
-    PaymentState, KeyInstanceFlag, WalletEventFlag, WalletEventType)
+    PaymentFlag, KeyInstanceFlag, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
 from electrumsv.wallet_database import (migration, KeyInstanceTable, MasterKeyTable,
     PaymentRequestTable, TransactionTable, DatabaseContext, TransactionDeltaTable,
@@ -1130,9 +1136,9 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     TX_HASH2 = bitcoinx.double_sha256(TX_BYTES2)
 
     LINE_COUNT = 3
-    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentState.PAID, None, None, "desc",
+    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, "desc",
         table._get_current_timestamp())
-    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentState.UNPAID, 100, 60*60, None,
+    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100, 60*60, None,
         table._get_current_timestamp())
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
@@ -1183,23 +1189,23 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     assert line2 == db_line2
 
     # Read all PAID rows in the table.
-    db_lines = table.read(mask=PaymentState.PAID)
+    db_lines = table.read(mask=PaymentFlag.PAID)
     assert 1 == len(db_lines)
     assert 1 == db_lines[0].paymentrequest_id
     assert KEYINSTANCE_ID == db_lines[0].keyinstance_id
 
     # Read all UNPAID rows in the table.
-    db_lines = table.read(mask=PaymentState.UNPAID)
+    db_lines = table.read(mask=PaymentFlag.UNPAID)
     assert 1 == len(db_lines)
     assert 2 == db_lines[0].paymentrequest_id
     assert KEYINSTANCE_ID+1 == db_lines[0].keyinstance_id
 
     # Require ARCHIVED flag.
-    db_lines = table.read(mask=PaymentState.ARCHIVED)
+    db_lines = table.read(mask=PaymentFlag.ARCHIVED)
     assert 0 == len(db_lines)
 
     # Require no ARCHIVED flag.
-    db_lines = table.read(flags=PaymentState.NONE, mask=PaymentState.ARCHIVED)
+    db_lines = table.read(flags=PaymentFlag.NONE, mask=PaymentFlag.ARCHIVED)
     assert 2 == len(db_lines)
 
     row = table.read_one(1)
@@ -1212,7 +1218,7 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     date_updated = 20
 
     with SynchronousWriter() as writer:
-        table.update([ (PaymentState.UNKNOWN, 20, 999, "newdesc",
+        table.update([ (PaymentFlag.UNKNOWN, 20, 999, "newdesc",
             line2.paymentrequest_id) ],
             date_updated,
             completion_callback=writer.get_callback())
@@ -1223,7 +1229,7 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     db_line2 = [ db_line for db_line in db_lines
         if db_line.paymentrequest_id == line2.paymentrequest_id ][0]
     assert db_line2.value == 20
-    assert db_line2.state == PaymentState.UNKNOWN
+    assert db_line2.state == PaymentFlag.UNKNOWN
     assert db_line2.description == "newdesc"
     assert db_line2.expiration == 999
 

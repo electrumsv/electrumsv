@@ -53,7 +53,7 @@ from electrumsv import bitcoin, commands, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from electrumsv.constants import DATABASE_EXT, RECEIVING_SUBPATH, TxFlags, PaymentState
+from electrumsv.constants import DATABASE_EXT, RECEIVING_SUBPATH, TxFlags, PaymentFlag
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -1264,7 +1264,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         with self._wallet.get_payment_request_table() as table:
             row = table.read_one(keyinstance_id=self._receive_key_id)
         if row is None:
-            row = self._account.create_payment_request(self._receive_key_id, PaymentState.UNPAID,
+            row = self._account.create_payment_request(self._receive_key_id, PaymentFlag.UNPAID,
                 amount, expiration, message)
         else:
             # Expiration is just a label.

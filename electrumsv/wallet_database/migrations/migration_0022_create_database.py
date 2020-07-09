@@ -1,5 +1,11 @@
 import json
-import sqlite3
+try:
+    # Linux expects the latest package version of 3.31.1 (as of p)
+    import pysqlite3 as sqlite3
+except ModuleNotFoundError:
+    # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
+    # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
+    import sqlite3 # type: ignore
 import time
 
 MIGRATION = 22

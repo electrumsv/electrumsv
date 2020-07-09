@@ -25,13 +25,40 @@
 # NOTE: no imports in this file can be 3rd-party.  All MUST be in the base Python system
 # libraries.  Also, this file MUST NOT use f-strings.
 import os.path as path
+import platform
 import sys
 
+MINIMUM_PYTHON_VERSION = (3, 7, 8)
+MINIMUM_SQLITE_VERSION = (3, 31, 1)
+if platform.system() == "Linux":
+    # We allow 3.7.7 on Linux as that is the latest Azure has pre-available at this time.
+    #   https://github.com/actions/virtual-environments/
+    # The next release of their Ubuntu 16.04 image will have 3.7.8 and we will remove this.
+    MINIMUM_PYTHON_VERSION = (3, 7, 7)
 
 vtuple = sys.version_info[:3]
-if vtuple < (3, 7, 0):
-    sys.exit('error: ElectrumSV requires Python version 3.7 or higher; you are running Python {}'
-             .format('.'.join(str(part) for part in vtuple)))
+if vtuple < MINIMUM_PYTHON_VERSION:
+    fv = lambda parts: '.'.join(str(part) for part in parts)
+    sys.exit('error: ElectrumSV requires Python version {} or higher; you are running Python {}'
+             .format(fv(MINIMUM_PYTHON_VERSION), fv(vtuple)))
+
+if platform.system() == "Linux":
+    try:
+        # Linux expects the latest package version of 3.31.1 (as of p)
+        import pysqlite3 as sqlite3
+    except ModuleNotFoundError:
+        # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
+        # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
+        import sqlite3 # type: ignore
+else:
+    import sqlite3 # type: ignore
+
+
+vtuple = sqlite3.sqlite_version_info
+if vtuple < MINIMUM_SQLITE_VERSION:
+    fv = lambda parts: '.'.join(str(part) for part in parts)
+    sys.exit('error: ElectrumSV requires Sqlite version {} or higher; you have Sqlite {}'
+             .format(fv(MINIMUM_SQLITE_VERSION), fv(vtuple)))
 
 
 # True if a pyinstaller binary

@@ -1155,7 +1155,7 @@ class TextStore(AbstractStore):
                 address_state = address_states[address_string]
                 paymentrequest_rows.append(PaymentRequestRow(next_paymentrequest_id,
                     address_state.keyinstance_id,
-                    request_data.get('status', 2), # PaymentState.UNKNOWN = 2
+                    request_data.get('status', 2), # PaymentFlag.UNKNOWN = 2
                     request_data.get('amount', None), request_data.get('exp', None),
                     request_data.get('memo', None), request_data.get('time', time.time())))
                 next_paymentrequest_id += 1

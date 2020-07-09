@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import script_template_to_string
-from electrumsv.constants import RECEIVING_SUBPATH, PaymentState
+from electrumsv.constants import RECEIVING_SUBPATH, PaymentFlag
 from electrumsv.i18n import _
 from electrumsv.util import format_time, age
 from electrumsv.wallet import AbstractAccount
@@ -93,8 +93,8 @@ class RequestList(MyTreeWidget):
         wallet = self._account._wallet
 
         with wallet.get_payment_request_table() as table:
-            rows = table.read(self._account_id, flags=PaymentState.NONE,
-                mask=PaymentState.ARCHIVED)
+            rows = table.read(self._account_id, flags=PaymentFlag.NONE,
+                mask=PaymentFlag.ARCHIVED)
 
         # hide receive tab if no receive requests available
         is_visible = len(rows) > 0
@@ -129,7 +129,7 @@ class RequestList(MyTreeWidget):
             item = QTreeWidgetItem([date, address_text, '', row.description or "",
                 amount_str, pr_tooltips.get(row.state,'')])
             item.setData(0, Qt.UserRole, row.paymentrequest_id)
-            if row.state != PaymentState.UNKNOWN:
+            if row.state != PaymentFlag.UNKNOWN:
                 item.setIcon(6, read_QIcon(pr_icons.get(row.state)))
             self.addTopLevelItem(item)
 

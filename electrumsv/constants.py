@@ -22,7 +22,7 @@ class StorageKind(IntEnum):
 
 DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
-MIGRATION_CURRENT = 24 # 25
+MIGRATION_CURRENT = 24
 
 class TxFlags(IntFlag):
     Unset = 0
@@ -166,7 +166,7 @@ class TransactionOutputFlag(IntFlag):
     FROZEN_MASK = IS_FROZEN | USER_SET_FROZEN
 
 
-class PaymentState(IntFlag):
+class PaymentFlag(IntFlag):
     NONE =     0
     UNPAID  =  1 << 0
     EXPIRED =  1 << 1

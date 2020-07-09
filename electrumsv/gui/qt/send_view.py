@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import (QCompleter, QGridLayout, QHBoxLayout, QLineEdit, QM
     QPlainTextEdit, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import PaymentState
+from electrumsv.constants import PaymentFlag
 from electrumsv.exceptions import ExcessiveFee, NotEnoughFunds
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -479,7 +479,7 @@ class SendView(QWidget):
         key = self._account.invoices.add(pr)
         status = self._account.invoices.get_status(pr)
         self._invoice_list.update()
-        if status == PaymentState.PAID:
+        if status == PaymentFlag.PAID:
             self._main_window.show_message("invoice already paid")
             self.clear()
             self.payment_request = None

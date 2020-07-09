@@ -21,19 +21,73 @@ ElectrumSV - Lightweight Bitcoin SV client
 Getting started on Linux/MacOS
 ==============================
 
-ElectrumSV is a pure python application forked from Electrum. If you want to use the
-Qt interface, install the Qt dependencies::
+ElectrumSV is a Python-based application forked from Electrum. If you want to use the
+graphical user interface, install the Qt dependencies::
 
     (LINUX) sudo apt-get install python3-pyqt5
     (MacOS) brew install pyqt5
 
-If you downloaded the source archive (zip or tar.gz), you can run ElectrumSV from its top-level
-directory, without installing it on your system.
-
 If you are running from the Github repository, you are advised to use the latest release branch,
 which at this time is `releases/1.3`. The `master` branch is used for the latest development
-changes and is not guaranteed to be as stable, or to guarantee support for more advanced features
-we may have merged and later reconsider.
+changes and is not guaranteed to be as stable, or to have guaranteed long term support for some of
+the more advanced features we may have added and later remove.
+
+Ensuring you have at least Python 3.7.8
+---------------------------------------
+
+You need to ensure you can use Python 3.7.8, ensure the following command looks like this::
+
+    $ python3 --version
+    Python 3.7.8
+
+If you see a lower version, you can use pyenv to install Python 3.7.8. First install pyenv::
+
+    curl -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash
+
+Edit your .bashrc file as described, and then ensure the changes are put into effect::
+
+    $ source ~/.profile
+
+Now you can install Python 3.7.8 using pyenv::
+
+    $ pyenv install 3.7.8
+
+If you encounter errors during that process, you can refer to the
+`pyenv common problems <https://github.com/pyenv/pyenv/wiki/common-build-problems>`_.
+
+At this point, you should be able to make Python 3.7.8 the default Python on your computer::
+
+    $ pyenv global 3.7.8
+
+And you can check that your `python3` version is indeed 3.7.8, by confirming the following command
+now looks like this::
+
+    $ python3 --version
+    Python 3.7.8
+
+Ensuring you have at least Sqlite 3.31.1
+----------------------------------------
+
+ElectrumSV MacOS and Windows builds come with at least Sqlite version 3.31.1, but there are no
+Linux builds, and both Linux and MacOS users may wish to upgrade or make available the Sqlite
+version on their computer.
+
+Linux::
+
+    $ python3 -m pip install -U pysqlite3_binary
+    $ python3 -c "import pysqlite3_binary; print pysqlite3_binary.sqlite_version"
+    3.31.1
+
+MacOS::
+
+    $ brew upgrade sqlite3
+    $ python3 -c "import sqlite3; print sqlite3.sqlite_version"
+    3.31.1
+
+You may see a different version displayed than 3.31.1, but as long as it is higher, this is fine.
+
+Installing other dependencies
+-----------------------------
 
 To run ElectrumSV from its top-level directory, first install the core dependencies::
 
@@ -49,10 +103,10 @@ Then invoke it as so::
 
     ./electrum-sv
 
-You can also install ElectrumSV on your system. This will download and install most dependencies
-used by ElectrumSV. This is useful if you with to use the `electrumsv` Python library, perhaps
-for Bitcoin application development using ElectrumSV as a wallet server. And of course it should
-make the `electrum-sv` command accessible for use.
+You can also proceed onward from this point and install ElectrumSV on your system. This will
+download and install most dependencies used by ElectrumSV. This is useful if you with to use
+the `electrumsv` Python library, perhaps for Bitcoin application development using ElectrumSV
+as a wallet server. And of course it should make the `electrum-sv` command accessible for use.
 
 In order to do so, run these commands::
 
@@ -114,6 +168,11 @@ it's SHA-256 hash to the hash we provide for the same file name.
 
 You can also run from the Git repository directly, which is useful if you wish to customise
 or help us develop ElectrumSV.
+
+You need to be sure that you are using a version of Python either 3.7.8 or higher. And that the
+version you are using has a version of Sqlite either 3.31.1 or higher. If you are for instance
+using a version of Python 3.8 that has a lower version of Sqlite, then update your Python 3.8
+installation.
 
 To run ElectrumSV from its top-level directory, first install the core dependencies::
 

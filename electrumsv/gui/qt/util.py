@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import DATABASE_EXT, PaymentState
+from electrumsv.constants import DATABASE_EXT, PaymentFlag
 from electrumsv.crypto import pw_encode
 from electrumsv.i18n import _, languages
 from electrumsv.logs import logs
@@ -34,15 +34,15 @@ logger = logs.get_logger("qt-util")
 dialogs = []
 
 pr_icons = {
-    PaymentState.UNPAID: "unpaid.png",
-    PaymentState.PAID: "icons8-checkmark-green-52.png",
-    PaymentState.EXPIRED: "expired.png"
+    PaymentFlag.UNPAID: "unpaid.png",
+    PaymentFlag.PAID: "icons8-checkmark-green-52.png",
+    PaymentFlag.EXPIRED: "expired.png"
 }
 
 pr_tooltips = {
-    PaymentState.UNPAID:_('Pending'),
-    PaymentState.PAID:_('Paid'),
-    PaymentState.EXPIRED:_('Expired')
+    PaymentFlag.UNPAID:_('Pending'),
+    PaymentFlag.PAID:_('Paid'),
+    PaymentFlag.EXPIRED:_('Expired')
 }
 
 expiration_values = [
