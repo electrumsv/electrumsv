@@ -40,16 +40,18 @@ from electrumsv.constants import PaymentFlag
 from electrumsv.exceptions import ExcessiveFee, NotEnoughFunds
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.paymentrequest import PaymentRequest
+from electrumsv.paymentrequest import has_expired, PaymentRequest
 from electrumsv.transaction import Transaction, XTxOutput
 from electrumsv.util import format_satoshis_plain
 from electrumsv.wallet import AbstractAccount, UTXO
+from electrumsv.wallet_database.tables import InvoiceRow
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from . import dialogs
 from .invoice_list import InvoiceList
 from .paytoedit import PayToEdit
-from .util import ColorScheme, EnterButton, HelpLabel, MyTreeWidget, update_fixed_tree_height
+from .util import (ColorScheme, EnterButton, HelpLabel, MyTreeWidget, UntrustedMessageDialog,
+    update_fixed_tree_height)
 
 
 if TYPE_CHECKING:
@@ -58,7 +60,10 @@ if TYPE_CHECKING:
 
 class SendView(QWidget):
     payment_request_ok_signal = pyqtSignal()
-    payment_request_error_signal = pyqtSignal()
+    payment_request_error_signal = pyqtSignal(object)
+    payment_request_import_error_signal = pyqtSignal(object)
+    payment_request_imported_signal = pyqtSignal(object)
+    payment_request_deleted_signal = pyqtSignal(int)
 
     _account_id: Optional[int] = None
     _account: Optional[AbstractAccount] = None
@@ -73,16 +78,19 @@ class SendView(QWidget):
         self._account = main_window._wallet.get_account(account_id)
         self._logger = logs.get_logger(f"send_view[{self._account_id}]")
 
-        self.is_max = False
+        self._is_max = False
         self._not_enough_funds = False
         self._require_fee_update = False
-        self.payment_request = None
+        self._payment_request: Optional[PaymentRequest] = None
         self._completions = QStringListModel()
 
         self.setLayout(self.create_send_layout())
 
         self.payment_request_ok_signal.connect(self.payment_request_ok)
         self.payment_request_error_signal.connect(self.payment_request_error)
+        self.payment_request_import_error_signal.connect(self._payment_request_import_error)
+        self.payment_request_imported_signal.connect(self._payment_request_imported)
+        self.payment_request_deleted_signal.connect(self._payment_request_deleted)
 
     def create_send_layout(self) -> QVBoxLayout:
         """ Re-render the layout and it's child widgets of this view. """
@@ -179,7 +187,7 @@ class SendView(QWidget):
         self.amount_e.textEdited.connect(self.update_fee)
 
         def reset_max(t) -> None:
-            self.is_max = False
+            self._is_max = False
             self._max_button.setEnabled(not bool(t))
         self.amount_e.textEdited.connect(reset_max)
         self._fiat_send_e.textEdited.connect(reset_max)
@@ -230,14 +238,22 @@ class SendView(QWidget):
         self.amount_e.setFrozen(flag)
         self._max_button.setEnabled(not flag)
 
+    def set_is_spending_maximum(self, is_max: bool) -> None:
+        self._is_max = is_max
+
+    def get_is_spending_maximum(self) -> bool:
+        return self._is_max
+
     def _spend_max(self) -> None:
-        self.is_max = True
+        self._is_max = True
         self.do_update_fee()
 
     def clear(self) -> None:
-        self.is_max = False
+        # NOTE: This clears trees in the view. That includes the invoice list.
+        # So anything that calls this should follow it with a call to `update_widgets`.
+        self._is_max = False
         self._not_enough_funds = False
-        self.payment_request = None
+        self._payment_request = None
         self._payto_e.is_pr = False
 
         # TODO: Clean up this with direct clears on widgets so it's not incomprehensible magic.
@@ -257,6 +273,7 @@ class SendView(QWidget):
 
         # TODO: Revisit what this does.
         self._main_window.update_status_bar()
+        self.update_widgets()
 
     def update_fee(self) -> None:
         self._require_fee_update = True
@@ -301,13 +318,13 @@ class SendView(QWidget):
         '''Recalculate the fee.  If the fee was manually input, retain it, but
         still build the TX to see if there are enough funds.
         '''
-        amount = all if self.is_max else self.amount_e.get_amount()
+        amount = all if self._is_max else self.amount_e.get_amount()
         if amount is None:
             self._not_enough_funds = False
             self._on_entry_changed()
         else:
             fee = None
-            outputs = self._payto_e.get_outputs(self.is_max)
+            outputs = self._payto_e.get_outputs(self._is_max)
             if not outputs:
                 output_script = self._payto_e.get_payee_script()
                 if output_script is None:
@@ -327,7 +344,7 @@ class SendView(QWidget):
                 self._logger.exception("transaction failure")
                 return
 
-            if self.is_max:
+            if self._is_max:
                 amount = tx.output_value()
                 self.amount_e.setAmount(amount)
 
@@ -356,7 +373,7 @@ class SendView(QWidget):
             self._main_window.show_message(str(e))
             return
 
-        amount = tx.output_value() if self.is_max else sum(output.value for output in outputs)
+        amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
         fee = tx.get_fee()
 
         if preview:
@@ -391,21 +408,21 @@ class SendView(QWidget):
         self._main_window.sign_tx_with_password(tx, sign_done, password)
 
     def _read(self) -> Tuple[List[XTxOutput], Optional[int], str, List[UTXO]]:
-        if self.payment_request and self.payment_request.has_expired():
+        if self._payment_request and self._payment_request.has_expired():
             self._main_window.show_error(_('Payment request has expired'))
             return
         label = self._message_e.text()
 
         outputs: List[XTxOutput]
-        if self.payment_request:
-            outputs = self.payment_request.get_outputs()
+        if self._payment_request:
+            outputs = self._payment_request.get_outputs()
         else:
             errors = self._payto_e.get_errors()
             if errors:
                 self._main_window.show_warning(_("Invalid lines found:") + "\n\n" +
                     '\n'.join([ _("Line #") + str(x[0]+1) +": "+ x[1] for x in errors]))
                 return
-            outputs = self._payto_e.get_outputs(self.is_max)
+            outputs = self._payto_e.get_outputs(self._is_max)
 
         if not outputs:
             self._main_window.show_error(_('No outputs'))
@@ -424,24 +441,32 @@ class SendView(QWidget):
             return self.pay_from
         return self._account.get_spendable_coins(None, self._main_window.config)
 
-    def maybe_send_payment_request(self, tx: Transaction) -> bool:
-        pr = self.payment_request
+    def maybe_send_invoice_payment(self, tx: Transaction) -> bool:
+        pr = self._payment_request
         if pr:
+            tx_hash = tx.hash()
+
             if pr.has_expired():
                 pr.error = _("The payment request has expired")
-                self.payment_request_error_signal.emit()
+                self.payment_request_error_signal.emit(tx_hash)
                 return False
 
             if not pr.send_payment(self._account, str(tx)):
-                self.payment_request_error_signal.emit()
+                self.payment_request_error_signal.emit(tx_hash)
                 return False
 
-            self._account.invoices.set_paid(pr, tx.txid())
-            self._account.invoices.save()
-            self.payment_request = None
+            self._account.invoices.set_invoice_paid(pr.get_id(), tx_hash)
+
+            self._payment_request = None
             # On success we broadcast as well, but it is assumed that the merchant also
             # broadcasts.
         return True
+
+    def pay_for_payment_request(self, pr: PaymentRequest) -> None:
+        # The invoice id will already be set on the payment request.
+        self._payment_request = pr
+        self.prepare_for_payment_request()
+        self.payment_request_ok()
 
     def prepare_for_payment_request(self) -> None:
         self._payto_e.is_pr = True
@@ -451,9 +476,19 @@ class SendView(QWidget):
         self._payto_e.setText(_("please wait..."))
 
     def on_payment_request(self, request: PaymentRequest) -> None:
-        self.payment_request = request
+        self._payment_request = request
         # Proceed to process the payment request on the GUI thread.
         self.payment_request_ok_signal.emit()
+
+    def payment_request_import_error(self, text: str) -> None:
+        self.payment_request_import_error_signal.emit(text)
+
+    def _payment_request_import_error(self, text: str) -> None:
+        self.clear()
+
+        extended_text = _("The payment request is invalid.") +"<br/><br/>"
+        extended_text += text
+        self._main_window.show_error(extended_text)
 
     def set_payment_request_data(self, data: Dict[str, Any]) -> None:
         address = data.get('address')
@@ -475,29 +510,68 @@ class SendView(QWidget):
             self.amount_e.textEdited.emit("")
 
     def payment_request_ok(self) -> None:
-        pr = self.payment_request
-        key = self._account.invoices.add(pr)
-        status = self._account.invoices.get_status(pr)
-        self._invoice_list.update()
-        if status == PaymentFlag.PAID:
+        pr = self._payment_request
+
+        service = self._account.invoices
+        if pr.get_id() is None:
+            def callback(exc_value: Optional[Exception]=None) -> None:
+                nonlocal service
+                if exc_value is not None:
+                    raise exc_value # pylint: disable=raising-bad-type
+                row = service.get_invoice_for_payment_uri(pr.get_payment_uri())
+                pr.set_id(row.invoice_id)
+                self.payment_request_imported_signal.emit(row)
+
+            row = service.import_payment_request(pr, callback)
+            if row.invoice_id is None:
+                # We're waiting for the callback.
+                return
+        else:
+            row = service.get_invoice_for_id(pr.get_id())
+
+        # The invoice is already present. Populate it unless it's paid.
+        if row.flags & PaymentFlag.PAID:
             self._main_window.show_message("invoice already paid")
+            self._payment_request = None
             self.clear()
-            self.payment_request = None
             return
+        self._payment_request_imported(row)
+
+    def _payment_request_imported(self, row: InvoiceRow) -> None:
+        self._invoice_list.update()
+
         self._payto_e.is_pr = True
-        if not pr.has_expired():
+        if not has_expired(row.date_expires):
             self._payto_e.set_validated()
         else:
             self._payto_e.set_expired()
-        self._payto_e.setText(pr.get_requestor())
-        self.amount_e.setText(format_satoshis_plain(pr.get_amount(), app_state.decimal_point))
-        self._message_e.setText(pr.get_memo())
+        self._payto_e.setText(row.payment_uri)
+        self.amount_e.setText(format_satoshis_plain(row.value, app_state.decimal_point))
+        self._message_e.setText(row.description)
         # signal to set fee
         self.amount_e.textEdited.emit("")
 
-    def payment_request_error(self) -> None:
-        self._main_window.show_message(self.payment_request.error)
-        self.payment_request = None
+    def _payment_request_deleted(self, invoice_id: int) -> None:
+        if self._payment_request is not None:
+            if self._payment_request.get_id() == invoice_id:
+                self._payment_request = None
+                self.clear()
+
+        # Remove the seal from the history lines.
+        self._main_window.update_history_view()
+        # Update the invoice list.
+        self.update_widgets()
+
+    def payment_request_error(self, tx_hash: bytes) -> None:
+        self._account.delete_transaction(tx_hash)
+
+        d = UntrustedMessageDialog(
+            self._main_window.reference(), _("Invoice Payment Error"),
+            _("Your payment was rejected for some reason."),
+            untrusted_text=str(self._payment_request.error))
+        d.exec()
+
+        self._payment_request = None
         self.clear()
 
     def get_bsv_edits(self) -> List[BTCAmountEdit]:

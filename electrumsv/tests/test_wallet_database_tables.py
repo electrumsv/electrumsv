@@ -20,9 +20,9 @@ from electrumsv.wallet_database import (migration, KeyInstanceTable, MasterKeyTa
     PaymentRequestTable, TransactionTable, DatabaseContext, TransactionDeltaTable,
     TransactionOutputTable, SynchronousWriter, TxData, TxProof, AccountTable)
 from electrumsv.wallet_database.sqlite_support import LeakedSQLiteConnectionError
-from electrumsv.wallet_database.tables import (AccountRow, KeyInstanceRow, MAGIC_UNTOUCHED_BYTEDATA,
-    MasterKeyRow, PaymentRequestRow, TransactionDeltaRow, TransactionRow, TransactionOutputRow,
-    WalletEventTable, WalletEventRow)
+from electrumsv.wallet_database.tables import (AccountRow, InvoiceAccountRow, InvoiceRow,
+    InvoiceTable, KeyInstanceRow, MAGIC_UNTOUCHED_BYTEDATA, MasterKeyRow, PaymentRequestRow,
+    TransactionDeltaRow, TransactionRow, TransactionOutputRow, WalletEventTable, WalletEventRow)
 
 
 logs.set_level("debug")
@@ -1472,3 +1472,193 @@ def test_update_used_keys(db_context: DatabaseContext):
     transaction_deltas_table.close()
     keyinstance_table.close()
     tx_table.close()
+
+
+@pytest.mark.timeout(8)
+def test_table_invoice_crud(db_context: DatabaseContext) -> None:
+    table = InvoiceTable(db_context)
+    assert [] == table.read_account(1)
+
+    table._get_current_timestamp = lambda: 10
+
+    TX_BYTES_1 = os.urandom(10)
+    TX_HASH_1 = bitcoinx.double_sha256(TX_BYTES_1)
+    TX_INDEX = 1
+    TXOUT_FLAGS = 1 << 15
+    KEYINSTANCE_ID = 1
+    ACCOUNT_ID_1 = 10
+    ACCOUNT_ID_2 = 20
+    MASTERKEY_ID = 20
+    DERIVATION_DATA = b'111'
+
+    TX_BYTES_2 = os.urandom(10)
+    TX_HASH_2 = bitcoinx.double_sha256(TX_BYTES_2)
+
+    TX_BYTES_3 = os.urandom(10)
+    TX_HASH_3 = bitcoinx.double_sha256(TX_BYTES_3)
+
+    # LINE_COUNT = 3
+    line1_1 = InvoiceRow(1, ACCOUNT_ID_1, None, "payment_uri1", "desc", PaymentFlag.UNPAID,
+        1, b'{}', None, table._get_current_timestamp())
+    line2_1 = InvoiceRow(2, ACCOUNT_ID_1, TX_HASH_1, "payment_uri2", "desc", PaymentFlag.PAID,
+        2, b'{}', table._get_current_timestamp() + 10, table._get_current_timestamp())
+    line3_2 = InvoiceRow(3, ACCOUNT_ID_2, None, "payment_uri3", "desc", PaymentFlag.UNPAID,
+        3, b'{}', None, table._get_current_timestamp())
+
+    # No effect: The transactionoutput foreign key constraint will fail as the account
+    # does not exist.
+    with pytest.raises(sqlite3.IntegrityError):
+        with SynchronousWriter() as writer:
+            table.create([ line1_1 ], completion_callback=writer.get_callback())
+            assert not writer.succeeded()
+
+    # Satisfy the masterkey foreign key constraint by creating the masterkey.
+    with MasterKeyTable(db_context) as masterkey_table:
+        with SynchronousWriter() as writer:
+            masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+    # Satisfy the account foreign key constraint by creating the account.
+    with AccountTable(db_context) as account_table:
+        with SynchronousWriter() as writer:
+            account_table.create([
+                    AccountRow(ACCOUNT_ID_1, MASTERKEY_ID, ScriptType.P2PKH, 'name1'),
+                    AccountRow(ACCOUNT_ID_2, MASTERKEY_ID, ScriptType.P2PKH, 'name2'),
+                ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+    txs = []
+    for txh, txb in ((TX_HASH_1, TX_BYTES_1), (TX_HASH_2, TX_BYTES_2), (TX_HASH_3, TX_BYTES_3)):
+        tx = TransactionRow(
+            tx_hash=txh, tx_data=TxData(height=1, position=1, fee=250, date_added=1,
+            date_updated=2), tx_bytes=txb,
+            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
+            description=None)
+        txs.append(tx)
+    transaction_table = TransactionTable(db_context)
+    with SynchronousWriter() as writer:
+        transaction_table.create(txs, completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    with SynchronousWriter() as writer:
+        table.create([ line1_1, line2_1, line3_2 ], completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    # No effect: The primary key constraint will prevent any conflicting entry from being added.
+    with pytest.raises(sqlite3.IntegrityError):
+        with SynchronousWriter() as writer:
+            table.create([ line1_1 ], completion_callback=writer.get_callback())
+            assert not writer.succeeded()
+
+    def compare_row_to_account_row(src: InvoiceRow, dst: InvoiceAccountRow) -> None:
+        assert src.description == dst.description
+        assert src.flags == dst.flags
+        assert src.value == dst.value
+        assert src.date_expires == dst.date_expires
+        assert src.date_created == dst.date_created
+
+    ## InvoiceTable.read
+    # Read all rows in the table for account 1.
+    db_lines = table.read_account(ACCOUNT_ID_1)
+    assert 2 == len(db_lines)
+    db_line1 = [ db_line for db_line in db_lines if db_line.invoice_id == line1_1.invoice_id ][0]
+    compare_row_to_account_row(line1_1, db_line1)
+    db_line2 = [ db_line for db_line in db_lines if db_line.invoice_id == line2_1.invoice_id ][0]
+    compare_row_to_account_row(line2_1, db_line2)
+
+    # Read all rows in the table for account 2.
+    db_lines = table.read_account(ACCOUNT_ID_2)
+    assert 1 == len(db_lines)
+    db_line3 = [ db_line for db_line in db_lines if db_line.invoice_id == line3_2.invoice_id ][0]
+    compare_row_to_account_row(line3_2, db_line3)
+
+    # Read all PAID rows in the table for the first account.
+    db_lines = table.read_account(ACCOUNT_ID_1, mask=PaymentFlag.PAID)
+    assert 1 == len(db_lines)
+    assert 2 == db_lines[0].invoice_id
+
+    # Read all UNPAID rows in the table for the first account.
+    db_lines = table.read_account(ACCOUNT_ID_1, mask=PaymentFlag.UNPAID)
+    assert 1 == len(db_lines)
+    assert 1 == db_lines[0].invoice_id
+
+    # Require ARCHIVED flag.
+    db_lines = table.read_account(ACCOUNT_ID_1, mask=PaymentFlag.ARCHIVED)
+    assert 0 == len(db_lines)
+
+    # Require no ARCHIVED flag.
+    db_lines = table.read_account(ACCOUNT_ID_1, flags=PaymentFlag.NONE, mask=PaymentFlag.ARCHIVED)
+    assert 2 == len(db_lines)
+
+    # Non-existent account.
+    db_lines = table.read_account(1010101)
+    assert 0 == len(db_lines)
+
+    ## InvoiceTable.read_one
+    row = table.read_one(line1_1.invoice_id)
+    assert row is not None
+    assert 1 == row.invoice_id
+
+    row = table.read_one(100101)
+    assert row is None
+
+    row = table.read_one(tx_hash=TX_HASH_1)
+    assert row is not None
+    assert 2 == row.invoice_id
+
+    ## InvoiceTable.update_payments
+    date_updated = 20
+
+    with SynchronousWriter() as writer:
+        table.update_payments([ (~PaymentFlag.STATE_MASK, PaymentFlag.PAID, TX_HASH_3, "newdesc3",
+                line3_2.invoice_id), ],
+            date_updated,
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    # Verify the invoice is now marked as paid with the third tx.
+    row = table.read_one(line3_2.invoice_id)
+    assert row is not None
+    assert row.flags & PaymentFlag.STATE_MASK == PaymentFlag.PAID
+    assert row.description == "newdesc3"
+
+    ## InvoiceTable.update_description
+    with SynchronousWriter() as writer:
+        table.update_description([ ("newdesc3.2", line3_2.invoice_id), ],
+            date_updated,
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    # Verify the invoice now has the new description.
+    row = table.read_one(line3_2.invoice_id)
+    assert row.description == "newdesc3.2"
+
+    ## InvoiceTable.update_flags
+    with SynchronousWriter() as writer:
+        table.update_flags([ (~PaymentFlag.ARCHIVED, PaymentFlag.ARCHIVED, line3_2.invoice_id), ],
+            date_updated,
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    # Verify the invoice now has the new description.
+    row = table.read_one(line3_2.invoice_id)
+    assert row.flags == PaymentFlag.ARCHIVED | PaymentFlag.PAID
+
+    ## InvoiceTable.read_duplicate
+    duplicate_row1 = table.read_duplicate(111, "ddd")
+    assert duplicate_row1 is None
+    duplicate_row2 = table.read_duplicate(row.value, row.payment_uri)
+    assert duplicate_row2 == row
+
+    with SynchronousWriter() as writer:
+        table.delete([ (line2_1.invoice_id,) ], completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    db_lines = table.read_account(ACCOUNT_ID_1)
+    assert 1 == len(db_lines)
+    assert db_lines[0].invoice_id == line1_1.invoice_id
+
+    transaction_table.close()
+    table.close()

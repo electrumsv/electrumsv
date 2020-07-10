@@ -808,6 +808,16 @@ class TransactionDeltaRow(NamedTuple):
     keyinstance_id: int
     value_delta: int
 
+class TransactionKeyHistoryRow(NamedTuple):
+    tx_hash: bytes
+    keyinstance_id: int
+
+class TransactionDeltaHistoryRow(NamedTuple):
+    tx_hash: bytes
+    tx_flags: TxFlags
+    value_delta: int
+
+
 class TransactionDeltaTable(BaseWalletStore):
     LOGGER_NAME = "db-table-txdelta"
 
@@ -829,10 +839,23 @@ class TransactionDeltaTable(BaseWalletStore):
         "INNER JOIN Transactions AS T ON TD.tx_hash = T.tx_hash "
         "WHERE T.description IS NOT NULL "
         "GROUP BY T.tx_hash")
-    READ_HISTORY_SQL = ("SELECT TD.tx_hash, TD.value_delta, TD.keyinstance_id "
+    READ_HISTORY_SQL = ("SELECT T.tx_hash, T.flags, TOTAL(TD.value_delta) "
+        "FROM Transactions T "
+        "INNER JOIN TransactionDeltas AS TD ON T.tx_hash = TD.tx_hash "
+        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
+            "KI.account_id = ? "
+        "GROUP BY T.tx_hash")
+    READ_HISTORY_DOMAIN_SQL = ("SELECT T.tx_hash, T.flags, TOTAL(TD.value_delta) "
+        "FROM Transactions T "
+        "INNER JOIN TransactionDeltas AS TD ON T.tx_hash = TD.tx_hash "
+        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
+            "KI.account_id = ? AND TD.keyinstance_id IN ({}) "
+        "GROUP BY T.tx_hash")
+    READ_KEY_HISTORY_SQL = ("SELECT TD.tx_hash, TD.keyinstance_id "
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ?")
+            "KI.account_id = ?"
+        "GROUP BY TD.tx_hash, TD.keyinstance_id")
     READ_CANDIDATE_USED_KEYS = (f"""
         WITH active_keys AS (
                 SELECT keyinstance_id
@@ -944,9 +967,32 @@ class TransactionDeltaTable(BaseWalletStore):
         cursor.close()
         return [ TransactionDeltaRow(*t) for t in rows ]
 
+    def read_key_history(self, account_id: int) -> List[TransactionKeyHistoryRow]:
+        results: List[TransactionKeyHistoryRow] = []
+        for row in self._get_many_common(self.READ_KEY_HISTORY_SQL, [ account_id ]):
+            results.append(TransactionKeyHistoryRow(*row))
+        return results
+
     def read_history(self, account_id: int,
-            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes, int, int]]:
-        return self._get_many_common(self.READ_HISTORY_SQL, [ account_id ], tx_hashes)
+            keyinstance_ids: Optional[Sequence[int]]=None) -> List[TransactionDeltaHistoryRow]:
+        params = [ account_id ]
+        if keyinstance_ids:
+            results = []
+            batch_size = SQLITE_MAX_VARS - len(params)
+            while len(keyinstance_ids):
+                batch_ids = keyinstance_ids[:batch_size]
+                query = self.READ_HISTORY_DOMAIN_SQL.format(",".join("?" for k in batch_ids))
+                cursor = self._db.execute(query, params + batch_ids) # type: ignore
+                rows = cursor.fetchall()
+                cursor.close()
+                results.extend(rows)
+                keyinstance_ids = keyinstance_ids[batch_size:]
+        else:
+            query = self.READ_HISTORY_SQL
+            cursor = self._db.execute(query, [account_id])
+            rows = cursor.fetchall()
+            cursor.close()
+        return [ TransactionDeltaHistoryRow(*t) for t in rows ]
 
     def read_descriptions(self, account_id: int) -> List[Tuple[bytes, str]]:
         return self._get_many_common(self.READ_DESCRIPTIONS_SQL, [ account_id ])
@@ -1074,6 +1120,148 @@ class PaymentRequestTable(BaseWalletStore):
             db.executemany(self.DELETE_SQL, entries)
         self._db_context.queue_write(_write, completion_callback)
 
+
+class InvoiceRow(NamedTuple):
+    invoice_id: int
+    account_id: int
+    tx_hash: Optional[bytes]
+    payment_uri: str
+    description: Optional[str]
+    flags: PaymentFlag
+    value: int
+    invoice_data: bytes
+    date_expires: Optional[int]
+    date_created: int
+
+
+class InvoiceAccountRow(NamedTuple):
+    invoice_id: int
+    payment_uri: str
+    description: Optional[str]
+    flags: PaymentFlag
+    value: int
+    date_expires: Optional[int]
+    date_created: int
+
+
+class InvoiceTable(BaseWalletStore):
+    LOGGER_NAME = "db-table-invoice"
+
+    # For recording the invoice after it is selected and the PaymentRequest is fetched.
+    CREATE_SQL = ("INSERT INTO Invoices "
+        "(account_id, tx_hash, payment_uri, description, invoice_flags, value, "
+        "invoice_data, date_expires, date_created, date_updated) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    READ_ALL_SQL = ("SELECT invoice_id, account_id, tx_hash, payment_uri, description, "
+        "invoice_flags, value, invoice_data, date_expires, date_created FROM Invoices")
+    # For the displayed listing of all the invoices for the current account.
+    READ_ACCOUNT_SQL = ("SELECT invoice_id, payment_uri, description, invoice_flags, value, "
+        "date_expires, date_created FROM Invoices WHERE account_id=?")
+    UPDATE_DESCRIPTION_SQL = ("UPDATE Invoices SET date_updated=?, description=? "
+        "WHERE invoice_id=?")
+    UPDATE_FLAGS_SQL = ("UPDATE Invoices SET date_updated=?, invoice_flags=((invoice_flags&?)|?) "
+        "WHERE invoice_id=?")
+    UPDATE_PAYMENT_SQL = ("UPDATE Invoices SET date_updated=?, "
+        "invoice_flags=((invoice_flags&?)|?), tx_hash=?, description=? WHERE invoice_id=?")
+    DELETE_SQL = "DELETE FROM Invoices WHERE invoice_id=?"
+    ARCHIVE_SQL = f"""
+    UPDATE Invoices SET state=state|{PaymentFlag.ARCHIVED} WHERE invoice_id=%d
+    """
+
+    def create(self, entries: Iterable[InvoiceRow],
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        # Discard the first column for the id.
+        # Duplicate the last column for date_updated = date_created
+        datas = [ (*t[1:], t[-1]) for t in entries ]
+        def _write(db: sqlite3.Connection):
+            db.executemany(self.CREATE_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def _read_one(self, query: str, params: List[Any]) -> Optional[InvoiceRow]:
+        cursor = self._db.execute(query, params)
+        t = cursor.fetchone()
+        cursor.close()
+        if t is not None:
+            return InvoiceRow(t[0], t[1], t[2], t[3], t[4], PaymentFlag(t[5]), t[6], t[7], t[8],
+                t[9])
+        return None
+
+    def read_one(self, invoice_id: Optional[int]=None, tx_hash: Optional[bytes]=None,
+            payment_uri: Optional[str]=None) -> Optional[InvoiceRow]:
+        query = self.READ_ALL_SQL
+        params: List[Any]
+        if invoice_id is not None:
+            query += f" WHERE invoice_id=?"
+            params = [ invoice_id ]
+        elif tx_hash is not None:
+            query += f" WHERE tx_hash=?"
+            params = [ tx_hash ]
+        elif payment_uri is not None:
+            query += f" WHERE payment_uri=?"
+            params = [ payment_uri ]
+        else:
+            raise Exception("bad read, no id")
+        return self._read_one(query, params)
+
+    def read_duplicate(self, value: int, payment_uri: str) -> Optional[InvoiceRow]:
+        query = self.READ_ALL_SQL
+        query += f" WHERE value=? AND payment_uri=?"
+        params = [ value, payment_uri ]
+        return self._read_one(query, params)
+
+    def read_account(self, account_id: int, flags: Optional[int]=None,
+            mask: Optional[int]=None) -> List[InvoiceAccountRow]:
+        params: List[Any] = [ account_id ]
+        query = self.READ_ACCOUNT_SQL
+        # We keep the filtering in case we want to let the user define whether to show only
+        # invoices in a certain state. If we never do that, we can remove this.
+        clause, extra_params = flag_clause("invoice_flags", flags, mask)
+        if clause:
+            query += f" AND {clause}"
+            params.extend(extra_params)
+        cursor = self._db.execute(query, params)
+        rows = cursor.fetchall()
+        cursor.close()
+        return [ InvoiceAccountRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6])
+            for t in rows ]
+
+    def update_payments(self,
+            entries: Iterable[Tuple[PaymentFlag, PaymentFlag, bytes, Optional[str], int]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        payment_datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection) -> None:
+            nonlocal payment_datas
+            db.executemany(self.UPDATE_PAYMENT_SQL, payment_datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def update_description(self, entries: Iterable[Tuple[Optional[str], int]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection) -> None:
+            db.executemany(self.UPDATE_DESCRIPTION_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def update_flags(self, entries: Iterable[Tuple[PaymentFlag, PaymentFlag, int]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection) -> None:
+            db.executemany(self.UPDATE_FLAGS_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def delete(self, entries: Iterable[Tuple[int]],
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        def _write(db: sqlite3.Connection) -> None:
+            db.executemany(self.DELETE_SQL, entries)
+        self._db_context.queue_write(_write, completion_callback)
 
 
 class WalletEventRow(NamedTuple):

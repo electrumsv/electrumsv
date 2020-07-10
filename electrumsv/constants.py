@@ -22,7 +22,7 @@ class StorageKind(IntEnum):
 
 DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
-MIGRATION_CURRENT = 24
+MIGRATION_CURRENT = 25
 
 class TxFlags(IntFlag):
     Unset = 0
@@ -45,6 +45,8 @@ class TxFlags(IntFlag):
     StateSigned = 1 << 23
     # A transaction you have given to someone else, and are considering the inputs it uses frozen.
     StateDispatched = 1 << 24
+
+    PaysInvoice = 1 << 30
 
     METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition)
     STATE_MASK = (StateSettled | StateDispatched | StateReceived | StateCleared | StateSigned)
@@ -169,11 +171,12 @@ class TransactionOutputFlag(IntFlag):
 class PaymentFlag(IntFlag):
     NONE =     0
     UNPAID  =  1 << 0
-    EXPIRED =  1 << 1
+    EXPIRED =  1 << 1     # deprecated
     UNKNOWN =  1 << 2     # sent but not propagated
     PAID    =  1 << 3     # send and propagated
-    ARCHIVED = 1 << 4
+    ARCHIVED = 1 << 4     # unused until we have ui support for filtering
 
+    STATE_MASK = (UNPAID | EXPIRED | PAID | ARCHIVED)
     UNPAID_MASK = ~(PAID | ARCHIVED)
 
 

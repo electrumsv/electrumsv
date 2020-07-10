@@ -43,7 +43,10 @@ def create_database_file(wallet_path: str) -> None:
     if os.path.exists(db_path):
         raise DatabaseMigrationError("wallet database already exists")
 
-    db = sqlite3.connect(db_path)
+    # Python sqlite bindings automatically enter a transaction which prevents the PRAGMA from
+    # exiting, which is why we use no isolation level.
+    db = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
+    db.execute(f"PRAGMA journal_mode=WAL;")
     create_database(db)
     db.close()
 
@@ -60,6 +63,9 @@ def update_database(db: sqlite3.Connection) -> None:
             version += 1
         if version == 23:
             migrations.migration_0024_account_transactions.execute(db)
+            version += 1
+        if version == 24:
+            migrations.migration_0025_invoices.execute(db)
             version += 1
 
         if version != MIGRATION_CURRENT:

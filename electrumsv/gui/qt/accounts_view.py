@@ -383,7 +383,8 @@ class AccountInformationDialog(QDialog):
         super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
             Qt.WindowCloseButtonHint)
 
-        self._main_window = weakref.proxy(main_window)
+        assert type(main_window) is weakref.ProxyType
+        self._main_window = main_window
         self._wallet = wallet
 
         self._account = account = self._wallet.get_account(account_id)

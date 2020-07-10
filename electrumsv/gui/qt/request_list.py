@@ -37,8 +37,9 @@ from electrumsv.i18n import _
 from electrumsv.util import format_time, age
 from electrumsv.wallet import AbstractAccount
 
+from .constants import pr_icons, pr_tooltips
 from .main_window import ElectrumWindow
-from .util import MyTreeWidget, pr_tooltips, pr_icons, read_QIcon
+from .util import MyTreeWidget, read_QIcon
 
 
 class RequestList(MyTreeWidget):

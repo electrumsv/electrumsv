@@ -38,11 +38,13 @@ from PyQt5.QtWidgets import QMenu, QWidget
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COINBASE_MATURITY
+from electrumsv.constants import TxFlags
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.platform import platform
 from electrumsv.util import timestamp_to_datetime, profiler, format_time
 from electrumsv.wallet import AbstractAccount
+from electrumsv.wallet_database.tables import InvoiceRow
 import electrumsv.web as web
 
 from .main_window import ElectrumWindow
@@ -156,7 +158,6 @@ class HistoryView(MyTreeWidget):
                             line.height, server_height)
             status = get_tx_status(self._account, line.tx_hash, line.height, conf, timestamp)
             status_str = get_tx_desc(status, timestamp)
-            has_invoice = self._account.invoices.paid.get(tx_id)
             icon = get_tx_icon(status)
             v_str = app_state.format_amount(line.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(balance, whitespaces=True)
@@ -172,7 +173,7 @@ class HistoryView(MyTreeWidget):
             item.setIcon(0, icon)
             item.setToolTip(0, get_tx_tooltip(status, conf))
             item.setData(0, SortableTreeWidgetItem.DataRole, line.sort_key)
-            if has_invoice:
+            if line.tx_flags & TxFlags.PaysInvoice:
                 item.setIcon(3, self.invoiceIcon)
             for i in range(len(entry)):
                 if i>3:
@@ -251,7 +252,7 @@ class HistoryView(MyTreeWidget):
         tx = account.get_transaction(tx_hash)
         if not tx: return # this happens sometimes on account synch when first starting up.
         is_unconfirmed = height <= 0
-        pr_key = account.invoices.paid.get(tx_hash)
+        invoice_row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
 
         menu = QMenu()
         menu.addAction(_("Copy {}").format(column_title),
@@ -269,15 +270,15 @@ class HistoryView(MyTreeWidget):
             if child_tx:
                 menu.addAction(_("Child pays for parent"),
                     lambda: self._main_window.cpfp(account, tx, child_tx))
-        if pr_key:
+        if invoice_row is not None:
             menu.addAction(read_QIcon("seal"), _("View invoice"),
-                partial(self._show_invoice_window, pr_key))
+                partial(self._show_invoice_window, invoice_row))
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
         menu.exec_(self.viewport().mapToGlobal(position))
 
-    def _show_invoice_window(self, request_id: str) -> None:
-        self._main_window.show_invoice(self._account, request_id)
+    def _show_invoice_window(self, row: InvoiceRow) -> None:
+        self._main_window.show_invoice(self._account, row)
 
 
 def get_tx_status(account: AbstractAccount, tx_hash: bytes, height: int, conf: int,
