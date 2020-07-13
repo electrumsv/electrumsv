@@ -386,11 +386,11 @@ class AbstractAccount:
 
         assert len(candidate_key_ids), "should never be called with no keys to activate"
 
-        for txo_row in self._wallet.read_transactionoutputs(key_ids=candidate_key_ids):
+        for txo_row in self._wallet.read_transactionoutputs(key_ids=list(candidate_key_ids)):
             self._load_txo(txo_row)
 
         keyinstance_updates: List[Tuple[KeyInstanceFlag, int]] = []
-        for row in self._wallet.read_keyinstances(key_ids=candidate_key_ids):
+        for row in self._wallet.read_keyinstances(key_ids=list(candidate_key_ids)):
             # TODO: Work out the correct thing to do for these assertions? Ignore these keys?
             assert row.keyinstance_id not in self._keyinstances
             assert row.flags & KeyInstanceFlag.IS_ACTIVE != KeyInstanceFlag.IS_ACTIVE
@@ -2080,6 +2080,13 @@ class Wallet(TriggeredCallbacks):
         if self._db_context is None:
             return
 
+        self._last_load_height = self._storage.get('stored_height', 0)
+        last_load_hash = self._storage.get('last_tip_hash')
+        if last_load_hash is not None:
+            last_load_hash = hex_str_to_hash(last_load_hash)
+        self._last_load_hash = last_load_hash
+        self._logger.debug("chain %d:%s", self._last_load_height, last_load_hash)
+
         self._keystores.clear()
         self._accounts.clear()
         self._transaction_descriptions.clear()
@@ -2625,9 +2632,12 @@ class Wallet(TriggeredCallbacks):
             return
 
         reorg_count, updated_tx_hashes = self._transaction_cache.apply_reorg(above_height)
-        self._logger.info(f'removing verification of {reorg_count} transactions')
-        for account in self._accounts.values():
-            account.reactivate_reorged_keys(updated_tx_hashes)
+        self._logger.info(
+            f'removing verification of {reorg_count} transactions above {above_height}')
+
+        if self._storage.get('deactivate_used_keys', False):
+            for account in self._accounts.values():
+                account.reactivate_reorged_keys(updated_tx_hashes)
 
     def resolve_xpubkey(self,
             x_pubkey: XPublicKey) -> Optional[Tuple[AbstractAccount, Optional[int]]]:
@@ -2643,11 +2653,6 @@ class Wallet(TriggeredCallbacks):
                             x_pubkey.derivation_path())
                     return account, keyinstance_id
         return None
-
-    def get_local_height(self) -> int:
-        """ return last known height if we are offline """
-        return (self._network.get_local_height() if self._network else
-            self._storage.get('stored_height', 0))
 
     def get_use_change(self) -> bool:
         return self._storage.get('use_change', True)
@@ -2685,6 +2690,11 @@ class Wallet(TriggeredCallbacks):
         self._transaction_cache.set_maximum_cache_size_for_bytedata(maximum_size_bytes,
             force_resize)
 
+    def get_local_height(self) -> int:
+        """ return last known height if we are offline """
+        return (self._network.get_local_height() if self._network else
+            self._storage.get('stored_height', 0))
+
     def start(self, network: 'Network') -> None:
         self._network = network
         if network is not None:
@@ -2695,7 +2705,14 @@ class Wallet(TriggeredCallbacks):
 
     def stop(self) -> None:
         assert not self._stopped
-        self._storage.put('stored_height', self.get_local_height())
+        local_height = self._last_load_height
+        chain_tip_hash = self._last_load_hash
+        if self._network is not None and self._network.chain():
+            chain_tip = self._network.chain().tip
+            local_height = chain_tip.height
+            chain_tip_hash = chain_tip.hash
+        self._storage.put('stored_height', local_height)
+        self._storage.put('last_tip_hash', chain_tip_hash.hex() if chain_tip_hash else None)
 
         for account in self.get_accounts():
             account.stop()

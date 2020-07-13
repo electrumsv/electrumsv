@@ -174,7 +174,7 @@ class WalletDataTable(BaseWalletStore):
             datas.append((entry.key, json.dumps(entry.value), timestamp, timestamp))
 
         def _write(db: sqlite3.Connection) -> None:
-            self._logger.debug("upsert '%s'", [ t.key for t in entries ])
+            self._logger.debug("upsert %s", [ t.key for t in entries ])
             db.executemany(self.UPSERT_SQL, datas)
 
         self._db_context.queue_write(_write, completion_callback)
@@ -187,7 +187,7 @@ class WalletDataTable(BaseWalletStore):
             datas.append((json.dumps(t.value), timestamp, t.key))
 
         def _write(db: sqlite3.Connection) -> None:
-            self._logger.debug("update '%s'", [t.key for t in entries])
+            self._logger.debug("update %s", [t.key for t in entries])
             db.executemany(self.UPDATE_SQL, datas)
 
         self._db_context.queue_write(_write, completion_callback)
@@ -197,7 +197,7 @@ class WalletDataTable(BaseWalletStore):
         timestamp = self._get_current_timestamp()
 
         def _write(db: sqlite3.Connection) -> None:
-            self._logger.debug("deleted '%s'", key)
+            self._logger.debug("deleted %s", key)
             db.execute(self.DELETE_SQL, [key])
 
         self._db_context.queue_write(_write, completion_callback)
@@ -643,6 +643,7 @@ class KeyInstanceTable(BaseWalletStore):
             db.executemany(self.CREATE_SQL, datas)
         self._db_context.queue_write(_write, completion_callback, size_hint)
 
+    # We cannot take Sequence in place of List, because Sequences are not addable.
     def read(self, mask: Optional[KeyInstanceFlag]=None, key_ids: Optional[List[int]]=None) \
             -> List[KeyInstanceRow]:
         results: List[KeyInstanceRow] = []
@@ -750,6 +751,7 @@ class TransactionOutputTable(BaseWalletStore):
             db.executemany(self.CREATE_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)
 
+    # We cannot take Sequence in place of List, because Sequences are not addable.
     def read(self, mask: Optional[TransactionOutputFlag]=None,
             key_ids: Optional[List[int]]=None) -> Iterable[TransactionOutputRow]:
         results: List[TransactionOutputRow] = []
