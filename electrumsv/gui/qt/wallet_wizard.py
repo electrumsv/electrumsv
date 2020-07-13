@@ -549,7 +549,6 @@ class ChooseWalletPage(QWizardPage):
             self._attempt_open_wallet(wallet_filepath, change_page=True)
 
     def _event_click_open_selected_file(self) -> None:
-        logger.debug("ChooseWalletPage._event_click_open_selected_file")
         # The default "Commit" button page switching should have been prevented by this flag.
         # This event should come after it, and clear the flag so it can manually switch the
         # page itself.
@@ -560,7 +559,6 @@ class ChooseWalletPage(QWizardPage):
         self._attempt_open_wallet(wallet_path, change_page=True)
 
     def _event_press_open_selected_file(self) -> None:
-        logger.debug("ChooseWalletPage._event_press_open_selected_file")
         # The default "Commit" button page switching should be prevented by this flag.
         # Ensure both `validatePage` and `isComplete` fail until the click event happens. The
         # click event happens last, after the press, the release, and the default "Commit" button
@@ -569,7 +567,6 @@ class ChooseWalletPage(QWizardPage):
 
     def _event_selection_changed(self, selected: QItemSelection, deselected: QItemSelection) \
             -> None:
-        logger.debug("ChooseWalletPage._event_selection_changed")
         # Selecting an entry should change the page elements to be ready to either move to another
         # page, or whatever else is applicable.
         if len(selected.indexes()):
@@ -585,13 +582,11 @@ class ChooseWalletPage(QWizardPage):
         self.completeChanged.emit()
 
     def _event_key_selection(self) -> None:
-        logger.debug("ChooseWalletPage._event_key_selection")
         selected_indexes = self._wallet_table.selectedIndexes()
         if len(selected_indexes):
             self._select_row(selected_indexes[0].row())
 
     def _event_entry_doubleclicked(self, index: QModelIndex) -> None:
-        logger.debug("ChooseWalletPage._event_entry_doubleclicked")
         self._select_row(index.row())
 
     def _select_row(self, row: int) -> None:
