@@ -126,6 +126,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.app = app_state.app
         self.cleaned_up = False
         self.qr_window = None
+        self._receive_qr: Optional[QRCodeWidget] = None
         self.tx_notifications: List[Transaction] = []
         self.tx_notify_timer = None
         self.tx_dialogs = []
@@ -2314,7 +2315,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self._logger.exception("unable to write to wallet storage (directory removed?)")
 
         self.console.clean_up()
-        self._receive_qr.clean_up()
+        # If there are no accounts there won't be a receive QR code object created yet.
+        if self._receive_qr is not None:
+            self._receive_qr.clean_up()
 
         # Should be no side-effects in this function relating to file access past this point.
         if self.qr_window:
