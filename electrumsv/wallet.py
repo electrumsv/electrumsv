@@ -1197,9 +1197,11 @@ class AbstractAccount:
         fx = app_state.fx
         out = []
 
+        network = app_state.daemon.network
         chain = app_state.headers.longest_chain()
-        backfill_headers = app_state.daemon.network.backfill_headers_at_heights
+        backfill_headers = network.backfill_headers_at_heights
         header_at_height = app_state.headers.header_at_height
+        server_height = network.get_server_height() if network else 0
         for history_line, balance in h:
             try:
                 timestamp = timestamp_to_datetime(header_at_height(chain,
@@ -1208,7 +1210,8 @@ class AbstractAccount:
                 if history_line.height > 0:
                     self._logger.debug("fetching missing headers at height: %s",
                                        history_line.height)
-                    backfill_headers([history_line])
+                    assert history_line.height <= server_height, "inconsistent blockchain data"
+                    backfill_headers([history_line.height])
                     timestamp = timestamp_to_datetime(header_at_height(chain,
                                     history_line.height).timestamp)
                 else:

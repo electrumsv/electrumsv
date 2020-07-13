@@ -39,6 +39,7 @@ from PyQt5.QtWidgets import QMenu, QWidget
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.i18n import _
+from electrumsv.logs import logs
 from electrumsv.platform import platform
 from electrumsv.util import timestamp_to_datetime, profiler, format_time
 from electrumsv.wallet import AbstractAccount
@@ -46,6 +47,9 @@ import electrumsv.web as web
 
 from .main_window import ElectrumWindow
 from .util import (MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox)
+
+
+logger = logs.get_logger("history-list")
 
 
 class TxStatus(enum.IntEnum):
@@ -132,6 +136,8 @@ class HistoryView(MyTreeWidget):
         if fx:
             fx.history_used_spot = False
         local_height = self._wallet.get_local_height()
+        server_height = self._main_window.network.get_server_height() if self._main_window.network \
+            else 0
         header_at_height = app_state.headers.header_at_height
         chain = app_state.headers.longest_chain()
         missing_header_heights = []
@@ -143,7 +149,11 @@ class HistoryView(MyTreeWidget):
                 try:
                     timestamp = header_at_height(chain, line.height).timestamp
                 except MissingHeader:
-                    missing_header_heights.append(line.height)
+                    if line.height <= server_height:
+                        missing_header_heights.append(line.height)
+                    else:
+                        logger.debug("Unable to backfill header at %d (> %d)",
+                            line.height, server_height)
             status = get_tx_status(self._account, line.tx_hash, line.height, conf, timestamp)
             status_str = get_tx_desc(status, timestamp)
             has_invoice = self._account.invoices.paid.get(tx_id)
