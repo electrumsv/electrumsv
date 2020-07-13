@@ -303,7 +303,7 @@ class _ItemModel(QAbstractItemModel):
                     return line.usages
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     if column == BALANCE_COLUMN:
-                        return app_state.format_amount(line.balance, whitespaces=True)
+                        return line.balance
                     elif column == FIAT_BALANCE_COLUMN:
                         fx = app_state.fx
                         rate = fx.exchange_rate()
