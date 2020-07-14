@@ -20,7 +20,7 @@ python_exe = shutil.which("python3")
 if sys.platform == "win32":
     python_exe = sys.executable
 
-for r_suffix in [ '',  '-hw', '-binaries']:
+for r_suffix in [ '',  '-hw', '-binaries', '-dev']:
     if os.path.exists(venv_dir):
         shutil.rmtree(venv_dir)
 
