@@ -834,36 +834,29 @@ class TransactionDeltaTable(BaseWalletStore):
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
             "KI.account_id = ?")
     READ_CANDIDATE_USED_KEYS = (f"""
-        WITH constants AS (
-            SELECT {KeyInstanceFlag.IS_ACTIVE} AS is_active_flag,
-                   {KeyInstanceFlag.USER_SET_ACTIVE} AS user_set_active_flag,
-                   {TxFlags.StateSettled} AS settled_tx_flag
-            ),
-             active_keys AS (
-                SELECT keyinstance_id, account_id, script_type, flags AS key_flags
-                FROM KeyInstances, constants
-                WHERE flags & constants.is_active_flag = constants.is_active_flag
-                  AND flags & constants.user_set_active_flag != constants.user_set_active_flag
+        WITH active_keys AS (
+                SELECT keyinstance_id
+                FROM KeyInstances
+                WHERE flags & {KeyInstanceFlag.ACTIVE_MASK} = {KeyInstanceFlag.IS_ACTIVE}
                   AND account_id = ?
             ),
             tx_history_table AS (
-                SELECT TD.keyinstance_id, tx_hash, value_delta, script_type, key_flags
+                SELECT TD.keyinstance_id, tx_hash, value_delta
                 FROM TransactionDeltas AS TD
                 JOIN active_keys ON TD.keyinstance_id = active_keys.keyinstance_id
             ),
             settled_history AS (
-                SELECT tx_history_table.keyinstance_id, script_type, key_flags, value_delta,
-                flags AS tx_flags
+                SELECT tx_history_table.keyinstance_id, tx_history_table.value_delta
                 FROM Transactions AS TX
                 JOIN tx_history_table ON TX.tx_hash = tx_history_table.tx_hash
-                JOIN constants ON constants.settled_tx_flag & TX.flags == constants.settled_tx_flag)
+                WHERE TX.flags & {TxFlags.StateSettled} = {TxFlags.StateSettled})
 
-            SELECT keyinstance_id, key_flags, script_type
-                FROM settled_history
-                GROUP BY keyinstance_id HAVING SUM(value_delta) == 0;""")
+            SELECT keyinstance_id
+            FROM settled_history
+            GROUP BY keyinstance_id HAVING SUM(value_delta) == 0;""")
     DEACTIVATE_KEYINSTANCE_FLAGS = (f"""
         UPDATE KeyInstances
-        SET date_updated=?, flags=({KeyInstanceFlag.INACTIVE_MASK|KeyInstanceFlag.USER_SET_ACTIVE})
+        SET date_updated=?, flags=flags&{KeyInstanceFlag.INACTIVE_MASK}
         """ + "WHERE keyinstance_id IN ({0})")
     READ_ALL_SQL = "SELECT tx_hash, keyinstance_id, value_delta FROM TransactionDeltas"
     UPDATE_SQL = ("UPDATE TransactionDeltas SET date_updated=?, value_delta=? "
@@ -902,9 +895,8 @@ class TransactionDeltaTable(BaseWalletStore):
             tx_hashes = tx_hashes[batch_size:]
         return results
 
-    def update_used_keys(self, account_id: int) \
-            -> Sequence[Tuple[int]]:
-
+    def update_used_keys(self, account_id: int,
+            completion_callback: Optional[CompletionCallbackType]=None) -> Sequence[Tuple[int]]:
         params = [account_id]
         cursor = self._db.execute(self.READ_CANDIDATE_USED_KEYS, params)  # type: ignore
         key_id_rows = cursor.fetchall()
@@ -912,16 +904,19 @@ class TransactionDeltaTable(BaseWalletStore):
 
         key_ids = [key_id[0] for key_id in key_id_rows]
         keys = key_ids.copy()
-        timestamp = self._get_current_timestamp()
-        params = [timestamp]
-        batch_size = SQLITE_MAX_VARS - len(params)
-        while len(keys):
-            keys = keys[:batch_size]
-            batch_query = (self.DEACTIVATE_KEYINSTANCE_FLAGS.format(",".join("?" for k in keys)))
-            cursor = self._db.execute(batch_query, keys + params) # type: ignore
-            _rows = cursor.fetchall()
-            cursor.close()
-            keys = keys[batch_size:]
+
+        def _write(db: sqlite3.Connection):
+            nonlocal keys
+            timestamp = self._get_current_timestamp()
+            params = [timestamp]
+            batch_size = SQLITE_MAX_VARS - len(params)
+            while len(keys):
+                batch_keys = keys[:batch_size]
+                batch_query = (
+                    self.DEACTIVATE_KEYINSTANCE_FLAGS.format(",".join("?" for k in batch_keys)))
+                db.execute(batch_query, params + batch_keys) # type: ignore
+                keys = keys[batch_size:]
+        self._db_context.queue_write(_write, completion_callback)
 
         return key_ids
 
