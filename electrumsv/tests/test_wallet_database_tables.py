@@ -50,8 +50,10 @@ def _db_context():
     return DatabaseContext(wallet_path)
 
 @pytest.fixture
-def db_context():
-    return _db_context()
+def db_context() -> None:
+    value = _db_context()
+    yield value
+    value.close()
 
 
 def test_migrations() -> None:
@@ -60,8 +62,11 @@ def test_migrations() -> None:
     migration.create_database_file(wallet_path)
 
 
-def test_database_context(db_context: DatabaseContext) -> None:
-    time.sleep(0.5)  # gives time for writer thread to start and acquire 1st connection
+@pytest.mark.timeout(8)
+def test_database_context() -> None:
+    db_context = _db_context()
+    # Wait for writer thread to start and acquire 1st connection
+    db_context._write_dispatcher._writer_loop_event.wait()
 
     # initial state
     assert db_context._connection_pool.qsize() == 0
@@ -140,6 +145,8 @@ def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
     assert lines[0].masterkey_id == 1
     assert lines[0].derivation_data == b'234'
 
+    table.close()
+
 
 @pytest.mark.timeout(8)
 def test_table_accounts_crud(db_context: DatabaseContext) -> None:
@@ -161,11 +168,11 @@ def test_table_accounts_crud(db_context: DatabaseContext) -> None:
             assert not writer.succeeded()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    mktable = MasterKeyTable(db_context)
-    with SynchronousWriter() as writer:
-        mktable.create([ MasterKeyRow(MASTERKEY_ID+1, None, 2, b'111') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with MasterKeyTable(db_context) as mktable:
+        with SynchronousWriter() as writer:
+            mktable.create([ MasterKeyRow(MASTERKEY_ID+1, None, 2, b'111') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Create the first row.
     with SynchronousWriter() as writer:
@@ -218,6 +225,8 @@ def test_table_accounts_crud(db_context: DatabaseContext) -> None:
     db_lines = table.read()
     assert 1 == len(db_lines)
     assert db_lines[0][0] == line1[0]
+
+    table.close()
 
 
 @pytest.mark.timeout(8)
@@ -356,11 +365,11 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
             assert not writer.succeeded()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    mktable = MasterKeyTable(db_context)
-    with SynchronousWriter() as writer:
-        mktable.create([ MasterKeyRow(MASTERKEY_ID+1, None, 2, b'111') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with MasterKeyTable(db_context) as mktable:
+        with SynchronousWriter() as writer:
+            mktable.create([ MasterKeyRow(MASTERKEY_ID+1, None, 2, b'111') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # No effect: The account foreign key constraint will fail as the account does not exist.
     with pytest.raises(sqlite3.IntegrityError):
@@ -369,11 +378,11 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
             assert not writer.succeeded()
 
     # Satisfy the account foreign key constraint by creating the account.
-    acctable = AccountTable(db_context)
-    with SynchronousWriter() as writer:
-        acctable.create([ AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with AccountTable(db_context) as acctable:
+        with SynchronousWriter() as writer:
+            acctable.create([ AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Create the first row.
     with SynchronousWriter() as writer:
@@ -444,6 +453,8 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
     assert len(rows) == 1
     assert rows[0].keyinstance_id == line1[0]
     assert rows[0].description == "line1"
+
+    table.close()
 
 
 class TestTransactionTable:
@@ -880,38 +891,39 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
             assert not writer.succeeded()
 
     # Satisfy the transaction foreign key constraint by creating the transaction.
-    transaction_table = TransactionTable(db_context)
-    with SynchronousWriter() as writer:
-        transaction_table.create([ (TX_HASH, TxData(height=1, fee=2, position=None, date_added=1,
-                date_updated=1), TX_BYTES, TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight,
-                None) ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with TransactionTable(db_context) as transaction_table:
+        with SynchronousWriter() as writer:
+            transaction_table.create([ (TX_HASH, TxData(height=1, fee=2, position=None,
+                    date_added=1, date_updated=1), TX_BYTES,
+                    TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight,
+                    None) ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    masterkey_table = MasterKeyTable(db_context)
-    with SynchronousWriter() as writer:
-        masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with MasterKeyTable(db_context) as masterkey_table:
+        with SynchronousWriter() as writer:
+            masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Satisfy the account foreign key constraint by creating the account.
-    account_table = AccountTable(db_context)
-    with SynchronousWriter() as writer:
-        account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with AccountTable(db_context) as account_table:
+        with SynchronousWriter() as writer:
+            account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
-    keyinstance_table = KeyInstanceTable(db_context)
-    with SynchronousWriter() as writer:
-        keyinstance_table.create([
-            (KEYINSTANCE_ID_1, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32, DERIVATION_DATA1,
-                ScriptType.P2PKH, True, None),
-            (KEYINSTANCE_ID_2, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32, DERIVATION_DATA2,
-                ScriptType.P2PKH, True, None),
-            ], completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with KeyInstanceTable(db_context) as keyinstance_table:
+        with SynchronousWriter() as writer:
+            keyinstance_table.create([
+                (KEYINSTANCE_ID_1, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32, DERIVATION_DATA1,
+                    ScriptType.P2PKH, True, None),
+                (KEYINSTANCE_ID_2, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32, DERIVATION_DATA2,
+                    ScriptType.P2PKH, True, None),
+                ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Create the first row.
     with SynchronousWriter() as writer:
@@ -972,6 +984,8 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert 1 == len(db_lines)
     assert db_lines[0][0:2] == line1[0:2]
 
+    table.close()
+
 
 @pytest.mark.timeout(8)
 def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
@@ -1005,40 +1019,42 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
             assert not writer.succeeded()
 
     # Satisfy the transaction foreign key constraint by creating the transaction.
-    transaction_table = TransactionTable(db_context)
-    with SynchronousWriter() as writer:
-        transaction_table.create([
-                (TX_HASH, TxData(height=1, fee=2, position=None, date_added=1,
-                date_updated=1), TX_BYTES, TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight,
-                "tx 1"),
-                (TX_HASH2, TxData(height=1, fee=2, position=None, date_added=1,
-                date_updated=1), TX_BYTES2, TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight,
-                None)
-            ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with TransactionTable(db_context) as transaction_table:
+        with SynchronousWriter() as writer:
+            transaction_table.create([
+                    (TX_HASH, TxData(height=1, fee=2, position=None, date_added=1,
+                    date_updated=1), TX_BYTES,
+                    TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight,
+                    "tx 1"),
+                    (TX_HASH2, TxData(height=1, fee=2, position=None, date_added=1,
+                    date_updated=1), TX_BYTES2,
+                    TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight,
+                    None)
+                ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    masterkey_table = MasterKeyTable(db_context)
-    with SynchronousWriter() as writer:
-        masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with MasterKeyTable(db_context) as masterkey_table:
+        with SynchronousWriter() as writer:
+            masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Satisfy the account foreign key constraint by creating the account.
-    account_table = AccountTable(db_context)
-    with SynchronousWriter() as writer:
-        account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with AccountTable(db_context) as account_table:
+        with SynchronousWriter() as writer:
+            account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
-    keyinstance_table = KeyInstanceTable(db_context)
-    with SynchronousWriter() as writer:
-        entries = [ (KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            DERIVATION_DATA, ScriptType.P2PKH, True, None) for i in range(LINE_COUNT) ]
-        keyinstance_table.create(entries, completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with KeyInstanceTable(db_context) as keyinstance_table:
+        with SynchronousWriter() as writer:
+            entries = [ (KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
+                DERIVATION_DATA, ScriptType.P2PKH, True, None) for i in range(LINE_COUNT) ]
+            keyinstance_table.create(entries, completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     with SynchronousWriter() as writer:
         table.create([ line1, line2 ], completion_callback=writer.get_callback())
@@ -1115,6 +1131,8 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     assert len(drows) == 1
     assert drows[0] == (TX_HASH, "tx 1")
 
+    table.close()
+
 
 @pytest.mark.timeout(8)
 def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
@@ -1149,26 +1167,26 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
             assert not writer.succeeded()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    masterkey_table = MasterKeyTable(db_context)
-    with SynchronousWriter() as writer:
-        masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with MasterKeyTable(db_context) as masterkey_table:
+        with SynchronousWriter() as writer:
+            masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Satisfy the account foreign key constraint by creating the account.
-    account_table = AccountTable(db_context)
-    with SynchronousWriter() as writer:
-        account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with AccountTable(db_context) as account_table:
+        with SynchronousWriter() as writer:
+            account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
-    keyinstance_table = KeyInstanceTable(db_context)
-    with SynchronousWriter() as writer:
-        entries = [ (KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            DERIVATION_DATA, ScriptType.P2PKH, True, None) for i in range(LINE_COUNT) ]
-        keyinstance_table.create(entries, completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with KeyInstanceTable(db_context) as keyinstance_table:
+        with SynchronousWriter() as writer:
+            entries = [ (KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
+                DERIVATION_DATA, ScriptType.P2PKH, True, None) for i in range(LINE_COUNT) ]
+            keyinstance_table.create(entries, completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     with SynchronousWriter() as writer:
         table.create([ line1, line2 ], completion_callback=writer.get_callback())
@@ -1249,6 +1267,8 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     assert 1 == len(db_lines)
     assert db_lines[0].paymentrequest_id == line1.paymentrequest_id
 
+    table.close()
+
 
 @pytest.mark.timeout(8)
 def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
@@ -1272,18 +1292,18 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
             assert not writer.succeeded()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    masterkey_table = MasterKeyTable(db_context)
-    with SynchronousWriter() as writer:
-        masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with MasterKeyTable(db_context) as masterkey_table:
+        with SynchronousWriter() as writer:
+            masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     # Satisfy the account foreign key constraint by creating the account.
-    account_table = AccountTable(db_context)
-    with SynchronousWriter() as writer:
-        account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    with AccountTable(db_context) as account_table:
+        with SynchronousWriter() as writer:
+            account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
     with SynchronousWriter() as writer:
         table.create([ line1, line2 ], completion_callback=writer.get_callback())
@@ -1332,14 +1352,15 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
     assert 1 == len(db_lines)
     assert db_lines[0].event_id == line1.event_id
 
+    table.close()
 
-def test_update_used_keys():
+
+def test_update_used_keys(db_context: DatabaseContext):
     """3 main scenarios to test:
     - 2 x settled txs and zero balance -> used key gets deactivated
     - 2 x unsettled tx -> not yet used (until settled)
     - 2 x settled tx BUT user_set_active -> keeps it activated until manually deactivated"""
 
-    db_context = _db_context()
     masterkey_table = MasterKeyTable(db_context)
     accounts_table = AccountTable(db_context)
     transaction_deltas_table = TransactionDeltaTable(db_context)
@@ -1434,17 +1455,20 @@ def test_update_used_keys():
     q = keyinstance_table.read()
     assert len(q) == 3
 
-    used_keys = transaction_deltas_table.update_used_keys(1)
+    with SynchronousWriter() as writer:
+        used_keys = transaction_deltas_table.update_used_keys(1,
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
     assert len(used_keys) == 1
     assert used_keys == [1]  # 2 x settled txs and zero balance for key
-    assert (2,1,2) not in used_keys  # unsettled
-    assert (3,1,2) not in used_keys  # USER_SET_ACTIVE
+
+    rows = keyinstance_table.read(key_ids=[1])
+    assert len(rows) == 1
+    assert rows[0].flags & KeyInstanceFlag.IS_ACTIVE == 0
 
     masterkey_table.close()
     accounts_table.close()
     transaction_deltas_table.close()
     keyinstance_table.close()
     tx_table.close()
-    db_context._write_dispatcher.stop()
-    time.sleep(1)
-    db_context.close()

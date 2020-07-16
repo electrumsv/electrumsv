@@ -134,23 +134,22 @@ class TestWalletDataTable:
     def test_get_value_nonexistent(self) -> None:
         assert self.store.get_value("nonexistent") is None
 
-    # NOTE upsert will not work with the completion callbacks as it has fallback behaviour
-    # of possibly calling create and update, each with it's own non-shareable callback.
-    #
-    # @pytest.mark.timeout(5)
-    # def test_upsert(self) -> None:
-    #     with SynchronousWriter() as writer:
-    #         self.store.upsert([ ("A", "B") ], completion_callback=writer.get_callback())
-    #         assert writer.succeeded()
-    #     assert self.store.get_value("A") == "B"
+    @pytest.mark.timeout(5)
+    def test_upsert(self) -> None:
+        with SynchronousWriter() as writer:
+            self.store.upsert([ WalletDataRow("A", "B") ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
+        assert self.store.get_value("A") == "B"
 
-    #     with SynchronousWriter() as writer:
-    #         self.store.upsert([ ("A", "C") ], completion_callback=writer.get_callback())
-    #         assert writer.succeeded()
+        with SynchronousWriter() as writer:
+            self.store.upsert([ WalletDataRow("A", "C") ],
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
 
-    #     assert self.store.get_value("A") == "C"
-    #     values = self.store.read([ "A" ])
-    #     assert len(values) == 1
+        assert self.store.get_value("A") == "C"
+        values = self.store.read([ "A" ])
+        assert len(values) == 1
 
     @pytest.mark.timeout(5)
     def test_get(self):
