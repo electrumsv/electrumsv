@@ -3,7 +3,7 @@ ElectrumSV - Lightweight Bitcoin SV client
 
 ::
 
-  Licence: MIT Licence
+  Licence: Open BSV license
   Maintainers: Neil Booth, Roger Taylor, AustEcon
   Project Lead: Roger Taylor
   Language: Python (>=3.6)
@@ -89,6 +89,12 @@ You may see a different version displayed than 3.31.1, but as long as it is high
 Installing other dependencies
 -----------------------------
 
+Ensure that your ``pip3`` command is associated with the version of Python that you are wanting to
+use to run ElectrumSV. Check the following command prints a message that ends with something like
+``(Python 3.8)`` that matches your desired Python version::
+
+    pip3 --version
+
 To run ElectrumSV from its top-level directory, first install the core dependencies::
 
     pip3 install --user -r contrib/deterministic-build/requirements.txt
@@ -167,12 +173,23 @@ hashes for all our downloads. You can confirm that you have downloaded a valid f
 it's SHA-256 hash to the hash we provide for the same file name.
 
 You can also run from the Git repository directly, which is useful if you wish to customise
-or help us develop ElectrumSV.
+ElectrumSV or help us develop it.
 
 You need to be sure that you are using a version of Python either 3.7.8 or higher. And that the
 version you are using has a version of Sqlite either 3.31.1 or higher. If you are for instance
 using a version of Python 3.8 that has a lower version of Sqlite, then update your Python 3.8
 installation.
+
+First check that you have the scripts that were installed with Python installation available on
+the command-line. You should be able to run the ``pip3`` command. If the ``pip3`` command is
+not available:
+
+1. Re-run the installer you used to install the version of Python you are using.
+2. Choose the *Modify* option to proceed to the *Optional Features* page.
+3. Select the *Next* button to proceed to the *Advanced Options* page.
+4. Ensure *Create shortcuts for installed applications* option is checked.
+5. Ensure *Add Python to environment variables* is checked.
+6. Select *Install*.
 
 To run ElectrumSV from its top-level directory, first install the core dependencies::
 
@@ -196,6 +213,25 @@ In order to do so, run these commands::
 
     pip3 install --user -r contrib\deterministic-build\requirements-binaries.txt
     pip3 install .
+
+Using ElectrumSV SDK
+====================
+
+ElectrumSV is a client application and there is a big advantage to developing against
+a local node. This is what the SDK is intended to allow. Both for developers working on ElectrumSV,
+developers working on ElectrumSV-based applications and even developers who aren't and just want
+a local node and application stack.
+
+To install the ElectrumSV SDK::
+
+    pip3 install electrumsv-sdk
+
+Test that it is installed::
+
+    electrumsv-sdk --version
+
+You should see that the command is found, and a message detailing instructions on the command-line
+arguments that can be used with it.
 
 Extra development notes
 =======================
@@ -226,8 +262,10 @@ Running pylint::
 Builds
 ======
 
-Builds are created automatically for Git commits through the Azure Pipelines CI services which
+Builds are created automatically for Git commits through the `Azure Pipelines CI`__ services which
 Microsoft and Github kindly make available to us.
+
+.. https://dev.azure.com/electrumsv/ElectrumSV/
 
 The easiest way for you to create builds is to fork the project, and to link it to Azure Pipelines
 and they should also happen automatically.  If you wish to look at the specific code that
