@@ -1276,11 +1276,12 @@ class SetupHardwareWalletAccountPage(QWizardPage):
             MessageBox.show_error(str(e))
             return False
 
+        label = device_info.label
         data = {
             'hw_type': name,
             'derivation': derivation_text,
             'xpub': mpk.to_extended_key_string(),
-            'label': device_info.label.strip(),
+            'label': label.strip() if label and label.strip() else None,
         }
         keystore = instantiate_keystore(DerivationType.HARDWARE, data)
         wizard.set_keystore_result(ResultType.HARDWARE, keystore)
