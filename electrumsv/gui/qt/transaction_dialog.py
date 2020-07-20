@@ -180,7 +180,11 @@ class TxDialog(QDialog, MessageBoxMixin):
         app_state.app.cosigner_pool.do_send(self._main_window, self._account, self.tx)
 
     def copy_tx_to_clipboard(self) -> None:
-        self._main_window.app.clipboard().setText(str(self.tx))
+        if self.tx.is_complete():
+            text = str(self.tx)
+        else:
+            text = json.dumps(self.tx.to_dict())
+        self._main_window.app.clipboard().setText(text)
 
     def _on_click_show_tx_hash_qr(self) -> None:
         self._main_window.show_qrcode(str(self.tx_hash_e.text()), 'Transaction ID', parent=self)
@@ -226,6 +230,10 @@ class TxDialog(QDialog, MessageBoxMixin):
             event.ignore()
 
     def show_qr(self) -> None:
+        if not self.tx.is_complete():
+            self.show_error("Unable to show QR code as this transaction is incomplete.")
+            return
+
         text = base_encode(self.tx.to_bytes(), base=43)
         try:
             self._main_window.show_qrcode(text, 'Transaction', parent=self)
