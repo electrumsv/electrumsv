@@ -127,7 +127,8 @@ class ExtendedHandlerUtils(HandlerUtils):
             message = "JSONDecodeError " + str(e)
             raise Fault(Errors.JSON_DECODE_ERROR_CODE, message)
 
-    async def argparser(self, request: web.Request, required_vars: List=None) -> Optional[Dict]:
+    async def argparser(self, request: web.Request, required_vars: List=None,
+            check_wallet_availability=True) -> Dict[str, Any]:
         """Extracts and checks all standardized header and body variables from the request object
         as a dictionary to feed to the handlers."""
         vars: Dict[Any] = {}
@@ -138,7 +139,7 @@ class ExtendedHandlerUtils(HandlerUtils):
         self.raise_for_type_okay(vars)
 
         wallet_name = vars.get(VNAME.WALLET_NAME)
-        if wallet_name:
+        if wallet_name and check_wallet_availability:
             self.raise_for_wallet_availability(wallet_name)
 
         account_id = vars.get(VNAME.ACCOUNT_ID)
