@@ -41,3 +41,5 @@ libusb-1.0.dll
 
 # Mypy
 .mypy*
+*.log
+electrum_sv_data/regtest/*
