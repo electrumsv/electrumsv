@@ -224,6 +224,8 @@ class TransactionCache:
         if len(updated_entries):
             self._store.update(updated_entries, completion_callback=completion_callback)
 
+    # TODO: This is problematic as it discards non-metadata flags unless the caller provides a mask
+    # that preserves the ones that should be preserved. Perhaps mask should be obligatory.
     def update_flags(self, tx_hash: bytes, flags: TxFlags, mask: Optional[TxFlags]=None,
             completion_callback: Optional[CompletionCallbackType]=None) -> TxFlags:
         # This is an odd function. It logical ors metadata flags, but replaces the other

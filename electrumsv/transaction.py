@@ -55,14 +55,18 @@ def classify_tx_output(tx_output: TxOutput) -> ScriptTemplate:
     return classify_output_script(tx_output.script_pubkey, Net.COIN)
 
 
-def tx_output_to_display_text(tx_output: TxOutput):
-    kind = classify_tx_output(tx_output)
+def script_to_display_text(script: Script, kind: ScriptTemplate):
     if isinstance(kind, Address):
         text = kind.to_string()
     elif isinstance(kind, P2PK_Output):
         text = kind.public_key.to_hex()
     else:
-        text = tx_output.script_pubkey.to_asm()
+        text = script.to_asm()
+    return text
+
+def tx_output_to_display_text(tx_output: TxOutput):
+    kind = classify_tx_output(tx_output)
+    text = script_to_display_text(tx_output.script_pubkey, kind)
     return text, kind
 
 

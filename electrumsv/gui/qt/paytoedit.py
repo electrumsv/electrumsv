@@ -191,11 +191,11 @@ class PayToEdit(ScanQRTextEdit):
             else:
                 total += tx_output.value
 
-        self._send_view.is_max = is_max
+        self._send_view.set_is_spending_maximum(is_max)
         self.outputs = outputs
         self.payto_script = None
 
-        if self._send_view.is_max:
+        if self._send_view.get_is_spending_maximum():
             self._send_view.do_update_fee()
         else:
             self._send_view.amount_e.setAmount(total if outputs else None)

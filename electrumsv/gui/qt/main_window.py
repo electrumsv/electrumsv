@@ -60,26 +60,26 @@ from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.network import broadcast_failure_reason
 from electrumsv.networks import Net
-from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.storage import WalletStorage
-from electrumsv.transaction import Transaction, txdict_from_str, tx_output_to_display_text
+from electrumsv.transaction import Transaction, txdict_from_str
 from electrumsv.util import (
-    format_time, bh2u, format_fee_satoshis,
-    get_update_check_dates, get_identified_release_signers, profiler, get_wallet_name_from_path,
+    bh2u, format_fee_satoshis, get_update_check_dates, get_identified_release_signers, profiler,
+    get_wallet_name_from_path
 )
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import AbstractAccount, UTXO, Wallet
-from electrumsv.wallet_database.tables import KeyInstanceRow
+from electrumsv.wallet_database.tables import InvoiceRow, KeyInstanceRow
 import electrumsv.web as web
 
 from .amountedit import AmountEdit, BTCAmountEdit
+from .constants import expiration_values
 from .contact_list import ContactList, edit_contact_dialog
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit
 from .send_view import SendView
 from .util import (
-    MessageBoxMixin, ColorScheme, HelpLabel, expiration_values, ButtonsLineEdit,
-    WindowModalDialog, Buttons, CopyCloseButton, EnterButton,
+    MessageBoxMixin, ColorScheme, HelpLabel, ButtonsLineEdit,
+    WindowModalDialog, Buttons, CopyCloseButton,
     WaitingDialog, OkButton, WWLabel, read_QIcon,
     CloseButton, CancelButton, text_dialog, filename_field,
     UntrustedMessageDialog, protected,
@@ -355,9 +355,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def on_fx_history(self) -> None:
         self.history_view.update_tx_headers()
-        self.history_view.update_tx_list()
-        # inform things like address_dialog that there's a new history
-        self.history_updated_signal.emit()
+        self.update_history_view()
 
     def on_quotes(self, b) -> None:
         self.new_fx_quotes_signal.emit()
@@ -376,8 +374,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         # History tab needs updating if it used spot
         if app_state.fx.history_used_spot:
-            self.history_view.update_tx_list()
-            self.history_updated_signal.emit()
+            self.update_history_view()
 
     def toggle_tab(self, tab: QWidget, desired_state: Optional[bool]=None,
             to_front: bool=False) -> None:
@@ -1046,14 +1043,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._status_bar.set_network_status(text)
 
     def update_tabs(self, *args) -> None:
-        self.history_view.update_tx_list()
         if self._account_id is not None:
             self.request_list.update()
         if self._send_view is not None:
             self._send_view.update_widgets()
         self.utxo_list.update()
         self.contact_list.update()
-        self.history_updated_signal.emit()
+        self.update_history_view()
 
     def _create_accounts_view(self):
         from .accounts_view import AccountsView
@@ -1456,7 +1452,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         def broadcast_tx() -> None:
             # non-GUI thread
-            if not self._send_view.maybe_send_payment_request(tx):
+            if not self._send_view.maybe_send_invoice_payment(tx):
                 return None
 
             result = self.network.broadcast_transaction_and_wait(tx)
@@ -1483,17 +1479,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     if tx_desc is not None and tx.is_complete():
                         self._wallet.set_transaction_label(tx.hash(), tx_desc)
                     window.show_message(success_text + '\n' + tx_id)
-                    self._send_view.update_widgets()
+
                     self._send_view.clear()
 
         WaitingDialog(window, _('Broadcasting transaction...'), broadcast_tx, on_done=on_done)
 
     def query_choice(self, msg, choices):
         return query_choice(self, msg, choices)
-
-    def delete_invoice(self, key) -> None:
-        self._account.invoices.remove(key)
-        self._send_view.update_widgets()
 
     def pay_to_URI(self, URI: str) -> None:
         if not URI:
@@ -1505,7 +1497,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         send_view = self.get_send_view(self._account_id)
         try:
-            out = web.parse_URI(URI, send_view.on_payment_request)
+            out = web.parse_URI(URI, send_view.on_payment_request,
+                send_view.payment_request_import_error)
         except Exception as e:
             self.show_error(str(e))
             return
@@ -1579,8 +1572,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if account.archive_keys({ key_id }):
                 if self.key_view is not None:
                     self.key_view.remove_keys([ keyinstance ])
-                self.history_view.update_tx_list()
-                self.history_updated_signal.emit()
+                self.update_history_view()
                 self._update_receive_tab_contents()
 
     def remove_transaction(self, tx_hash: str) -> None:
@@ -1597,62 +1589,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_contacts_changed(self) -> None:
         self.contact_list.update()
-        self.history_view.update_tx_list()
-        self.history_updated_signal.emit()
+        self.update_history_view()
 
-    def show_invoice(self, account: AbstractAccount, request_id: str) -> None:
-        pr = account.invoices.get(request_id)
-        self._show_pr_details(account, pr)
-
-    def _show_pr_details(self, account: AbstractAccount, req: PaymentRequest) -> None:
-        d = WindowModalDialog(self, _("Invoice"))
-        vbox = QVBoxLayout(d)
-        grid = QGridLayout()
-
-        grid.addWidget(QLabel(_("Amount") + ':'), 1, 0)
-        outputs_str = '\n'.join(app_state.format_amount(tx_output.value) + app_state.base_unit() +
-                                ' @ ' + tx_output_to_display_text(tx_output)[0]
-                                for tx_output in req.get_outputs())
-        grid.addWidget(QLabel(outputs_str), 1, 1)
-
-        grid.addWidget(QLabel(_("Memo") + ':'), 2, 0)
-        grid.addWidget(QLabel(req.get_memo()), 2, 1)
-
-        expires = req.get_expiration_date()
-        if expires:
-            grid.addWidget(QLabel(_("Expires") + ':'), 4, 0)
-            grid.addWidget(QLabel(format_time(expires, _("Unknown"))), 4, 1)
-
-        vbox.addLayout(grid)
-
-        def do_export():
-            fn = self.getSaveFileName(_("Save invoice to file"), "*.bip270.json")
-            if not fn:
-                return
-            with open(fn, 'w') as f:
-                data = f.write(req.to_json())
-            self.show_message(_('Invoice saved as' + ' ' + fn))
-        exportButton = EnterButton(_('Save'), do_export)
-
-        def do_delete():
-            if self.question(_('Delete invoice?')):
-                self._account.invoices.remove(req.get_id())
-                self.history_view.update_tx_list()
-                self.history_updated_signal.emit()
-                self._send_view.update_widgets()
-                d.close()
-        deleteButton = EnterButton(_('Delete'), do_delete)
-
-        vbox.addLayout(Buttons(exportButton, deleteButton, CloseButton(d)))
+    def show_invoice(self, account: AbstractAccount, row: InvoiceRow) -> None:
+        from .invoice_dialog import InvoiceDialog
+        d = InvoiceDialog(self, row)
         d.exec_()
-
-    def do_pay_invoice(self, req_id: str) -> None:
-        req = self._account.invoices.get(req_id)
-
-        send_view = self.get_send_view(self._account_id)
-        send_view.payment_request = req
-        send_view.prepare_for_payment_request()
-        send_view.payment_request_ok()
 
     def create_console_tab(self):
         from .console import Console
@@ -2132,8 +2074,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.key_view.update_labels(self._wallet.get_storage_path(), account_id, key_updates)
 
         if len(transaction_updates):
-            self.history_view.update_tx_list()
-            self.history_updated_signal.emit()
+            self.update_history_view()
 
     def do_export_labels(self, account_id: int) -> None:
         account = self._wallet.get_account(account_id)
@@ -2215,6 +2156,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if bad:
             self.show_critical(_("The following entries could not be imported") +
                                ':\n'+ '\n'.join(bad))
+        self.update_history_view()
+
+    def update_history_view(self) -> None:
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
 
@@ -2222,8 +2166,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     # Preferences dialog and its signals.
     #
     def on_num_zeros_changed(self):
-        self.history_view.update_tx_list()
-        self.history_updated_signal.emit()
+        self.update_history_view()
 
     def on_fiat_ccy_changed(self):
         '''Called when the user changes fiat currency in preferences.'''
@@ -2233,8 +2176,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 send_view.set_fiat_ccy_enabled(b)
             self.fiat_receive_e.setVisible(b)
         self.history_view.update_tx_headers()
-        self.history_view.update_tx_list()
-        self.history_updated_signal.emit()
+        self.update_history_view()
         self.update_status_bar()
 
     def on_base_unit_changed(self):
@@ -2242,8 +2184,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if self._account_id is not None:
             edits.append(self.receive_amount_e)
         amounts = [edit.get_amount() for edit in edits]
-        self.history_view.update_tx_list()
-        self.history_updated_signal.emit()
+        self.update_history_view()
         if self._account_id is not None:
             self.request_list.update()
         for edit, amount in zip(edits, amounts):

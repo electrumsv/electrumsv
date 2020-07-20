@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import DATABASE_EXT, PaymentFlag
+from electrumsv.constants import DATABASE_EXT
 from electrumsv.crypto import pw_encode
 from electrumsv.i18n import _, languages
 from electrumsv.logs import logs
@@ -32,25 +32,6 @@ if TYPE_CHECKING:
 logger = logs.get_logger("qt-util")
 
 dialogs = []
-
-pr_icons = {
-    PaymentFlag.UNPAID: "unpaid.png",
-    PaymentFlag.PAID: "icons8-checkmark-green-52.png",
-    PaymentFlag.EXPIRED: "expired.png"
-}
-
-pr_tooltips = {
-    PaymentFlag.UNPAID:_('Pending'),
-    PaymentFlag.PAID:_('Paid'),
-    PaymentFlag.EXPIRED:_('Expired')
-}
-
-expiration_values = [
-    (_('1 hour'), 60*60),
-    (_('1 day'), 24*60*60),
-    (_('1 week'), 7*24*60*60),
-    (_('Never'), None)
-]
 
 
 class EnterButton(QPushButton):
@@ -281,7 +262,8 @@ class MessageBox:
 
 
 class UntrustedMessageDialog(QDialog):
-    def __init__(self, parent, title, description, exception):
+    def __init__(self, parent, title, description, exception: Optional[Exception]=None,
+            untrusted_text: str="") -> None:
         QDialog.__init__(self, parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
             Qt.WindowCloseButtonHint)
         self.setWindowTitle(title)
@@ -300,10 +282,11 @@ class UntrustedMessageDialog(QDialog):
         text_label.setWordWrap(True)
         vbox.addWidget(text_label)
         if isinstance(exception, RPCError):
-            exc_text = str(exception)
-        else:
-            exc_text = "".join(traceback.TracebackException.from_exception(exception).format())
-        text_edit = QPlainTextEdit(exc_text)
+            untrusted_text += str(exception)
+        elif isinstance(exception, Exception):
+            untrusted_text += "".join(traceback.TracebackException.from_exception(
+                exception).format())
+        text_edit = QPlainTextEdit(untrusted_text)
         text_edit.setReadOnly(True)
         vbox.addWidget(text_edit)
         vbox.addStretch(1)
@@ -606,6 +589,7 @@ class ButtonsMode(IntEnum):
 
 class ButtonsWidget(QWidget):
     buttons_mode = ButtonsMode.INTERNAL
+    qt_css_extra = ""
 
     def __init__(self):
         super().__init__()
@@ -660,12 +644,14 @@ class ButtonsWidget(QWidget):
         if self.buttons_mode == ButtonsMode.TOOLBAR_RIGHT:
             self.button_padding = max(button.sizeHint().width() for button in self.buttons) + 4
             self.setStyleSheet(self.qt_css_class +
-                " { margin-right: "+ str(self.button_padding) +"px; }")
+                " { margin-right: "+ str(self.button_padding) +"px; }"+
+                self.qt_css_extra)
         elif self.buttons_mode == ButtonsMode.TOOLBAR_BOTTOM:
             self.button_padding = max(button.sizeHint().height() for button in self.buttons) + \
                 frame_width
             self.setStyleSheet(
-                self.qt_css_class +" { margin-bottom: "+ str(self.button_padding) +"px; }")
+                self.qt_css_class +" { margin-bottom: "+ str(self.button_padding) +"px; }"+
+                self.qt_css_extra)
         return button
 
     def addCopyButton(self, app, tooltipText: Optional[str]=None) -> QAbstractButton:

@@ -22,26 +22,35 @@
 # SOFTWARE.
 
 from functools import partial
-from typing import TYPE_CHECKING
+import math
+import time
+from typing import TYPE_CHECKING, Optional
 import weakref
 
-from PyQt5.QtCore import Qt, QPoint
+from PyQt5.QtCore import Qt, QPoint, QTimer
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QFileDialog, QMenu
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentFlag
-from electrumsv.i18n import _
-from electrumsv.platform import platform
 from electrumsv.exceptions import FileImportFailed
+from electrumsv.i18n import _
+from electrumsv.logs import logs
+from electrumsv.paymentrequest import PaymentRequest
+from electrumsv.platform import platform
 from electrumsv.util import format_time
 from electrumsv.wallet import AbstractAccount
+from electrumsv.wallet_database.tables import InvoiceRow
 
-from .util import MyTreeWidget, pr_icons, pr_tooltips, read_QIcon
+from .constants import pr_icons, pr_tooltips
+from .util import MyTreeWidget, read_QIcon
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
     from .send_view import SendView
+
+
+logger = logs.get_logger("invoice-list")
 
 
 class InvoiceList(MyTreeWidget):
@@ -58,34 +67,74 @@ class InvoiceList(MyTreeWidget):
         self.setSortingEnabled(True)
         self.header().setSectionResizeMode(1, QHeaderView.Interactive)
         self.setColumnWidth(1, 200)
-        self.setVisible(False)
-        self._send_view.invoices_label.setVisible(False)
+
+        # This is used if there is a pending expiry.
+        self._timer: Optional[QTimer] = None
+
+    def _start_timer(self, event_time: int) -> None:
+        seconds = math.ceil(event_time - time.time())
+        assert seconds > 0, f"got invalid timer duration {seconds}"
+        logger.debug("start_timer for %d seconds", seconds)
+        interval = seconds * 1000
+
+        assert self._timer is None, "timer already active"
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._on_timer_event)
+        self._timer.start(interval)
+
+    def _stop_timer(self) -> None:
+        if self._timer is None:
+            return
+        self._timer.stop()
+        self._timer = None
+
+    def _on_timer_event(self) -> None:
+        logger.debug("_on_timer_event")
+        self._stop_timer()
+        self.update()
 
     def on_update(self) -> None:
         if self._send_view._account_id is None:
             return
 
-        invoices = self._send_view._account.invoices
-        inv_list = invoices.unpaid_invoices()
+        self._stop_timer()
         self.clear()
-        for pr in inv_list:
-            request_id = pr.get_id()
-            status = invoices.get_status(pr)
-            requestor = pr.get_requestor()
-            exp = pr.get_expiration_date()
-            date_str = format_time(exp, _("Unknown")) if exp else _('Never')
-            item = QTreeWidgetItem([date_str, requestor, pr.memo,
-                app_state.format_amount(pr.get_amount(), whitespaces=True),
-                pr_tooltips.get(status,'')])
-            item.setIcon(4, read_QIcon(pr_icons.get(status)))
-            item.setData(0, Qt.UserRole, request_id)
+
+        current_time = time.time()
+        expiry_time = float("inf")
+
+        for row in self._send_view._account.invoices.get_invoices():
+            flags = row.flags & PaymentFlag.STATE_MASK
+            if flags & PaymentFlag.UNPAID and row.date_expires:
+                if row.date_expires <= current_time + 4:
+                    flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
+                else:
+                    expiry_time = min(expiry_time, row.date_expires)
+
+            date_str = format_time(row.date_expires, _("Unknown")
+                if row.date_expires else _('Never'))
+            item = QTreeWidgetItem([date_str, row.payment_uri, row.description,
+                app_state.format_amount(row.value, whitespaces=True),
+                pr_tooltips.get(flags, '')])
+            icon_entry = pr_icons.get(flags)
+            if icon_entry:
+                item.setIcon(4, read_QIcon(icon_entry))
+            item.setData(0, Qt.UserRole, row.invoice_id)
             item.setFont(1, self.monospace_font)
             item.setFont(3, self.monospace_font)
             self.addTopLevelItem(item)
         self.setCurrentItem(self.topLevelItem(0))
 
-        self.setVisible(len(inv_list))
-        self._send_view.invoices_label.setVisible(len(inv_list))
+        if expiry_time != float("inf"):
+            self._start_timer(expiry_time)
+
+    def on_edited(self, item, column, prior) -> None:
+        '''Called only when the text actually changes'''
+        text = item.text(column).strip()
+        if text == "":
+            text = None
+        invoice_id = item.data(0, Qt.UserRole)
+        self._send_view._account.invoices.set_invoice_description(invoice_id, text)
 
     def import_invoices(self, account: AbstractAccount) -> None:
         try:
@@ -114,17 +163,41 @@ class InvoiceList(MyTreeWidget):
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
 
-        key = item.data(0, Qt.UserRole)
-        pr = self._send_view._account.invoices.get(key)
-        status = self._send_view._account.invoices.get_status(pr)
+        invoice_id: int = item.data(0, Qt.UserRole)
+        row = self._send_view._account.invoices.get_invoice_for_id(invoice_id)
+        assert row is not None, f"invoice {invoice_id} not found"
+
+        flags = row.flags & PaymentFlag.STATE_MASK
+        if flags & PaymentFlag.UNPAID and row.date_expires:
+            if row.date_expires <= time.time() + 4:
+                flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
+
         if column_data:
             menu.addAction(_("Copy {}").format(column_title),
-                           lambda: self._main_window.app.clipboard().setText(column_data))
-        menu.addAction(_("Details"), partial(self._show_invoice_window, key))
-        if status == PaymentFlag.UNPAID:
-            menu.addAction(_("Pay Now"), lambda: self._main_window.do_pay_invoice(key))
-        menu.addAction(_("Delete"), lambda: self._main_window.delete_invoice(key))
+                lambda: self._main_window.app.clipboard().setText(column_data))
+        menu.addAction(_("Details"), partial(self._show_invoice_window, row))
+        if flags & PaymentFlag.UNPAID:
+            menu.addAction(_("Pay Now"), partial(self._pay_invoice, row))
+        menu.addAction(_("Delete"), lambda: self._delete_invoice(invoice_id))
         menu.exec_(self.viewport().mapToGlobal(position))
 
-    def _show_invoice_window(self, request_id: str) -> None:
-        self._main_window.show_invoice(self._send_view._account, request_id)
+    def _show_invoice_window(self, row: InvoiceRow) -> None:
+        self._main_window.show_invoice(self._send_view._account, row)
+
+    def _pay_invoice(self, row: InvoiceRow) -> None:
+        pr = PaymentRequest.from_json(row.invoice_data)
+        pr.set_id(row.invoice_id)
+
+        self._send_view.pay_for_payment_request(pr)
+
+    def _delete_invoice(self, invoice_id: int) -> None:
+        if not self._main_window.question(_('Delete invoice?')):
+            return
+
+        def callback(exc_value: Optional[Exception]=None) -> None:
+            nonlocal invoice_id
+            if exc_value is not None:
+                raise exc_value # pylint: disable=raising-bad-type
+            self._send_view.payment_request_deleted_signal.emit(invoice_id)
+
+        self._send_view._account.invoices.delete_invoice(invoice_id, callback)

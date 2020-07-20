@@ -35,6 +35,7 @@ from bitcoinx import Address
 
 from .bip276 import PREFIX_SCRIPT, bip276_decode, NetworkMismatchError, ChecksumMismatchError
 from .bitcoin import COIN, is_address_valid
+from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
 from .networks import Net
@@ -109,7 +110,7 @@ class URIError(Exception):
     pass
 
 
-def parse_URI(uri: str, on_pr=None) -> Dict[str, Any]:
+def parse_URI(uri: str, on_pr=None, on_pr_error=None) -> Dict[str, Any]:
     if is_address_valid(uri):
         return {'address': uri}
 
@@ -161,7 +162,13 @@ def parse_URI(uri: str, on_pr=None) -> Dict[str, Any]:
     if on_pr and payment_url:
         def get_payment_request_thread():
             from . import paymentrequest
-            request = paymentrequest.get_payment_request(payment_url)
+            try:
+                request = paymentrequest.get_payment_request(payment_url)
+            except Bip270Exception as e:
+                if on_pr_error:
+                    on_pr_error(e.args[0])
+                    return
+                raise e
             if on_pr:
                 on_pr(request)
         t = threading.Thread(target=get_payment_request_thread)
@@ -169,25 +176,3 @@ def parse_URI(uri: str, on_pr=None) -> Dict[str, Any]:
         t.start()
 
     return out
-
-def check_www_dir(rdir):
-    if not os.path.exists(rdir):
-        os.mkdir(rdir)
-    index = os.path.join(rdir, 'index.html')
-    if not os.path.exists(index):
-        logger.debug("copying index.html")
-        src = os.path.join(os.path.dirname(__file__), 'www', 'index.html')
-        shutil.copy(src, index)
-    files = [
-        "https://code.jquery.com/jquery-1.9.1.min.js",
-        "https://raw.githubusercontent.com/davidshimjs/qrcodejs/master/qrcode.js",
-        "https://code.jquery.com/ui/1.10.3/jquery-ui.js",
-        "https://code.jquery.com/ui/1.10.3/themes/smoothness/jquery-ui.css"
-    ]
-    for URL in files:
-        path = urllib.parse.urlsplit(URL).path
-        filename = os.path.basename(path)
-        path = os.path.join(rdir, filename)
-        if not os.path.exists(path):
-            logger.debug("downloading %s", URL)
-            urllib.request.urlretrieve(URL, path)

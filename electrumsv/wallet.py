@@ -59,20 +59,21 @@ from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
 from .networks import Net
-from .paymentrequest import InvoiceStore
 from .script import AccumulatorMultiSigOutput
+from .services import InvoiceService
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, XPublicKey, NO_SIGNATURE, XTxInput, XTxOutput,
     XPublicKeyType)
 from .types import TxoKeyType
-from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime,
+from .util import (format_satoshis, get_wallet_name_from_path, profiler, timestamp_to_datetime,
     TriggeredCallbacks)
 from .wallet_database import TxData, TxProof, TransactionCacheEntry, TransactionCache
-from .wallet_database.tables import (AccountRow, AccountTable, KeyInstanceRow, KeyInstanceTable,
-    MasterKeyRow, MasterKeyTable, TransactionTable, TransactionOutputTable,
-    TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow, TransactionDeltaSumRow,
-    PaymentRequestTable, PaymentRequestRow, WalletEventRow, WalletEventTable)
+from .wallet_database.tables import (AccountRow, AccountTable, InvoiceTable,
+    KeyInstanceRow, KeyInstanceTable, MasterKeyRow, MasterKeyTable, TransactionTable,
+    TransactionOutputTable, TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow,
+    TransactionDeltaSumRow, PaymentRequestTable, PaymentRequestRow, WalletEventRow,
+    WalletEventTable)
 from .wallet_database.sqlite_support import DatabaseContext
 
 if TYPE_CHECKING:
@@ -100,6 +101,7 @@ class BIP32KeyData:
 class HistoryLine(NamedTuple):
     sort_key: Tuple[int, int]
     tx_hash: bytes
+    tx_flags: TxFlags
     height: Optional[int]
     value_delta: int
 
@@ -248,9 +250,7 @@ class AbstractAccount:
         self.lock = threading.RLock()
         self.transaction_lock = threading.RLock()
 
-        # invoices and contacts
-        # TODO(rt12) BACKLOG formalise porting/storage of invoice data extracted from storage data
-        self.invoices = InvoiceStore({})
+        self.invoices = InvoiceService(self)
 
     def scriptpubkey_to_scripthash(self, script):
         script_bytes = bytes(script)
@@ -552,16 +552,17 @@ class AbstractAccount:
             return self.type().value
         return f"{self.type().value}/{k.debug_name()}"
 
+    @profiler
     def _load_sync_state(self) -> None:
         self._sync_state = SyncState()
 
         with TransactionDeltaTable(self._wallet._db_context) as table:
-            rows = table.read_history(self._id)
+            rows = table.read_key_history(self._id)
 
         key_history: Dict[int, List[Tuple[str, int]]] = {}
         maximum_position = 0
         positions: Dict[str, int] = {}
-        for tx_hash, _value_delta, keyinstance_id in rows:
+        for tx_hash, keyinstance_id in rows:
             metadata = cast(TxData, self.get_transaction_metadata(tx_hash))
             if metadata.height is not None:
                 tx_id = hash_to_hex_str(tx_hash)
@@ -866,7 +867,8 @@ class AbstractAccount:
             if not self.have_transaction(tx_hash):
                 raise UnknownTransactionException(f"tx {hash_to_hex_str(tx_hash)} unknown")
             existing_flags = self._wallet._transaction_cache.get_flags(tx_hash)
-            updated_flags = self._wallet._transaction_cache.update_flags(tx_hash, flags)
+            updated_flags = self._wallet._transaction_cache.update_flags(tx_hash, flags,
+                ~TxFlags.STATE_MASK)
         self._wallet.trigger_callback('transaction_state_change', self._id, tx_hash,
             existing_flags, updated_flags)
 
@@ -1158,15 +1160,10 @@ class AbstractAccount:
     def get_history(self, domain: Optional[Set[int]]=None) -> List[Tuple[HistoryLine, int]]:
         history_raw: List[HistoryLine] = []
         with TransactionDeltaTable(self._wallet._db_context) as table:
-            rows = table.read_history(self._id)
-        if domain is not None:
-            rows = [ r for r in rows if r[2] in domain ]
-        tx_sums: Dict[bytes, int] = defaultdict(int)
-        for row in rows:
-            tx_sums[row[0]] += row[1]
+            rows = table.read_history(self._id, domain)
 
-        for tx_hash, value_delta in tx_sums.items():
-            metadata = self._wallet._transaction_cache.get_metadata(tx_hash)
+        for row in rows:
+            metadata = self._wallet._transaction_cache.get_metadata(row.tx_hash)
             # Signed but not cleared.
             if metadata.height is None:
                 continue
@@ -1177,7 +1174,8 @@ class AbstractAccount:
                 sort_key = (height, 0) if height > 0 else ((1e9 - height), 0)
             else:
                 sort_key = (1e9+1, 0)
-            history_raw.append(HistoryLine(sort_key, tx_hash, height, value_delta))
+            history_raw.append(HistoryLine(sort_key, row.tx_hash, row.tx_flags, height,
+                row.value_delta))
 
         history_raw.sort(key = lambda v: v.sort_key)
 
@@ -2350,6 +2348,9 @@ class Wallet(TriggeredCallbacks):
         with TransactionOutputTable(self.get_db_context()) as table:
             table.create(entries)
         return entries
+
+    def get_invoice_table(self) -> InvoiceTable:
+        return InvoiceTable(self.get_db_context())
 
     def get_payment_request_table(self) -> PaymentRequestTable:
         return PaymentRequestTable(self.get_db_context())
