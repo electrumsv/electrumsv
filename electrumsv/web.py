@@ -22,10 +22,8 @@
 # SOFTWARE.
 
 from decimal import Decimal
-import os
 import random
 import re
-import shutil
 import threading
 from typing import Any, Dict, Optional
 import urllib

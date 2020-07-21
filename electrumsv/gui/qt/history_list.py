@@ -47,7 +47,6 @@ from electrumsv.wallet import AbstractAccount
 from electrumsv.wallet_database.tables import InvoiceRow
 import electrumsv.web as web
 
-from .transaction_list import TransactionView
 from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox
 
 if TYPE_CHECKING:
