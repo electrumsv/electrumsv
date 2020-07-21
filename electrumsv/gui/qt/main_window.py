@@ -245,8 +245,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contacts_tab = self.create_contacts_tab()
         self.coinsplitting_tab = self.create_coinsplitting_tab()
 
-        tabs.addTab(self.create_history_tab(), read_QIcon("tab_history.png"), _('History'))
-        tabs.addTab(self.create_transaction_tab(), read_QIcon("icons8-transaction-list-96.png"),
+        history_view = self.create_history_tab()
+
+        tabs.addTab(history_view, read_QIcon("tab_history.png"), _('History'))
+
+        transaction_view = self.create_transaction_tab()
+        transaction_view.changed_signal.connect(history_view.on_transaction_view_changed)
+
+        tabs.addTab(transaction_view, read_QIcon("icons8-transaction-list-96.png"),
             _('Transactions'))
         tabs.addTab(self.send_tab, read_QIcon("tab_send.png"), _('Send'))
         tabs.addTab(self.receive_tab, read_QIcon("tab_receive.png"), _('Receive'))
@@ -441,7 +447,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if event == 'updated':
             self.need_update.set()
         elif event == 'on_header_backfill':
-            self.history_view.update()
+            self.history_view.update_tx_list()
         elif event in ['status', 'banner', 'verified']:
             # Handle in GUI thread
             self.network_signal.emit(event, args)

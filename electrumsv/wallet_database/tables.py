@@ -832,6 +832,11 @@ class TransactionDeltaTable(BaseWalletStore):
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
             "KI.account_id = ? AND TD.tx_hash = ?")
+    READ_ACCOUNT_TXFILTERING_SQL = ("SELECT TOTAL(TD.value_delta), COUNT(TD.value_delta) "
+        "FROM Transactions AS T "
+        "INNER JOIN TransactionDeltas AS TD ON TD.tx_hash = T.tx_hash "
+        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
+            "KI.account_id = ?")
     READ_DESCRIPTIONS_SQL = ("SELECT T.tx_hash, T.description  "
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
@@ -997,6 +1002,21 @@ class TransactionDeltaTable(BaseWalletStore):
     def read_descriptions(self, account_id: int) -> List[Tuple[bytes, str]]:
         return self._get_many_common(self.READ_DESCRIPTIONS_SQL, [ account_id ])
 
+    def read_balance(self, account_id: Optional[int]=None, flags: Optional[int]=None,
+            mask: Optional[int]=None) -> TransactionDeltaSumRow:
+        query = self.READ_ACCOUNT_TXFILTERING_SQL
+        params: List[Any] = [ account_id ]
+        clause, extra_params = flag_clause("T.flags", flags, mask)
+        if clause:
+            query += f" WHERE {clause}"
+            params.extend(extra_params)
+        cursor = self._db.execute(query, params)
+        row = cursor.fetchone()
+        cursor.close()
+        if row is None:
+            row = (0, 0)
+        return TransactionDeltaSumRow(*row)
+
     def read_transaction_value(self, tx_hash: bytes, account_id: Optional[int]=None) \
             -> TransactionDeltaSumRow:
         if account_id is None:
@@ -1004,9 +1024,10 @@ class TransactionDeltaTable(BaseWalletStore):
         else:
             cursor = self._db.execute(self.READ_ACCOUNT_SQL, [account_id, tx_hash])
         row = cursor.fetchone()
+        cursor.close()
         if row is None:
-            return TransactionDeltaSumRow(0, 0)
-        return TransactionDeltaSumRow(row[0], row[1])
+            row = (0, 0)
+        return TransactionDeltaSumRow(*row)
 
     def update(self, entries: Iterable[Tuple[int, bytes, int]],
             date_updated: Optional[int]=None,

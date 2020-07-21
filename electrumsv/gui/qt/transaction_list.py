@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 from collections import namedtuple
 import enum
 import threading
@@ -9,8 +7,8 @@ import weakref
 import webbrowser
 
 from bitcoinx import hash_to_hex_str
-from PyQt5.QtCore import (QAbstractItemModel, QModelIndex, QVariant, Qt, QSortFilterProxyModel,
-    QTimer)
+from PyQt5.QtCore import (pyqtSignal, QAbstractItemModel, QModelIndex, QVariant, Qt,
+    QSortFilterProxyModel, QTimer)
 from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu, QWidget
 
@@ -341,6 +339,8 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
 
 
 class TransactionView(QTableView):
+    changed_signal = pyqtSignal(int)
+
     def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
         super().__init__(parent)
 
@@ -568,6 +568,9 @@ class TransactionView(QTableView):
             self._base_model.add_line(self._create_transaction_entry(tx_hash, tx_data))
             add_count += 1
 
+        if add_count:
+            self.changed_signal.emit(self._account_id)
+
         self._logger.debug("_add_transactions %d (%d actual)", len(tx_hashes), add_count)
 
     def _update_transactions(self, tx_hashes: List[bytes], state: Dict[bytes, EventFlags]) -> None:
@@ -594,6 +597,8 @@ class TransactionView(QTableView):
             self._data[row] = new_line
             self._base_model.invalidate_row(row)
 
+        self.changed_signal.emit(self._account_id)
+
     def _remove_transactions(self, tx_hashes: List[bytes]) -> None:
         self._logger.debug("_remove_transactions %d", len(tx_hashes))
         matches = self._match_transactions(tx_hashes)
@@ -605,6 +610,9 @@ class TransactionView(QTableView):
         # Make sure that we will be removing rows from the last to the first, to preserve offsets.
         for row, line in sorted(matches, reverse=True, key=lambda v: v[0]):
             self._base_model.remove_row(row)
+
+        if len(matches):
+            self.changed_signal.emit(self._account_id)
 
     def _mark_transactions_updated(self, tx_hashes: List[bytes]) -> List[bytes]:
         with self._update_lock:

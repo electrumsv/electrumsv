@@ -32,7 +32,7 @@ from electrumsv.i18n import _
 
 from .main_window import ElectrumWindow
 from .util import WindowModalDialog, ButtonsLineEdit, ColorScheme, Buttons, CloseButton
-from .history_list import HistoryView
+from .history_list import HistoryList
 from .qrtextedit import ShowQRTextEdit
 
 
@@ -75,7 +75,7 @@ class KeyDialog(WindowModalDialog):
         vbox.addWidget(redeem_e)
 
         vbox.addWidget(QLabel(_("History")))
-        self._history_list = HistoryView(self._main_window, self._main_window)
+        self._history_list = HistoryList(self._main_window, self._main_window)
         self._history_list._on_account_change(self._account_id, self._account)
         self._history_list.get_domain = self.get_domain
         vbox.addWidget(self._history_list)

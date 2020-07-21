@@ -26,15 +26,15 @@
 import enum
 from functools import partial
 import time
-from typing import List, Optional, Union
+from typing import List, Optional, Union, TYPE_CHECKING
 import weakref
 import webbrowser
 
 from bitcoinx import hash_to_hex_str, MissingHeader
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QBrush, QFont, QIcon, QColor
-from PyQt5.QtWidgets import QMenu, QWidget
+from PyQt5.QtWidgets import QLabel, QMenu, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COINBASE_MATURITY
@@ -47,8 +47,11 @@ from electrumsv.wallet import AbstractAccount
 from electrumsv.wallet_database.tables import InvoiceRow
 import electrumsv.web as web
 
-from .main_window import ElectrumWindow
-from .util import (MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox)
+from .transaction_list import TransactionView
+from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox
+
+if TYPE_CHECKING:
+    from .main_window import ElectrumWindow
 
 
 logger = logs.get_logger("history-list")
@@ -78,10 +81,10 @@ TX_STATUS = {
 }
 
 
-class HistoryView(MyTreeWidget):
+class HistoryList(MyTreeWidget):
     filter_columns = [2, 3, 4]  # Date, Description, Amount
 
-    def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
+    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
         MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [], 3)
 
         self._main_window = weakref.proxy(main_window)
@@ -106,15 +109,12 @@ class HistoryView(MyTreeWidget):
         self._account_id = new_account_id
         self._account = new_account
 
-    def update_tx_headers(self):
+    def update_tx_headers(self) -> None:
         headers = ['', '', _('Date'), _('Description') , _('Amount'), _('Balance')]
         fx = app_state.fx
         if fx and fx.show_history():
             headers.extend(['%s '%fx.ccy + _('Amount'), '%s '%fx.ccy + _('Balance')])
         self.update_headers(headers)
-
-    def update_tx_list(self) -> None:
-        self.update()
 
     @property
     def searchable_list(self) -> 'HistoryList':
@@ -128,7 +128,7 @@ class HistoryView(MyTreeWidget):
         self._on_update_history_list()
 
     @profiler
-    def _on_update_history_list(self):
+    def _on_update_history_list(self) -> None:
         item = self.currentItem()
         current_tx = item.data(0, Qt.UserRole)[1] if item else None
         self.clear()
@@ -190,9 +190,9 @@ class HistoryView(MyTreeWidget):
         if len(missing_header_heights) and self._main_window.network:
             self._main_window.network.backfill_headers_at_heights(missing_header_heights)
 
-    def on_doubleclick(self, item, column):
+    def on_doubleclick(self, item: QTreeWidgetItem, column: int) -> None:
         if self.permit_edit(item, column):
-            super(HistoryView, self).on_doubleclick(item, column)
+            super(HistoryList, self).on_doubleclick(item, column)
         else:
             account_id, tx_hash = item.data(0, Qt.UserRole)
             account = self._wallet.get_account(account_id)
@@ -212,7 +212,8 @@ class HistoryView(MyTreeWidget):
             label = self._wallet.get_transaction_label(tx_hash)
             item.setText(3, label)
 
-    def update_tx_item(self, tx_hash: bytes, height: int, conf, timestamp) -> None:
+    # From the wallet 'verified' event.
+    def update_tx_item(self, tx_hash: bytes, height: int, conf: int, timestamp: int) -> None:
         # External event may be called before the UI element has an account.
         if self._account is None:
             return
@@ -227,7 +228,7 @@ class HistoryView(MyTreeWidget):
             item.setText(2, get_tx_desc(status, timestamp))
             item.setToolTip(0, get_tx_tooltip(status, conf))
 
-    def create_menu(self, position):
+    def create_menu(self, position: QPoint) -> None:
         self.selectedIndexes()
         item = self.currentItem()
         if not item:
@@ -312,3 +313,87 @@ def get_tx_tooltip(status: TxStatus, conf: int) -> str:
 
 def get_tx_icon(status: TxStatus) -> QIcon:
     return read_QIcon(TX_ICONS[status])
+
+
+class HistoryView(QWidget):
+    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
+        super().__init__(parent)
+
+        self._account_id: Optional[int] = None
+        self._account: AbstractAccount = None
+
+        # The history view is created before the transactions view, so this will be updated by
+        # an event from the transactions view. If this ordering changes you may see that it is
+        # not updated.
+        self._local_count = 0
+        self._local_value = 0
+        label = self._local_summary_label = QLabel()
+        label.setAlignment(Qt.AlignCenter)
+        label.setToolTip(_("The account balance shown in the status bar does "
+            "not include any coins allocated and used by transactions in the Transactions tab."
+            "<br/><br/>"
+            "This summary indicates the current balance of the Transactions tab."))
+        label.setContentsMargins(5, 5, 5, 5)
+        label.setVisible(False)
+
+        self.list = HistoryList(parent, main_window)
+
+        vbox = QVBoxLayout()
+        vbox.setSpacing(0)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.addWidget(label)
+        vbox.addWidget(self.list)
+        self.setLayout(vbox)
+
+        self._update_transactions_tab_summary()
+
+        main_window.account_change_signal.connect(self._on_account_changed)
+
+    def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount) -> None:
+        self._account_id = new_account_id
+        self._account = new_account
+
+        self._update_transactions_tab_summary()
+
+    def on_transaction_view_changed(self, account_id: int) -> None:
+        if self._account_id == account_id:
+            self._update_transactions_tab_summary()
+
+    def _update_transactions_tab_summary(self) -> None:
+        local_count = 0
+        local_value = 0
+
+        if self._account_id is not None:
+            wallet = self._account.get_wallet()
+            with wallet.get_transaction_delta_table() as table:
+                local_value, local_count = table.read_balance(self._account_id,
+                    mask=TxFlags.STATE_UNCLEARED_MASK)
+
+        if local_count == 0:
+            self._local_summary_label.setVisible(False)
+            return
+
+        value_text = app_state.format_amount(local_value) +" "+ app_state.base_unit()
+        if local_count == 1:
+            text = _("The Transactions tab has <b>1</b> transaction containing <b>{balance}</b> "
+                "in allocated coins.").format(balance=value_text)
+        else:
+            text = _("The Transactions tab has <b>{count}</b> transactions containing "
+                "<b>{balance}</b> in allocated coins.").format(count=local_count,
+                balance=value_text)
+        self._local_summary_label.setText(text)
+        self._local_summary_label.setVisible(True)
+
+    def update_tx_headers(self) -> None:
+        self.list.update_tx_headers()
+
+    # From the wallet 'verified' event.
+    def update_tx_item(self, tx_hash: bytes, height: int, conf: int, timestamp: int) -> None:
+        self.list.update_tx_item(tx_hash, height, conf, timestamp)
+
+    def update_tx_list(self) -> None:
+        self.list.update()
+
+    @property
+    def searchable_list(self) -> 'HistoryList':
+        return self.list
