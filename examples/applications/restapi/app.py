@@ -14,6 +14,7 @@ class RESTAPIApplication:
 
     def __init__(self):
         self.logger = logging.getLogger("wallet-app")
+        self.app_state = app_state  # easier to mock
 
     def run_app(self):
         self.logger.debug("entering application main loop")
@@ -27,7 +28,8 @@ class RESTAPIApplication:
     def setup_app(self) -> None:
         # app_state.daemon is initialised after app. Setup things dependent on daemon here.
         self.logger.debug("setting up daemon-app")
-        app_state.daemon.rest_server.register_routes(ExtensionEndpoints())
+        self.restapi = ExtensionEndpoints()
+        self.app_state.daemon.rest_server.register_routes(self.restapi)
 
     def _teardown_app(self) -> None:
         pass

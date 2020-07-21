@@ -1,8 +1,12 @@
+import os
+from pathlib import Path
 from typing import Union, Any
 
 import aiorpcx
 from aiohttp import web
-from electrumsv.constants import RECEIVING_SUBPATH
+from electrumsv.constants import RECEIVING_SUBPATH, DATABASE_EXT, KeystoreTextType
+from electrumsv.crypto import pw_encode
+from electrumsv.keystore import instantiate_keystore_from_text
 
 from electrumsv.networks import Net
 from electrumsv.transaction import Transaction
@@ -10,6 +14,7 @@ from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, good_response, fault_to_http_response
 from electrumsv.regtest_support import regtest_generate_nblocks, regtest_topup_account
+from electrumsv.wallet import Wallet
 from .errors import Errors
 from .handler_utils import ExtendedHandlerUtils, VNAME
 
@@ -56,7 +61,8 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         if app_state.config.get('regtest'):
             self.routes.extend([
                 web.post(self.WALLETS_ACCOUNT + "/topup_account", self.topup_account),
-                web.post(self.WALLETS_ACCOUNT + "/generate_blocks", self.generate_blocks)
+                web.post(self.WALLETS_ACCOUNT + "/generate_blocks", self.generate_blocks),
+                web.post(self.WALLETS_PARENT + "/create_new_wallet", self.create_new_wallet),
             ])
 
     # ----- Extends electrumsv/restapi_endpoints ----- #
@@ -91,6 +97,42 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             accounts = self._accounts_dto(parent_wallet)
             response = {"parent_wallet": wallet_name,
                         "value": accounts}
+            return good_response(response)
+        except Fault as e:
+            return fault_to_http_response(e)
+
+    async def create_new_wallet(self, request):
+        """only for regtest for the moment..."""
+        def check_if_wallet_exists():
+            if os.path.exists(create_filepath):
+                raise Fault(code=Errors.BAD_WALLET_NAME_CODE,
+                    message=f"'{create_filepath + DATABASE_EXT}' already exists")
+
+            if not create_filepath.endswith(DATABASE_EXT):
+                if os.path.exists(create_filepath + DATABASE_EXT):
+                    raise Fault(code=Errors.BAD_WALLET_NAME_CODE,
+                        message=f"'{create_filepath + DATABASE_EXT}' already exists")
+        try:
+            vars = await self.argparser(request, required_vars=[VNAME.PASSWORD],
+                check_wallet_availability=False)
+
+            create_filepath = str(Path(self.wallets_path).joinpath(vars[VNAME.WALLET_NAME]))
+            check_if_wallet_exists()
+
+            from electrumsv.storage import WalletStorage
+            storage = WalletStorage(create_filepath)
+            storage.put("password-token", pw_encode(os.urandom(32).hex(), vars[VNAME.PASSWORD]))
+            parent_wallet = Wallet(storage)
+
+            # create an account for the Wallet with the same password via an imported seed
+            text_type = KeystoreTextType.EXTENDED_PRIVATE_KEY
+            text_match = 'tprv8ZgxMBicQKsPd4wsdaJ11eH84eq4hHLX1K6Mx8EQQhJzq8jr25WH1m8hgGkCqnks' \
+                         'JDCZPZbDoMbQ6QtroyCyn5ZckCmsLeiHDb1MAxhNUHN'
+
+            keystore = instantiate_keystore_from_text(text_type, text_match, vars[VNAME.PASSWORD],
+                derivation_text=None, passphrase=None)
+            parent_wallet.create_account_from_keystore(keystore)
+            response = {"value": {"new_wallet": create_filepath}}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)

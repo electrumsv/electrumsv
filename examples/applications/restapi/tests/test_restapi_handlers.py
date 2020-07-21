@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import tempfile
+import threading
 
 import pytest
 import bitcoinx
@@ -135,12 +136,8 @@ def _fake_create_transaction_succeeded(file_id, message_bytes, child_wallet, pas
     return tx, frozen_utxos
 
 
-async def _fake_broadcast_tx(tx, child_wallet=None, frozen_utxos=None, wallet_memo=None,
-                             file_id=None) -> \
-        Union[Dict, Fault]:
-    pass
-    # TODO - fix
-
+async def _fake_broadcast_tx(rawtx: str, tx_hash: bytes, account: AbstractAccount) -> str:
+    return "6797415e3b4a9fbb61b209302374853bdefeb4567ad0ed76ade055e94b9b66a2"
 
 def _fake_get_frozen_utxos_for_tx(tx: Transaction, child_wallet: AbstractAccount) \
         -> List[UTXO]:
@@ -154,8 +151,13 @@ def _fake_spawn(fn, *args):
 
 class MockAccount(AbstractAccount):
 
-    def __init__(self):
+    def __init__(self, wallet=None):
         self._id = 1
+        self._frozen_coins = set([])
+        self._subpath_gap_limits = {(0,): 20,
+                                    (1,): 20}
+        self._wallet = wallet
+        self.transaction_lock = threading.RLock()
 
     def dumps(self):
         return None
@@ -177,7 +179,11 @@ class MockAccount(AbstractAccount):
 class MockWallet(Wallet):
 
     def __init__(self):
-        self._accounts: Dict[int, AbstractAccount] = {1: MockAccount()}
+        self._accounts: Dict[int, AbstractAccount] = {1: MockAccount(self)}
+        self._frozen_coins = set([])
+
+    def set_multiple_change(self, enabled: bool) -> None:
+        return
 
     def _fake_get_account(self, account_id):
         return self._accounts[account_id]
@@ -190,7 +196,7 @@ class MockApp:
     def _create_transaction(self):
         pass
 
-    def broadcast_tx(self):
+    def _broadcast_transaction(self):
         pass
 
     def broadcast_file(*args):
@@ -508,7 +514,7 @@ class TestDefaultEndpoints:
                             _fake_get_account_succeeded)
         monkeypatch.setattr(self.rest_server.app_state.app, '_create_transaction',
                             _fake_create_transaction_succeeded)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'broadcast_tx',
+        monkeypatch.setattr(self.rest_server, '_broadcast_transaction',
                             _fake_broadcast_tx)
         monkeypatch.setattr(self.rest_server.app_state.async_, 'spawn',
                             _fake_spawn)
@@ -518,6 +524,7 @@ class TestDefaultEndpoints:
                             self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
         monkeypatch.setattr(self.rest_server, 'send_request',
                             self.rest_server._fake_send_request)
+
 
         # mock request
         network = "test"
@@ -540,7 +547,7 @@ class TestDefaultEndpoints:
                             _fake_get_account_succeeded)
         monkeypatch.setattr(self.rest_server.app_state.app, '_create_transaction',
                             _fake_create_transaction_succeeded)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'broadcast_tx',
+        monkeypatch.setattr(self.rest_server, '_broadcast_transaction',
                             _fake_broadcast_tx)
         monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
                             self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
