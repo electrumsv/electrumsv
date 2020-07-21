@@ -42,3 +42,7 @@ class RESTAPIApplication:
         frozen_utxos = [utxo for utxo in spendable_coins if utxo.key() in input_keys]
         child_wallet.set_frozen_coin_state(frozen_utxos, freeze)
         return frozen_utxos
+
+    def on_new_wallet_event(self, wallet_path, row) -> None:
+        # an expected api when resetting / creating a new wallet...
+        pass
