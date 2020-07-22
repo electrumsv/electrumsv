@@ -57,18 +57,29 @@ class InvoiceService:
         # NOTE: Does not have the invoice id intentionally to reflect it is in progress.
         return row
 
-    def set_invoice_paid(self, invoice_id: int, tx_hash: bytes) -> None:
-        wallet = self._account.get_wallet()
-
-        tx_cache = wallet.get_transaction_cache()
-        tx_cache.update_flags(tx_hash, TxFlags.PaysInvoice, ~TxFlags.PaysInvoice)
-
-        with wallet.get_invoice_table() as table:
+    def set_invoice_paid(self, invoice_id: int) -> None:
+        with self._account.get_wallet().get_invoice_table() as table:
             # Block waiting for the write to succeed here.
             with SynchronousWriter() as writer:
-                table.update_payments([
-                    (~PaymentFlag.STATE_MASK, PaymentFlag.PAID, tx_hash, None, invoice_id) ],
+                table.update_flags(
+                    # mask, flags
+                    [ (PaymentFlag.CLEARED_STATE_MASK, PaymentFlag.PAID, invoice_id) ],
                     completion_callback=writer.get_callback())
+                assert writer.succeeded()
+
+    def set_invoice_transaction(self, invoice_id: int, tx_hash: Optional[bytes]=None) -> None:
+        with self._account.get_wallet().get_invoice_table() as table:
+            # Block waiting for the write to succeed here.
+            with SynchronousWriter() as writer:
+                table.update_transaction([ (tx_hash, invoice_id) ],
+                    completion_callback=writer.get_callback())
+                assert writer.succeeded()
+
+    def clear_invoice_transaction(self, tx_hash: bytes) -> None:
+        with self._account.get_wallet().get_invoice_table() as table:
+            # Block waiting for the write to succeed here.
+            with SynchronousWriter() as writer:
+                table.clear_transaction([ (tx_hash,) ], completion_callback=writer.get_callback())
                 assert writer.succeeded()
 
     def set_invoice_description(self, invoice_id: int, description: str) -> None:

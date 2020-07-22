@@ -174,7 +174,7 @@ class CoinSplittingTab(QWidget):
         msg.append(_("Enter your password to proceed"))
         password = self._main_window.password_dialog('\n'.join(msg))
 
-        def sign_done(success):
+        def sign_done(success) -> None:
             if success:
                 if not tx.is_complete():
                     dialog = self._main_window.show_transaction(self._account, tx)

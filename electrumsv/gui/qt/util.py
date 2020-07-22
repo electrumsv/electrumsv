@@ -307,13 +307,13 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
 class WaitingDialog(WindowModalDialog):
     '''Shows a please wait dialog whilst runnning a task.  It is not
     necessary to maintain a reference to this dialog.'''
-    def __init__(self, parent, message, func, *args, on_done=None):
+    def __init__(self, parent, message: str, func, *args, on_done=None):
         assert parent
         super().__init__(parent, _("Please wait"))
         vbox = QVBoxLayout(self)
         vbox.addWidget(QLabel(message))
 
-        def _on_done(future):
+        def _on_done(future) -> None:
             self.accept()
             on_done(future)
         future = app_state.app.run_in_thread(func, *args, on_done=_on_done)
@@ -451,12 +451,14 @@ class MyTreeWidget(QTreeWidget):
             stretch_column=None, editable_columns=None):
         QTreeWidget.__init__(self, parent)
 
+        self.setAlternatingRowColors(True)
+        self.setUniformRowHeights(True)
+
         self._main_window = weakref.proxy(main_window)
         self.config = self._main_window.config
         self.stretch_column = stretch_column
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(create_menu)
-        self.setUniformRowHeights(True)
         # extend the syntax for consistency
         self.addChild = self.addTopLevelItem
         self.insertChild = self.insertTopLevelItem

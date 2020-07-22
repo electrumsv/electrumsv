@@ -25,6 +25,7 @@
 import asyncio
 import base64
 from collections import Counter
+import concurrent.futures
 import csv
 from decimal import Decimal
 from functools import partial
@@ -34,7 +35,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Any, Dict, Iterable, List, Set, Tuple, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Set, Tuple, Optional, Union
 import weakref
 import webbrowser
 
@@ -61,7 +62,7 @@ from electrumsv.logs import logs
 from electrumsv.network import broadcast_failure_reason
 from electrumsv.networks import Net
 from electrumsv.storage import WalletStorage
-from electrumsv.transaction import Transaction, txdict_from_str
+from electrumsv.transaction import Transaction, TransactionContext, txdict_from_str
 from electrumsv.util import (
     bh2u, format_fee_satoshis, get_update_check_dates, get_identified_release_signers, profiler,
     get_wallet_name_from_path
@@ -72,7 +73,7 @@ from electrumsv.wallet_database.tables import InvoiceRow, KeyInstanceRow
 import electrumsv.web as web
 
 from .amountedit import AmountEdit, BTCAmountEdit
-from .constants import expiration_values
+from .constants import CSS_WALLET_WINDOW_STYLE, expiration_values, UIBroadcastSource
 from .contact_list import ContactList, edit_contact_dialog
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit
@@ -110,6 +111,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def __init__(self, wallet: Wallet):
         QMainWindow.__init__(self)
+
+        self.setStyleSheet(CSS_WALLET_WINDOW_STYLE)
 
         self._api = WalletAPI(self)
 
@@ -1077,13 +1080,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d.exec_()
 
     def show_transaction(self, account: AbstractAccount, tx: Transaction,
-            tx_desc: Optional[str]=None, prompt_if_unsaved: bool=False):
+            tx_desc: Optional[str]=None, prompt_if_unsaved: bool=False,
+            pr: Optional[paymentrequest.PaymentRequest]=None) -> None:
         '''tx_desc is set only for txs created in the Send tab'''
         self._wallet.synchronize_incomplete_transaction(tx)
         from . import transaction_dialog
         # from importlib import reload
         # reload(transaction_dialog)
-        tx_dialog = transaction_dialog.TxDialog(account, tx, self, tx_desc, prompt_if_unsaved)
+        tx_dialog = transaction_dialog.TxDialog(account, tx, self, tx_desc, prompt_if_unsaved,
+            pr)
         tx_dialog.finished.connect(partial(self.on_tx_dialog_finished, tx_dialog))
         self.tx_dialogs.append(tx_dialog)
         tx_dialog.show()
@@ -1299,7 +1304,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             with open(fileName, "w") as f:
                 f.write(pr_data)
             self.show_message(_("Request saved successfully"))
-            self.saved = True
 
     def new_payment_request(self) -> None:
         keyinstances: List[KeyInstanceRow] = []
@@ -1371,7 +1375,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._update_receive_qr()
 
     # Bound to text fields in `_create_receive_form_layout`.
-    def _update_receive_qr(self):
+    def _update_receive_qr(self) -> None:
         if self._receive_key_id is None:
             return
 
@@ -1388,10 +1392,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.qr_window.set_content(self.receive_destination_e.text(), amount,
                                        message, uri)
 
-    def show_send_tab(self):
+    def show_send_tab(self) -> None:
         self._tab_widget.setCurrentIndex(self._tab_widget.indexOf(self.send_tab))
 
-    def show_receive_tab(self):
+    def show_receive_tab(self) -> None:
         self._tab_widget.setCurrentIndex(self._tab_widget.indexOf(self.receive_tab))
 
     # Only called from key list menu.
@@ -1417,7 +1421,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._send_view: Optional[SendView] = None
         return tab_widget
 
-    def get_custom_fee_text(self, fee_rate = None):
+    def get_custom_fee_text(self, fee_rate = None) -> str:
         if not self.config.has_custom_fee_rate():
             return ""
         else:
@@ -1428,14 +1432,56 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         contact = self.contacts.get_contact(contact_id)
         return contact.label
 
-    @protected
-    def sign_tx(self, tx, callback, password, window=None) -> None:
-        self.sign_tx_with_password(tx, callback, password, window=window)
+    def confirm_broadcast_transaction(self, tx_hash: bytes, source: UIBroadcastSource) -> bool:
+        # This function is intended to centralise the checks related to whether it is okay to
+        # broadcast a transaction prior to calling `broadcast_transaction` on this wallet window.
+        # Pass in the context of the call and check against the relevant contexts.
 
-    def sign_tx_with_password(self, tx: Transaction, callback, password: str, window=None) -> None:
+        entry = self._account.get_transaction_entry(tx_hash)
+        if entry.flags & TxFlags.PaysInvoice and source == UIBroadcastSource.TRANSACTION_DIALOG:
+            # At this time invoice payment is hooked into transaction broadcasting and it
+            # defers to the send tab for an active invoice, and completes payment of that invoice.
+            # TODO: Fix the requirement an invoice is active in the send tab, but make sure that
+            # the user knows that they are paying an invoice and what the invoice is for by
+            # changing the UI experience.
+
+            body_text = (_("If you broadcast the transaction there is a large chance that whomever "
+                "gave you the invoice will not accept payment of the invoice. It is "
+                "strongly recommended that you delete this transaction and get a new "
+                "invoice, rather than broadcasting it.") +
+                "<br/><br/>" +
+                _("Do you still wish to broadcast this transaction?"))
+
+            invoice_row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
+            if invoice_row is None:
+                if not self.question(_("This transaction is associated with a deleted invoice.") +
+                        "<br/><br/>" + body_text,
+                        icon=QMessageBox.Warning):
+                    return False
+            elif paymentrequest.has_expired(invoice_row.date_expires):
+                if not self.question(_("This transaction is associated with an expired invoice.") +
+                        "<br/><br/>" + body_text,
+                        icon=QMessageBox.Warning):
+                    return False
+            elif (self._send_view._payment_request is None or
+                    self._send_view._payment_request.get_id() != invoice_row.invoice_id):
+                self.show_error(_("This transaction is associated with an invoice, but cannot "
+                    "be broadcast as it is not active on the send tab. Go to the send tab and "
+                    "select it from the invoice list and choose the 'Pay now' option."))
+                return False
+
+        return True
+
+    @protected
+    def sign_tx(self, tx: Transaction, callback: Callable[[bool], None], password: str,
+            window=None, tx_context: Optional[TransactionContext]=None) -> None:
+        self.sign_tx_with_password(tx, callback, password, window=window, tx_context=tx_context)
+
+    def sign_tx_with_password(self, tx: Transaction, callback: Callable[[bool], None],
+            password: str, window=None, tx_context: Optional[TransactionContext]=None) -> None:
         '''Sign the transaction in a separate thread.  When done, calls
         the callback with a success code of True or False.'''
-        def on_done(future):
+        def on_done(future: concurrent.futures.Future) -> None:
             try:
                 future.result()
             except Exception as exc:
@@ -1444,8 +1490,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 callback(True)
 
-        def sign_tx():
-            self._account.sign_transaction(tx, password)
+        def sign_tx() -> None:
+            self._account.sign_transaction(tx, password, tx_context=tx_context)
 
         window = window or self
         WaitingDialog(window, _('Signing transaction...'), sign_tx, on_done=on_done)
@@ -1468,7 +1514,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     (TxFlags.StateDispatched | TxFlags.HasByteData))
             return result
 
-        def on_done(future):
+        def on_done(future: concurrent.futures.Future) -> None:
             # GUI thread
             try:
                 tx_id: Optional[str] = future.result()
@@ -1482,7 +1528,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 d.exec()
             else:
                 if tx_id:
-                    if tx_desc is not None and tx.is_complete():
+                    if tx_desc is not None:
                         self._wallet.set_transaction_label(tx.hash(), tx_desc)
                     window.show_message(success_text + '\n' + tx_id)
 
@@ -1809,7 +1855,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             on_success=show_signed_message)
 
     def run_in_thread(self, func, *args, on_success=None):
-        def _on_done(future):
+        def _on_done(future: concurrent.futures.Future) -> None:
             try:
                 result = future.result()
             except Exception as exc:

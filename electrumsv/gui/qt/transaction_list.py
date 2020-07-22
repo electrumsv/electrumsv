@@ -1,5 +1,6 @@
 from collections import namedtuple
 import enum
+from functools import partial
 import threading
 import time
 from typing import List, Any, Optional, Dict, Tuple, Set
@@ -9,13 +10,14 @@ import webbrowser
 from bitcoinx import hash_to_hex_str
 from PyQt5.QtCore import (pyqtSignal, QAbstractItemModel, QModelIndex, QVariant, Qt,
     QSortFilterProxyModel, QTimer)
-from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QKeySequence
+from PyQt5.QtGui import QFont, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu, QWidget
 
 from electrumsv.i18n import _
 from electrumsv.app_state import app_state
-from electrumsv.constants import TxFlags
+from electrumsv.constants import PaymentFlag, TxFlags
 from electrumsv.logs import logs
+from electrumsv.paymentrequest import has_expired
 from electrumsv.platform import platform
 from electrumsv.transaction import Transaction
 from electrumsv.util import profiler, format_time
@@ -23,6 +25,7 @@ from electrumsv.wallet import AbstractAccount
 from electrumsv.wallet_database import TxData
 import electrumsv.web as web
 
+from .constants import ICON_NAME_INVOICE_PAYMENT
 from .main_window import ElectrumWindow
 from .util import read_QIcon, get_source_index
 
@@ -86,9 +89,6 @@ class _ItemModel(QAbstractItemModel):
 
         self._monospace_font = QFont(platform.monospace_font)
 
-        self._EXAMPLE_icon = read_QIcon("icons8-rotate-96")
-        self._EXAMPLE_brush = QBrush(QColor('lightgrey'))
-
     def set_column_names(self, column_names: List[str]) -> None:
         self._column_names = column_names[:]
 
@@ -147,14 +147,6 @@ class _ItemModel(QAbstractItemModel):
 
         # If there are any other rows that need to be updated relating to the data in that
         # line, here is the place to do it.  Then signal what has changed.
-
-    def update_line(self, tx_hash: bytes, values: Dict[int, Any]) -> bool:
-        row = self._get_row(tx_hash)
-        if row is None:
-            self._logger.debug("update_line called for non-existent entry %s", tx_hash)
-            return False
-
-        return self.update_row(row, values)
 
     def update_row(self, row: int, values: Dict[int, Any]) -> bool:
         old_line = self._data[row]
@@ -230,11 +222,11 @@ class _ItemModel(QAbstractItemModel):
                 elif column == DATE_UPDATED_COLUMN:
                     return line.date_updated
                 elif column == STATE_COLUMN:
-                    if line.flags == TxFlags.StateDispatched:
+                    if line.flags & TxFlags.StateDispatched:
                         return 0
-                    elif line.flags == TxFlags.StateReceived:
+                    elif line.flags & TxFlags.StateReceived:
                         return 2
-                    elif line.flags == TxFlags.StateSigned:
+                    elif line.flags & TxFlags.StateSigned:
                         return 1
                     else:
                         return 3
@@ -242,6 +234,10 @@ class _ItemModel(QAbstractItemModel):
                     return self._view._wallet.get_transaction_label(line.hash)
                 elif column in (VALUE_COLUMN, FIAT_VALUE_COLUMN):
                     return line.value
+
+            elif role == Qt.DecorationRole:
+                if column == LABEL_COLUMN and line.flags & TxFlags.PaysInvoice:
+                    return self._view._invoice_icon
 
             elif role == Qt.DisplayRole:
                 if column == DATE_ADDED_COLUMN:
@@ -252,11 +248,11 @@ class _ItemModel(QAbstractItemModel):
                         if line.date_updated else _("unknown"))
 
                 elif column == STATE_COLUMN:
-                    if line.flags == TxFlags.StateDispatched:
+                    if line.flags & TxFlags.StateDispatched:
                         return _("Dispatched")
-                    elif line.flags == TxFlags.StateReceived:
+                    elif line.flags & TxFlags.StateReceived:
                         return _("Received")
-                    elif line.flags == TxFlags.StateSigned:
+                    elif line.flags & TxFlags.StateSigned:
                         return _("Signed")
                     return _("Unknown")
                 elif column == LABEL_COLUMN:
@@ -278,14 +274,17 @@ class _ItemModel(QAbstractItemModel):
                 return Qt.AlignVCenter
 
             elif role == Qt.ToolTipRole:
-                if column == STATE_COLUMN:
-                    if line.flags == TxFlags.StateDispatched:
+                if column == LABEL_COLUMN:
+                    if line.flags & TxFlags.PaysInvoice:
+                        return _("This transaction is associated with an invoice.")
+                elif column == STATE_COLUMN:
+                    if line.flags & TxFlags.StateDispatched:
                         return _("This transaction has been sent to the network, but has not "
                             "cleared yet.")
-                    elif line.flags == TxFlags.StateReceived:
+                    elif line.flags & TxFlags.StateReceived:
                         return _("This transaction has been received from another party, but "
                             "has not been broadcast yet.")
-                    elif line.flags == TxFlags.StateSigned:
+                    elif line.flags & TxFlags.StateSigned:
                         return _("This transaction has been signed, but has not been broadcast "
                             "yet.")
 
@@ -350,6 +349,8 @@ class TransactionView(QTableView):
         self._account_id: Optional[int] = None
         self._account: Optional[AbstractAccount] = None
         self._update_lock = threading.Lock()
+
+        self._invoice_icon = read_QIcon(ICON_NAME_INVOICE_PAYMENT)
 
         self._headers = COLUMN_NAMES
 
@@ -699,9 +700,9 @@ class TransactionView(QTableView):
         assert tx_data.date_added is not None, \
             f"{hash_to_hex_str(tx_hash)} has no valid date_added"
         tx_entry = self._account.get_transaction_entry(tx_hash)
-        flags = tx_entry.flags & TxFlags.STATE_MASK
         delta_sum = self._wallet.get_transaction_delta(tx_hash)
-        return TxLine(tx_hash, tx_data.date_added, tx_data.date_updated, flags, delta_sum.total)
+        return TxLine(tx_hash, tx_data.date_added, tx_data.date_updated, tx_entry.flags,
+            delta_sum.total)
 
     def _event_double_clicked(self, model_index: QModelIndex) -> None:
         base_index = get_source_index(model_index, _ItemModel)
@@ -752,22 +753,55 @@ class TransactionView(QTableView):
                 row, column, line, selected_index, base_index = selected[0]
                 menu.addAction(_('Details'), lambda: self._main_window.show_transaction(
                     self._account, self._account.get_transaction(line.hash)))
+
+                entry = self._account.get_transaction_entry(line.hash)
+                if entry.flags & TxFlags.PaysInvoice:
+                    menu.addAction(self._invoice_icon, _("View invoice"),
+                        partial(self._show_invoice_window, line.hash))
                 line_URL = web.BE_URL(self._main_window.config, 'tx', hash_to_hex_str(line.hash))
                 if line_URL:
                     menu.addAction(_("View on block explorer"), lambda: webbrowser.open(line_URL))
+
                 menu.addSeparator()
                 if column == LABEL_COLUMN:
                     menu.addAction(_("Edit {}").format(column_title),
                         lambda: self.edit(selected_index))
-                entry = self._account.get_transaction_entry(line.hash)
+
                 if entry.flags & TxFlags.STATE_UNCLEARED_MASK != 0:
-                    menu.addAction(_("Broadcast"),
-                        lambda: self._broadcast_transaction(line.hash))
+                    if entry.flags & TxFlags.PaysInvoice:
+                        broadcast_action = menu.addAction(self._invoice_icon, _("Pay invoice"),
+                            lambda: self._pay_invoice(line.hash))
+
+                        row = self._account.invoices.get_invoice_for_tx_hash(line.hash)
+                        if row is None:
+                            # The associated invoice has been deleted.
+                            broadcast_action.setEnabled(False)
+                        elif row.flags & PaymentFlag.UNPAID == 0:
+                            # The associated invoice has already been paid.
+                            broadcast_action.setEnabled(False)
+                        elif has_expired(row.date_expires):
+                            # The associated invoice has expired.
+                            broadcast_action.setEnabled(False)
+                    else:
+                        menu.addAction(_("Broadcast"),
+                            lambda: self._broadcast_transaction(line.hash))
+
                     menu.addSeparator()
                     menu.addAction(_("Remove from account"),
                         lambda: self._account.delete_transaction(line.hash))
 
         menu.exec_(self.viewport().mapToGlobal(position))
+
+    def _pay_invoice(self, tx_hash: bytes) -> None:
+        row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
+        self._main_window._send_view._invoice_list._pay_invoice(row.invoice_id)
+
+    def _show_invoice_window(self, tx_hash: bytes) -> None:
+        row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
+        if row is None:
+            self._main_window.show_error(_("The invoice for the transaction has been deleted."))
+            return
+        self._main_window.show_invoice(self._account, row)
 
     def _broadcast_transaction(self, tx_hash: bytes) -> None:
         desc = None

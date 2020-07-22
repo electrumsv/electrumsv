@@ -88,7 +88,7 @@ class Unix(Platform):
 
 class Windows(Platform):
     libzbar_name = 'libzbar-0.dll'
-    monospace_font = 'Lucida Console'
+    monospace_font = 'Consolas'
     name = 'Windows'
 
     def user_dir(self, prefer_local=False):

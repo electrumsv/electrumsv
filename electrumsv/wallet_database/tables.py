@@ -1182,8 +1182,8 @@ class InvoiceTable(BaseWalletStore):
         "WHERE invoice_id=?")
     UPDATE_FLAGS_SQL = ("UPDATE Invoices SET date_updated=?, invoice_flags=((invoice_flags&?)|?) "
         "WHERE invoice_id=?")
-    UPDATE_PAYMENT_SQL = ("UPDATE Invoices SET date_updated=?, "
-        "invoice_flags=((invoice_flags&?)|?), tx_hash=?, description=? WHERE invoice_id=?")
+    UPDATE_TRANSACTION_SQL = "UPDATE Invoices SET date_updated=?, tx_hash=? WHERE invoice_id=?"
+    CLEAR_TRANSACTION_SQL = "UPDATE Invoices SET date_updated=?, tx_hash=NULL WHERE tx_hash=?"
     DELETE_SQL = "DELETE FROM Invoices WHERE invoice_id=?"
     ARCHIVE_SQL = f"""
     UPDATE Invoices SET state=state|{PaymentFlag.ARCHIVED} WHERE invoice_id=%d
@@ -1246,8 +1246,7 @@ class InvoiceTable(BaseWalletStore):
         return [ InvoiceAccountRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6])
             for t in rows ]
 
-    def update_payments(self,
-            entries: Iterable[Tuple[PaymentFlag, PaymentFlag, bytes, Optional[str], int]],
+    def clear_transaction(self, entries: Iterable[Tuple[bytes]],
             date_updated: Optional[int]=None,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         if date_updated is None:
@@ -1255,7 +1254,18 @@ class InvoiceTable(BaseWalletStore):
         payment_datas = [ (date_updated, *entry) for entry in entries ]
         def _write(db: sqlite3.Connection) -> None:
             nonlocal payment_datas
-            db.executemany(self.UPDATE_PAYMENT_SQL, payment_datas)
+            db.executemany(self.CLEAR_TRANSACTION_SQL, payment_datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def update_transaction(self, entries: Iterable[Tuple[Optional[bytes], int]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        payment_datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection) -> None:
+            nonlocal payment_datas
+            db.executemany(self.UPDATE_TRANSACTION_SQL, payment_datas)
         self._db_context.queue_write(_write, completion_callback)
 
     def update_description(self, entries: Iterable[Tuple[Optional[str], int]],

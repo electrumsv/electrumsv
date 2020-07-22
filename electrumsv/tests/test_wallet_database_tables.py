@@ -1608,23 +1608,21 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
     assert row is not None
     assert 2 == row.invoice_id
 
-    ## InvoiceTable.update_payments
+    ## InvoiceTable.update_transaction
     date_updated = 20
-
     with SynchronousWriter() as writer:
-        table.update_payments([ (~PaymentFlag.STATE_MASK, PaymentFlag.PAID, TX_HASH_3, "newdesc3",
-                line3_2.invoice_id), ],
+        table.update_transaction([ (TX_HASH_3, line3_2.invoice_id), ],
             date_updated,
             completion_callback=writer.get_callback())
         assert writer.succeeded()
 
-    # Verify the invoice is now marked as paid with the third tx.
+    # Verify the invoice is now marked with no associated tx.
     row = table.read_one(line3_2.invoice_id)
     assert row is not None
-    assert row.flags & PaymentFlag.STATE_MASK == PaymentFlag.PAID
-    assert row.description == "newdesc3"
+    assert row.tx_hash == TX_HASH_3
 
     ## InvoiceTable.update_description
+    date_updated += 1
     with SynchronousWriter() as writer:
         table.update_description([ ("newdesc3.2", line3_2.invoice_id), ],
             date_updated,

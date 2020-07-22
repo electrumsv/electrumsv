@@ -344,11 +344,12 @@ class _ItemModel(QAbstractItemModel):
                     return self._monospace_font
 
             elif role == Qt.BackgroundRole:
-                if False and column == STATE_COLUMN:
-                    if line.row.flags & KeyInstanceFlag.ALLOCATED_MASK:
-                        return self._frozen_brush
-                    elif not line.row.flags & KeyInstanceFlag.IS_ACTIVE:
-                        return self._inactive_brush
+                pass
+                # if False and column == STATE_COLUMN:
+                #     if line.row.flags & KeyInstanceFlag.ALLOCATED_MASK:
+                #         return self._frozen_brush
+                #     elif not line.row.flags & KeyInstanceFlag.IS_ACTIVE:
+                #         return self._inactive_brush
             elif role == Qt.TextAlignmentRole:
                 if column in (TYPE_COLUMN, STATE_COLUMN):
                     return Qt.AlignCenter

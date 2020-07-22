@@ -51,8 +51,8 @@ from .constants import (AccountType, CHANGE_SUBPATH, DEFAULT_TXDATA_CACHE_SIZE_M
     WalletEventType)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
-from .exceptions import (NotEnoughFunds, ExcessiveFee, UserCancelled, UnknownTransactionException,
-    WalletLoadError)
+from .exceptions import (ExcessiveFee, NotEnoughFunds, TransactionDeletionError, UserCancelled,
+    UnknownTransactionException, WalletLoadError)
 from .i18n import _
 from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
     instantiate_keystore, KeyStore, Multisig_KeyStore, MultisigChildKeyStoreTypes,
@@ -63,8 +63,8 @@ from .script import AccumulatorMultiSigOutput
 from .services import InvoiceService
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
-from .transaction import (Transaction, XPublicKey, NO_SIGNATURE, XTxInput, XTxOutput,
-    XPublicKeyType)
+from .transaction import (Transaction, TransactionContext, NO_SIGNATURE, XPublicKey,
+    XPublicKeyType, XTxInput, XTxOutput)
 from .types import TxoKeyType
 from .util import (format_satoshis, get_wallet_name_from_path, profiler, timestamp_to_datetime,
     TriggeredCallbacks)
@@ -977,6 +977,13 @@ class AbstractAccount:
         return False
 
     def delete_transaction(self, tx_hash: bytes) -> None:
+        # Invoices have foreign key on the transaction.
+        tx_flags = self._wallet.get_transaction_cache().get_flags(tx_hash)
+        if tx_flags & TxFlags.PaysInvoice:
+            # This does not mean the transaction is still referenced by the invoice, but it
+            # costs us little to just go ahead and clear it.
+            self.invoices.clear_invoice_transaction(tx_hash)
+
         def _completion_callback(exc_value: Any) -> None:
             if exc_value is not None:
                 raise exc_value # pylint: disable=raising-bad-type
@@ -1405,7 +1412,8 @@ class AbstractAccount:
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
         raise NotImplementedError
 
-    def sign_transaction(self, tx: Transaction, password: str) -> None:
+    def sign_transaction(self, tx: Transaction, password: str,
+            tx_context: Optional[TransactionContext]=None) -> None:
         if self.is_watching_only():
             return
 
@@ -1427,10 +1435,18 @@ class AbstractAccount:
                 continue
 
         # Incomplete transactions are multi-signature transactions that have not passed the
-        # require signature threshold. We do not store these until they are fully signed.
+        # required signature threshold. We do not store these until they are fully signed.
         if tx.is_complete():
             tx_hash = tx.hash()
-            self._wallet.add_transaction(tx_hash, tx, TxFlags.StateSigned)
+            tx_flags = TxFlags.StateSigned
+            if tx_context is not None and tx_context.invoice_id:
+                tx_flags |= TxFlags.PaysInvoice
+
+            self._wallet.add_transaction(tx_hash, tx, tx_flags)
+
+            # The transaction has to be in the database before we can refer to it in the invoice.
+            if tx_flags & TxFlags.PaysInvoice:
+                self.invoices.set_invoice_transaction(tx_context.invoice_id, tx_hash)
 
     def get_payment_status(self, req: PaymentRequestRow) -> Tuple[bool, int]:
         local_height = self._wallet.get_local_height()
@@ -2525,7 +2541,7 @@ class Wallet(TriggeredCallbacks):
         return { t[0]: cast(int, t[1].metadata.height) for t in results }
 
     # Also called by network.
-    def add_transaction(self, tx_hash: bytes, tx: Transaction, flag: TxFlags,
+    def add_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             external: bool=False) -> None:
         tx_id = hash_to_hex_str(tx_hash)
         if self._stopped:
@@ -2553,8 +2569,8 @@ class Wallet(TriggeredCallbacks):
 
             attempt_callback()
 
-        self._logger.debug("adding tx data %s (flags: %r)", tx_id, flag)
-        self._transaction_cache.add_transaction(tx_hash, tx, flag, _completion_callback)
+        self._logger.debug("adding tx data %s (flags: %r)", tx_id, flags)
+        self._transaction_cache.add_transaction(tx_hash, tx, flags, _completion_callback)
 
         # TODO: It should be possible to determine what accounts are involved with this without
         # entering the processing stage.

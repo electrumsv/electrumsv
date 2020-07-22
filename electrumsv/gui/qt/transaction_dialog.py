@@ -42,9 +42,14 @@ from electrumsv.bitcoin import base_encode
 from electrumsv.constants import ScriptType, TxFlags
 from electrumsv.i18n import _
 from electrumsv.logs import logs
+from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.platform import platform
-from electrumsv.transaction import tx_output_to_display_text, Transaction, XTxOutput
+from electrumsv.transaction import (Transaction, TransactionContext, tx_output_to_display_text,
+    XTxOutput)
 from electrumsv.wallet import AbstractAccount
+
+
+from .constants import UIBroadcastSource
 from .util import (Buttons, ButtonsLineEdit, ColorScheme, FormSectionWidget, MessageBoxMixin,
     read_QIcon)
 
@@ -56,7 +61,8 @@ TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
 
 class TxDialog(QDialog, MessageBoxMixin):
     def __init__(self, account: Optional[AbstractAccount], tx: Transaction,
-            main_window: 'ElectrumWindow', desc: Optional[str], prompt_if_unsaved: bool) -> None:
+            main_window: 'ElectrumWindow', desc: Optional[str], prompt_if_unsaved: bool,
+            payment_request: Optional[PaymentRequest]=None) -> None:
         '''Transactions in the wallet will show their description.
         Pass desc to give a description for txs not yet in the wallet.
         '''
@@ -74,12 +80,13 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._wallet = main_window._wallet
         self._account = account
         self._account_id = account.get_id() if account is not None else None
-        self.prompt_if_unsaved = prompt_if_unsaved
-        self.saved = False
-        self.monospace_font = QFont(platform.monospace_font)
+        self._payment_request = payment_request
+        self._prompt_if_unsaved = prompt_if_unsaved
+        self._saved = False
 
         self.setMinimumWidth(1000)
         self.setWindowTitle(_("Transaction"))
+        self._monospace_font = QFont(platform.monospace_font)
 
         form = FormSectionWidget()
 
@@ -202,13 +209,17 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.update()
 
     def do_broadcast(self) -> None:
+        if not self._main_window.confirm_broadcast_transaction(self._tx_hash,
+                UIBroadcastSource.TRANSACTION_DIALOG):
+            return
+
         self._main_window.broadcast_transaction(self._account, self.tx, self.tx.description,
             window=self)
-        self.saved = True
+        self._saved = True
         self.update()
 
     def ok_to_close(self) -> bool:
-        if self.prompt_if_unsaved and not self.saved:
+        if self._prompt_if_unsaved and not self._saved:
             return self.question(_('This transaction is not saved. Close anyway?'),
                 title=_("Warning"))
         return True
@@ -245,16 +256,21 @@ class TxDialog(QDialog, MessageBoxMixin):
             if success:
                 # If the signing was successful the hash will have changed.
                 self._tx_hash = self.tx.hash()
-                self.prompt_if_unsaved = True
+                self._prompt_if_unsaved = True
                 # If the signature(s) from this wallet complete the transaction, then it is
                 # effectively saved in the local transactions list.
-                self.saved = self.tx.is_complete()
+                self._saved = self.tx.is_complete()
+
             self.update()
             self._main_window.pop_top_level_window(self)
 
+        tx_context: Optional[TransactionContext] = None
+        if self._payment_request is not None:
+            tx_context = TransactionContext(invoice_id=self._payment_request.get_id())
+
         self.sign_button.setDisabled(True)
         self._main_window.push_top_level_window(self)
-        self._main_window.sign_tx(self.tx, sign_done, window=self)
+        self._main_window.sign_tx(self.tx, sign_done, window=self, tx_context=tx_context)
         if not self.tx.is_complete():
             self.sign_button.setDisabled(False)
 
@@ -270,7 +286,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             with open(fileName, "w+") as f:
                 f.write(json.dumps(tx_dict, indent=4) + '\n')
             self.show_message(_("Transaction saved successfully"))
-            self.saved = True
+            self._saved = True
 
     def update(self) -> None:
         base_unit = app_state.base_unit()
@@ -344,13 +360,13 @@ class TxDialog(QDialog, MessageBoxMixin):
         vbox.addWidget(QLabel(_("Inputs") + ' (%d)'%len(self.tx.inputs)))
 
         i_text = QTextEdit()
-        i_text.setFont(self.monospace_font)
+        i_text.setFont(self._monospace_font)
         i_text.setReadOnly(True)
 
         vbox.addWidget(i_text)
         vbox.addWidget(QLabel(_("Outputs") + ' (%d)'%len(self.tx.outputs)))
         o_text = QTextEdit()
-        o_text.setFont(self.monospace_font)
+        o_text.setFont(self._monospace_font)
         o_text.setReadOnly(True)
         vbox.addWidget(o_text)
         self.update_io(i_text, o_text)
