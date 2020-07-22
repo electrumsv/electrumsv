@@ -41,7 +41,7 @@ from electrumsv.exceptions import ExcessiveFee, NotEnoughFunds
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.paymentrequest import has_expired, PaymentRequest
-from electrumsv.transaction import Transaction, XTxOutput
+from electrumsv.transaction import Transaction, TransactionContext, XTxOutput
 from electrumsv.util import format_satoshis_plain
 from electrumsv.wallet import AbstractAccount, UTXO
 from electrumsv.wallet_database.tables import InvoiceRow
@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 
 class SendView(QWidget):
     payment_request_ok_signal = pyqtSignal()
-    payment_request_error_signal = pyqtSignal(object)
+    payment_request_error_signal = pyqtSignal(int, bytes)
     payment_request_import_error_signal = pyqtSignal(object)
     payment_request_imported_signal = pyqtSignal(object)
     payment_request_deleted_signal = pyqtSignal(int)
@@ -354,6 +354,18 @@ class SendView(QWidget):
     def _do_send(self, preview: bool=False) -> None:
         dialogs.show_named('think-before-sending')
 
+        if self._payment_request is not None:
+            tx = self.get_transaction_for_invoice()
+            if tx is not None:
+                if preview or not tx.is_complete():
+                    self._main_window.show_transaction(self._account, tx, tx.description,
+                        pr=self._payment_request)
+                    self.clear()
+                    return
+
+                self._main_window.broadcast_transaction(self._account, tx, tx.description)
+                return
+
         r = self._read()
         if not r:
             return
@@ -373,39 +385,11 @@ class SendView(QWidget):
             self._main_window.show_message(str(e))
             return
 
-        amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
-        fee = tx.get_fee()
-
         if preview:
-            self._main_window.show_transaction(self._account, tx, tx_desc)
-            return
-
-        # confirmation dialog
-        fields = [
-            (_("Amount to send"), QLabel(app_state.format_amount_and_units(amount))),
-            (_("Mining fee"), QLabel(app_state.format_amount_and_units(fee))),
-        ]
-
-        msg = []
-        if fee < round(tx.estimated_size() * 0.5):
-            msg.append(_('Warning') + ': ' +
-                       _('The fee is less than 500 sats/kb.  '
-                         'It may take a very long time to confirm.'))
-
-        msg.append("")
-        msg.append(_("Enter your password to proceed"))
-        password = self._main_window.password_dialog('\n'.join(msg), fields=fields)
-        if not password:
-            return
-
-        def sign_done(success: bool) -> None:
-            if success:
-                if not tx.is_complete():
-                    self._main_window.show_transaction(self._account, tx)
-                    self.clear()
-                else:
-                    self._main_window.broadcast_transaction(self._account, tx, tx_desc)
-        self._main_window.sign_tx_with_password(tx, sign_done, password)
+            self._main_window.show_transaction(self._account, tx, tx_desc, pr=self._payment_request)
+        else:
+            amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
+            self._sign_tx_and_broadcast_if_complete(amount, tx, tx_desc)
 
     def _read(self) -> Tuple[List[XTxOutput], Optional[int], str, List[UTXO]]:
         if self._payment_request and self._payment_request.has_expired():
@@ -441,21 +425,72 @@ class SendView(QWidget):
             return self.pay_from
         return self._account.get_spendable_coins(None, self._main_window.config)
 
+    def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction,
+            tx_desc: str) -> None:
+        # confirmation dialog
+        fee = tx.get_fee()
+
+        msg = []
+        if fee < round(tx.estimated_size() * 0.5):
+            msg.append(_('Warning') + ': ' +
+                _('The fee is less than 500 sats/kb. It may take a very long time to confirm.'))
+        msg.append("")
+        msg.append(_("Enter your password to proceed"))
+
+        password = self._main_window.password_dialog('\n'.join(msg), fields=[
+            (_("Amount to send"), QLabel(app_state.format_amount_and_units(amount))),
+            (_("Mining fee"), QLabel(app_state.format_amount_and_units(fee))),
+        ])
+        if not password:
+            return
+
+        def sign_done(success: bool) -> None:
+            if success:
+                if not tx.is_complete():
+                    self._main_window.show_transaction(self._account, tx, pr=self._payment_request)
+                    self.clear()
+                    return
+
+                self._main_window.broadcast_transaction(self._account, tx, tx_desc)
+
+        tx_context: Optional[TransactionContext] = None
+        if self._payment_request is not None:
+            tx_context = TransactionContext(invoice_id=self._payment_request.get_id())
+
+        self._main_window.sign_tx_with_password(tx, sign_done, password, tx_context=tx_context)
+
+    def get_transaction_for_invoice(self) -> Optional[Transaction]:
+        invoice_row = self._account.invoices.get_invoice_for_id(self._payment_request.get_id())
+        if invoice_row.tx_hash is not None:
+            return self._account.get_transaction(invoice_row.tx_hash)
+        return None
+
     def maybe_send_invoice_payment(self, tx: Transaction) -> bool:
         pr = self._payment_request
         if pr:
             tx_hash = tx.hash()
+            invoice_id = pr.get_id()
+
+            # TODO: Remove the dependence of broadcasting a transaction to pay an invoice on that
+            # invoice being active in the send tab. Until then we assume that broadcasting a
+            # transaction that is not related to the active invoice and it's repercussions, has
+            # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
+            # in the main window logic.
+            invoice_row = self._account.invoices.get_invoice_for_id(invoice_id)
+            if tx_hash != invoice_row.tx_hash:
+                # Calling logic should have detected this and warned/confirmed with the user.
+                return True
 
             if pr.has_expired():
-                pr.error = _("The payment request has expired")
-                self.payment_request_error_signal.emit(tx_hash)
+                pr.error = _("The invoice has expired")
+                self.payment_request_error_signal.emit(invoice_id, tx_hash)
                 return False
 
             if not pr.send_payment(self._account, str(tx)):
-                self.payment_request_error_signal.emit(tx_hash)
+                self.payment_request_error_signal.emit(invoice_id, tx_hash)
                 return False
 
-            self._account.invoices.set_invoice_paid(pr.get_id(), tx_hash)
+            self._account.invoices.set_invoice_paid(invoice_id)
 
             self._payment_request = None
             # On success we broadcast as well, but it is assumed that the merchant also
@@ -562,8 +597,9 @@ class SendView(QWidget):
         # Update the invoice list.
         self.update_widgets()
 
-    def payment_request_error(self, tx_hash: bytes) -> None:
-        self._account.delete_transaction(tx_hash)
+    def payment_request_error(self, invoice_id: int, tx_hash: bytes) -> None:
+        # The transaction is still signed and associated with the invoice. This should be
+        # indicated to the user in the UI, and they can deal with it.
 
         d = UntrustedMessageDialog(
             self._main_window.reference(), _("Invoice Payment Error"),

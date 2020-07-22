@@ -41,9 +41,10 @@ class TxFlags(IntFlag):
     # A transaction received from another party which is unknown to the p2p network.
     StateReceived = 1 << 22
     # A transaction you have not sent or given to anyone else, but are with-holding and are
-    # considering the inputs it uses frozen. """
+    # considering the inputs it uses allocated. """
     StateSigned = 1 << 23
-    # A transaction you have given to someone else, and are considering the inputs it uses frozen.
+    # A transaction you have given to someone else, and are considering the inputs it uses
+    # allocated.
     StateDispatched = 1 << 24
 
     PaysInvoice = 1 << 30
@@ -178,6 +179,9 @@ class PaymentFlag(IntFlag):
 
     STATE_MASK = (UNPAID | EXPIRED | PAID | ARCHIVED)
     UNPAID_MASK = ~(PAID | ARCHIVED)
+
+    CLEARED_STATE_MASK = ~STATE_MASK
+    ALL_SET_MASK = ~NONE
 
 
 # Transaction limits

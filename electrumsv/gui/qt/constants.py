@@ -1,6 +1,10 @@
+from enum import IntEnum
 
 from electrumsv.constants import PaymentFlag
 from electrumsv.i18n import _
+
+
+ICON_NAME_INVOICE_PAYMENT = "seal"
 
 
 pr_icons = {
@@ -12,7 +16,9 @@ pr_icons = {
 pr_tooltips = {
     PaymentFlag.UNPAID:_('Pending'),
     PaymentFlag.PAID:_('Paid'),
-    PaymentFlag.EXPIRED:_('Expired')
+    PaymentFlag.EXPIRED:_('Expired'),
+    PaymentFlag.UNKNOWN:_('Unknown'),
+    PaymentFlag.ARCHIVED:_('Archived'),
 }
 
 expiration_values = [
@@ -21,3 +27,73 @@ expiration_values = [
     (_('1 week'), 7*24*60*60),
     (_('Never'), None)
 ]
+
+
+class UIBroadcastSource(IntEnum):
+    TRANSACTION_DIALOG = 1
+    SEND_VIEW_BUTTON = 2
+    TRANSACTION_LIST_MENU = 3
+
+
+# NOTE(rt12): Without this style, there is no padding. With just the item padding and border the
+# focus style does this weird thing with the dotted selection showing in the cell with focus, and
+# all other cells in that row are blank. Forcing the item and item focus styles to be identical
+# except for background color fixes this.
+
+CSS_TABLE_CELL_FOCUS_COLOR = "#D3EBFF"
+CSS_ALTERNATING_BACKGROUND_COLOR = "#F5F8FA"
+
+CSS_TABLE_VIEW_STYLE = ("""
+QListView {
+"""
+f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
+"""
+}
+QListView:item {
+    color: black;
+}
+QListView:item:selected {
+"""
+f"  background-color: {CSS_TABLE_CELL_FOCUS_COLOR};"
+"""
+}
+
+QTableView {
+  outline: 0;
+"""
+f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
+"""
+}
+QTableView:item {
+  color: black;
+  border: 0px;
+  padding: 0px 5px;
+}
+QTableView::item:focus {
+  color: black;
+"""
+f"  background-color: {CSS_TABLE_CELL_FOCUS_COLOR};"
+"""
+  border: 0px;
+  padding: 0px 5px;
+}
+
+QTreeView {
+"""
+f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
+"""
+}
+""")
+
+# QTreeView::item {
+#   border-top: 0.5px solid lightgray;
+#   border-left: 0.5px solid lightgray;
+# }
+# QTreeView::focus {
+#   color: inherit;
+#   border-top: 0.5px solid lightgray;
+#   border-left: 0.5px solid lightgray;
+# }
+
+
+CSS_WALLET_WINDOW_STYLE = CSS_TABLE_VIEW_STYLE

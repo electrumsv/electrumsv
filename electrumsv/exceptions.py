@@ -66,6 +66,9 @@ class OverloadedMultisigKeystore(Exception):
 class UnknownTransactionException(Exception):
     pass
 
+class TransactionDeletionError(Exception):
+    pass
+
 class IncompatibleWalletError(Exception):
     pass
 

@@ -309,7 +309,7 @@ class PaymentRequest:
             self.error = e.args[0]
             return False
 
-        logger.debug("PaymentACK message received: memo='%s'", payment_ack.memo)
+        logger.debug("PaymentACK message received: memo=%r", payment_ack.memo)
         return True
 
     # The following function and classes is abstracted to allow unit testing.

@@ -70,6 +70,11 @@ def tx_output_to_display_text(tx_output: TxOutput):
     return text, kind
 
 
+@attr.s(slots=True, repr=True)
+class TransactionContext:
+    invoice_id: Optional[int] = attr.ib(default=None)
+
+
 class XPublicKeyType(enum.IntEnum):
     UNKNOWN = 0
     OLD = 1

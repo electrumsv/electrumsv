@@ -32,9 +32,10 @@ import webbrowser
 
 from bitcoinx import hash_to_hex_str, MissingHeader
 
-from PyQt5.QtCore import Qt, QPoint
-from PyQt5.QtGui import QBrush, QFont, QIcon, QColor
-from PyQt5.QtWidgets import QLabel, QMenu, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt5.QtCore import Qt, QModelIndex, QPoint, QSize
+from PyQt5.QtGui import QBrush, QIcon, QColor, QFont, QFontMetrics
+from PyQt5.QtWidgets import (QLabel, QMenu, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QItemDelegate, QStyleOptionViewItem)
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COINBASE_MATURITY
@@ -44,9 +45,9 @@ from electrumsv.logs import logs
 from electrumsv.platform import platform
 from electrumsv.util import timestamp_to_datetime, profiler, format_time
 from electrumsv.wallet import AbstractAccount
-from electrumsv.wallet_database.tables import InvoiceRow
 import electrumsv.web as web
 
+from .constants import ICON_NAME_INVOICE_PAYMENT
 from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox
 
 if TYPE_CHECKING:
@@ -79,6 +80,22 @@ TX_STATUS = {
     TxStatus.UNVERIFIED: _('Unverified'),
 }
 
+# This was intended to see if increasing the cell height would cause the monospace fonts to be
+# aligned in the center.
+# class ItemDelegate(QItemDelegate):
+#     def __init__(self, parent: Optional[QWidget], height: int=-1) -> None:
+#         super().__init__(parent)
+#         self._height = height
+
+#     def set_height(self, height: int) -> None:
+#         self._height = height
+
+#     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+#         size = super().sizeHint(option, index)
+#         if self._height != -1:
+#             size.setHeight(self._height)
+#         return size
+
 
 class HistoryList(MyTreeWidget):
     filter_columns = [2, 3, 4]  # Date, Description, Amount
@@ -94,13 +111,18 @@ class HistoryList(MyTreeWidget):
         self._main_window.account_change_signal.connect(self._on_account_change)
 
         self.update_tx_headers()
+
+        self.setUniformRowHeights(True)
         self.setColumnHidden(1, True)
         self.setSortingEnabled(True)
         self.sortByColumn(0, Qt.DescendingOrder)
 
         self.monospace_font = QFont(platform.monospace_font)
         self.withdrawalBrush = QBrush(QColor("#BC1E1E"))
-        self.invoiceIcon = read_QIcon("seal")
+        self.invoiceIcon = read_QIcon(ICON_NAME_INVOICE_PAYMENT)
+
+        # self._delegate = ItemDelegate(None, 50)
+        # self.setItemDelegate(self._delegate)
 
     def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
         self.clear()
@@ -161,7 +183,7 @@ class HistoryList(MyTreeWidget):
             v_str = app_state.format_amount(line.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(balance, whitespaces=True)
             label = self._wallet.get_transaction_label(line.tx_hash)
-            entry = ['', tx_id, status_str, label, v_str, balance_str]
+            entry = [None, tx_id, status_str, label, v_str, balance_str]
             if fx and fx.show_history():
                 date = timestamp_to_datetime(time.time() if conf <= 0 else timestamp)
                 for amount in [line.value_delta, balance]:
@@ -169,15 +191,18 @@ class HistoryList(MyTreeWidget):
                     entry.append(text)
 
             item = SortableTreeWidgetItem(entry)
+            # If there is no text,
             item.setIcon(0, icon)
             item.setToolTip(0, get_tx_tooltip(status, conf))
             item.setData(0, SortableTreeWidgetItem.DataRole, line.sort_key)
             if line.tx_flags & TxFlags.PaysInvoice:
                 item.setIcon(3, self.invoiceIcon)
             for i in range(len(entry)):
-                if i>3:
-                    item.setTextAlignment(i, Qt.AlignRight)
-                if i!=2:
+                if i > 3:
+                    item.setTextAlignment(i, Qt.AlignRight | Qt.AlignVCenter)
+                else:
+                    item.setTextAlignment(i, Qt.AlignLeft | Qt.AlignVCenter)
+                if i != 2:
                     item.setFont(i, self.monospace_font)
             if line.value_delta and line.value_delta < 0:
                 item.setForeground(3, self.withdrawalBrush)
@@ -252,7 +277,6 @@ class HistoryList(MyTreeWidget):
         tx = account.get_transaction(tx_hash)
         if not tx: return # this happens sometimes on account synch when first starting up.
         is_unconfirmed = height <= 0
-        invoice_row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
 
         menu = QMenu()
         menu.addAction(_("Copy {}").format(column_title),
@@ -270,14 +294,23 @@ class HistoryList(MyTreeWidget):
             if child_tx:
                 menu.addAction(_("Child pays for parent"),
                     lambda: self._main_window.cpfp(account, tx, child_tx))
-        if invoice_row is not None:
-            menu.addAction(read_QIcon("seal"), _("View invoice"),
-                partial(self._show_invoice_window, invoice_row))
+        entry = self._account.get_transaction_entry(tx_hash)
+        if entry.flags & TxFlags.PaysInvoice:
+            invoice_row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
+            invoice_id = invoice_row.invoice_id if invoice_row is not None else None
+            action = menu.addAction(read_QIcon(ICON_NAME_INVOICE_PAYMENT), _("View invoice"),
+                    partial(self._show_invoice_window, invoice_id))
+            action.setEnabled(invoice_id is not None)
+
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
         menu.exec_(self.viewport().mapToGlobal(position))
 
-    def _show_invoice_window(self, row: InvoiceRow) -> None:
+    def _show_invoice_window(self, invoice_id: int) -> None:
+        row = self._account.invoices.get_invoice_for_id(invoice_id)
+        if row is None:
+            self._main_window.show_error(_("The invoice for the transaction has been deleted."))
+            return
         self._main_window.show_invoice(self._account, row)
 
 
@@ -382,6 +415,9 @@ class HistoryView(QWidget):
                 balance=value_text)
         self._local_summary_label.setText(text)
         self._local_summary_label.setVisible(True)
+
+    def update_tx_labels(self) -> None:
+        self.list.update_tx_labels()
 
     def update_tx_headers(self) -> None:
         self.list.update_tx_headers()

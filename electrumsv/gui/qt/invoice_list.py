@@ -101,21 +101,22 @@ class InvoiceList(MyTreeWidget):
         self.clear()
 
         current_time = time.time()
-        expiry_time = float("inf")
+        nearest_expiry_time = float("inf")
 
         for row in self._send_view._account.invoices.get_invoices():
             flags = row.flags & PaymentFlag.STATE_MASK
             if flags & PaymentFlag.UNPAID and row.date_expires:
-                if row.date_expires <= current_time + 4:
+                if row.date_expires <= current_time + 5:
                     flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
                 else:
-                    expiry_time = min(expiry_time, row.date_expires)
+                    nearest_expiry_time = min(nearest_expiry_time, row.date_expires)
 
             date_str = format_time(row.date_expires, _("Unknown")
                 if row.date_expires else _('Never'))
             item = QTreeWidgetItem([date_str, row.payment_uri, row.description,
                 app_state.format_amount(row.value, whitespaces=True),
-                pr_tooltips.get(flags, '')])
+                # The tooltip text should be None to ensure the icon does not have extra RHS space.
+                pr_tooltips.get(flags, None)])
             icon_entry = pr_icons.get(flags)
             if icon_entry:
                 item.setIcon(4, read_QIcon(icon_entry))
@@ -125,10 +126,10 @@ class InvoiceList(MyTreeWidget):
             self.addTopLevelItem(item)
         self.setCurrentItem(self.topLevelItem(0))
 
-        if expiry_time != float("inf"):
-            self._start_timer(expiry_time)
+        if nearest_expiry_time != float("inf"):
+            self._start_timer(nearest_expiry_time)
 
-    def on_edited(self, item, column, prior) -> None:
+    def on_edited(self, item: QTreeWidgetItem, column: int, prior: str) -> None:
         '''Called only when the text actually changes'''
         text = item.text(column).strip()
         if text == "":
@@ -177,17 +178,25 @@ class InvoiceList(MyTreeWidget):
                 lambda: self._main_window.app.clipboard().setText(column_data))
         menu.addAction(_("Details"), partial(self._show_invoice_window, row))
         if flags & PaymentFlag.UNPAID:
-            menu.addAction(_("Pay Now"), partial(self._pay_invoice, row))
+            menu.addAction(_("Pay Now"), partial(self._pay_invoice, row.invoice_id))
         menu.addAction(_("Delete"), lambda: self._delete_invoice(invoice_id))
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _show_invoice_window(self, row: InvoiceRow) -> None:
         self._main_window.show_invoice(self._send_view._account, row)
 
-    def _pay_invoice(self, row: InvoiceRow) -> None:
-        pr = PaymentRequest.from_json(row.invoice_data)
-        pr.set_id(row.invoice_id)
+    def _pay_invoice(self, invoice_id: int) -> None:
+        row = self._send_view._account.invoices.get_invoice_for_id(invoice_id)
+        if row is None:
+            return
 
+        pr = PaymentRequest.from_json(row.invoice_data)
+        if pr.has_expired():
+            self._main_window.show_error(_("This invoice cannot be paid as it has expired."))
+            return
+
+        self._main_window.show_send_tab()
+        pr.set_id(row.invoice_id)
         self._send_view.pay_for_payment_request(pr)
 
     def _delete_invoice(self, invoice_id: int) -> None:
