@@ -267,7 +267,7 @@ class SVRegTestnet(object):
     DEFAULT_SERVERS = read_json_dict('servers_regtest.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
     NAME = 'regtest'
-    URI_PREFIX = "bitcoin"
+    BITCOIN_URI_PREFIX = "bitcoin"
     WIF_PREFIX = 0xef
     BIP276_VERSION = 2
     COIN = BitcoinRegtest
