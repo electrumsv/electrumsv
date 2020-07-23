@@ -32,10 +32,9 @@ import webbrowser
 
 from bitcoinx import hash_to_hex_str, MissingHeader
 
-from PyQt5.QtCore import Qt, QModelIndex, QPoint, QSize
-from PyQt5.QtGui import QBrush, QIcon, QColor, QFont, QFontMetrics
-from PyQt5.QtWidgets import (QLabel, QMenu, QTreeWidgetItem, QVBoxLayout, QWidget,
-    QItemDelegate, QStyleOptionViewItem)
+from PyQt5.QtCore import Qt, QPoint
+from PyQt5.QtGui import QBrush, QIcon, QColor, QFont
+from PyQt5.QtWidgets import QLabel, QMenu, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COINBASE_MATURITY
@@ -97,11 +96,24 @@ TX_STATUS = {
 #         return size
 
 
+class Columns(enum.IntEnum):
+    STATUS = 0
+    TX_ID = 1
+    DATE = 2
+    DESCRIPTION = 3
+    AMOUNT = 4
+    BALANCE = 5
+    FIAT_AMOUNT = 6
+    FIAT_BALANCE = 7
+
+
 class HistoryList(MyTreeWidget):
-    filter_columns = [2, 3, 4]  # Date, Description, Amount
+    filter_columns = [ Columns.DATE, Columns.DESCRIPTION, Columns.AMOUNT ]
+    ACCOUNT_ROLE = Qt.UserRole
+    TX_ROLE = Qt.UserRole + 2
 
     def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
-        MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [], 3)
+        MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [], Columns.DESCRIPTION)
 
         self._main_window = weakref.proxy(main_window)
         self._account_id: Optional[int] = None
@@ -113,9 +125,9 @@ class HistoryList(MyTreeWidget):
         self.update_tx_headers()
 
         self.setUniformRowHeights(True)
-        self.setColumnHidden(1, True)
+        self.setColumnHidden(Columns.TX_ID, True)
         self.setSortingEnabled(True)
-        self.sortByColumn(0, Qt.DescendingOrder)
+        self.sortByColumn(Columns.STATUS, Qt.DescendingOrder)
 
         self.monospace_font = QFont(platform.monospace_font)
         self.withdrawalBrush = QBrush(QColor("#BC1E1E"))
@@ -151,7 +163,7 @@ class HistoryList(MyTreeWidget):
     @profiler
     def _on_update_history_list(self) -> None:
         item = self.currentItem()
-        current_tx = item.data(0, Qt.UserRole)[1] if item else None
+        current_tx_hash = item.data(Columns.STATUS, self.TX_ROLE) if item else None
         self.clear()
         if self._account is None:
             return
@@ -164,6 +176,7 @@ class HistoryList(MyTreeWidget):
         header_at_height = app_state.headers.header_at_height
         chain = app_state.headers.longest_chain()
         missing_header_heights = []
+        items = []
         for line, balance in self._account.get_history(self.get_domain()):
             tx_id = hash_to_hex_str(line.tx_hash)
             conf = 0 if line.height <= 0 else max(local_height - line.height + 1, 0)
@@ -179,7 +192,6 @@ class HistoryList(MyTreeWidget):
                             line.height, server_height)
             status = get_tx_status(self._account, line.tx_hash, line.height, conf, timestamp)
             status_str = get_tx_desc(status, timestamp)
-            icon = get_tx_icon(status)
             v_str = app_state.format_amount(line.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(balance, whitespaces=True)
             label = self._wallet.get_transaction_label(line.tx_hash)
@@ -192,25 +204,33 @@ class HistoryList(MyTreeWidget):
 
             item = SortableTreeWidgetItem(entry)
             # If there is no text,
-            item.setIcon(0, icon)
-            item.setToolTip(0, get_tx_tooltip(status, conf))
-            item.setData(0, SortableTreeWidgetItem.DataRole, line.sort_key)
+            item.setIcon(Columns.STATUS, get_tx_icon(status))
+            item.setToolTip(Columns.STATUS, get_tx_tooltip(status, conf))
             if line.tx_flags & TxFlags.PaysInvoice:
-                item.setIcon(3, self.invoiceIcon)
+                item.setIcon(Columns.DESCRIPTION, self.invoiceIcon)
             for i in range(len(entry)):
-                if i > 3:
+                if i > Columns.DESCRIPTION:
                     item.setTextAlignment(i, Qt.AlignRight | Qt.AlignVCenter)
                 else:
                     item.setTextAlignment(i, Qt.AlignLeft | Qt.AlignVCenter)
-                if i != 2:
+                if i != Columns.DATE:
                     item.setFont(i, self.monospace_font)
             if line.value_delta and line.value_delta < 0:
-                item.setForeground(3, self.withdrawalBrush)
-                item.setForeground(4, self.withdrawalBrush)
-            item.setData(0, Qt.UserRole, (self._account_id, line.tx_hash))
-            self.insertTopLevelItem(0, item)
-            if current_tx == line.tx_hash:
+                item.setForeground(Columns.DESCRIPTION, self.withdrawalBrush)
+                item.setForeground(Columns.AMOUNT, self.withdrawalBrush)
+            item.setData(Columns.STATUS, SortableTreeWidgetItem.DataRole, line.sort_key)
+            item.setData(Columns.DATE, SortableTreeWidgetItem.DataRole, line.sort_key)
+            item.setData(Columns.STATUS, self.ACCOUNT_ROLE, self._account_id)
+            item.setData(Columns.STATUS, self.TX_ROLE, line.tx_hash)
+
+            # self.insertTopLevelItem(0, item)
+            if current_tx_hash == line.tx_hash:
                 self.setCurrentItem(item)
+
+            items.append(item)
+
+        self.addTopLevelItems(items)
+
         if len(missing_header_heights) and self._main_window.network:
             self._main_window.network.backfill_headers_at_heights(missing_header_heights)
 
@@ -218,7 +238,9 @@ class HistoryList(MyTreeWidget):
         if self.permit_edit(item, column):
             super(HistoryList, self).on_doubleclick(item, column)
         else:
-            account_id, tx_hash = item.data(0, Qt.UserRole)
+            account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
+            tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
+
             account = self._wallet.get_account(account_id)
             tx = account.get_transaction(tx_hash)
             if tx is not None:
@@ -232,25 +254,46 @@ class HistoryList(MyTreeWidget):
         child_count = root.childCount()
         for i in range(child_count):
             item = root.child(i)
-            account_id, tx_hash = item.data(0, Qt.UserRole)
+            tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
             label = self._wallet.get_transaction_label(tx_hash)
-            item.setText(3, label)
+            item.setText(Columns.DESCRIPTION, label)
 
     # From the wallet 'verified' event.
     def update_tx_item(self, tx_hash: bytes, height: int, conf: int, timestamp: int) -> None:
         # External event may be called before the UI element has an account.
         if self._account is None:
             return
+
         status = get_tx_status(self._account, tx_hash, height, conf, timestamp)
-        icon = get_tx_icon(status)
         tx_id = hash_to_hex_str(tx_hash)
-        items = self.findItems(tx_id, Qt.UserRole|Qt.MatchContains|Qt.MatchRecursive, column=1)
+        items = self.findItems(tx_id, self.TX_ROLE | Qt.MatchContains | Qt.MatchRecursive,
+            column=Columns.TX_ID)
         if items:
             item = items[0]
-            item.setIcon(0, icon)
-            item.setData(0, SortableTreeWidgetItem.DataRole, (status, conf))
-            item.setText(2, get_tx_desc(status, timestamp))
-            item.setToolTip(0, get_tx_tooltip(status, conf))
+            item.setIcon(Columns.STATUS, get_tx_icon(status))
+            item.setText(Columns.DATE, get_tx_desc(status, timestamp))
+            item.setToolTip(Columns.STATUS, get_tx_tooltip(status, conf))
+
+            # NOTE: This is a damned if you do and damned if you don't situation.
+            # - If we update the now verified row then it is not guaranteed to be in final order.
+            #   It will have been in order of date added to wallet before the update, and after
+            #   the naive display update above will still be in that order. But on the next list
+            #   update it will be in block order (height, position). CURRENT PROBLEM
+            # - If we update the sorting information without correcting all the balances, then
+            #   the balances will be out of order. WORSE PROBLEM.
+
+            # NOTE: Update the balances and then update the sorting keys and it is correct?
+            #       Manually updating the balances could be painful as we need to preserve the
+            #       value_delta and regenerate the balance, the fiat value (if applicable) and
+            #       the fiat balance (if applicable). And we need to do it in the order of sorting.
+            #       At this point, the painfulness of this, seems to suggest we would be better off
+            #       rewriting this whole thing to be paging based.
+
+            # # Consistent sorting.
+            # metadata = self._wallet._transaction_cache.get_metadata(tx_hash)
+            # sort_key = height, metadata.position
+            # item.setData(Columns.STATUS, SortableTreeWidgetItem.DataRole, sort_key)
+            # item.setData(Columns.DATE, SortableTreeWidgetItem.DataRole, sort_key)
 
     def create_menu(self, position: QPoint) -> None:
         self.selectedIndexes()
@@ -258,10 +301,10 @@ class HistoryList(MyTreeWidget):
         if not item:
             return
         column = self.currentColumn()
-        edit_data = item.data(0, Qt.UserRole)
-        if not edit_data:
+        account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
+        tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
+        if account_id is None or tx_hash is None:
             return
-        account_id, tx_hash = edit_data
         if column == 0:
             column_title = "ID"
             column_data = hash_to_hex_str(tx_hash)
