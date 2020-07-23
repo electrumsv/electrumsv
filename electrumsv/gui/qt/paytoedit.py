@@ -37,7 +37,7 @@ from electrumsv.bitcoin import string_to_bip276_script
 from electrumsv.i18n import _
 from electrumsv.network import Net
 from electrumsv.transaction import XTxOutput
-from electrumsv.web import is_URI
+from electrumsv.web import is_URI, URIError
 
 from .qrtextedit import ScanQRTextEdit
 from . import util
@@ -69,12 +69,8 @@ class PayToEdit(ScanQRTextEdit):
         self.is_pr = False
         self.is_alias = False
         self._ignore_uris = False
-        self.scan_f = send_view._main_window.pay_to_URI
         self.update_size()
         self.payto_script: Optional[Script] = None
-
-    def clean_up(self) -> None:
-        del self.scan_f
 
     def setFrozen(self, b):
         self.setReadOnly(b)
@@ -148,7 +144,7 @@ class PayToEdit(ScanQRTextEdit):
 
     def setPlainText(self, text: str, ignore_uris: bool=False) -> None:
         # We override this so that there's no infinite loop where pay_to_URI calls this then
-        # the BIP276 URI is detected as a URI and we feed it back to pay_to_URI via scan_f.
+        # the BIP276 URI is detected as a URI and we feed it back to pay_to_URI.
         self._ignore_uris = ignore_uris
         try:
             super().setPlainText(text)
@@ -167,7 +163,7 @@ class PayToEdit(ScanQRTextEdit):
         if len(lines) == 1:
             data = lines[0]
             if not self._ignore_uris and is_URI(data):
-                self.scan_f(data)
+                self._send_view._main_window.pay_to_URI(data)
                 return
             try:
                 self.payto_script = self._parse_output(data)
@@ -298,8 +294,11 @@ class PayToEdit(ScanQRTextEdit):
 
     def qr_input(self):
         data = super(PayToEdit,self).qr_input()
-        if data and data.startswith("bitcoincash:"):
-            self.scan_f(data)
+        if data:
+            try:
+                self._send_view._main_window.pay_to_URI(data)
+            except URIError as e:
+                self._send_view._main_window.show_error(str(e))
             # TODO: update fee
 
     # def resolve(self):

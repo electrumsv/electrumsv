@@ -118,11 +118,11 @@ def parse_URI(uri: str, on_pr=None, on_pr_error=None) -> Dict[str, Any]:
     pq = urllib.parse.parse_qs(u.query, keep_blank_values=True)
     if not (u.scheme == Net.BITCOIN_URI_PREFIX and 'sv' in pq or
             u.scheme in (PREFIX_SCRIPT, Net.PAY_URI_PREFIX)):
-        raise URIError(_('invalid BitcoinSV URI: {}').format(uri))
+        raise URIError(_('Invalid Bitcoin SV URI: {}').format(uri))
 
     for k, v in pq.items():
         if len(v) != 1:
-            raise URIError(_('duplicate query key {0} in BitcoinSV URI {1}').format(k, uri))
+            raise URIError(_('Duplicate query key {0} in BitcoinSV URI {1}').format(k, uri))
 
     out: Dict[str, Any] = {k: v[0] for k, v in pq.items()}
 

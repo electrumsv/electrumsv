@@ -187,6 +187,9 @@ class SendView(QWidget):
         self.amount_e.textEdited.connect(self.update_fee)
 
         def reset_max(t) -> None:
+            # Invoices set the amounts, which invokes this despite them being frozen.
+            if self._payment_request is not None:
+                return
             self._is_max = False
             self._max_button.setEnabled(not bool(t))
         self.amount_e.textEdited.connect(reset_max)
@@ -214,7 +217,7 @@ class SendView(QWidget):
         return vbox
 
     def clean_up(self) -> None:
-        self._payto_e.clean_up()
+        pass
 
     def _on_entry_changed(self) -> None:
         text = ""
