@@ -17,7 +17,7 @@ from electrumsv.wallet_database.tables import InvoiceRow
 
 from .constants import pr_tooltips
 from .util import (Buttons, ButtonsTableWidget, CloseButton, EnterButton, FormSectionWidget,
-    get_source_index, WindowModalDialog)
+    get_source_index, QMessageBox, WindowModalDialog)
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
@@ -101,7 +101,8 @@ class InvoiceDialog(WindowModalDialog):
         exportButton = EnterButton(_('Export'), do_export)
 
         def do_delete():
-            if self.question(_('Delete invoice?')):
+            if self.question(_('Are you sure you want to delete this invoice?'),
+                    title=_("Delete invoice"), icon=QMessageBox.Warning):
                 self._main_window._send_view._invoice_list._delete_invoice(row.invoice_id)
                 self.close()
 

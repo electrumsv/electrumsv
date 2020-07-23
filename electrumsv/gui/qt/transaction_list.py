@@ -11,7 +11,8 @@ from bitcoinx import hash_to_hex_str
 from PyQt5.QtCore import (pyqtSignal, QAbstractItemModel, QModelIndex, QVariant, Qt,
     QSortFilterProxyModel, QTimer)
 from PyQt5.QtGui import QFont, QFontMetrics, QKeySequence
-from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu, QWidget
+from PyQt5.QtWidgets import (QTableView, QAbstractItemView, QHeaderView, QMenu, QMessageBox,
+    QWidget)
 
 from electrumsv.i18n import _
 from electrumsv.app_state import app_state
@@ -788,7 +789,7 @@ class TransactionView(QTableView):
 
                     menu.addSeparator()
                     menu.addAction(_("Remove from account"),
-                        lambda: self._account.delete_transaction(line.hash))
+                        partial(self._delete_transaction, line.hash))
 
         menu.exec_(self.viewport().mapToGlobal(position))
 
@@ -807,3 +808,11 @@ class TransactionView(QTableView):
         desc = None
         tx = self._account.get_transaction(tx_hash)
         self._main_window.broadcast_transaction(self._account, tx, desc, window=self._main_window)
+
+    def _delete_transaction(self, tx_hash: bytes) -> None:
+        if self._main_window.question(_("Are you sure you want to remove this transaction?") +
+                "<br/><br/>" +
+                _("This removes the transaction from this account and frees up any coins "
+                "that are allocated for it."), title=_("Remove transaction"),
+                icon=QMessageBox.Warning):
+            self._account.delete_transaction(tx_hash)
