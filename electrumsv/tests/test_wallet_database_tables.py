@@ -1024,7 +1024,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
             transaction_table.create([
                     (TX_HASH, TxData(height=1, fee=2, position=None, date_added=1,
                     date_updated=1), TX_BYTES,
-                    TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight,
+                    TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight|TxFlags.PaysInvoice,
                     "tx 1"),
                     (TX_HASH2, TxData(height=1, fee=2, position=None, date_added=1,
                     date_updated=1), TX_BYTES2,
@@ -1095,8 +1095,24 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     db_lines = table.read()
     assert 3 == len(db_lines)
 
+    balance_row = table.read_balance(ACCOUNT_ID_OTHER)
+    assert balance_row == (0, 0)
+
+    balance_row = table.read_balance(ACCOUNT_ID)
+    assert balance_row.total == 1319.0
+    assert balance_row.match_count == 3
+
+    balance_row = table.read_balance(ACCOUNT_ID, TxFlags.Unset, TxFlags.PaysInvoice)
+    assert balance_row.total == 0
+    assert balance_row.match_count == 0
+
+    balance_row = table.read_balance(ACCOUNT_ID, TxFlags.PaysInvoice, TxFlags.PaysInvoice)
+    assert balance_row.total == 1319.0
+    assert balance_row.match_count == 3
+
     expected_total = 100 + 220 + 999
 
+    ## Test `read_transaction_value`
     # Query all deltas for the given transaction.
     result = table.read_transaction_value(TX_HASH)
     assert 3 == result.match_count
@@ -1621,6 +1637,18 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
     assert row is not None
     assert row.tx_hash == TX_HASH_3
 
+    ## InvoiceTable.clear_transaction
+    date_updated += 1
+    with SynchronousWriter() as writer:
+        table.clear_transaction([ (TX_HASH_3,), ],
+            date_updated,
+            completion_callback=writer.get_callback())
+        assert writer.succeeded()
+
+    # Verify the invoice is now marked with no associated tx.
+    row = table.read_one(line3_2.invoice_id)
+    assert row.tx_hash is None
+
     ## InvoiceTable.update_description
     date_updated += 1
     with SynchronousWriter() as writer:
@@ -1634,6 +1662,7 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
     assert row.description == "newdesc3.2"
 
     ## InvoiceTable.update_flags
+    date_updated += 1
     with SynchronousWriter() as writer:
         table.update_flags([ (~PaymentFlag.ARCHIVED, PaymentFlag.ARCHIVED, line3_2.invoice_id), ],
             date_updated,
@@ -1642,7 +1671,7 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
 
     # Verify the invoice now has the new description.
     row = table.read_one(line3_2.invoice_id)
-    assert row.flags == PaymentFlag.ARCHIVED | PaymentFlag.PAID
+    assert row.flags == PaymentFlag.ARCHIVED | PaymentFlag.UNPAID
 
     ## InvoiceTable.read_duplicate
     duplicate_row1 = table.read_duplicate(111, "ddd")
