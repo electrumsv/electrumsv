@@ -78,6 +78,7 @@ from .contact_list import ContactList, edit_contact_dialog
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit
 from .send_view import SendView
+from .table_widgets import TableTopButtonLayout
 from .util import (
     MessageBoxMixin, ColorScheme, HelpLabel, ButtonsLineEdit,
     WindowModalDialog, Buttons, CopyCloseButton,
@@ -252,10 +253,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         tabs.addTab(history_view, read_QIcon("tab_history.png"), _('History'))
 
-        transaction_view = self.create_transaction_tab()
-        transaction_view.changed_signal.connect(history_view.on_transaction_view_changed)
+        transaction_tab = self.create_transaction_tab()
+        self.transaction_view.changed_signal.connect(history_view.on_transaction_view_changed)
 
-        tabs.addTab(transaction_view, read_QIcon("icons8-transaction-list-96.png"),
+        tabs.addTab(transaction_tab, read_QIcon("icons8-transaction-list-96.png"),
             _('Transactions'))
         tabs.addTab(self.send_tab, read_QIcon("tab_send.png"), _('Send'))
         tabs.addTab(self.receive_tab, read_QIcon("tab_receive.png"), _('Receive'))
@@ -620,7 +621,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hist_menu.addAction("Export", self.export_history_dialog)
 
         wallet_menu.addSeparator()
-        wallet_menu.addAction(_("Find"), self.toggle_search).setShortcut(QKeySequence("Ctrl+F"))
+        wallet_menu.addAction(_("Find"), self._toggle_search).setShortcut(QKeySequence("Ctrl+F"))
 
         # Make sure the lambda reference does not prevent garbage collection.
         weakself = weakref.proxy(self)
@@ -1069,10 +1070,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.history_view = HistoryView(self._accounts_view, self)
         return self.history_view
 
-    def create_transaction_tab(self):
+    def create_transaction_tab(self) -> QWidget:
         from .transaction_list import TransactionView
         self.transaction_view = TransactionView(self._accounts_view, self)
-        return self.transaction_view
+        return self.create_list_tab(self.transaction_view)
 
     def show_key(self, account: AbstractAccount, key_id: int) -> None:
         from . import address_dialog
@@ -1108,7 +1109,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         w = QWidget()
         if self.is_receive_form_enabled():
             layout = self._create_receive_form_layout()
-            # w.searchable_list = self.request_list
         else:
             layout = self._create_account_unavailable_layout()
         w.setLayout(layout)
@@ -1135,7 +1135,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         throwaway_widget.setLayout(self.receive_tab.layout())
         if self.is_receive_form_enabled():
             layout = self._create_receive_form_layout()
-            # w.searchable_list = self.request_list
         else:
             layout = self._create_account_unavailable_layout()
         self.receive_tab.setLayout(layout)
@@ -1580,20 +1579,23 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from .notifications_view import View
         return View(self._api, self)
 
-    def create_list_tab(self, l, list_header=None):
+    def create_list_tab(self, list_widget: QWidget) -> None:
+        top_button_layout: Optional[TableTopButtonLayout] = None
+
         w = QWidget()
-        w.searchable_list = l
+        print("CREATE_LIST_TAB", list_widget, hasattr(list_widget, "filter"))
+        if hasattr(list_widget, "filter"):
+            top_button_layout = TableTopButtonLayout()
+            top_button_layout.refresh_signal.connect(self.refresh_wallet_display)
+            top_button_layout.filter_signal.connect(list_widget.filter)
+            w.on_search_toggled = partial(top_button_layout.on_toggle_filter)
         vbox = QVBoxLayout()
         w.setLayout(vbox)
         vbox.setContentsMargins(0, 0, 0, 0)
         vbox.setSpacing(0)
-        if list_header:
-            hbox = QHBoxLayout()
-            for b in list_header:
-                hbox.addWidget(b)
-            hbox.addStretch()
-            vbox.addLayout(hbox)
-        vbox.addWidget(l)
+        if top_button_layout is not None:
+            vbox.addLayout(top_button_layout)
+        vbox.addWidget(list_widget)
         return w
 
     def create_keys_tab(self):
@@ -1718,17 +1720,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                else _('Password is disabled, this wallet is not protected'))
         self.show_message(msg, title=_("Success"))
 
-    def toggle_search(self) -> None:
-        self._status_bar.search_box.setHidden(not self._status_bar.search_box.isHidden())
-        if not self._status_bar.search_box.isHidden():
-            self._status_bar.search_box.setFocus(1)
-        else:
-            self.do_search('')
+    def _toggle_search(self) -> None:
+        tab_parent = self._tab_widget.currentWidget()
+        tab = tab_parent.currentWidget() if isinstance(tab_parent, QStackedWidget) else tab_parent
 
-    def do_search(self, t: str) -> None:
-        tab = self._tab_widget.currentWidget()
-        if hasattr(tab, 'searchable_list'):
-            tab.searchable_list.filter(t)
+        if not hasattr(tab, 'on_search_toggled'):
+            self.show_warning(_("The current tab does not support searching."))
+            return
+
+        tab.on_search_toggled()
 
     def _show_wallet_information(self) -> None:
         def open_file_explorer(path: str, *_discard: Iterable[Any]) -> None:

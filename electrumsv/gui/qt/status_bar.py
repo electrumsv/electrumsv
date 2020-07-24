@@ -193,11 +193,6 @@ class StatusBar(QStatusBar):
         network_widget.setMinimumWidth(150)
         self.addPermanentWidget(network_widget)
 
-        self.search_box = QLineEdit()
-        self.search_box.textChanged.connect(main_window.do_search)
-        self.search_box.hide()
-        self.addPermanentWidget(self.search_box)
-
         self._notification_default_icon = read_QIcon("icons8-topic-32.png")
         self._notification_urgent_icon = read_QIcon("icons8-topic-32-windows-urgent.png")
         self._notification_many_icon = read_QIcon("icons8-topic-32-windows-plus.png")

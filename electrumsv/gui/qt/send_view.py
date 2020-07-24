@@ -32,8 +32,8 @@ import weakref
 from bitcoinx import hash_to_hex_str
 
 from PyQt5.QtCore import pyqtSignal, Qt, QStringListModel
-from PyQt5.QtWidgets import (QCompleter, QGridLayout, QHBoxLayout, QLineEdit, QMenu, QLabel,
-    QPlainTextEdit, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QLineEdit, QMenu,
+    QLabel, QPlainTextEdit, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentFlag
@@ -50,6 +50,7 @@ from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from . import dialogs
 from .invoice_list import InvoiceList
 from .paytoedit import PayToEdit
+from .table_widgets import TableTopButtonLayout
 from .util import (ColorScheme, EnterButton, HelpLabel, MyTreeWidget, UntrustedMessageDialog,
     update_fixed_tree_height)
 
@@ -67,8 +68,6 @@ class SendView(QWidget):
 
     _account_id: Optional[int] = None
     _account: Optional[AbstractAccount] = None
-
-    searchable_list: Optional[QWidget] = None
 
     def __init__(self, main_window: 'ElectrumWindow', account_id: int) -> None:
         super().__init__(main_window)
@@ -197,7 +196,10 @@ class SendView(QWidget):
 
         self.amount_e.textChanged.connect(self._on_entry_changed)
 
-        self.invoices_label = QLabel(_('Invoices'), self)
+        self._invoice_list_toolbar_layout = TableTopButtonLayout()
+        self._invoice_list_toolbar_layout.refresh_signal.connect(self._main_window.refresh_wallet_display)
+        self._invoice_list_toolbar_layout.filter_signal.connect(self._filter_invoice_list)
+
         self._invoice_list = InvoiceList(self, self._main_window.reference())
 
         vbox0 = QVBoxLayout()
@@ -205,19 +207,35 @@ class SendView(QWidget):
         hbox = QHBoxLayout()
         hbox.addLayout(vbox0)
 
+        invoice_layout = QVBoxLayout()
+        invoice_layout.setSpacing(0)
+        invoice_layout.setContentsMargins(6, 0, 6, 6)
+        invoice_layout.addLayout(self._invoice_list_toolbar_layout)
+        invoice_layout.addWidget(self._invoice_list)
+
+        self._invoice_box = QGroupBox()
+        self._invoice_box.setTitle(_('Invoices'))
+        self._invoice_box.setAlignment(Qt.AlignCenter)
+        self._invoice_box.setContentsMargins(0, 0, 0, 0)
+        self._invoice_box.setLayout(invoice_layout)
+
         vbox = QVBoxLayout(self)
         vbox.addLayout(hbox)
-        vbox.addStretch(1)
-        vbox.addWidget(self.invoices_label)
-        vbox.addWidget(self._invoice_list)
+        vbox.addSpacing(20)
+        vbox.addWidget(self._invoice_box)
         vbox.setStretchFactor(self._invoice_list, 1000)
-
-        self.searchable_list = self._invoice_list
 
         return vbox
 
     def clean_up(self) -> None:
         pass
+
+    # Called externally via the Find menu option.
+    def on_search_toggled(self) -> None:
+        self._invoice_list_toolbar_layout.on_toggle_filter()
+
+    def _filter_invoice_list(self, text: str) -> None:
+        self._invoice_list.filter(text)
 
     def _on_entry_changed(self) -> None:
         text = ""

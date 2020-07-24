@@ -31,6 +31,8 @@ from .main_window import ElectrumWindow
 from .util import read_QIcon, get_source_index
 
 
+# NOTE: Filtering does not work as this is QTableView and does not add filter proxy like KeyView().
+
 QT_SORT_ROLE = Qt.UserRole+1
 
 COLUMN_NAMES = [ _("Date Added"), _("Date Updated"), _("State"), _('Label'), _('Value'), '' ]

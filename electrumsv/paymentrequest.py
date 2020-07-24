@@ -46,10 +46,13 @@ if TYPE_CHECKING:
 
 logger = logs.get_logger("paymentrequest")
 
+# BIP 273 - Use "Accept" header for response type negotiation with Simplified Payment Request URLs
+# https://github.com/moneybutton/bips/blob/master/bip-0273.mediawiki
 REQUEST_HEADERS = {
     'Accept': 'application/bitcoinsv-paymentrequest',
     'User-Agent': 'ElectrumSV'
 }
+
 ACK_HEADERS = {
     'Content-Type': 'application/bitcoinsv-payment',
     'Accept': 'application/bitcoinsv-paymentack',
@@ -61,7 +64,6 @@ ca_path = certifi.where()
 
 # BIP 270 - Simplified Payment Protocol
 # https://github.com/moneybutton/bips/blob/master/bip-0270.mediawiki
-
 
 def has_expired(expiration_timestamp: Optional[int]=None) -> bool:
     return expiration_timestamp is not None and expiration_timestamp < int(time.time())

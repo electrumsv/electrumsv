@@ -47,7 +47,8 @@ from electrumsv.wallet import AbstractAccount
 import electrumsv.web as web
 
 from .constants import ICON_NAME_INVOICE_PAYMENT
-from .util import MyTreeWidget, SortableTreeWidgetItem, read_QIcon, MessageBox
+from .table_widgets import TableTopButtonLayout
+from .util import MyTreeWidget, read_QIcon, MessageBox, SortableTreeWidgetItem
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
@@ -148,10 +149,6 @@ class HistoryList(MyTreeWidget):
         if fx and fx.show_history():
             headers.extend(['%s '%fx.ccy + _('Amount'), '%s '%fx.ccy + _('Balance')])
         self.update_headers(headers)
-
-    @property
-    def searchable_list(self) -> 'HistoryList':
-        return self
 
     def get_domain(self) -> Optional[List[int]]:
         '''Replaced in address_dialog.py'''
@@ -394,6 +391,8 @@ class HistoryView(QWidget):
     def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
         super().__init__(parent)
 
+        self._main_window = weakref.proxy(main_window)
+
         self._account_id: Optional[int] = None
         self._account: AbstractAccount = None
 
@@ -412,12 +411,16 @@ class HistoryView(QWidget):
         label.setVisible(False)
 
         self.list = HistoryList(parent, main_window)
+        self._top_button_layout = TableTopButtonLayout()
+        self._top_button_layout.refresh_signal.connect(self._main_window.refresh_wallet_display)
+        self._top_button_layout.filter_signal.connect(self.filter_tx_list)
 
         vbox = QVBoxLayout()
         vbox.setSpacing(0)
         vbox.setContentsMargins(0, 0, 0, 0)
         vbox.addWidget(label)
-        vbox.addWidget(self.list)
+        vbox.addLayout(self._top_button_layout)
+        vbox.addWidget(self.list, 1)
         self.setLayout(vbox)
 
         self._update_transactions_tab_summary()
@@ -472,6 +475,9 @@ class HistoryView(QWidget):
     def update_tx_list(self) -> None:
         self.list.update()
 
-    @property
-    def searchable_list(self) -> 'HistoryList':
-        return self.list
+    # Called externally via the Find menu option.
+    def on_search_toggled(self) -> None:
+        self._top_button_layout.on_toggle_filter()
+
+    def filter_tx_list(self, text: str) -> None:
+        self.list.filter(text)

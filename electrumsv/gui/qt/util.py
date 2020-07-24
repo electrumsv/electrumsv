@@ -3,7 +3,7 @@ from functools import partial, lru_cache
 import os.path
 import sys
 import traceback
-from typing import Any, Iterable, List, Callable, Optional, TYPE_CHECKING, Union
+from typing import Any, Iterable, List, Callable, Optional, Set, TYPE_CHECKING, Union
 import weakref
 
 from aiorpcx import RPCError
@@ -50,6 +50,22 @@ class XLineEdit(QLineEdit):
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key_Return, Qt.Key_Enter):
             self.text_submitted_signal.emit()
+        else:
+            super().keyPressEvent(event)
+
+
+# TODO: Replace XLineEdit with this.
+class KeyEventLineEdit(QLineEdit):
+    key_event_signal = pyqtSignal(int)
+
+    def __init__(self, parent: Optional[QWidget]=None, override_events: Set[int]=set()) -> None:
+        super().__init__(parent)
+
+        self._override_events = override_events
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in self._override_events:
+            self.key_event_signal.emit(event.key())
         else:
             super().keyPressEvent(event)
 
