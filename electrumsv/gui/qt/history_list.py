@@ -414,6 +414,8 @@ class HistoryView(QWidget):
         self._top_button_layout = TableTopButtonLayout()
         self._top_button_layout.refresh_signal.connect(self._main_window.refresh_wallet_display)
         self._top_button_layout.filter_signal.connect(self.filter_tx_list)
+        self._top_button_layout.add_button("icons8-export-32-windows.png",
+            self._main_window.export_history_dialog, _("Export history as.."))
 
         vbox = QVBoxLayout()
         vbox.setSpacing(0)

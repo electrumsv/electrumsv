@@ -2143,32 +2143,27 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                                str(reason))
 
     def export_history_dialog(self) -> None:
-        d = WindowModalDialog(self, _('Export History'))
-        d.setMinimumSize(400, 200)
-        vbox = QVBoxLayout(d)
-        defaultname = os.path.expanduser('~/electrumsv-history.csv')
-        select_msg = _('Select file to export your wallet transactions to')
-        hbox, filename_e, csv_button = filename_field(self.config, defaultname, select_msg)
-        vbox.addLayout(hbox)
-        vbox.addStretch(1)
-        hbox = Buttons(CancelButton(d), OkButton(d, _('Export')))
-        vbox.addLayout(hbox)
-        self.update()
-        if not d.exec_():
+        filter_text = "CSV files (*.csv);;JSON files (*.json)"
+        default_filename = os.path.expanduser(os.path.join("~", "electrumsv-history.csv"))
+        export_filename = self.getSaveFileName(_("Export History"), default_filename, filter_text)
+        if not export_filename:
             return
-        filename = filename_e.text()
-        if not filename:
+
+        root_path, filename_ext = os.path.splitext(export_filename)
+        if filename_ext not in (".csv", ".json"):
             return
+
         try:
-            self.do_export_history(self._account, filename, csv_button.isChecked())
+            self._do_export_history(self._account, export_filename, filename_ext == ".csv")
         except (IOError, os.error) as reason:
             export_error_label = _("ElectrumSV was unable to produce a transaction export.")
             self.show_critical(export_error_label + "\n" + str(reason),
                                title=_("Unable to export history"))
             return
+
         self.show_message(_("Your wallet history has been successfully exported."))
 
-    def do_export_history(self, account: AbstractAccount, fileName: str, is_csv: bool) -> None:
+    def _do_export_history(self, account: AbstractAccount, fileName: str, is_csv: bool) -> None:
         history = account.export_history()
         lines = []
         for item in history:
