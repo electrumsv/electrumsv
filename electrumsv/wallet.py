@@ -51,8 +51,8 @@ from .constants import (AccountType, CHANGE_SUBPATH, DEFAULT_TXDATA_CACHE_SIZE_M
     WalletEventType)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
-from .exceptions import (ExcessiveFee, NotEnoughFunds, TransactionDeletionError, UserCancelled,
-    UnknownTransactionException, WalletLoadError)
+from .exceptions import (ExcessiveFee, NotEnoughFunds, UserCancelled, UnknownTransactionException,
+    WalletLoadError)
 from .i18n import _
 from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
     instantiate_keystore, KeyStore, Multisig_KeyStore, MultisigChildKeyStoreTypes,
@@ -1591,6 +1591,10 @@ class AbstractAccount:
     def can_change_password(self) -> bool:
         raise NotImplementedError
 
+    def can_spend(self) -> bool:
+        # All accounts can spend except for imported address accounts.
+        return True
+
 
 class SimpleAccount(AbstractAccount):
     # wallet with a single keystore
@@ -1630,6 +1634,9 @@ class ImportedAddressAccount(ImportedAccountBase):
 
     def is_watching_only(self) -> bool:
         return True
+
+    def can_spend(self) -> bool:
+        return False
 
     def can_import_privkey(self):
         return False

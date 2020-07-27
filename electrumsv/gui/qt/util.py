@@ -58,7 +58,8 @@ class XLineEdit(QLineEdit):
 class KeyEventLineEdit(QLineEdit):
     key_event_signal = pyqtSignal(int)
 
-    def __init__(self, parent: Optional[QWidget]=None, override_events: Set[int]=set()) -> None:
+    def __init__(self, parent: Optional[QWidget]=None, override_events: Set[int]=frozenset()) \
+            -> None:
         super().__init__(parent)
 
         self._override_events = override_events

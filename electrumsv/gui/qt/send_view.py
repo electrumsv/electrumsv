@@ -32,8 +32,8 @@ import weakref
 from bitcoinx import hash_to_hex_str
 
 from PyQt5.QtCore import pyqtSignal, Qt, QStringListModel
-from PyQt5.QtWidgets import (QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QLineEdit, QMenu,
-    QLabel, QPlainTextEdit, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
+    QLabel, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentFlag
@@ -196,7 +196,8 @@ class SendView(QWidget):
         self._fiat_send_e.textEdited.connect(reset_max)
 
         self._invoice_list_toolbar_layout = TableTopButtonLayout()
-        self._invoice_list_toolbar_layout.refresh_signal.connect(self._main_window.refresh_wallet_display)
+        self._invoice_list_toolbar_layout.refresh_signal.connect(
+            self._main_window.refresh_wallet_display)
         self._invoice_list_toolbar_layout.filter_signal.connect(self._filter_invoice_list)
 
         self._invoice_list = InvoiceList(self, self._main_window.reference())

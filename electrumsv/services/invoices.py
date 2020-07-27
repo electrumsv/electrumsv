@@ -1,7 +1,7 @@
 from typing import List, Optional, TYPE_CHECKING
 import weakref
 
-from electrumsv.constants import PaymentFlag, TxFlags
+from electrumsv.constants import PaymentFlag
 from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.wallet_database.sqlite_support import CompletionCallbackType, SynchronousWriter
 from electrumsv.wallet_database.tables import InvoiceAccountRow, InvoiceRow

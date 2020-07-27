@@ -3,7 +3,7 @@ import weakref
 
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPainter, QPixmap
-from PyQt5.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QLineEdit, QSizePolicy, QStatusBar,
+from PyQt5.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QStatusBar,
     QStyle, QStyleOptionToolButton, QToolButton, QWidget, QWidgetAction)
 
 from electrumsv.app_state import app_state

@@ -83,7 +83,7 @@ from .util import (
     MessageBoxMixin, ColorScheme, HelpLabel, ButtonsLineEdit,
     WindowModalDialog, Buttons, CopyCloseButton,
     WaitingDialog, OkButton, WWLabel, read_QIcon,
-    CloseButton, CancelButton, text_dialog, filename_field,
+    CloseButton, CancelButton, text_dialog,
     UntrustedMessageDialog, protected,
     show_in_file_explorer, create_new_wallet,
     FormSectionWidget, top_level_window_recurse, query_choice
@@ -92,6 +92,9 @@ from .wallet_api import WalletAPI
 
 
 logger = logs.get_logger("mainwindow")
+
+
+SendViewTypes = Union[SendView, QWidget]
 
 
 class ElectrumWindow(QMainWindow, MessageBoxMixin):
@@ -142,8 +145,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.fee_unit = self.config.get('fee_unit', 0)
 
         self._accounts_view = self._create_accounts_view()
-        self._send_views: Dict[int, SendView] = {}
-        self._send_view: Optional[SendView] = None
+        self._send_views: Dict[int, SendViewTypes] = {}
+        self._send_view: Optional[SendViewTypes] = None
         self._tab_widget = tabs = self._accounts_view.get_tab_widget()
 
         self._create_tabs()
@@ -950,7 +953,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.need_update.clear()
             self.refresh_wallet_display()
 
-        if self._send_view is not None:
+        if self.is_send_view_active():
             self._send_view.on_timer_action()
 
     def format_fee_rate(self, fee_rate: int) -> str:
@@ -1055,7 +1058,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def update_tabs(self, *args) -> None:
         if self._account_id is not None:
             self.request_list.update()
-        if self._send_view is not None:
+        if self.is_send_view_active():
             self._send_view.update_widgets()
         self.utxo_list.update()
         self.contact_list.update()
@@ -1099,8 +1102,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tx_dialog.finished.disconnect()
         self.tx_dialogs.remove(tx_dialog)
 
-    def is_send_form_enabled(self) -> bool:
-        return self._account_id is not None
+    def is_send_view_active(self) -> None:
+        return self._send_view is not None and self._account is not None and \
+            self._account.can_spend()
 
     def is_receive_form_enabled(self) -> bool:
         return self._account_id is not None
@@ -1139,8 +1143,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             layout = self._create_account_unavailable_layout()
         self.receive_tab.setLayout(layout)
 
-    def _create_account_unavailable_layout(self) -> QVBoxLayout:
-        label_title = WWLabel(_("<p>No active account.</p>"))
+    def _create_account_unavailable_layout(self, text: Optional[str]=None) -> QVBoxLayout:
+        if text is None:
+            text = _("No active account.")
+
+        label_title = WWLabel(_("<p>"+ text +"</p>"))
         label_title.setAlignment(Qt.AlignCenter)
 
         vbox2 = QVBoxLayout()
@@ -1404,20 +1411,29 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.new_request_button.setEnabled(True)
         self._update_receive_tab_destination()
 
-    def get_send_view(self, account_id: int) -> SendView:
+    def get_send_view(self, account_id: Optional[int]) -> SendViewTypes:
         send_view = self._send_views.get(account_id)
         if send_view is None:
-            send_view = SendView(self, self._account_id)
-            self._send_views[account_id] = send_view
+            text: Optional[str] = None
+            if account_id is not None:
+                account = self._wallet.get_account(account_id)
+                if account.can_spend():
+                    send_view = SendView(self, self._account_id)
+                else:
+                    text = _("This functionality is not available for this type of account.")
+            if send_view is None:
+                send_view = QWidget()
+                send_view.setLayout(self._create_account_unavailable_layout(text))
+            if account_id is not None:
+                self._send_views[account_id] = send_view
         return send_view
 
     def _create_send_tab(self) -> QStackedWidget:
         tab_widget = QStackedWidget()
-        self._send_unavailable_widget = QWidget()
-        self._send_unavailable_widget.setLayout(self._create_account_unavailable_layout())
-        tab_widget.addWidget(self._send_unavailable_widget)
-        tab_widget.setCurrentWidget(self._send_unavailable_widget)
-        self._send_view: Optional[SendView] = None
+        send_view = self.get_send_view(self._account_id)
+        tab_widget.addWidget(send_view)
+        tab_widget.setCurrentWidget(send_view)
+        self._send_view = send_view
         return tab_widget
 
     def get_custom_fee_text(self, fee_rate = None) -> str:
@@ -2312,7 +2328,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.qr_window.close()
 
         for send_view in self._send_views.values():
-            send_view.clean_up()
+            if isinstance(send_view, SendView):
+                send_view.clean_up()
         self._send_views.clear()
 
         if self.key_view:
