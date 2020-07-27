@@ -464,7 +464,7 @@ class PreferencesDialog(QDialog):
             if current_script_type == new_script_type:
                 return
             account.set_default_script_type(new_script_type)
-            self._main_window.update_receive_address_widget()
+            self._main_window.update_receive_tab_destination()
 
         if account.is_watching_only():
             script_type_combo.setEnabled(False)

@@ -1343,9 +1343,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._receive_key_id = keyinstance.keyinstance_id
         self.receive_message_e.setText("")
         self.receive_amount_e.setAmount(None)
-        self._update_receive_tab_destination()
+        self.update_receive_tab_destination()
 
-    def _update_receive_tab_destination(self) -> None:
+    def update_receive_tab_destination(self) -> None:
         text = ""
         if self._receive_key_id is not None:
             script_template = self._account.get_script_template_for_id(self._receive_key_id)
@@ -1410,7 +1410,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._receive_key_id = key_id
         self.show_receive_tab()
         self.new_request_button.setEnabled(True)
-        self._update_receive_tab_destination()
+        self.update_receive_tab_destination()
 
     def get_send_view(self, account_id: Optional[int]) -> SendViewTypes:
         send_view = self._send_views.get(account_id)

@@ -1905,7 +1905,7 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
         return [ self._get_public_key_for_id(keyinstance_id) ]
 
     def get_valid_script_types(self) -> Sequence[ScriptType]:
-        return (ScriptType.P2PKH,)
+        return (ScriptType.P2PKH,)#  ScriptType.P2PK)
 
     def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
         public_key = self._get_public_key_for_id(keyinstance_id)
