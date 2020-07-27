@@ -8,20 +8,18 @@ from typing import List, Optional
 import weakref
 
 from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, pyqtSignal, QSize, Qt
-# from PyQt5.QtGui import QModel
-from PyQt5.QtWidgets import (QDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
-    QSplitter, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QLabel, QListWidget, QListWidgetItem, QMenu, QSplitter, QTabWidget,
+    QTextEdit, QVBoxLayout)
 
 from electrumsv.bitcoin import address_from_string, script_template_to_string
 from electrumsv.constants import AccountType, DerivationType
 from electrumsv.i18n import _
 from electrumsv.wallet import AbstractAccount, MultisigAccount, Wallet
 
-from .cosigners_view import CosignerState, CosignerList
+from .account_dialog import AccountDialog
 from .main_window import ElectrumWindow
-from .qrtextedit import ShowQRTextEdit
-from .util import (Buttons, CancelButton, CloseButton, filename_field,
-    FormSectionWidget, line_dialog, MessageBox, OkButton, protected, read_QIcon, WindowModalDialog)
+from .util import (Buttons, CancelButton, filename_field, line_dialog, MessageBox, OkButton,
+    protected, read_QIcon, WindowModalDialog)
 
 
 class AccountsView(QSplitter):
@@ -211,7 +209,7 @@ class AccountsView(QSplitter):
         item.setText(new_account_name)
 
     def _show_account_information(self, account_id: int) -> None:
-        dialog = AccountInformationDialog(self._main_window, self._wallet, account_id, self)
+        dialog = AccountDialog(self._main_window, self._wallet, account_id, self)
         dialog.exec_()
 
     def _generate_destinations(self, account_id) -> None:
@@ -372,74 +370,4 @@ class AccountsView(QSplitter):
                     transaction.writerow([key_text, pk])
             else:
                 f.write(json.dumps(pklist, indent = 4))
-
-
-
-class AccountInformationDialog(QDialog):
-    _list: Optional[CosignerList] = None
-
-    def __init__(self, main_window: ElectrumWindow, wallet: Wallet, account_id: int,
-            parent: QWidget) -> None:
-        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
-
-        assert type(main_window) is weakref.ProxyType
-        self._main_window = main_window
-        self._wallet = wallet
-
-        self._account = account = self._wallet.get_account(account_id)
-        keystore = account.get_keystore()
-
-        self.setWindowTitle(_("Account Information"))
-        self.setMinimumSize(600, 400)
-
-        vbox = QVBoxLayout()
-
-        self._form = form = FormSectionWidget(minimum_label_width=160)
-        form.add_title("Account properties")
-        name_widget = QLineEdit()
-        name_widget.setText(account.display_name())
-        name_widget.setReadOnly(True)
-        form.add_row(_("Name"), name_widget, True)
-        form.add_row(_("Type"), QLabel(account.type().value))
-        script_type_widget = QLineEdit()
-        script_type_widget.setText(account.get_default_script_type().name)
-        script_type_widget.setReadOnly(True)
-        form.add_row(_("Script type"), script_type_widget, True)
-        vbox.addWidget(form)
-
-        add_stretch = True
-        if keystore is not None:
-            if keystore.derivation_type == DerivationType.ELECTRUM_MULTISIG:
-                multisig_form = FormSectionWidget(minimum_label_width=160)
-                multisig_form.add_title("Multi-signature properties")
-                multisig_form.add_row(_("Number of cosigners"), QLabel(str(keystore.n)))
-                multisig_form.add_row(_("Number of signatures required"), QLabel(str(keystore.m)))
-                vbox.addWidget(multisig_form)
-
-                self._list = list = CosignerList(self._main_window, create=False)
-                list.setMinimumHeight(350)
-                for i, keystore in enumerate(account.get_keystores()):
-                    state = CosignerState(i, keystore)
-                    list.add_state(state)
-                vbox.addWidget(list, 1)
-                add_stretch = False
-            elif account.is_deterministic():
-                form.add_row(_("Keystore"), QLabel(keystore.type().value))
-
-                mpk_list = account.get_master_public_keys()
-                mpk_text = ShowQRTextEdit()
-                mpk_text.setFixedHeight(65)
-                mpk_text.addCopyButton(self._main_window.app)
-                mpk_text.setText(mpk_list[0])
-                mpk_text.repaint()   # macOS hack for Electrum #4777
-                form.add_row(QLabel(_("Master public key")), mpk_text, True)
-        if add_stretch:
-            vbox.addStretch(1)
-
-        buttons = Buttons(CloseButton(self))
-        self._buttons = buttons
-
-        vbox.addLayout(self._buttons)
-        self.setLayout(vbox)
 

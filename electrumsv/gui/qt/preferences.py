@@ -36,8 +36,7 @@ from PyQt5.QtWidgets import (
 
 from electrumsv import qrscanner
 from electrumsv.app_state import app_state
-from electrumsv.constants import (MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
-    ScriptType)
+from electrumsv.constants import MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB
 from electrumsv.extensions import label_sync
 from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
@@ -82,8 +81,6 @@ class PreferencesDialog(QDialog):
             (partial(self.extensions_widgets, account), _('Extensions')),
         ]
         tabs_info.append((partial(self.wallet_widgets, wallet), _('Wallet')))
-        if account is not None:
-            tabs_info.append((partial(self.account_widgets, account), _('Account')))
         tabs_info.append((self.network_widgets, _('Network')))
 
         tabs = QTabWidget()
@@ -437,45 +434,6 @@ class PreferencesDialog(QDialog):
         form = FormSectionWidget(minimum_label_width=120)
         form.add_row(_('Options'), options_box, True)
         form.add_row(_('Transaction Cache Size'), tx_cache_layout)
-
-        vbox = QVBoxLayout()
-        vbox.addWidget(form)
-        vbox.addStretch(1)
-        tab.setLayout(vbox)
-
-    def account_widgets(self, account: AbstractAccount, tab: QWidget) -> None:
-        label = QLabel(_("The settings below only affect the account '{}'")
-                       .format(account.display_name()))
-
-        script_type_combo = QComboBox()
-
-        def update_script_types():
-            default_script_type = account.get_default_script_type()
-            combo_items = [ v.name for v in account.get_valid_script_types() ]
-
-            script_type_combo.clear()
-            script_type_combo.addItems(combo_items)
-            script_type_combo.setCurrentIndex(script_type_combo.findText(default_script_type.name))
-
-        def on_script_type_change(index):
-            script_type_name = script_type_combo.currentText()
-            new_script_type = getattr(ScriptType, script_type_name)
-            current_script_type = account.get_default_script_type()
-            if current_script_type == new_script_type:
-                return
-            account.set_default_script_type(new_script_type)
-            self._main_window.update_receive_tab_destination()
-
-        if account.is_watching_only():
-            script_type_combo.setEnabled(False)
-        else:
-            script_type_combo.currentIndexChanged.connect(on_script_type_change)
-
-        update_script_types()
-
-        form = FormSectionWidget(minimum_label_width=120)
-        form.add_title(_("Account: {}").format(account.display_name()))
-        form.add_row(_("Default script type"), script_type_combo)
 
         vbox = QVBoxLayout()
         vbox.addWidget(form)

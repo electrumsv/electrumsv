@@ -432,8 +432,13 @@ class AbstractAccount:
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         raise NotImplementedError
 
-    def get_valid_script_types(self) -> Sequence[ScriptType]:
+    def get_enabled_script_types(self) -> Sequence[ScriptType]:
+        "The allowed set of script types that this account can make use of."
         raise NotImplementedError
+
+    def get_supported_script_types(self) -> Sequence[ScriptType]:
+        "The complete set of script types that this account type can make use of."
+        return self.get_enabled_script_types()
 
     def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Script]:
         raise NotImplementedError
@@ -1681,14 +1686,14 @@ class ImportedAddressAccount(ImportedAccountBase):
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
         return [ ]
 
-    def get_valid_script_types(self) -> Sequence[ScriptType]:
+    def get_enabled_script_types(self) -> Sequence[ScriptType]:
         return (ScriptType.P2PKH,)
 
     def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
         keyinstance = self._keyinstances[keyinstance_id]
         return [ (script_type,
                 self.get_script_template_for_id(keyinstance_id, script_type).to_script())
-            for script_type in self.get_valid_script_types() ]
+            for script_type in self.get_enabled_script_types() ]
 
     def get_script_template_for_id(self, keyinstance_id: int,
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
@@ -1768,14 +1773,14 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         public_key = keystore.get_public_key_for_id(keyinstance_id)
         return [XPublicKey(pubkey_bytes=public_key.to_bytes())]
 
-    def get_valid_script_types(self) -> Sequence[ScriptType]:
+    def get_enabled_script_types(self) -> Sequence[ScriptType]:
         return (ScriptType.P2PKH,)
 
     def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
         keyinstance = self._keyinstances[keyinstance_id]
         return [ (script_type,
                 self.get_script_template_for_id(keyinstance_id, script_type).to_script())
-            for script_type in self.get_valid_script_types() ]
+            for script_type in self.get_enabled_script_types() ]
 
     def get_script_template_for_id(self, keyinstance_id: int,
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
@@ -1904,14 +1909,17 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
         return [ self._get_public_key_for_id(keyinstance_id) ]
 
-    def get_valid_script_types(self) -> Sequence[ScriptType]:
-        return (ScriptType.P2PKH,)#  ScriptType.P2PK)
+    def get_enabled_script_types(self) -> Sequence[ScriptType]:
+        return (ScriptType.P2PKH, ScriptType.P2PK)
+
+    def get_supported_script_types(self) -> Sequence[ScriptType]:
+        return (ScriptType.P2PKH, ScriptType.P2PK)
 
     def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
         public_key = self._get_public_key_for_id(keyinstance_id)
         keyinstance = self._keyinstances[keyinstance_id]
         return [ (script_type, self.get_script_template(public_key, script_type).to_script())
-            for script_type in self.get_valid_script_types() ]
+            for script_type in self.get_enabled_script_types() ]
 
     def get_script_template_for_id(self, keyinstance_id: int,
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
@@ -1950,7 +1958,7 @@ class MultisigAccount(DeterministicAccount):
         return AccountType.MULTISIG
 
     def get_threshold(self, script_type: ScriptType) -> int:
-        assert script_type in self.get_valid_script_types(), \
+        assert script_type in self.get_enabled_script_types(), \
             f"get_threshold got bad script_type {script_type}"
         return self.m
 
@@ -1958,14 +1966,14 @@ class MultisigAccount(DeterministicAccount):
         derivation_path = self._keypath[keyinstance_id]
         return [ k.derive_pubkey(derivation_path) for k in self.get_keystores() ]
 
-    def get_valid_script_types(self) -> Sequence[ScriptType]:
+    def get_enabled_script_types(self) -> Sequence[ScriptType]:
         return (ScriptType.MULTISIG_P2SH, ScriptType.MULTISIG_BARE, ScriptType.MULTISIG_ACCUMULATOR)
 
     def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Script]:
         public_keys = self.get_public_keys_for_id(keyinstance_id)
         public_keys_hex = [pubkey.to_hex() for pubkey in public_keys]
         return [ (script_type, self.get_script_template(public_keys_hex, script_type).to_script())
-            for script_type in self.get_valid_script_types() ]
+            for script_type in self.get_enabled_script_types() ]
 
     def get_script_template_for_id(self, keyinstance_id: int,
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:

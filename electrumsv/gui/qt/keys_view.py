@@ -462,7 +462,7 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
         elif self._filter_type == MatchType.ADDRESS and self._account is not None:
             column_index = source_model.index(source_row, KEY_COLUMN, source_parent)
             key: KeyInstanceRow = source_model.data(column_index, QT_FILTER_ROLE)
-            for script_type in self._account.get_valid_script_types():
+            for script_type in self._account.get_enabled_script_types():
                 template = self._account.get_script_template_for_id(key.keyinstance_id, script_type)
                 if match == template:
                     return True
