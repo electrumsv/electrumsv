@@ -378,7 +378,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         # Refresh edits with the new rate
         for send_view in self._send_views.values():
-            send_view.update_for_fx_quotes()
+            if isinstance(send_view, SendView):
+                send_view.update_for_fx_quotes()
 
         if self._account_id is not None:
             edit = (self.fiat_receive_e
@@ -1599,7 +1600,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         top_button_layout: Optional[TableTopButtonLayout] = None
 
         w = QWidget()
-        print("CREATE_LIST_TAB", list_widget, hasattr(list_widget, "filter"))
         if hasattr(list_widget, "filter"):
             top_button_layout = TableTopButtonLayout()
             top_button_layout.refresh_signal.connect(self.refresh_wallet_display)
@@ -2236,14 +2236,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         b = app_state.fx and app_state.fx.is_enabled()
         if self._account_id is not None:
             for send_view in self._send_views.values():
-                send_view.set_fiat_ccy_enabled(b)
+                if isinstance(send_view, SendView):
+                    send_view.set_fiat_ccy_enabled(b)
             self.fiat_receive_e.setVisible(b)
         self.history_view.update_tx_headers()
         self.update_history_view()
         self.update_status_bar()
 
     def on_base_unit_changed(self):
-        edits = itertools.chain.from_iterable(v.get_bsv_edits() for v in self._send_views.values())
+        edits = itertools.chain.from_iterable(v.get_bsv_edits() for v in self._send_views.values()
+            if isinstance(v, SendView))
         if self._account_id is not None:
             edits.append(self.receive_amount_e)
         amounts = [edit.get_amount() for edit in edits]

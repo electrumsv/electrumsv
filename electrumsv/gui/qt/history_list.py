@@ -143,6 +143,15 @@ class HistoryList(MyTreeWidget):
         self._account_id = new_account_id
         self._account = new_account
 
+    def on_edited(self, item: QTreeWidgetItem, column: int, prior_text: str) -> None:
+        '''Called only when the text actually changes'''
+        text = item.text(column).strip()
+        if text == "":
+            text = None
+        tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
+        self._main_window._wallet.set_transaction_label(tx_hash, text)
+        self._main_window.history_view.update_tx_labels()
+
     def update_tx_headers(self) -> None:
         headers = ['', '', _('Date'), _('Description') , _('Amount'), _('Balance')]
         fx = app_state.fx
