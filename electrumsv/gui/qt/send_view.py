@@ -192,9 +192,8 @@ class SendView(QWidget):
             self._is_max = False
             self._max_button.setEnabled(not bool(t))
         self.amount_e.textEdited.connect(reset_max)
-        self._fiat_send_e.textEdited.connect(reset_max)
-
         self.amount_e.textChanged.connect(self._on_entry_changed)
+        self._fiat_send_e.textEdited.connect(reset_max)
 
         self._invoice_list_toolbar_layout = TableTopButtonLayout()
         self._invoice_list_toolbar_layout.refresh_signal.connect(self._main_window.refresh_wallet_display)
@@ -277,10 +276,7 @@ class SendView(QWidget):
         self._payment_request = None
         self._payto_e.is_pr = False
 
-        # TODO: Clean up this with direct clears on widgets so it's not incomprehensible magic.
-        edit_fields = []
-        edit_fields.extend(self.findChildren(QPlainTextEdit))
-        edit_fields.extend(self.findChildren(QLineEdit))
+        edit_fields = (self._payto_e, self.amount_e, self._fiat_send_e, self._message_e)
         for edit_field in edit_fields:
             # TODO: Does this work with refresh given the ' ' refresh note in some edit.
             edit_field.setText('')

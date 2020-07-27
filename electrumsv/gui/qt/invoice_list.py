@@ -25,6 +25,7 @@ from functools import partial
 import math
 import time
 from typing import TYPE_CHECKING, Optional
+import urllib.parse
 import weakref
 
 from PyQt5.QtCore import Qt, QPoint, QTimer
@@ -53,20 +54,29 @@ if TYPE_CHECKING:
 logger = logs.get_logger("invoice-list")
 
 
+COL_RECEIVED = 0
+COL_EXPIRES = 1
+COL_REQUESTOR = 2
+COL_DESCRIPTION = 3
+COL_AMOUNT = 4
+COL_STATUS = 5
+
+
 class InvoiceList(MyTreeWidget):
-    filter_columns = [0, 1, 2, 3]  # Date, Requestor, Description, Amount
+    filter_columns = [COL_RECEIVED, COL_EXPIRES, COL_REQUESTOR, COL_DESCRIPTION, COL_AMOUNT]
 
     def __init__(self, parent: 'SendView', main_window: 'ElectrumWindow') -> None:
         MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [
-            _('Expires'), _('Requestor'), _('Description'), _('Amount'), _('Status')], 2)
+            _('Received'), _('Expires'), _('Requestor'), _('Description'), _('Amount'),
+            _('Status')], COL_DESCRIPTION)
 
         self._send_view = parent
         self._main_window = weakref.proxy(main_window)
 
         self.monospace_font = QFont(platform.monospace_font)
         self.setSortingEnabled(True)
-        self.header().setSectionResizeMode(1, QHeaderView.Interactive)
-        self.setColumnWidth(1, 200)
+        self.header().setSectionResizeMode(COL_REQUESTOR, QHeaderView.Interactive)
+        self.setColumnWidth(COL_REQUESTOR, 200)
 
         # This is used if there is a pending expiry.
         self._timer: Optional[QTimer] = None
@@ -98,8 +108,17 @@ class InvoiceList(MyTreeWidget):
             return
 
         self._stop_timer()
+
+        current_id = None
+        if self._send_view._payment_request is not None:
+            current_id = self._send_view._payment_request.get_id()
+        if current_id is None:
+            current_item = self.currentItem()
+            current_id = current_item.data(COL_RECEIVED, Qt.UserRole) if current_item else None
+
         self.clear()
 
+        current_item = None
         current_time = time.time()
         nearest_expiry_time = float("inf")
 
@@ -111,20 +130,27 @@ class InvoiceList(MyTreeWidget):
                 else:
                     nearest_expiry_time = min(nearest_expiry_time, row.date_expires)
 
-            date_str = format_time(row.date_expires, _("Unknown")
+            requestor_uri = urllib.parse.urlparse(row.payment_uri)
+            requestor_text = requestor_uri.netloc
+            received_text = format_time(row.date_created, _("Unknown"))
+            expires_text = format_time(row.date_expires, _("Unknown")
                 if row.date_expires else _('Never'))
-            item = QTreeWidgetItem([date_str, row.payment_uri, row.description,
+            item = QTreeWidgetItem([received_text, expires_text, requestor_text, row.description,
                 app_state.format_amount(row.value, whitespaces=True),
                 # The tooltip text should be None to ensure the icon does not have extra RHS space.
                 pr_tooltips.get(flags, None)])
             icon_entry = pr_icons.get(flags)
             if icon_entry:
-                item.setIcon(4, read_QIcon(icon_entry))
-            item.setData(0, Qt.UserRole, row.invoice_id)
-            item.setFont(1, self.monospace_font)
-            item.setFont(3, self.monospace_font)
+                item.setIcon(COL_STATUS, read_QIcon(icon_entry))
+            if row.invoice_id == current_id:
+                current_item = item
+            item.setData(COL_RECEIVED, Qt.UserRole, row.invoice_id)
+            item.setFont(COL_REQUESTOR, self.monospace_font)
+            item.setFont(COL_DESCRIPTION, self.monospace_font)
             self.addTopLevelItem(item)
-        self.setCurrentItem(self.topLevelItem(0))
+
+        if current_item is not None:
+            self.setCurrentItem(current_item)
 
         if nearest_expiry_time != float("inf"):
             self._start_timer(nearest_expiry_time)
@@ -134,7 +160,7 @@ class InvoiceList(MyTreeWidget):
         text = item.text(column).strip()
         if text == "":
             text = None
-        invoice_id = item.data(0, Qt.UserRole)
+        invoice_id = item.data(COL_RECEIVED, Qt.UserRole)
         self._send_view._account.invoices.set_invoice_description(invoice_id, text)
 
     def import_invoices(self, account: AbstractAccount) -> None:
@@ -164,7 +190,7 @@ class InvoiceList(MyTreeWidget):
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
 
-        invoice_id: int = item.data(0, Qt.UserRole)
+        invoice_id: int = item.data(COL_RECEIVED, Qt.UserRole)
         row = self._send_view._account.invoices.get_invoice_for_id(invoice_id)
         assert row is not None, f"invoice {invoice_id} not found"
 

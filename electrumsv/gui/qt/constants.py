@@ -14,7 +14,7 @@ pr_icons = {
 }
 
 pr_tooltips = {
-    PaymentFlag.UNPAID:_('Pending'),
+    PaymentFlag.UNPAID:_('Unpaid'),
     PaymentFlag.PAID:_('Paid'),
     PaymentFlag.EXPIRED:_('Expired'),
     PaymentFlag.UNKNOWN:_('Unknown'),
