@@ -4,7 +4,7 @@ import json
 import os
 import threading
 import time
-from typing import List, Optional
+from typing import List, Optional, Sequence
 import weakref
 
 from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, pyqtSignal, QSize, Qt
@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (QLabel, QListWidget, QListWidgetItem, QMenu, QSplit
 from electrumsv.bitcoin import address_from_string, script_template_to_string
 from electrumsv.constants import AccountType, DerivationType
 from electrumsv.i18n import _
+from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount, MultisigAccount, Wallet
 
 from .account_dialog import AccountDialog
@@ -29,6 +30,7 @@ class AccountsView(QSplitter):
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet) -> None:
         super().__init__(main_window)
 
+        self._logger = logs.get_logger("accounts-view")
         self._main_window = weakref.proxy(main_window)
         self._wallet = wallet
 
@@ -59,10 +61,16 @@ class AccountsView(QSplitter):
         self.addWidget(self._selection_list)
         self.addWidget(self._tab_widget)
 
-        self.setStretchFactor(1, 2)
+        self.setChildrenCollapsible(False)
 
     def on_wallet_loaded(self) -> None:
         self._initialize_account_list()
+
+    def init_geometry(self, sizes: Optional[Sequence[int]]=None) -> None:
+        self._logger.debug("init_geometry %r", sizes)
+        if sizes is None:
+            sizes = [ 200, self.size().width() - 200 ]
+        self.setSizes(sizes)
 
     def _on_account_created(self, new_account_id: int, new_account: AbstractAccount) -> None:
         # It should be made the active wallet account and followed up with the change event.

@@ -504,9 +504,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             except Exception:
                 self._logger.exception("using default geometry")
                 winpos = None
-
         if winpos is None:
             self.setGeometry(100, 100, 840, 400)
+
+        splitter_sizes = self._wallet.get_storage().get("split-sizes-qt")
+        self._accounts_view.init_geometry(splitter_sizes)
 
     def _update_window_title(self):
         title = f'ElectrumSV {PACKAGE_VERSION} ({Net.NAME}) - {self._wallet.name()}'
@@ -2316,9 +2318,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         if not self.isMaximized():
             try:
-                g = self.geometry()
-                self._wallet.get_storage().put(
-                    "winpos-qt", [g.left(),g.top(),g.width(),g.height()])
+                self._wallet.get_storage().put("winpos-qt", self.geometry().getRect())
+                self._wallet.get_storage().put("split-sizes-qt", self._accounts_view.sizes())
             except (OSError, PermissionError):
                 self._logger.exception("unable to write to wallet storage (directory removed?)")
 
