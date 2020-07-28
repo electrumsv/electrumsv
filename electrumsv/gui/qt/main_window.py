@@ -496,14 +496,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def init_geometry(self):
         winpos = self._wallet.get_storage().get("winpos-qt")
+        if winpos is not None:
+            try:
+                screen = self.app.desktop().screenGeometry()
+                assert screen.contains(QRect(*winpos))
+                self.setGeometry(*winpos)
+            except Exception:
+                self._logger.exception("using default geometry")
+                winpos = None
+
         if winpos is None:
-            return
-        try:
-            screen = self.app.desktop().screenGeometry()
-            assert screen.contains(QRect(*winpos))
-            self.setGeometry(*winpos)
-        except Exception:
-            self._logger.exception("using default geometry")
             self.setGeometry(100, 100, 840, 400)
 
     def _update_window_title(self):
