@@ -43,23 +43,13 @@ class EnterButton(QPushButton):
         if e.key() == Qt.Key_Return:
             self.func()
 
-class XLineEdit(QLineEdit):
-    text_submitted_signal = pyqtSignal()
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
-            self.text_submitted_signal.emit()
-        else:
-            super().keyPressEvent(event)
-
-
-# TODO: Replace XLineEdit with this.
 class KeyEventLineEdit(QLineEdit):
     key_event_signal = pyqtSignal(int)
 
-    def __init__(self, parent: Optional[QWidget]=None, override_events: Set[int]=frozenset()) \
-            -> None:
-        super().__init__(parent)
+    def __init__(self, parent: Optional[QWidget]=None, text: str='',
+            override_events: Set[int]=frozenset()) -> None:
+        QLineEdit.__init__(self, text, parent)
 
         self._override_events = override_events
 
@@ -684,11 +674,11 @@ class ButtonsWidget(QWidget):
         QToolTip.showText(QCursor.pos(), _("Text copied to clipboard"), self)
 
 
-class ButtonsLineEdit(XLineEdit, ButtonsWidget):
+class ButtonsLineEdit(KeyEventLineEdit, ButtonsWidget):
     qt_css_class = "QLineEdit"
 
     def __init__(self, text=''):
-        QLineEdit.__init__(self, text, None)
+        KeyEventLineEdit.__init__(self, None, text, {Qt.Key_Return, Qt.Key_Enter})
         self.buttons: Iterable[QAbstractButton] = []
 
     def resizeEvent(self, event: QResizeEvent) -> None:
