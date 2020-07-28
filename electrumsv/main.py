@@ -59,40 +59,35 @@ def prompt_password(prompt, confirm=True):
 
 
 def run_non_RPC(config):
-    # TODO(rt12) BACKLOG re-enable at a later tiem.
-    sys.exit("Not currently supported, create an issue on github")
+    """Most commands should go through the daemon or RPC, especially commands that operate on
+    wallets."""
+    cmdname = config.get('cmd')
 
-    # cmdname = config.get('cmd')
+    def get_wallet_path() -> str:
+        wallet_path = config.get_cmdline_wallet_filepath()
+        if wallet_path is None:
+            sys.exit("error: no wallet path provided")
 
-    # wallet_path = config.get_cmdline_wallet_filepath()
-    # if WalletStorage.files_are_matched_by_path(wallet_path):
-    #     sys.exit("Error: wallet name in use at given path")
+        final_path = WalletStorage.canonical_path(wallet_path)
+        if WalletStorage.files_are_matched_by_path(wallet_path):
+            sys.exit(f"error: wallet already exists: {final_path}")
 
-    # storage = WalletStorage(wallet_path)
+        return final_path
 
-    # def password_dialog():
-    #     return prompt_password("Password (hit return if you do not wish to encrypt your wallet):")
+    if cmdname == 'create_wallet':
+        wallet_path = get_wallet_path()
+        password = prompt_password("Password:")
+        password = password.strip() if password is not None else password
+        if not password:
+            sys.exit("error: wallet creation requires a password")
 
-    # if cmdname == 'create':
-    #     password = password_dialog().strip()
-    #     if not password:
-    #         sys.exit("Error: wallet creation requires a password")
+        storage = WalletStorage.create(wallet_path, password)
+        storage.close()
 
-    #     passphrase = config.get('passphrase', '')
-    #     seed_type = 'standard'
-    #     seed = Mnemonic('en').make_seed(seed_type)
-    #     k = keystore.from_seed(seed, passphrase)
-
-    #     wallet = Wallet(storage)
-    #     keystore_usage = wallet.create_masterkey_from_keystore(k.dump())
-    #     StandardAccount.create_within_wallet(wallet, keystore_usage=[ keystore_usage ])
-    #     wallet.update_password(password)
-    # else:
-    #     sys.exit("Error: unrecognised command")
-
-    # wallet.save_storage()
-    # print(f"Wallet saved in '{wallet.get_storage_path()}'")
-    # sys.exit(0)
+        print(f"Wallet saved in '{wallet_path}'")
+        sys.exit(0)
+    else:
+        sys.exit("error: unrecognised command")
 
 
 def init_daemon(config_options):
@@ -120,7 +115,7 @@ def init_daemon(config_options):
 def init_cmdline(config_options, server):
     config = SimpleConfig(config_options)
     cmdname = config.get('cmd')
-    cmd = known_commands[cmdname]
+    cmd = known_commands[cmdname.replace("-", "_")]
 
     if cmdname == 'signtransaction' and config.get('privkey'):
         cmd.requires_wallet = False
@@ -135,12 +130,10 @@ def init_cmdline(config_options, server):
     wallet_path = config.get_cmdline_wallet_filepath()
     if cmd.requires_wallet and not WalletStorage.files_are_matched_by_path(wallet_path):
         print("Error: Wallet file not found.")
-        print("Type 'electrum-sv create' to create a new wallet, "
+        # TODO: Identify command name/script name and use in place of `electrum-sv`
+        print("Type 'electrum-sv create_wallet' to create a new wallet, "
               "or provide a path to a wallet with the -w option")
         sys.exit(0)
-
-    # instantiate wallet for command-line
-    storage = WalletStorage(wallet_path)
 
     # important warning
     if cmd.name in ['getprivatekeys']:
@@ -379,7 +372,7 @@ def main():
         app_state.set_app(DefaultApp())
 
     # run non-RPC commands separately
-    if cmdname in ['create', 'restore']:
+    if cmdname in [ 'create_wallet', 'create_account' ]:
         run_non_RPC(config)
         sys.exit(0)
 

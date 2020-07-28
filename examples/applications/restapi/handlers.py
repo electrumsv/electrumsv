@@ -120,8 +120,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             check_if_wallet_exists()
 
             from electrumsv.storage import WalletStorage
-            storage = WalletStorage(create_filepath)
-            storage.put("password-token", pw_encode(os.urandom(32).hex(), vars[VNAME.PASSWORD]))
+            storage = WalletStorage.create(create_filepath, vars[VNAME.PASSWORD])
             parent_wallet = Wallet(storage)
 
             # create an account for the Wallet with the same password via an imported seed

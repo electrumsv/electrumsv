@@ -1324,6 +1324,12 @@ class WalletStorage:
             self._set_store(store)
 
     @classmethod
+    def create(klass, wallet_path: str, password: str) -> 'WalletStorage':
+        storage = klass(wallet_path)
+        storage.put("password-token", pw_encode(os.urandom(32).hex(), password))
+        return storage
+
+    @classmethod
     def from_file_data(cls, path: str, data: Dict[str, Any]) -> 'WalletStorage':
         storage = WalletStorage(path=path, storage_kind=StorageKind.FILE)
         text_store = storage.get_text_store()

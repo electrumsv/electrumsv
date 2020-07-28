@@ -20,7 +20,6 @@ from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import DATABASE_EXT
-from electrumsv.crypto import pw_encode
 from electrumsv.i18n import _, languages
 from electrumsv.logs import logs
 from electrumsv.util import resource_path
@@ -912,10 +911,8 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
         return None
 
     from electrumsv.storage import WalletStorage
-    storage = WalletStorage(create_filepath)
-    storage.put("password-token", pw_encode(os.urandom(32).hex(), new_password))
+    storage = WalletStorage.create(create_filepath, new_password)
     storage.close()
-
     return create_filepath
 
 
