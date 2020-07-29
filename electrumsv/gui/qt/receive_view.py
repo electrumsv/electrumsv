@@ -3,7 +3,7 @@ import weakref
 
 from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QVBoxLayout, QWidget)
+    QVBoxLayout, QWidget)
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import script_template_to_string

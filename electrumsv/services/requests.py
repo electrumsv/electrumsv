@@ -4,7 +4,7 @@ import weakref
 
 from electrumsv.constants import KeyInstanceFlag, PaymentFlag
 from electrumsv.wallet_database.sqlite_support import CompletionCallbackType
-from electrumsv.wallet_database.tables import PaymentRequestRow, PaymentRequestTable
+from electrumsv.wallet_database.tables import PaymentRequestRow
 
 if TYPE_CHECKING:
     from electrumsv.wallet import AbstractAccount
