@@ -27,7 +27,7 @@ from functools import partial
 from typing import Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QLabel, QTreeWidgetItem, QMenu, QVBoxLayout
 
@@ -53,6 +53,8 @@ if TYPE_CHECKING:
 class RequestList(MyTreeWidget):
     filter_columns = [0, 1, 2, 3, 4]  # Date, Account, Destination, Description, Amount
 
+    update_signal = pyqtSignal()
+
     def __init__(self, receive_view: 'ReceiveView', main_window: 'ElectrumWindow') -> None:
         self._receive_view = receive_view
         self._main_window = weakref.proxy(main_window)
@@ -70,6 +72,7 @@ class RequestList(MyTreeWidget):
         self.setColumnWidth(0, 180)
         self.hideColumn(1)
 
+        self.update_signal.connect(self.update)
         self._main_window.account_change_signal.connect(self._on_account_change)
 
     def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
@@ -179,8 +182,13 @@ class RequestList(MyTreeWidget):
             self.show_message(_("Request saved successfully"))
 
     def _delete_payment_request(self, request_id: int) -> None:
-        self._account.delete_payment_request(request_id)
-        self.update()
+        def callback(exc_value: Optional[Exception]=None) -> None:
+            if exc_value is not None:
+                raise exc_value # pylint: disable=raising-bad-type
+            self.update_signal.emit()
+
+        self._account.requests.delete_request(request_id, callback)
+
         # The key may have been freed up and should be used first.
         self._receive_view.update_contents()
 

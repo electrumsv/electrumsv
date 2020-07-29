@@ -47,7 +47,7 @@ from .app_state import app_state
 from .bitcoin import compose_chain_string, COINBASE_MATURITY, ScriptTemplate
 from .constants import (AccountType, CHANGE_SUBPATH, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
     KeyInstanceFlag, KeystoreTextType, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
-    PaymentFlag, RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
+    RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
     WalletEventType)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
@@ -60,7 +60,7 @@ from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore
 from .logs import logs
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
-from .services import InvoiceService
+from .services import InvoiceService, RequestService
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, TransactionContext, NO_SIGNATURE, XPublicKey,
@@ -74,7 +74,7 @@ from .wallet_database.tables import (AccountRow, AccountTable, InvoiceTable,
     TransactionOutputTable, TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow,
     TransactionDeltaSumRow, PaymentRequestTable, PaymentRequestRow, WalletEventRow,
     WalletEventTable)
-from .wallet_database.sqlite_support import DatabaseContext
+from .wallet_database.sqlite_support import CompletionCallbackType, DatabaseContext
 
 if TYPE_CHECKING:
     from .network import Network
@@ -251,6 +251,7 @@ class AbstractAccount:
         self.transaction_lock = threading.RLock()
 
         self.invoices = InvoiceService(self)
+        self.requests = RequestService(self)
 
     def scriptpubkey_to_scripthash(self, script):
         script_bytes = bytes(script)
@@ -297,6 +298,9 @@ class AbstractAccount:
 
     def get_keyinstance(self, key_id: int) -> KeyInstanceRow:
         return self._keyinstances[key_id]
+
+    def set_keyinstance(self, key_id: int, keyinstance: KeyInstanceRow) -> None:
+        self._keyinstances[key_id] = keyinstance
 
     def get_keyinstance_ids(self) -> Sequence[int]:
         return tuple(self._keyinstances.keys())
@@ -654,45 +658,6 @@ class AbstractAccount:
 
         self._wallet.create_transactionoutputs(self._id, [ TransactionOutputRow(tx_hash,
             output_index, value, keyinstance.keyinstance_id, flags) ])
-
-    def create_payment_request(self, keyinstance_id: int, state: PaymentFlag, value: Optional[int],
-            expiration: Optional[int], description: Optional[str]) -> PaymentRequestRow:
-        # Update the key first.
-        key = self._keyinstances[keyinstance_id]
-        flags = key.flags | KeyInstanceFlag.IS_PAYMENT_REQUEST
-        new_key = self._keyinstances[keyinstance_id] = key._replace(flags=flags)
-        self._wallet.update_keyinstance_flags([ (new_key.flags, keyinstance_id) ])
-        # Update the payment request next.
-        row = self._wallet.create_payment_requests([ PaymentRequestRow(-1,
-            keyinstance_id, state, value, expiration, description, int(time.time())) ])[0]
-        self._wallet.trigger_callback('on_keys_updated', self._id, [ new_key ])
-        return row
-
-    def update_payment_request(self, paymentrequest_id: int, state: PaymentFlag,
-            value: Optional[int], expiration: Optional[int],
-            description: Optional[str]) -> PaymentRequestRow:
-        # NOTE: This should be one update operation on the table if SQL statements
-        # could return the updated row.
-        with self._wallet.get_payment_request_table() as table:
-            req = table.read_one(paymentrequest_id)
-        new_req = PaymentRequestRow(paymentrequest_id, req.keyinstance_id, state,
-            value, expiration, description, req.date_created)
-        self._wallet.update_payment_requests([ new_req ])
-        return new_req
-
-    def delete_payment_request(self, request_id: int) -> bool:
-        with self._wallet.get_payment_request_table() as table:
-            row = table.read_one(request_id)
-            if row is None:
-                return False
-
-        key = self._keyinstances[row.keyinstance_id]
-        flags = key.flags & ~KeyInstanceFlag.IS_PAYMENT_REQUEST
-        key = self._keyinstances[row.keyinstance_id] = key._replace(flags=flags)
-
-        self._wallet.update_keyinstance_flags([ (key.flags, row.keyinstance_id) ])
-        self._wallet.trigger_callback('on_keys_updated', self._id, [ key ])
-        return True
 
     def is_deterministic(self) -> bool:
         # Not all wallets have a keystore, like imported address for instance.
@@ -2390,7 +2355,8 @@ class Wallet(TriggeredCallbacks):
     def get_transaction_delta_table(self) -> TransactionDeltaTable:
         return TransactionDeltaTable(self.get_db_context())
 
-    def create_payment_requests(self, requests: List[PaymentRequestRow]) -> List[PaymentRequestRow]:
+    def create_payment_requests(self, requests: List[PaymentRequestRow],
+            cb: Optional[CompletionCallbackType]=None) -> List[PaymentRequestRow]:
         request_id = self._storage.get("next_paymentrequest_id", 1)
         rows = []
         for request in requests:
@@ -2398,17 +2364,8 @@ class Wallet(TriggeredCallbacks):
             request_id += 1
         self._storage.put("next_paymentrequest_id", request_id)
         with PaymentRequestTable(self.get_db_context()) as table:
-            table.create(rows)
+            table.create(rows, completion_callback=cb)
         return rows
-
-    def update_payment_requests(self, requests: List[PaymentRequestRow]) -> List[PaymentRequestRow]:
-        entries = []
-        for request in requests:
-            entries.append((request.state, request.value, request.expiration, request.description,
-                request.paymentrequest_id))
-        with PaymentRequestTable(self.get_db_context()) as table:
-            table.update(entries)
-        return requests
 
     def update_transaction_descriptions(self,
             entries: Sequence[Tuple[Optional[str], bytes]]) -> None:

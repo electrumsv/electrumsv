@@ -21,7 +21,7 @@ from .qrcodewidget import QRCodeWidget
 from .qrwindow import QR_Window
 from .request_list import RequestList
 from .table_widgets import TableTopButtonLayout
-from .util import ButtonsLineEdit, HelpLabel
+from .util import ButtonsLineEdit, EnterButton, HelpLabel
 
 
 class ReceiveView(QWidget):
@@ -114,11 +114,8 @@ class ReceiveView(QWidget):
         self._expires_label.hide()
         grid.addWidget(self._expires_label, 3, 1)
 
-        self._save_request_button = QPushButton(_('Save request'))
-        self._save_request_button.clicked.connect(self._save_form_as_request)
-
-        self._new_request_button = QPushButton(_('New'))
-        self._new_request_button.clicked.connect(self._new_payment_request)
+        self._save_request_button = EnterButton(_('Save request'), self._save_form_as_request)
+        self._new_request_button = EnterButton(_('New'), self._new_payment_request)
 
         self._receive_qr = QRCodeWidget(fixedSize=200)
         self._receive_qr.link_to_window(self._toggle_qr_window)
@@ -231,19 +228,21 @@ class ReceiveView(QWidget):
             self._main_window.show_error(_('No message or amount'))
             return
 
+        def callback(exc_value: Optional[Exception]=None) -> None:
+            if exc_value is not None:
+                raise exc_value # pylint: disable=raising-bad-type
+            self._request_list.update_signal.emit()
+
         i = self._expires_combo.currentIndex()
         expiration = [x[1] for x in expiration_values][i]
-        wallet = self._account.get_wallet()
-        with wallet.get_payment_request_table() as table:
-            row = table.read_one(keyinstance_id=self._receive_key_id)
+        row = self._account.requests.get_request_for_key_id(self._receive_key_id)
         if row is None:
-            row = self._account.create_payment_request(self._receive_key_id, PaymentFlag.UNPAID,
-                amount, expiration, message)
+            row = self._account.requests.create_request(self._receive_key_id,
+                PaymentFlag.UNPAID, amount, expiration, message, callback)
         else:
-            # Expiration is just a label.
-            self._account.update_payment_request(row.paymentrequest_id, row.state, amount,
-                row.expiration, message)
-        self._request_list.update()
+            # Expiration is just a label, so we don't use the value.
+            self._account.requests.update_request(row.paymentrequest_id, row.state, amount,
+                row.expiration, message, callback)
         self._save_request_button.setEnabled(False)
 
     def _new_payment_request(self) -> None:
@@ -293,7 +292,6 @@ class ReceiveView(QWidget):
             expires_description: str="") -> None:
         self._receive_destination_e.setText(address_text)
         self._receive_message_e.setText(description or "")
-        print("AAAAAAMOUNT", value)
         self._receive_amount_e.setAmount(value)
         self._expires_combo.hide()
         self._expires_label.show()
