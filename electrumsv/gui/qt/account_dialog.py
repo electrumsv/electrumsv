@@ -64,7 +64,9 @@ class AccountDialog(QDialog):
             current_script_type = account.get_default_script_type()
             if current_script_type != new_script_type:
                 account.set_default_script_type(new_script_type)
-                self._main_window.update_receive_tab_destination()
+
+                view = self._main_window.get_receive_view(account.get_id())
+                view.update_destination()
 
         if account.is_watching_only():
             script_type_combo.setEnabled(False)

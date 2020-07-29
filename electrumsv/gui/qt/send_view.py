@@ -213,16 +213,16 @@ class SendView(QWidget):
         invoice_layout.addLayout(self._invoice_list_toolbar_layout)
         invoice_layout.addWidget(self._invoice_list)
 
-        self._invoice_box = QGroupBox()
-        self._invoice_box.setTitle(_('Invoices'))
-        self._invoice_box.setAlignment(Qt.AlignCenter)
-        self._invoice_box.setContentsMargins(0, 0, 0, 0)
-        self._invoice_box.setLayout(invoice_layout)
+        invoice_box = QGroupBox()
+        invoice_box.setTitle(_('Invoices'))
+        invoice_box.setAlignment(Qt.AlignCenter)
+        invoice_box.setContentsMargins(0, 0, 0, 0)
+        invoice_box.setLayout(invoice_layout)
 
         vbox = QVBoxLayout(self)
         vbox.addLayout(hbox)
         vbox.addSpacing(20)
-        vbox.addWidget(self._invoice_box)
+        vbox.addWidget(invoice_box)
         vbox.setStretchFactor(self._invoice_list, 1000)
 
         return vbox

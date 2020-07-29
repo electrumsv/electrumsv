@@ -1910,7 +1910,7 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
         return [ self._get_public_key_for_id(keyinstance_id) ]
 
     def get_enabled_script_types(self) -> Sequence[ScriptType]:
-        return (ScriptType.P2PKH, ScriptType.P2PK)
+        return (ScriptType.P2PKH,) # ScriptType.P2PK)
 
     def get_supported_script_types(self) -> Sequence[ScriptType]:
         return (ScriptType.P2PKH, ScriptType.P2PK)

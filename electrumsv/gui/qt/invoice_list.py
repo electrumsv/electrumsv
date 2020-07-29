@@ -73,7 +73,7 @@ class InvoiceList(MyTreeWidget):
         self._send_view = parent
         self._main_window = weakref.proxy(main_window)
 
-        self.monospace_font = QFont(platform.monospace_font)
+        self._monospace_font = QFont(platform.monospace_font)
         self.setSortingEnabled(True)
         self.header().setSectionResizeMode(COL_REQUESTOR, QHeaderView.Interactive)
         self.setColumnWidth(COL_REQUESTOR, 200)
@@ -145,8 +145,8 @@ class InvoiceList(MyTreeWidget):
             if row.invoice_id == current_id:
                 current_item = item
             item.setData(COL_RECEIVED, Qt.UserRole, row.invoice_id)
-            item.setFont(COL_REQUESTOR, self.monospace_font)
-            item.setFont(COL_DESCRIPTION, self.monospace_font)
+            item.setFont(COL_DESCRIPTION, self._monospace_font)
+            item.setFont(COL_AMOUNT, self._monospace_font)
             self.addTopLevelItem(item)
 
         if current_item is not None:

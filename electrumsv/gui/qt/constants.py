@@ -40,6 +40,8 @@ class UIBroadcastSource(IntEnum):
 # all other cells in that row are blank. Forcing the item and item focus styles to be identical
 # except for background color fixes this.
 
+# 'padding-left' or 'padding-right' does not work! Only 'padding'.
+
 CSS_TABLE_CELL_FOCUS_COLOR = "#D3EBFF"
 CSS_ALTERNATING_BACKGROUND_COLOR = "#F5F8FA"
 
@@ -49,9 +51,11 @@ QListView {
 f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
 """
 }
+
 QListView:item {
-    color: black;
+  color: black;
 }
+
 QListView:item:selected {
 """
 f"  background-color: {CSS_TABLE_CELL_FOCUS_COLOR};"
@@ -67,7 +71,6 @@ f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
 QTableView:item {
   color: black;
   border: 0px;
-  padding: 0px 5px;
 }
 QTableView::item:focus {
   color: black;
@@ -75,7 +78,6 @@ QTableView::item:focus {
 f"  background-color: {CSS_TABLE_CELL_FOCUS_COLOR};"
 """
   border: 0px;
-  padding: 0px 5px;
 }
 
 QTreeView {
@@ -83,7 +85,13 @@ QTreeView {
 f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
 """
 }
+QTreeView::item {
+  padding: 0px 0px 0px 4px;
+}
 """)
+
+CSS_STYLES = """
+"""
 
 # QTreeView::item {
 #   border-top: 0.5px solid lightgray;
@@ -96,4 +104,4 @@ f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
 # }
 
 
-CSS_WALLET_WINDOW_STYLE = CSS_TABLE_VIEW_STYLE
+CSS_WALLET_WINDOW_STYLE = CSS_TABLE_VIEW_STYLE + CSS_STYLES

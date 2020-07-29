@@ -871,7 +871,7 @@ class KeyView(QTableView):
                     menu.addAction(_("Edit {}").format(column_title),
                         lambda: self.edit(selected_index))
                 menu.addAction(_("Request payment"),
-                    lambda: self._main_window.receive_at_id(key_id))
+                    lambda: self._main_window._receive_view.receive_at_id(key_id))
                 if self._account.can_export():
                     menu.addAction(_("Private key"),
                         lambda: self._main_window.show_private_key(self._account, key_id))

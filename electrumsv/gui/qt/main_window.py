@@ -35,7 +35,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Any, Callable, Dict, Iterable, List, Set, Tuple, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Set, Tuple, TypeVar, Optional, Union
 import weakref
 import webbrowser
 
@@ -44,7 +44,7 @@ from bitcoinx import PublicKey
 from PyQt5.QtCore import pyqtSignal, Qt, QSize, QTimer, QUrl, QRect
 from PyQt5.QtGui import QKeySequence, QCursor, QDesktopServices
 from PyQt5.QtWidgets import (
-    QAction, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout, QInputDialog, QLabel,
+    QAction, QDialog, QFileDialog, QGridLayout, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMainWindow, QMenu, QMenuBar, QMessageBox, QPushButton, QSizePolicy, QShortcut,
     QStackedWidget, QTextEdit, QToolBar, QVBoxLayout, QWidget
 )
@@ -54,7 +54,7 @@ from electrumsv import bitcoin, commands, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from electrumsv.constants import DATABASE_EXT, RECEIVING_SUBPATH, TxFlags, PaymentFlag
+from electrumsv.constants import DATABASE_EXT, TxFlags
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -73,21 +73,17 @@ from electrumsv.wallet_database.tables import InvoiceRow, KeyInstanceRow
 import electrumsv.web as web
 
 from .amountedit import AmountEdit, BTCAmountEdit
-from .constants import CSS_WALLET_WINDOW_STYLE, expiration_values, UIBroadcastSource
+from .constants import CSS_WALLET_WINDOW_STYLE, UIBroadcastSource
 from .contact_list import ContactList, edit_contact_dialog
-from .qrcodewidget import QRCodeWidget, QRDialog
+from .qrcodewidget import QRDialog
 from .qrtextedit import ShowQRTextEdit
+from .receive_view import ReceiveView
 from .send_view import SendView
 from .table_widgets import TableTopButtonLayout
-from .util import (
-    MessageBoxMixin, ColorScheme, HelpLabel, ButtonsLineEdit,
-    WindowModalDialog, Buttons, CopyCloseButton,
-    WaitingDialog, OkButton, WWLabel, read_QIcon,
-    CloseButton, CancelButton, text_dialog,
-    UntrustedMessageDialog, protected,
-    show_in_file_explorer, create_new_wallet,
-    FormSectionWidget, top_level_window_recurse, query_choice
-)
+from .util import (Buttons, CancelButton, CloseButton, ColorScheme,
+    create_new_wallet, ButtonsLineEdit, FormSectionWidget, MessageBoxMixin, OkButton, query_choice,
+    protected, read_QIcon, show_in_file_explorer, text_dialog, top_level_window_recurse,
+    UntrustedMessageDialog, WaitingDialog, WindowModalDialog, WWLabel)
 from .wallet_api import WalletAPI
 
 
@@ -95,6 +91,8 @@ logger = logs.get_logger("mainwindow")
 
 
 SendViewTypes = Union[SendView, QWidget]
+ReceiveViewTypes = Union[ReceiveView, QWidget]
+T = TypeVar('T')
 
 
 class ElectrumWindow(QMainWindow, MessageBoxMixin):
@@ -132,8 +130,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contacts = wallet.contacts
         self.app = app_state.app
         self.cleaned_up = False
-        self.qr_window = None
-        self._receive_qr: Optional[QRCodeWidget] = None
         self.tx_notifications: List[Transaction] = []
         self.tx_notify_timer = None
         self.tx_dialogs = []
@@ -147,6 +143,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._accounts_view = self._create_accounts_view()
         self._send_views: Dict[int, SendViewTypes] = {}
         self._send_view: Optional[SendViewTypes] = None
+        self._receive_views: Dict[int, ReceiveViewTypes] = {}
+        self._receive_view: Optional[ReceiveViewTypes] = None
+
         self._tab_widget = tabs = self._accounts_view.get_tab_widget()
 
         self._create_tabs()
@@ -344,7 +343,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.account_change_signal.emit(account_id, account)
         # - The receive tab.
         self._reset_receive_tab()
-        self._update_receive_tab_contents()
+        self._receive_view.update_contents()
 
         # Update the status bar, and maybe the tab contents. If we are mid-synchronisation the
         # tab contents will be skipped, but that's okay as the synchronisation completion takes
@@ -381,10 +380,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if isinstance(send_view, SendView):
                 send_view.update_for_fx_quotes()
 
-        if self._account_id is not None:
-            edit = (self.fiat_receive_e
-                if self.fiat_receive_e.is_last_edited else self.receive_amount_e)
-            edit.textEdited.emit(edit.text())
+        for receive_view in self._receive_views.values():
+            if isinstance(receive_view, ReceiveView):
+                receive_view.update_for_fx_quotes()
 
         # History tab needs updating if it used spot
         if app_state.fx.history_used_spot:
@@ -1061,8 +1059,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._status_bar.set_network_status(text)
 
     def update_tabs(self, *args) -> None:
-        if self._account_id is not None:
-            self.request_list.update()
+        if self.is_receive_view_active():
+            self._receive_view.update_widgets()
         if self.is_send_view_active():
             self._send_view.update_widgets()
         self.utxo_list.update()
@@ -1111,42 +1109,29 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return self._send_view is not None and self._account is not None and \
             self._account.can_spend()
 
-    def is_receive_form_enabled(self) -> bool:
-        return self._account_id is not None
-
-    def _create_receive_tab(self) -> QWidget:
-        w = QWidget()
-        if self.is_receive_form_enabled():
-            layout = self._create_receive_form_layout()
-        else:
-            layout = self._create_account_unavailable_layout()
-        w.setLayout(layout)
-        return w
+    def is_receive_view_active(self) -> None:
+        return self._receive_view is not None and self._account_id is not None
 
     def _reset_send_tab(self) -> None:
-        current_widget = self.send_tab.currentWidget()
-        assert current_widget is not None, f"should be unavailable or a SendView {current_widget}"
+        self._send_view = self._reset_stacked_tab(self.send_tab, self.get_send_view)
+
+    def _reset_receive_tab(self) -> None:
+        self._receive_view = self._reset_stacked_tab(self.receive_tab, self.get_receive_view)
+
+    def _reset_stacked_tab(self, stack_tab: QStackedWidget, create_func: Callable[[int], T]) -> T:
+        current_widget = stack_tab.currentWidget()
+        assert current_widget is not None, f"should be unavailable or a view of the correct type"
 
         if self._account_id is None:
             assert isinstance(current_widget, QWidget)
             return
 
-        self._send_view = send_view = self.get_send_view(self._account_id)
-        widget_index = self.send_tab.indexOf(send_view)
+        view = create_func(self._account_id)
+        widget_index = stack_tab.indexOf(view)
         if widget_index == -1:
-            self.send_tab.addWidget(send_view)
-        self.send_tab.setCurrentWidget(send_view)
-
-    def _reset_receive_tab(self) -> None:
-        self.request_list = None
-
-        throwaway_widget = QWidget()
-        throwaway_widget.setLayout(self.receive_tab.layout())
-        if self.is_receive_form_enabled():
-            layout = self._create_receive_form_layout()
-        else:
-            layout = self._create_account_unavailable_layout()
-        self.receive_tab.setLayout(layout)
+            stack_tab.addWidget(view)
+        stack_tab.setCurrentWidget(view)
+        return view
 
     def _create_account_unavailable_layout(self, text: Optional[str]=None) -> QVBoxLayout:
         if text is None:
@@ -1161,284 +1146,55 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         vbox2.addStretch(1)
         return vbox2
 
-    def _create_receive_form_layout(self) -> QVBoxLayout:
-        # A 4-column grid layout.  All the stretch is in the last column.
-        # The exchange rate plugin adds a fiat widget in column 2
-        grid = QGridLayout()
-        grid.setSpacing(8)
-        grid.setColumnStretch(3, 1)
-
-        self._receive_key_id: Optional[int] = None
-
-        self.receive_destination_e = ButtonsLineEdit()
-        self.receive_destination_e.addCopyButton(self.app)
-        self.receive_destination_e.setReadOnly(True)
-        msg = _('Bitcoin SV payment destination where the payment should be received. '
-                'Note that each payment request uses a different Bitcoin SV payment destination.')
-        receive_address_label = HelpLabel(_('Receiving destination'), msg)
-        self.receive_destination_e.textChanged.connect(self._update_receive_qr)
-        self.receive_destination_e.setFocusPolicy(Qt.NoFocus)
-        grid.addWidget(receive_address_label, 0, 0)
-        grid.addWidget(self.receive_destination_e, 0, 1, 1, -1)
-
-        self.receive_message_e = QLineEdit()
-        grid.addWidget(QLabel(_('Description')), 1, 0)
-        grid.addWidget(self.receive_message_e, 1, 1, 1, -1)
-        self.receive_message_e.textChanged.connect(self._update_receive_qr)
-
-        self.receive_amount_e = BTCAmountEdit()
-        grid.addWidget(QLabel(_('Requested amount')), 2, 0)
-        grid.addWidget(self.receive_amount_e, 2, 1)
-        self.receive_amount_e.textChanged.connect(self._update_receive_qr)
-
-        self.fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
-        if not app_state.fx or not app_state.fx.is_enabled():
-            self.fiat_receive_e.setVisible(False)
-        grid.addWidget(self.fiat_receive_e, 2, 2, Qt.AlignLeft)
-        self.connect_fields(self.receive_amount_e, self.fiat_receive_e)
-
-        self.expires_combo = QComboBox()
-        self.expires_combo.addItems([i[0] for i in expiration_values])
-        self.expires_combo.setCurrentIndex(3)
-        self.expires_combo.setFixedWidth(self.receive_amount_e.width())
-        msg = ' '.join([
-            _('Expiration date of your request.'),
-            _('This information is seen by the recipient if you send them '
-              'a signed payment request.'),
-            _('Expired requests have to be deleted manually from your list, '
-              'in order to free the corresponding Bitcoin SV addresses.'),
-            _('The Bitcoin SV address never expires and will always be part '
-              'of this ElectrumSV wallet.'),
-        ])
-        grid.addWidget(HelpLabel(_('Request expires'), msg), 3, 0)
-        grid.addWidget(self.expires_combo, 3, 1)
-        self.expires_label = QLineEdit('')
-        self.expires_label.setReadOnly(1)
-        self.expires_label.setFocusPolicy(Qt.NoFocus)
-        self.expires_label.hide()
-        grid.addWidget(self.expires_label, 3, 1)
-
-        self._save_request_button = QPushButton(_('Save'))
-        self._save_request_button.clicked.connect(self.save_payment_request)
-
-        self.new_request_button = QPushButton(_('New'))
-        self.new_request_button.clicked.connect(self.new_payment_request)
-
-        self._receive_qr = QRCodeWidget(fixedSize=200)
-        self._receive_qr.link_to_window(self)
-
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        buttons.addWidget(self._save_request_button)
-        buttons.addWidget(self.new_request_button)
-        grid.addLayout(buttons, 4, 1, 1, 2)
-
-        vbox_g = QVBoxLayout()
-        vbox_g.addLayout(grid)
-        vbox_g.addStretch()
-
-        hbox = QHBoxLayout()
-        hbox.addLayout(vbox_g)
-        hbox.addWidget(self._receive_qr)
-
-        self.receive_requests_label = QLabel(_('Requests'))
-
-        from .request_list import RequestList
-        self.request_list = RequestList(self)
-
-        vbox = QVBoxLayout()
-        vbox.addLayout(hbox)
-        vbox.addStretch(1)
-        vbox.addWidget(self.receive_requests_label)
-        vbox.addWidget(self.request_list)
-        vbox.setStretchFactor(self.request_list, 2000)
-        return vbox
-
-    def get_request_URI(self, pr_id: int) -> str:
-        with self._wallet.get_payment_request_table() as table:
-            req = table.read_one(pr_id)
-        message = self._account.get_keyinstance_label(req.keyinstance_id)
-        script_template = self._account.get_script_template_for_id(req.keyinstance_id)
-        address_text = script_template_to_string(script_template)
-
-        URI = web.create_URI(address_text, req.value, message)
-        URI += f"&time={req.date_created}"
-        if req.expiration:
-            URI += f"&exp={req.expiration}"
-        return str(URI)
-
-    def save_payment_request(self) -> None:
-        if not self._receive_key_id:
-            self.show_error(_('No receiving payment destination'))
-            return
-
-        amount = self.receive_amount_e.get_amount()
-        message = self.receive_message_e.text()
-        if not message and not amount:
-            self.show_error(_('No message or amount'))
-            return
-
-        i = self.expires_combo.currentIndex()
-        expiration = [x[1] for x in expiration_values][i]
-        with self._wallet.get_payment_request_table() as table:
-            row = table.read_one(keyinstance_id=self._receive_key_id)
-        if row is None:
-            row = self._account.create_payment_request(self._receive_key_id, PaymentFlag.UNPAID,
-                amount, expiration, message)
-        else:
-            # Expiration is just a label.
-            self._account.update_payment_request(row.paymentrequest_id, row.state, amount,
-                row.expiration, message)
-        self.request_list.update()
-        self._save_request_button.setEnabled(False)
-
-    def view_and_paste(self, title: str, msg: str, data: str) -> None:
-        dialog = WindowModalDialog(self, title)
-        vbox = QVBoxLayout()
-        label = QLabel(msg)
-        label.setWordWrap(True)
-        vbox.addWidget(label)
-        pr_e = ShowQRTextEdit(text=data)
-        vbox.addWidget(pr_e)
-        vbox.addLayout(Buttons(CopyCloseButton(pr_e.text, self.app, dialog)))
-        dialog.setLayout(vbox)
-        dialog.exec_()
-
-    def export_payment_request(self, pr_id: int) -> None:
-        with self._wallet.get_payment_request_table() as table:
-            pr = table.read_one(pr_id)
-        pr_data = paymentrequest.PaymentRequest.from_wallet_entry(self._account, pr).to_json()
-        name = f'{pr.paymentrequest_id}.bip270.json'
-        fileName = self.getSaveFileName(_("Select where to save your payment request"),
-                                        name, "*.bip270.json")
-        if fileName:
-            with open(fileName, "w") as f:
-                f.write(pr_data)
-            self.show_message(_("Request saved successfully"))
-
-    def new_payment_request(self) -> None:
-        keyinstances: List[KeyInstanceRow] = []
-        if self._account.is_deterministic():
-            keyinstances = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)
-        if not len(keyinstances):
-            if not self._account.is_deterministic():
-                msg = [
-                    _('No more payment destinations in your wallet.'),
-                    _('You are using a non-deterministic account, which '
-                      'cannot create new payment destinations.'),
-                    _('If you want to create new payment destinations, '
-                        'use a deterministic account instead.')
-                   ]
-                self.show_message(' '.join(msg))
-                return
-            msg = [
-                _('Your wallet is broken and could not allocate a new payment destination.'),
-            ]
-            self.show_message(' '.join(msg))
-
-        self._update_receive_tab_contents()
-        self.new_request_button.setEnabled(False)
-        self.receive_message_e.setFocus(1)
-
-    def get_receive_key_id(self) -> Optional[int]:
-        return self._receive_key_id
-
-    def set_receive_key(self, keyinstance: KeyInstanceRow) -> None:
-        self._receive_key_id = keyinstance.keyinstance_id
-        self.receive_message_e.setText("")
-        self.receive_amount_e.setAmount(None)
-        self.update_receive_tab_destination()
-
-    def update_receive_tab_destination(self) -> None:
-        text = ""
-        if self._receive_key_id is not None:
-            script_template = self._account.get_script_template_for_id(self._receive_key_id)
-            if script_template is not None:
-                text = script_template_to_string(script_template)
-        self.receive_destination_e.setText(text)
-
-    def _update_receive_tab_contents(self) -> None:
-        self.expires_label.hide()
-        self.expires_combo.show()
-        if self._account.is_deterministic():
-            fresh_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-            self.set_receive_key(fresh_key)
-
-    # Bound to mouse release in `_create_receive_form_layout`.
-    def toggle_qr_window(self) -> None:
-        if self._receive_key_id is None:
-            self.show_message(_("No available receiving destination."))
-            return
-
-        from . import qrwindow
-        if not self.qr_window:
-            self.qr_window = qrwindow.QR_Window(self)
-            self.qr_window.setVisible(True)
-            self.qr_window_geometry = self.qr_window.geometry()
-        else:
-            if not self.qr_window.isVisible():
-                self.qr_window.setVisible(True)
-                self.qr_window.setGeometry(self.qr_window_geometry)
-            else:
-                self.qr_window_geometry = self.qr_window.geometry()
-                self.qr_window.setVisible(False)
-
-        self._update_receive_qr()
-
-    # Bound to text fields in `_create_receive_form_layout`.
-    def _update_receive_qr(self) -> None:
-        if self._receive_key_id is None:
-            return
-
-        amount = self.receive_amount_e.get_amount()
-        message = self.receive_message_e.text()
-        self._save_request_button.setEnabled((amount is not None) or (message != ""))
-
-        script_template = self._account.get_script_template_for_id(self._receive_key_id)
-        address_text = script_template_to_string(script_template)
-
-        uri = web.create_URI(address_text, amount, message)
-        self._receive_qr.setData(uri)
-        if self.qr_window and self.qr_window.isVisible():
-            self.qr_window.set_content(self.receive_destination_e.text(), amount,
-                                       message, uri)
-
     def show_send_tab(self) -> None:
         self._tab_widget.setCurrentIndex(self._tab_widget.indexOf(self.send_tab))
 
     def show_receive_tab(self) -> None:
         self._tab_widget.setCurrentIndex(self._tab_widget.indexOf(self.receive_tab))
 
-    # Only called from key list menu.
-    def receive_at_id(self, key_id: int) -> None:
-        self._receive_key_id = key_id
-        self.show_receive_tab()
-        self.new_request_button.setEnabled(True)
-        self.update_receive_tab_destination()
-
     def get_send_view(self, account_id: Optional[int]) -> SendViewTypes:
-        send_view = self._send_views.get(account_id)
-        if send_view is None:
+        view = self._send_views.get(account_id)
+        if view is None:
             text: Optional[str] = None
             if account_id is not None:
                 account = self._wallet.get_account(account_id)
                 if account.can_spend():
-                    send_view = SendView(self, self._account_id)
+                    view = SendView(self, self._account_id)
                 else:
                     text = _("This functionality is not available for this type of account.")
-            if send_view is None:
-                send_view = QWidget()
-                send_view.setLayout(self._create_account_unavailable_layout(text))
+            if view is None:
+                view = QWidget()
+                view.setLayout(self._create_account_unavailable_layout(text))
             if account_id is not None:
-                self._send_views[account_id] = send_view
-        return send_view
+                self._send_views[account_id] = view
+        return view
+
+    def get_receive_view(self, account_id: Optional[int]) -> ReceiveViewTypes:
+        view = self._receive_views.get(account_id)
+        if view is None:
+            if account_id is not None:
+                view = ReceiveView(self, self._account_id)
+            if view is None:
+                view = QWidget()
+                view.setLayout(self._create_account_unavailable_layout())
+            if account_id is not None:
+                self._receive_views[account_id] = view
+        return view
 
     def _create_send_tab(self) -> QStackedWidget:
         tab_widget = QStackedWidget()
-        send_view = self.get_send_view(self._account_id)
-        tab_widget.addWidget(send_view)
-        tab_widget.setCurrentWidget(send_view)
-        self._send_view = send_view
+        view = self.get_send_view(self._account_id)
+        tab_widget.addWidget(view)
+        tab_widget.setCurrentWidget(view)
+        self._send_view = view
+        return tab_widget
+
+    def _create_receive_tab(self) -> QStackedWidget:
+        tab_widget = QStackedWidget()
+        view = self.get_receive_view(self._account_id)
+        tab_widget.addWidget(view)
+        tab_widget.setCurrentWidget(view)
+        self._receive_view = view
         return tab_widget
 
     def get_custom_fee_text(self, fee_rate = None) -> str:
@@ -1647,7 +1403,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 if self.key_view is not None:
                     self.key_view.remove_keys([ keyinstance ])
                 self.update_history_view()
-                self._update_receive_tab_contents()
+                self._receive_view.update_contents()
 
     def remove_transaction(self, tx_hash: str) -> None:
         raise NotImplementedError()
@@ -2242,7 +1998,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             for send_view in self._send_views.values():
                 if isinstance(send_view, SendView):
                     send_view.set_fiat_ccy_enabled(b)
-            self.fiat_receive_e.setVisible(b)
+            for receive_view in self._receive_views.values():
+                if isinstance(receive_view, ReceiveView):
+                    receive_view.set_fiat_ccy_enabled(b)
         self.history_view.update_tx_headers()
         self.update_history_view()
         self.update_status_bar()
@@ -2250,12 +2008,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def on_base_unit_changed(self):
         edits = itertools.chain.from_iterable(v.get_bsv_edits() for v in self._send_views.values()
             if isinstance(v, SendView))
-        if self._account_id is not None:
-            edits.append(self.receive_amount_e)
+        edits.extend(
+            itertools.chain.from_iterable(v.get_bsv_edits() for v in self._receive_views.values()
+                if isinstance(v, ReceiveView)))
         amounts = [edit.get_amount() for edit in edits]
         self.update_history_view()
-        if self._account_id is not None:
-            self.request_list.update()
+        if self.is_receive_view_active():
+            self._receive_view.update_widgets()
         for edit, amount in zip(edits, amounts):
             edit.setAmount(amount)
         self.update_status_bar()
@@ -2324,13 +2083,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self._logger.exception("unable to write to wallet storage (directory removed?)")
 
         self.console.clean_up()
-        # If there are no accounts there won't be a receive QR code object created yet.
-        if self._receive_qr is not None:
-            self._receive_qr.clean_up()
 
         # Should be no side-effects in this function relating to file access past this point.
-        if self.qr_window:
-            self.qr_window.close()
+
+        for receive_view in self._receive_views.values():
+            if isinstance(receive_view, ReceiveView):
+                receive_view.clean_up()
+        self._receive_views.clear()
 
         for send_view in self._send_views.values():
             if isinstance(send_view, SendView):
