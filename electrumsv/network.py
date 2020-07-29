@@ -361,6 +361,9 @@ class SVSession(RPCSession):
         else:
             RPCSession.recalibrate_count = 10000000000
 
+    def get_current_outgoing_concurrency_target(self) -> int:
+        return self._outgoing_concurrency.max_concurrent
+
     def default_framer(self) -> NewlineFramer:
         max_size = app_state.electrumx_message_size_limit()*1024*1024
         return NewlineFramer(max_size=max_size)

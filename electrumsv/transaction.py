@@ -509,6 +509,8 @@ def txdict_from_str(txt: str) -> Dict[str, Any]:
     return tx_dict
 
 
+# ...
+
 
 @attr.s(slots=True)
 class Transaction(Tx):

@@ -1,3 +1,4 @@
+import concurrent
 from enum import IntEnum
 from functools import partial, lru_cache
 import os.path
@@ -8,7 +9,8 @@ import weakref
 
 from aiorpcx import RPCError
 
-from PyQt5.QtCore import pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QModelIndex
+from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QModelIndex,
+    QTimer)
 from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QResizeEvent
 from PyQt5.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QGridLayout, QGroupBox, QMessageBox, QHBoxLayout,
@@ -313,18 +315,46 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
 class WaitingDialog(WindowModalDialog):
     '''Shows a please wait dialog whilst runnning a task.  It is not
     necessary to maintain a reference to this dialog.'''
-    def __init__(self, parent, message: str, func, *args, on_done=None):
+    watch_signal = pyqtSignal(object)
+
+    def __init__(self, parent, message: str, func, *args,
+            on_done: Optional[Callable[[concurrent.futures.Future], None]]=None,
+            watch_events: bool=False) -> None:
         assert parent
         super().__init__(parent, _("Please wait"))
+
+        self._base_message = message
+        self._main_label = QLabel()
+        self._main_label.setAlignment(Qt.AlignCenter)
+        self._main_label.setWordWrap(True)
+        self._secondary_label = QLabel()
+        self._secondary_label.setAlignment(Qt.AlignCenter)
+        self._secondary_label.setWordWrap(True)
         vbox = QVBoxLayout(self)
-        vbox.addWidget(QLabel(message))
+        vbox.addWidget(self._main_label)
+        vbox.addWidget(self._secondary_label)
 
         def _on_done(future) -> None:
             self.accept()
             on_done(future)
         future = app_state.app.run_in_thread(func, *args, on_done=_on_done)
         self.accepted.connect(future.cancel)
+
+        if watch_events:
+            timer = self._timer = QTimer(self)
+            timer.timeout.connect(self._relay_watch_event)
+            timer.start(1000)
+
+        self.update_message(_("Please wait."))
+        self.setMinimumSize(250, 100)
         self.show()
+
+    def _relay_watch_event(self) -> None:
+        self.watch_signal.emit(self)
+
+    def update_message(self, extra_message: Optional[str]=None) -> None:
+        self._main_label.setText(self._base_message)
+        self._secondary_label.setText(extra_message or ' ')
 
 
 def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,

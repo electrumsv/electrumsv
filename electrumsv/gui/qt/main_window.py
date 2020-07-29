@@ -1034,15 +1034,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         "Update the network status portion of the status bar."
         text = _("Offline")
         if self.network:
-            request_count = self._wallet.request_count
-            response_count = self._wallet.response_count
-            for account in self._wallet.get_accounts():
-                if account.request_count > account.response_count:
-                    request_count += account.request_count
-                    response_count += account.response_count
-                else:
-                    account.request_count = 0
-                    account.response_count = 0
+            request_count, response_count = self._wallet.get_request_response_counts()
             if request_count > response_count:
                 text = _("Synchronizing...")
                 text += f' {response_count:,d}/{request_count:,d}'
@@ -1288,6 +1280,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if result == tx.txid() and account.have_transaction(tx.hash()):
                 account.set_transaction_state(tx.hash(),
                     (TxFlags.StateDispatched | TxFlags.HasByteData))
+
             return result
 
         def on_done(future: concurrent.futures.Future) -> None:
@@ -1310,7 +1303,26 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
                     self._send_view.clear()
 
-        WaitingDialog(window, _('Broadcasting transaction...'), broadcast_tx, on_done=on_done)
+        WaitingDialog(window, _('Broadcasting the transaction..'), broadcast_tx,
+            on_done=on_done, watch_events=True).watch_signal.connect(self._on_broadcast_event)
+
+    def _on_broadcast_event(self, dialog: WaitingDialog) -> None:
+        synchronizing = not self._wallet.is_synchronized()
+        if not synchronizing:
+            request_count, response_count = self._wallet.get_request_response_counts()
+            synchronizing = request_count > response_count
+
+        text = _("Please wait.")
+        if synchronizing:
+            text = _("This may be delayed until the wallet finishes synchronizing.")
+        else:
+            main_session = self.network.main_session()
+            if main_session is not None:
+                current = main_session.get_current_outgoing_concurrency_target()
+                f = min(100, max(0, int(100*((250-current)/250))))
+                text = _("This may be delayed as server access is currently {}% rate limited.")
+                text = text.format(f)
+        dialog.update_message(text)
 
     def query_choice(self, msg, choices):
         return query_choice(self, msg, choices)

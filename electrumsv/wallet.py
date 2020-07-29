@@ -2685,6 +2685,18 @@ class Wallet(TriggeredCallbacks):
         return (self._network.get_local_height() if self._network else
             self._storage.get('stored_height', 0))
 
+    def get_request_response_counts(self) -> Tuple[int, int]:
+        request_count = self.request_count
+        response_count = self.response_count
+        for account in self.get_accounts():
+            if account.request_count > account.response_count:
+                request_count += account.request_count
+                response_count += account.response_count
+            else:
+                account.request_count = 0
+                account.response_count = 0
+        return request_count, response_count
+
     def start(self, network: 'Network') -> None:
         self._network = network
         if network is not None:

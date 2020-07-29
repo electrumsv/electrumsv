@@ -23,13 +23,14 @@
 
 '''ElectrumSV application.'''
 
+import concurrent
 import datetime
 import os
 from functools import partial
 import signal
 import sys
 import threading
-from typing import Optional
+from typing import Callable, Optional
 
 from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
@@ -394,7 +395,8 @@ class SVApplication(QApplication):
         future.add_done_callback(task_done)
         return future
 
-    def run_in_thread(self, func, *args, on_done=None):
+    def run_in_thread(self, func, *args,
+            on_done: Optional[Callable[[concurrent.futures.Future], None]]=None):
         '''Run func(*args) in a thread.  on_done, if given, is passed the future containing the
         reuslt or exception, and is guaranteed to be called in the context of the GUI
         thread.
