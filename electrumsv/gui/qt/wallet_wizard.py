@@ -565,12 +565,17 @@ class ChooseWalletPage(QWizardPage):
         # page switching.
         self._commit_pressed = True
 
-    def _event_selection_changed(self, selected: QItemSelection, deselected: QItemSelection) \
+    def _event_selection_changed(self, _selected: QItemSelection, _deselected: QItemSelection) \
             -> None:
         # Selecting an entry should change the page elements to be ready to either move to another
         # page, or whatever else is applicable.
-        if len(selected.indexes()):
-            wallet_path = self._recent_wallet_paths[selected.indexes()[0].row()]
+        # NOTE: We request the selected indexes rather than using those from the events, as there
+        # have been occasional error reports where the selection did not match the wallet paths.
+        # https://github.com/electrumsv/electrumsv/issues/404
+        selected_indexes = self._wallet_table.selectedIndexes()
+        selected_row = selected_indexes[0].row() if len(selected_indexes) else -1
+        if selected_row != -1:
+            wallet_path = self._recent_wallet_paths[selected_row]
             entry = self._recent_wallet_entries[wallet_path]
             if entry.requires_upgrade:
                 self._next_page_id = WalletPage.MIGRATE_OLDER_WALLET
