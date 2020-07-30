@@ -141,8 +141,6 @@ class _ItemModel(QAbstractItemModel):
         self._balances = None
         self._account_id: Optional[int] = None
 
-        self._monospace_font = QFont(platform.monospace_font)
-
         self._receive_icon = read_QIcon("icons8-down-arrow-96")
 
         self._frozen_brush = QBrush(QColor('lightblue'))
@@ -321,7 +319,7 @@ class _ItemModel(QAbstractItemModel):
 
             elif role == Qt.DisplayRole:
                 if column == TYPE_COLUMN:
-                    pass
+                    return None
                 elif column == STATE_COLUMN:
                     if line.row.flags & KeyInstanceFlag.ALLOCATED_MASK:
                         return "A"
@@ -341,15 +339,11 @@ class _ItemModel(QAbstractItemModel):
                     return fx.value_str(line.balance, rate)
             elif role == Qt.FontRole:
                 if column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
-                    return self._monospace_font
+                    return self._view._monospace_font
 
             elif role == Qt.BackgroundRole:
+                # This does not work because the CSS overrides it.
                 pass
-                # if False and column == STATE_COLUMN:
-                #     if line.row.flags & KeyInstanceFlag.ALLOCATED_MASK:
-                #         return self._frozen_brush
-                #     elif not line.row.flags & KeyInstanceFlag.IS_ACTIVE:
-                #         return self._inactive_brush
             elif role == Qt.TextAlignmentRole:
                 if column in (TYPE_COLUMN, STATE_COLUMN):
                     return Qt.AlignCenter
@@ -509,18 +503,33 @@ class KeyView(QTableView):
         self.sortByColumn(TYPE_COLUMN, Qt.AscendingOrder)
         self.setSortingEnabled(True)
 
+        defaultFontMetrics = QFontMetrics(app_state.app.font())
+        def fw(s: str) -> int:
+            return defaultFontMetrics.boundingRect(s).width() + 10
+
+        self._monospace_font = QFont(platform.monospace_font)
+        monospaceFontMetrics = QFontMetrics(self._monospace_font)
+        def mw(s: str) -> int:
+            return monospaceFontMetrics.boundingRect(s).width() + 10
+
+        # We set the columm widths so that rendering is instant rather than taking a second or two
+        # because ResizeToContents does not scale for thousands of rows.
         horizontalHeader = self.horizontalHeader()
-        horizontalHeader.setSectionResizeMode(LABEL_COLUMN, QHeaderView.Stretch)
-        for i in range(FIAT_BALANCE_COLUMN):
-            if i != LABEL_COLUMN:
-                horizontalHeader.setSectionResizeMode(i, QHeaderView.ResizeToContents)
         horizontalHeader.setMinimumSectionSize(20)
+        horizontalHeader.resizeSection(TYPE_COLUMN, fw(COLUMN_NAMES[TYPE_COLUMN]))
+        horizontalHeader.resizeSection(STATE_COLUMN, fw(COLUMN_NAMES[STATE_COLUMN]))
+        horizontalHeader.resizeSection(KEY_COLUMN, fw("1442:01:m/000/1392"))
+        horizontalHeader.resizeSection(SCRIPT_COLUMN, fw("MULTISIG_ACCUMULATOR"))
+        horizontalHeader.setSectionResizeMode(LABEL_COLUMN, QHeaderView.Stretch)
+        horizontalHeader.resizeSection(USAGES_COLUMN, fw(COLUMN_NAMES[USAGES_COLUMN]))
+        balance_width = mw(app_state.format_amount(1.2, whitespaces=True))
+        horizontalHeader.resizeSection(BALANCE_COLUMN, balance_width)
 
         verticalHeader = self.verticalHeader()
         verticalHeader.setSectionResizeMode(QHeaderView.Fixed)
         # This value will get pushed out if the contents are larger, so it does not have to be
         # correct, it just has to be minimal.
-        lineHeight = QFontMetrics(app_state.app.font()).height()
+        lineHeight = defaultFontMetrics.height()
         verticalHeader.setDefaultSectionSize(lineHeight)
 
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
