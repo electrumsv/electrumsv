@@ -22,7 +22,8 @@ from electrumsv.wallet_database import (migration, KeyInstanceTable, MasterKeyTa
 from electrumsv.wallet_database.sqlite_support import LeakedSQLiteConnectionError
 from electrumsv.wallet_database.tables import (AccountRow, InvoiceAccountRow, InvoiceRow,
     InvoiceTable, KeyInstanceRow, MAGIC_UNTOUCHED_BYTEDATA, MasterKeyRow, PaymentRequestRow,
-    TransactionDeltaRow, TransactionRow, TransactionOutputRow, WalletEventTable, WalletEventRow)
+    TransactionDeltaRow, TransactionDeltaKeySummaryRow, TransactionRow, TransactionOutputRow,
+    WalletEventTable, WalletEventRow)
 
 
 logs.set_level("debug")
@@ -992,7 +993,8 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     table = TransactionDeltaTable(db_context)
     assert [] == table.read()
 
-    table._get_current_timestamp = lambda: 10
+    get_current_timestamp = lambda: 10
+    table._get_current_timestamp = get_current_timestamp
 
     TX_BYTES = os.urandom(10)
     TX_HASH = bitcoinx.double_sha256(TX_BYTES)
@@ -1020,6 +1022,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the transaction foreign key constraint by creating the transaction.
     with TransactionTable(db_context) as transaction_table:
+        transaction_table._get_current_timestamp = get_current_timestamp
         with SynchronousWriter() as writer:
             transaction_table.create([
                     (TX_HASH, TxData(height=1, fee=2, position=None, date_added=1,
@@ -1036,6 +1039,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     with MasterKeyTable(db_context) as masterkey_table:
+        masterkey_table._get_current_timestamp = get_current_timestamp
         with SynchronousWriter() as writer:
             masterkey_table.create([ (MASTERKEY_ID, None, 2, b'111') ],
                 completion_callback=writer.get_callback())
@@ -1043,6 +1047,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     with AccountTable(db_context) as account_table:
+        account_table._get_current_timestamp = get_current_timestamp
         with SynchronousWriter() as writer:
             account_table.create([ (ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name') ],
                 completion_callback=writer.get_callback())
@@ -1050,6 +1055,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
     with KeyInstanceTable(db_context) as keyinstance_table:
+        keyinstance_table._get_current_timestamp = get_current_timestamp
         with SynchronousWriter() as writer:
             entries = [ (KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
                 DERIVATION_DATA, ScriptType.P2PKH, True, None) for i in range(LINE_COUNT) ]
@@ -1091,6 +1097,46 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
         table.create_or_update_relative_values([ line2_delta, line3 ],
             completion_callback=writer.get_callback())
         assert writer.succeeded()
+
+    hrow_sum = line1.value_delta + line2_delta.value_delta + line3.value_delta + 20
+
+    hrows = table.read_history(ACCOUNT_ID, [ KEYINSTANCE_ID, KEYINSTANCE_ID+1, KEYINSTANCE_ID+2 ])
+    assert hrows is not None
+    assert len(hrows) == 1
+    assert hrows[0].tx_hash == TX_HASH
+    assert hrows[0].tx_flags != TxFlags.HasByteData | TxFlags.HasHeight | TxFlags.HasFee
+    assert hrows[0].value_delta == hrow_sum
+
+    hrows = table.read_history(ACCOUNT_ID)
+    assert hrows is not None
+    assert len(hrows) == 1
+    assert hrows[0].tx_hash == TX_HASH
+    assert hrows[0].tx_flags != TxFlags.HasByteData | TxFlags.HasHeight | TxFlags.HasFee
+    assert hrows[0].value_delta == hrow_sum
+
+    srows = table.read_key_summary(ACCOUNT_ID)
+    assert srows is not None
+    assert len(srows) == 3
+    srow1 = [ r for r in srows if r.keyinstance_id == KEYINSTANCE_ID ][0]
+    assert srow1 == TransactionDeltaKeySummaryRow(keyinstance_id=KEYINSTANCE_ID,
+        masterkey_id=MASTERKEY_ID, derivation_type=3, derivation_data=b'111', script_type=2,
+        flags=1, date_updated=10, total_value=100.0, match_count=1)
+    srow2 = [ r for r in srows if r.keyinstance_id == KEYINSTANCE_ID+1 ][0]
+    assert srow2 == TransactionDeltaKeySummaryRow(keyinstance_id=KEYINSTANCE_ID+1,
+        masterkey_id=MASTERKEY_ID, derivation_type=3, derivation_data=b'111', script_type=2,
+        flags=1, date_updated=10, total_value=220.0, match_count=1)
+    srow3 = [ r for r in srows if r.keyinstance_id == KEYINSTANCE_ID+2 ][0]
+    assert srow3 == TransactionDeltaKeySummaryRow(keyinstance_id=KEYINSTANCE_ID+2,
+        masterkey_id=MASTERKEY_ID, derivation_type=3, derivation_data=b'111', script_type=2,
+        flags=1, date_updated=10, total_value=999.0, match_count=1)
+
+    srows = table.read_key_summary(ACCOUNT_ID, [ KEYINSTANCE_ID ])
+    assert srows is not None
+    assert len(srows) == 1
+    srow1 = [ r for r in srows if r.keyinstance_id == KEYINSTANCE_ID ][0]
+    assert srow1 == TransactionDeltaKeySummaryRow(keyinstance_id=KEYINSTANCE_ID,
+        masterkey_id=MASTERKEY_ID, derivation_type=3, derivation_data=b'111', script_type=2,
+        flags=1, date_updated=10, total_value=100.0, match_count=1)
 
     db_lines = table.read()
     assert 3 == len(db_lines)
@@ -1135,6 +1181,50 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     db_line3 = [ db_line for db_line in db_lines if db_line[0:2] == line3[0:2] ][0]
     assert db_line3[2] == line3[2]
 
+    # .read_paid_requests()
+    pr_line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.UNPAID, 100, 60*60, None,
+        table._get_current_timestamp())
+    pr_line2 = PaymentRequestRow(2, KEYINSTANCE_ID+2, PaymentFlag.UNPAID, None, 60*60, None,
+        table._get_current_timestamp())
+
+    with PaymentRequestTable(db_context) as pr_table:
+        with SynchronousWriter() as writer:
+            pr_table.create([ pr_line1, pr_line2 ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+        pr_rows = table.read_paid_requests(ACCOUNT_ID, [ KEYINSTANCE_ID ])
+        assert len(pr_rows) == 1
+        assert pr_rows[0] == KEYINSTANCE_ID
+
+        # Match on null is satisfied with any payment.
+        pr_rows = table.read_paid_requests(ACCOUNT_ID, [ KEYINSTANCE_ID+2 ])
+        assert len(pr_rows) == 1
+        assert pr_rows[0] == KEYINSTANCE_ID+2
+
+        with SynchronousWriter() as writer:
+            pr_table.update([ (PaymentFlag.UNPAID, 1000, 700, None,
+                pr_line2.paymentrequest_id) ],
+                date_updated,
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+        # Match fails on existing value + 1.
+        pr_rows = table.read_paid_requests(ACCOUNT_ID, [ KEYINSTANCE_ID+2 ])
+        assert len(pr_rows) == 0
+
+        with SynchronousWriter() as writer:
+            pr_table.update([ (PaymentFlag.UNPAID, 999, 700, None,
+                pr_line2.paymentrequest_id) ],
+                date_updated,
+                completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
+        # Match succeeds on exactly the existing value.
+        pr_rows = table.read_paid_requests(ACCOUNT_ID, [ KEYINSTANCE_ID+2 ])
+        assert len(pr_rows) == 1
+        assert pr_rows[0] == KEYINSTANCE_ID+2
+
+    # .delete
     with SynchronousWriter() as writer:
         table.delete([ line2[0:2], line3[0:2] ], completion_callback=writer.get_callback())
         assert writer.succeeded()
@@ -1143,6 +1233,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     assert 1 == len(db_lines)
     assert db_lines[0][0:2] == line1[0:2]
 
+    # .read_descriptions()
     drows = table.read_descriptions(ACCOUNT_ID)
     assert len(drows) == 1
     assert drows[0] == (TX_HASH, "tx 1")

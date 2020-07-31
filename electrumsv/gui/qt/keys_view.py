@@ -23,32 +23,17 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# TODO(rt12): Update pausing. We do not apply updates when the wallet is synchronising.
-#   - The problem is that it seems to reach a point with larger wallets where it stops
-#     synchronising and starts again, resulting in a partial update. Also, when a wallet is
-#     first synchronised the list sits empty for ages.
-#     - We should be able to batch additions/updates even further, and insert/update the data
-#       before issuing the begin/end module events.
-# TODO(rt12): Out of date indications.
-#   - It is not obvious that the reason the list is not updated is because it is synchronising.
-#     If we would otherwise pause updates, we might want to let the user choose to resume them.
 # TODO(rt12): Type column icons are not horizontally centered.
 #   - This is because the non-existent text (DisplayRole) is still the main focus. To fix this
 #     requires perhaps using an item delegate and overriding the paint method to shift the icon
 #     into the center.
-# TODO(rt12): The beyond limit state is not currently updated or shown.
-#   - I suspect the way forward for this is to have the wallet know the watermark and simply
-#     respond and reflect changes in that.
-# TODO(rt12): The index column for non-deterministic wallets is perhaps meaningless as is.
-#   - It is possible to add some addresses, delete an earlier one, add a new one, and have
-#     duplicate index numbers for different rows.
 
-from collections import defaultdict
 import enum
 from functools import partial
+import json
 import threading
 import time
-from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 import weakref
 import webbrowser
 
@@ -56,20 +41,21 @@ from bitcoinx import Address
 
 from PyQt5.QtCore import (QAbstractItemModel, QModelIndex, QVariant, Qt, QSortFilterProxyModel,
     QTimer)
-from PyQt5.QtGui import QFont, QFontMetrics, QBrush, QColor, QKeySequence
+from PyQt5.QtGui import QFont, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 
 from electrumsv.i18n import _
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import scripthash_hex
-from electrumsv.constants import ScriptType
+from electrumsv.bitcoin import compose_chain_string, scripthash_hex
+from electrumsv.constants import DerivationType, ScriptType
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.platform import platform
 from electrumsv.util import profiler
 from electrumsv.wallet import MultisigAccount, AbstractAccount, StandardAccount
-from electrumsv.wallet_database.tables import KeyInstanceRow, KeyInstanceFlag
+from electrumsv.wallet_database.tables import (KeyInstanceRow, KeyInstanceFlag,
+    TransactionDeltaKeySummaryRow)
 from electrumsv import web
 
 from .main_window import ElectrumWindow
@@ -115,19 +101,17 @@ class KeyFlags(enum.IntFlag):
     INACTIVE = 1 << 17
 
 
-class KeyLine(NamedTuple):
-    row: KeyInstanceRow
-    derivation_text: str
-    key_text: str
-    flags: KeyFlags
-    usages: int
-    balance: int
+KeyLine = TransactionDeltaKeySummaryRow
 
 
-def get_sort_key(line: KeyLine) -> Any:
-    # This is the sorting used for insertion of new lines, or updating lines where the line
-    # needs to be removed from it's current row and inserted into the new row position.
-    return -line.balance
+def get_key_text(line: KeyLine) -> str:
+    text = f"{line.keyinstance_id}:{line.masterkey_id}"
+    derivation_text = "None"
+    if line.derivation_type == DerivationType.BIP32_SUBPATH:
+        derivation_data = json.loads(line.derivation_data)
+        derivation_path = tuple(derivation_data["subpath"])
+        derivation_text = compose_chain_string(derivation_path)
+    return text +":"+ derivation_text
 
 
 class _ItemModel(QAbstractItemModel):
@@ -138,14 +122,9 @@ class _ItemModel(QAbstractItemModel):
         self._logger = self._view._logger
 
         self._column_names = column_names
-        self._balances = None
         self._account_id: Optional[int] = None
 
         self._receive_icon = read_QIcon("icons8-down-arrow-96")
-
-        self._frozen_brush = QBrush(QColor('lightblue'))
-        self._beyond_limit_brush = QBrush(QColor('red'))
-        self._inactive_brush = QBrush(QColor('lightgrey'))
 
     def set_column_names(self, column_names: List[str]) -> None:
         self._column_names = column_names[:]
@@ -159,26 +138,15 @@ class _ItemModel(QAbstractItemModel):
         self._data = data
         self.endResetModel()
 
-    def _get_row(self, key: KeyInstanceRow) -> Optional[int]:
+    def _get_data_line(self, key_id: int) -> Optional[int]:
         # Get the offset of the line with the given transaction hash.
-        key_id = key.keyinstance_id
-        for i, line in enumerate(self._data):
-            if line.row.keyinstance_id == key_id:
-                return i
+        for data_index, line in enumerate(self._data):
+            if line.keyinstance_id == key_id:
+                return data_index
         return None
 
-    def _get_match_row(self, line: KeyLine) -> int:
-        # Get the existing line that precedes where the given line would go.
-        new_key = get_sort_key(line)
-        for i in range(len(self._data)-1, -1, -1):
-            key = get_sort_key(self._data[i])
-            if new_key >= key:
-                return i
-        return -1
-
     def _add_line(self, line: KeyLine) -> int:
-        match_row = self._get_match_row(line)
-        insert_row = match_row + 1
+        insert_row = len(self._data)
 
         # Signal the insertion of the new row.
         self.beginInsertRows(QModelIndex(), insert_row, insert_row)
@@ -192,11 +160,11 @@ class _ItemModel(QAbstractItemModel):
 
         return insert_row
 
-    def remove_row(self, row: int) -> KeyLine:
-        line = self._data[row]
+    def remove_row(self, row_index: int) -> KeyLine:
+        line = self._data[row_index]
 
-        self.beginRemoveRows(QModelIndex(), row, row)
-        del self._data[row]
+        self.beginRemoveRows(QModelIndex(), row_index, row_index)
+        del self._data[row_index]
         self.endRemoveRows()
 
         return line
@@ -208,62 +176,41 @@ class _ItemModel(QAbstractItemModel):
         # If there are any other rows that need to be updated relating to the data in that
         # line, here is the place to do it.  Then signal what has changed.
 
-    def update_line(self, key: KeyInstanceRow, values: Dict[int, Any]) -> bool:
-        row = self._get_row(key)
-        if row is None:
-            self._logger.debug("update_line called for non-existent entry %r", key)
+    def update_line(self, line: KeyLine, values: Dict[int, Any]) -> bool:
+        row_index = self._get_data_line(line.keyinstance_id)
+        if row_index is None:
+            self._logger.debug("update_line called for non-existent entry %r", line)
             return False
 
-        return self.update_row(row, values)
+        return self.update_row(row_index, values)
 
-    def update_row(self, row: int, values: Dict[int, Any]) -> bool:
-        old_line = self._data[row]
-        self._logger.debug("update_line key=%s idx=%d", old_line.key_text, row)
+    def update_row(self, row_index: int, values: Dict[int, Any]) -> bool:
+        old_line = self._data[row_index]
+        self._logger.debug("update_line key=%d idx=%d", old_line.keyinstance_id, row_index)
 
         if len(values):
             l = list(old_line)
             for value_index, value in values.items():
                 l[value_index] = value
-            new_line = self._data[row] = KeyLine(*l)
+            self._data[row_index] = KeyLine(*l)
 
-            old_key = get_sort_key(old_line)
-            new_key = get_sort_key(new_line)
-
-            if old_key != new_key:
-                # We need to move the line, so it is more than a simple row update.
-                self.remove_row(row)
-                insert_row = self._add_line(new_line)
-                return True
-
-        start_index = self.createIndex(row, 0)
+        start_index = self.createIndex(row_index, 0)
         column_count = self.columnCount(start_index)
-        end_index = self.createIndex(row, column_count-1)
+        end_index = self.createIndex(row_index, column_count-1)
         self.dataChanged.emit(start_index, end_index)
 
         return True
 
-    def invalidate_cell_by_key(self, key: KeyInstanceRow, column: int) -> None:
-        row = self._get_row(key)
-        if row is None:
-            self._logger.debug("invalidate_cell_by_key called for non-existent key %r", key)
-            return
-
-        self.invalidate_cell(row, column)
-
-    def invalidate_cell(self, row: int, column: int) -> None:
-        cell_index = self.createIndex(row, column)
-        self.dataChanged.emit(cell_index, cell_index)
-
-    def invalidate_column(self, column: int) -> None:
-        start_index = self.createIndex(0, column)
+    def invalidate_column(self, column_index: int) -> None:
+        start_index = self.createIndex(0, column_index)
         row_count = self.rowCount(start_index)
-        end_index = self.createIndex(row_count-1, column)
+        end_index = self.createIndex(row_count-1, column_index)
         self.dataChanged.emit(start_index, end_index)
 
-    def invalidate_row(self, row: int) -> None:
-        start_index = self.createIndex(row, 0)
+    def invalidate_row(self, row_index: int) -> None:
+        start_index = self.createIndex(row_index, 0)
         column_count = self.columnCount(start_index)
-        end_index = self.createIndex(row, column_count-1)
+        end_index = self.createIndex(row_index, column_count-1)
         self.dataChanged.emit(start_index, end_index)
 
     # Overridden methods:
@@ -288,55 +235,61 @@ class _ItemModel(QAbstractItemModel):
             # First check the custom sort role.
             if role == QT_SORT_ROLE:
                 if column == TYPE_COLUMN:
-                    return line.row.script_type
+                    return line.script_type
                 elif column == STATE_COLUMN:
-                    return line.row.flags
+                    return line.flags
                 elif column == KEY_COLUMN:
-                    return line.key_text
+                    return get_key_text(line)
                 elif column == SCRIPT_COLUMN:
-                    return ScriptType(line.row.script_type).name
+                    return ScriptType(line.script_type).name
                 elif column == LABEL_COLUMN:
-                    return self._view._account.get_keyinstance_label(line.row.keyinstance_id)
+                    return self._view._account.get_keyinstance_label(line.keyinstance_id)
                 elif column == USAGES_COLUMN:
-                    return line.usages
+                    return line.match_count
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     if column == BALANCE_COLUMN:
-                        return line.balance
+                        return line.total_value
                     elif column == FIAT_BALANCE_COLUMN:
                         fx = app_state.fx
                         rate = fx.exchange_rate()
-                        return fx.value_str(line.balance, rate)
+                        return fx.value_str(line.total_value, rate)
 
             elif role == QT_FILTER_ROLE:
                 if column == KEY_COLUMN:
-                    return line.row
+                    return line
 
             elif role == Qt.DecorationRole:
                 if column == TYPE_COLUMN:
                     # TODO(rt12) BACKLOG Need to add variation in icons.
-                    # if line.row.script_type == ScriptType.MULTISIG_P2SH:
                     return self._receive_icon
 
             elif role == Qt.DisplayRole:
                 if column == TYPE_COLUMN:
                     return None
                 elif column == STATE_COLUMN:
-                    if line.row.flags & KeyInstanceFlag.ALLOCATED_MASK:
-                        return "A"
+                    state_text = ""
+                    if line.flags & KeyInstanceFlag.ALLOCATED_MASK:
+                        state_text += "A"
+                    if line.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
+                        state_text += "R"
+                    if line.flags & KeyInstanceFlag.IS_INVOICE:
+                        state_text += "I"
+                    if state_text:
+                        return state_text
                 elif column == KEY_COLUMN:
-                    return line.key_text
+                    return get_key_text(line)
                 elif column == SCRIPT_COLUMN:
-                    return ScriptType(line.row.script_type).name
+                    return ScriptType(line.script_type).name
                 elif column == LABEL_COLUMN:
-                    return self._view._account.get_keyinstance_label(line.row.keyinstance_id)
+                    return self._view._account.get_keyinstance_label(line.keyinstance_id)
                 elif column == USAGES_COLUMN:
-                    return line.usages
+                    return line.match_count
                 elif column == BALANCE_COLUMN:
-                    return app_state.format_amount(line.balance, whitespaces=True)
+                    return app_state.format_amount(line.total_value, whitespaces=True)
                 elif column == FIAT_BALANCE_COLUMN:
                     fx = app_state.fx
                     rate = fx.exchange_rate()
-                    return fx.value_str(line.balance, rate)
+                    return fx.value_str(line.total_value, rate)
             elif role == Qt.FontRole:
                 if column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     return self._view._monospace_font
@@ -355,19 +308,23 @@ class _ItemModel(QAbstractItemModel):
                 if column == TYPE_COLUMN:
                     return _("Key")
                 elif column == STATE_COLUMN:
-                    if line.row.flags & KeyInstanceFlag.ALLOCATED_MASK:
+                    if line.flags & KeyInstanceFlag.ALLOCATED_MASK:
                         return _("This is an allocated address")
-                    elif not line.row.flags & KeyInstanceFlag.IS_ACTIVE:
+                    elif not line.flags & KeyInstanceFlag.IS_ACTIVE:
                         return _("This is an inactive address")
                 elif column == KEY_COLUMN:
-                    key_id = line.row.keyinstance_id
-                    masterkey_id = line.row.masterkey_id
-                    return _("Key instance id: {}\nMaster key id: {}\nDerivation path {}").format(
-                        key_id, masterkey_id, line.derivation_text)
+                    key_id = line.keyinstance_id
+                    masterkey_id = line.masterkey_id
+                    derivation_text = self._view._account.get_derivation_path_text(key_id)
+                    return "\n".join([
+                        f"Key instance id: {key_id}",
+                        f"Master key id: {masterkey_id}",
+                        f"Derivation path {derivation_text}",
+                    ])
 
             elif role == Qt.EditRole:
                 if column == LABEL_COLUMN:
-                    return self._view._account.get_keyinstance_label(line.row.keyinstance_id)
+                    return self._view._account.get_keyinstance_label(line.keyinstance_id)
 
     def flags(self, model_index: QModelIndex) -> int:
         if model_index.isValid():
@@ -383,9 +340,9 @@ class _ItemModel(QAbstractItemModel):
             if section < len(self._column_names):
                 return self._column_names[section]
 
-    def index(self, row: int, column: int, parent: Any) -> QModelIndex:
-        if self.hasIndex(row, column, parent):
-            return self.createIndex(row, column)
+    def index(self, row_index: int, column_index: int, parent: Any) -> QModelIndex:
+        if self.hasIndex(row_index, column_index, parent):
+            return self.createIndex(row_index, column_index)
         return QModelIndex()
 
     def parent(self, model_index: QModelIndex) -> QModelIndex:
@@ -399,7 +356,7 @@ class _ItemModel(QAbstractItemModel):
             row = model_index.row()
             line = self._data[row]
             if model_index.column() == LABEL_COLUMN:
-                self._view._account.set_keyinstance_label(line.row.keyinstance_id, value)
+                self._view._account.set_keyinstance_label(line.keyinstance_id, value)
             self.dataChanged.emit(model_index, model_index)
             return True
         return False
@@ -447,6 +404,7 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
         match = self._filter_match
         if match is None:
             return True
+
         source_model = self.sourceModel()
         if self._filter_type == MatchType.TEXT:
             for column in (KEY_COLUMN, LABEL_COLUMN, SCRIPT_COLUMN):
@@ -455,9 +413,10 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
                     return True
         elif self._filter_type == MatchType.ADDRESS and self._account is not None:
             column_index = source_model.index(source_row, KEY_COLUMN, source_parent)
-            key: KeyInstanceRow = source_model.data(column_index, QT_FILTER_ROLE)
-            for script_type in self._account.get_enabled_script_types():
-                template = self._account.get_script_template_for_id(key.keyinstance_id, script_type)
+            line: KeyLine = source_model.data(column_index, QT_FILTER_ROLE)
+            account = self._account
+            for script_type in account.get_enabled_script_types():
+                template = account.get_script_template_for_id(line.keyinstance_id, script_type)
                 if match == template:
                     return True
         return False
@@ -479,7 +438,7 @@ class KeyView(QTableView):
         self.verticalHeader().setVisible(False)
         self.setAlternatingRowColors(True)
 
-        self._pending_state: Dict[int, Tuple[KeyInstanceRow, EventFlags]] = {}
+        self._pending_state: Dict[int, EventFlags] = {}
         self._pending_actions = set([ ListActions.RESET ])
         self._main_window.keys_created_signal.connect(self._on_keys_created)
         self._main_window.keys_updated_signal.connect(self._on_keys_updated)
@@ -500,7 +459,7 @@ class KeyView(QTableView):
         self._set_fiat_columns_enabled(fx and fx.get_fiat_address_config())
 
         # Sort by type then by index, by making sure the initial sort is our type column.
-        self.sortByColumn(TYPE_COLUMN, Qt.AscendingOrder)
+        self.sortByColumn(BALANCE_COLUMN, Qt.DescendingOrder)
         self.setSortingEnabled(True)
 
         defaultFontMetrics = QFontMetrics(app_state.app.font())
@@ -561,6 +520,11 @@ class KeyView(QTableView):
     def filter(self, text: Optional[str]) -> None:
         self._proxy_model.set_filter_match(text)
 
+    def reset_table(self) -> None:
+        with self._update_lock:
+            self._pending_state.clear()
+            self._pending_actions = set([ ListActions.RESET ])
+
     def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
         with self._update_lock:
             self._pending_state.clear()
@@ -591,7 +555,7 @@ class KeyView(QTableView):
                         selected[row] = self._data[row]
 
                 # The imported address wallet splits on any type of whitespace and strips excess.
-                text = "\n".join(line.key_text for line in selected.values())
+                text = "\n".join(get_key_text(line) for line in selected.values())
                 self._main_window.app.clipboard().setText(text)
         else:
             super().keyPressEvent(event)
@@ -633,27 +597,27 @@ class KeyView(QTableView):
 
     @profiler
     def _dispatch_updates(self, pending_actions: Set[ListActions],
-            pending_state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
+            pending_state: Dict[int, EventFlags]) -> None:
         account_id = self._account_id
         account = self._main_window._wallet.get_account(account_id)
 
         if ListActions.RESET in pending_actions:
             self._logger.debug("_on_update_check reset")
 
-            self._data = self._create_data_snapshot(account_id)
+            self._data = account.keys.get_key_summaries()
             self._base_model.set_data(account_id, self._data)
             return
 
         additions = []
         updates = []
         removals = []
-        for key, flags in pending_state.values():
+        for key_id, flags in pending_state.items():
             if flags & EventFlags.KEY_ADDED:
-                additions.append(key)
+                additions.append(key_id)
             elif flags & EventFlags.KEY_UPDATED:
-                updates.append(key)
+                updates.append(key_id)
             elif flags & EventFlags.KEY_REMOVED:
-                removals.append(key)
+                removals.append(key_id)
 
         # self._logger.debug("_on_update_check actions=%s adds=%d updates=%d removals=%d",
         #     pending_actions, len(additions), len(updates), len(removals))
@@ -689,7 +653,7 @@ class KeyView(QTableView):
 
         flags = EventFlags.KEY_ADDED
         for key in keys:
-            self._pending_state[key.keyinstance_id] = (key, flags)
+            self._pending_state[key.keyinstance_id] = flags
 
     def _on_keys_updated(self, account_id: int, keys: Iterable[KeyInstanceRow]) -> None:
         if not self._validate_account_event(account_id):
@@ -697,63 +661,75 @@ class KeyView(QTableView):
 
         new_flags = EventFlags.KEY_UPDATED
         for key in keys:
-            key_, flags = self._pending_state.get(key.keyinstance_id, (key, EventFlags.UNSET))
-            self._pending_state[key.keyinstance_id] = key, flags | new_flags
+            flags = self._pending_state.get(key.keyinstance_id, EventFlags.UNSET)
+            self._pending_state[key.keyinstance_id] = flags | new_flags
 
-    def _add_keys(self, account: AbstractAccount, keys: List[KeyInstanceRow],
-            state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
-        self._logger.debug("_add_keys %d", len(keys))
-
-        for line in self._create_entries(account, keys, state):
+    def _add_keys(self, account: AbstractAccount, key_ids: List[int],
+            state: Dict[int, EventFlags]) -> None:
+        self._logger.debug("_add_keys %r", key_ids)
+        if not len(key_ids):
+            return
+        for line in account.keys.get_key_summaries(key_ids):
             self._base_model.add_line(line)
 
-    def _update_keys(self, account: AbstractAccount, keys: List[KeyInstanceRow],
-            state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
-        self._logger.debug("_update_keys %d", len(keys))
+    def _update_keys(self, account: AbstractAccount, key_ids: List[int],
+            state: Dict[int, EventFlags]) -> None:
+        self._logger.debug("_update_keys %r", key_ids)
 
-        matches = self._match_keys(keys)
-        if len(matches) != len(keys):
-            matched_key_ids = [ line.row.keyinstance_id for (row, line) in matches ]
-            self._logger.debug("_update_keys missing entries %s",
-                [ k.keyinstance_id for k in keys if k.keyinstance_id not in matched_key_ids ])
+        covered_key_ids = set(key_ids)
+        matched_key_ids = set()
+        new_line_map = { line.keyinstance_id: line
+            for line in account.keys.get_key_summaries(key_ids) }
+        for row_index, line in enumerate(self._data):
+            if line.keyinstance_id in covered_key_ids:
+                matched_key_ids.add(line.keyinstance_id)
+                if line.keyinstance_id not in new_line_map:
+                    self._logger.error("_update_keys premature for %d", line.keyinstance_id)
+                    continue
+                self._data[row_index] = new_line_map[line.keyinstance_id]
+                self._base_model.invalidate_row(row_index)
 
-        new_lines = { l.row.keyinstance_id: l for l in self._create_entries(account, keys, state) }
-        for row, line in matches:
-            self._data[row] = new_lines[line.row.keyinstance_id]
-            self._base_model.invalidate_row(row)
+        unmatched_key_ids = covered_key_ids - matched_key_ids
+        if unmatched_key_ids:
+            self._logger.debug("_update_keys missing entries %r", unmatched_key_ids)
 
-    def _remove_keys(self, keys: List[KeyInstanceRow]) -> None:
-        self._logger.debug("_remove_keys %d", len(keys))
-        matches = self._match_keys(keys)
-        if len(matches) != len(keys):
-            matched_key_ids = [ line.row.keyinstance_id for (row, line) in matches ]
-            self._logger.debug("_remove_keys missing entries %s", [ k.row.keyinstance_id
-                for k in keys if k.row.keyinstance_id not in matched_key_ids ])
+    def _remove_keys(self, key_ids: List[int]) -> None:
+        self._logger.debug("_remove_keys %r", key_ids)
+
+        covered_key_ids = set(key_ids)
+        matched_key_ids = set()
         # Make sure that we will be removing rows from the last to the first, to preserve offsets.
-        for row, line in sorted(matches, reverse=True, key=lambda v: v[0]):
-            self._base_model.remove_row(row)
+        for data_index in range(len(self._data)-1, -1, -1):
+            line = self._data[data_index]
+            if line.keyinstance_id in covered_key_ids:
+                matched_key_ids.add(line.keyinstance_id)
+                self._base_model.remove_row(data_index)
+
+        unmatched_key_ids = covered_key_ids - matched_key_ids
+        if unmatched_key_ids:
+            self._logger.debug("_remove_keys missing entries %r", unmatched_key_ids)
 
     # Called by the wallet window.
     def update_keys(self, keys: List[KeyInstanceRow]) -> None:
         with self._update_lock:
             for key in keys:
-                _key, flags = self._pending_state.get(key.keyinstance_id, (key, EventFlags.UNSET))
-                self._pending_state[key.keyinstance_id] = (key, flags | EventFlags.KEY_UPDATED)
+                flags = self._pending_state.get(key.keyinstance_id, EventFlags.UNSET)
+                self._pending_state[key.keyinstance_id] = flags | EventFlags.KEY_UPDATED
 
     # Called by the wallet window.
     def remove_keys(self, keys: List[KeyInstanceRow]) -> None:
         with self._update_lock:
             for key in keys:
-                _key, flags = self._pending_state.get(key.keyinstance_id, (key, EventFlags.UNSET))
-                self._pending_state[key.keyinstance_id] = (key, flags | EventFlags.KEY_REMOVED)
+                flags = self._pending_state.get(key.keyinstance_id, EventFlags.UNSET)
+                self._pending_state[key.keyinstance_id] = flags | EventFlags.KEY_REMOVED
 
    # Called by the wallet window.
     def update_frozen_keys(self, keys: List[KeyInstanceRow], freeze: bool) -> None:
         with self._update_lock:
             new_flags = EventFlags.KEY_UPDATED | EventFlags.FREEZE_UPDATE
             for key in keys:
-                _key, flags = self._pending_state.get(key.keyinstance_id, (key, EventFlags.UNSET))
-                self._pending_state[key.keyinstance_id] = (key, flags | new_flags)
+                flags = self._pending_state.get(key.keyinstance_id, EventFlags.UNSET)
+                self._pending_state[key.keyinstance_id] = new_flags
 
     # The user has toggled the preferences setting.
     def _on_balance_display_change(self) -> None:
@@ -774,26 +750,18 @@ class KeyView(QTableView):
             new_flags = EventFlags.KEY_UPDATED | EventFlags.LABEL_UPDATE
 
             for line in self._data:
-                if line.row.keyinstance_id in key_updates:
-                    _key, flags = self._pending_state.get(line.row.keyinstance_id,
-                        (line.row, EventFlags.UNSET))
-                    self._pending_state[line.row.keyinstance_id] = (line.row, flags | new_flags)
+                if line.keyinstance_id in key_updates:
+                    flags = self._pending_state.get(line.keyinstance_id, EventFlags.UNSET)
+                    self._pending_state[line.keyinstance_id] = flags | new_flags
 
-    def _match_keys(self, keys: List[KeyInstanceRow]) -> List[Tuple[int, KeyLine]]:
+    def _match_key_ids(self, key_ids: List[int]) -> List[Tuple[int, KeyLine]]:
         matches = []
-        key_ids = set(key.keyinstance_id for key in keys)
-        for row, line in enumerate(self._data):
-            if line.row.keyinstance_id in key_ids:
-                matches.append((row, line))
+        for row_index, line in enumerate(self._data):
+            if line.keyinstance_id in key_ids:
+                matches.append((row_index, line))
                 if len(matches) == len(key_ids):
                     break
         return matches
-
-    def _create_data_snapshot(self, account_id: int) -> None:
-        account = self._main_window._wallet.get_account(account_id)
-        keys = list(account._keyinstances.values())
-        lines = self._create_entries(account, keys, {})
-        return sorted(lines, key=get_sort_key)
 
     def _set_fiat_columns_enabled(self, flag: bool) -> None:
         self._fiat_history_enabled = flag
@@ -804,25 +772,6 @@ class KeyView(QTableView):
 
         self.setColumnHidden(FIAT_BALANCE_COLUMN, not flag)
 
-    def _create_entries(self, account: AbstractAccount, keys: List[KeyInstanceRow],
-            state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> List[KeyLine]:
-
-        utxos = defaultdict(list)
-        for utxo in account._utxos.values():
-            utxos[utxo.keyinstance_id].append(utxo)
-
-        lines = []
-        for key in keys:
-            coins = utxos.get(key.keyinstance_id, [])
-            # NOTE(rt12) BACKLOG This is the current usage not the all time usage.
-            usages = len(coins)
-            key_text = account.get_key_text(key.keyinstance_id)
-            derivation_text = account.get_derivation_path_text(key.keyinstance_id)
-            line = KeyLine(key, derivation_text, key_text, KeyFlags.UNSET, usages,
-                sum(c.value for c in coins))
-            lines.append(line)
-        return lines
-
     def _event_double_clicked(self, model_index: QModelIndex) -> None:
         base_index = get_source_index(model_index, _ItemModel)
         column = base_index.column()
@@ -830,7 +779,7 @@ class KeyView(QTableView):
             self.edit(model_index)
         else:
             line = self._data[base_index.row()]
-            self._main_window.show_key(self._account, line.row.keyinstance_id)
+            self._main_window.show_key(self._account, line.keyinstance_id)
 
     def _event_create_menu(self, position):
         account_id = self._account_id
@@ -846,7 +795,7 @@ class KeyView(QTableView):
             menu_column = menu_source_index.column()
             column_title = self._headers[menu_column]
             if menu_column == 0:
-                copy_text = menu_line.key_text
+                copy_text = get_key_text(menu_line)
             else:
                 copy_text = str(
                     menu_source_index.model().data(menu_source_index, Qt.DisplayRole)).strip()
@@ -873,7 +822,7 @@ class KeyView(QTableView):
 
             if not multi_select:
                 row, column, line, selected_index, base_index = selected[0]
-                key_id = line.row.keyinstance_id
+                key_id = line.keyinstance_id
                 menu.addAction(_('Details'),
                     lambda: self._main_window.show_key(self._account, key_id))
                 if column == LABEL_COLUMN:
@@ -928,7 +877,7 @@ class KeyView(QTableView):
                         menu.addAction(_("Show on {}").format(keystore.plugin.device), show_key)
 
             # freeze = self._main_window.set_frozen_state
-            key_ids = [ line.row.keyinstance_id
+            key_ids = [ line.keyinstance_id
                 for (row, column, line, selected_index, base_index) in selected ]
             # if any(self._account.is_frozen_address(addr) for addr in addrs):
             #     menu.addAction(_("Unfreeze"), partial(freeze, self._account, addrs, False))

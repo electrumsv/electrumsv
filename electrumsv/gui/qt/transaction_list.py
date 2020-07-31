@@ -257,7 +257,7 @@ class _ItemModel(QAbstractItemModel):
                         return _("Received")
                     elif line.flags & TxFlags.StateSigned:
                         return _("Signed")
-                    return _("Unknown")
+                    return line.flags
                 elif column == LABEL_COLUMN:
                     return self._view._wallet.get_transaction_label(line.hash)
                 elif column == VALUE_COLUMN:

@@ -32,6 +32,7 @@ from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160
     P2PK_Output, Script, hex_str_to_hash, hash_to_hex_str, MissingHeader)
 from collections import defaultdict
 from datetime import datetime
+from functools import partial
 import itertools
 import json
 import os
@@ -60,7 +61,7 @@ from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore
 from .logs import logs
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
-from .services import InvoiceService, RequestService
+from .services import InvoiceService, KeyService, RequestService
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, TransactionContext, NO_SIGNATURE, XPublicKey,
@@ -251,6 +252,7 @@ class AbstractAccount:
         self.transaction_lock = threading.RLock()
 
         self.invoices = InvoiceService(self)
+        self.keys = KeyService(self)
         self.requests = RequestService(self)
 
     def scriptpubkey_to_scripthash(self, script):
@@ -286,15 +288,6 @@ class AbstractAccount:
 
     def get_wallet(self) -> 'Wallet':
         return self._wallet
-
-    # Displayable short-hand for intra-wallet usage.
-    def get_key_text(self, key_id: int) -> str:
-        keyinstance = self._keyinstances[key_id]
-        text = f"{key_id}:{keyinstance.masterkey_id}"
-        derivation_text = self.get_derivation_path_text(key_id)
-        if derivation_text is not None:
-            return text +":"+ derivation_text
-        return text +":None"
 
     def get_keyinstance(self, key_id: int) -> KeyInstanceRow:
         return self._keyinstances[key_id]
@@ -936,8 +929,10 @@ class AbstractAccount:
             tx_deltas[(tx_hash, utxo.keyinstance_id)] -= utxo.value
 
         if len(tx_deltas):
+            check_keyinstance_ids = set(r[1] for r in tx_deltas.keys())
             self._wallet.create_or_update_transactiondelta_relative(
-                [ TransactionDeltaRow(k[0], k[1], v) for k, v in tx_deltas.items() ])
+                [ TransactionDeltaRow(k[0], k[1], v) for k, v in tx_deltas.items() ],
+                partial(self.requests.check_paid_requests, check_keyinstance_ids))
 
             affected_keys = [self._keyinstances[k] for (_x, k) in tx_deltas.keys()]
             self._wallet.trigger_callback('on_keys_updated', self._id, affected_keys)
@@ -2356,7 +2351,7 @@ class Wallet(TriggeredCallbacks):
         return TransactionDeltaTable(self.get_db_context())
 
     def create_payment_requests(self, requests: List[PaymentRequestRow],
-            cb: Optional[CompletionCallbackType]=None) -> List[PaymentRequestRow]:
+            completion_callback: Optional[CompletionCallbackType]=None) -> List[PaymentRequestRow]:
         request_id = self._storage.get("next_paymentrequest_id", 1)
         rows = []
         for request in requests:
@@ -2364,7 +2359,7 @@ class Wallet(TriggeredCallbacks):
             request_id += 1
         self._storage.put("next_paymentrequest_id", request_id)
         with PaymentRequestTable(self.get_db_context()) as table:
-            table.create(rows, completion_callback=cb)
+            table.create(rows, completion_callback=completion_callback)
         return rows
 
     def update_transaction_descriptions(self,
@@ -2440,12 +2435,13 @@ class Wallet(TriggeredCallbacks):
 
     # This should only be called by an account that holds it's own transaction lock.
     def create_or_update_transactiondelta_relative(self,
-            entries: Iterable[TransactionDeltaRow]) -> None:
+            entries: Iterable[TransactionDeltaRow],
+            cb: Optional[CompletionCallbackType]=None) -> None:
         # Because we do not cache transaction delta entries in an account, the database needs
         # to do extra work to both insert any new record, and adjust the existing record
         # with the relative `value_delta`.
         with TransactionDeltaTable(self.get_db_context()) as table:
-            table.create_or_update_relative_values(entries)
+            table.create_or_update_relative_values(entries, completion_callback=cb)
 
     def get_transaction_delta(self, tx_hash: bytes, account_id: Optional[int]=None) \
             -> TransactionDeltaSumRow:

@@ -1,8 +1,9 @@
 import time
-from typing import Optional, TYPE_CHECKING
+from typing import List, Optional, Sequence, Tuple, TYPE_CHECKING
 import weakref
 
 from electrumsv.constants import KeyInstanceFlag, PaymentFlag
+from electrumsv.logs import logs
 from electrumsv.wallet_database.sqlite_support import CompletionCallbackType
 from electrumsv.wallet_database.tables import PaymentRequestRow
 
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
 class RequestService:
     def __init__(self, account: "AbstractAccount") -> None:
         self._account = weakref.proxy(account)
+        self._logger = logs.get_logger("key-service")
 
     def get_request_for_id(self, request_id: int) -> Optional[PaymentRequestRow]:
         wallet = self._account.get_wallet()
@@ -78,5 +80,37 @@ class RequestService:
         with wallet.get_payment_request_table() as table:
             table.delete([ (paymentrequest_id,) ], cb)
 
+        # TODO: Too soon, the delete event is non-blocking.
         wallet.trigger_callback('on_keys_updated', account_id, [ new_key ])
         return True
+
+    def check_paid_requests(self, checkable_key_ids: Sequence[int],
+            exc_value: Optional[Exception]=None) -> None:
+        if exc_value is not None:
+            raise exc_value
+
+        # TODO: This logic is blocking the database write completion callback. We need a better
+        # solution.
+        wallet = self._account.get_wallet()
+        account_id = self._account.get_id()
+
+        with wallet.get_transaction_delta_table() as td_table:
+            paid_key_ids = td_table.read_paid_requests(account_id, list(checkable_key_ids))
+
+            state_updates: List[Tuple[PaymentFlag, int]] = []
+            for keyinstance_id in paid_key_ids:
+                state_updates.append((PaymentFlag.PAID, keyinstance_id))
+
+        if len(state_updates):
+            with wallet.get_payment_request_table() as pr_table:
+                pr_table.update_state(state_updates) #,
+                    # completion_callback=partial(
+                    #     self._dispatch_request_state_change_event, paid_keyinstance_ids))
+
+    def _dispatch_request_state_change_event(self, keyinstance_ids: List[int],
+            exc_value: Optional[Exception]=None) -> None:
+        if exc_value is not None:
+            raise exc_value
+
+        # Other updates happen to update the request list. But this is not guaranteed.
+        # If there are problems with the updates not happening, look at using this.

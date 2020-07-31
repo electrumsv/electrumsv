@@ -62,7 +62,7 @@ class TableTopButtonLayout(QHBoxLayout):
 
     def add_refresh_button(self, tooltip: Optional[str]=None) -> QToolButton:
         if tooltip is None:
-            tooltip = _("Refresh the list (Control+R).")
+            tooltip = _("Refresh the list.")
         return self.add_button("refresh_win10_16.png", self.refresh_signal.emit, tooltip)
 
     def add_filter_button(self, tooltip: Optional[str]=None) -> QToolButton:

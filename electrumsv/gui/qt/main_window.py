@@ -1374,7 +1374,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         w = QWidget()
         if hasattr(list_widget, "filter"):
             top_button_layout = TableTopButtonLayout()
-            top_button_layout.refresh_signal.connect(self.refresh_wallet_display)
+            if hasattr(list_widget, "reset_table"):
+                top_button_layout.refresh_signal.connect(list_widget.reset_table)
+            else:
+                top_button_layout.refresh_signal.connect(self.refresh_wallet_display)
             top_button_layout.filter_signal.connect(list_widget.filter)
             w.on_search_toggled = partial(top_button_layout.on_toggle_filter)
         vbox = QVBoxLayout()

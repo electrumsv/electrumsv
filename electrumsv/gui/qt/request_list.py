@@ -101,7 +101,6 @@ class RequestList(MyTreeWidget):
             return
 
         wallet = self._account._wallet
-
         with wallet.get_payment_request_table() as table:
             rows = table.read(self._account_id, flags=PaymentFlag.NONE,
                 mask=PaymentFlag.ARCHIVED)
@@ -127,11 +126,14 @@ class RequestList(MyTreeWidget):
             script_template = self._account.get_script_template_for_id(row.keyinstance_id)
             address_text = script_template_to_string(script_template)
 
+            state = row.state & sum(pr_icons.keys())
             item = QTreeWidgetItem([date, address_text, '', row.description or "",
-                amount_str, pr_tooltips.get(row.state,'')])
+                amount_str, pr_tooltips.get(state,'')])
             item.setData(0, Qt.UserRole, row.paymentrequest_id)
-            if row.state != PaymentFlag.UNKNOWN:
-                item.setIcon(6, read_QIcon(pr_icons.get(row.state)))
+            if state != PaymentFlag.UNKNOWN:
+                icon_name = pr_icons.get(state)
+                if icon_name is not None:
+                    item.setIcon(6, read_QIcon(icon_name))
             item.setFont(4, self._monospace_font)
             self.addTopLevelItem(item)
 
