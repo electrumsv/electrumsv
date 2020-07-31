@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (QLabel, QListWidget, QListWidgetItem, QMenu, QSplit
     QTextEdit, QVBoxLayout)
 
 from electrumsv.bitcoin import address_from_string, script_template_to_string
-from electrumsv.constants import AccountType, DerivationType
+from electrumsv.constants import AccountType, DerivationType, KeystoreType
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount, MultisigAccount, Wallet
@@ -196,8 +196,11 @@ class AccountsView(QSplitter):
         invoices_menu.addAction(_("Import"), partial(self._on_menu_import_invoices, account_id))
 
         payments_menu = menu.addMenu(_("Payments"))
-        payments_menu.addAction(_("Export destinations"),
+        ed_action = payments_menu.addAction(_("Export destinations"),
             partial(self._generate_destinations, account_id))
+        keystore = account.get_keystore()
+        ed_action.setEnabled(keystore is not None and
+            keystore.type() != KeystoreType.IMPORTED_PRIVATE_KEY)
 
         menu.exec_(self._selection_list.viewport().mapToGlobal(position))
 
