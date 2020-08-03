@@ -262,7 +262,6 @@ class SVServer:
                 await session.disconnect(str(error), blacklist=error.blacklist)
             except (RPCError, BatchError, TaskTimeout) as error:
                 await session.disconnect(str(error))
-        logger.info('disconnected')
 
     def protocol_text(self):
         if self.protocol == 's':
@@ -769,6 +768,8 @@ class SVSession(RPCSession):
                 if is_main_server:
                     self.logger.info('using as main server')
                     await group.spawn(self._main_server_batch)
+                # This raises a TaskTimeout but it gets discarded as it also seems to trigger
+                # the closed event which cancels the ping exception before that gets raised up.
                 await group.spawn(self._ping_loop)
                 await self._closed_event.wait()
                 await group.cancel_remaining()
@@ -1234,9 +1235,9 @@ class Network(TriggeredCallbacks):
 
     async def _monitor_active_keys(self, account) -> None:
         '''Raises: RPCError, TaskTimeout'''
+        session = await self._main_session()
         additional_keys = set(account.existing_active_keys())
         while True:
-            session = await self._main_session()
             session.logger.info(f'subscribing to {len(additional_keys):,d} new keys for {account}')
             # Do in reverse to require fewer account re-sync loops
             pairs = [ (k, script_type, scripthash_hex(script)) for k in additional_keys
@@ -1244,6 +1245,7 @@ class Network(TriggeredCallbacks):
             pairs.reverse()
             await session.subscribe_to_triples(account, pairs)
             additional_keys = await account.new_activated_keys()
+            session = await self._main_session()
 
     async def _monitor_inactive_keys(self, account) -> None:
         '''Raises: RPCError, TaskTimeout'''
@@ -1269,7 +1271,6 @@ class Network(TriggeredCallbacks):
                     session = self.main_session()
                     if session:
                         await session.disconnect(str(error), blacklist=blacklist)
-                        await self.sessions_changed_event.wait()
         finally:
             logger.info('stopped maintaining %s', wallet)
 
@@ -1278,19 +1279,30 @@ class Network(TriggeredCallbacks):
         logger.info(f'maintaining account {account}')
         try:
             while True:
+                logger.info(f'renewing maintaining account {account}')
                 try:
                     async with TaskGroup() as group:
                         await group.spawn(self._monitor_active_keys, account)
                         await group.spawn(self._monitor_inactive_keys, account)
                         await group.spawn(account.synchronize_loop)
                         await group.spawn(self._monitor_on_status, group)
+
+                        # None of the above bvlock on things that necessarily are network events.
+                        # So we explicitly detect that and handle it.
+                        session = await self._main_session()
+                        await session._closed_event.wait()
+                        await group.cancel_remaining()
                 except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
                     blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
                     session = self.main_session()
                     if session:
-                        SVSession._subs_by_account[account] = []
                         await session.disconnect(str(error), blacklist=blacklist)
-                        await self.sessions_changed_event.wait()
+                else:
+                    session = self.main_session()
+                    if session:
+                        await session.disconnect("_maintain_account detected close")
+                if account in SVSession._subs_by_account:
+                    SVSession._subs_by_account[account] = []
         finally:
             await SVSession.unsubscribe_account(account, self.main_session())
             logger.info(f'stopped maintaining account {account}')

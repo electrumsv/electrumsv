@@ -1320,8 +1320,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if main_session is not None:
                 current = main_session.get_current_outgoing_concurrency_target()
                 f = min(100, max(0, int(100*((250-current)/250))))
-                text = _("This may be delayed as server access is currently {}% rate limited.")
-                text = text.format(f)
+                if f:
+                    text = _("This may be delayed as server access is currently {}% rate limited.")
+                    text = text.format(f)
         dialog.update_message(text)
 
     def query_choice(self, msg, choices):
