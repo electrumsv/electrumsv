@@ -69,12 +69,12 @@ class SVMainnet(object):
 
     # A post-split SV checkpoint.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '000000201ff55a51c860352808114e52a9b09ae65dd9156a24e75e01000000000000000033320991'
-        '190dcb5a86159e56b9ba2da6bca4e515d9dcbab6878471f8fcdf4039cd98425d7dee0518c5322529'
-    ), height=593660, prev_work=0xe5eef982b80af19dbeb052)
+        '00004020001c43664879f5c89384f39f0c71a48197b2f1bfdbbe83010000000000000000e3d8f953'
+        'f133959c98fadfced5b83f388b8aaee167772dc850425edcb5ac916e7862285fdf6203181438585e'
+    ), height=646575, prev_work=0x1149bb71861599709fe849c)
 
     VERIFICATION_BLOCK_MERKLE_ROOT = (
-        '6acb9cf11127bd497bbebc61fca7d522d985b43be813f8710dca95351e89953e'
+        '3fccaf735987c5a6bcf5ee24022a989d311b18e0fa20f67c4565137fb888317b'
     )
 
     BIP44_COIN_TYPE = 0
@@ -129,12 +129,12 @@ class SVTestnet(object):
 
     # A post-split SV checkpoint.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '0000002029f1e3df7fda466242b9b56076792ffdb9e5d7ea51610307bc010000000000007ac1fa84'
-        'ef5f0998232fb01cd6fea2c0199e34218df2fb33e4e80e79d22b6a746994435d41c4021a208bae0a'
-    ), height=1314717, prev_work=0x62ba4d708756160950)
+        '00000020b9ea0b497adc73aff2e3d2c3663db12bdf4f8d612d3317e76700000000000000b1e1eda1'
+        '767dc2e6fdb63e82d570461da2daa2f4fd9fe375ebce93f5b180a6f5ae7e285faef5021a7f406d4d'
+    ), height=1377549, prev_work=0xade538ee77b27b019d)
 
     VERIFICATION_BLOCK_MERKLE_ROOT = (
-        '93414acafdef2dad790c456a424a6a261b66771a3426117125d8c13a1c93f10e'
+        'c2ca8aef7a20779fc9b7cc00af6b9b65f7ff99ae68fe22132c448d15de0d5943'
     )
 
     BIP44_COIN_TYPE = 1
@@ -189,21 +189,21 @@ class SVScalingTestnet(object):
     COIN = BitcoinScalingTestnet
 
     # Replace after sufficient time has passed after a chain reset.
-    # CHECKPOINT = CheckPoint(bytes.fromhex(
-    #     '00000020e00cb24913995b9db004e06a016e99128c862b6ad075ec259164219e00000000432acae3'
-    #     '6979a88471935a3fb891bf462a017204e834e7eef034c10540e70db47abab45dffff001d117e9185'
-    # ), height=2500, prev_work=0x6f4cd3b9b05b4)
+    CHECKPOINT = CheckPoint(bytes.fromhex(
+        '0000002050c936fce8c10522b399a9feee9c48fba7c409561d0553369fd6dc0a00000000735d99a4'
+        '0a4ff9d2499db4524ca1663b82736211390885bd5d813ef2d4612c798e7e285f99d91d1cb33ad085'
+    ), height=15789, prev_work=0x12c8202e00871)
 
-    # VERIFICATION_BLOCK_MERKLE_ROOT = (
-    #     '2a9310d4af21e92d20e6f2aaeabc54d8c0b5d5e74a1278ffcd4c9ba47cffe422'
-    # )
+    VERIFICATION_BLOCK_MERKLE_ROOT = (
+        '3c6449749d6376dd341f4e1b2192ec658b68c241beaaf665e5615ae01c35b853'
+    )
 
     # Use the following for a chain reset.
-    CHECKPOINT = CheckPoint(bytes.fromhex(
-        '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
-        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
-    ), height=0, prev_work=0)
-    VERIFICATION_BLOCK_MERKLE_ROOT = None
+    # CHECKPOINT = CheckPoint(bytes.fromhex(
+    #     '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
+    #     '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
+    # ), height=0, prev_work=0)
+    # VERIFICATION_BLOCK_MERKLE_ROOT = None
 
     BIP44_COIN_TYPE = 1
 
