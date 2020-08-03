@@ -67,9 +67,10 @@ class AccountsView(QSplitter):
         self._initialize_account_list()
 
     def init_geometry(self, sizes: Optional[Sequence[int]]=None) -> None:
-        self._logger.debug("init_geometry %r", sizes)
+        self._logger.debug("init_geometry.1 %r", sizes)
         if sizes is None:
-            sizes = [ 200, self.size().width() - 200 ]
+            sizes = [ 200, self._main_window.size().width() - 200 ]
+            self._logger.debug("init_geometry.2 %r", sizes)
         self.setSizes(sizes)
 
     def _on_account_created(self, new_account_id: int, new_account: AbstractAccount) -> None:
