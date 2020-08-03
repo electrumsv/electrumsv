@@ -262,6 +262,7 @@ class SVServer:
                 await session.disconnect(str(error), blacklist=error.blacklist)
             except (RPCError, BatchError, TaskTimeout) as error:
                 await session.disconnect(str(error))
+        logger.info('disconnected')
 
     def protocol_text(self):
         if self.protocol == 's':
