@@ -349,7 +349,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.date_label.hide()
 
         if tx_info.amount is None:
-            amount_str = _("Transaction unrelated to your wallet")
+            amount_str = _("Unknown")
         elif tx_info.amount > 0:
             amount_str = _("Received") +" "+ format_amount(tx_info.amount) +" " + base_unit
         else:
