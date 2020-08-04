@@ -23,17 +23,16 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from collections import namedtuple
 import copy
 import datetime
+import gzip
 import json
-from typing import Optional, Set, Tuple
+from typing import NamedTuple, Optional, Set, Tuple
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QBrush, QCursor, QFont, QTextCharFormat
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit, QToolTip
-)
+from PyQt5.QtGui import QBrush, QCursor, QFont
+from PyQt5.QtWidgets import (QDialog, QLabel, QPushButton, QHBoxLayout,
+    QToolTip, QTreeWidgetItem, QVBoxLayout)
 
 from bitcoinx import hash_to_hex_str, MissingHeader
 
@@ -51,13 +50,25 @@ from electrumsv.wallet import AbstractAccount
 
 from .constants import UIBroadcastSource
 from .util import (Buttons, ButtonsLineEdit, ColorScheme, FormSectionWidget, MessageBoxMixin,
-    read_QIcon)
+    MyTreeWidget, read_QIcon)
 
 
 logger = logs.get_logger("tx-dialog")
 
-TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
-                    'fee height conf timestamp')
+class TxInfo(NamedTuple):
+    hash: bytes
+    state: TxFlags
+    status: str
+    label: str
+    can_broadcast: bool
+    amount: Optional[int]
+    fee: Optional[int]
+    height: Optional[int]
+    conf: Optional[int]
+    timestamp: Optional[int]
+
+# TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
+#                     'fee height conf timestamp')
 
 class TxDialog(QDialog, MessageBoxMixin):
     def __init__(self, account: Optional[AbstractAccount], tx: Transaction,
@@ -123,7 +134,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         if self.tx.locktime > 0:
             form.add_row(_("Lock time"), QLabel(str(self.tx.locktime)))
 
-        self.add_io(vbox)
+        self._add_io(vbox)
 
         self.sign_button = b = QPushButton(_("Sign"))
         b.clicked.connect(self.sign)
@@ -140,7 +151,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         self.qr_button = b = QPushButton()
         b.setIcon(read_QIcon("qrcode.png"))
-        b.clicked.connect(self.show_qr)
+        b.clicked.connect(self._show_qr)
 
         self.copy_button = QPushButton(_("Copy"))
         self.copy_button.clicked.connect(self.copy_tx_to_clipboard)
@@ -187,11 +198,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         app_state.app.cosigner_pool.do_send(self._main_window, self._account, self.tx)
 
     def copy_tx_to_clipboard(self) -> None:
-        if self.tx.is_complete():
-            text = str(self.tx)
-        else:
-            text = json.dumps(self.tx.to_dict())
-        self._main_window.app.clipboard().setText(text)
+        self._main_window.app.clipboard().setText(self._tx_to_text())
 
     def _on_click_show_tx_hash_qr(self) -> None:
         self._main_window.show_qrcode(str(self.tx_hash_e.text()), 'Transaction ID', parent=self)
@@ -240,12 +247,14 @@ class TxDialog(QDialog, MessageBoxMixin):
         else:
             event.ignore()
 
-    def show_qr(self) -> None:
-        if not self.tx.is_complete():
-            self.show_error("Unable to show QR code as this transaction is incomplete.")
-            return
+    def _show_qr(self) -> None:
+        if self.tx.is_complete():
+            text = base_encode(self.tx.to_bytes(), base=43)
+        else:
+            data = self._tx_to_text().encode()
+            data = gzip.compress(data)
+            text = base_encode(data, base=43)
 
-        text = base_encode(self.tx.to_bytes(), base=43)
         try:
             self._main_window.show_qrcode(text, 'Transaction', parent=self)
         except Exception as e:
@@ -274,6 +283,15 @@ class TxDialog(QDialog, MessageBoxMixin):
         if not self.tx.is_complete():
             self.sign_button.setDisabled(False)
 
+    def _tx_to_text(self, prefer_readable: bool=False) -> str:
+        # if self.tx.is_complete():
+        #     return str(self.tx)
+
+        tx_dict = self.tx.to_dict()
+        if prefer_readable:
+            return json.dumps(tx_dict, indent=4) + '\n'
+        return json.dumps(tx_dict)
+
     def save(self) -> None:
         if self.tx.is_complete():
             name = 'signed_%s.txn' % (self.tx.txid()[0:8])
@@ -282,29 +300,30 @@ class TxDialog(QDialog, MessageBoxMixin):
         fileName = self._main_window.getSaveFileName(
             _("Select where to save your signed transaction"), name, "*.txn")
         if fileName:
-            tx_dict = self.tx.to_dict()
             with open(fileName, "w+") as f:
-                f.write(json.dumps(tx_dict, indent=4) + '\n')
+                f.write(self._tx_to_text(prefer_readable=True))
             self.show_message(_("Transaction saved successfully"))
             self._saved = True
 
     def update(self) -> None:
         base_unit = app_state.base_unit()
         format_amount = app_state.format_amount
-        tx_info = self.get_tx_info(self.tx)
+        tx_info = self._get_tx_info(self.tx)
         tx_info_fee = tx_info.fee
 
-        size = self.tx.size()
         self.broadcast_button.setEnabled(tx_info.can_broadcast)
         if self._main_window.network is None:
             self.broadcast_button.setEnabled(False)
             self.broadcast_button.setToolTip(_('You are using ElectrumSV in offline mode; restart '
                                                'ElectrumSV if you want to get connected'))
+
         can_sign = not self.tx.is_complete() and self._account.can_sign(self.tx)
         self.sign_button.setEnabled(can_sign)
+
         self._tx_hash = tx_info.hash
         tx_id = hash_to_hex_str(tx_info.hash)
         self.tx_hash_e.setText(tx_id)
+
         if tx_info_fee is None:
             try:
                 # Try and compute fee. We don't always have 'value' in
@@ -314,6 +333,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 pass
             if tx_info_fee < 0:
                 tx_info_fee = None
+
         if self.tx.description is None:
             self.tx_desc.hide()
         else:
@@ -322,143 +342,134 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.status_label.setText(tx_info.status)
 
         if tx_info.timestamp:
-            time_str = datetime.datetime.fromtimestamp(
-                tx_info.timestamp).isoformat(' ')[:-3]
+            time_str = datetime.datetime.fromtimestamp(tx_info.timestamp).isoformat(' ')[:-3]
             self.date_label.setText(time_str)
             self.date_label.show()
         else:
             self.date_label.hide()
+
         if tx_info.amount is None:
             amount_str = _("Transaction unrelated to your wallet")
         elif tx_info.amount > 0:
-            amount_str = '{} {} {}'.format(_("Received") +" ",
-                                           format_amount(tx_info.amount),
-                                           base_unit)
+            amount_str = _("Received") +" "+ format_amount(tx_info.amount) +" " + base_unit
         else:
-            amount_str = '{} {} {}'.format(_("Sent") +" ",
-                                           format_amount(-tx_info.amount),
-                                           base_unit)
-        size_str = '%d bytes'% size
+            amount_str = _("Sent") +" "+ format_amount(-tx_info.amount) +" "+ base_unit
+        self.amount_label.setText(amount_str)
+
+        size = self.tx.size()
+        self.size_label.setText('%d bytes' % size)
+
         if tx_info_fee is not None:
             fee_amount = '{} {}'.format(format_amount(tx_info_fee), base_unit)
         else:
             fee_amount = _('unknown')
         fee_str = '{}'.format(fee_amount)
         if tx_info_fee is not None:
-            fee_str += ' ({}) '.format(self._main_window.format_fee_rate(
-                tx_info_fee / size * 1000))
-        self.amount_label.setText(amount_str)
+            fee_str += ' ({}) '.format(self._main_window.format_fee_rate(tx_info_fee/size * 1000))
         self.fee_label.setText(fee_str)
-        self.size_label.setText(size_str)
 
         # Cosigner button
         visible = app_state.app.cosigner_pool.show_send_to_cosigner_button(self._main_window,
             self._account, self.tx)
         self.cosigner_button.setVisible(visible)
 
-    def add_io(self, vbox: QVBoxLayout) -> None:
-        vbox.addWidget(QLabel(_("Inputs") + ' (%d)'%len(self.tx.inputs)))
+    def _add_io(self, vbox: QVBoxLayout) -> None:
+        i_table = MyTreeWidget(self, self._main_window, self._on_tree_menu,
+            [ _("Index"), _("Account"), _("Source"), _("Amount") ], 2)
+        o_table = MyTreeWidget(self, self._main_window, self._on_tree_menu,
+            [ _("Index"), _("Account"), _("Destination"), _("Amount") ], 2)
 
-        i_text = QTextEdit()
-        i_text.setFont(self._monospace_font)
-        i_text.setReadOnly(True)
+        vbox.addWidget(QLabel(_("Inputs") + ' (%d)' % len(self.tx.inputs)))
+        vbox.addWidget(i_table)
+        vbox.addWidget(QLabel(_("Outputs") + ' (%d)' % len(self.tx.outputs)))
+        vbox.addWidget(o_table)
 
-        vbox.addWidget(i_text)
-        vbox.addWidget(QLabel(_("Outputs") + ' (%d)'%len(self.tx.outputs)))
-        o_text = QTextEdit()
-        o_text.setFont(self._monospace_font)
-        o_text.setReadOnly(True)
-        vbox.addWidget(o_text)
-        self.update_io(i_text, o_text)
+        self._update_io(i_table, o_table)
 
-    def update_io(self, i_text: QTextEdit, o_text: QTextEdit):
-        ext = QTextCharFormat()
-        rec = QTextCharFormat()
-        rec.setBackground(QBrush(ColorScheme.GREEN.as_color(background=True)))
-        rec.setToolTip(_("Wallet receive key"))
-        # chg = QTextCharFormat()
-        # chg.setBackground(QBrush(QColor("yellow")))
-        # chg.setToolTip(_("Wallet change key"))
+    def _update_io(self, i_table: MyTreeWidget, o_table: MyTreeWidget) -> None:
+        mine_brush = QBrush(ColorScheme.GREEN.as_color(background=True))
 
-        def verify_own_output(output: XTxOutput) -> bool:
+        def get_xtxoutput_account(output: XTxOutput) -> Optional[AbstractAccount]:
             if not output.x_pubkeys:
-                return False
+                return None
             for x_pubkey in output.x_pubkeys:
                 result = self._main_window._wallet.resolve_xpubkey(x_pubkey)
                 if result is not None:
                     account, keyinstance_id = result
-                    return account.get_script_for_id(keyinstance_id) == output.script_pubkey
-            return False
+                    if account.get_script_for_id(keyinstance_id) == output.script_pubkey:
+                        return account
+                    return None
+            return None
 
-        known_txos: Set[Tuple[bytes, int]]
-        if self._account is None:
-            known_txos = set()
-        else:
+        known_txos: Set[Tuple[bytes, int]] = set()
+        if self._account is not None:
             known_txos = set(self._account._utxos) | set(self._account._stxos)
 
-        def text_format(utxo_key: Tuple[bytes, int]) -> QTextCharFormat:
-            nonlocal known_txos
-            return rec if utxo_key in known_txos else ext
+        for tx_index, txin in enumerate(self.tx.inputs):
+            account_name = ""
+            source_text = ""
+            amount_text = ""
+            is_mine = False
 
-        def format_amount(amt: int) -> str:
-            return app_state.format_amount(amt, whitespaces = True)
-
-        i_text.clear()
-        cursor = i_text.textCursor()
-        for txin in self.tx.inputs:
             if txin.is_coinbase():
-                cursor.insertText('coinbase')
+                source_text = "<coinbase>"
             else:
                 prev_hash_hex = hash_to_hex_str(txin.prev_hash)
-                cursor.insertText(f'{prev_hash_hex}:{txin.prev_idx:<6d}', ext)
-                txo_key = (txin.prev_hash, txin.prev_idx)
-                if txo_key in known_txos:
-                    txo_text = _("Mine")
-                else:
-                    txo_text = _("Unknown")
-                cursor.insertText(txo_text, text_format(txo_key))
+                source_text = f"{prev_hash_hex}:{txin.prev_idx}"
+                is_mine = (txin.prev_hash, txin.prev_idx) in known_txos
                 if txin.value is not None:
-                    cursor.insertText(format_amount(txin.value), ext)
-            cursor.insertBlock()
+                    amount_text = app_state.format_amount(txin.value, whitespaces=True)
 
-        o_text.clear()
-        cursor = o_text.textCursor()
+            item = QTreeWidgetItem([ str(tx_index), account_name, source_text, amount_text ])
+            # item.setData(0, Qt.UserRole, row.paymentrequest_id)
+            if is_mine:
+                item.setBackground(2, mine_brush)
+            item.setTextAlignment(3, Qt.AlignRight | Qt.AlignVCenter)
+            item.setFont(3, self._monospace_font)
+            i_table.addTopLevelItem(item)
+
         for tx_index, tx_output in enumerate(self.tx.outputs):
-            text, kind = tx_output_to_display_text(tx_output)
+            text, _kind = tx_output_to_display_text(tx_output)
 
-            out_format = ext
-            if verify_own_output(tx_output):
-                out_format = rec
-            elif (self._tx_hash, tx_index) in known_txos:
-                out_format = rec
-            cursor.insertText(text, out_format)
+            account = get_xtxoutput_account(tx_output)
+            account_name = account.name() if account is not None else ""
 
-            if len(text) > 42: # for long outputs, make a linebreak.
-                cursor.insertBlock()
-                text = '\u21b3'
-                cursor.insertText(text, ext)
-            # insert enough spaces until column 43, to line up amounts
-            cursor.insertText(' '*(43 - len(text)), ext)
-            cursor.insertText(format_amount(tx_output.value), ext)
-            cursor.insertBlock()
+            is_mine = account is not None or (self._tx_hash, tx_index) in known_txos
+            amount_text = app_state.format_amount(tx_output.value, whitespaces=True)
+
+            item = QTreeWidgetItem([ str(tx_index), account_name, text, amount_text ])
+            # item.setData(0, Qt.UserRole, row.paymentrequest_id)
+            if is_mine:
+                item.setBackground(2, mine_brush)
+            item.setTextAlignment(3, Qt.AlignRight | Qt.AlignVCenter)
+            item.setFont(3, self._monospace_font)
+            o_table.addTopLevelItem(item)
+
+    def _on_tree_menu(self, position) -> None:
+        pass
 
     # Only called from the history ui dialog.
-    def get_tx_info(self, tx: Transaction) -> TxInfo:
+    def _get_tx_info(self, tx: Transaction) -> TxInfo:
         value_delta = 0
         can_broadcast = False
         label = ''
         fee = height = conf = timestamp = None
+        state = TxFlags.Unset
+
+        wallet = self._wallet
         if tx.is_complete():
-            metadata = self._wallet._transaction_cache.get_metadata(self._tx_hash)
-            if metadata is not None:
+            metadata = wallet._transaction_cache.get_metadata(self._tx_hash)
+            if metadata is None:
+                # The transaction is not known to the wallet.
+                status = _("External signed transaction")
+                state = TxFlags.StateReceived | TxFlags.StateSigned
+                can_broadcast = wallet._network is not None
+            else:
+                # It is possible the wallet has the transaction but it is not associated with
+                # any accounts. We still need to factor that in.
                 fee = metadata.fee
-            label = self._wallet.get_transaction_label(self._tx_hash)
-            delta_result = self._wallet.get_transaction_delta(self._tx_hash, self._account_id)
-            value_delta += delta_result.total
-            if self._account and self._account.has_received_transaction(self._tx_hash):
-                entry_flags = self._wallet._transaction_cache.get_flags(self._tx_hash)
-                if (entry_flags & TxFlags.StateSettled
-                        or entry_flags & TxFlags.StateCleared and metadata.height > 0):
+
+                if metadata.height is not None and metadata.height > 0:
                     chain = app_state.headers.longest_chain()
                     try:
                         header = app_state.headers.header_at_height(chain, metadata.height)
@@ -466,23 +477,45 @@ class TxDialog(QDialog, MessageBoxMixin):
                     except MissingHeader:
                         pass
 
-                    if entry_flags & TxFlags.StateSettled:
-                        height = metadata.height
-                        conf = max(self._wallet.get_local_height() - height + 1, 0)
-                        status = _("{:,d} confirmations (in block {:,d})"
-                            ).format(conf, height)
-                    else:
+                label = wallet.get_transaction_label(self._tx_hash)
+
+                state = wallet._transaction_cache.get_flags(self._tx_hash) & TxFlags.STATE_MASK
+                if state & TxFlags.StateSettled:
+                    height = metadata.height
+                    conf = max(wallet.get_local_height() - height + 1, 0)
+                    status = _("{:,d} confirmations (in block {:,d})").format(conf, height)
+                elif state & TxFlags.StateCleared:
+                    if metadata.height > 0:
                         status = _('Not verified')
+                    else:
+                        status = _('Unconfirmed')
+                elif state & TxFlags.StateReceived:
+                    status = _("Received")
+                    can_broadcast = wallet._network is not None
+                elif state & TxFlags.StateDispatched:
+                    status = _("Dispatched")
+                elif state & TxFlags.StateSigned:
+                    status = _("Signed")
+                    can_broadcast = wallet._network is not None
                 else:
-                    status = _('Unconfirmed')
-            else:
-                status = _("Signed")
-                can_broadcast = self._wallet._network is not None
+                    status = _('Unknown')
+
+            account_deltas = wallet.get_transaction_deltas(self._tx_hash)
+            value_delta = sum(row.total_value for row in account_deltas)
+            # # It is possible that the wallet does not have the transaction.
+            # if delta_result.match_count == 0:
+            #     pass
+            # else:
+            #     value_delta += delta_result.total
         else:
+            state = TxFlags.StateReceived
+
+            # For now all inputs must come from the same account.
             for input in tx.inputs:
                 value_delta -= input.value
             for output in tx.outputs:
                 # If we know what type of script it is, we sign it's spend (or co-sign it).
+                # We are sending to ourselves or we are receiving change.
                 if output.script_type != ScriptType.NONE:
                     value_delta += output.value
 
@@ -491,6 +524,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         if value_delta < 0:
             if fee is not None:
+                # We remove the fee as the user can work out the fee is part of the sum themselves.
                 amount = value_delta + fee
             else:
                 amount = value_delta
@@ -499,5 +533,5 @@ class TxDialog(QDialog, MessageBoxMixin):
         else:
             amount = None
 
-        return TxInfo(self._tx_hash, status, label, can_broadcast, amount, fee,
-                      height, conf, timestamp)
+        return TxInfo(self._tx_hash, state, status, label, can_broadcast, amount, fee, height,
+            conf, timestamp)

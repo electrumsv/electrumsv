@@ -55,7 +55,7 @@ def classify_tx_output(tx_output: TxOutput) -> ScriptTemplate:
     return classify_output_script(tx_output.script_pubkey, Net.COIN)
 
 
-def script_to_display_text(script: Script, kind: ScriptTemplate):
+def script_to_display_text(script: Script, kind: ScriptTemplate) -> str:
     if isinstance(kind, Address):
         text = kind.to_string()
     elif isinstance(kind, P2PK_Output):
@@ -64,7 +64,7 @@ def script_to_display_text(script: Script, kind: ScriptTemplate):
         text = script.to_asm()
     return text
 
-def tx_output_to_display_text(tx_output: TxOutput):
+def tx_output_to_display_text(tx_output: TxOutput) -> Tuple[str, ScriptTemplate]:
     kind = classify_tx_output(tx_output)
     text = script_to_display_text(tx_output.script_pubkey, kind)
     return text, kind
@@ -719,7 +719,9 @@ class Transaction(Tx):
                         for v in output_data[i]['x_pubkeys']]
             if 'description' in data:
                 tx.description = str(data['description'])
-        assert tx.is_complete() == data["complete"]
+            assert tx.is_complete() == data["complete"], "transaction completeness mismatch"
+        elif version == 0:
+            assert tx.is_complete(), "raw transactions must be complete"
         return tx
 
     def to_dict(self, force_signing_metadata: bool=False) -> Dict[str, Any]:

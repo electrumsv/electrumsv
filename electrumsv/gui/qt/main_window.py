@@ -29,6 +29,7 @@ import concurrent.futures
 import csv
 from decimal import Decimal
 from functools import partial
+import gzip
 import itertools
 import json
 import os
@@ -881,9 +882,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 total_delta = 0
                 for tx in self.tx_notifications:
                     if tx:
-                        result = self._wallet.get_transaction_delta(tx.hash())
-                        total_amount += result.total
-                        total_delta += abs(result.total)
+                        for result in self._wallet.get_transaction_deltas(tx.hash()):
+                            total_amount += result.total
+                            total_delta += abs(result.total)
                         n_ok += 1
                 if n_ok and total_delta:
                     self._logger.debug("Notifying GUI %d tx", n_ok)
@@ -1826,6 +1827,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return None
         txdict = txdict_from_str(txt)
         tx = Transaction.from_dict(txdict)
+
         for account in self._wallet.get_accounts():
             my_coins = account.get_spendable_coins(None, self.config)
             my_outpoints = [coin.key() for coin in my_coins]
@@ -1845,8 +1847,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.pay_to_URI(data)
             return
         # else if the user scanned an offline signed tx
-        data = bh2u(bitcoin.base_decode(data, length=None, base=43))
-        return self.tx_from_text(data)
+        data = bitcoin.base_decode(data, length=None, base=43)
+        if data.startswith(b"\x1f\x8b"):
+            text = gzip.decompress(data).decode()
+        else:
+            text = bh2u(data)
+        return self.tx_from_text(text)
 
     def read_tx_from_file(self) -> Optional[Transaction]:
         fileName = self.getOpenFileName(_("Select your transaction file"), "*.txn")
@@ -2009,7 +2015,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def on_fiat_ccy_changed(self):
         '''Called when the user changes fiat currency in preferences.'''
-        b = app_state.fx and app_state.fx.is_enabled()
+        b = bool(app_state.fx and app_state.fx.is_enabled())
         if self._account_id is not None:
             for send_view in self._send_views.values():
                 if isinstance(send_view, SendView):

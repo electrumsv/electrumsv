@@ -2011,8 +2011,6 @@ class MultisigAccount(DeterministicAccount):
 
 class Wallet(TriggeredCallbacks):
     _network: Optional['Network'] = None
-    # _transaction_table: Optional[TransactionTable] = None
-    # _transaction_cache: Optional[TransactionCache] = None
     _stopped: bool = False
 
     def __init__(self, storage: WalletStorage) -> None:
@@ -2025,7 +2023,6 @@ class Wallet(TriggeredCallbacks):
         self._db_context = storage.get_db_context()
         assert self._db_context is not None
 
-        # if self._db_context is not None:
         txdata_cache_size = self.get_cache_size_for_tx_bytedata() * (1024 * 1024)
 
         self._transaction_table = TransactionTable(self._db_context)
@@ -2443,11 +2440,11 @@ class Wallet(TriggeredCallbacks):
         with TransactionDeltaTable(self.get_db_context()) as table:
             table.create_or_update_relative_values(entries, completion_callback=cb)
 
-    def get_transaction_delta(self, tx_hash: bytes, account_id: Optional[int]=None) \
-            -> TransactionDeltaSumRow:
+    def get_transaction_deltas(self, tx_hash: bytes, account_id: Optional[int]=None) \
+            -> List[TransactionDeltaSumRow]:
         assert type(tx_hash) is bytes, f"tx_hash is {type(tx_hash)}, expected bytes"
         with TransactionDeltaTable(self.get_db_context()) as table:
-            return table.read_transaction_value(tx_hash)
+            return table.read_transaction_value(tx_hash, account_id)
 
     def read_wallet_events(self, mask: WalletEventFlag=WalletEventFlag.NONE) \
             -> List[WalletEventRow]:

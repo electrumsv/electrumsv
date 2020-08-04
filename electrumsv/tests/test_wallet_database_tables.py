@@ -1142,7 +1142,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     assert 3 == len(db_lines)
 
     balance_row = table.read_balance(ACCOUNT_ID_OTHER)
-    assert balance_row == (0, 0)
+    assert balance_row == (ACCOUNT_ID_OTHER, 0, 0)
 
     balance_row = table.read_balance(ACCOUNT_ID)
     assert balance_row.total == 1319.0
@@ -1160,19 +1160,22 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
 
     ## Test `read_transaction_value`
     # Query all deltas for the given transaction.
-    result = table.read_transaction_value(TX_HASH)
-    assert 3 == result.match_count
-    assert expected_total == result.total
+    results = table.read_transaction_value(TX_HASH)
+    assert len(results) == 1
+    assert 3 == results[0].match_count
+    assert expected_total == results[0].total
 
     # Query all deltas for the given transaction for the correct account.
-    result = table.read_transaction_value(TX_HASH, ACCOUNT_ID)
-    assert 3 == result.match_count
-    assert expected_total == result.total
+    results = table.read_transaction_value(TX_HASH, ACCOUNT_ID)
+    assert len(results) == 1
+    assert 3 == results[0].match_count
+    assert expected_total == results[0].total
 
     # Query all deltas for the given transaction for an unrelated account.
-    result = table.read_transaction_value(TX_HASH, ACCOUNT_ID_OTHER)
-    assert 0 == result.match_count
-    assert 0 == result.total
+    results = table.read_transaction_value(TX_HASH, ACCOUNT_ID_OTHER)
+    assert len(results) == 0
+    # assert 0 == result.match_count
+    # assert 0 == result.total
 
     db_lines = table.read()
     assert 3 == len(db_lines)

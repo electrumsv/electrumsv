@@ -137,7 +137,7 @@ class SendView(QWidget):
         grid.addWidget(self.amount_e, 3, 1)
 
         self._fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '', self)
-        self.set_fiat_ccy_enabled(app_state.fx and app_state.fx.is_enabled())
+        self.set_fiat_ccy_enabled(bool(app_state.fx and app_state.fx.is_enabled()))
 
         grid.addWidget(self._fiat_send_e, 3, 2)
         self.amount_e.frozen.connect(

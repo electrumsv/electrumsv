@@ -703,9 +703,10 @@ class TransactionView(QTableView):
         assert tx_data.date_added is not None, \
             f"{hash_to_hex_str(tx_hash)} has no valid date_added"
         tx_entry = self._account.get_transaction_entry(tx_hash)
-        delta_sum = self._wallet.get_transaction_delta(tx_hash)
+        results = self._wallet.get_transaction_deltas(tx_hash, self._account_id)
+        total_value  = results[0].total if len(results) else 0
         return TxLine(tx_hash, tx_data.date_added, tx_data.date_updated, tx_entry.flags,
-            delta_sum.total)
+            total_value)
 
     def _event_double_clicked(self, model_index: QModelIndex) -> None:
         base_index = get_source_index(model_index, _ItemModel)

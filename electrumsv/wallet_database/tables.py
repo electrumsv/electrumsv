@@ -81,7 +81,7 @@ def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, para
         cursor.close()
         results.extend(rows)
         ids = ids[batch_size:]
-    return [ return_type(*t) for t in rows ]
+    return [ return_type(*t) for t in results ]
 
 
 class BaseWalletStore:
@@ -815,6 +815,7 @@ class TransactionOutputTable(BaseWalletStore):
 
 
 class TransactionDeltaSumRow(NamedTuple):
+    account_id: int
     total: int
     match_count: int
 
@@ -852,17 +853,23 @@ class TransactionDeltaTable(BaseWalletStore):
         "VALUES (?, ?, ?, ?, ?)")
     CREATE_SQL = "INSERT "+ CREATE_SQL_BASE
     CREATE_OR_IGNORE_SQL = "INSERT OR IGNORE "+ CREATE_SQL_BASE
-    READ_SQL = ("SELECT TOTAL(value_delta), COUNT(value_delta) FROM TransactionDeltas "
-        "WHERE tx_hash=?")
-    READ_ACCOUNT_SQL = ("SELECT TOTAL(TD.value_delta), COUNT(TD.value_delta) "
+    READ_SQL = ("SELECT KI.account_id, TOTAL(TD.value_delta), COUNT(TD.value_delta) "
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ? AND TD.tx_hash = ?")
-    READ_ACCOUNT_TXFILTERING_SQL = ("SELECT TOTAL(TD.value_delta), COUNT(TD.value_delta) "
+            "TD.tx_hash = ? "
+        "GROUP BY KI.account_id")
+    READ_ACCOUNT_SQL = ("SELECT KI.account_id, TOTAL(TD.value_delta), COUNT(TD.value_delta) "
+        "FROM TransactionDeltas AS TD "
+        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
+            "KI.account_id = ? AND TD.tx_hash = ? "
+        "GROUP BY KI.account_id")
+    READ_ACCOUNT_TXFILTERING_SQL_1 = ("SELECT KI.account_id, TOTAL(TD.value_delta), "
+            "COUNT(TD.value_delta) "
         "FROM Transactions AS T "
         "INNER JOIN TransactionDeltas AS TD ON TD.tx_hash = T.tx_hash "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ?")
+            "KI.account_id = ? ")
+    READ_ACCOUNT_TXFILTERING_SQL_2 = "GROUP BY KI.account_id"
     READ_DESCRIPTIONS_SQL = ("SELECT T.tx_hash, T.description  "
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
@@ -1060,32 +1067,31 @@ class TransactionDeltaTable(BaseWalletStore):
     def read_descriptions(self, account_id: int) -> List[Tuple[bytes, str]]:
         return self._get_many_common(self.READ_DESCRIPTIONS_SQL, [ account_id ])
 
-    def read_balance(self, account_id: Optional[int]=None, flags: Optional[int]=None,
+    def read_balance(self, account_id: int, flags: Optional[int]=None,
             mask: Optional[int]=None) -> TransactionDeltaSumRow:
-        query = self.READ_ACCOUNT_TXFILTERING_SQL
+        query = self.READ_ACCOUNT_TXFILTERING_SQL_1
         params: List[Any] = [ account_id ]
         clause, extra_params = flag_clause("T.flags", flags, mask)
         if clause:
-            query += f" WHERE {clause}"
+            query += f" WHERE {clause} "
             params.extend(extra_params)
+        query += self.READ_ACCOUNT_TXFILTERING_SQL_2
         cursor = self._db.execute(query, params)
         row = cursor.fetchone()
         cursor.close()
         if row is None:
-            row = (0, 0)
+            return TransactionDeltaSumRow(account_id, 0, 0)
         return TransactionDeltaSumRow(*row)
 
     def read_transaction_value(self, tx_hash: bytes, account_id: Optional[int]=None) \
-            -> TransactionDeltaSumRow:
+            -> List[TransactionDeltaSumRow]:
         if account_id is None:
             cursor = self._db.execute(self.READ_SQL, [tx_hash])
         else:
             cursor = self._db.execute(self.READ_ACCOUNT_SQL, [account_id, tx_hash])
-        row = cursor.fetchone()
+        rows = cursor.fetchall()
         cursor.close()
-        if row is None:
-            row = (0, 0)
-        return TransactionDeltaSumRow(*row)
+        return [ TransactionDeltaSumRow(*row) for row in rows ]
 
     def update(self, entries: Iterable[Tuple[int, bytes, int]],
             date_updated: Optional[int]=None,

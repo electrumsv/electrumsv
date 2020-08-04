@@ -756,10 +756,14 @@ class ColorSchemeItem:
     def _get_color(self, background):
         return self.colors[(int(background) + int(ColorScheme.dark_scheme)) % 2]
 
-    def as_stylesheet(self, background=False):
+    def as_stylesheet(self, background: bool=False, class_name: str="QWidget", id_name: str="") \
+            -> str:
         css_prefix = "background-" if background else ""
         color = self._get_color(background)
-        return "QWidget {{ {}color:{}; }}".format(css_prefix, color)
+        key_name = class_name
+        if id_name:
+            key_name += "#"+ id_name
+        return "{} {{ {}color:{}; }}".format(key_name, css_prefix, color)
 
     def as_color(self, background=False):
         color = self._get_color(background)
