@@ -203,9 +203,8 @@ class TransactionCache:
 
             self._validate_new_flags(tx_hash, flags)
             new_entry = TransactionCacheEntry(new_metadata, flags, entry.time_loaded)
-            self._logger.debug("_update: %s %r %s %s %r %r", hash_to_hex_str(tx_hash),
-                incoming_metadata, TxFlags.to_repr(incoming_flags),
-                incoming_tx, entry, new_entry)
+            self._logger.debug("_update: %s %r %s %r %r", hash_to_hex_str(tx_hash),
+                incoming_metadata, TxFlags.to_repr(incoming_flags), entry, new_entry)
             self._cache[tx_hash] = new_entry
             if incoming_tx:  # serialize txs -> binary before all db writes
                 incoming_bytedata: Optional[bytes] = incoming_tx.to_bytes()
