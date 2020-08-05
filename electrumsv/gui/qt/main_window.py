@@ -453,9 +453,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def on_network(self, event, *args) -> None:
         if event == 'updated':
             self.need_update.set()
-        elif event == 'on_header_backfill':
-            self.history_view.update_tx_list()
-        elif event in ['status', 'banner', 'verified']:
+        elif event in ['status', 'banner', 'verified', 'on_header_backfill']:
             # Handle in GUI thread
             self.network_signal.emit(event, args)
         else:
