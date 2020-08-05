@@ -501,7 +501,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     status = _('Unknown')
 
             account_deltas = wallet.get_transaction_deltas(self._tx_hash)
-            value_delta = sum(row.total_value for row in account_deltas)
+            value_delta = sum(row.total for row in account_deltas)
             # # It is possible that the wallet does not have the transaction.
             # if delta_result.match_count == 0:
             #     pass
