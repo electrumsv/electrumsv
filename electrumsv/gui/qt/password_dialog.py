@@ -40,7 +40,7 @@ from electrumsv.i18n import _
 from .virtual_keyboard import VirtualKeyboard
 from .util import (
     Buttons, ButtonsLineEdit, CancelButton, FormSectionWidget, icon_path, MessageBox, OkButton,
-    read_QIcon, WindowModalDialog
+    read_QIcon, WindowModalDialog, WWLabel
 )
 
 
@@ -364,3 +364,29 @@ class PasswordDialog(WindowModalDialog):
             return self.pw.text()
         finally:
             self.pw.setText("")
+
+
+class PassphraseDialog(WindowModalDialog):
+    '''Prompt for passphrase for hardware wallets.'''
+
+    def __init__(self, parent):
+        super().__init__(parent, _("Enter Passphrase"))
+
+    def _on_key_event(self, keycode: int) -> None:
+        if keycode in {Qt.Key_Return, Qt.Key_Enter}:
+            self.accept()
+
+    @classmethod
+    def run(cls, parent, msg):
+        d = cls(parent)
+        pw = PasswordLineEdit()
+        pw.setMinimumWidth(200)
+        pw.key_event_signal.connect(d._on_key_event)
+        vbox = QVBoxLayout()
+        vbox.addWidget(WWLabel(msg))
+        vbox.addWidget(pw)
+        vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
+        d.setLayout(vbox)
+        passphrase = pw.text() if d.exec_() else None
+        pw.setText('')
+        return passphrase

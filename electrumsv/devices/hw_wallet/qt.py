@@ -39,9 +39,8 @@ from electrumsv.i18n import _
 
 from electrumsv.gui.qt.main_window import ElectrumWindow
 from electrumsv.gui.qt.password_dialog import (ChangePasswordDialog, PasswordAction,
-    PasswordLineEdit)
-from electrumsv.gui.qt.util import (WindowModalDialog, Buttons, OkButton, CancelButton, WWLabel,
-    read_QIcon)
+                                               PassphraseDialog)
+from electrumsv.gui.qt.util import WindowModalDialog, Buttons, OkButton, CancelButton, read_QIcon
 
 
 HandlerWindow = ElectrumWindow
@@ -136,16 +135,7 @@ class QtHandlerBase(QObject):
             d = ChangePasswordDialog(parent, msg=msg, kind=PasswordAction.PASSPHRASE)
             confirmed, p, passphrase = d.run()
         else:
-            d = WindowModalDialog(parent, _("Enter Passphrase"))
-            pw = PasswordLineEdit()
-            pw.setMinimumWidth(200)
-            vbox = QVBoxLayout()
-            vbox.addWidget(WWLabel(msg))
-            vbox.addWidget(pw)
-            vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
-            d.setLayout(vbox)
-            passphrase = pw.text() if d.exec_() else None
-            pw.setText('')
+            passphrase = PassphraseDialog.run(parent, msg)
         self.passphrase_queue.put(passphrase)
 
     def word_dialog(self, msg):
