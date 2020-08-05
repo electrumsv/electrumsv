@@ -10,8 +10,8 @@ import weakref
 from aiorpcx import RPCError
 
 from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QModelIndex,
-    QTimer)
-from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QResizeEvent
+    QSize, QTimer)
+from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QPixmap, QResizeEvent
 from PyQt5.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QGridLayout, QGroupBox, QMessageBox, QHBoxLayout,
     QHeaderView, QLabel, QLayout, QLineEdit, QFileDialog, QFrame, QPlainTextEdit, QPushButton,
@@ -1074,4 +1074,34 @@ class ClickableLabel(QLabel):
 
     def mousePressEvent(self, ev):
         self.clicked.emit()
+
+
+# Derived from: https://stackoverflow.com/a/22618496/11881963
+class AspectRatioPixmapLabel(QLabel):
+    _pixmap: Optional[QPixmap] = None
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setMinimumSize(1,1)
+        self.setScaledContents(True)
+
+    def setPixmap(self, pixmap: QPixmap) -> None:
+        self._pixmap = pixmap
+        super().setPixmap(self._scaled_pixmap())
+
+    def heightForWidth(self, width: int) -> int:
+        return self.height() if self._pixmap is None else \
+            (self._pixmap.height() * width) / self._pixmap.width()
+
+    def sizeHint(self) -> QSize:
+        width = self.parent().width()
+        return QSize(width, self.heightForWidth(width))
+
+    def _scaled_pixmap(self) -> QPixmap:
+        return self._pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        if self._pixmap is not None:
+            super().setPixmap(self._scaled_pixmap())
+        super().resizeEvent(event)
 

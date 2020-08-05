@@ -53,8 +53,8 @@ from electrumsv.util import get_wallet_name_from_path, read_resource_text
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import Wallet
 
-from .util import (can_show_in_file_explorer, create_new_wallet, icon_path, MessageBox,
-    show_in_file_explorer)
+from .util import (AspectRatioPixmapLabel, can_show_in_file_explorer, create_new_wallet, icon_path,
+    MessageBox, show_in_file_explorer)
 from .wizard_common import BaseWizard, HelpContext
 
 
@@ -270,13 +270,15 @@ class SplashScreenPage(QWizardPage):
 
         layout = QVBoxLayout()
         logo_layout = QHBoxLayout()
-        logo_label = QLabel()
-        logo_label.setPixmap(QPixmap(icon_path("title_logo.png"))
-            .scaledToWidth(500, Qt.SmoothTransformation))
+        logo_label = AspectRatioPixmapLabel(self)
         logo_layout.addStretch(1)
         logo_layout.addWidget(logo_label)
         logo_layout.addStretch(1)
         layout.addLayout(logo_layout)
+
+        logo_pixmap = QPixmap(icon_path("title_logo.png"))
+        logo_label.setPixmap(logo_pixmap)
+
         version_label = QLabel(f"<b><big>v{PACKAGE_VERSION}</big></b>")
         version_label.setAlignment(Qt.AlignHCenter)
         version_label.setTextFormat(Qt.RichText)
@@ -289,10 +291,11 @@ class SplashScreenPage(QWizardPage):
             "</p>"+
             "<p>"+
             _("Bitcoin SV is the only Bitcoin that follows "+
-            "the original whitepaper<br/> and values being stable and non-experimental.") +
+            "the original whitepaper and values being stable and non-experimental.") +
             "</p>"+
             "</big>")
-        release_label = QLabel(release_text)
+        self._release_label = release_label = QLabel(release_text)
+        release_label.setContentsMargins(50, 10, 50, 10)
         release_label.setAlignment(Qt.AlignHCenter)
         release_label.setWordWrap(True)
         layout.addWidget(release_label)
