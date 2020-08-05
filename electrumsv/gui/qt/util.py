@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QGridLayout, QGroupBox, QMessageBox, QHBoxLayout,
     QHeaderView, QLabel, QLayout, QLineEdit, QFileDialog, QFrame, QPlainTextEdit, QPushButton,
     QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QTableWidget, QToolButton, QToolTip,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QWizard
 )
 from PyQt5.uic import loadUi
 
@@ -197,7 +197,7 @@ def query_choice(win, msg, choices):
 
 
 def top_level_window_recurse(window) -> QWidget:
-    classes = (WindowModalDialog, QMessageBox)
+    classes = (WindowModalDialog, QMessageBox, QWizard)
     for n, child in enumerate(window.children()):
         # Test for visibility as old closed dialogs may not be GC-ed
         if isinstance(child, classes) and child.isVisible():
