@@ -1358,7 +1358,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if self.key_view:
             self.key_view.update_frozen_keys(keys, freeze)
         self.utxo_list.update()
-        self.update_fee()
+        send_view = self.get_send_view(account.get_id())
+        send_view.update_fee()
 
     def create_coinsplitting_tab(self) -> QWidget:
         from .coinsplitting_tab import CoinSplittingTab
