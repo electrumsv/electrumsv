@@ -316,6 +316,7 @@ class WaitingDialog(WindowModalDialog):
     '''Shows a please wait dialog whilst runnning a task.  It is not
     necessary to maintain a reference to this dialog.'''
     watch_signal = pyqtSignal(object)
+    _timer: Optional[QTimer] = None
 
     def __init__(self, parent, message: str, func, *args,
             on_done: Optional[Callable[[concurrent.futures.Future], None]]=None,
@@ -335,6 +336,8 @@ class WaitingDialog(WindowModalDialog):
         vbox.addWidget(self._secondary_label)
 
         def _on_done(future) -> None:
+            if self._timer is not None:
+                self._timer.stop()
             self.accept()
             on_done(future)
         future = app_state.app.run_in_thread(func, *args, on_done=_on_done)
