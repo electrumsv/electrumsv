@@ -167,6 +167,7 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
         self.setModal(True)
         self.setMinimumSize(600, 600)
         self.setOption(QWizard.HaveCustomButton1, True)
+        self.button(QWizard.CustomButton1).setVisible(False)
 
         self.setPage(AccountPage.ADD_ACCOUNT_MENU, AddAccountWizardPage(self))
         self.setPage(AccountPage.IMPORT_ACCOUNT_TEXT, ImportWalletTextPage(self))
