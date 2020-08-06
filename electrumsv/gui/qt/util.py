@@ -9,8 +9,8 @@ import weakref
 
 from aiorpcx import RPCError
 
-from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QModelIndex,
-    QSize, QTimer)
+from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QEvent, QLocale, QProcess,
+    QModelIndex, QSize, QTimer)
 from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QPixmap, QResizeEvent
 from PyQt5.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QGridLayout, QGroupBox, QMessageBox, QHBoxLayout,
@@ -322,7 +322,7 @@ class WaitingDialog(WindowModalDialog):
             on_done: Optional[Callable[[concurrent.futures.Future], None]]=None,
             watch_events: bool=False) -> None:
         assert parent
-        super().__init__(parent, _("Please wait"))
+        WindowModalDialog.__init__(self, parent, _("Please wait"))
 
         self._base_message = message
         self._main_label = QLabel()
@@ -340,6 +340,9 @@ class WaitingDialog(WindowModalDialog):
                 self._timer.stop()
             self.accept()
             on_done(future)
+            # This dialog will not be garbage collected until the application or wallet window
+            # exits. Unless this is called.
+            self.deleteLater()
         future = app_state.app.run_in_thread(func, *args, on_done=_on_done)
         self.accepted.connect(future.cancel)
 
