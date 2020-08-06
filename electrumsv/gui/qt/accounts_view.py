@@ -8,6 +8,7 @@ from typing import List, Optional, Sequence
 import weakref
 
 from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, pyqtSignal, QSize, Qt
+from PyQt5.QtGui import QPainter, QPaintEvent
 from PyQt5.QtWidgets import (QLabel, QListWidget, QListWidgetItem, QMenu, QSplitter, QTabWidget,
     QTextEdit, QVBoxLayout)
 
@@ -45,6 +46,15 @@ class AccountsView(QSplitter):
                 if flags == QItemSelectionModel.Deselect:
                     return QItemSelectionModel.NoUpdate
                 return flags
+
+            def paintEvent(self, event: QPaintEvent) -> None:
+                super().paintEvent(event)
+
+                if self.count() > 0:
+                    return
+
+                painter = QPainter(self.viewport())
+                painter.drawText(self.rect(), Qt.AlignCenter, _("Add your first account.."))
 
         self._account_ids: List[int] = []
         self._tab_widget = QTabWidget()

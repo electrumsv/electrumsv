@@ -10,7 +10,7 @@ import webbrowser
 from bitcoinx import hash_to_hex_str
 from PyQt5.QtCore import (pyqtSignal, QAbstractItemModel, QModelIndex, QVariant, Qt,
     QSortFilterProxyModel, QTimer)
-from PyQt5.QtGui import QFont, QFontMetrics, QKeySequence
+from PyQt5.QtGui import QFont, QFontMetrics, QKeySequence, QPainter, QPaintEvent
 from PyQt5.QtWidgets import (QTableView, QAbstractItemView, QHeaderView, QMenu, QMessageBox,
     QWidget)
 
@@ -421,6 +421,16 @@ class TransactionView(QTableView):
         self._timer.setSingleShot(False)
         self._timer.setInterval(1000)
         self._timer.timeout.connect(self._on_update_check)
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        super().paintEvent(event)
+
+        if self.model() and self.model().rowCount(self.rootIndex()) > 0:
+            return
+
+        painter = QPainter(self.viewport())
+        painter.drawText(self.rect(), Qt.AlignCenter,
+            _("Signed transactions that have not been broadcast can be found here."))
 
     def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount) -> None:
         with self._update_lock:
