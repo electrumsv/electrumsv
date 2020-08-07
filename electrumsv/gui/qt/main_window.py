@@ -1261,7 +1261,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._account.sign_transaction(tx, password, tx_context=tx_context)
 
         window = window or self
-        WaitingDialog(window, _('Signing transaction...'), sign_tx, on_done=on_done)
+        WaitingDialog(window, _('Signing transaction...'), sign_tx, on_done=on_done,
+            title=_("Transaction signing"))
 
     def broadcast_transaction(self, account: AbstractAccount, tx: Transaction,
             tx_desc: Optional[str], success_text: Optional[str]=None, window=None) -> Optional[str]:
@@ -1303,7 +1304,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     self._send_view.clear()
 
         WaitingDialog(window, _('Broadcasting the transaction..'), broadcast_tx,
-            on_done=on_done, watch_events=True).watch_signal.connect(self._on_broadcast_event)
+            on_done=on_done, title=_("Transaction broadcast"),
+            watch_events=True).watch_signal.connect(self._on_broadcast_event)
 
     def _on_broadcast_event(self, dialog: WaitingDialog) -> None:
         synchronizing = not self._wallet.is_synchronized()

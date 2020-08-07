@@ -317,13 +317,19 @@ class WaitingDialog(WindowModalDialog):
     necessary to maintain a reference to this dialog.'''
     watch_signal = pyqtSignal(object)
     _timer: Optional[QTimer] = None
+    _title: Optional[str] = None
 
     def __init__(self, parent, message: str, func, *args,
             on_done: Optional[Callable[[concurrent.futures.Future], None]]=None,
-            watch_events: bool=False) -> None:
+            title: Optional[str]=None, watch_events: bool=False) -> None:
         assert parent
-        WindowModalDialog.__init__(self, parent, _("Please wait"))
+        if title is None:
+            title = _("Please wait")
+        WindowModalDialog.__init__(self, parent, title)
 
+        self.setAttribute(Qt.WA_DeleteOnClose)
+
+        self._title = title
         self._base_message = message
         self._main_label = QLabel()
         self._main_label.setAlignment(Qt.AlignCenter)
@@ -339,10 +345,9 @@ class WaitingDialog(WindowModalDialog):
             if self._timer is not None:
                 self._timer.stop()
             self.accept()
-            on_done(future)
-            # This dialog will not be garbage collected until the application or wallet window
-            # exits. Unless this is called.
-            self.deleteLater()
+
+            QTimer.singleShot(0, partial(on_done, future))
+
         future = app_state.app.run_in_thread(func, *args, on_done=_on_done)
         self.accepted.connect(future.cancel)
 
@@ -354,6 +359,9 @@ class WaitingDialog(WindowModalDialog):
         self.update_message(_("Please wait."))
         self.setMinimumSize(250, 100)
         self.show()
+
+    def __del__(self) -> None:
+        logger.debug("%s[%s]: deleted", self.__class__.__name__, self._title)
 
     def _relay_watch_event(self) -> None:
         self.watch_signal.emit(self)
