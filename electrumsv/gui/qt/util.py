@@ -235,7 +235,8 @@ class MessageBoxMixin(object):
                 defaultButton=QMessageBox.NoButton):
         parent = parent or self.top_level_window()
         d = QMessageBox(icon, title, str(text), buttons, parent)
-        d.setWindowModality(Qt.WindowModal)
+        if not app_state.config.get('ui_disable_modal_dialogs', False):
+            d.setWindowModality(Qt.WindowModal)
         d.setWindowFlags(d.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         d.setDefaultButton(defaultButton)
         return d.exec_()
@@ -307,7 +308,8 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
     def __init__(self, parent, title=None):
         QDialog.__init__(self, parent, flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
             Qt.WindowCloseButtonHint)
-        self.setWindowModality(Qt.WindowModal)
+        if not app_state.config.get('ui_disable_modal_dialogs', False):
+            self.setWindowModality(Qt.WindowModal)
         if title:
             self.setWindowTitle(title)
 

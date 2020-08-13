@@ -82,6 +82,7 @@ class PreferencesDialog(QDialog):
         ]
         tabs_info.append((partial(self.wallet_widgets, wallet), _('Wallet')))
         tabs_info.append((self.network_widgets, _('Network')))
+        tabs_info.append((self.ui_widgets, _('UI')))
 
         tabs = QTabWidget()
         tabs.setUsesScrollButtons(False)
@@ -471,6 +472,31 @@ class PreferencesDialog(QDialog):
         form = FormSectionWidget(minimum_label_width=120)
         form.add_row(nz_label, tx_cache_layout)
         # form.add_row(_('Message size limit'), tx_cache_layout)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(form)
+        vbox.addStretch(1)
+        tab.setLayout(vbox)
+
+    def ui_widgets(self, tab: QWidget) -> None:
+        modal_cb = QCheckBox(_('Disable MacOS sheets.'))
+        modal_cb.setToolTip(_("The Qt5 framework used for the user interface has bugs on MacOS\n"
+            "One of these is that in some rare occasions a blank drop down box may be left in\n"
+            "place and there is no way for ElectrumSV to know about it or to remove it. If you\n"
+            "set this option ElectrumSV will try and avoid using the drop down sheets, preventing\n"
+            "you from experiencing these problems."))
+        modal_cb.setChecked(app_state.config.get('ui_disable_modal_dialogs', False))
+        def on_unconf(state):
+            app_state.config.set_key('ui_disable_modal_dialogs', state != Qt.Unchecked)
+        modal_cb.stateChanged.connect(on_unconf)
+
+        options_box = QGroupBox()
+        options_vbox = QVBoxLayout()
+        options_box.setLayout(options_vbox)
+        options_vbox.addWidget(modal_cb)
+
+        form = FormSectionWidget()
+        form.add_row(_("Options"), options_box, stretch_field=True)
 
         vbox = QVBoxLayout()
         vbox.addWidget(form)
