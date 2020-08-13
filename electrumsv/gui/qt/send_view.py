@@ -427,7 +427,7 @@ class SendView(QWidget):
             outputs = self._payto_e.get_outputs(self._is_max)
 
         if not outputs:
-            self._main_window.show_error(_('No outputs'))
+            self._main_window.show_error(_('No payment destinations provided'))
             return
 
         if any(output.value is None for output in outputs):
