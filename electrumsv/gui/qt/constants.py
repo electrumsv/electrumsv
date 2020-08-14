@@ -91,6 +91,24 @@ QTreeView::item {
 """)
 
 CSS_STYLES = """
+#NotificationCard {
+    background-color: white;
+    border-bottom: 1px solid #E3E2E2;
+}
+
+#NotificationCardImage {
+    padding: 4px;
+    border: 1px solid #E2E2E2;
+}
+
+#NotificationCardTitle {
+    font-weight: bold;
+    font-size: 14pt;
+}
+
+#NotificationCardContext {
+    color: grey;
+}
 """
 
 # QTreeView::item {

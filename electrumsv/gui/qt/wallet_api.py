@@ -123,5 +123,5 @@ class WalletAPI(QObject):
 
     def show_help(self, dirname: str, filename: str) -> None:
         from .help_dialog import HelpDialog
-        h = HelpDialog(self.wallet_window, dirname, filename)
+        h = HelpDialog(self.wallet_window.reference(), dirname, filename)
         h.run()
