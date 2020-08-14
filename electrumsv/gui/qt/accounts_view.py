@@ -206,6 +206,9 @@ class AccountsView(QSplitter):
 
         menu.addSeparator()
 
+        hist_menu = menu.addMenu(_("&History"))
+        hist_menu.addAction("Export", main_window.export_history_dialog)
+
         labels_menu = menu.addMenu(_("&Labels"))
         action = labels_menu.addAction(_("&Import"),
             partial(main_window.do_import_labels, account_id))

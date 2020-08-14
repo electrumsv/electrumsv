@@ -625,9 +625,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             contacts_menu = wallet_menu.addMenu(_("Contacts"))
             contacts_menu.addAction(_("&New"), partial(edit_contact_dialog, self._api))
 
-        hist_menu = wallet_menu.addMenu(_("&History"))
-        hist_menu.addAction("Export", self.export_history_dialog)
-
         wallet_menu.addSeparator()
         wallet_menu.addAction(_("Find"), self._toggle_search).setShortcut(QKeySequence("Ctrl+F"))
 
