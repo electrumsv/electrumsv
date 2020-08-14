@@ -1298,12 +1298,13 @@ class Network(TriggeredCallbacks):
                     session = self.main_session()
                     if session:
                         await session.disconnect(str(error), blacklist=blacklist)
-                else:
-                    session = self.main_session()
-                    if session:
-                        await session.disconnect("_maintain_account detected close")
                 if account in SVSession._subs_by_account:
-                    SVSession._subs_by_account[account] = []
+                    del SVSession._subs_by_account[account]
+                    account.request_count = 0
+                    account.response_count = 0
+                    wallet = account.get_wallet()
+                    wallet.request_count = 0
+                    wallet.response_count = 0
         finally:
             await SVSession.unsubscribe_account(account, self.main_session())
             logger.info(f'stopped maintaining account {account}')
