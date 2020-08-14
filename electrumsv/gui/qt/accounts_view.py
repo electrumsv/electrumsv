@@ -174,10 +174,18 @@ class AccountsView(QSplitter):
         account = self._wallet.get_account(account_id)
 
         menu = QMenu()
+        self.add_menu_items(menu, account, self._main_window.reference())
+        menu.exec_(self._selection_list.viewport().mapToGlobal(position))
+
+    def add_menu_items(self, menu: QMenu, account: AbstractAccount, main_window: ElectrumWindow) \
+            -> None:
+        # This expects a reference to the main window, not the weakref.
+        account_id = account.get_id()
+
         menu.addAction(_("&Information"),
             partial(self._show_account_information, account_id))
         seed_menu = menu.addAction(_("View &Secured Data"),
-            partial(self._view_secured_data, main_window=self._main_window, account_id=account_id))
+            partial(self._view_secured_data, main_window=main_window, account_id=account_id))
         seed_menu.setEnabled(
             not account.is_watching_only() and not isinstance(account, MultisigAccount) \
             and not account.is_hardware_wallet() \
@@ -188,10 +196,10 @@ class AccountsView(QSplitter):
 
         private_keys_menu = menu.addMenu(_("&Private keys"))
         import_menu = private_keys_menu.addAction(_("&Import"), partial(self._import_privkey,
-                main_window=self._main_window, account_id=account_id))
+                main_window=main_window, account_id=account_id))
         import_menu.setEnabled(account.can_import_privkey())
         export_menu = private_keys_menu.addAction(_("&Export"), partial(self._export_privkeys,
-            main_window=self._main_window, account_id=account_id))
+            main_window=main_window, account_id=account_id))
         export_menu.setEnabled(account.can_export())
         if account.can_import_address():
             menu.addAction(_("Import addresses"), partial(self._import_addresses, account_id))
@@ -200,8 +208,8 @@ class AccountsView(QSplitter):
 
         labels_menu = menu.addMenu(_("&Labels"))
         action = labels_menu.addAction(_("&Import"),
-            partial(self._main_window.do_import_labels, account_id))
-        labels_menu.addAction(_("&Export"), partial(self._main_window.do_export_labels, account_id))
+            partial(main_window.do_import_labels, account_id))
+        labels_menu.addAction(_("&Export"), partial(main_window.do_export_labels, account_id))
 
         invoices_menu = menu.addMenu(_("Invoices"))
         invoices_menu.addAction(_("Import"), partial(self._on_menu_import_invoices, account_id))
@@ -212,8 +220,6 @@ class AccountsView(QSplitter):
         keystore = account.get_keystore()
         ed_action.setEnabled(keystore is not None and
             keystore.type() != KeystoreType.IMPORTED_PRIVATE_KEY)
-
-        menu.exec_(self._selection_list.viewport().mapToGlobal(position))
 
     def _on_menu_import_invoices(self, account_id: int) -> None:
         send_view = self._main_window.get_send_view(account_id)
@@ -312,7 +318,7 @@ class AccountsView(QSplitter):
 
         defaultname = 'electrumsv-private-keys.csv'
         select_msg = _('Select file to export your private keys to')
-        hbox, filename_e, csv_button = filename_field(self._main_window.config, defaultname,
+        hbox, filename_e, csv_button = filename_field(main_window.config, defaultname,
             select_msg)
         vbox.addLayout(hbox)
 
@@ -378,10 +384,10 @@ class AccountsView(QSplitter):
             ])
             MessageBox.show_error(txt, title=_("Unable to create csv"))
         except Exception as e:
-            MessageBox.show_message(str(e), self._main_window)
+            MessageBox.show_message(str(e), main_window)
             return
 
-        MessageBox.show_message(_('Private keys exported'), self._main_window)
+        MessageBox.show_message(_('Private keys exported'), main_window)
 
     def _do_export_privkeys(self, fileName: str, pklist, is_csv):
         with open(fileName, "w+") as f:

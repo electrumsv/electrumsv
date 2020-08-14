@@ -620,13 +620,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.password_menu = wallet_menu.addAction(_("&Password"), self.change_password_dialog)
         wallet_menu.addSeparator()
 
-        contacts_menu = wallet_menu.addMenu(_("Contacts"))
-        contacts_menu.addAction(_("&New"), partial(edit_contact_dialog, self._api))
+        # NOTE(rt12): Contacts menu is disabled as tab is disabled.
+        if False:
+            contacts_menu = wallet_menu.addMenu(_("Contacts"))
+            contacts_menu.addAction(_("&New"), partial(edit_contact_dialog, self._api))
+
         hist_menu = wallet_menu.addMenu(_("&History"))
         hist_menu.addAction("Export", self.export_history_dialog)
 
         wallet_menu.addSeparator()
         wallet_menu.addAction(_("Find"), self._toggle_search).setShortcut(QKeySequence("Ctrl+F"))
+
+        if self._account_id is not None:
+            account_menu = menubar.addMenu(_("&Account"))
+            self._accounts_view.add_menu_items(account_menu, self._account, self)
 
         # Make sure the lambda reference does not prevent garbage collection.
         weakself = weakref.proxy(self)
