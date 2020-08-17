@@ -605,12 +605,8 @@ class AbstractAccount:
         else:
             keyinstance = self._keyinstances[row.keyinstance_id]
             script_template = self.get_script_template_for_id(row.keyinstance_id)
-            metadata = self._wallet._transaction_cache.get_metadata(row.tx_hash)
-            flags = row.flags
-            if metadata.position==0:
-                flags |= TransactionOutputFlag.IS_COINBASE
             address = script_template if isinstance(script_template, Address) else None
-            self.register_utxo(row.tx_hash, row.tx_index, row.value, flags,
+            self.register_utxo(row.tx_hash, row.tx_index, row.value, row.flags,
                 keyinstance, script_template.to_script(), address)
 
     def register_utxo(self, tx_hash: bytes, output_index: int, value: int,
@@ -640,9 +636,6 @@ class AbstractAccount:
     def create_transaction_output(self, tx_hash: bytes, output_index: int, value: int,
             flags: TransactionOutputFlag, keyinstance: KeyInstanceRow,
             script: Script, address: Optional[ScriptTemplate]=None):
-        metadata = self._wallet._transaction_cache.get_metadata(tx_hash)
-        if metadata.position == 0:
-            flags |= TransactionOutputFlag.IS_COINBASE
         if flags & TransactionOutputFlag.IS_SPENT:
             self._stxos[TxoKeyType(tx_hash, output_index)] = keyinstance.keyinstance_id
         else:
@@ -874,6 +867,8 @@ class AbstractAccount:
         key_matches = [(self.get_keyinstance(key_id),
             *self._get_cached_script(key_id)) for key_id in key_ids]
 
+        base_txo_flags = TransactionOutputFlag.IS_COINBASE if tx.is_coinbase() \
+            else TransactionOutputFlag.NONE
         tx_deltas: Dict[Tuple[bytes, int], int] = defaultdict(int)
         new_txos: List[Tuple[bytes, int, int, TransactionOutputFlag, KeyInstanceRow,
             ScriptTemplate]] = []
@@ -893,7 +888,7 @@ class AbstractAccount:
                 continue
 
             # Search the known candidates to see if we already have this txo's spending input.
-            txo_flags = TransactionOutputFlag.NONE
+            txo_flags = base_txo_flags
             for spend_tx_id, _height in self._sync_state.get_key_history(
                     keyinstance.keyinstance_id):
                 if spend_tx_id == tx_id:
@@ -909,7 +904,7 @@ class AbstractAccount:
                     continue
 
                 tx_deltas[(spend_tx_hash, keyinstance.keyinstance_id)] -= output.value
-                txo_flags = TransactionOutputFlag.IS_SPENT
+                txo_flags |= TransactionOutputFlag.IS_SPENT
                 break
 
             # TODO(rt12) BACKLOG batch create the outputs.
@@ -2502,8 +2497,7 @@ class Wallet(TriggeredCallbacks):
     def unverified_transactions(self) -> Dict[bytes, int]:
         '''Returns a map of tx_hash to tx_height.'''
         results = self._transaction_cache.get_unverified_entries(self.get_local_height())
-        self._logger.debug("unverified_transactions: %s",
-            [(hash_to_hex_str(r[0]), r[1]) for r in results])
+        self._logger.debug("unverified_transactions: %s", [hash_to_hex_str(r[0]) for r in results])
         return { t[0]: cast(int, t[1].metadata.height) for t in results }
 
     # Also called by network.
