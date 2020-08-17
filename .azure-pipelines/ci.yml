@@ -12,6 +12,8 @@ trigger:
       - master
       - releases/*
       - features/*
+  paths:
+    exclude: [ 'README.md' ]
 
 pr:
   - master

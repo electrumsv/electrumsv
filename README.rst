@@ -1,14 +1,3 @@
-ElectrumSV - Lightweight Bitcoin SV client
-==========================================
-
-::
-
-  Licence: MIT Licence
-  Maintainers: Neil Booth, Roger Taylor, AustEcon
-  Project Lead: Roger Taylor
-  Language: Python (>=3.6)
-  Homepage: https://electrumsv.io/
-
 |crowdin_badge| |azurepipeline_badge|
 
 .. |crowdin_badge| image:: https://d322cqt584bo4o.cloudfront.net/electrumsv/localized.svg
@@ -17,6 +6,17 @@ ElectrumSV - Lightweight Bitcoin SV client
 .. |azurepipeline_badge| image:: https://dev.azure.com/electrumsv/ElectrumSV/_apis/build/status/electrumsv.electrumsv?branchName=master
     :target: https://dev.azure.com/electrumsv/ElectrumSV/_build/latest?definitionId=4&branchName=master
     :alt: Build status on Azure Pipelines
+
+ElectrumSV - Lightweight Bitcoin SV client
+==========================================
+
+::
+
+  Licence: Open BSV
+  Maintainers: Neil Booth, Roger Taylor, AustEcon
+  Project Lead: Roger Taylor
+  Language: Python (>=3.7.8)
+  Homepage: https://electrumsv.io/
 
 Getting started on Linux/MacOS
 ==============================
