@@ -2547,6 +2547,30 @@ class Wallet(TriggeredCallbacks):
 
         attempt_callback()
 
+    def update_coinbase_outputs(self, tx_hash):
+        """handles an edge case where the utxo gets added to the cache with position=None and is
+        therefore not recognised as a coinbase until the wallet is restarted."""
+        entries = []
+        tx = self._transaction_cache.get_transaction(tx_hash)
+        if tx:
+            for account in self.get_accounts():
+                for index, output in enumerate(tx.outputs):
+                    utxo = account.get_utxo(tx_hash, index)
+                    utxo.flags |= TransactionOutputFlag.IS_COINBASE
+                    account.register_utxo(
+                        utxo.tx_hash,
+                        utxo.out_index,
+                        utxo.value,
+                        utxo.flags,
+                        account.get_keyinstance(utxo.keyinstance_id),
+                        utxo.script_pubkey,
+                        utxo.address
+                    )
+                    entries.append((utxo.flags, tx_hash, index))
+
+            with TransactionOutputTable(self.get_db_context()) as table:
+                table.update_flags(entries)
+
     # Called by network.
     def add_transaction_proof(self, tx_hash: bytes, height: int, timestamp: int, position: int,
             proof_position: int, proof_branch: Sequence[bytes]) -> None:
@@ -2577,6 +2601,8 @@ class Wallet(TriggeredCallbacks):
 
         proof = TxProof(proof_position, proof_branch)
         self._transaction_cache.update_proof(tx_hash, proof)
+        if position == 0:
+            self.update_coinbase_outputs(tx_hash)
 
         height, conf, _timestamp = self.get_tx_height(tx_hash)
         self._logger.debug("add_transaction_proof %d %d %d", height, conf, timestamp)
