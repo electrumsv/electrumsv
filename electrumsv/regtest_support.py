@@ -4,7 +4,8 @@ import os
 from typing import List
 
 import requests
-from bitcoinx import Headers, MissingHeader, CheckPoint, bits_to_work, P2PKH_Address
+from bitcoinx import Headers, MissingHeader, CheckPoint, bits_to_work, P2PKH_Address, \
+    hash_to_hex_str
 from electrumsv.bitcoin import COINBASE_MATURITY
 
 from electrumsv.networks import Net, BLOCK_HEIGHT_OUT_OF_RANGE_ERROR
@@ -135,7 +136,8 @@ def calculate_regtest_checkpoint(height):
 
         checkpoint = CheckPoint(raw_header=checkpoint_raw_header,
             height=Net.MIN_CHECKPOINT_HEIGHT, prev_work=prev_work)
-        verification_block_merkle_root = checkpoint_raw_header[36:68]
+        verification_block_merkle_root = None if Net.MIN_CHECKPOINT_HEIGHT < 150 \
+            else hash_to_hex_str(checkpoint_raw_header[36:68])
         return checkpoint, verification_block_merkle_root
 
     except requests.HTTPError as e:

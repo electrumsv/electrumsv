@@ -259,7 +259,7 @@ class SVRegTestnet(object):
     REGTEST_DEFAULT_ACCOUNT_SEED = 'tprv8ZgxMBicQKsPd4wsdaJ11eH84eq4hHLX1K6Mx8EQQhJzq8jr25WH1m8hg' \
         'GkCqnksJDCZPZbDoMbQ6QtroyCyn5ZckCmsLeiHDb1MAxhNUHN'
 
-    MIN_CHECKPOINT_HEIGHT = 200
+    MIN_CHECKPOINT_HEIGHT = 0
     ADDRTYPE_P2PKH = 111
     ADDRTYPE_P2SH = 196
     CASHADDR_PREFIX = "bchtest"
@@ -272,14 +272,12 @@ class SVRegTestnet(object):
     BIP276_VERSION = 2
     COIN = BitcoinRegtest
 
+    # Use the following for a chain reset.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '0000002029f1e3df7fda466242b9b56076792ffdb9e5d7ea51610307bc010000000000007ac1fa84'
-        'ef5f0998232fb01cd6fea2c0199e34218df2fb33e4e80e79d22b6a746994435d41c4021a208bae0a'
-    ), height=123, prev_work=123)
-
-    VERIFICATION_BLOCK_MERKLE_ROOT = (
-        '93414acafdef2dad790c456a424a6a261b66771a3426117125d8c13a1c93f10e'
-    )
+        '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
+        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
+    ), height=0, prev_work=0)
+    VERIFICATION_BLOCK_MERKLE_ROOT = None
 
     BIP44_COIN_TYPE = 1
 
