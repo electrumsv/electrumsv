@@ -9,7 +9,7 @@ import weakref
 
 from aiorpcx import RPCError
 
-from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QEvent, QLocale, QProcess,
+from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess,
     QModelIndex, QSize, QTimer)
 from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QPixmap, QResizeEvent
 from PyQt5.QtWidgets import (

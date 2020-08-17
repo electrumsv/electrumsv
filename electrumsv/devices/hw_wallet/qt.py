@@ -40,7 +40,7 @@ from electrumsv.i18n import _
 from electrumsv.gui.qt.main_window import ElectrumWindow
 from electrumsv.gui.qt.password_dialog import (ChangePasswordDialog, PasswordAction,
                                                PassphraseDialog)
-from electrumsv.gui.qt.util import WindowModalDialog, Buttons, OkButton, CancelButton, read_QIcon
+from electrumsv.gui.qt.util import WindowModalDialog, Buttons, CancelButton, read_QIcon
 
 
 HandlerWindow = ElectrumWindow
