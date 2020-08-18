@@ -1137,11 +1137,10 @@ class AbstractAccount:
             height, position = metadata.height, metadata.position
             if position is not None:
                 sort_key = height, position
-            elif height is not None:
-                sort_key = ((height, metadata.date_added) if height > 0
-                    else ((1e9 - height), metadata.date_added))
+            elif height is not None and height > 0:
+                sort_key = (height, metadata.date_added)
             else:
-                sort_key = (1e9+1, metadata.date_added)
+                sort_key = (1e9, metadata.date_added)
             history_raw.append(HistoryLine(sort_key, row.tx_hash, row.tx_flags, height,
                 row.value_delta))
 
