@@ -174,7 +174,7 @@ class AccountsView(QSplitter):
         account = self._wallet.get_account(account_id)
 
         menu = QMenu()
-        self.add_menu_items(menu, account, self._main_window.reference())
+        self.add_menu_items(menu, account, self._main_window)
         menu.exec_(self._selection_list.viewport().mapToGlobal(position))
 
     def add_menu_items(self, menu: QMenu, account: AbstractAccount, main_window: ElectrumWindow) \
@@ -268,7 +268,7 @@ class AccountsView(QSplitter):
             d.exec_()
         else:
             MessageBox.show_message(_("This type of account has no secured data. You are advised "
-                "to manually back up this wallet."), self._main_window)
+                "to manually back up this wallet."), self._main_window.reference())
 
     @protected
     def _import_privkey(self, main_window: ElectrumWindow, account_id: int=-1,
@@ -387,10 +387,10 @@ class AccountsView(QSplitter):
             ])
             MessageBox.show_error(txt, title=_("Unable to create csv"))
         except Exception as e:
-            MessageBox.show_message(str(e), main_window)
+            MessageBox.show_message(str(e), main_window.reference())
             return
 
-        MessageBox.show_message(_('Private keys exported'), main_window)
+        MessageBox.show_message(_('Private keys exported'), main_window.reference())
 
     def _do_export_privkeys(self, fileName: str, pklist, is_csv):
         with open(fileName, "w+") as f:

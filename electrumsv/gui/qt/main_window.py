@@ -628,12 +628,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         wallet_menu.addSeparator()
         wallet_menu.addAction(_("Find"), self._toggle_search).setShortcut(QKeySequence("Ctrl+F"))
 
+        weakself = weakref.proxy(self)
         if self._account_id is not None:
             account_menu = menubar.addMenu(_("&Account"))
-            self._accounts_view.add_menu_items(account_menu, self._account, self)
+            self._accounts_view.add_menu_items(account_menu, self._account, weakself)
 
         # Make sure the lambda reference does not prevent garbage collection.
-        weakself = weakref.proxy(self)
         def add_toggle_action(view_menu, tab) -> None:
             is_shown = self._tab_widget.indexOf(tab) > -1
             item_name = (_("Hide") if is_shown else _("Show")) + " " + tab.tab_description
@@ -2092,6 +2092,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._network_status_task.cancel()
         self._monitor_wallet_network_status_task.cancel()
+        self._network_status_task.cancel()
 
         # We catch these errors with the understanding that there is no recovery at
         # this point, given user has likely performed an action we cannot recover
@@ -2109,6 +2110,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             except (OSError, PermissionError):
                 self._logger.exception("unable to write to wallet storage (directory removed?)")
 
+        self._api.clean_up()
         self.console.clean_up()
 
         # Should be no side-effects in this function relating to file access past this point.

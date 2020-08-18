@@ -155,12 +155,12 @@ class SVApplication(QApplication):
     def close_window(self, window) -> None:
         # NOTE: `ElectrumWindow` removes references to itself while it is closing. This creates
         # a problem where it gets garbage collected before it's Qt5 `closeEvent` handling is
-        # completed and on MacOS it segmentation faults. On Windows, it is fine.
+        # completed and on Linux/MacOS it segmentation faults. On Windows, it is fine.
         QTimer.singleShot(0, partial(self._close_window, window))
         logger.debug("app.close_window.queued")
 
     def _close_window(self, window):
-        logger.debug("app.close_window.executing")
+        logger.debug(f"app.close_window.executing {window!r}")
         app_state.daemon.stop_wallet_at_path(window._wallet.get_storage_path())
         self.windows.remove(window)
         self.window_closed_signal.emit(window)
