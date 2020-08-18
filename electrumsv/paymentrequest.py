@@ -285,7 +285,7 @@ class PaymentRequest:
 
         parsed_url = urllib.parse.urlparse(self.payment_url)
         response = self._make_request(parsed_url.geturl(), payment.to_json())
-        if response.get_status_code() != 200:
+        if response.get_status_code() not in (200, 201, 202):
             # Propagate 'Bad request' (HTTP 400) messages to the user since they
             # contain valuable information.
             if response.get_status_code() == 400:
