@@ -2066,7 +2066,8 @@ class Wallet(TriggeredCallbacks):
         if last_load_hash is not None:
             last_load_hash = hex_str_to_hash(last_load_hash)
         self._last_load_hash = last_load_hash
-        self._logger.debug("chain %d:%s", self._last_load_height, hash_to_hex_str(last_load_hash))
+        self._logger.debug("chain %d:%s", self._last_load_height,
+            hash_to_hex_str(last_load_hash) if last_load_hash is not None else None)
 
         self._keystores.clear()
         self._accounts.clear()
