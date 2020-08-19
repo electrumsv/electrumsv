@@ -179,6 +179,8 @@ class AccountsView(QSplitter):
 
     def add_menu_items(self, menu: QMenu, account: AbstractAccount, main_window: ElectrumWindow) \
             -> None:
+        menu.clear()
+
         # This expects a reference to the main window, not the weakref.
         account_id = account.get_id()
 

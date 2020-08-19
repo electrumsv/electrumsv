@@ -628,9 +628,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         wallet_menu.addAction(_("Find"), self._toggle_search).setShortcut(QKeySequence("Ctrl+F"))
 
         weakself = weakref.proxy(self)
+        self._account_menu = menubar.addMenu(_("&Account"))
         if self._account_id is not None:
-            account_menu = menubar.addMenu(_("&Account"))
-            self._accounts_view.add_menu_items(account_menu, self._account, weakself)
+            self._accounts_view.add_menu_items(self._account_menu, self._account, weakself)
 
         # Make sure the lambda reference does not prevent garbage collection.
         def add_toggle_action(view_menu, tab) -> None:
@@ -684,6 +684,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _reset_menus(self, account_id: Optional[int]=None) -> None:
         self._paytomany_menu.setEnabled(account_id is not None)
+
+        if account_id is not None:
+            weakself = weakref.proxy(self)
+            self._accounts_view.add_menu_items(self._account_menu, self._account, weakself)
 
     def _show_network_dialog(self) -> None:
         self.app.show_network_dialog(self)
