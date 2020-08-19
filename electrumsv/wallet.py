@@ -817,8 +817,8 @@ class AbstractAccount:
                     u += o.value
             return c, u, x
 
-    def set_transaction_state(self, tx_hash: bytes, flags: TxFlags) -> None:
-        """ raises UnknownTransactionException """
+    # NOTE(rt12): Only called by `maybe_set_transaction_dispatched`. Has limited utility.
+    def _set_transaction_state(self, tx_hash: bytes, flags: TxFlags) -> None:
         with self.transaction_lock:
             if not self.have_transaction(tx_hash):
                 raise UnknownTransactionException(f"tx {hash_to_hex_str(tx_hash)} unknown")
@@ -827,6 +827,20 @@ class AbstractAccount:
                 ~TxFlags.STATE_MASK)
         self._wallet.trigger_callback('transaction_state_change', self._id, tx_hash,
             existing_flags, updated_flags)
+
+    def maybe_set_transaction_dispatched(self, tx_hash: bytes) -> bool:
+        """
+        We should only ever mark a transaction as dispatched if it hasn't already been broadcast.
+        raises UnknownTransactionException
+        """
+        with self.transaction_lock:
+            if not self.have_transaction(tx_hash):
+                raise UnknownTransactionException(f"tx {hash_to_hex_str(tx_hash)} unknown")
+            tx_flags = self._wallet.get_transaction_cache().get_flags(tx_hash)
+            if tx_flags & (TxFlags.StateDispatched | TxFlags.STATE_BROADCAST_MASK) == 0:
+                self._set_transaction_state(tx_hash, TxFlags.StateDispatched)
+                return True
+            return False
 
     def _get_cached_script(self, keyinstance_id: int) -> CachedScriptType:
         keyinstance = self.get_keyinstance(keyinstance_id)
@@ -1055,7 +1069,33 @@ class AbstractAccount:
             self._logger.debug("set_key_history on stopped wallet: %s", keyinstance_id)
             return
 
-        update_state_changes = []
+        # We need to delay post-processing until all of the following are completed:
+        # - Any adds are written to the database.
+        # - Any updates are written to the database.
+        # - The key usage has been processed.
+        # As some of the events may read from the database or access wallet state.
+        update_state_changes: List[Tuple[bytes, TxFlags, TxFlags]] = []
+        pending_event_count = 1
+
+        def do_post_processing() -> None:
+            nonlocal update_state_changes
+            self._logger.debug("set_key_history post-processing %d state changes",
+                len(update_state_changes))
+            for state_change in update_state_changes:
+                self._wallet.trigger_callback('transaction_state_change', self._id, *state_change)
+
+            self._wallet.txs_changed_event.set()
+            self.synchronize()
+
+        def on_event_completed() -> None:
+            nonlocal pending_event_count
+            pending_event_count -= 1
+            if pending_event_count > 0:
+                return
+
+            # We do not want to block the completion thread.
+            app_state.app.run_in_thread(do_post_processing)
+
         with self.lock:
             self._logger.debug("set_key_history key_id=%s fees=%s", keyinstance_id, tx_fees)
             key = self._keyinstances[keyinstance_id]
@@ -1104,10 +1144,24 @@ class AbstractAccount:
                             flags & TxFlags.STATE_MASK))
                     updates.append((tx_hash, data, None, flags))
                 unique_tx_hashes.add(tx_hash)
+
+            def _completion_callback(exc_value: Any) -> None:
+                if exc_value is not None:
+                    raise exc_value # pylint: disable=raising-bad-type
+                on_event_completed()
+
             if len(adds):
-                self._wallet._transaction_cache.add(adds)
+                # The completion callback is guaranteed to be called.
+                pending_event_count += 1
+                self._wallet._transaction_cache.add(adds, completion_callback=_completion_callback)
+
             if len(updates):
-                self._wallet._transaction_cache.update(updates)
+                # The completion callback is only guaranteed to be called if database updates are
+                # actually made. We can infer this from the return value which is how many are.
+                pending_event_count += 1
+                if self._wallet._transaction_cache.update(updates,
+                    completion_callback=_completion_callback) == 0:
+                        pending_event_count -= 1
 
             for tx_id, tx_height in hist:
                 tx_hash = hex_str_to_hash(tx_id)
@@ -1117,12 +1171,8 @@ class AbstractAccount:
                     relevant_txos = self.get_relevant_txos(keyinstance_id, tx, tx_id)
                     self.process_key_usage(tx_hash, tx, relevant_txos)
 
-        if len(update_state_changes):
-            for state_change in update_state_changes:
-                self._wallet.trigger_callback('transaction_state_change', self._id, *state_change)
-
-        self._wallet.txs_changed_event.set()
-        await self._trigger_synchronization()
+        # Reaching this stage is the only guaranteed event in triggering post-processing.
+        on_event_completed()
 
     def get_history(self, domain: Optional[Set[int]]=None) -> List[Tuple[HistoryLine, int]]:
         history_raw: List[HistoryLine] = []

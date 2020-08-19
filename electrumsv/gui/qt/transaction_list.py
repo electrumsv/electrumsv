@@ -545,8 +545,8 @@ class TransactionView(QTableView):
         if not self._validate_account_event({ account_id }):
             return
 
-        self._logger.debug("_on_transaction_state_change %s old=%s new=%s", tx_hash,
-            TxFlags.to_repr(old_state), TxFlags.to_repr(new_state))
+        self._logger.debug("_on_transaction_state_change %s old=%s new=%s",
+            hash_to_hex_str(tx_hash), TxFlags.to_repr(old_state), TxFlags.to_repr(new_state))
 
         if new_state & TxFlags.STATE_BROADCAST_MASK:
             self._mark_transactions_removed([ tx_hash ])

@@ -449,8 +449,8 @@ class TransactionTable(BaseWalletStore):
         datas = [ (mask, flags, date_updated, tx_hash)
             for (tx_hash, flags, mask, date_updated) in entries ]
         def _write(db: sqlite3.Connection) -> None:
-            tx_ids = [ hash_to_hex_str(entry[0]) for entry in entries ]
-            self._logger.debug("update_flags '%s'", tx_ids)
+            log_entries = [ (*entry[:3], hash_to_hex_str(entry[3])) for entry in datas ]
+            self._logger.debug("update_flags %r", log_entries)
             db.executemany(self.UPDATE_FLAGS_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)
 

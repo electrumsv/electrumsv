@@ -1293,10 +1293,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 else:
                     raise e
 
-            if result == tx.txid() and account.have_transaction(tx.hash()):
-                account.set_transaction_state(tx.hash(),
-                    (TxFlags.StateDispatched | TxFlags.HasByteData))
-
+            tx_hash = tx.hash()
+            if result == tx.txid() and account.have_transaction(tx_hash):
+                account.maybe_set_transaction_dispatched(tx_hash)
             return result
 
         def on_done(future: concurrent.futures.Future) -> None:

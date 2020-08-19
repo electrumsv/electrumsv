@@ -149,13 +149,13 @@ class TransactionCache:
         self._store.create(inserts, completion_callback=completion_callback)  # type:ignore
 
     def update(self, updates: List[Tuple[bytes, TxData, Optional[Transaction], TxFlags]],
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+            completion_callback: Optional[CompletionCallbackType]=None) -> int:
         with self._lock:
-            self._update(updates, completion_callback=completion_callback)
+            return self._update(updates, completion_callback=completion_callback)
 
     def _update(self, updates: List[Tuple[bytes, TxData, Optional[Transaction], TxFlags]],
             update_all: bool=True,
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+            completion_callback: Optional[CompletionCallbackType]=None) -> int:
         """
         The flagged changes are applied to the existing entry, leaving the unflagged aspects
         as they were. An example of this is bytedata, the bytedata in the existing entry should
@@ -222,6 +222,7 @@ class TransactionCache:
         # is that there's no way of reusing a completion context for more than one thing.
         if len(updated_entries):
             self._store.update(updated_entries, completion_callback=completion_callback)
+        return len(updated_entries)
 
     # TODO: This is problematic as it discards non-metadata flags unless the caller provides a mask
     # that preserves the ones that should be preserved. Perhaps mask should be obligatory.
