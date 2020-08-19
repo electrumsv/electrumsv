@@ -40,6 +40,7 @@ from typing import Any, Callable, Dict, Iterable, List, Set, Tuple, TypeVar, Opt
 import weakref
 import webbrowser
 
+import aiorpcx
 from bitcoinx import PublicKey
 
 from PyQt5.QtCore import pyqtSignal, Qt, QSize, QTimer, QUrl, QRect
@@ -1282,7 +1283,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if not self._send_view.maybe_send_invoice_payment(tx):
                 return None
 
-            result = self.network.broadcast_transaction_and_wait(tx)
+            try:
+                result = self.network.broadcast_transaction_and_wait(tx)
+            except aiorpcx.jsonrpc.RPCError as e:
+                # If we sent an invoice payment, or someone else beat us to broadcasting this
+                # transaction we should treat it the same as success.
+                if e.code == 1 and "Transaction already in the mempool" in e.message:
+                    result = tx.txid()
+                else:
+                    raise e
 
             if result == tx.txid() and account.have_transaction(tx.hash()):
                 account.set_transaction_state(tx.hash(),
