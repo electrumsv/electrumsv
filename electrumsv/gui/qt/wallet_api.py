@@ -1,6 +1,5 @@
 
 from decimal import Decimal
-from functools import partial
 from typing import Any, Optional, Iterable, List, Tuple
 import weakref
 

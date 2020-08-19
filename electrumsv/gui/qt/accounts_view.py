@@ -211,8 +211,8 @@ class AccountsView(QSplitter):
 
         labels_menu = menu.addMenu(_("&Labels"))
         action = labels_menu.addAction(_("&Import"),
-            partial(main_window.do_import_labels, account_id))
-        labels_menu.addAction(_("&Export"), partial(main_window.do_export_labels, account_id))
+            partial(self._on_menu_import_labels, account_id))
+        labels_menu.addAction(_("&Export"), partial(self._on_menu_export_labels, account_id))
 
         invoices_menu = menu.addMenu(_("Invoices"))
         invoices_menu.addAction(_("Import"), partial(self._on_menu_import_invoices, account_id))
@@ -223,6 +223,12 @@ class AccountsView(QSplitter):
         keystore = account.get_keystore()
         ed_action.setEnabled(keystore is not None and
             keystore.type() != KeystoreType.IMPORTED_PRIVATE_KEY)
+
+    def _on_menu_import_labels(self, account_id: int) -> None:
+        self._main_window.do_import_labels(account_id)
+
+    def _on_menu_export_labels(self, account_id: int) -> None:
+        self._main_window.do_export_labels(account_id)
 
     def _on_menu_import_invoices(self, account_id: int) -> None:
         send_view = self._main_window.get_send_view(account_id)

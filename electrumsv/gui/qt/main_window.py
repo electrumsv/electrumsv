@@ -58,7 +58,6 @@ from electrumsv.bitcoin import (COIN, is_address_valid, address_from_string,
 from electrumsv.constants import DATABASE_EXT, TxFlags
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
-from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.network import broadcast_failure_reason
 from electrumsv.networks import Net
@@ -220,7 +219,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return self
 
     def __del__(self) -> None:
-        logger.debug("A main window was garbage collected")
+        logger.debug(f"Wallet window garbage collected {self!r}")
 
     def _on_tab_changed(self, to_tab_index: int) -> None:
         # Some tabs may want to be refreshed to show current state when selected.
@@ -2133,8 +2132,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         for account in self._wallet.get_accounts():
             for keystore in account.get_keystores():
-                if isinstance(keystore, Hardware_KeyStore):
-                    app_state.device_manager.unpair_xpub(keystore.xpub)
+                keystore.clean_up()
 
         self._logger.debug('closing wallet %s', self._wallet)
 

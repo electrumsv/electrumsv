@@ -28,6 +28,7 @@ from functools import partial
 from queue import Queue
 import threading
 from typing import Optional
+import weakref
 
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QAction
@@ -78,6 +79,9 @@ class QtHandlerBase(QObject):
         self.dialog: Optional[WindowModalDialog] = None
         self.done = threading.Event()
         self.passphrase_queue: Queue = Queue()
+
+    def clean_up(self) -> None:
+        del self.win
 
     def top_level_window(self):
         return self.win.top_level_window()
@@ -204,7 +208,8 @@ class QtPluginBase(object):
         if keystore.label and keystore.label.strip():
             action_label = keystore.label.strip()
         action = QAction(read_QIcon(self.icon_unpaired), action_label, window)
-        action.triggered.connect(partial(self.show_settings_wrapped, window, keystore))
+        action.triggered.connect(partial(self.show_settings_wrapped, weakref.proxy(window),
+            keystore))
         action.setToolTip(_("Hardware Wallet"))
         window.add_toolbar_action(action)
         handler.action = action
@@ -235,6 +240,8 @@ class QtPluginBase(object):
         raise NotImplementedError
 
     def show_settings_wrapped(self, window: ElectrumWindow, keystore: Hardware_KeyStore) -> None:
+        if isinstance(window, weakref.ProxyType):
+            window = window.reference()
         try:
             self.show_settings_dialog(window, keystore)
         except Exception as e:
