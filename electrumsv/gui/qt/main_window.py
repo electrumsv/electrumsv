@@ -1212,7 +1212,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # broadcast a transaction prior to calling `broadcast_transaction` on this wallet window.
         # Pass in the context of the call and check against the relevant contexts.
 
+        # Skip confirmation for transactions loaded for broadcast.
         entry = self._account.get_transaction_entry(tx_hash)
+        if entry is None:
+            return True
+
         if entry.flags & TxFlags.PaysInvoice and source == UIBroadcastSource.TRANSACTION_DIALOG:
             # At this time invoice payment is hooked into transaction broadcasting and it
             # defers to the send tab for an active invoice, and completes payment of that invoice.
@@ -1279,6 +1283,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         window = window or self
 
         def broadcast_tx() -> None:
+            nonlocal tx, account
             # non-GUI thread
             if not self._send_view.maybe_send_invoice_payment(tx):
                 return None
@@ -1294,11 +1299,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     raise e
 
             tx_hash = tx.hash()
+            # Not all transactions that are broadcast are in the account. Arbitrary transaction
+            # broadcast is supported.
             if result == tx.txid() and account.have_transaction(tx_hash):
                 account.maybe_set_transaction_dispatched(tx_hash)
             return result
 
         def on_done(future: concurrent.futures.Future) -> None:
+            nonlocal window, tx_desc, success_text
             # GUI thread
             try:
                 tx_id: Optional[str] = future.result()
