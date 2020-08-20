@@ -617,8 +617,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         file_menu.addAction(_("&Open"), self._open_wallet).setShortcut(QKeySequence.Open)
         file_menu.addAction(_("&New"), self._new_wallet).setShortcut(QKeySequence.New)
         # TODO(rt12): See the `_backup_wallet` function.
-        save_copy_action = file_menu.addAction(_("&Save Copy"),
-            self._backup_wallet).setShortcut(QKeySequence.SaveAs)
+        save_copy_action = file_menu.addAction(_("&Save Copy"), self._backup_wallet)
+        save_copy_action.setShortcut(QKeySequence.SaveAs)
         save_copy_action.setEnabled(False)
         file_menu.addSeparator()
         file_menu.addAction(_("&Quit"), self.close)
