@@ -530,12 +530,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return False
 
     def _backup_wallet(self):
+        # TODO(rt12): https://stackoverflow.com/questions/23395888/
+        # This does not work as is. The link might provide a way of doing it better.
         path = self._wallet.get_storage_path()
         wallet_folder = os.path.dirname(path)
         filename, __ = QFileDialog.getSaveFileName(
             self, _('Enter a filename for the copy of your wallet'), wallet_folder)
         if not filename:
             return
+
+        # QFileDialog.getSaveFileName uses forward slashes for "easier pathing".. correct this.
+        filename = os.path.normpath(filename)
 
         new_path = os.path.join(wallet_folder, filename)
         new_path = WalletStorage.canonical_path(new_path)
@@ -590,6 +595,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         filename, __ = QFileDialog.getOpenFileName(self, "Select your wallet file", wallet_folder)
         if not filename:
             return
+        # QFileDialog.getOpenFileName uses forward slashes for "easier pathing".. correct this.
+        filename = os.path.normpath(filename)
         self.app.new_window(filename)
 
     def _new_wallet(self) -> None:
@@ -609,7 +616,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.recently_visited_menu = file_menu.addMenu(_("&Recently open"))
         file_menu.addAction(_("&Open"), self._open_wallet).setShortcut(QKeySequence.Open)
         file_menu.addAction(_("&New"), self._new_wallet).setShortcut(QKeySequence.New)
-        file_menu.addAction(_("&Save Copy"), self._backup_wallet).setShortcut(QKeySequence.SaveAs)
+        # TODO(rt12): See the `_backup_wallet` function.
+        save_copy_action = file_menu.addAction(_("&Save Copy"),
+            self._backup_wallet).setShortcut(QKeySequence.SaveAs)
+        save_copy_action.setEnabled(False)
         file_menu.addSeparator()
         file_menu.addAction(_("&Quit"), self.close)
 

@@ -549,6 +549,8 @@ class ChooseWalletPage(QWizardPage):
         wallet_filepath, __ = QFileDialog.getOpenFileName(self, "Select your wallet file",
             initial_dirpath)
         if wallet_filepath:
+            # QFileDialog.getOpenFileName uses forward slashes for "easier pathing".. correct this.
+            wallet_filepath = os.path.normpath(wallet_filepath)
             self._attempt_open_wallet(wallet_filepath, change_page=True)
 
     def _event_click_open_selected_file(self) -> None:
