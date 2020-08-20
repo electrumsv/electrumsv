@@ -618,7 +618,7 @@ class ImportWalletTextPage(QWizardPage):
         button = self.wizard().button(QWizard.CustomButton1)
         button.setEnabled(self._checked_match_type is not None and \
             self._checked_match_type not in { KeystoreTextType.ADDRESSES,
-                KeystoreTextType.PRIVATE_KEYS })
+                KeystoreTextType.PRIVATE_KEYS, KeystoreTextType.ELECTRUM_OLD_SEED_WORDS })
         self.completeChanged.emit()
 
     def _on_text_changed(self) -> None:
@@ -836,8 +836,7 @@ class ImportWalletTextCustomPage(QWizardPage):
 
     def _allow_watch_only_usage(self) -> bool:
         return self._text_type in (KeystoreTextType.BIP39_SEED_WORDS,
-            KeystoreTextType.ELECTRUM_SEED_WORDS, KeystoreTextType.ELECTRUM_OLD_SEED_WORDS,
-            KeystoreTextType.EXTENDED_PRIVATE_KEY)
+            KeystoreTextType.ELECTRUM_SEED_WORDS, KeystoreTextType.EXTENDED_PRIVATE_KEY)
 
     @protected
     def _create_account(self, main_window: Optional[ElectrumWindow]=None,
