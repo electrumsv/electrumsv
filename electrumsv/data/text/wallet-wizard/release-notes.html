@@ -2,7 +2,7 @@
     <body>
         <p>
             Changes included in this version of ElectrumSV are documented in a more readable
-            form within the following article: <a href="https://medium.com/@roger.taylor/electrumsv-1-3-5-ea885204a2ce">ElectrumSV 1.3.5</a>
+            form within the following article: <a href="https://medium.com/@roger.taylor/electrumsv-1-3-5-99e4a3287368">ElectrumSV 1.3.5</a>
         </p>
         <p>
             The most prominent changes are also summarised below for convenience, if you wish to read more
@@ -10,13 +10,63 @@
         </p>
         <ul>
             <li>
-                Payment destinations: New export feature for bulk access to types of payment
-                destinations like addresses, for accounts.
+                MacOS: The user interface framework has bugs that only exist on MacOS. We cannot fix these,
+                but if your wallet locks up with a drop down modal message box that you can't dismiss, we
+                have however provided a way for you to disable drop down message boxes.
             </li>
             <li>
-                Transaction broadcasting: Broadcasting external transactions in a wallet would
-                error. The broadcast would succeed, but the user would see an unhelpful error after
-                the fact.
+                Local requests: The requests list is now always visible, and works. You can define an incoming
+                payment for an address you give out and it will change from unpaid to paid when a payment
+                transaction is received and processed.
+            </li>
+            <li>
+                BIP270: ElectrumSV has long had BIP270 support. Now there are merchant services that can
+                dispense and process payment requests on behalf of users or businesses, we have fleshed it out,
+                hooked it up and tested it thoroughly.
+            </li>
+            <li>
+                The account menu: The menu for an account was accessed by "right clicking" on the account entry
+                in the accounts list. Now it can also be accessed by a window-level Account menu.
+            </li>
+            <li>
+                Transaction dialog: The transaction dialog has been polished a little. It is a little better
+                at providing full information, although there is obvious work left to be done on it.
+            </li>
+            <li>
+                Table filtering and refreshing: Filter and refresh buttons have been added to almost all
+                tables. This functionality has always been available through hotkeys (Control+R and Control+F)
+                but it is very likely that users were not very aware of it.
+            </li>
+            <li>
+                Transactions tab: The transactions tab provides a useful aid in keeping track of signed but
+                not known to the network transactions. However, it's purpose and contents are non-obvious.
+                We now show a summary of how many coins are allocated in signed transactions in the
+                transactions tab at the top of the history tab. And a placeholder noting it's purpose when it
+                is empty.
+            </li>
+            <li>
+                Unmatured coins: Coinbase coins are not spendable until they have been confirmed many times.
+                We were not correctly marking these coins as coinbase, and this meant that it was possible for
+                the user or API user to have them accidentally included in a transaction they were making.
+            </li>
+            <li>
+                Account synchronisation: When ElectrumSV connects to the main server it uses, it makes
+                subscriptions on that server for all the things it wants to get notified about related
+                transactions for. Unfortunately, on disconnection from one server and switching to another
+                it would not do the subscription process for the new server and would not respond to blockchain
+                events until it was restarted.
+            </li>
+            <li>
+                Wallet backup menu: The "File" menu offers a "Save Copy" option. However now that we now store
+                wallet data in a database, just naively copying the wallet file no longer works. There are ways
+                to live backup the open wallet database, but we haven't implemented them yet and until we have
+                this menu option is disabled.
+            </li>
+            <li>
+                Wallet consistency: It was possible to open the same wallet twice due to unexpected design
+                decisions made by the user interface framework we use. This meant that identifying if a wallet
+                was active failed because the framework wallet path did not match the one we were using to
+                access the wallet file.
             </li>
         </ul>
     </body>

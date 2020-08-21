@@ -133,7 +133,7 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
         raise ValueError(f'no box with name {name} found')
     return box.result(parent, wallet, **kwargs)
 
-article_uri = "https://medium.com/@roger.taylor/electrumsv-1-3-5-ea885204a2ce"
+article_uri = "https://medium.com/@roger.taylor/electrumsv-1-3-5-99e4a3287368"
 
 take_care_notice = """
 <span>ElectrumSV is just a Bitcoin SV wallet, it cannot stop you from making bad decisions. Read
