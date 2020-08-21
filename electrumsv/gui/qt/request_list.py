@@ -73,13 +73,6 @@ class RequestList(MyTreeWidget):
         self.hideColumn(1)
 
         self.update_signal.connect(self.update)
-        self._main_window.account_change_signal.connect(self._on_account_change)
-
-    def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
-        self._account_id = new_account_id
-        self._account = new_account
-
-        self.update()
 
     def _on_item_changed(self, item) -> None:
         if item is None:

@@ -182,7 +182,7 @@ class MockWallet(Wallet):
         self._accounts: Dict[int, AbstractAccount] = {1: MockAccount(self)}
         self._frozen_coins = set([])
 
-    def set_multiple_change(self, enabled: bool) -> None:
+    def set_boolean_setting(self, setting_name: str, enabled: bool) -> None:
         return
 
     def _fake_get_account(self, account_id):

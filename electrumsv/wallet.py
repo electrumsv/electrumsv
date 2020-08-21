@@ -49,7 +49,7 @@ from .bitcoin import compose_chain_string, COINBASE_MATURITY, ScriptTemplate
 from .constants import (AccountType, CHANGE_SUBPATH, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
     KeyInstanceFlag, KeystoreTextType, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
     RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
-    WalletEventType)
+    WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
 from .exceptions import (ExcessiveFee, NotEnoughFunds, UserCancelled, UnknownTransactionException,
@@ -1277,8 +1277,10 @@ class AbstractAccount:
             # Let the coin chooser select the coins to spend
             # TODO(rt12) BACKLOG Hardware wallets should use 1 change at most. Make sure the
             # corner case of the active multisig cosigning wallet being hardware is covered.
-            max_change = self.max_change_outputs if self._wallet.get_multiple_change() else 1
-            if self._wallet.get_use_change() and self.is_deterministic():
+            max_change = self.max_change_outputs \
+                if self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE) else 1
+            if self._wallet.get_boolean_setting(WalletSettings.USE_CHANGE) and \
+                    self.is_deterministic():
                 change_keyinstances = self.get_fresh_keys(CHANGE_SUBPATH, max_change)
                 change_outs = []
                 for keyinstance in change_keyinstances:
@@ -2681,12 +2683,6 @@ class Wallet(TriggeredCallbacks):
                     return account, keyinstance_id
         return None
 
-    def get_use_change(self) -> bool:
-        return self._storage.get('use_change', True)
-
-    def set_use_change(self, enabled: bool) -> None:
-        return self._storage.put('use_change', enabled)
-
     def set_deactivate_used_keys(self, enabled: bool) -> None:
         current_setting = self._storage.get('deactivate_used_keys', None)
         if not enabled and current_setting is True:
@@ -2696,11 +2692,12 @@ class Wallet(TriggeredCallbacks):
 
         return self._storage.put('deactivate_used_keys', enabled)
 
-    def get_multiple_change(self) -> bool:
-        return self._storage.get('multiple_change', False)
+    def get_boolean_setting(self, setting_name: str, default_value: bool=False) -> bool:
+        return self._storage.get(str(setting_name), default_value)
 
-    def set_multiple_change(self, enabled: bool) -> None:
-        return self._storage.put('multiple_change', enabled)
+    def set_boolean_setting(self, setting_name: str, enabled: bool) -> None:
+        self._storage.put(setting_name, enabled)
+        self.trigger_callback('on_setting_changed', setting_name, enabled)
 
     def get_cache_size_for_tx_bytedata(self) -> int:
         """

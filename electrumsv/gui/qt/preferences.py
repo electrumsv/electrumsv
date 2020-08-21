@@ -36,7 +36,8 @@ from PyQt5.QtWidgets import (
 
 from electrumsv import qrscanner
 from electrumsv.app_state import app_state
-from electrumsv.constants import MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB
+from electrumsv.constants import (MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
+    WalletSettings)
 from electrumsv.extensions import label_sync
 from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
@@ -80,7 +81,7 @@ class PreferencesDialog(QDialog):
             (self.fiat_widgets, _('Fiat')),
             (partial(self.extensions_widgets, account), _('Extensions')),
         ]
-        tabs_info.append((partial(self.wallet_widgets, wallet), _('Wallet')))
+        tabs_info.append((partial(self._wallet_widgets, wallet), _('Wallet')))
         tabs_info.append((self.network_widgets, _('Network')))
         tabs_info.append((self.ui_widgets, _('UI')))
 
@@ -372,40 +373,61 @@ class PreferencesDialog(QDialog):
         vbox.addStretch(1)
         tab.setLayout(vbox)
 
-    def wallet_widgets(self, wallet: Wallet, tab: QWidget) -> None:
-        usechange_cb = QCheckBox(_('Use change addresses'))
-        usechange_cb.setChecked(wallet.get_use_change())
-        usechange_cb.setEnabled(app_state.config.is_modifiable('use_change'))
-        usechange_cb.setToolTip(
+    def _wallet_widgets(self, wallet: Wallet, tab: QWidget) -> None:
+        use_change_addresses_cb = QCheckBox(_('Use change addresses'))
+        use_change_addresses_cb.setChecked(wallet.get_boolean_setting(WalletSettings.USE_CHANGE))
+        use_change_addresses_cb.setEnabled(
+            app_state.config.is_modifiable(WalletSettings.USE_CHANGE))
+        use_change_addresses_cb.setToolTip(
             _('Using a different change key each time improves your privacy by '
               'making it more difficult for others to analyze your transactions.')
         )
-        def on_usechange(state):
-            usechange_result = state == Qt.Checked
-            if wallet.get_use_change() != usechange_result:
-                wallet.set_use_change(usechange_result)
-                multiple_cb.setEnabled(wallet.get_use_change())
-        usechange_cb.stateChanged.connect(on_usechange)
+        def on_usechange(state: int):
+            should_enable = state == Qt.Checked
+            if wallet.get_boolean_setting(WalletSettings.USE_CHANGE) != should_enable:
+                wallet.set_boolean_setting(WalletSettings.USE_CHANGE, should_enable)
+                multiple_change_cb.setEnabled(should_enable)
+        use_change_addresses_cb.stateChanged.connect(on_usechange)
 
-        multiple_cb = QCheckBox(_('Use multiple change addresses'))
-        multiple_cb.setChecked(wallet.get_multiple_change())
-        multiple_cb.setEnabled(wallet.get_use_change())
-        multiple_cb.setToolTip('\n'.join([
+        multiple_change_cb = QCheckBox(_('Use multiple change addresses'))
+        multiple_change_cb.setChecked(wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE))
+        multiple_change_cb.setEnabled(wallet.get_boolean_setting(WalletSettings.USE_CHANGE))
+        multiple_change_cb.setToolTip('\n'.join([
             _('In some cases, use up to 3 change keys in order to break '
               'up large coin amounts and obfuscate the recipient key.'),
             _('This may result in higher transactions fees.')
         ]))
-        def on_multiple(state):
+        def on_multiple_change_toggled(state: int) -> None:
             multiple = state == Qt.Checked
-            if wallet.get_multiple_change() != multiple:
-                wallet.set_multiple_change(multiple)
-        multiple_cb.stateChanged.connect(on_multiple)
+            if wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE) != multiple:
+                wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, multiple)
+        multiple_change_cb.stateChanged.connect(on_multiple_change_toggled)
 
         options_box = QGroupBox()
         options_vbox = QVBoxLayout()
         options_box.setLayout(options_vbox)
-        options_vbox.addWidget(usechange_cb)
-        options_vbox.addWidget(multiple_cb)
+        options_vbox.addWidget(use_change_addresses_cb)
+        options_vbox.addWidget(multiple_change_cb)
+
+        multiple_accounts_cb = QCheckBox(_('Enable multiple accounts'))
+        multiple_accounts_cb.setChecked(
+            wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS))
+        multiple_accounts_cb.setToolTip('\n'.join([
+            _('Multiple accounts are to a large degree ready for use, but not tested to the level '
+              'where they are enabled for general use. Users who may wish to use these are warned '
+              'that they are in the experimental section for a reason.')
+        ]))
+        def on_multiple_accounts_toggled(state: int) -> None:
+            should_enable = state == Qt.Checked
+            is_enabled = wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
+            if should_enable != is_enabled:
+                wallet.set_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS, should_enable)
+        multiple_accounts_cb.stateChanged.connect(on_multiple_accounts_toggled)
+
+        experimental_box = QGroupBox()
+        experimental_vbox = QVBoxLayout()
+        experimental_box.setLayout(experimental_vbox)
+        experimental_vbox.addWidget(multiple_accounts_cb)
 
         # Todo - add ability here to toggle deactivation of used keys - AustEcon
         transaction_cache_size = wallet.get_cache_size_for_tx_bytedata()
@@ -433,7 +455,8 @@ class PreferencesDialog(QDialog):
         tx_cache_layout.addWidget(QLabel(_("MiB")))
 
         form = FormSectionWidget(minimum_label_width=120)
-        form.add_row(_('Options'), options_box, True)
+        form.add_row(_('General options'), options_box, True)
+        form.add_row(_('Experimental options'), experimental_box, True)
         form.add_row(_('Transaction Cache Size'), tx_cache_layout)
 
         vbox = QVBoxLayout()

@@ -230,3 +230,10 @@ class WalletEventFlag(IntFlag):
     UNREAD = 1 << 0
     # Set to indicate that it is an event the user sees in their notifications.
     FEATURED = 1 << 1
+
+
+class WalletSettings:
+    USE_CHANGE = 'use_change'
+    MULTIPLE_CHANGE = 'multiple_change'
+    MULTIPLE_ACCOUNTS = 'multiple_accounts'
+

@@ -56,7 +56,7 @@ from electrumsv import bitcoin, commands, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from electrumsv.constants import DATABASE_EXT, TxFlags
+from electrumsv.constants import DATABASE_EXT, TxFlags, WalletSettings
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -204,6 +204,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.new_fx_history_signal.connect(self.on_fx_history)
 
         self._wallet.register_callback(self._on_account_created, ['on_account_created'])
+        self._wallet.register_callback(self._on_wallet_setting_changed, ['on_setting_changed'])
         self._wallet.register_callback(self._on_keys_updated, ['on_keys_updated'])
         self._wallet.register_callback(self._on_keys_created, ['on_keys_created'])
         self._wallet.register_callback(self._on_transaction_state_change,
@@ -231,10 +232,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_ready(self) -> None:
         self._accounts_view.on_wallet_loaded()
 
-        # NOTE(rt12) single-account At this time we disallow more than one account.
-        # This code should go when we enable multiple-accounts.
-        self._add_account_action.setDisabled(len(self._wallet.get_accounts()) > 0)
-        self._add_account_action.setToolTip("Accounts are limited to one at this time.")
+        use_multiple_accounts = self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
+        self._update_add_account_button(use_multiple_accounts)
 
         # This is what should normally happen when the window is ready, and multiple-accounts
         # are allowed.
@@ -292,6 +291,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if self.config.get('show_{}_tab'.format(name), default):
             tabs.addTab(tab, icon, description.replace("&", ""))
 
+    def _on_wallet_setting_changed(self, event_name: str, setting_name: str, setting_value: Any) \
+            -> None:
+        if setting_name == WalletSettings.MULTIPLE_ACCOUNTS:
+            self._update_add_account_button(setting_value)
+
     def _on_transaction_state_change(self, event_name: str, account_id: int, tx_hash: bytes,
             old_state: TxFlags, new_state: TxFlags) -> None:
         self.transaction_state_signal.emit(account_id, tx_hash, old_state, new_state)
@@ -319,7 +323,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         account = self._wallet.get_account(new_account_id)
 
         # NOTE(rt12) single-account At this time we disallow more than one account.
-        self._add_account_action.setDisabled(True)
+        setting_value = self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
+        self._update_add_account_button(setting_value)
 
         self._wallet.create_gui_handler(self, account)
 
@@ -350,6 +355,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # tab contents will be skipped, but that's okay as the synchronisation completion takes
         # care of triggering an update.
         self.need_update.set()
+
+    def _update_add_account_button(self, setting_enabled: bool) -> None:
+        is_disabled = len(self._wallet.get_accounts()) > 0 and not setting_enabled
+        self._add_account_action.setDisabled(is_disabled)
+        if is_disabled:
+            self._add_account_action.setToolTip("Accounts are limited to one at this time.")
+        else:
+            self._add_account_action.setToolTip("Experimental multiple account creation enabled.")
 
     def _on_keys_created(self, event_name: str, account_id: int,
             keys: Iterable[KeyInstanceRow]) -> None:
@@ -719,7 +732,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             _("Add Account"), self)
         self._add_account_action.triggered.connect(self.add_account)
         toolbar.addAction(self._add_account_action)
-        self._add_account_action.setEnabled(False)
+        self._add_account_action.setEnabled(
+            self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS))
 
         # make_payment_action = QAction(read_QIcon("icons8-initiate-money-transfer-80.png"),
         #     _("Make Payment"), self)
@@ -2087,12 +2101,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def preferences_dialog(self) -> None:
         from . import preferences
-        # from importlib import reload
-        # reload(preferences)
+        from importlib import reload
+        reload(preferences)
         dialog = preferences.PreferencesDialog(self, self._wallet, self._account)
         dialog.exec_()
 
-    def ok_to_close(self):
+    def ok_to_close(self) -> bool:
         # Close our tx dialogs; return False if any cannot be closed
         for tx_dialog in list(self.tx_dialogs):
             if not tx_dialog.close():
@@ -2109,7 +2123,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         else:
             event.ignore()
 
-    def clean_up(self):
+    def clean_up(self) -> None:
         self._wallet.unregister_callbacks_for_object(self)
 
         if self.network:
