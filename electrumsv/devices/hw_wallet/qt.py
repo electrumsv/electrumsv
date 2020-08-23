@@ -63,6 +63,8 @@ class QtHandlerBase(QObject):
     yes_no_signal = pyqtSignal(object)
     status_signal = pyqtSignal(object)
 
+    _cleaned_up: bool = False
+
     def __init__(self, win: HandlerWindow, device):
         super(QtHandlerBase, self).__init__()
         self.clear_signal.connect(self.clear_dialog)
@@ -81,6 +83,9 @@ class QtHandlerBase(QObject):
         self.passphrase_queue: Queue = Queue()
 
     def clean_up(self) -> None:
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
         del self.win
 
     def top_level_window(self):
