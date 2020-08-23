@@ -497,7 +497,11 @@ class ChooseWalletPage(QWizardPage):
             if entry.path == wallet_path:
                 break
         else:
-            entry = create_file_state(wallet_path)
+            try:
+                entry = create_file_state(wallet_path)
+            except IOError as e:
+                # IOError: storage.py:load_data() raises when selected file cannot be parsed.
+                entry = None
             if entry is None:
                 MessageBox.show_error(_("Unrecognised or unsupported wallet file."))
                 return False
