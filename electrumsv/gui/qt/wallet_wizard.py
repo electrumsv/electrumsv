@@ -131,7 +131,11 @@ def create_file_state(wallet_path: str) -> Optional[FileState]:
 
         if storage_info.kind == StorageKind.FILE:
             text_store = storage.get_text_store()
-            text_store.attempt_load_data()
+            try:
+                text_store.attempt_load_data()
+            except IOError:
+                # IOError: storage.py:load_data() raises when selected file cannot be parsed.
+                return None
             if storage.get("use_encryption"):
                 # If there is a password and the wallet is not encrypted, then the private data
                 # is encrypted.
@@ -497,11 +501,7 @@ class ChooseWalletPage(QWizardPage):
             if entry.path == wallet_path:
                 break
         else:
-            try:
-                entry = create_file_state(wallet_path)
-            except IOError as e:
-                # IOError: storage.py:load_data() raises when selected file cannot be parsed.
-                entry = None
+            entry = create_file_state(wallet_path)
             if entry is None:
                 MessageBox.show_error(_("Unrecognised or unsupported wallet file."))
                 return False
