@@ -27,7 +27,7 @@ import copy
 import datetime
 import gzip
 import json
-from typing import NamedTuple, Optional, Set, Tuple
+from typing import List, NamedTuple, Optional, Sequence, Set, Tuple
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QBrush, QCursor, QFont
@@ -38,13 +38,14 @@ from bitcoinx import hash_to_hex_str, MissingHeader
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import base_encode
-from electrumsv.constants import ScriptType, TxFlags
+from electrumsv.constants import CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, TxFlags
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.platform import platform
 from electrumsv.transaction import (Transaction, TransactionContext, tx_output_to_display_text,
     XTxOutput)
+from electrumsv.types import TxoKeyType
 from electrumsv.wallet import AbstractAccount
 
 
@@ -98,6 +99,9 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.setMinimumWidth(1000)
         self.setWindowTitle(_("Transaction"))
         self._monospace_font = QFont(platform.monospace_font)
+
+        self._change_brush = QBrush(ColorScheme.YELLOW.as_color(background=True))
+        self._receiving_brush = QBrush(ColorScheme.GREEN.as_color(background=True))
 
         form = FormSectionWidget()
 
@@ -326,13 +330,13 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         if tx_info_fee is None:
             try:
-                # Try and compute fee. We don't always have 'value' in
-                # all the inputs though. :/
+                # Try and compute fee. We don't always have 'value' in all the inputs though. :/
                 tx_info_fee = self.tx.get_fee()
-            except KeyError: # Value key missing from an input
+            except TypeError: # At least one of the XTxInputs does not have an attached value.
                 pass
-            if tx_info_fee < 0:
-                tx_info_fee = None
+            else:
+                if tx_info_fee < 0:
+                    tx_info_fee = None
 
         if self.tx.description is None:
             self.tx_desc.hide()
@@ -362,7 +366,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         if tx_info_fee is not None:
             fee_amount = '{} {}'.format(format_amount(tx_info_fee), base_unit)
         else:
-            fee_amount = _('unknown')
+            fee_amount = _('Unknown')
         fee_str = '{}'.format(fee_amount)
         if tx_info_fee is not None:
             fee_str += ' ({}) '.format(self._main_window.format_fee_rate(tx_info_fee/size * 1000))
@@ -387,8 +391,6 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._update_io(i_table, o_table)
 
     def _update_io(self, i_table: MyTreeWidget, o_table: MyTreeWidget) -> None:
-        mine_brush = QBrush(ColorScheme.GREEN.as_color(background=True))
-
         def get_xtxoutput_account(output: XTxOutput) -> Optional[AbstractAccount]:
             if not output.x_pubkeys:
                 return None
@@ -405,25 +407,50 @@ class TxDialog(QDialog, MessageBoxMixin):
         if self._account is not None:
             known_txos = set(self._account._utxos) | set(self._account._stxos)
 
+        def compare_key_path(account: AbstractAccount, txo_key: TxoKeyType,
+                leading_path: Sequence[int]) -> bool:
+            utxo = account._utxos.get(txo_key)
+            if utxo is not None:
+                key_path = account.get_derivation_path(utxo.keyinstance_id)
+                if key_path is not None and key_path[:len(leading_path)] == leading_path:
+                    return True
+            stxo_keyinstance_id = account._stxos.get(txo_key)
+            if stxo_keyinstance_id is not None:
+                key_path = account.get_derivation_path(stxo_keyinstance_id)
+                if key_path is not None and key_path[:len(leading_path)] == leading_path:
+                    return True
+            return False
+
+        def name_for_account(account: AbstractAccount) -> str:
+            name = account.display_name()
+            return f"{account.get_id()}: {name}"
+
         for tx_index, txin in enumerate(self.tx.inputs):
             account_name = ""
             source_text = ""
             amount_text = ""
-            is_mine = False
+            is_receiving = is_change = False
 
             if txin.is_coinbase():
                 source_text = "<coinbase>"
             else:
                 prev_hash_hex = hash_to_hex_str(txin.prev_hash)
                 source_text = f"{prev_hash_hex}:{txin.prev_idx}"
-                is_mine = (txin.prev_hash, txin.prev_idx) in known_txos
+                if self._account is not None:
+                    txo_key = TxoKeyType(txin.prev_hash, txin.prev_idx)
+                    is_receiving = compare_key_path(self._account, txo_key, RECEIVING_SUBPATH)
+                    is_change = compare_key_path(self._account, txo_key, CHANGE_SUBPATH)
+                    account_name = name_for_account(self._account)
+                # TODO(rt12): When does a txin have a value? Loaded incomplete transactions only?
                 if txin.value is not None:
                     amount_text = app_state.format_amount(txin.value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, source_text, amount_text ])
             # item.setData(0, Qt.UserRole, row.paymentrequest_id)
-            if is_mine:
-                item.setBackground(2, mine_brush)
+            if is_receiving:
+                item.setBackground(2, self._receiving_brush)
+            if is_change:
+                item.setBackground(2, self._change_brush)
             item.setTextAlignment(3, Qt.AlignRight | Qt.AlignVCenter)
             item.setFont(3, self._monospace_font)
             i_table.addTopLevelItem(item)
@@ -432,15 +459,30 @@ class TxDialog(QDialog, MessageBoxMixin):
             text, _kind = tx_output_to_display_text(tx_output)
 
             account = get_xtxoutput_account(tx_output)
-            account_name = account.name() if account is not None else ""
+            accounts: List[AbstractAccount] = []
+            if account is not None:
+                accounts.append(account)
+            if self._account is not None and account is not self._account:
+                accounts.append(self._account)
 
-            is_mine = account is not None or (self._tx_hash, tx_index) in known_txos
+            account_name = ""
+            is_receiving = is_change = False
+            txo_key = TxoKeyType(self._tx_hash, tx_index)
+            for account in accounts:
+                if txo_key in account._stxos or txo_key in account._utxos:
+                    is_receiving = compare_key_path(account, txo_key, RECEIVING_SUBPATH)
+                    is_change = compare_key_path(account, txo_key, CHANGE_SUBPATH)
+                    account_name = name_for_account(account)
+                    break
+
             amount_text = app_state.format_amount(tx_output.value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, text, amount_text ])
             # item.setData(0, Qt.UserRole, row.paymentrequest_id)
-            if is_mine:
-                item.setBackground(2, mine_brush)
+            if is_receiving:
+                item.setBackground(2, self._receiving_brush)
+            if is_change:
+                item.setBackground(2, self._change_brush)
             item.setTextAlignment(3, Qt.AlignRight | Qt.AlignVCenter)
             item.setFont(3, self._monospace_font)
             o_table.addTopLevelItem(item)

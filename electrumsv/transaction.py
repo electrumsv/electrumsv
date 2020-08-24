@@ -242,7 +242,9 @@ class XPublicKey:
 @attr.s(slots=True, repr=False)
 class XTxInput(TxInput):
     '''An extended bitcoin transaction input.'''
-    value: int = attr.ib(default=0)
+    # Used for signing metadata for hardware wallets.
+    # Exchanged in incomplete transactions to aid in comprehending unknown inputs.
+    value: Optional[int] = attr.ib(default=None)
     x_pubkeys: List[XPublicKey] = attr.ib(default=attr.Factory(list))
     threshold: int = attr.ib(default=0)
     signatures: List[bytes] = attr.ib(default=attr.Factory(list))
@@ -260,7 +262,7 @@ class XTxInput(TxInput):
             parse_script_sig(script_sig.to_bytes(), kwargs)
             if 'address' in kwargs:
                 del kwargs['address']
-        result = cls(prev_hash, prev_idx, script_sig, sequence, value=0, **kwargs)
+        result = cls(prev_hash, prev_idx, script_sig, sequence, value=None, **kwargs)
         if not result.is_complete():
             result.value = read_le_int64(read)
         return result
