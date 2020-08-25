@@ -8,3 +8,4 @@ pyaes>=0.1a1
 requests>=2.22.0
 python-dateutil>=2.8.0
 qrcode
+electrumsv-node>=0.0.11
