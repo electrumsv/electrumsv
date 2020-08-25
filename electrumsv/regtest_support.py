@@ -6,7 +6,6 @@ from typing import List, Optional
 import requests
 from bitcoinx import Headers, MissingHeader, CheckPoint, bits_to_work, P2PKH_Address, \
     hash_to_hex_str
-from electrumsv_node import electrumsv_node
 
 from electrumsv.bitcoin import COINBASE_MATURITY
 
@@ -51,13 +50,31 @@ def setup_regtest(app_state) -> HeadersRegTestMod:
     return HeadersRegTestMod.from_file(Net.COIN, app_state.headers_filename(), Net.CHECKPOINT)
 
 
+def node_rpc_call(method_name: str, *args):
+    result = None
+    try:
+        if not args:
+            params = []
+        else:
+            params = [*args]
+        payload = json.dumps({"jsonrpc": "2.0", "method": f"{method_name}", "params": params,
+            "id": 0})
+        result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
+        result.raise_for_status()
+        return result
+    except requests.exceptions.HTTPError as e:
+        if result is not None:
+            logger.error(result.json()['error']['message'])
+        raise e
+
+
 def regtest_topup_account(receive_address: P2PKH_Address, amount: int=25) -> Optional[str]:
     matured_balance = regtest_get_mined_balance()
     while matured_balance < amount:
         nblocks = 1
         if matured_balance == 0:
             nblocks = 200
-        result = electrumsv_node.call_any("generatetoaddress", nblocks, Net.REGTEST_P2PKH_ADDRESS)
+        result = node_rpc_call("generatetoaddress", nblocks, Net.REGTEST_P2PKH_ADDRESS)
         if result.status_code == 200:
             logger.debug(f"generated {nblocks}: {result.json()['result']}")
         matured_balance = regtest_get_mined_balance()
