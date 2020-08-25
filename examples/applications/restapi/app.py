@@ -1,8 +1,10 @@
+import concurrent
 import logging
 import time
-from typing import List
+from typing import List, Optional, Callable
 
 import bitcoinx
+from aiorpcx import run_in_thread
 
 from electrumsv.app_state import app_state
 from electrumsv.transaction import Transaction
@@ -24,6 +26,14 @@ class RESTAPIApplication:
         finally:
             self._teardown_app()
             self.logger.debug("exited application main loop")
+
+    def run_coro(self, coro, *args, on_done=None):
+        future = app_state.async_.spawn(coro, *args, on_done=on_done)
+        return future
+
+    def run_in_thread(self, func, *args,
+            on_done: Optional[Callable[[concurrent.futures.Future], None]]=None):
+        return self.run_coro(run_in_thread, func, *args, on_done=on_done)
 
     def setup_app(self) -> None:
         # app_state.daemon is initialised after app. Setup things dependent on daemon here.
