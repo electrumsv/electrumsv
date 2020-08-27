@@ -1334,6 +1334,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # GUI thread
             try:
                 tx_id: Optional[str] = future.result()
+            except concurrent.futures.CancelledError:
+                window.show_error(_("Transaction broadcast failed.") +"<br/><br/>"+
+                    _("The most likely reason for this is that there is no available connection "
+                    "to a main server. The signed transaction can be found in the "
+                    "Transactions tab and can be rebroadcast from there."), )
             except Exception as exception:
                 self._logger.exception('unhandled exception broadcasting transaction')
                 reason = broadcast_failure_reason(exception)
