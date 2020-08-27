@@ -649,7 +649,8 @@ class Transaction(Tx):
         return None
 
     def input_value(self) -> int:
-        return sum(txin.value for txin in self.inputs)
+        # This will raise if a value is None, which is expected.
+        return sum(txin.value for txin in self.inputs) # type: ignore
 
     def output_value(self) -> int:
         return sum(output.value for output in self.outputs)

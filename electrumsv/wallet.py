@@ -1296,7 +1296,8 @@ class AbstractAccount:
             tx = coin_chooser.make_tx(inputs, outputs, change_outs, fee_estimator,
                 self.dust_threshold())
         else:
-            sendable = sum(txin.value for txin in inputs)
+            assert all(txin.value is not None for txin in inputs)
+            sendable = cast(int, sum(txin.value for txin in inputs))
             outputs[all_index].value = 0
             tx = Transaction.from_io(inputs, outputs)
             fee = cast(int, fee_estimator(tx.estimated_size()))
