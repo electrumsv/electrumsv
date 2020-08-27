@@ -1446,7 +1446,9 @@ class Network(TriggeredCallbacks):
     # FIXME: this should be removed; its callers need to be fixed
     def request_and_wait(self, method, args):
         async def send_request():
-            session = await self._main_session()
+            # We'll give 10 seconds for the wallet to reconnect..
+            async with timeout_after(10):
+                session = await self._main_session()
             return await session.send_request(method, args)
 
         return app_state.async_.spawn_and_wait(send_request)
