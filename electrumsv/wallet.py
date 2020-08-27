@@ -403,8 +403,10 @@ class AbstractAccount:
         utxokeys, stxokeys = self.get_key_txokeys(key_ids)
         # Flush the associated UTXO state and account state from memory.
         with self._utxos_lock:
-            for utxokey in utxokeys:
-                del self._utxos[utxokey]
+            for utxo_key in utxokeys:
+                if utxo_key in self._frozen_coins:
+                    self._frozen_coins.remove(utxo_key)
+                del self._utxos[utxo_key]
         for stxokey in stxokeys:
             del self._stxos[stxokey]
         for key_id in key_ids:
@@ -625,12 +627,12 @@ class AbstractAccount:
                 flags=flags,
                 address=address,
                 is_coinbase=is_coinbase)
-        if flags & TransactionOutputFlag.IS_FROZEN:
-            if flags & TransactionOutputFlag.IS_SPENT:
-                self._logger.warning("Ignoring frozen flag for spent txo %s:%d",
-                    hash_to_hex_str(tx_hash), output_index)
-                return
-            self._frozen_coins.add(utxo_key)
+            if flags & TransactionOutputFlag.IS_FROZEN:
+                if flags & TransactionOutputFlag.IS_SPENT:
+                    self._logger.warning("Ignoring frozen flag for spent txo %s:%d",
+                        hash_to_hex_str(tx_hash), output_index)
+                    return
+                self._frozen_coins.add(utxo_key)
 
     # Should be called with the transaction lock.
     def create_transaction_output(self, tx_hash: bytes, output_index: int, value: int,
@@ -795,7 +797,8 @@ class AbstractAccount:
                 if key.flags & KeyInstanceFlag.IS_ACTIVE ]
 
     def get_frozen_balance(self) -> Tuple[int, int, int]:
-        return self.get_balance(self._frozen_coins)
+        with self._utxos_lock:
+            return self.get_balance(self._frozen_coins)
 
     def get_balance(self, domain=None, exclude_frozen_coins: bool=False) -> Tuple[int, int, int]:
         with self._utxos_lock:
@@ -1025,9 +1028,13 @@ class AbstractAccount:
                 # Update the cached key to be unused.
                 key = self._keyinstances[utxo.keyinstance_id]
                 self._keyinstances[utxo.keyinstance_id] = key._replace(script_type=ScriptType.NONE)
+
                 # Expunge the UTXO.
+                utxo_key = utxo.key()
                 with self._utxos_lock:
-                    del self._utxos[utxo.key()]
+                    if utxo_key in self._frozen_coins:
+                        self._frozen_coins.remove(utxo_key)
+                    del self._utxos[utxo_key]
 
             if len(txout_flags):
                 self._wallet.update_transactionoutput_flags(txout_flags)
