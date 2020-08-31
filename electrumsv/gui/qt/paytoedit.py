@@ -293,7 +293,7 @@ class PayToEdit(ScanQRTextEdit):
         self.c.complete(cr)
 
     def qr_input(self):
-        data = super(PayToEdit,self).qr_input()
+        data = super(PayToEdit,self).qr_input(ignore_uris=True)
         if data:
             try:
                 self._send_view._main_window.pay_to_URI(data)

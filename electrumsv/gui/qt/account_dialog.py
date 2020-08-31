@@ -42,7 +42,8 @@ class AccountDialog(QDialog):
         form.add_row(_("Account name"), name_widget, True)
 
         form.add_row(_("Account type"), QLabel(account.type().value))
-        form.add_row(_("Keystore type"), QLabel(keystore.type().value))
+        if keystore is not None:
+            form.add_row(_("Keystore type"), QLabel(keystore.type().value))
 
         #######
 
