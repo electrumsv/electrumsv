@@ -42,7 +42,7 @@ class EnterButton(QPushButton):
         self.clicked.connect(func)
 
     def keyPressEvent(self, e: QKeyEvent):
-        if e.key() == Qt.Key_Return:
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
             self.func()
 
 
@@ -96,22 +96,23 @@ class HelpLabel(QLabel):
 
 
 class HelpButton(QPushButton):
-    def __init__(self, text, textFormat=Qt.AutoText, title="Help"):
+    def __init__(self, text, textFormat=Qt.AutoText, title="Help", button_text="?"):
         self.textFormat = textFormat
         self.title = title
-        QPushButton.__init__(self, '?')
+        QPushButton.__init__(self, button_text)
         self.help_text = text
         self.setFocusPolicy(Qt.NoFocus)
         self.setFixedWidth(20)
-        self.clicked.connect(self.onclick)
+        self.clicked.connect(self._on_clicked)
 
-    def onclick(self):
+    def _on_clicked(self) -> None:
         b = QMessageBox()
         b.setIcon(QMessageBox.Information)
         b.setTextFormat(self.textFormat)
         b.setText(self.help_text)
         b.setWindowTitle(self.title)
         b.exec()
+
 
 class Buttons(QHBoxLayout):
     _insert_index: int = 0
@@ -962,6 +963,15 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     return create_filepath
 
 
+class FormSeparatorLine(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.setObjectName("FormSeparatorLine")
+        self.setFrameShape(QFrame.HLine)
+        self.setFixedHeight(1)
+
+
 FieldType = Union[QWidget, QLayout]
 
 class FormSectionWidget(QWidget):
@@ -1023,11 +1033,7 @@ class FormSectionWidget(QWidget):
         result: Optional[QLabel] = None
 
         if self.frame_layout.count() > 0:
-            line = QFrame()
-            line.setObjectName("FormSeparatorLine")
-            line.setFrameShape(QFrame.HLine)
-            line.setFixedHeight(1)
-            self.frame_layout.addWidget(line)
+            self.frame_layout.addWidget(FormSeparatorLine())
 
         if isinstance(label_text, QLabel):
             label = label_text

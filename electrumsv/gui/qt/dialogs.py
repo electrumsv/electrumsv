@@ -161,6 +161,13 @@ all_boxes = [
             _("Avoid Coin Loss"),
             take_care_notice,
             frequency=DisplayFrequency.OncePerRun),
+    InfoBox("sv-only-disabled",
+        _("Hiding This Option"),
+        "\n".join((
+            _("You can remove this option from the 'Send' tab by unchecking the relevant option "
+            "in the 'Wallet' section in the Preferences. Use the 'Help' button to find out more "
+            "about this option."),
+        ))),
 ]
 
 all_boxes_by_name = {box.name: box for box in all_boxes}

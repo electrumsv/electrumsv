@@ -32,11 +32,11 @@ import weakref
 from bitcoinx import hash_to_hex_str
 
 from PyQt5.QtCore import pyqtSignal, Qt, QStringListModel
-from PyQt5.QtWidgets import (QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
+from PyQt5.QtWidgets import (QCheckBox, QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
     QLabel, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import PaymentFlag
+from electrumsv.constants import PaymentFlag, WalletSettings
 from electrumsv.exceptions import ExcessiveFee, NotEnoughFunds
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -51,8 +51,8 @@ from . import dialogs
 from .invoice_list import InvoiceList
 from .paytoedit import PayToEdit
 from .table_widgets import TableTopButtonLayout
-from .util import (ColorScheme, EnterButton, HelpLabel, MyTreeWidget, UntrustedMessageDialog,
-    update_fixed_tree_height)
+from .util import (ColorScheme, EnterButton, HelpDialogButton, HelpLabel, MyTreeWidget,
+    UntrustedMessageDialog, update_fixed_tree_height)
 
 
 if TYPE_CHECKING:
@@ -60,6 +60,14 @@ if TYPE_CHECKING:
 
 
 class SendView(QWidget):
+    """
+    We only show this for account types that can construct transactions. This is actually all
+    account types except imported address accounts. Watch only wallets can construct transactions
+    and in fact this is a valid workflow for multi-signature signing - where there is an online
+    watch only wallet and offline signing wallets and the former hands off the constructed
+    transaction to the latter and receives it back for dispatching to the recipient.
+    """
+
     payment_request_ok_signal = pyqtSignal()
     payment_request_error_signal = pyqtSignal(int, bytes)
     payment_request_import_error_signal = pyqtSignal(object)
@@ -90,6 +98,8 @@ class SendView(QWidget):
         self.payment_request_import_error_signal.connect(self._payment_request_import_error)
         self.payment_request_imported_signal.connect(self._payment_request_imported)
         self.payment_request_deleted_signal.connect(self._payment_request_deleted)
+
+        self._main_window.wallet_setting_changed_signal.connect(self._on_wallet_setting_changed)
 
     def create_send_layout(self) -> QVBoxLayout:
         """ Re-render the layout and it's child widgets of this view. """
@@ -162,6 +172,19 @@ class SendView(QWidget):
 
         self._main_window.connect_fields(self.amount_e, self._fiat_send_e)
 
+        self._coinsplitting_checkbox = QCheckBox(_('Add extra data to ensure the coins used '
+            'by the transaction are only used on the Bitcoin SV blockchain (coin-splitting).'))
+        self._coinsplitting_checkbox.setChecked(not self._account.involves_hardware_wallet())
+        self._coinsplitting_checkbox.setVisible(self._show_splitting_option())
+        # Hardware wallets can only sign a small set of fixed types of scripts (not this kind).
+        self._coinsplitting_checkbox.setEnabled(not self._account.involves_hardware_wallet())
+        def coinsplitting_checkbox_cb(state: int) -> None:
+            if state != Qt.Checked:
+                dialogs.show_named('sv-only-disabled')
+        self._coinsplitting_checkbox.stateChanged.connect(coinsplitting_checkbox_cb)
+        grid.addWidget(self._coinsplitting_checkbox, 5, 1, 1, -1)
+
+        self._help_button = HelpDialogButton(self, "misc", "send-tab", _("Help"))
         self._preview_button = EnterButton(_("Preview"), self._do_preview, self)
         self._preview_button.setToolTip(
             _('Display the details of your transactions before signing it.'))
@@ -175,11 +198,12 @@ class SendView(QWidget):
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
+        buttons.addWidget(self._help_button)
         buttons.addWidget(self._clear_button)
         buttons.addWidget(self._preview_button)
         buttons.addWidget(self._send_button)
         buttons.addStretch(1)
-        grid.addLayout(buttons, 6, 0, 1, -1)
+        grid.addLayout(buttons, 7, 0, 1, -1)
 
         self.amount_e.shortcut.connect(self._spend_max)
         self._payto_e.textChanged.connect(self.update_fee)
@@ -229,6 +253,13 @@ class SendView(QWidget):
 
     def clean_up(self) -> None:
         pass
+
+    def _on_wallet_setting_changed(self, setting_name: str, setting_value: Any) -> None:
+        if setting_name == WalletSettings.ADD_SV_OUTPUT:
+            self._coinsplitting_checkbox.setVisible(setting_value)
+
+    def _show_splitting_option(self) -> bool:
+        return self._account._wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT)
 
     # Called externally via the Find menu option.
     def on_search_toggled(self) -> None:
@@ -288,6 +319,7 @@ class SendView(QWidget):
 
         self._max_button.setDisabled(False)
         self.set_pay_from([])
+        self._coinsplitting_checkbox.setChecked(True)
 
         # TODO: Revisit what this does.
         self._main_window.update_status_bar()
@@ -349,6 +381,8 @@ class SendView(QWidget):
                     output_script = self._account.get_dummy_script_template().to_script()
                 outputs = [XTxOutput(amount, output_script)]
 
+            coins = self._get_coins()
+            outputs.extend(self._account.create_extra_outputs(coins, outputs))
             try:
                 tx = self._account.make_unsigned_transaction(self._get_coins(), outputs,
                     self._main_window.config, fee)
@@ -389,6 +423,7 @@ class SendView(QWidget):
             return
 
         outputs, fee, tx_desc, coins = r
+        outputs.extend(self._account.create_extra_outputs(coins, outputs))
         try:
             tx = self._account.make_unsigned_transaction(coins, outputs, self._main_window.config,
                 fee)
