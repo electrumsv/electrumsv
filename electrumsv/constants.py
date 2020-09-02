@@ -236,4 +236,5 @@ class WalletSettings:
     USE_CHANGE = 'use_change'
     MULTIPLE_CHANGE = 'multiple_change'
     MULTIPLE_ACCOUNTS = 'multiple_accounts'
+    ADD_SV_OUTPUT = 'sv_output'
 

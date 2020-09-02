@@ -109,6 +109,10 @@ CSS_STYLES = """
 #NotificationCardContext {
     color: grey;
 }
+
+#FormSeparatorLine {
+    border: 1px solid #E3E2E2;
+}
 """
 
 # QTreeView::item {

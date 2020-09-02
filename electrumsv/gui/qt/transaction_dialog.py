@@ -27,6 +27,7 @@ import copy
 import datetime
 import gzip
 import json
+import math
 from typing import List, NamedTuple, Optional, Sequence, Set, Tuple
 
 from PyQt5.QtCore import Qt
@@ -34,10 +35,10 @@ from PyQt5.QtGui import QBrush, QCursor, QFont
 from PyQt5.QtWidgets import (QDialog, QLabel, QPushButton, QHBoxLayout,
     QToolTip, QTreeWidgetItem, QVBoxLayout)
 
-from bitcoinx import hash_to_hex_str, MissingHeader
+from bitcoinx import hash_to_hex_str, MissingHeader, Unknown_Output
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import base_encode
+from electrumsv.bitcoin import base_encode, script_bytes_to_asm
 from electrumsv.constants import CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, TxFlags
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -354,6 +355,8 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         if tx_info.amount is None:
             amount_str = _("Unknown")
+        elif math.isclose(tx_info.amount, 0, abs_tol=1e-9):
+            amount_str = "No external payment"
         elif tx_info.amount > 0:
             amount_str = _("Received") +" "+ format_amount(tx_info.amount) +" " + base_unit
         else:
@@ -457,6 +460,8 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         for tx_index, tx_output in enumerate(self.tx.outputs):
             text, _kind = tx_output_to_display_text(tx_output)
+            if isinstance(_kind, Unknown_Output):
+                text = script_bytes_to_asm(tx_output.script_pubkey)
 
             account = get_xtxoutput_account(tx_output)
             accounts: List[AbstractAccount] = []

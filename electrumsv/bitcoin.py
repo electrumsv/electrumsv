@@ -27,7 +27,7 @@ from typing import Sequence, Union
 
 from bitcoinx import (Ops, hash_to_hex_str, sha256, Address, classify_output_script,
     OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address, Script,
-    Unknown_Output)
+    TruncatedScriptError, Unknown_Output)
 
 
 from .bip276 import bip276_decode, bip276_encode, PREFIX_SCRIPT
@@ -266,3 +266,16 @@ def compose_chain_string(derivation: Sequence[int]) -> str:
         else:
             result += str(value)
     return result
+
+def script_bytes_to_asm(script: Script) -> str:
+    # Adapted version of `script.to_asm` which just shows "[error]" in event of truncation.
+    # Ideally we need an updated version in bitcoinx that identifies the truncation point.
+    op_to_asm_word = script.op_to_asm_word
+    parts = []
+    try:
+        for op in script.ops():
+            parts.append(op_to_asm_word(op))
+    except TruncatedScriptError:
+        parts.insert(0, "[decoding error]")
+        parts.append("[script truncated]")
+    return ' '.join(parts)

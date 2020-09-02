@@ -111,6 +111,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     transaction_added_signal = pyqtSignal(object, object, object)
     transaction_deleted_signal = pyqtSignal(object, object)
     show_secured_data_signal = pyqtSignal(object)
+    wallet_setting_changed_signal = pyqtSignal(str, object)
 
     def __init__(self, wallet: Wallet):
         QMainWindow.__init__(self)
@@ -295,6 +296,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             -> None:
         if setting_name == WalletSettings.MULTIPLE_ACCOUNTS:
             self._update_add_account_button(setting_value)
+        self.wallet_setting_changed_signal.emit(setting_name, setting_value)
 
     def _on_transaction_state_change(self, event_name: str, account_id: int, tx_hash: bytes,
             old_state: TxFlags, new_state: TxFlags) -> None:

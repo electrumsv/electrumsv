@@ -27,9 +27,6 @@
 #   - StandardAccount: one keystore, P2PKH
 #   - MultisigAccount: several keystores, P2SH
 
-import attr
-from bitcoinx import (Address, PrivateKey, PublicKey, P2MultiSig_Output, hash160, P2SH_Address,
-    P2PK_Output, Script, hex_str_to_hash, hash_to_hex_str, MissingHeader)
 from collections import defaultdict
 from datetime import datetime
 from functools import partial
@@ -42,6 +39,10 @@ import time
 from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence, Set, Tuple,
     TypeVar, TYPE_CHECKING, Union)
 import weakref
+
+import attr
+from bitcoinx import (Address, PrivateKey, PublicKey, hash_to_hex_str, hash160, hex_str_to_hash,
+    MissingHeader, Ops, P2MultiSig_Output, P2PK_Output, P2SH_Address, pack_byte, push_item, Script)
 
 from . import coinchooser
 from .app_state import app_state
@@ -288,6 +289,9 @@ class AbstractAccount:
 
     def get_wallet(self) -> 'Wallet':
         return self._wallet
+
+    def involves_hardware_wallet(self) -> bool:
+        return any(isinstance(keystore, Hardware_KeyStore) for keystore in self.get_keystores())
 
     def get_keyinstance(self, key_id: int) -> KeyInstanceRow:
         return self._keyinstances[key_id]
@@ -1251,6 +1255,31 @@ class AbstractAccount:
             out.append(item)
         return out
 
+    def create_extra_outputs(self, coins: List[UTXO], outputs: List[XTxOutput], \
+            force: bool=False) -> List[XTxOutput]:
+        # Hardware wallets can only sign a limited range of output types (not OP_FALSE OP_RETURN).
+        if self.involves_hardware_wallet() or len(coins) == 0:
+            return []
+
+        ## Extra: Add an output that is not compatible with Bitcoin Cash.
+        if not force and not self._wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT):
+            return []
+
+        # We use the first signing public key from the first of the ordered UTXOs, for most coin
+        # script types there will only be one signing public key, with the exception of
+        # multi-signature accounts.
+        ordered_coins = sorted(coins, key=lambda v: v.keyinstance_id)
+        for public_key in self.get_public_keys_for_id(ordered_coins[0].keyinstance_id):
+            raw_payload_bytes = push_item(os.urandom(random.randrange(32)))
+            payload_bytes = public_key.encrypt_message(raw_payload_bytes)
+            script_bytes = pack_byte(Ops.OP_0) + pack_byte(Ops.OP_RETURN) + push_item(payload_bytes)
+            script = Script(script_bytes)
+            # NOTE(rt12) This seems to be some attrs/mypy clash, the base class attrs should come
+            # before the XTxOutput attrs, but typing expects these to be the XTxOutput attrs.
+            return [XTxOutput(0, script)] # type: ignore
+
+        return []
+
     def dust_threshold(self):
         return dust_threshold(self._network)
 
@@ -1604,7 +1633,8 @@ class AbstractAccount:
         raise NotImplementedError
 
     def can_spend(self) -> bool:
-        # All accounts can spend except for imported address accounts.
+        # All accounts can at least construct unsigned transactions except for imported address
+        # accounts.
         return True
 
 
