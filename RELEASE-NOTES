@@ -36,6 +36,26 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.3.6
+  * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-6-a1f429bb1391
+  * Invoices: Fixed a bug where importing an invoice through a BIP270 payment request
+    URL failed when it was done using a QR code.
+  * Coin-splitting: Added support for a different kind of coin-splitting that does not
+    require the use of a faucet. It is recommended over the faucet splitting, and
+    should prevent future problems where the faucet being drained or unavailable
+    leaves users unable to split their coins.
+  * Accounts: The account information dialog would error when displayed for accounts
+    that have no keystore. This just affected the watch-only imported address accounts.
+  * Networking: Broadcasting a transaction when there was no current connection or the
+    wallet had not realised the connection was down, which would either block
+    indefinitely when aborted or when ElectrumSV exited. It should handle an aborted
+    or failed transaction broadcast under these circumstances a lot better now.
+  * User interface: The transaction dialog now colours change outputs correctly again
+    rather than colouring them the same as receiving outputs. Transaction outputs
+    that are not to addresses are now displayed as scripting "assembly language" again.
+  * Wallet wizard: Opening certain kinds of invalid wallet files now displays a user
+    friendly error message to the wallet operator, rather than catching an exception.
+
 # Release 1.3.5
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-5-99e4a3287368
   * MacOS: The user interface framework has bugs that only exist on MacOS. We cannot fix these,
