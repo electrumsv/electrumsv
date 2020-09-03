@@ -272,9 +272,11 @@ class CoinSplittingTab(QWidget):
         if self._direct_splitting:
             self._direct_button.setText(_("Direct Split"))
             self._direct_button.setEnabled(True)
+            self._direct_splitting = False
         if self._faucet_splitting:
             self._faucet_button.setText(_("Faucet Split"))
             self._faucet_button.setEnabled(True)
+            self._faucet_splitting = False
 
     def _on_wallet_event(self, event, *args) -> None:
         if event == 'transaction_added':
