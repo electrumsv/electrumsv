@@ -2083,8 +2083,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.update_status_bar()
 
     def on_base_unit_changed(self):
-        edits = itertools.chain.from_iterable(v.get_bsv_edits() for v in self._send_views.values()
-            if isinstance(v, SendView))
+        edits = list(itertools.chain.from_iterable(v.get_bsv_edits()
+            for v in self._send_views.values() if isinstance(v, SendView)))
         edits.extend(
             itertools.chain.from_iterable(v.get_bsv_edits() for v in self._receive_views.values()
                 if isinstance(v, ReceiveView)))
