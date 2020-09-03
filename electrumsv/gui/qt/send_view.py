@@ -173,7 +173,7 @@ class SendView(QWidget):
         self._main_window.connect_fields(self.amount_e, self._fiat_send_e)
 
         self._coinsplitting_checkbox = QCheckBox(_('Add extra data to ensure the coins used '
-            'by the transaction are only used on the Bitcoin SV blockchain (coin-splitting).')),
+            'by the transaction are only used on the Bitcoin SV blockchain (coin-splitting).'),
             self)
         self._coinsplitting_checkbox.setChecked(not self._account.involves_hardware_wallet())
         self._coinsplitting_checkbox.setVisible(self._show_splitting_option())
