@@ -172,10 +172,10 @@ class Daemon(DaemonThread):
 
     def init_restapi_server(self, config: SimpleConfig, fd) -> None:
         host = config.get('rpchost', '127.0.0.1')
-        port = 9999  # hard-code until added to config
+        restapi_port = int(config.get('restapi_port', 9999))
 
         username, password = get_rpc_credentials(config, is_restapi=True)
-        self.rest_server = AiohttpServer(host=host, port=port, username=username,
+        self.rest_server = AiohttpServer(host=host, port=restapi_port, username=username,
                                          password=password)
 
     def init_server(self, config: SimpleConfig, fd, is_gui: bool) -> None:
