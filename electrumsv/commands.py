@@ -314,6 +314,8 @@ def add_global_options(parser):
                        help="Redirect logging to log file")
     group.add_argument("--restapi", action="store_true", dest="restapi",
                        help="Run the built-in restapi")
+    group.add_argument("--restapi-port", dest="restapi_port",
+                       help="Select the restapi port")
 
 def get_parser():
     global known_commands

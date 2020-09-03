@@ -113,7 +113,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
                     raise Fault(code=Errors.BAD_WALLET_NAME_CODE,
                         message=f"'{create_filepath + DATABASE_EXT}' already exists")
         try:
-            vars = await self.argparser(request, required_vars=[VNAME.PASSWORD],
+            vars = await self.argparser(request, required_vars=[VNAME.PASSWORD, VNAME.WALLET_NAME],
                 check_wallet_availability=False)
 
             create_filepath = str(Path(self.wallets_path).joinpath(vars[VNAME.WALLET_NAME]))
