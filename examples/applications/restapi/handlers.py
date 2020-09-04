@@ -92,7 +92,6 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         try:
             vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME])
             wallet_name = vars[VNAME.WALLET_NAME]
-
             parent_wallet = await self._load_wallet(wallet_name)
             accounts = self._accounts_dto(parent_wallet)
             response = {"parent_wallet": wallet_name,
@@ -121,7 +120,9 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
 
             from electrumsv.storage import WalletStorage
             storage = WalletStorage.create(create_filepath, vars[VNAME.PASSWORD])
-            parent_wallet = Wallet(storage)
+            storage.close()
+
+            parent_wallet = self.app_state.daemon.load_wallet(create_filepath)
 
             # create an account for the Wallet with the same password via an imported seed
             text_type = KeystoreTextType.EXTENDED_PRIVATE_KEY
