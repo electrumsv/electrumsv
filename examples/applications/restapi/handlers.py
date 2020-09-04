@@ -5,7 +5,6 @@ from typing import Union, Any
 import aiorpcx
 from aiohttp import web
 from electrumsv.constants import RECEIVING_SUBPATH, DATABASE_EXT, KeystoreTextType
-from electrumsv.crypto import pw_encode
 from electrumsv.keystore import instantiate_keystore_from_text
 
 from electrumsv.networks import Net
@@ -14,7 +13,6 @@ from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, good_response, fault_to_http_response
 from electrumsv.regtest_support import regtest_generate_nblocks, regtest_topup_account
-from electrumsv.wallet import Wallet
 from .errors import Errors
 from .handler_utils import ExtendedHandlerUtils, VNAME
 
