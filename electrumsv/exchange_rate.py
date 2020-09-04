@@ -14,6 +14,7 @@ from aiorpcx import ignore_after, run_in_thread
 
 from .app_state import app_state
 from .bitcoin import COIN
+from .constants import NetworkEventNames
 from .i18n import _
 from .logs import logs
 from .util import resource_path
@@ -317,11 +318,11 @@ class FxTask:
                 self.fetch_history = False
                 await self.exchange.get_historical_rates(self.ccy, self.cache_dir)
                 if self.network:
-                    self.network.trigger_callback('on_history')
+                    self.network.trigger_callback(NetworkEventNames.HISTORICAL_EXCHANGE_RATES)
 
             await self.exchange.update(self.ccy)
             if self.network:
-                self.network.trigger_callback('on_quotes')
+                self.network.trigger_callback(NetworkEventNames.EXCHANGE_RATE_QUOTES)
 
     def is_enabled(self):
         return bool(self.config.get('use_exchange_rate'))

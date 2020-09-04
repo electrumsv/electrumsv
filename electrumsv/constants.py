@@ -238,3 +238,7 @@ class WalletSettings:
     MULTIPLE_ACCOUNTS = 'multiple_accounts'
     ADD_SV_OUTPUT = 'sv_output'
 
+
+class NetworkEventNames:
+    HISTORICAL_EXCHANGE_RATES = "on_history"
+    EXCHANGE_RATE_QUOTES = "on_quotes"

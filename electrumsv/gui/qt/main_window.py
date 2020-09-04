@@ -56,7 +56,7 @@ from electrumsv import bitcoin, commands, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from electrumsv.constants import DATABASE_EXT, TxFlags, WalletSettings
+from electrumsv.constants import DATABASE_EXT, NetworkEventNames, TxFlags, WalletSettings
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -198,11 +198,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # set initial message
             if self.network.main_server:
                 self.console.showMessage(self.network.main_server.state.banner)
-            self.network.register_callback(self.on_quotes, ['on_quotes'])
-            self.network.register_callback(self._on_history, ['on_history'])
+            self.network.register_callback(self._on_exchange_rate_quotes,
+                [ NetworkEventNames.EXCHANGE_RATE_QUOTES ])
+            self.network.register_callback(self._on_historical_exchange_rates,
+                [ NetworkEventNames.HISTORICAL_EXCHANGE_RATES ])
 
-            self.new_fx_quotes_signal.connect(self._on_fx_quotes)
-            self.new_fx_history_signal.connect(self.on_fx_history)
+            self.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
+            self.new_fx_history_signal.connect(self._on_ui_historical_exchange_rates)
 
         self._wallet.register_callback(self._on_account_created, ['on_account_created'])
         self._wallet.register_callback(self._on_wallet_setting_changed, ['on_setting_changed'])
@@ -378,17 +380,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_show_secured_data(self, account_id: int) -> None:
         self._accounts_view._view_secured_data(main_window=self, account_id=account_id)
 
-    def _on_history(self, b) -> None:
+    def _on_historical_exchange_rates(self, _event_name: str) -> None:
+        # Notify the UI thread.
         self.new_fx_history_signal.emit()
 
-    def on_fx_history(self) -> None:
+    def _on_ui_historical_exchange_rates(self) -> None:
         self.history_view.update_tx_headers()
         self.update_history_view()
 
-    def on_quotes(self, b) -> None:
+    def _on_exchange_rate_quotes(self, _event_name: str) -> None:
+        # Notify the UI thread.
         self.new_fx_quotes_signal.emit()
 
-    def _on_fx_quotes(self) -> None:
+    def _on_ui_exchange_rate_quotes(self) -> None:
         self.update_status_bar()
 
         # Refresh edits with the new rate
@@ -466,9 +470,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.on_exception(exc_info[1])
 
     def on_network(self, event, *args) -> None:
-        if event == 'updated':
+        if event in ('updated', 'verified'):
             self.need_update.set()
-        elif event in ['status', 'banner', 'verified', 'on_header_backfill']:
+            return
+
+        if event in ['status', 'banner', 'on_header_backfill']:
             # Handle in GUI thread
             self.network_signal.emit(event, args)
         else:
@@ -480,8 +486,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.update_status_bar()
         elif event == 'banner':
             self.console.showMessage(self.network.main_server.state.banner)
-        elif event == 'verified':
-            self.history_view.update_tx_item(*args[1:])
+        # NOTE(rt12): Disabled due to fact we can't update individual rows and their order due
+        # to the balance column being dependent on order. Redirected to the `need_update` flow.
+        # elif event == 'verified':
+        #     self.history_view.update_tx_item(*args[1:])
         else:
             self._logger.debug("unexpected network_qt signal event='%s' args='%s'", event, args)
 
