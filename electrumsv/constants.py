@@ -242,3 +242,5 @@ class WalletSettings:
 class NetworkEventNames:
     HISTORICAL_EXCHANGE_RATES = "on_history"
     EXCHANGE_RATE_QUOTES = "on_quotes"
+
+PREFIX_ASM_SCRIPT = "asm:"

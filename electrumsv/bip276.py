@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 from .i18n import _
 
 
-PREFIX_SCRIPT = "bitcoin-script"
+PREFIX_BIP276_SCRIPT = "bitcoin-script"
 PREFIX_TEMPLATE = "bitcoin-template"
 CURRENT_VERSION = 1
 

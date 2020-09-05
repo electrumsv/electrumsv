@@ -31,7 +31,7 @@ import urllib.parse
 
 from bitcoinx import Address
 
-from .bip276 import PREFIX_SCRIPT, bip276_decode, NetworkMismatchError, ChecksumMismatchError
+from .bip276 import PREFIX_BIP276_SCRIPT, bip276_decode, NetworkMismatchError, ChecksumMismatchError
 from .bitcoin import COIN, is_address_valid
 from .exceptions import Bip270Exception
 from .i18n import _
@@ -99,7 +99,7 @@ def is_URI(text):
     scheme_idx = text.find(":")
     if scheme_idx > -1:
         scheme = text[:scheme_idx].lower()
-        if scheme in (Net.BITCOIN_URI_PREFIX, Net.PAY_URI_PREFIX) or scheme == PREFIX_SCRIPT:
+        if scheme in (Net.BITCOIN_URI_PREFIX, Net.PAY_URI_PREFIX) or scheme == PREFIX_BIP276_SCRIPT:
             return True
     return False
 
@@ -117,7 +117,7 @@ def parse_URI(uri: str, on_pr=None, on_pr_error=None) -> Dict[str, Any]:
     # The scheme always comes back in lower case
     pq = urllib.parse.parse_qs(u.query, keep_blank_values=True)
     if not (u.scheme == Net.BITCOIN_URI_PREFIX and 'sv' in pq or
-            u.scheme in (PREFIX_SCRIPT, Net.PAY_URI_PREFIX)):
+            u.scheme in (PREFIX_BIP276_SCRIPT, Net.PAY_URI_PREFIX)):
         raise URIError(_('Invalid Bitcoin SV URI: {}').format(uri))
 
     for k, v in pq.items():
@@ -128,7 +128,7 @@ def parse_URI(uri: str, on_pr=None, on_pr_error=None) -> Dict[str, Any]:
 
     if u.scheme == Net.BITCOIN_URI_PREFIX and is_address_valid(u.path):
         out['address'] = u.path
-    elif u.scheme == PREFIX_SCRIPT:
+    elif u.scheme == PREFIX_BIP276_SCRIPT:
         try:
             _prefix, _version, _data_network, bip276_data = bip276_decode(u.scheme +":"+ u.path,
                 Net.BIP276_VERSION)

@@ -30,7 +30,7 @@ from bitcoinx import (Ops, hash_to_hex_str, sha256, Address, classify_output_scr
     TruncatedScriptError, Unknown_Output)
 
 
-from .bip276 import bip276_decode, bip276_encode, PREFIX_SCRIPT
+from .bip276 import bip276_decode, bip276_encode, PREFIX_BIP276_SCRIPT
 from .crypto import hmac_oneshot
 from .networks import Net
 from .util import bfh, bh2u, assert_bytes, to_bytes
@@ -213,18 +213,18 @@ ScriptTemplate = Union[OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_A
 def script_template_to_string(template: ScriptTemplate, bip276: bool=False) -> str:
     if not bip276 and isinstance(template, Address):
         return template.to_string()
-    return bip276_encode(PREFIX_SCRIPT, template.to_script_bytes(), Net.BIP276_VERSION)
+    return bip276_encode(PREFIX_BIP276_SCRIPT, template.to_script_bytes(), Net.BIP276_VERSION)
 
 def string_to_script_template(text: str) -> ScriptTemplate:
     # raises bip276.ChecksumMismatchError
-    if text.startswith(PREFIX_SCRIPT):
+    if text.startswith(PREFIX_BIP276_SCRIPT):
         prefix, version, network, data = bip276_decode(text, Net.BIP276_VERSION)
         assert network == Net.BIP276_VERSION, "incompatible network"
         return classify_output_script(Script(data), Net.COIN)
     return Address.from_string(text, Net.COIN)
 
 def string_to_bip276_script(text: str) -> Script:
-    if text.startswith(PREFIX_SCRIPT):
+    if text.startswith(PREFIX_BIP276_SCRIPT):
         prefix, version, network, data = bip276_decode(text, Net.BIP276_VERSION)
         assert network == Net.BIP276_VERSION, "incompatible network"
         return Script(data)

@@ -26,6 +26,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import textwrap
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import weakref
 
@@ -458,7 +459,9 @@ class SendView(QWidget):
             errors = self._payto_e.get_errors()
             if errors:
                 self._main_window.show_warning(_("Invalid lines found:") + "\n\n" +
-                    '\n'.join([ _("Line #") + str(x[0]+1) +": "+ x[1] for x in errors]))
+                    '\n'.join([
+                        "\n".join(textwrap.wrap(_("Line #") + str(x[0]+1) +": "+ x[1]))
+                        for x in errors]))
                 return
             outputs = self._payto_e.get_outputs(self._is_max)
 

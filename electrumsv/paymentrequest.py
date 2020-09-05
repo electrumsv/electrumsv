@@ -28,7 +28,7 @@ import time
 from typing import Any, List, Optional, Dict, TYPE_CHECKING
 import urllib.parse
 
-from .bip276 import bip276_encode, BIP276Network, PREFIX_SCRIPT
+from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
 from bitcoinx import Script
 import certifi
 import requests
@@ -255,7 +255,7 @@ class PaymentRequest:
             network = BIP276Network.NETWORK_REGTEST
         else:
             raise Exception("unhandled network", Net._net)
-        return bip276_encode(PREFIX_SCRIPT, bytes(self.outputs[0].script), network)
+        return bip276_encode(PREFIX_BIP276_SCRIPT, bytes(self.outputs[0].script), network)
 
     def get_payment_uri(self) -> str:
         assert self.payment_url is not None

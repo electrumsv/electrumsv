@@ -74,3 +74,6 @@ class DatabaseMigrationError(Exception):
 
 class WalletLoadError(Exception):
     pass
+
+class InvalidPayToError(Exception):
+    pass
