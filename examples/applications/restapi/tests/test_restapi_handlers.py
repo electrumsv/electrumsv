@@ -223,11 +223,31 @@ class MockAsync(object):
         return '<throwaway _future>'
 
 
+class MockSession:
+    def __init__(self):
+        pass
+
+    def set_throttled(self, flag: bool):
+        return True
+
+async def mock_main_session():
+    return MockSession()
+
+class MockNetwork:
+    def __init__(self):
+        self._main_session = mock_main_session
+
+class MockDaemon:
+    def __init__(self):
+        self.network = MockNetwork()
+        self.wallets = {"wallet_file1.sqlite": "path/to/wallet"}
+
 class MockAppState:
     def __init__(self):
         self.app = MockApp()
         self.config = MockConfig()
         self.async_ = MockAsync()
+        self.daemon = MockDaemon()
 
 
 class MockDefaultEndpoints(ExtensionEndpoints):

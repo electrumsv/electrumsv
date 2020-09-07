@@ -17,6 +17,7 @@ import aiohttp
 import pytest_asyncio
 
 from electrumsv.networks import Net, SVRegTestnet
+from electrumsv.restapi import Fault
 
 
 class TestRestAPI:
@@ -195,8 +196,7 @@ class TestRestAPI:
         async def fetch(session, url):
             async with session.post(url, data=json.dumps(payload2)) as resp:
                 if resp != 200:
-                    print(await resp.text())
-                    resp.raise_for_status()
+                    return await resp.json()
                 return await resp.json()
 
         async def main():
@@ -205,6 +205,8 @@ class TestRestAPI:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for result in results:
-                print(result)
+                error_code = result.get('code')
+                if error_code:
+                    assert False, str(Fault(error_code, result.get('message')))
 
         event_loop.run_until_complete(main())
