@@ -16,7 +16,9 @@ from electrumsv.constants import TransactionOutputFlag, ScriptType
 from electrumsv.restapi import good_response, Fault
 from electrumsv.wallet import UTXO, Wallet, AbstractAccount
 from electrumsv.transaction import Transaction
+
 from ..handlers import ExtensionEndpoints
+
 
 
 class SVTestnet(object):
@@ -148,7 +150,6 @@ def _fake_get_frozen_utxos_for_tx(tx: Transaction, child_wallet: AbstractAccount
 def _fake_spawn(fn, *args):
     return '<throwaway _future>'
 
-
 class MockAccount(AbstractAccount):
 
     def __init__(self, wallet=None):
@@ -157,7 +158,9 @@ class MockAccount(AbstractAccount):
         self._subpath_gap_limits = {(0,): 20,
                                     (1,): 20}
         self._wallet = wallet
-        self.transaction_lock = threading.RLock()
+
+    def maybe_set_transaction_dispatched(self, tx_hash):
+        return True
 
     def dumps(self):
         return None
@@ -230,6 +233,10 @@ class MockSession:
     def set_throttled(self, flag: bool):
         return True
 
+    async def send_request(self, method, args):
+        return '6797415e3b4a9fbb61b209302374853bdefeb4567ad0ed76ade055e94b9b66a2'
+
+
 async def mock_main_session():
     return MockSession()
 
@@ -258,6 +265,12 @@ class MockDefaultEndpoints(ExtensionEndpoints):
         self.app_state = MockAppState()
         self.logger = logging.getLogger("mock-restapi")
         self.prev_transaction = ''
+        self.txb_executor = ThreadPoolExecutor(max_workers=1)
+
+    def select_inputs_and_outputs(self, config=None, child_wallet=None, base_fee=None,
+            split_count=None, desired_utxo_count=None, max_utxo_margin=200, split_value=3000,
+            require_confirmed=None):
+        return SPENDABLE_UTXOS, None, True
 
     # monkeypatching methods of LocalRESTExtensions
     def _fake_get_all_wallets(self, wallets_path):
@@ -315,6 +328,7 @@ class TestDefaultEndpoints:
         app.router.add_post(self.ACCOUNT_TXS + "/create_and_broadcast",
                             self.rest_server.create_and_broadcast)
         app.router.add_post(self.ACCOUNT_TXS + "/broadcast", self.rest_server.broadcast)
+        app.router.add_post(self.ACCOUNT_TXS + "/split_utxos", self.rest_server.split_utxos)
         return loop.run_until_complete(aiohttp_client(app))
 
     @pytest.fixture(autouse=True)
@@ -582,6 +596,32 @@ class TestDefaultEndpoints:
                                       f"{index}/txs/broadcast",
                                  method='post',
                                  json={"rawtx": rawtx})
+        # check
+        tx = Transaction.from_hex(rawtx)
+        expected_json = {"value": {"txid": tx.txid()}}
+        assert resp.status == 200, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == expected_json
+
+    @pytest.mark.parametrize("spendable_utxos", [SPENDABLE_UTXOS[0]])
+    async def test_split_utxos_good_response(self, monkeypatch, cli, spendable_utxos):
+        monkeypatch.setattr(self.rest_server, '_get_account',
+                            _fake_get_account_succeeded)
+        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
+                            _fake_get_frozen_utxos_for_tx)
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        account_id = "1"
+        password = "mypass"
+        resp = await cli.request(path=f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                                      f"{account_id}/txs/split_utxos",
+                                 method='post',
+                                 json={"split_count": 10,
+                                       "desired_utxo_count": 100,
+                                       "split_value": 3000,
+                                       "password": password})
         # check
         tx = Transaction.from_hex(rawtx)
         expected_json = {"value": {"txid": tx.txid()}}
