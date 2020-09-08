@@ -168,12 +168,13 @@ class TestRestAPI:
                         "script_pubkey": p2pkh_object.to_script().to_hex()}
 
         payload = {
-            "outputs": [P2PKH_OUTPUT] * n_txs,
+            "split_value": 20000,
+            "split_count": 100,
             "password": "test"
         }
 
         url = f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/' \
-              f'{self.TEST_WALLET_NAME}/1/txs/create_and_broadcast'
+              f'{self.TEST_WALLET_NAME}/1/txs/split_utxos'
 
         # 1) split utxos sufficient for n transactions + confirm
         result = requests.post(url, json=payload)
@@ -184,16 +185,17 @@ class TestRestAPI:
                                f'{self.TEST_WALLET_NAME}/1/generate_blocks')
         if result2.status_code != 200:
             raise requests.exceptions.HTTPError(result2.text)
-        time.sleep(5)
+        time.sleep(10)
 
         # 2) test concurrent transaction creation + broadcast
-
         payload2 = {
             "outputs": [P2PKH_OUTPUT],
             "password": "test"
         }
 
-        async def fetch(session, url):
+        async def create_and_send(session):
+            url = f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/' \
+                  f'{self.TEST_WALLET_NAME}/1/txs/create_and_broadcast'
             async with session.post(url, data=json.dumps(payload2)) as resp:
                 if resp != 200:
                     return await resp.json()
@@ -201,7 +203,7 @@ class TestRestAPI:
 
         async def main():
             async with aiohttp.ClientSession() as session:
-                tasks = [asyncio.create_task(fetch(session, url)) for _ in range(0, n_txs)]
+                tasks = [asyncio.create_task(create_and_send(session)) for _ in range(0, n_txs)]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for result in results:
