@@ -17,6 +17,7 @@ class Errors:
     AIORPCX_ERROR_CODE = 40011
     BROADCAST_FAILURE_CODE = 40012
     CHAIN_TOO_LONG_CODE = 40013
+    SPLIT_FAILED_CODE = 40014
 
     # http 401 unauthorized
     AUTH_CREDENTIALS_MISSING_CODE = 40102
@@ -52,3 +53,4 @@ class Errors:
     WALLET_NOT_LOADED_MESSAGE = "Wallet was unable to be loaded (bad password?)"
     INSUFFICIENT_COINS_MESSAGE = "You have insufficient coins for this transaction"
     TRANSACTION_NOT_FOUND_MESSAGE = "Transaction not found"
+    SPLIT_FAILED_MESSAGE = "Split failed (not necessary? not possible?)"

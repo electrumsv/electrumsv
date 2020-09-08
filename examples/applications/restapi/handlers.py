@@ -1,4 +1,7 @@
+import asyncio
 import os
+from concurrent.futures.thread import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Union, Any
 
@@ -53,7 +56,8 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.post(self.ACCOUNT_TXS + "/fetch", self.fetch_transaction),
             web.post(self.ACCOUNT_TXS + "/create", self.create_tx),
             web.post(self.ACCOUNT_TXS + "/create_and_broadcast", self.create_and_broadcast),
-            web.post(self.ACCOUNT_TXS + "/broadcast", self.broadcast)
+            web.post(self.ACCOUNT_TXS + "/broadcast", self.broadcast),
+            web.post(self.ACCOUNT_TXS + "/split_utxos", self.split_utxos),
         ]
 
         if app_state.config.get('regtest'):
@@ -352,3 +356,55 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account.set_frozen_coin_state(frozen_utxos, False)
             self.remove_signed_transaction(tx, account)
             return fault_to_http_response(Fault(Errors.AIORPCX_ERROR_CODE, e.message))
+
+    async def split_utxos(self, request) -> Union[Fault, Any]:
+        try:
+            required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.SPLIT_COUNT, VNAME.PASSWORD]
+            vars = await self.argparser(request, required_vars=required_vars)
+            wallet_name = vars[VNAME.WALLET_NAME]
+            account_id = vars[VNAME.ACCOUNT_ID]
+            split_count = vars[VNAME.SPLIT_COUNT]
+
+            # optional
+            split_value = vars.get(VNAME.SPLIT_VALUE, 10000)
+            password = vars.get(VNAME.PASSWORD, None)
+            desired_utxo_count = vars.get(VNAME.DESIRED_UTXO_COUNT, 2000)
+            require_confirmed = vars.get(VNAME.REQUIRE_CONFIRMED, False)
+
+            account = self._get_account(wallet_name, account_id)
+
+            # Approximate size of a transaction with one P2PKH input and one P2PKH output.
+            base_fee = self.app_state.config.estimate_fee(203)
+            loop = asyncio.get_event_loop()
+            partial_coin_selection = partial(self.select_inputs_and_outputs,
+                self.app_state.config, account, base_fee,
+                split_count=split_count, desired_utxo_count=desired_utxo_count,
+                require_confirmed=require_confirmed, split_value=split_value)
+
+            split_result = await loop.run_in_executor(self.txb_executor, partial_coin_selection)
+            if isinstance(split_result, Fault):
+                return fault_to_http_response(split_result)
+            self.logger.debug("split result: %s", split_result)
+            utxos, outputs, attempted_split = split_result
+            if not attempted_split:
+                fault = Fault(Errors.SPLIT_FAILED_CODE, Errors.SPLIT_FAILED_MESSAGE)
+                return fault_to_http_response(fault)
+            tx = account.make_unsigned_transaction(utxos, outputs, self.app_state.config)
+            account.sign_transaction(tx, password)
+            self.raise_for_duplicate_tx(tx)
+
+            # broadcast
+            result = await self._broadcast_transaction(str(tx), tx.hash(), account)
+            self.prev_transaction = result
+            response = {"value": {"txid": result}}
+            return good_response(response)
+        except Fault as e:
+            return fault_to_http_response(e)
+        except aiorpcx.jsonrpc.RPCError as e:
+            self.remove_signed_transaction(tx, account)
+            return fault_to_http_response(Fault(Errors.AIORPCX_ERROR_CODE, e.message))
+        except InsufficientCoins as e:
+            self.logger.debug(Errors.INSUFFICIENT_COINS_MESSAGE)
+            self.logger.debug("utxos remaining: %s", account.get_utxos())
+            return fault_to_http_response(
+                Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE))
