@@ -1,0 +1,373 @@
+ElectrumSV 1.3 migration guide
+##############################
+
+:date: 2020-05-28 16:00
+:modified: 2020-09-08 16:00
+:authors: The ElectrumSV Developers
+:tags: guide
+:summary: Migration guide to help users new to ElectrumSV 1.3
+
+This article is intended to illustrate a few of the common uses of ElectrumSV, that have changed
+between the older versions of ElectrumSV 1.2, and the new versions of ElectrumSV 1.3.
+
+The current version of ElectrumSV at the time of writing, is 1.3.6, and you should only ever
+download it from electrumsv.io.
+
+.. contents::
+   :depth: 2
+   :backlinks: none
+
+
+Migrating an existing wallet from 1.2.5 (or earlier)
+----------------------------------------------------
+
+All past Electrum Core and Electron Cash wallets that predate the Bitcoin SV split should open,
+not just wallets created or last used in ElectrumSV versions up to 1.2.5.
+
+There are two known cases where wallet migration can fail:
+
+- Incomplete wallets. If someone opens a wallet that was closed mid-synchronisation, we have no
+  way to fill in the gaps and have to declare a migration failure. Your only recourse is to first
+  go back to 1.2.5 and open the wallet and let it completely synchronise, and retry. If that does
+  not solve the problem, report the issue to us and we’ll work through it.
+
+- Coinbase transactions. The migration process lacked test cases for wallets that contained these,
+  and would error. This has been fixed in Github where the source code is maintained, and will be
+  fixed in 1.3.2 and beyond.
+
+Select and open your wallet
+===========================
+
+Start up ElectrumSV and make sure you are on the wallet selection page.
+
+.. figure:: {static}1.3-migration-guide/wallet-wizard-selection.png
+   :align: center
+   :alt: A screenshot of the wallet selection screen of the wallet wizard.
+
+   The wallet selection page.
+
+If your wallet is in the list of “Recently Opened Wallets”, double click on it to open it. If
+you used the keyboard to select the entry, press the enter key to open it. Otherwise, if you
+are the thorough type, once it is selected through any mean click on the “Open Selected Wallet”
+button to open it.
+
+If your wallet is not present in the list of “Recently Opened Wallets”, click on the “Open Other
+Wallet” button to locate and open it.
+
+Add a mandatory password if it has no password
+==============================================
+
+Once you have opened your existing wallet from ElectrumSV 1.2 or earlier, if your wallet was
+previously lacking a password, now we force you to add one. This also applies to hardware and
+watch-only wallets, where there is no key or seed word data to encrypt.
+
+.. figure:: {static}1.3-migration-guide/add-password-wallet-migration.png
+   :align: center
+   :alt: A screenshot of the password dialog for a to-be migrated wallet without one.
+
+   Add a password to your wallet.
+
+If your wallet already has a password, you will be asked to provide it so that it can be opened
+by ElectrumSV to migrate it. This existing password will be reused for securing and passwording
+the migrated version.
+
+Wait for the migration to complete
+==================================
+
+This step should only take a few seconds. It is very unlikely anyone has a wallet that takes
+longer.
+
+.. figure:: {static}1.3-migration-guide/wallet-wizard-migrating.png
+   :align: center
+   :alt: A screenshot of the in-progress wallet migration page of the wallet wizard.
+
+   The migration process in action.
+
+Migration is successfully completed
+===================================
+
+Once the migration has completed successfully, the “Finish” button will become enabled, and the
+user can click it to open the wallet. It may take a few seconds where the wallet opening UI
+closes and you can see nothing while your migrated wallet is loaded. Please wait patiently —
+we should definitely add an interim user interface here and please remind us if we do not.
+
+.. figure:: {static}1.3-migration-guide/wallet-wizard-migrated.png
+   :align: center
+   :alt: A screenshot of the completed wallet migration page of the wallet wizard.
+
+   The completed migration process.
+
+If you see a red progress bar, and the migration fails, please scroll up to the start of this
+migration topic and follow the instructions there about reporting it.
+
+Viewing the successfully migrated wallet
+========================================
+
+After your wallet has been opened, your main wallet window will open and it will synchronise
+with the blockchain.
+
+.. figure:: {static}1.3-migration-guide/migrated-wallet.png
+   :align: center
+   :alt: A screenshot of the wallet window for a successfully migrated wallet.
+
+   A successfully migrated wallet from some version of ElectrumSV 1.2.
+
+Congratulations, you have successfully migrated your wallet. You will note that the user
+interface now has a list of accounts on the left hand side, although we currently limit
+it to one account for now. In the future a wallet will be able to contain multiple accounts.
+
+Creating a new wallet
+---------------------
+
+With ElectrumSV 1.3 a wallet is now a container for your accounts, so this shows you how to
+create an empty wallet with no accounts. You will want to add an account to it, to start
+using it.
+
+Choosing the location and file name
+===================================
+
+The first step is to choose where to store your wallet, and what it’s file name should be.
+If you choose not to store your wallet in the default location that ElectrumSV uses, it is
+likely that you will quickly be able to find it again in the “Recently Opened Wallets” list
+when you open it again in the future.
+
+Start off at the wallet selection page.
+
+.. figure:: {static}1.3-migration-guide/wallet-wizard-selection.png
+   :align: center
+   :alt: A screenshot of the wallet selection page of the wallet wizard.
+
+   The wallet selection page.
+
+Click on "Create New Wallet". You will be presented with a file dialog that lets you choose
+where your wallet will be stored, and what it will be named. It defaults to the standard
+ElectrumSV wallet location on your operating system. Enter a file name, and click “Save”
+(or press the enter key).
+
+.. figure:: {static}1.3-migration-guide/wallet-wizard-create-dialog.png
+   :align: center
+   :alt: A screenshot of the file dialog for selecting where a newly created wallet goes.
+
+   The wallet creation file dialog.
+
+Add a mandatory password
+========================
+
+The next step is setting a password for your new wallet. We require a password and there is
+no way to opt out, but you can always enter something like “password” or “123456” if you wish.
+This is also required for hardware and watch-only wallets, where there is no key or seed word
+data to encrypt.
+
+.. figure:: {static}1.3-migration-guide/add-password-wallet-creation.png
+   :align: center
+   :alt: A screenshot of the password dialog for a new wallet creation.
+
+   The wallet creation password dialog.
+
+Once you have entered a password, and confirmed it, the “OK” button will become enabled and
+you can click it (or just press the enter key) to open the new wallet.
+
+.. figure:: {static}1.3-migration-guide/new-wallet.png
+   :align: center
+   :alt: A screenshot of a newly created wallet.
+
+   The newly created wallet.
+
+Congratulations, you have created a new empty wallet. It will not be usable until you have
+created an account, and various parts of the user interface will indicate this.
+
+Creating a new “Standard” account
+---------------------------------
+
+If you are reading this, you likely have a new wallet that has no accounts, and you want to
+add one to it.
+
+We support addition of a wide variety of account types:
+
+- A new “Standard” account. This is the equivalent of creating a new ElectrumSV seed-word
+  based wallet in 1.2.5 and earlier.
+- A multi-signature account. Use this if you are creating a new multi-signature account,
+  or restoring an existing one from master public keys, seed words and so on.
+- Importing from text. Use this to import your seed words, whether Electrum seed words,
+  BIP39 seed words from another wallet, private keys, public keys, master public keys, master
+  private keys, and so on.
+- Importing a hardware wallet. If you have an existing hardware wallet that has a seed set
+  up on it, then you can use this to add an account that links to it and uses it to sign.
+  If you have a hardware wallet that does not have a seed set up on it, you should also be
+  able to use this to set it up unless the device is a Ledger. Do not buy a Ledger.
+
+Adding an account
+=================
+
+In the top-left-hand corner of your wallet window, you will see the “Add Account” button.
+Click it and it will open the account wizard which allows all supported types of accounts
+to be created.
+
+.. figure:: {static}1.3-migration-guide/new-wallet.png
+   :align: center
+   :alt: A screenshot highlighting the “Add Account” button in the wallet window.
+
+   Highlighting of the “Add Account” button.
+
+The account wizard offers four different types of account addition, at the time of writing.
+
+.. figure:: {static}1.3-migration-guide/account-wizard-type-selection.png
+   :align: center
+   :alt: A screenshot of the account type selection in the account wizard.
+
+   The account wizard.
+
+Creating the new “Standard” account
+===================================
+
+Double-click on the “Standard” entry to proceed. Or if you prefer to work for it, click the
+“Next” button or press the enter key. You will be asked for your password so that the generated
+seed words and private key data can be encrypted into your wallet. This also verifies you have
+the ability to really use this wallet, and should able to add an account.
+
+.. figure:: {static}1.3-migration-guide/password-confirmation-dialog.png
+   :align: center
+   :alt: A screenshot of the password confirmation dialog.
+
+   Confirm your password dialog.
+
+You will immediately see that the account has been added to your wallet. You will note that at
+no point did you have to copy down your new seed words, or confirm them. You will be reminded
+to back them up by the wallet, and can do so at your leisure and own risk.
+
+.. figure:: {static}1.3-migration-guide/wallet-window-receiving-tab.png
+   :align: center
+   :alt: A screenshot of the receiving tab in the wallet window.
+
+   The wallet with the new standard account.
+
+Backing up your seed words
+==========================
+
+The wallet window now has a notification center, which is used to remind you to deal with
+important events, and point out how you can do it.
+
+.. figure:: {static}1.3-migration-guide/wallet-window-notification-center-highlight.png
+   :align: center
+   :alt: A screenshot of the highlighted icon for notification center activity.
+
+   Highlighting the new notification center.
+
+The initial backup notification
+===============================
+
+Clicking the notification icon will make the new “Notifications” tab the active one and show
+the initial notification about backing up your data.
+
+.. figure:: {static}1.3-migration-guide/backup-notification.png
+   :align: center
+   :alt: A screenshot of the initial backup notification.
+
+   The initial backup notification.
+
+Follow the link to your secured data
+====================================
+
+If you click on the “account’s secured data” link, it will take you directly to that secured
+data. But first it will need your password so it can decrypt that data for display.
+
+.. figure:: {static}1.3-migration-guide/password-confirmation-dialog.png
+   :align: center
+   :alt: A screenshot of the password confirmation dialog.
+
+   Confirm your password dialog.
+
+Having entered the correct password you will see the secured data.
+
+.. figure:: {static}1.3-migration-guide/secured-account-data-dialog.png
+   :align: center
+   :alt: A screenshot of the secured account data dialog.
+
+   The secured data dialog.
+
+Congratulations, now write down the seed words somewhere safe. I recommend you look into
+SAFEWORDS_ to help you with this. You can dismiss the notification by clicking on the “X” in
+it’s top right corner.
+
+.. _SAFEWORDS: https://coinstorage.guru/
+
+Accessing your master public key
+--------------------------------
+
+Master public keys are often used to create watch-only versions of a wallet, or to provide
+to a service or application which needs to be enabled to generate keys on your behalf.
+
+**Warning:** It should be noted that giving your master public key (otherwise known as an “xpub”)
+to a service to it can solicit payments on your behalf is problematic. There is no way for
+anyone paying to know if the service has been compromised or not, and whether the payment
+scripts it provides are actually ones generated from your master public key. A similar concern
+is the reliability of every employee of the service that has access to compromise your payments.
+As a person wanting to pay who uses that service, you also have no guarantee you are paying to
+who you think you are paying.
+
+Viewing the master public key for a given account
+=================================================
+
+Open a context menu on the entry of the account you want the view the master public key for.
+On Windows this is done with the right mouse button, while the mouse is over the entry.
+On other platforms, it is likely a different button.
+
+.. figure:: {static}1.3-migration-guide/wallet-window-account-menu.png
+   :align: center
+   :alt: A screenshot of the account menu in the wallet window.
+
+   The context menu for the “Standard account” account entry.
+
+Select the “Information” sub-menu.
+
+.. figure:: {static}1.3-migration-guide/wallet-window-account-information-dialog.png
+   :align: center
+   :alt: A screenshot of the account information dialog.
+
+   A terse summary of what qualifies as account information.
+
+You can now access your master public key here, and copy it for pasting elsewhere, or show it as
+a QR code for importing into something else.
+
+Accessing your master private key/secured data
+----------------------------------------------
+
+It is critical that you back up your wallet. At this time the best way to do this is to write
+down your seed and addition important details somewhere safe. This is how you access that data,
+which is secured in the wallet until you need it.
+
+Viewing the secured data for a given account
+============================================
+
+Open a context menu on the entry of the account you want the view the master public key for.
+On Windows this is done with the right mouse button, while the mouse is over the entry. On
+other platforms, it is likely a different button.
+
+.. figure:: {static}1.3-migration-guide/wallet-window-account-menu.png
+   :align: center
+   :alt: A screenshot of the account menu in the wallet window.
+
+   The context menu for the “Standard account” account entry.
+
+Select the “View Secured Data” sub-menu. If it is disabled, you are either using a hardware
+wallet, a watch-only wallet or a multi-signature wallet. You will be prompted for your wallet
+password.
+
+.. figure:: {static}1.3-migration-guide/password-confirmation-dialog.png
+   :align: center
+   :alt: A screenshot of the password confirmation dialog.
+
+   Confirm your password dialog.
+
+Having entered the correct password you will see the secured data.
+
+.. figure:: {static}1.3-migration-guide/secured-account-data-dialog.png
+   :align: center
+   :alt: A screenshot of the secured account data dialog.
+
+   The secured data dialog.
+
+Congratulations, now write down the seed words somewhere safe. I recommend you look into
+SAFEWORDS_ to help you with this. You can dismiss the notification by clicking on the “X” in
+it’s top right corner.
+

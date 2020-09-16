@@ -18,6 +18,9 @@ bin/
 /app.fil
 tmp/
 __pycache__
+docs/website/output
+docs/standalone/_build
+electrumsv/data/html
 
 # tox files
 .cache/
@@ -31,6 +34,8 @@ xcuserdata/
 
 # Windows
 libusb-1.0.dll
+libiconv-2.dll
+libzbar-0.dll
 
 # IntelliJ Pycharm IDE
 *.idea*

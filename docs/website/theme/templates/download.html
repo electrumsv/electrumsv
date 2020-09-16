@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block content %}
+    <div class="row mt-3">
+        <div class="col-lg-8">
+            <div class="mb-3">
+                <div class="row">
+                    <div class="col-lg-12 esv-section-title">Latest Version</div>
+                </div>
+                <div class="container esv-box-border esv-box-padding">
+                    <div class="row">
+                        <div class="col-sm-12 text-center pb-2">
+                            ElectrumSV {{ DOWNLOAD_LATEST.version }} ({{ DOWNLOAD_LATEST.release_date }})
+                            <br/><a href="{{ DOWNLOAD_LATEST.article_link }}">What has changed?</a>
+                        </div>
+                    </div>
+                    {% for file in DOWNLOAD_LATEST.files %}
+                    <div class="row">
+                        <div class="col-sm-3"><span class="{{ file.class_name }} icon-download-type" title="{{ file.title }}"></span> {{ file.text }}</div>
+                        <div class="col-sm-6"><a href="https://electrumsv-downloads.s3.us-east-2.amazonaws.com/releases/{{ DOWNLOAD_LATEST.version }}/{{ file.file_name }}">{{ file.file_name }}</a></div>
+                        <div class="col-sm-3 text-right">{{ file.size_text }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="mb-3">
+                <div class="row">
+                    <div class="col-lg-12 esv-section-title">Experimental releases</div>
+                </div>
+                <div class="container esv-box-border esv-box-padding">
+                    <div class="row">
+                        <div class="col-lg-12 text-center">
+                            <i>None at this time.</i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <div class="row">
+                    <div class="col-lg-12 esv-section-title">Older releases</div>
+                </div>
+                <div class="container esv-box-border esv-box-padding">
+                    {% for release in DOWNLOADS_OLDER %}
+                    <div class="container border p-3 border-top-0">
+                        <div class="row">
+                            <div class="col-sm-12 text-center pb-2">
+                                ElectrumSV {{ release.version }} ({{ release.release_date }})
+                                <br/><a href="{{ release.article_link }}">What has changed?</a>
+                            </div>
+                        </div>
+                        {% for released_file in release.files %}
+                        <div class="row">
+                            <div class="col-sm-3"><span class="{{ released_file.class_name }} icon-download-type" title="{{ released_file.title }}"></span> {{ released_file.text }}</div>
+                            <div class="col-sm-6"><a href="https://electrumsv-downloads.s3.us-east-2.amazonaws.com/releases/{{ release.version }}/{{ released_file.file_name }}">{{ released_file.file_name }}</a></div>
+                            <div class="col-sm-3 text-right">{{ released_file.size_text }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="container">
+                        <div class="row text-center">
+                            <div class="col-lg-12">
+                                <i>None at this time.</i>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4 pl-4 pr-4">
+            <div class="row">
+                <div class="col-lg-12 esv-section-title">Security Tips</div>
+            </div>
+            <div class="row esv-border-grey bg-light p-1 mt-1">
+                <div class="col-12 text-center">Who created this?</div>
+            </div>
+            <div class="row esv-border-grey border-top-0 pt-3">
+                <div class="col-12">
+                    <p>
+                        The traditional way that nerds verify that the files they get were
+                        created by the same people they dealt with in the past, is with
+                        PGP signatures.
+                    </p>
+                    <p>
+                        For every file that is provided, the person who
+                        provided it also makes available their digital signature for that
+                        file.
+                    </p>
+                    <p>
+                        In the real world it turns out that working with the tools involved
+                        in checking these is an often buggy and complicated process, and
+                        only paranoid people with too much time on their hands bother.
+                    </p>
+                    <p></p>
+                        You can get
+                        <a href="https://github.com/electrumsv/electrumsv/tree/master/pubkeys">our PGP keys</a>
+                        from the official ElectrumSV git repository, and check the
+                        signatures we provide in
+                        <a href="https://electrumsv.io/download/">the download folder</a>
+                        on this web site if you really want to.
+                    </p>
+                </div>
+            </div>
+            <div class="row esv-border-grey bg-light p-1 border-top-0">
+                <div class="col-12 text-center">Has this been tampered with?</div>
+            </div>
+            <div class="row esv-border-grey border-top-0 rounded-bottom pt-3">
+                <div class="col-12">
+                    <p>
+                        The traditional way that nerds verify that the files they get are
+                        the same files that everyone else is getting, is with file hashes
+                        or checksums.
+                    </p>
+                    <p>
+                        For every file that is provided, the person who
+                        provided it also makes available a hash for that file. But the hash
+                        should be made available from a separate place than the file
+                        that it is associated with, or anyone who substitutes the
+                        file for malware can just replace the matching hash.
+                    </p>
+                    <p>
+                        In the real world, most people are too lazy to check these. But
+                        you should learn to do it for your own sake, until ElectrumSV
+                        can download and validate updates for you.
+                    </p>
+                    <p>
+                        You can get the hashes
+                        for the files we make available to download, from the
+                        <a href="https://github.com/electrumsv/electrumsv/blob/master/build-hashes.txt">official
+                        ElectrumSV git repository</a>.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+{% endblock content %}
