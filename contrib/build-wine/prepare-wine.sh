@@ -12,8 +12,8 @@ ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 LIBUSB_REPO='https://github.com/libusb/libusb.git'
 LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 
-PYINSTALLER_REPO='https://github.com/pyinstaller/pyinstaller.git'
-PYINSTALLER_COMMIT=6d4cce1f8eb80c0bf49d35876d28daa55a05800f
+PYINSTALLER_REPO='https://github.com/ElectrumSV/pyinstaller.git'
+PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
 
 PYTHON_VERSION=3.7.8
 
@@ -114,7 +114,7 @@ mkdir pyinstaller
     git init
     git remote add origin $PYINSTALLER_REPO
     git fetch --depth 1 origin $PYINSTALLER_COMMIT
-    git checkout -b pinned FETCH_HEAD
+    git checkout -b pinned "${PYINSTALLER_COMMIT}^{commit}"
     rm -fv PyInstaller/bootloader/Windows-*/run*.exe || true  # Make sure EXEs that came with repo are deleted -- we rebuild them and need to detect if build failed
     if [ ${PYI_SKIP_TAG:-0} -eq 0 ] ; then
         echo "const char *ec_tag = \"tagged by ElectrumSV@$GIT_COMMIT_HASH\";" >> ./bootloader/src/pyi_main.c
@@ -123,7 +123,7 @@ mkdir pyinstaller
     fi
     pushd bootloader
     # If switching to 64-bit Windows, edit CC= below
-    python3 ./waf all CC=i686-w64-mingw32-gcc CFLAGS="-static -Wno-dangling-else -Wno-error=unused-value"
+    python3 ./waf all CC=i686-w64-mingw32-gcc CFLAGS="-Wno-stringop-overflow -static"
     # Note: it's possible for the EXE to not be there if the build
     # failed but didn't return exit status != 0 to the shell (waf bug?);
     # So we need to do this to make sure the EXE is actually there.
