@@ -6,6 +6,9 @@ peer to peer form of electronic cash. As a wallet application it allows you to t
 spend bitcoin whenever you need to. But that's just the basics, as it manages and secures
 your keys it also helps you to do many other things.
 
+.. important::
+   ElectrumSV can only be downloaded from `electrumsv.io <https://electrumsv.io>`_.
+
 Getting started
 ---------------
 

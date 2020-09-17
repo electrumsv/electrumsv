@@ -2,9 +2,7 @@ Creating an account
 ===================
 
 If you are reading this, you likely have a new wallet that has no accounts, and you want to add
-one to it.
-
-We support addition of a wide variety of account types:
+one to it. We support addition of a wide variety of account types:
 
 - A new “Standard” account. This is the equivalent of creating a new ElectrumSV seed-word
   based wallet in 1.2.5 and earlier.
