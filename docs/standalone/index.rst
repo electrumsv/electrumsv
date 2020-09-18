@@ -46,6 +46,23 @@ How do you make a payment to someone else?
    /getting-started/receiving-a-payment
    /getting-started/making-a-payment
 
+Problem solving
+---------------
+
+Why doesn't my hardware wallet work?
+    Hardware wallet makers do not provide anywhere near enough support for their devices, and
+    some have a history of making breaking changes that stop them working in ElectrumSV. If your
+    hardware wallet does not work then this is where you should look for some pointers, whether
+    the device is a Trezor, a Ledger, a Keepkey or a Bitbox. Read more about
+    :doc:`hardware wallet issues <problem-solving/hardware-wallets>`.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+   :caption: Problem solving
+
+   /problem-solving/hardware-wallets
+
 Building on ElectrumSV
 ----------------------
 
