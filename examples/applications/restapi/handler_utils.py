@@ -19,7 +19,6 @@ from electrumsv.wallet import AbstractAccount, Wallet, UTXO
 from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, get_network_type, decode_request_body
-from electrumsv.restapi import Fault
 from electrumsv.simple_config import SimpleConfig
 from .errors import Errors
 
@@ -30,7 +29,7 @@ INPUT_SIZE = 148
 OUTPUT_SIZE = 34
 
 
-class InsufficientCoins(Exception):
+class InsufficientCoinsError(Exception):
     pass
 
 
@@ -555,6 +554,6 @@ class ExtendedHandlerUtils(HandlerUtils):
             selection_value += INPUT_COST
         else:
             # We failed to collect enough inputs to cover the outputs.
-            raise InsufficientCoins
+            raise InsufficientCoinsError
 
         return inputs, outputs, attempted_split

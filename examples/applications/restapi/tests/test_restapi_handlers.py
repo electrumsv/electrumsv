@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import tempfile
-import threading
 
 import pytest
 import bitcoinx
