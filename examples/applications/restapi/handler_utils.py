@@ -504,56 +504,56 @@ class ExtendedHandlerUtils(HandlerUtils):
             # Todo - optional filtering for frozen/maturity state (expensive for many utxos)?
             all_coins = wallet._utxos.values()  # no filtering for frozen or maturity state for speed.
 
-        # Ignore coins that are too expensive to send, or not confirmed.
-        # Todo - this is inefficient to iterate over all coins (need better handling of dust utxos)
-        if require_confirmed:
-            get_metadata = wallet.get_transaction_metadata
-            spendable_coins = [coin for coin in all_coins if coin.value > (INPUT_COST + OUTPUT_COST)
-                               and get_metadata(coin.tx_hash).height > 0]
-        else:
-            spendable_coins = [coin for coin in all_coins if
-                               coin.value > (INPUT_COST + OUTPUT_COST)]
+            # Ignore coins that are too expensive to send, or not confirmed.
+            # Todo - this is inefficient to iterate over all coins (need better handling of dust utxos)
+            if require_confirmed:
+                get_metadata = wallet.get_transaction_metadata
+                spendable_coins = [coin for coin in all_coins if coin.value > (INPUT_COST + OUTPUT_COST)
+                                   and get_metadata(coin.tx_hash).height > 0]
+            else:
+                spendable_coins = [coin for coin in all_coins if
+                                   coin.value > (INPUT_COST + OUTPUT_COST)]
 
-        inputs = []
-        outputs = []
-        selection_value = base_fee
-        attempted_split = False
-        if len(all_coins) < desired_utxo_count:
-            attempted_split = True
-            split_count = min(split_count,
-                              desired_utxo_count - len(all_coins) + max_utxo_margin)
+            inputs = []
+            outputs = []
+            selection_value = base_fee
+            attempted_split = False
+            if len(all_coins) < desired_utxo_count:
+                attempted_split = True
+                split_count = min(split_count,
+                                  desired_utxo_count - len(all_coins) + max_utxo_margin)
 
-            # Increase the transaction cost for the additional required outputs.
-            selection_value += split_count * OUTPUT_COST + split_count * split_value
+                # Increase the transaction cost for the additional required outputs.
+                selection_value += split_count * OUTPUT_COST + split_count * split_value
 
-            # Collect sufficient inputs to cover the output value.
-            # highest value coins first for splitting
-            ordered_coins = sorted(spendable_coins, key=lambda k: k.value, reverse=True)
-            for coin in ordered_coins:
+                # Collect sufficient inputs to cover the output value.
+                # highest value coins first for splitting
+                ordered_coins = sorted(spendable_coins, key=lambda k: k.value, reverse=True)
+                for coin in ordered_coins:
+                    inputs.append(coin)
+                    if sum(input.value for input in inputs) >= selection_value:
+                        break
+                    # Increase the transaction cost for the additional required input.
+                    selection_value += INPUT_COST
+
+                if len(inputs):
+                    # We ensure that we do not use conflicting addresses for the split outputs by
+                    # explicitly generating the addresses we are splitting to.
+                    fresh_keys = wallet.get_fresh_keys(RECEIVING_SUBPATH, count=split_count)
+                    for key in fresh_keys:
+                        derivation_path = wallet.get_derivation_path(key.keyinstance_id)
+                        pubkey = wallet.derive_pubkeys(derivation_path)
+                        outputs.append(TxOutput(split_value, pubkey.P2PKH_script()))
+                    return inputs, outputs, attempted_split
+
+            for coin in spendable_coins:
                 inputs.append(coin)
                 if sum(input.value for input in inputs) >= selection_value:
                     break
                 # Increase the transaction cost for the additional required input.
                 selection_value += INPUT_COST
+            else:
+                # We failed to collect enough inputs to cover the outputs.
+                raise InsufficientCoinsError
 
-            if len(inputs):
-                # We ensure that we do not use conflicting addresses for the split outputs by
-                # explicitly generating the addresses we are splitting to.
-                fresh_keys = wallet.get_fresh_keys(RECEIVING_SUBPATH, count=split_count)
-                for key in fresh_keys:
-                    derivation_path = wallet.get_derivation_path(key.keyinstance_id)
-                    pubkey = wallet.derive_pubkeys(derivation_path)
-                    outputs.append(TxOutput(split_value, pubkey.P2PKH_script()))
-                return inputs, outputs, attempted_split
-
-        for coin in spendable_coins:
-            inputs.append(coin)
-            if sum(input.value for input in inputs) >= selection_value:
-                break
-            # Increase the transaction cost for the additional required input.
-            selection_value += INPUT_COST
-        else:
-            # We failed to collect enough inputs to cover the outputs.
-            raise InsufficientCoinsError
-
-        return inputs, outputs, attempted_split
+            return inputs, outputs, attempted_split

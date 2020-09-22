@@ -375,6 +375,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             # Approximate size of a transaction with one P2PKH input and one P2PKH output.
             base_fee = self.app_state.config.estimate_fee(203)
             loop = asyncio.get_event_loop()
+            # run in thread - CPU intensive code
             partial_coin_selection = partial(self.select_inputs_and_outputs,
                 self.app_state.config, account, base_fee,
                 split_count=split_count, desired_utxo_count=desired_utxo_count,
