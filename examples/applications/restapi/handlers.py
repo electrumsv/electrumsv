@@ -1,6 +1,5 @@
 import asyncio
 import os
-from concurrent.futures.thread import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from typing import Union, Any
@@ -17,7 +16,7 @@ from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, good_response, fault_to_http_response
 from electrumsv.regtest_support import regtest_generate_nblocks, regtest_topup_account
 from .errors import Errors
-from .handler_utils import ExtendedHandlerUtils, VNAME
+from .handler_utils import ExtendedHandlerUtils, VNAME, InsufficientCoinsError
 
 
 class ExtensionEndpoints(ExtendedHandlerUtils):
@@ -403,7 +402,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         except aiorpcx.jsonrpc.RPCError as e:
             self.remove_signed_transaction(tx, account)
             return fault_to_http_response(Fault(Errors.AIORPCX_ERROR_CODE, e.message))
-        except InsufficientCoins as e:
+        except InsufficientCoinsError as e:
             self.logger.debug(Errors.INSUFFICIENT_COINS_MESSAGE)
             self.logger.debug("utxos remaining: %s", account.get_utxos())
             return fault_to_http_response(
