@@ -2432,6 +2432,9 @@ class Wallet(TriggeredCallbacks):
     def get_transaction_delta_table(self) -> TransactionDeltaTable:
         return TransactionDeltaTable(self.get_db_context())
 
+    def get_transactionoutput_table(self) -> TransactionOutputTable:
+        return TransactionOutputTable(self.get_db_context())
+
     def create_payment_requests(self, requests: List[PaymentRequestRow],
             completion_callback: Optional[CompletionCallbackType]=None) -> List[PaymentRequestRow]:
         request_id = self._storage.get("next_paymentrequest_id", 1)

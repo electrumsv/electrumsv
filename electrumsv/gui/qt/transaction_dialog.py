@@ -44,6 +44,7 @@ from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.platform import platform
+from electrumsv.services.coins import CoinService
 from electrumsv.transaction import (Transaction, TransactionContext, tx_output_to_display_text,
     XTxOutput)
 from electrumsv.types import TxoKeyType
@@ -94,6 +95,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._account = account
         self._account_id = account.get_id() if account is not None else None
         self._payment_request = payment_request
+        self._coin_service = CoinService(self._wallet)
         self._prompt_if_unsaved = prompt_if_unsaved
         self._saved = False
 
@@ -386,9 +388,21 @@ class TxDialog(QDialog, MessageBoxMixin):
         o_table = MyTreeWidget(self, self._main_window, self._on_tree_menu,
             [ _("Index"), _("Account"), _("Destination"), _("Amount") ], 2)
 
-        vbox.addWidget(QLabel(_("Inputs") + ' (%d)' % len(self.tx.inputs)))
+        self._spent_value_label = QLabel()
+        input_header_layout = QHBoxLayout()
+        input_header_layout.addWidget(QLabel(_("Inputs") + ' (%d)' % len(self.tx.inputs)))
+        input_header_layout.addStretch(1)
+        input_header_layout.addWidget(self._spent_value_label)
+
+        self._received_value_label = QLabel()
+        output_header_layout = QHBoxLayout()
+        output_header_layout.addWidget(QLabel(_("Outputs") + ' (%d)' % len(self.tx.outputs)))
+        output_header_layout.addStretch(1)
+        output_header_layout.addWidget(self._received_value_label)
+
+        vbox.addLayout(input_header_layout)
         vbox.addWidget(i_table)
-        vbox.addWidget(QLabel(_("Outputs") + ' (%d)' % len(self.tx.outputs)))
+        vbox.addLayout(output_header_layout)
         vbox.addWidget(o_table)
 
         self._update_io(i_table, o_table)
@@ -428,6 +442,12 @@ class TxDialog(QDialog, MessageBoxMixin):
             name = account.display_name()
             return f"{account.get_id()}: {name}"
 
+        prev_txos = self._coin_service.get_outputs(
+            [ TxoKeyType(txin.prev_hash, txin.prev_idx) for txin in self.tx.inputs ])
+        prev_txo_dict = { TxoKeyType(r.tx_hash, r.tx_index): r for r in prev_txos }
+        self._spent_value_label.setText(_("Spent input value") +": "+
+            app_state.format_amount(sum(r.value for r in prev_txos)))
+
         for tx_index, txin in enumerate(self.tx.inputs):
             account_name = ""
             source_text = ""
@@ -439,14 +459,16 @@ class TxDialog(QDialog, MessageBoxMixin):
             else:
                 prev_hash_hex = hash_to_hex_str(txin.prev_hash)
                 source_text = f"{prev_hash_hex}:{txin.prev_idx}"
+                value = txin.value
                 if self._account is not None:
                     txo_key = TxoKeyType(txin.prev_hash, txin.prev_idx)
                     is_receiving = compare_key_path(self._account, txo_key, RECEIVING_SUBPATH)
                     is_change = compare_key_path(self._account, txo_key, CHANGE_SUBPATH)
                     account_name = name_for_account(self._account)
+                    prev_txo = prev_txo_dict.get(txo_key, None)
+                    value = prev_txo.value if prev_txo is not None else value
                 # TODO(rt12): When does a txin have a value? Loaded incomplete transactions only?
-                if txin.value is not None:
-                    amount_text = app_state.format_amount(txin.value, whitespaces=True)
+                amount_text = app_state.format_amount(value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, source_text, amount_text ])
             # item.setData(0, Qt.UserRole, row.paymentrequest_id)
@@ -458,6 +480,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             item.setFont(3, self._monospace_font)
             i_table.addTopLevelItem(item)
 
+        received_value = 0
         for tx_index, tx_output in enumerate(self.tx.outputs):
             text, _kind = tx_output_to_display_text(tx_output)
             if isinstance(_kind, Unknown_Output):
@@ -478,6 +501,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     is_receiving = compare_key_path(account, txo_key, RECEIVING_SUBPATH)
                     is_change = compare_key_path(account, txo_key, CHANGE_SUBPATH)
                     account_name = name_for_account(account)
+                    received_value += tx_output.value
                     break
 
             amount_text = app_state.format_amount(tx_output.value, whitespaces=True)
@@ -491,6 +515,9 @@ class TxDialog(QDialog, MessageBoxMixin):
             item.setTextAlignment(3, Qt.AlignRight | Qt.AlignVCenter)
             item.setFont(3, self._monospace_font)
             o_table.addTopLevelItem(item)
+
+        self._received_value_label.setText(_("Received output value") +": "+
+            app_state.format_amount(received_value))
 
     def _on_tree_menu(self, position) -> None:
         pass

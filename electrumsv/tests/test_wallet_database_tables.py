@@ -16,6 +16,7 @@ from typing import List
 from electrumsv.constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
     PaymentFlag, KeyInstanceFlag, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
+from electrumsv.types import TxoKeyType
 from electrumsv.wallet_database import (migration, KeyInstanceTable, MasterKeyTable,
     PaymentRequestTable, TransactionTable, DatabaseContext, TransactionDeltaTable,
     TransactionOutputTable, SynchronousWriter, TxData, TxProof, AccountTable)
@@ -976,6 +977,20 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
         db_lines = table.read(key_ids=[ line.keyinstance_id ])
         assert 1 == len(db_lines)
         assert line.keyinstance_id == db_lines[0].keyinstance_id
+
+    txo_values = table.read_txokeys([ TxoKeyType(line1.tx_hash, line1.tx_index) ])
+    assert len(txo_values) == 1
+    assert (txo_values[0].tx_hash, txo_values[0].tx_index, txo_values[0].value) == \
+        (line1.tx_hash, line1.tx_index, 100)
+
+    txo_values = table.read_txokeys([ TxoKeyType(line2.tx_hash, line2.tx_index) ])
+    assert len(txo_values) == 1
+    assert (txo_values[0].tx_hash, txo_values[0].tx_index, txo_values[0].value) == \
+        (line2.tx_hash, line2.tx_index, 200)
+
+    txo_values = table.read_txokeys([ TxoKeyType(line1.tx_hash, line1.tx_index),
+        TxoKeyType(line2.tx_hash, line2.tx_index) ])
+    assert len(txo_values) == 2
 
     with SynchronousWriter() as writer:
         table.delete([ line2[0:2] ], completion_callback=writer.get_callback())
