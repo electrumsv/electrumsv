@@ -2,10 +2,12 @@ import hashlib
 import logging
 import os
 import pathlib
+import queue
 import shutil
 import subprocess
 import sys
-from typing import Any, Dict, Optional, Sequence
+import threading
+from typing import Any, Dict, TextIO, Optional, Sequence, Tuple
 import zipfile
 
 import requests
@@ -71,13 +73,36 @@ def _download_file(url: str, output_path: pathlib.Path) -> None:
 
 
 def _run_command(*args: Sequence[str], cwd: Optional[pathlib.Path]=None) -> None:
+    def get_lines(fd: TextIO, local_queue: queue.Queue) -> None:
+        for line in iter(fd.readline, ''):
+            local_queue.put(line)
+        local_queue.put(None)
+
+    def create_reader_thread(fd: TextIO) -> Tuple[queue.Queue, threading.Thread]:
+        local_queue = queue.Queue()
+        thread = threading.Thread(target=get_lines, args=(fd, local_queue))
+        thread.daemon = True
+        thread.start()
+        return local_queue, thread
+
     env = {}
     env['SYSTEMROOT'] = os.environ['SYSTEMROOT']
-    p = subprocess.Popen(args, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    text = p.stdout.readline()
-    while text:
-        logger.debug(text.decode())
-        text = p.stdout.readline()
+    process = subprocess.Popen(args, env=env, cwd=cwd, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, universal_newlines=True)
+
+    debug_queue, stdout_thread = create_reader_thread(process.stdout)
+    error_queue, stderr_thread = create_reader_thread(process.stderr)
+
+    errored = False
+    while stdout_thread.is_alive() or stderr_thread.is_alive():
+        for line in iter(debug_queue.get, None):
+            logger.debug(line.rstrip())
+        for line in iter(error_queue.get, None):
+            errored = errored or "ERROR:" in line
+            logger.error(line.rstrip())
+
+    if errored:
+        raise Exception("Process errored")
 
 
 def run(arch: str, python_version: str) -> None:
@@ -113,18 +138,18 @@ def run(arch: str, python_version: str) -> None:
 
     # We align pip, setuptools and wheel in order to prevent pip-related errors.
     _run_command(str(build_path / "python.exe"), str(base_output_path / "get-pip.py"),
-        "--no-warn-script-location", "pip==20.2.2", "setuptools==49.6.0",
+        "--no-warn-script-location", "pip==20.2.3", "setuptools==50.3.0",
         "wheel==0.35.1", cwd=build_path)
 
-    _run_command(str(build_path / "Scripts" / "pip3.exe"), "install", "virtualenv",
-        "--no-warn-script-location", cwd=build_path)
+    # _run_command(str(build_path / "Scripts" / "pip3.exe"), "install", "virtualenv",
+    #     "--no-warn-script-location", cwd=build_path)
 
     # _run_command(str(build_path / "Scripts" / "virtualenv.exe"), str(venv_path), cwd=build_path)
 
     # assert venv_path.exists()
 
     for ext_text in ("", "-binaries", "-hw"):
-        _run_command(str(build_path / "Scripts" / "pip3.exe"), "install", "-r",
+        _run_command(str(build_path / "Scripts" / "pip3.exe"), "-v", "install", "-r",
             str(REQUIREMENTS_PATH / f"requirements{ext_text}.txt"), "--no-warn-script-location",
             cwd=build_path)
 
