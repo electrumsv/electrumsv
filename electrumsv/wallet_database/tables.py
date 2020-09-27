@@ -776,17 +776,13 @@ class TransactionOutputTable(BaseWalletStore):
     def read(self, mask: Optional[TransactionOutputFlag]=None,
             key_ids: Optional[List[int]]=None) -> Iterable[TransactionOutputRow]:
         results: List[TransactionOutputRow] = []
-        def _collect_results(cursor: sqlite3.Cursor, results: List[TransactionOutputRow]) -> None:
-            rows = cursor.fetchall()
-            cursor.close()
-            for row in rows:
-                results.append(TransactionOutputRow(*row))
 
         query = self.READ_SQL
         params: List[int] = []
         if mask is not None:
             query += " WHERE (flags & ?) != 0"
             params = [ mask ]
+
         if key_ids:
             keyword = " AND" if len(params) else " WHERE"
             batch_size = SQLITE_MAX_VARS - len(params)
@@ -795,11 +791,11 @@ class TransactionOutputTable(BaseWalletStore):
                 param_str = ",".join("?" for k in batch_ids)
                 batch_query = query + f"{keyword} keyinstance_id IN ({param_str})"
                 cursor = self._db.execute(batch_query, params + batch_ids)
-                _collect_results(cursor, results)
+                collect_results(TransactionOutputRow, cursor, results)
                 key_ids = key_ids[batch_size:]
         else:
             cursor = self._db.execute(query, params)
-            _collect_results(cursor, results)
+            collect_results(TransactionOutputRow, cursor, results)
 
         return results
 

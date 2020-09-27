@@ -25,21 +25,25 @@
 
 import copy
 import datetime
+import enum
+from functools import partial
 import gzip
 import json
 import math
 from typing import List, NamedTuple, Optional, Sequence, Set, Tuple
+import webbrowser
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QBrush, QCursor, QFont
-from PyQt5.QtWidgets import (QDialog, QLabel, QPushButton, QHBoxLayout,
-    QToolTip, QTreeWidgetItem, QVBoxLayout)
+from PyQt5.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
+    QToolTip, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from bitcoinx import hash_to_hex_str, MissingHeader, Unknown_Output
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import base_encode, script_bytes_to_asm
-from electrumsv.constants import CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, TxFlags
+from electrumsv.constants import CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, TxFlags, \
+    TransactionOutputFlag
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.paymentrequest import PaymentRequest
@@ -49,11 +53,11 @@ from electrumsv.transaction import (Transaction, TransactionContext, tx_output_t
     XTxOutput)
 from electrumsv.types import TxoKeyType
 from electrumsv.wallet import AbstractAccount
-
+import electrumsv.web as web
 
 from .constants import UIBroadcastSource
-from .util import (Buttons, ButtonsLineEdit, ColorScheme, FormSectionWidget, MessageBoxMixin,
-    MyTreeWidget, read_QIcon)
+from .util import (Buttons, ButtonsLineEdit, ColorScheme, FormSectionWidget, MessageBox,
+    MessageBoxMixin, MyTreeWidget, read_QIcon)
 
 
 logger = logs.get_logger("tx-dialog")
@@ -68,10 +72,30 @@ class TxInfo(NamedTuple):
     fee: Optional[int]
     height: Optional[int]
     conf: Optional[int]
-    timestamp: Optional[int]
+    date_mined: Optional[int]
+    date_created: Optional[int]
 
-# TxInfo = namedtuple('TxInfo', 'hash status label can_broadcast amount '
-#                     'fee height conf timestamp')
+
+class InputColumns(enum.IntEnum):
+    INDEX = 0
+    ACCOUNT = 1
+    SOURCE = 2
+    AMOUNT = 3
+
+
+class OutputColumns(enum.IntEnum):
+    INDEX = 0
+    ACCOUNT = 1
+    DESTINATION = 2
+    AMOUNT = 3
+
+
+class Roles(enum.IntEnum):
+    ACCOUNT_ID = Qt.UserRole
+    TX_HASH = Qt.UserRole + 1
+    IS_MINE = Qt.UserRole + 2
+    KEY_ID = Qt.UserRole + 3
+
 
 class TxDialog(QDialog, MessageBoxMixin):
     def __init__(self, account: Optional[AbstractAccount], tx: Transaction,
@@ -105,6 +129,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         self._change_brush = QBrush(ColorScheme.YELLOW.as_color(background=True))
         self._receiving_brush = QBrush(ColorScheme.GREEN.as_color(background=True))
+        self._broken_brush = QBrush(ColorScheme.RED.as_color(background=True))
 
         form = FormSectionWidget()
 
@@ -348,12 +373,16 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.tx_desc.show()
         self.status_label.setText(tx_info.status)
 
-        if tx_info.timestamp:
-            time_str = datetime.datetime.fromtimestamp(tx_info.timestamp).isoformat(' ')[:-3]
-            self.date_label.setText(time_str)
-            self.date_label.show()
-        else:
-            self.date_label.hide()
+
+        time_str = ""
+        if tx_info.date_mined:
+            time_str = datetime.datetime.fromtimestamp(tx_info.date_mined).isoformat(' ')[:-3]
+            time_str += "\n"
+        time_str += (datetime.datetime.fromtimestamp(tx_info.date_created).isoformat(' ')[:-3] +
+            " ("+ _("added to account") +")")
+
+        self.date_label.setText(time_str)
+        self.date_label.show()
 
         if tx_info.amount is None:
             amount_str = _("Unknown")
@@ -383,10 +412,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.cosigner_button.setVisible(visible)
 
     def _add_io(self, vbox: QVBoxLayout) -> None:
-        i_table = MyTreeWidget(self, self._main_window, self._on_tree_menu,
-            [ _("Index"), _("Account"), _("Source"), _("Amount") ], 2)
-        o_table = MyTreeWidget(self, self._main_window, self._on_tree_menu,
-            [ _("Index"), _("Account"), _("Destination"), _("Amount") ], 2)
+        self._i_table = InputTreeWidget(self, self._main_window)
+        self._o_table = OutputTreeWidget(self, self._main_window)
 
         self._spent_value_label = QLabel()
         input_header_layout = QHBoxLayout()
@@ -401,11 +428,11 @@ class TxDialog(QDialog, MessageBoxMixin):
         output_header_layout.addWidget(self._received_value_label)
 
         vbox.addLayout(input_header_layout)
-        vbox.addWidget(i_table)
+        vbox.addWidget(self._i_table)
         vbox.addLayout(output_header_layout)
-        vbox.addWidget(o_table)
+        vbox.addWidget(self._o_table)
 
-        self._update_io(i_table, o_table)
+        self._update_io(self._i_table, self._o_table)
 
     def _update_io(self, i_table: MyTreeWidget, o_table: MyTreeWidget) -> None:
         def get_xtxoutput_account(output: XTxOutput) -> Optional[AbstractAccount]:
@@ -424,19 +451,19 @@ class TxDialog(QDialog, MessageBoxMixin):
         if self._account is not None:
             known_txos = set(self._account._utxos) | set(self._account._stxos)
 
-        def compare_key_path(account: AbstractAccount, txo_key: TxoKeyType,
-                leading_path: Sequence[int]) -> bool:
+        def get_keyinstance_id(account: AbstractAccount, txo_key: TxoKeyType) -> Optional[int]:
             utxo = account._utxos.get(txo_key)
             if utxo is not None:
-                key_path = account.get_derivation_path(utxo.keyinstance_id)
-                if key_path is not None and key_path[:len(leading_path)] == leading_path:
-                    return True
+                return utxo.keyinstance_id
             stxo_keyinstance_id = account._stxos.get(txo_key)
             if stxo_keyinstance_id is not None:
-                key_path = account.get_derivation_path(stxo_keyinstance_id)
-                if key_path is not None and key_path[:len(leading_path)] == leading_path:
-                    return True
-            return False
+                return stxo_keyinstance_id
+            return None
+
+        def compare_key_path(account: AbstractAccount, keyinstance_id: int,
+                leading_path: Sequence[int]) -> bool:
+            key_path = account.get_derivation_path(keyinstance_id)
+            return key_path is not None and key_path[:len(leading_path)] == leading_path
 
         def name_for_account(account: AbstractAccount) -> str:
             name = account.display_name()
@@ -452,7 +479,8 @@ class TxDialog(QDialog, MessageBoxMixin):
             account_name = ""
             source_text = ""
             amount_text = ""
-            is_receiving = is_change = False
+            is_receiving = is_change = is_broken = False
+            txo_key = TxoKeyType(txin.prev_hash, txin.prev_idx)
 
             if txin.is_coinbase():
                 source_text = "<coinbase>"
@@ -461,23 +489,29 @@ class TxDialog(QDialog, MessageBoxMixin):
                 source_text = f"{prev_hash_hex}:{txin.prev_idx}"
                 value = txin.value
                 if self._account is not None:
-                    txo_key = TxoKeyType(txin.prev_hash, txin.prev_idx)
-                    is_receiving = compare_key_path(self._account, txo_key, RECEIVING_SUBPATH)
-                    is_change = compare_key_path(self._account, txo_key, CHANGE_SUBPATH)
+                    keyinstance_id = get_keyinstance_id(self._account, txo_key)
+                    is_receiving = compare_key_path(self._account, keyinstance_id,
+                        RECEIVING_SUBPATH)
+                    is_change = compare_key_path(self._account, keyinstance_id, CHANGE_SUBPATH)
                     account_name = name_for_account(self._account)
                     prev_txo = prev_txo_dict.get(txo_key, None)
-                    value = prev_txo.value if prev_txo is not None else value
+                    if prev_txo is not None:
+                        value = prev_txo.value
+                        is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) == 0
                 # TODO(rt12): When does a txin have a value? Loaded incomplete transactions only?
                 amount_text = app_state.format_amount(value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, source_text, amount_text ])
-            # item.setData(0, Qt.UserRole, row.paymentrequest_id)
+            item.setData(InputColumns.INDEX, Roles.TX_HASH, txin.prev_hash)
+            item.setData(InputColumns.INDEX, Roles.IS_MINE, is_change or is_receiving)
             if is_receiving:
-                item.setBackground(2, self._receiving_brush)
+                item.setBackground(InputColumns.SOURCE, self._receiving_brush)
             if is_change:
-                item.setBackground(2, self._change_brush)
-            item.setTextAlignment(3, Qt.AlignRight | Qt.AlignVCenter)
-            item.setFont(3, self._monospace_font)
+                item.setBackground(InputColumns.SOURCE, self._change_brush)
+            if is_broken:
+                item.setBackground(InputColumns.SOURCE, self._broken_brush)
+            item.setTextAlignment(InputColumns.AMOUNT, Qt.AlignRight | Qt.AlignVCenter)
+            item.setFont(InputColumns.AMOUNT, self._monospace_font)
             i_table.addTopLevelItem(item)
 
         received_value = 0
@@ -493,13 +527,17 @@ class TxDialog(QDialog, MessageBoxMixin):
             if self._account is not None and account is not self._account:
                 accounts.append(self._account)
 
+            account_id: Optional[int] = None
             account_name = ""
+            keyinstance_id: Optional[int] = None
             is_receiving = is_change = False
             txo_key = TxoKeyType(self._tx_hash, tx_index)
             for account in accounts:
-                if txo_key in account._stxos or txo_key in account._utxos:
-                    is_receiving = compare_key_path(account, txo_key, RECEIVING_SUBPATH)
-                    is_change = compare_key_path(account, txo_key, CHANGE_SUBPATH)
+                keyinstance_id = get_keyinstance_id(account, txo_key)
+                if keyinstance_id is not None:
+                    account_id = account.get_id()
+                    is_receiving = compare_key_path(account, keyinstance_id, RECEIVING_SUBPATH)
+                    is_change = compare_key_path(account, keyinstance_id, CHANGE_SUBPATH)
                     account_name = name_for_account(account)
                     received_value += tx_output.value
                     break
@@ -507,27 +545,26 @@ class TxDialog(QDialog, MessageBoxMixin):
             amount_text = app_state.format_amount(tx_output.value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, text, amount_text ])
-            # item.setData(0, Qt.UserRole, row.paymentrequest_id)
+            item.setData(OutputColumns.INDEX, Roles.IS_MINE, is_change or is_receiving)
+            item.setData(OutputColumns.INDEX, Roles.ACCOUNT_ID, account_id)
+            item.setData(OutputColumns.INDEX, Roles.KEY_ID, keyinstance_id)
             if is_receiving:
-                item.setBackground(2, self._receiving_brush)
+                item.setBackground(OutputColumns.DESTINATION, self._receiving_brush)
             if is_change:
-                item.setBackground(2, self._change_brush)
-            item.setTextAlignment(3, Qt.AlignRight | Qt.AlignVCenter)
-            item.setFont(3, self._monospace_font)
+                item.setBackground(OutputColumns.DESTINATION, self._change_brush)
+            item.setTextAlignment(OutputColumns.AMOUNT, Qt.AlignRight | Qt.AlignVCenter)
+            item.setFont(OutputColumns.AMOUNT, self._monospace_font)
             o_table.addTopLevelItem(item)
 
         self._received_value_label.setText(_("Received output value") +": "+
             app_state.format_amount(received_value))
-
-    def _on_tree_menu(self, position) -> None:
-        pass
 
     # Only called from the history ui dialog.
     def _get_tx_info(self, tx: Transaction) -> TxInfo:
         value_delta = 0
         can_broadcast = False
         label = ''
-        fee = height = conf = timestamp = None
+        fee = height = conf = date_created = date_mined = None
         state = TxFlags.Unset
 
         wallet = self._wallet
@@ -539,6 +576,8 @@ class TxDialog(QDialog, MessageBoxMixin):
                 state = TxFlags.StateReceived | TxFlags.StateSigned
                 can_broadcast = wallet._network is not None
             else:
+                date_created = metadata.date_added
+
                 # It is possible the wallet has the transaction but it is not associated with
                 # any accounts. We still need to factor that in.
                 fee = metadata.fee
@@ -547,7 +586,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     chain = app_state.headers.longest_chain()
                     try:
                         header = app_state.headers.header_at_height(chain, metadata.height)
-                        timestamp = header.timestamp
+                        date_mined = header.timestamp
                     except MissingHeader:
                         pass
 
@@ -608,4 +647,90 @@ class TxDialog(QDialog, MessageBoxMixin):
             amount = None
 
         return TxInfo(self._tx_hash, state, status, label, can_broadcast, amount, fee, height,
-            conf, timestamp)
+            conf, date_mined, date_created)
+
+
+class InputTreeWidget(MyTreeWidget):
+    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
+        MyTreeWidget.__init__(self, parent, main_window, self._create_menu,
+            [ _("Index"), _("Account"), _("Source"), _("Amount") ], InputColumns.SOURCE, [])
+
+    def on_doubleclick(self, item: QTreeWidgetItem, column: int) -> None:
+        if self.permit_edit(item, column):
+            super(InputTreeWidget, self).on_doubleclick(item, column)
+        else:
+            tx_hash = item.data(InputColumns.INDEX, Roles.TX_HASH)
+            self._show_other_transaction(tx_hash)
+
+    def _create_menu(self, position) -> None:
+        item = self.currentItem()
+        if not item:
+            return
+
+        column = self.currentColumn()
+        column_title = self.headerItem().text(column)
+        column_data = item.text(column).strip()
+
+        is_mine = item.data(InputColumns.INDEX, Roles.IS_MINE)
+        tx_hash = item.data(InputColumns.INDEX, Roles.TX_HASH)
+
+        tx_id = hash_to_hex_str(tx_hash)
+        tx_URL = web.BE_URL(self._main_window.config, 'tx', tx_id)
+
+        menu = QMenu()
+        menu.addAction(_("Copy {}").format(column_title),
+            lambda: self._main_window.app.clipboard().setText(column_data))
+        details_menu = menu.addAction(_("Details"), partial(self._show_other_transaction, tx_hash))
+        details_menu.setEnabled(is_mine)
+        if tx_URL:
+            menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
+        menu.exec_(self.viewport().mapToGlobal(position))
+
+    def _show_other_transaction(self, tx_hash: bytes) -> None:
+        dialog = self.parent()
+        account = dialog._account
+        tx = account.get_transaction(tx_hash)
+        if tx is not None:
+            self._main_window.show_transaction(account, tx)
+        else:
+            MessageBox.show_error(_("The full transaction is not yet present in your wallet."+
+                " Please try again when it has been obtained from the network."))
+
+
+class OutputTreeWidget(MyTreeWidget):
+    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
+        MyTreeWidget.__init__(self, parent, main_window, self._create_menu,
+            [ _("Index"), _("Account"), _("Destination"), _("Amount") ],
+            OutputColumns.DESTINATION, [])
+
+    def on_doubleclick(self, item: QTreeWidgetItem, column: int) -> None:
+        if self.permit_edit(item, column):
+            super(OutputTreeWidget, self).on_doubleclick(item, column)
+        else:
+            pass
+
+    def _create_menu(self, position) -> None:
+        item = self.currentItem()
+        if not item:
+            return
+
+        column = self.currentColumn()
+        column_title = self.headerItem().text(column)
+        column_data = item.text(column).strip()
+
+        is_mine = item.data(OutputColumns.INDEX, Roles.IS_MINE)
+
+        menu = QMenu()
+        menu.addAction(_("Copy {}").format(column_title),
+            lambda: self._main_window.app.clipboard().setText(column_data))
+        menu.exec_(self.viewport().mapToGlobal(position))
+
+    def _show_other_transaction(self, tx_hash: bytes) -> None:
+        dialog = self.parent()
+        account = dialog._account
+        tx = account.get_transaction(tx_hash)
+        if tx is not None:
+            self._main_window.show_transaction(account, tx)
+        else:
+            MessageBox.show_error(_("The full transaction is not yet present in your wallet."+
+                " Please try again when it has been obtained from the network."))
