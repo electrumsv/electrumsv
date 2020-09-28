@@ -557,3 +557,10 @@ class ExtendedHandlerUtils(HandlerUtils):
                 raise InsufficientCoinsError
 
             return inputs, outputs, attempted_split
+
+    def cleanup_tx(self, tx, account, frozen_utxos):
+        """Use of the frozen utxo mechanic may be phased out because signing a tx allocates the
+        utxos thus making freezing redundant."""
+        if len(frozen_utxos) != 0:
+            account.set_frozen_coin_state(frozen_utxos, False)
+        self.remove_signed_transaction(tx, account)

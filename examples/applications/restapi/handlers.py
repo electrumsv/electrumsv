@@ -302,35 +302,55 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         - Should handle any kind of output script.( see bitcoinx.address for
         utilities for building p2pkh, multisig etc outputs as hex strings.)
         """
+        frozen_utxos = []
+        account = None
+        tx = None
         try:
             tx, account, password = await self._create_tx_helper(request)
             self.raise_for_duplicate_tx(tx)
             account.sign_transaction(tx, password)
 
-            _frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
+            frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
             response = {"value": {"txid": tx.txid(),
                                   "rawtx": str(tx)}}
             return good_response(response)
         except Fault as e:
+            if tx and tx.is_complete() and e.code != Fault(Errors.ALREADY_SENT_TRANSACTION_CODE):
+                self.cleanup_tx(tx, account, frozen_utxos)
             return fault_to_http_response(e)
+        except Exception as e:
+            if tx and tx.is_complete():
+                self.cleanup_tx(tx, account, None)
+            return fault_to_http_response(
+                Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
 
     async def create_and_broadcast(self, request):
+        frozen_utxos = []
+        account = None
+        tx = None
         try:
             tx, account, password = await self._create_tx_helper(request)
             self.raise_for_duplicate_tx(tx)
             account.sign_transaction(tx, password)
             frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
-            result = await self._broadcast_transaction(str(tx), tx.hash(), account)
+            try:
+                result = await self._broadcast_transaction(str(tx), tx.hash(), account)
+            except aiorpcx.jsonrpc.RPCError as e:
+                raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
             self.prev_transaction = result
             response = {"value": {"txid": result}}
             self.logger.debug("successful broadcast for %s", result)
             return good_response(response)
         except Fault as e:
+            if len(frozen_utxos) != 0 and e.code != Errors.ALREADY_SENT_TRANSACTION_CODE:
+                self.cleanup_tx(tx, account, frozen_utxos)
             return fault_to_http_response(e)
-        except aiorpcx.jsonrpc.RPCError as e:
-            account.set_frozen_coin_state(frozen_utxos, False)
-            self.remove_signed_transaction(tx, account)
-            return fault_to_http_response(Fault(Errors.AIORPCX_ERROR_CODE, e.message))
+        except Exception as e:
+            self.logger.exception(e)
+            if len(frozen_utxos) != 0:
+                self.cleanup_tx(tx, account, frozen_utxos)
+            return fault_to_http_response(
+                Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
 
     async def broadcast(self, request):
         """Broadcast a rawtx (hex string) to the network. """
@@ -345,18 +365,19 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             tx = Transaction.from_hex(rawtx)
             self.raise_for_duplicate_tx(tx)
             frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
-            result = await self._broadcast_transaction(rawtx, tx.hash(), account)
+            try:
+                result = await self._broadcast_transaction(rawtx, tx.hash(), account)
+            except aiorpcx.jsonrpc.RPCError as e:
+                raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
             self.prev_transaction = result
             response = {"value": {"txid": result}}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
-        except aiorpcx.jsonrpc.RPCError as e:
-            account.set_frozen_coin_state(frozen_utxos, False)
-            self.remove_signed_transaction(tx, account)
-            return fault_to_http_response(Fault(Errors.AIORPCX_ERROR_CODE, e.message))
 
     async def split_utxos(self, request) -> Union[Fault, Any]:
+        account = None
+        tx = None
         try:
             required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.SPLIT_COUNT, VNAME.PASSWORD]
             vars = await self.argparser(request, required_vars=required_vars)
@@ -399,12 +420,16 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             response = {"value": {"txid": result}}
             return good_response(response)
         except Fault as e:
+            if tx and tx.is_complete() and e.code != Fault(Errors.ALREADY_SENT_TRANSACTION_CODE):
+                self.cleanup_tx(tx, account, None)
             return fault_to_http_response(e)
-        except aiorpcx.jsonrpc.RPCError as e:
-            self.remove_signed_transaction(tx, account)
-            return fault_to_http_response(Fault(Errors.AIORPCX_ERROR_CODE, e.message))
         except InsufficientCoinsError as e:
             self.logger.debug(Errors.INSUFFICIENT_COINS_MESSAGE)
             self.logger.debug("utxos remaining: %s", account.get_utxos())
             return fault_to_http_response(
                 Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE))
+        except Exception as e:
+            if tx and tx.is_complete():
+                self.cleanup_tx(tx, account, None)
+            return fault_to_http_response(
+                Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
