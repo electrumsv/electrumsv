@@ -15,6 +15,7 @@ from electrumsv.constants import TransactionOutputFlag, ScriptType
 from electrumsv.restapi import good_response, Fault
 from electrumsv.wallet import UTXO, Wallet, AbstractAccount
 from electrumsv.transaction import Transaction
+from ..errors import Errors
 
 from ..handlers import ExtensionEndpoints
 
@@ -136,7 +137,6 @@ def _fake_create_transaction_succeeded(file_id, message_bytes, child_wallet, pas
     frozen_utxos = set([])
     return tx, frozen_utxos
 
-
 async def _fake_broadcast_tx(rawtx: str, tx_hash: bytes, account: AbstractAccount) -> str:
     return "6797415e3b4a9fbb61b209302374853bdefeb4567ad0ed76ade055e94b9b66a2"
 
@@ -205,6 +205,9 @@ class MockApp:
         pass
 
     def get_and_set_frozen_utxos_for_tx(self):
+        pass
+
+    def _create_tx_helper(self):
         pass
 
 
@@ -284,6 +287,9 @@ class MockDefaultEndpoints(ExtensionEndpoints):
 
     def _fake_get_and_set_frozen_utxos_for_tx(self, tx, child_wallet):
         return
+
+    def _fake_create_tx_helper_raise_exception(self, request) -> Tuple[Any, set]:
+        raise Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE)
 
     async def _fake_send_request(self, method, args):
         '''fake for 'blockchain.transaction.broadcast' '''
@@ -538,6 +544,40 @@ class TestDefaultEndpoints:
         expected_json = {"value": {"txid": Transaction.from_hex(rawtx).txid(),
                                    "rawtx": rawtx}}
         assert resp.status == 200, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == expected_json
+
+    async def test_create_tx_insufficient_coins(self, monkeypatch, cli):
+        """ensure that exception handling works even if no tx was successfully created"""
+        class MockEventLoop:
+
+            def get_debug(self):
+                return
+
+        def _fake_get_event_loop():
+            return MockEventLoop()
+
+        monkeypatch.setattr(self.rest_server, '_get_account',
+                            _fake_get_account_succeeded)
+        monkeypatch.setattr(self.rest_server, '_create_tx_helper',
+                            self.rest_server._fake_create_tx_helper_raise_exception)
+        monkeypatch.setattr(asyncio, 'get_event_loop', _fake_get_event_loop)
+        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
+                            self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        index = "1"
+        password = "mypass"
+        resp = await cli.request(path=f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                                      f"{index}/txs/create",
+                                 method='post',
+                                 json={"outputs": [P2PKH_OUTPUT],
+                                       "password": password})
+        # check
+        expected_json = {'code': 40006, 'message': 'You have insufficient coins for this transaction'}
+        assert resp.status == 400, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
 
