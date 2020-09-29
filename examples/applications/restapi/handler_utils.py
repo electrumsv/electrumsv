@@ -310,9 +310,7 @@ class ExtendedHandlerUtils(HandlerUtils):
         return {"tx_hex": tx.to_hex()}
 
     def _wallet_name_available(self, wallet_name) -> bool:
-        available_wallet_names = set(self.all_wallets)
-        for path in self.app_state.daemon.wallets.keys():
-            available_wallet_names.add(os.path.basename(path))
+        available_wallet_names = self._get_all_wallets(self.wallets_path)
         if wallet_name in available_wallet_names:
             return True
         return False

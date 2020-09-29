@@ -346,7 +346,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
                 self.cleanup_tx(tx, account, frozen_utxos)
             return fault_to_http_response(e)
         except Exception as e:
-            self.logger.exception(e)
+            self.logger.exception("unexpected error in create_and_broadcast handler")
             if len(frozen_utxos) != 0 and not (
                     isinstance(e, AssertionError) and str(e) == 'duplicate set not supported'):
                 self.cleanup_tx(tx, account, frozen_utxos)

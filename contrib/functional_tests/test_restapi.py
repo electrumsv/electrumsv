@@ -240,6 +240,8 @@ class TestRestAPI:
 
         async def main():
             async with aiohttp.ClientSession() as session:
+                # Todo - use websocket instead of sleeps
+                time.sleep(6)
                 # get tx history before tests to compare later
                 result1 = await self.get_tx_history(session)
                 error_code = result1.get('code')
@@ -311,7 +313,7 @@ class TestRestAPI:
                 assert result5 == {'code': 40006,
                                    'message': 'You have insufficient coins for this transaction'}
 
-                # Todo - there should be a websocket for getting wallet events instead of sleeps
+                # Todo - use websocket instead of sleeps
                 time.sleep(6)
 
                 # check that only 1 new txs was created
