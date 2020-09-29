@@ -347,7 +347,8 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             return fault_to_http_response(e)
         except Exception as e:
             self.logger.exception(e)
-            if len(frozen_utxos) != 0:
+            if len(frozen_utxos) != 0 and not (
+                    isinstance(e, AssertionError) and str(e) == 'duplicate set not supported'):
                 self.cleanup_tx(tx, account, frozen_utxos)
             return fault_to_http_response(
                 Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
