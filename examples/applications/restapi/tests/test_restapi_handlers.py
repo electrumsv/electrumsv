@@ -581,7 +581,7 @@ class TestDefaultEndpoints:
         response = await resp.read()
         assert json.loads(response) == expected_json
 
-    async def test_create_and_broadcast_response(self, monkeypatch, cli):
+    async def test_create_and_broadcast_good_response(self, monkeypatch, cli):
 
         monkeypatch.setattr(self.rest_server, '_get_account',
                             _fake_get_account_succeeded)
