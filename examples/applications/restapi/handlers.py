@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Union, Any
 
 import aiorpcx
+import bitcoinx
 from aiohttp import web
 from electrumsv.constants import RECEIVING_SUBPATH, DATABASE_EXT, KeystoreTextType
 from electrumsv.keystore import instantiate_keystore_from_text
@@ -177,7 +178,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         try:
             vars = await self.argparser(request,
                 required_vars=[VNAME.WALLET_NAME, VNAME.ACCOUNT_ID])
-            nblocks = vars.get(VNAME.AMOUNT, 1)
+            nblocks = vars.get(VNAME.NBLOCKS, 1)
             txid = regtest_generate_nblocks(nblocks, Net.REGTEST_P2PKH_ADDRESS)
             response = {"value": {"txid": txid}}
             return good_response(response)
@@ -193,7 +194,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account_id = vars[VNAME.ACCOUNT_ID]
 
             account = self._get_account(wallet_name, account_id)
-            result = self._coin_state_dto(wallet=account)
+            result = self._coin_state_dto(account)
             response = {"value": result}
             return good_response(response)
         except Fault as e:
@@ -240,11 +241,19 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
                                                                 VNAME.ACCOUNT_ID])
             wallet_name = vars[VNAME.WALLET_NAME]
             account_id = vars[VNAME.ACCOUNT_ID]
-
-            await self._delete_signed_txs(wallet_name, account_id)
-            ret_val = {"value": {"message": "All StateSigned transactions deleted from TxCache, "
-                                            "TxInputs and TxOutputs cache and SqliteDatabase. "
-                                            "Corresponding utxos also removed from frozen list."}}
+            txids = vars.get(VNAME.TXIDS)
+            account = self._get_account(wallet_name, account_id)
+            if txids:
+                for txid in txids:
+                    self.remove_signed_transaction(bitcoinx.hex_str_to_hash(txid), account)
+                ret_val = {"value": {"message":
+                    f"All StateSigned transactions in set: {txids} deleted from" +
+                    f"TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
+            else:
+                await self._delete_signed_txs(wallet_name, account_id)
+                ret_val = {"value": {"message":
+                    "All StateSigned transactions deleted from" +
+                    "TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
             return good_response(ret_val)
         except Fault as e:
             return fault_to_http_response(e)

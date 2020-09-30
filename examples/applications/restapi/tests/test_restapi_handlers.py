@@ -102,9 +102,12 @@ async def _fake_reset_wallet_transaction_state_succeeded(wallet_name, index) -> 
 
 
 def _fake_balance_dto_succeeded(wallet) -> Dict[Any, Any]:
-    confirmed_bal, unconfirmed_bal, mature_coinbase_bal = 10, 20, 0
-    return {"confirmed_balance": confirmed_bal + mature_coinbase_bal,
-            "unconfirmed_balance": unconfirmed_bal}
+    return {"confirmed_balance": 10,
+            "unconfirmed_balance": 20,
+            "unmatured_balance": 0}
+
+def _fake_remove_signed_transaction(tx_hash: bytes, wallet: AbstractAccount):
+    return
 
 
 def _fake_transaction_state_dto_succeeded(account, tx_ids) -> Dict[Any, Any]:
@@ -126,7 +129,8 @@ async def _fake_load_wallet_succeeds(wallet_name) -> Wallet:
 
 def _fake_coin_state_dto(wallet) -> Union[Fault, Dict[str, Any]]:
     results = {"cleared_coins": 50,
-               "settled_coins": 2000}
+               "settled_coins": 2000,
+               "unmatured": 100}
     return results
 
 
@@ -408,25 +412,6 @@ class TestDefaultEndpoints:
         response = await resp.read()
         assert json.loads(response) == expected_json
 
-    async def test_reset_child_wallet_coin_state_good_response(self, monkeypatch, cli):
-        monkeypatch.setattr(self.rest_server, '_delete_signed_txs',
-                            _fake_reset_wallet_transaction_state_succeeded)
-
-        # mock request
-        network = "test"
-        wallet_name = "wallet_file1.sqlite"
-        account_id = "1"
-        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/"
-                              f"{account_id}/txs/delete_signed_txs")
-
-        # check
-        expected_json = {"value": {"message": "All StateSigned transactions deleted from TxCache, "
-                                        "TxInputs and TxOutputs cache and SqliteDatabase. "
-                                        "Corresponding utxos also removed from frozen list."}}
-        assert resp.status == 200
-        response = await resp.read()
-        assert json.loads(response) == expected_json
-
     async def test_get_balance_good_response(self, monkeypatch, cli):
         monkeypatch.setattr(self.rest_server, '_balance_dto',
                             _fake_balance_dto_succeeded)
@@ -439,10 +424,49 @@ class TestDefaultEndpoints:
 
         # check
         expected_json = {"value": {"confirmed_balance": 10,
-                                   "unconfirmed_balance": 20}}
+                                   "unconfirmed_balance": 20,
+                                   "unmatured_balance": 0}}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
+
+    async def test_delete_signed_txs(self, monkeypatch, cli):
+        monkeypatch.setattr(self.rest_server, '_delete_signed_txs',
+                            _fake_reset_wallet_transaction_state_succeeded)
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        account_id = "1"
+        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                              f"{account_id}/txs/delete_signed_txs")
+
+        # check
+        expected_json = {"value": {"message":
+                    "All StateSigned transactions deleted from" +
+                    "TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
+        assert resp.status == 200, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == expected_json
+
+    async def test_delete_signed_txs_specific_txid(self, monkeypatch, cli):
+        monkeypatch.setattr(self.rest_server, 'remove_signed_transaction',
+                            _fake_remove_signed_transaction)
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        account_id = "1"
+        txids = ["00" * 32]
+        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                              f"{account_id}/txs/delete_signed_txs",
+                              data=json.dumps({"txids": txids}))
+
+        assert resp.status == 200, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == {"value": {"message":
+                    f"All StateSigned transactions in set: {txids} deleted from" +
+                    f"TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
 
     async def test_get_transaction_history_good_response(self, monkeypatch, cli):
         monkeypatch.setattr(self.rest_server, '_history_dto',
@@ -456,7 +480,7 @@ class TestDefaultEndpoints:
 
         # check
         expected_json = {"value": _fake_history_dto_succeeded(account=None)}
-        assert resp.status == 200
+        assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
 
@@ -489,8 +513,10 @@ class TestDefaultEndpoints:
                              f"utxos/coin_state")
 
         # check
-        expected_json = {"value": _fake_coin_state_dto(None)}
-        assert resp.status == 200
+        expected_json = {"value": {"cleared_coins": 50,
+                                   "settled_coins": 2000,
+                                   "unmatured": 100}}
+        assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
 
