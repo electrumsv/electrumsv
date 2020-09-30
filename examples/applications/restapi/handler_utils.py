@@ -9,6 +9,7 @@ import bitcoinx
 from bitcoinx import TxOutput, hash_to_hex_str, hex_str_to_hash
 from aiohttp import web
 
+from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.coinchooser import PRNG
 from electrumsv.constants import TxFlags, RECEIVING_SUBPATH
 from electrumsv.exceptions import NotEnoughFunds
@@ -20,6 +21,7 @@ from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, get_network_type, decode_request_body
 from electrumsv.simple_config import SimpleConfig
+from electrumsv.wallet_database.tables import MissingRowError
 from .errors import Errors
 
 logger = logging.getLogger("blockchain-support")
@@ -53,7 +55,7 @@ class VNAME(VARNAMES):
     SPLIT_COUNT = 'split_count'
     DESIRED_UTXO_COUNT = 'desired_utxo_count'
     SPLIT_VALUE = 'split_value'
-
+    NBLOCKS = 'nblocks'
 
 # Request types
 ADDITIONAL_ARGTYPES: Dict[str, type] = {
@@ -75,6 +77,7 @@ ADDITIONAL_ARGTYPES: Dict[str, type] = {
     VNAME.SPLIT_COUNT: int,
     VNAME.DESIRED_UTXO_COUNT: int,
     VNAME.SPLIT_VALUE: int,
+    VNAME.NBLOCKS: int,
 }
 
 ARGTYPES.update(ADDITIONAL_ARGTYPES)
@@ -83,7 +86,7 @@ HEADER_VARS = [VNAME.NETWORK, VNAME.ACCOUNT_ID, VNAME.WALLET_NAME]
 BODY_VARS = [VNAME.PASSWORD, VNAME.RAWTX, VNAME.TXIDS, VNAME.UTXOS, VNAME.OUTPUTS,
              VNAME.UTXO_PRESELECTION, VNAME.REQUIRE_CONFIRMED, VNAME.EXCLUDE_FROZEN,
              VNAME.CONFIRMED_ONLY, VNAME.MATURE, VNAME.AMOUNT, VNAME.SPLIT_COUNT,
-             VNAME.DESIRED_UTXO_COUNT, VNAME.SPLIT_VALUE]
+             VNAME.DESIRED_UTXO_COUNT, VNAME.SPLIT_VALUE, VNAME.NBLOCKS]
 
 
 class ExtendedHandlerUtils(HandlerUtils):
@@ -426,15 +429,25 @@ class ExtendedHandlerUtils(HandlerUtils):
             accounts.update(self._account_dto(account))
         return accounts
 
-    def _coin_state_dto(self, wallet) -> Union[Fault, Dict[str, Any]]:
-        all_coins = wallet.get_spendable_coins(None, {})
-        # We're looking for coins that should be able to fund at least the average transaction.
-        cleared_coins = len([coin for coin in all_coins if
-                             wallet.get_transaction_metadata(coin.tx_hash).height < 1])
-        settled_coins = len([coin for coin in all_coins if
-                             wallet.get_transaction_metadata(coin.tx_hash).height >= 1])
-        return {"cleared_coins": cleared_coins,
-                "settled_coins": settled_coins}
+    def _coin_state_dto(self, account) -> Union[Fault, Dict[str, Any]]:
+        all_coins = account.get_spendable_coins(None, {})
+        unmatured_coins = []
+        cleared_coins = []
+        settled_coins = []
+
+        for coin in all_coins:
+            metadata = account.get_transaction_metadata(coin.tx_hash)
+            if metadata.position == 0:
+                if metadata.height + COINBASE_MATURITY > account._wallet.get_local_height():
+                    unmatured_coins.append(coin)
+            elif metadata.height >= 1:
+                settled_coins.append(coin)
+            elif metadata.height <= 1:
+                cleared_coins.append(coin)
+
+        return {"cleared_coins": len(cleared_coins),
+                "settled_coins": len(settled_coins),
+                "unmatured_coins": len(unmatured_coins)}
 
     # ----- Helpers ----- #
 
@@ -477,15 +490,23 @@ class ExtendedHandlerUtils(HandlerUtils):
         self.logger.debug("successful broadcast for %s", result)
         return result
 
-    def remove_signed_transaction(self, tx: Transaction, wallet: AbstractAccount):
+    def remove_signed_transaction(self, tx_hash: bytes, wallet: AbstractAccount):
         # must remove signed transactions after a failed broadcast attempt (to unlock utxos)
         # if it's a re-broadcast attempt (same txid) and we already have a StateDispatched or
         # StateCleared transaction then *no deletion* should occur
-        tx_hash = tx.hash()
-        signed_tx = wallet.get_transaction(tx_hash, flags=TxFlags.StateSigned)
-
-        if signed_tx:
-            wallet.delete_transaction(tx_hash)
+        try:
+            tx = wallet.get_transaction(tx_hash)
+            tx_flags = wallet._wallet._transaction_cache.get_flags(tx_hash)
+            is_signed_state = (tx_flags & TxFlags.StateSigned) == TxFlags.StateSigned
+            if tx and is_signed_state:
+                wallet.delete_transaction(tx_hash)
+            if tx and not is_signed_state:
+                raise Fault(Errors.GENERIC_BAD_REQUEST_CODE,
+                            message=f"The transaction is found but it is not 'StateSigned'. TxFlags"
+                                    f"={str(tx_flags)}")
+        except MissingRowError:
+            raise Fault(Errors.GENERIC_BAD_REQUEST_CODE,
+                        message="The transaction is not found, perhaps the transaction is already deleted")
 
     def select_inputs_and_outputs(self, config: SimpleConfig,
                                   wallet: AbstractAccount,
@@ -562,4 +583,4 @@ class ExtendedHandlerUtils(HandlerUtils):
     def cleanup_tx(self, tx, account):
         """Use of the frozen utxo mechanic may be phased out because signing a tx allocates the
         utxos thus making freezing redundant."""
-        self.remove_signed_transaction(tx, account)
+        self.remove_signed_transaction(tx.hash(), account)
