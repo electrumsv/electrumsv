@@ -302,37 +302,28 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         - Should handle any kind of output script.( see bitcoinx.address for
         utilities for building p2pkh, multisig etc outputs as hex strings.)
         """
-        frozen_utxos = []
         account = None
         tx = None
         try:
             tx, account, password = await self._create_tx_helper(request)
-            self.raise_for_duplicate_tx(tx)
-            account.sign_transaction(tx, password)
-
-            frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
             response = {"value": {"txid": tx.txid(),
                                   "rawtx": str(tx)}}
             return good_response(response)
         except Fault as e:
             if tx and tx.is_complete() and e.code != Fault(Errors.ALREADY_SENT_TRANSACTION_CODE):
-                self.cleanup_tx(tx, account, frozen_utxos)
+                self.cleanup_tx(tx, account)
             return fault_to_http_response(e)
         except Exception as e:
             if tx and tx.is_complete():
-                self.cleanup_tx(tx, account, None)
+                self.cleanup_tx(tx, account)
             return fault_to_http_response(
                 Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
 
     async def create_and_broadcast(self, request):
-        frozen_utxos = []
         account = None
         tx = None
         try:
             tx, account, password = await self._create_tx_helper(request)
-            self.raise_for_duplicate_tx(tx)
-            account.sign_transaction(tx, password)
-            frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
             try:
                 result = await self._broadcast_transaction(str(tx), tx.hash(), account)
             except aiorpcx.jsonrpc.RPCError as e:
@@ -342,14 +333,14 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             self.logger.debug("successful broadcast for %s", result)
             return good_response(response)
         except Fault as e:
-            if len(frozen_utxos) != 0 and e.code != Errors.ALREADY_SENT_TRANSACTION_CODE:
-                self.cleanup_tx(tx, account, frozen_utxos)
+            if tx and tx.is_complete() and e.code != Errors.ALREADY_SENT_TRANSACTION_CODE:
+                self.cleanup_tx(tx, account)
             return fault_to_http_response(e)
         except Exception as e:
             self.logger.exception("unexpected error in create_and_broadcast handler")
-            if len(frozen_utxos) != 0 and not (
+            if tx and tx.is_complete() and not (
                     isinstance(e, AssertionError) and str(e) == 'duplicate set not supported'):
-                self.cleanup_tx(tx, account, frozen_utxos)
+                self.cleanup_tx(tx, account)
             return fault_to_http_response(
                 Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
 
@@ -365,7 +356,6 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account = self._get_account(wallet_name, index)
             tx = Transaction.from_hex(rawtx)
             self.raise_for_duplicate_tx(tx)
-            frozen_utxos = self.app_state.app.get_and_set_frozen_utxos_for_tx(tx, account)
             try:
                 result = await self._broadcast_transaction(rawtx, tx.hash(), account)
             except aiorpcx.jsonrpc.RPCError as e:
@@ -422,7 +412,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             return good_response(response)
         except Fault as e:
             if tx and tx.is_complete() and e.code != Fault(Errors.ALREADY_SENT_TRANSACTION_CODE):
-                self.cleanup_tx(tx, account, None)
+                self.cleanup_tx(tx, account)
             return fault_to_http_response(e)
         except InsufficientCoinsError as e:
             self.logger.debug(Errors.INSUFFICIENT_COINS_MESSAGE)
@@ -431,6 +421,6 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
                 Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE))
         except Exception as e:
             if tx and tx.is_complete():
-                self.cleanup_tx(tx, account, None)
+                self.cleanup_tx(tx, account)
             return fault_to_http_response(
                 Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))

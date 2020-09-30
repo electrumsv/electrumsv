@@ -465,6 +465,8 @@ class ExtendedHandlerUtils(HandlerUtils):
 
             # Todo - loop.run_in_executor
             tx = child_wallet.make_unsigned_transaction(utxos, outputs, self.app_state.config)
+            self.raise_for_duplicate_tx(tx)
+            child_wallet.sign_transaction(tx, password)
             return tx, child_wallet, password
         except NotEnoughFunds:
             raise Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE)
@@ -557,9 +559,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
             return inputs, outputs, attempted_split
 
-    def cleanup_tx(self, tx, account, frozen_utxos):
+    def cleanup_tx(self, tx, account):
         """Use of the frozen utxo mechanic may be phased out because signing a tx allocates the
         utxos thus making freezing redundant."""
-        if len(frozen_utxos) != 0:
-            account.set_frozen_coin_state(frozen_utxos, False)
         self.remove_signed_transaction(tx, account)
