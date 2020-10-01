@@ -397,27 +397,6 @@ class ExtendedHandlerUtils(HandlerUtils):
                            "value": int(tx_values[0].total)})
         return result
 
-    def _transaction_state_dto(self, account: AbstractAccount,
-        tx_ids: Optional[Iterable[str]]=None) -> Union[Fault, Dict[Any, Any]]:
-        chain = self.app_state.daemon.network.chain()
-
-        result = {}
-        for tx_id in tx_ids:
-            tx_hash = hex_str_to_hash(tx_id)
-            if account.has_received_transaction(tx_hash):
-                # height, conf, timestamp
-                height, conf, timestamp = account._wallet.get_tx_height(tx_hash)
-                block_id = None
-                if timestamp:
-                    block_id = self.app_state.headers.header_at_height(chain, height).hex_str()
-                result[tx_id] = {
-                    "block_id": block_id,
-                    "height": height,
-                    "conf": conf,
-                    "timestamp": timestamp,
-                }
-        return result
-
     def _account_dto(self, account) -> Dict[Any, Any]:
         """child wallet data transfer object"""
         script_type = account._row.default_script_type

@@ -119,19 +119,6 @@ def _fake_remove_signed_transaction(tx_hash: bytes, wallet: AbstractAccount):
     return
 
 
-def _fake_transaction_state_dto_succeeded(account, tx_ids) -> Dict[Any, Any]:
-    results = {
-        "txid1...": {"block_id": 1,
-                     "height": 1,
-                     "conf": 1,
-                     "timestamp": 1000000000},
-        "txid2...": {"block_id": 1,
-                     "height": 1,
-                     "conf": 1,
-                     "timestamp": 1000000000}}
-    return results
-
-
 async def _fake_load_wallet_succeeds(wallet_name) -> Wallet:
     return MockWallet()
 
@@ -339,8 +326,6 @@ class TestDefaultEndpoints:
         app.router.add_post(self.ACCOUNT_TXS + "/remove",
                             self.rest_server.remove_txs)
         app.router.add_get(self.ACCOUNT_TXS + "/history", self.rest_server.get_transaction_history)
-        app.router.add_post(self.ACCOUNT_TXS + "/metadata",
-                          self.rest_server.get_transactions_metadata)
         app.router.add_get(self.ACCOUNT_TXS + "/fetch", self.rest_server.fetch_transaction)
         app.router.add_post(self.ACCOUNT_TXS + "/create", self.rest_server.create_tx)
         app.router.add_post(self.ACCOUNT_TXS + "/create_and_broadcast",
@@ -470,24 +455,6 @@ class TestDefaultEndpoints:
 
         # check
         expected_json = {"value": _fake_history_dto_succeeded(account=None)}
-        assert resp.status == 200, await resp.read()
-        response = await resp.read()
-        assert json.loads(response) == expected_json
-
-    async def test_get_transactions_metadata_good_response(self, monkeypatch, cli):
-        monkeypatch.setattr(self.rest_server, '_transaction_state_dto',
-                            _fake_transaction_state_dto_succeeded)
-
-        # mock request
-        network = "test"
-        wallet_name = "wallet_file1.sqlite"
-        account_id = "1"
-        resp = await cli.request(path=f"/v1/{network}/dapp/wallets/{wallet_name}/"
-                                      f"{account_id}/txs/metadata",
-                                 method='post',
-                                 json={"txids": ["txid1...", "txid2..."]})
-        # check
-        expected_json = {"value": _fake_transaction_state_dto_succeeded(None, None)}
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
