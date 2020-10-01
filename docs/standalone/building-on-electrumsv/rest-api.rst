@@ -1,4 +1,4 @@
-ElectrumSV REST API
+The REST API
 ===================
 
 Technically, the restapi is an example 'dapp' (daemon application). But is nevertheless
@@ -8,10 +8,10 @@ This RESTAPI may be subject to slight changes but the example dapp source code i
 to suit your own specific needs.
 
 Endpoints
-==========
+##########
 
 get_all_wallets
----------------
+**********************
 Get a list of all available wallets
 
 Method: GET
@@ -23,7 +23,7 @@ Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets``
 Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets``
 
 get_parent_wallet
-------------------
+**********************
 Get a high-level information about the parent wallet and accounts (within the parent wallet).
 
 Method: GET
@@ -35,7 +35,7 @@ Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}``
 Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite``
 
 load_wallet
-------------------
+**********************
 Load the wallet on the daemon (i.e. subscribe to ElectrumX for active keys)
 and initiate synchronization. Returns a high-level information about the
 parent wallet and accounts.
@@ -49,7 +49,7 @@ Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}``
 Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite``
 
 get_account
-------------------
+**********************
 Get high-level information about a given account
 
 Method: POST
@@ -61,7 +61,7 @@ Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{accou
 Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1``
 
 get_coin_state
------------------
+**********************
 Get the count of cleared, settled and matured coins.
 
 Method: GET
@@ -73,7 +73,7 @@ Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{accou
 Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos/coin_state``
 
 get_utxos
-------------
+**********************
 Get a list of all utxos.
 
 Method: GET
@@ -85,7 +85,7 @@ Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{accou
 Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos``
 
 get_balance
-------------
+**********************
 Get account balance (confirmed, unconfirmed, unmatured) in satoshis.
 
 Method: GET
@@ -97,7 +97,7 @@ Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{accou
 Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos/balance``
 
 remove_txs
------------------
+**********************
 Removes all transactions in the 'Signed' state. Deleting transactions in the
 'Dispatched', 'Cleared', 'Settled' states could cause issues and so is
 not supported at this time (a DisabledFeatureError will be returned). If you
@@ -140,7 +140,7 @@ Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/
     }
 
 get_transaction_history
--------------------------
+*************************
 Get transaction history.
 
 Method: GET
@@ -171,7 +171,7 @@ Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/
     }
 
 get_transactions_metadata
--------------------------
+***************************
 Get transaction metadata.
 
 Method: POST
@@ -206,7 +206,7 @@ Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/
     }
 
 fetch_transaction
--------------------------
+***************************
 Get the raw transaction for a given hex txid (as a hex string) - must be a transaction in the wallet's history.
 
 Method: POST
@@ -236,7 +236,7 @@ Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/
     }
 
 create_tx
--------------------------
+***************************
 Create a locally signed transaction ready for broadcast. A side effect of this is that the utxos associated with the
 transaction are allocated for use and so cannot be used in any other transaction.
 
@@ -275,7 +275,7 @@ Additional outputs for leftover change will be created automatically.
 
 
 broadcast
--------------------------
+***************************
 Broadcast a rawtx (created with the previous endpoint).
 
 Method: POST
@@ -309,7 +309,7 @@ Additional outputs for leftover change will be created automatically.
     }
 
 create_and_broadcast
--------------------------
+***************************
 Atomically creates and broadcasts a transaction. If any errors occur, the intermediate step of creating a signed
 transaction will be reversed (i.e. the transaction will be deleted and the utxos freed for use).
 
@@ -347,7 +347,7 @@ Additional outputs for leftover change will be created automatically.
     }
 
 split_utxos
--------------------------
+***************************
 Creates and broadcasts a coin-splitting transaction i.e. it breaks up existing utxos into a specified number of
 new utxos with the desired "split_value" (satoshis). "split_count" represents the maximum number of splitting outputs
 for the transaction. "desired_utxo_count" determines when the desired utxo count has been reached (i.e. if you have
@@ -383,12 +383,12 @@ Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/
     }
 
 Regtest only endpoints
-=======================
+########################
 If you try to access these endpoints when not in RegTest mode you will get back a 404 error because the endpoint will
 not be available.
 
 topup_account
--------------------------
+***************************
 Tops up the RegTest wallet from the RegTest node wallet (new blocks may be generated to facilitate this process).
 
 Method: POST
@@ -418,7 +418,7 @@ Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/
     }
 
 generate_blocks
--------------------------
+***************************
 Tops up the RegTest wallet from the RegTest node wallet (new blocks may be generated to facilitate this process).
 
 Method: POST
@@ -453,7 +453,7 @@ Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/
 
 
 create_new_wallet
--------------------------
+***************************
 This will create a new wallet - in this example "worker1.sqlite". This example was produced via the electrumsv-sdk_ which
 allows a convienient method for running a RegTest node, electrumX instance (pre-configured to connect) and an
 ElectrumSV instance with data-dir=G:\\electrumsv_official\\electrumsv1.
