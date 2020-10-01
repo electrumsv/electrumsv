@@ -77,14 +77,14 @@ version on their computer.
 
 Linux::
 
-    $ python3 -m pip install -U pysqlite3_binary
-    $ python3 -c "import pysqlite3_binary; print pysqlite3_binary.sqlite_version"
+    $ python3 -m pip install -U pysqlite3-binary
+    $ python3 -c "import pysqlite3; print(pysqlite3.sqlite_version)"
     3.31.1
 
 MacOS::
 
     $ brew upgrade sqlite3
-    $ python3 -c "import sqlite3; print sqlite3.sqlite_version"
+    $ python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
     3.31.1
 
 You may see a different version displayed than 3.31.1, but as long as it is higher, this is fine.
