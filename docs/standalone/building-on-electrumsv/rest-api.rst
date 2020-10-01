@@ -120,12 +120,38 @@ MetanetICU slack.
 
 get_transaction_history
 *************************
-Get transaction history.
+Get transaction history. ``tx_states`` can be specified in the request body. This is an enum representing
+a bitmask for filtering transactions.
+
+**The main `TxFlags` are:**
+
+:StateCleared: 1 << 20  (received over p2p network and is unconfirmed and in the mempool)
+:StateSettled: 1 << 21 (received over the p2p network and is confirmed in a block)
+:StateReceived: 1 << 22 (received from another party and is unknown to the p2p network)
+:StateSigned: 1 << 23 (not sent or given to anyone else, but are with-holding and consider the inputs it uses allocated)
+:StateDispatched: 1 << 24 (a transaction you have given to someone else, and are considering the inputs it uses allocated)
+
+In the example below, (1 << 23 | 1 << 21) yields 9437184
+(to filter for only StateSigned and StateCleared transactions)
+
+An empty request body will return all transaction history for this account.
+Pagination is not yet implemented.
+
+**Request**
 
 :Method: POST
 :Content-Type: application/json
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/history``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/history``
+
+
+**Sample Body Payload**
+
+.. code-block::
+
+    {
+        "tx_states": 9437184
+    }
 
 **Sample Response**
 
@@ -134,48 +160,24 @@ Get transaction history.
     {
         "value": [
             {
-                "txid": "d45145f0c2ff87f6cfe5524d46d5ba14932363e927bd5a4af899a9b8fc0ab76f",
-                "height": 201,
-                "timestamp": "2020-09-30T21:02:32",
-                "value": "+25.",
-                "balance": "25.",
-                "label": "",
-                "fiat_value": "No data",
-                "fiat_balance": "No data"
+                "txid": "6a25882b47b3f2e97c09ee9f3131831df4b2ec1b54cc45fe3899bb4a3b5e2b29",
+                "height": 0,
+                "state": "StateCleared",
+                "value": -104
+            },
+            {
+                "txid": "5a225d364bf5c17127da86447bae69b1829876786859cd2af77cd28601f39c0c",
+                "height": -1,
+                "state": "StateCleared",
+                "value": -178
+            },
+            {
+                "txid": "611baae09b4db5894bbb4f13f35ae3ef492f34b388905a31a0ef82898cd3e6f6",
+                "height": null,
+                "state": "StateSigned",
+                "value": -5999999718
             }
         ]
-    }
-
-get_transactions_metadata
-***************************
-Get transaction metadata.
-
-:Method: POST
-:Content-Type: application/json
-:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/metadata``
-:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/metadata``
-
-**Sample Request Payload**
-
-.. code-block::
-
-    {
-        "txids": ["d45145f0c2ff87f6cfe5524d46d5ba14932363e927bd5a4af899a9b8fc0ab76f"]
-    }
-
-**Sample Response**
-
-.. code-block::
-
-    {
-        "value": {
-            "d45145f0c2ff87f6cfe5524d46d5ba14932363e927bd5a4af899a9b8fc0ab76f": {
-                "block_id": "7a24a95c4bfec88785203dc2e36dcf4493469d4d8cadfd4e89b37f7eae9e77bd",
-                "height": 201,
-                "conf": 1,
-                "timestamp": 1601452952
-            }
-        }
     }
 
 fetch_transaction

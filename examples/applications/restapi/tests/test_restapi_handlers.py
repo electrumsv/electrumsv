@@ -81,18 +81,27 @@ rawtx = "0100000001c2f9bbe87ab222fa84954a9f8140696eafdeb578e8a7555c1db60c7cb4b39
         "92c1bcaad98b387aa5d8db3f7d88ac7c761400"
 
 
-def _fake_history_dto_succeeded(account) -> List[Dict[Any, Any]]:
+def _fake_history_dto_succeeded(account: AbstractAccount, tx_states: int=None) -> List[Dict[
+    Any, Any]]:
     result = [
-        {"tx_hash": '...',
-         "height": 0,
-         "conf": 0,
-         "timestamp": 1573709467,
-         "delta": 10000},
-        {"tx_hash": '...',
-         "height": 1,
-         "conf": 1,
-         "timestamp": 1573709467,
-         "delta": 10000}
+        {
+            "txid": "d4e226dde5c652782679a44bfad7021fb85df6ba8d32b1b17b8dc043e85d7103",
+            "height": 1,
+            "state": "StateSettled",
+            "value": 5000000000
+        },
+        {
+            "txid": "6a25882b47b3f2e97c09ee9f3131831df4b2ec1b54cc45fe3899bb4a3b5e2b29",
+            "height": 0,
+            "state": "StateCleared",
+            "value": -104
+        },
+        {
+            "txid": "611baae09b4db5894bbb4f13f35ae3ef492f34b388905a31a0ef82898cd3e6f6",
+            "height": None,
+            "state": "StateSigned",
+            "value": -5999999718
+        }
     ]
     return result
 

@@ -260,9 +260,10 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
                                                                 VNAME.ACCOUNT_ID])
             wallet_name = vars[VNAME.WALLET_NAME]
             account_id = vars[VNAME.ACCOUNT_ID]
+            tx_states = vars.get(VNAME.TX_STATES)
 
             account = self._get_account(wallet_name, account_id)
-            ret_val = self._history_dto(account=account)
+            ret_val = self._history_dto(account, tx_states)
             response = {"value": ret_val}
             return good_response(response)
         except Fault as e:
