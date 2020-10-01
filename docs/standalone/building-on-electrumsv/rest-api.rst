@@ -77,7 +77,9 @@ Get account balance (confirmed, unconfirmed, unmatured) in satoshis.
 
 remove_txs
 **********************
-Removes all transactions in the 'Signed' state. Deleting transactions in the
+Removes transactions in the 'Signed' state.
+
+Deleting transactions in the
 'Dispatched', 'Cleared', 'Settled' states could cause issues and so is
 not supported at this time (a DisabledFeatureError will be returned). If you
 require this feature, please make contact via the Atlantis Slack or the

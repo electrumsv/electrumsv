@@ -275,24 +275,6 @@ class ExtendedHandlerUtils(HandlerUtils):
         wallet = self._get_parent_wallet(wallet_name)
         return wallet.is_synchronized()
 
-    async def _delete_signed_txs(self, wallet_name: str, account_id: int) -> Optional[Fault]:
-        """Unfreezes all StateSigned transactions and deletes them from cache and database"""
-        while True:
-            is_ready = self._is_wallet_ready(wallet_name)
-
-            if is_ready:
-                # Unfreeze all StateSigned transactions but leave StateDispatched frozen
-                account = self._get_account(wallet_name, account_id)
-                signed_transactions = account._wallet._transaction_cache.get_transactions(
-                    flags=TxFlags.StateSigned)
-
-                for txid, tx in signed_transactions:
-                    app_state.app.get_and_set_frozen_utxos_for_tx(tx, account, freeze=False)
-                    account.delete_transaction(txid)
-                break
-            await asyncio.sleep(0.1)
-        return
-
     async def _load_wallet(self, wallet_name: Optional[str] = None) -> Union[Fault, Wallet]:
         """Loads one parent wallet into the daemon and begins synchronization"""
         if not wallet_name.endswith(".sqlite"):

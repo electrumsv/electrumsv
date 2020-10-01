@@ -430,25 +430,6 @@ class TestDefaultEndpoints:
         response = await resp.read()
         assert json.loads(response) == expected_json
 
-    async def test_remove_txs(self, monkeypatch, cli):
-        monkeypatch.setattr(self.rest_server, '_delete_signed_txs',
-                            _fake_reset_wallet_transaction_state_succeeded)
-
-        # mock request
-        network = "test"
-        wallet_name = "wallet_file1.sqlite"
-        account_id = "1"
-        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/"
-                              f"{account_id}/txs/remove")
-
-        # check
-        expected_json = {"value": {"message":
-                    "All StateSigned transactions deleted from " +
-                    "TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
-        assert resp.status == 200, await resp.read()
-        response = await resp.read()
-        assert json.loads(response) == expected_json
-
     async def test_remove_txs_specific_txid(self, monkeypatch, cli):
         monkeypatch.setattr(self.rest_server, 'remove_signed_transaction',
                             _fake_remove_signed_transaction)
