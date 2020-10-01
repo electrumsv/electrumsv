@@ -48,3 +48,4 @@ libzbar-0.dll
 .mypy*
 *.log
 electrum_sv_data/regtest/*
+electrumsv1/*
