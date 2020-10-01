@@ -238,10 +238,10 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         """This might be used to clean up after creating many transactions that were never sent."""
         try:
             vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
-                                                                VNAME.ACCOUNT_ID])
+                                                                VNAME.ACCOUNT_ID, VNAME.TXIDS])
             wallet_name = vars[VNAME.WALLET_NAME]
             account_id = vars[VNAME.ACCOUNT_ID]
-            txids = vars.get(VNAME.TXIDS)
+            txids = vars[VNAME.TXIDS]
             account = self._get_account(wallet_name, account_id)
             if txids:
                 for txid in txids:
@@ -249,11 +249,6 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
                 ret_val = {"value": {"message":
                     f"All StateSigned transactions in set: {txids} deleted from" +
                     f"TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
-            else:
-                await self._delete_signed_txs(wallet_name, account_id)
-                ret_val = {"value": {"message":
-                    "All StateSigned transactions deleted from " +
-                    "TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
             return good_response(ret_val)
         except Fault as e:
             return fault_to_http_response(e)
