@@ -96,17 +96,19 @@ Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{accou
 
 Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos/balance``
 
-delete_signed_txs
+remove_txs
 -----------------
-Deletes all transactions in the 'Signed' state. Deleting transactions in the
+Removes all transactions in the 'Signed' state. Deleting transactions in the
 'Dispatched', 'Cleared', 'Settled' states could cause issues and so is
-not supported at this time.
+not supported at this time (a DisabledFeatureError will be returned). If you
+require this feature, please make contact via the Atlantis Slack or the
+MetanetICU slack.
 
 Method: POST
 
 Content-Type: application/json
 
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/delete_signed_txs``
+Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/remove``
 
 **Request Body Payload**
 
@@ -117,7 +119,7 @@ Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{accou
     }
 
 
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/delete_signed_txs``
+Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/remove``
 
 **Sample Body Payload**
 
