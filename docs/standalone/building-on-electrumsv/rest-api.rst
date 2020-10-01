@@ -75,7 +75,7 @@ Get account balance (confirmed, unconfirmed, unmatured) in satoshis.
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/balance``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos/balance``
 
-remove_txs
+remove
 **********************
 Removes transactions in the 'Signed' state.
 
