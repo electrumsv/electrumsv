@@ -14,25 +14,19 @@ get_all_wallets
 **********************
 Get a list of all available wallets
 
-Method: GET
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets``
+:Method: GET
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets``
 
 get_parent_wallet
 **********************
 Get a high-level information about the parent wallet and accounts (within the parent wallet).
 
-Method: GET
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite``
+:Method: GET
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite``
 
 load_wallet
 **********************
@@ -40,61 +34,46 @@ Load the wallet on the daemon (i.e. subscribe to ElectrumX for active keys)
 and initiate synchronization. Returns a high-level information about the
 parent wallet and accounts.
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite``
 
 get_account
 **********************
 Get high-level information about a given account
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1``
 
 get_coin_state
 **********************
 Get the count of cleared, settled and matured coins.
 
-Method: GET
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/utxos/coin_state``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos/coin_state``
+:Method: GET
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/utxos/coin_state``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos/coin_state``
 
 get_utxos
 **********************
 Get a list of all utxos.
 
-Method: GET
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/utxos``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos``
+:Method: GET
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/utxos``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos``
 
 get_balance
 **********************
 Get account balance (confirmed, unconfirmed, unmatured) in satoshis.
 
-Method: GET
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/balance``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos/balance``
+:Method: GET
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/balance``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos/balance``
 
 remove_txs
 **********************
@@ -104,11 +83,9 @@ not supported at this time (a DisabledFeatureError will be returned). If you
 require this feature, please make contact via the Atlantis Slack or the
 MetanetICU slack.
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/remove``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/remove``
 
 **Request Body Payload**
 
@@ -119,7 +96,7 @@ Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{accou
     }
 
 
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/remove``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/remove``
 
 **Sample Body Payload**
 
@@ -143,13 +120,10 @@ get_transaction_history
 *************************
 Get transaction history.
 
-Method: GET
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/history``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/history``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/history``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/history``
 
 **Sample Response**
 
@@ -174,13 +148,10 @@ get_transactions_metadata
 ***************************
 Get transaction metadata.
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/metadata``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/metadata``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/metadata``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/metadata``
 
 **Sample Request Payload**
 
@@ -209,13 +180,10 @@ fetch_transaction
 ***************************
 Get the raw transaction for a given hex txid (as a hex string) - must be a transaction in the wallet's history.
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/fetch``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/fetch``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/fetch``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/fetch``
 
 **Sample Request Payload**
 
@@ -240,13 +208,10 @@ create_tx
 Create a locally signed transaction ready for broadcast. A side effect of this is that the utxos associated with the
 transaction are allocated for use and so cannot be used in any other transaction.
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/create``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/create``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/create``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/create``
 
 **Sample Request Payload**
 This example is of a single "OP_FALSE OP_RETURN" output with "Hello" encoded in Hex ("48656c6c6f") the preceeding
@@ -278,13 +243,10 @@ broadcast
 ***************************
 Broadcast a rawtx (created with the previous endpoint).
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/broadcast``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/broadcast``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/broadcast``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/broadcast``
 
 **Sample Request Payload**
 This example is of a single "OP_FALSE OP_RETURN" output with "Hello" encoded in Hex ("48656c6c6f") the preceeding
@@ -313,13 +275,10 @@ create_and_broadcast
 Atomically creates and broadcasts a transaction. If any errors occur, the intermediate step of creating a signed
 transaction will be reversed (i.e. the transaction will be deleted and the utxos freed for use).
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/create_and_broadcast``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/create_and_broadcast``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/create_and_broadcast``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/create_and_broadcast``
 
 **Sample Request Payload**
 This example is of a single "OP_FALSE OP_RETURN" output with "Hello" encoded in Hex ("48656c6c6f") the preceeding
@@ -353,13 +312,10 @@ new utxos with the desired "split_value" (satoshis). "split_count" represents th
 for the transaction. "desired_utxo_count" determines when the desired utxo count has been reached (i.e. if you have
 200 utxos but "desired_utxo_count" is 220 then the next coin splitting transaction will create 20 more utxos.
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/split_utxos``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/split_utxos``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/split_utxos``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/split_utxos``
 
 **Sample Request Payload**
 
@@ -391,13 +347,10 @@ topup_account
 ***************************
 Tops up the RegTest wallet from the RegTest node wallet (new blocks may be generated to facilitate this process).
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/topup_account``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/topup_account``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/topup_account``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/topup_account``
 
 **Sample Request Payload**
 
@@ -421,13 +374,10 @@ generate_blocks
 ***************************
 Tops up the RegTest wallet from the RegTest node wallet (new blocks may be generated to facilitate this process).
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/topup_account``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/topup_account``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/generate_blocks``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/generate_blocks``
 
 **Sample Request Payload**
 
@@ -461,13 +411,10 @@ ElectrumSV instance with data-dir=G:\\electrumsv_official\\electrumsv1.
 
 .. _electrumsv-sdk: https://github.com/electrumsv/electrumsv-sdk
 
-Method: POST
-
-Content-Type: application/json
-
-Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/create_new_wallet``
-
-Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/create_new_wallet``
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/create_new_wallet``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/create_new_wallet``
 
 **Sample Request Payload**
 
