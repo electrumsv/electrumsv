@@ -703,7 +703,8 @@ class InputTreeWidget(MyTreeWidget):
         menu = QMenu()
         menu.addAction(_("Copy {}").format(column_title),
             lambda: self._main_window.app.clipboard().setText(column_data))
-        details_menu = menu.addAction(_("Transaction details"), partial(self._show_other_transaction, tx_hash))
+        details_menu = menu.addAction(_("Transaction details"),
+            partial(self._show_other_transaction, tx_hash))
         details_menu.setEnabled(have_tx)
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))

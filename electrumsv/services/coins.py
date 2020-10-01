@@ -1,4 +1,4 @@
-from typing import Sequence, List, Optional, TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 import weakref
 
 from electrumsv.types import TxoKeyType
