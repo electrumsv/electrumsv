@@ -327,8 +327,8 @@ class TestDefaultEndpoints:
         app.router.add_get(self.ACCOUNT_UTXOS + "/coin_state", self.rest_server.get_coin_state)
         app.router.add_get(self.ACCOUNT_UTXOS, self.rest_server.get_utxos)
         app.router.add_get(self.ACCOUNT_UTXOS + "/balance", self.rest_server.get_balance)
-        app.router.add_post(self.ACCOUNT_TXS + "/delete_signed_txs",
-                            self.rest_server.delete_signed_txs)
+        app.router.add_post(self.ACCOUNT_TXS + "/remove",
+                            self.rest_server.remove_txs)
         app.router.add_get(self.ACCOUNT_TXS + "/history", self.rest_server.get_transaction_history)
         app.router.add_post(self.ACCOUNT_TXS + "/metadata",
                           self.rest_server.get_transactions_metadata)
@@ -430,7 +430,7 @@ class TestDefaultEndpoints:
         response = await resp.read()
         assert json.loads(response) == expected_json
 
-    async def test_delete_signed_txs(self, monkeypatch, cli):
+    async def test_remove_txs(self, monkeypatch, cli):
         monkeypatch.setattr(self.rest_server, '_delete_signed_txs',
                             _fake_reset_wallet_transaction_state_succeeded)
 
@@ -439,17 +439,17 @@ class TestDefaultEndpoints:
         wallet_name = "wallet_file1.sqlite"
         account_id = "1"
         resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/"
-                              f"{account_id}/txs/delete_signed_txs")
+                              f"{account_id}/txs/remove")
 
         # check
         expected_json = {"value": {"message":
-                    "All StateSigned transactions deleted from" +
+                    "All StateSigned transactions deleted from " +
                     "TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
 
-    async def test_delete_signed_txs_specific_txid(self, monkeypatch, cli):
+    async def test_remove_txs_specific_txid(self, monkeypatch, cli):
         monkeypatch.setattr(self.rest_server, 'remove_signed_transaction',
                             _fake_remove_signed_transaction)
 
@@ -459,7 +459,7 @@ class TestDefaultEndpoints:
         account_id = "1"
         txids = ["00" * 32]
         resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/"
-                              f"{account_id}/txs/delete_signed_txs",
+                              f"{account_id}/txs/remove",
                               data=json.dumps({"txids": txids}))
 
         assert resp.status == 200, await resp.read()

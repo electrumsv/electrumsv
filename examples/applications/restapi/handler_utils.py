@@ -501,12 +501,11 @@ class ExtendedHandlerUtils(HandlerUtils):
             if tx and is_signed_state:
                 wallet.delete_transaction(tx_hash)
             if tx and not is_signed_state:
-                raise Fault(Errors.GENERIC_BAD_REQUEST_CODE,
-                            message=f"The transaction is found but it is not 'StateSigned'. TxFlags"
-                                    f"={str(tx_flags)}")
+                raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
         except MissingRowError:
             raise Fault(Errors.GENERIC_BAD_REQUEST_CODE,
-                        message="The transaction is not found, perhaps the transaction is already deleted")
+                        message="The transaction is not found, perhaps the transaction is "
+                                "already deleted")
 
     def select_inputs_and_outputs(self, config: SimpleConfig,
                                   wallet: AbstractAccount,

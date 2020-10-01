@@ -50,7 +50,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.get(self.ACCOUNT_UTXOS + "/coin_state", self.get_coin_state),
             web.get(self.ACCOUNT_UTXOS, self.get_utxos),
             web.get(self.ACCOUNT_UTXOS + "/balance", self.get_balance),
-            web.post(self.ACCOUNT_TXS + "/delete_signed_txs", self.delete_signed_txs),
+            web.post(self.ACCOUNT_TXS + "/remove", self.remove_txs),
             web.get(self.ACCOUNT_TXS + "/history", self.get_transaction_history),
             web.post(self.ACCOUNT_TXS + "/metadata", self.get_transactions_metadata),
             web.post(self.ACCOUNT_TXS + "/fetch", self.fetch_transaction),
@@ -234,7 +234,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         except Fault as e:
             return fault_to_http_response(e)
 
-    async def delete_signed_txs(self, request):
+    async def remove_txs(self, request):
         """This might be used to clean up after creating many transactions that were never sent."""
         try:
             vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
@@ -252,7 +252,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             else:
                 await self._delete_signed_txs(wallet_name, account_id)
                 ret_val = {"value": {"message":
-                    "All StateSigned transactions deleted from" +
+                    "All StateSigned transactions deleted from " +
                     "TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
             return good_response(ret_val)
         except Fault as e:
