@@ -52,7 +52,6 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.get(self.ACCOUNT_UTXOS + "/balance", self.get_balance),
             web.post(self.ACCOUNT_TXS + "/remove", self.remove_txs),
             web.get(self.ACCOUNT_TXS + "/history", self.get_transaction_history),
-            web.post(self.ACCOUNT_TXS + "/metadata", self.get_transactions_metadata),
             web.post(self.ACCOUNT_TXS + "/fetch", self.fetch_transaction),
             web.post(self.ACCOUNT_TXS + "/create", self.create_tx),
             web.post(self.ACCOUNT_TXS + "/create_and_broadcast", self.create_and_broadcast),
@@ -264,22 +263,6 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
 
             account = self._get_account(wallet_name, account_id)
             ret_val = self._history_dto(account, tx_states)
-            response = {"value": ret_val}
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
-
-    async def get_transactions_metadata(self, request):
-        """get transaction metadata"""
-        try:
-            required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.TXIDS]
-            vars = await self.argparser(request, required_vars)
-            wallet_name = vars[VNAME.WALLET_NAME]
-            account_id = vars[VNAME.ACCOUNT_ID]
-            txids = vars[VNAME.TXIDS]
-
-            account = self._get_account(wallet_name, account_id)
-            ret_val = self._transaction_state_dto(account, tx_ids=txids)
             response = {"value": ret_val}
             return good_response(response)
         except Fault as e:
