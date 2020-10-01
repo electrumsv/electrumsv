@@ -806,7 +806,7 @@ class TransactionOutputTable(BaseWalletStore):
         condition_section = "tx_hash=? AND tx_index=?"
         while len(txo_keys):
             batch = txo_keys[:batch_size]
-            batch_values = []
+            batch_values: List[Any] = []
             for batch_entry in batch:
                 batch_values.extend(batch_entry)
             conditions = [ condition_section ] * len(batch)
