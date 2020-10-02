@@ -373,13 +373,13 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.tx_desc.show()
         self.status_label.setText(tx_info.status)
 
-
         time_str = ""
         if tx_info.date_mined:
             time_str = datetime.datetime.fromtimestamp(tx_info.date_mined).isoformat(' ')[:-3]
             time_str += "\n"
-        time_str += (datetime.datetime.fromtimestamp(tx_info.date_created).isoformat(' ')[:-3] +
-            " ("+ _("added to account") +")")
+        if tx_info.date_created:
+            time_str += (datetime.datetime.fromtimestamp(tx_info.date_created).isoformat(' ')[:-3] +
+                " ("+ _("added to account") +")")
 
         self.date_label.setText(time_str)
         self.date_label.show()
@@ -495,7 +495,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     is_change = compare_key_path(self._account, keyinstance_id, CHANGE_SUBPATH)
                     account_name = name_for_account(self._account)
                     prev_txo = prev_txo_dict.get(txo_key, None)
-                    if prev_txo is not None:
+                    if prev_txo is not None and self.tx.is_complete():
                         value = prev_txo.value
                         is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) == 0
                 # TODO(rt12): When does a txin have a value? Loaded incomplete transactions only?
@@ -671,8 +671,8 @@ class InputTreeWidget(MyTreeWidget):
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
 
-        is_mine = item.data(InputColumns.INDEX, Roles.IS_MINE)
         tx_hash = item.data(InputColumns.INDEX, Roles.TX_HASH)
+        have_tx = self.parent()._account.have_transaction_data(tx_hash)
 
         tx_id = hash_to_hex_str(tx_hash)
         tx_URL = web.BE_URL(self._main_window.config, 'tx', tx_id)
@@ -680,8 +680,8 @@ class InputTreeWidget(MyTreeWidget):
         menu = QMenu()
         menu.addAction(_("Copy {}").format(column_title),
             lambda: self._main_window.app.clipboard().setText(column_data))
-        details_menu = menu.addAction(_("Details"), partial(self._show_other_transaction, tx_hash))
-        details_menu.setEnabled(is_mine)
+        details_menu = menu.addAction(_("Transaction details"), partial(self._show_other_transaction, tx_hash))
+        details_menu.setEnabled(have_tx)
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
         menu.exec_(self.viewport().mapToGlobal(position))
