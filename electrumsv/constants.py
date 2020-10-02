@@ -1,6 +1,12 @@
 # ...
-from enum import Enum, IntEnum, IntFlag
+from enum import Enum, IntEnum
+from enum import IntFlag as _IntFlag
 from typing import Optional
+
+# https://bugs.python.org/issue41907
+class IntFlag(_IntFlag):
+    def __format__(self, spec):
+        return format(self.value, spec)
 
 ## Wallet
 

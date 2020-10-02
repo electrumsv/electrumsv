@@ -47,7 +47,7 @@ from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 from electrumsv.i18n import _
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import compose_chain_string, scripthash_hex
-from electrumsv.constants import DerivationType, ScriptType
+from electrumsv.constants import DerivationType, IntFlag, ScriptType
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
@@ -78,7 +78,7 @@ BALANCE_COLUMN = 6
 FIAT_BALANCE_COLUMN = 7
 
 
-class EventFlags(enum.IntFlag):
+class EventFlags(IntFlag):
     UNSET = 0 << 0
     KEY_ADDED = 1 << 0
     KEY_UPDATED = 1 << 1
@@ -94,7 +94,7 @@ class ListActions(enum.IntEnum):
     RESET_FIAT_BALANCES = 3
 
 
-class KeyFlags(enum.IntFlag):
+class KeyFlags(IntFlag):
     UNSET = 0
     # State related.
     FROZEN = 1 << 16

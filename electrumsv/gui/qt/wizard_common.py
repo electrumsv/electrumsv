@@ -26,17 +26,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import enum
 from typing import NamedTuple, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget, QWizard
 
+from electrumsv.constants import IntFlag
+
 from .help_dialog import HelpDialog
 from .util import FormSectionWidget
 
 
-class WizardFlags(enum.IntFlag):
+class WizardFlags(IntFlag):
     NONE = 0
 
     # The wizard should offer all standard account creation options.
