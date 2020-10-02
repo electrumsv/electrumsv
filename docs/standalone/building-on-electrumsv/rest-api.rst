@@ -120,7 +120,7 @@ MetanetICU slack.
 
 get_transaction_history
 *************************
-Get transaction history. ``tx_states`` can be specified in the request body. This is an enum representing
+Get transaction history. ``tx_flags`` can be specified in the request body. This is an enum representing
 a bitmask for filtering transactions.
 
 **The main `TxFlags` are:**
@@ -130,6 +130,8 @@ a bitmask for filtering transactions.
 :StateReceived: 1 << 22 (received from another party and is unknown to the p2p network)
 :StateSigned: 1 << 23 (not sent or given to anyone else, but are with-holding and consider the inputs it uses allocated)
 :StateDispatched: 1 << 24 (a transaction you have given to someone else, and are considering the inputs it uses allocated)
+
+However, there are other flags that can be set. See ``electrumsv/constants.py:TxFlags`` for details.
 
 In the example below, (1 << 23 | 1 << 21) yields 9437184
 (to filter for only StateSigned and StateCleared transactions)
@@ -150,7 +152,7 @@ Pagination is not yet implemented.
 .. code-block::
 
     {
-        "tx_states": 9437184
+        "tx_flags": 9437184
     }
 
 **Sample Response**
@@ -159,23 +161,19 @@ Pagination is not yet implemented.
 
     {
         "value": [
+{
+    "value": [
             {
-                "txid": "6a25882b47b3f2e97c09ee9f3131831df4b2ec1b54cc45fe3899bb4a3b5e2b29",
+                "txid": "64a9564588f9ebcce4ac52f4e0c8fe758b16dfd6fdb5bd8db5920da317aa15c8",
                 "height": 0,
-                "state": "StateCleared",
-                "value": -104
+                "tx_flags": 1052720,
+                "value": -10200
             },
             {
-                "txid": "5a225d364bf5c17127da86447bae69b1829876786859cd2af77cd28601f39c0c",
-                "height": -1,
-                "state": "StateCleared",
-                "value": -178
-            },
-            {
-                "txid": "611baae09b4db5894bbb4f13f35ae3ef492f34b388905a31a0ef82898cd3e6f6",
-                "height": null,
-                "state": "StateSigned",
-                "value": -5999999718
+                "txid": "a6ec24243a79de1b51646d1a46ece854a8f682ff23b4d4afabaebc2bc10ef110",
+                "height": 0,
+                "tx_flags": 1052720,
+                "value": -10200
             }
         ]
     }

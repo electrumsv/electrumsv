@@ -56,7 +56,7 @@ class VNAME(VARNAMES):
     DESIRED_UTXO_COUNT = 'desired_utxo_count'
     SPLIT_VALUE = 'split_value'
     NBLOCKS = 'nblocks'
-    TX_STATES = 'tx_states'
+    TX_FLAGS = 'tx_flags'
 
 # Request types
 ADDITIONAL_ARGTYPES: Dict[str, type] = {
@@ -79,7 +79,7 @@ ADDITIONAL_ARGTYPES: Dict[str, type] = {
     VNAME.DESIRED_UTXO_COUNT: int,
     VNAME.SPLIT_VALUE: int,
     VNAME.NBLOCKS: int,
-    VNAME.TX_STATES: int,  # enum
+    VNAME.TX_FLAGS: int,  # enum
 }
 
 ARGTYPES.update(ADDITIONAL_ARGTYPES)
@@ -88,7 +88,7 @@ HEADER_VARS = [VNAME.NETWORK, VNAME.ACCOUNT_ID, VNAME.WALLET_NAME]
 BODY_VARS = [VNAME.PASSWORD, VNAME.RAWTX, VNAME.TXIDS, VNAME.UTXOS, VNAME.OUTPUTS,
              VNAME.UTXO_PRESELECTION, VNAME.REQUIRE_CONFIRMED, VNAME.EXCLUDE_FROZEN,
              VNAME.CONFIRMED_ONLY, VNAME.MATURE, VNAME.AMOUNT, VNAME.SPLIT_COUNT,
-             VNAME.DESIRED_UTXO_COUNT, VNAME.SPLIT_VALUE, VNAME.NBLOCKS, VNAME.TX_STATES]
+             VNAME.DESIRED_UTXO_COUNT, VNAME.SPLIT_VALUE, VNAME.NBLOCKS, VNAME.TX_FLAGS]
 
 
 class ExtendedHandlerUtils(HandlerUtils):
@@ -373,27 +373,15 @@ class ExtendedHandlerUtils(HandlerUtils):
             utxos_as_dicts.append(self.utxo_as_dict(utxo))
         return utxos_as_dicts
 
-    def _history_dto(self, account: AbstractAccount, tx_states: int=None) -> List[Dict[Any, Any]]:
-        def print_state(flags):
-            if flags & TxFlags.StateSigned == TxFlags.StateSigned:
-                return "StateSigned"
-            elif flags & TxFlags.StateDispatched == TxFlags.StateDispatched:
-                return "StateDispatched"
-            elif flags & TxFlags.StateCleared == TxFlags.StateCleared:
-                return "StateCleared"
-            elif flags & TxFlags.StateSettled == TxFlags.StateSettled:
-                return "StateSettled"
-            elif flags & TxFlags.StateReceived == TxFlags.StateReceived:
-                return "StateReceived"
-
+    def _history_dto(self, account: AbstractAccount, tx_flags: int=None) -> List[Dict[Any, Any]]:
         result = []
-        entries = account._wallet._transaction_cache.get_entries(mask=tx_states)
+        entries = account._wallet._transaction_cache.get_entries(mask=tx_flags)
         for tx_hash, entry in entries:
             tx_values = account._wallet.get_transaction_deltas(tx_hash, account.get_id())
             assert len(tx_values) == 1
             result.append({"txid": hash_to_hex_str(tx_hash),
                            "height": entry.metadata.height,
-                           "state": print_state(entry.flags),
+                           "tx_flags": entry.flags,
                            "value": int(tx_values[0].total)})
         return result
 
