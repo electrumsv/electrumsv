@@ -87,19 +87,19 @@ def _fake_history_dto_succeeded(account: AbstractAccount, tx_states: int=None) -
         {
             "txid": "d4e226dde5c652782679a44bfad7021fb85df6ba8d32b1b17b8dc043e85d7103",
             "height": 1,
-            "state": "StateSettled",
+            "tx_flags": 2097152,
             "value": 5000000000
         },
         {
             "txid": "6a25882b47b3f2e97c09ee9f3131831df4b2ec1b54cc45fe3899bb4a3b5e2b29",
             "height": 0,
-            "state": "StateCleared",
+            "tx_flags": 1048576,
             "value": -104
         },
         {
             "txid": "611baae09b4db5894bbb4f13f35ae3ef492f34b388905a31a0ef82898cd3e6f6",
             "height": None,
-            "state": "StateSigned",
+            "tx_flags": 8388608,
             "value": -5999999718
         }
     ]
@@ -454,7 +454,27 @@ class TestDefaultEndpoints:
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/history")
 
         # check
-        expected_json = {"value": _fake_history_dto_succeeded(account=None)}
+        expected_json = {"value": [
+                {
+                    "txid": "d4e226dde5c652782679a44bfad7021fb85df6ba8d32b1b17b8dc043e85d7103",
+                    "height": 1,
+                    "tx_flags": 2097152,
+                    "value": 5000000000
+                },
+                {
+                    "txid": "6a25882b47b3f2e97c09ee9f3131831df4b2ec1b54cc45fe3899bb4a3b5e2b29",
+                    "height": 0,
+                    "tx_flags": 1048576,
+                    "value": -104
+                },
+                {
+                    "txid": "611baae09b4db5894bbb4f13f35ae3ef492f34b388905a31a0ef82898cd3e6f6",
+                    "height": None,
+                    "tx_flags": 8388608,
+                    "value": -5999999718
+                }
+            ]
+        }
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
