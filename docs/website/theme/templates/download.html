@@ -40,7 +40,7 @@
                 </div>
                 <div class="container esv-box-border esv-box-padding">
                     {% for release in DOWNLOADS_OLDER %}
-                    <div class="container border p-3 border-top-0">
+                    <div class="{% if not loop.first %}pt-3 border-top{% endif %} pb-3">
                         <div class="row">
                             <div class="col-sm-12 text-center pb-2">
                                 ElectrumSV {{ release.version }} ({{ release.release_date }})
@@ -124,7 +124,7 @@
                         can download and validate updates for you.
                     </p>
                     <p>
-                        You can get the hashes
+                        You can get the <a href="https://en.wikipedia.org/wiki/SHA-2">SHA256 hashes</a>
                         for the files we make available to download, from the
                         <a href="https://github.com/electrumsv/electrumsv/blob/master/build-hashes.txt">official
                         ElectrumSV git repository</a>.
