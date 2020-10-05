@@ -14,7 +14,8 @@ and summarise all the past cases.
 
 We'll start with our own wallet for Bitcoin SV, then we'll look at the equivalent wallet for
 Bitcoin Cash and lastly we'll look at the original wallet from Bitcoin Core. After that, we'll
-sum up the conclusions we came to after researching the existing identifiable cases.
+sum up the conclusions we came to after researching the existing identifiable cases. Hopefully
+this will result in a path forward of some sort.
 
 Summarising reports
 -------------------
@@ -134,7 +135,9 @@ Pre-existing altcoin usage
 One thing it has not occurred to me to ask, is if the user is also using Electrum Core
 or Electron Cash. All a thief has to do is extract any seed words, and then look for usage of those
 seed words on other blockchains. They can and would likely automate the process. We should add
-asking this to a checklist to be asked of any users in this situation.
+asking this to a checklist to be asked of any users in this situation. I couldn't find any
+instances where this was verified to occur, but I am pretty sure I have read about it happening
+in the past.
 
 Lying or laziness
 ~~~~~~~~~~~~~~~~~
@@ -151,18 +154,22 @@ We cannot provide the user who has had their coins stolen with a way to easily g
 So the question might be asked, why would they spend any time helping us investigate how they
 were stolen?
 
-- If the user intends on reporting the theft to some authority, then any information we can help
-  them find, may be of assistance. However, I have yet to see any instances where someone has
-  reported theft of coins to the authorities, and had any resolution to their satisfaction. I
-  expect most users will give up and shake their fist in frustration that Bitcoin transactions
-  are not reversible.
-- The user might be mistaken. Several Electrum Core reports were from people that did not
-  understand their wallet or much about how it worked, and often were just misreading things.
-  However, this is likely to be hinted at in any initial screenshots that the user provides in
-  their initial report. It might be worth improving the checklist to filter this out for sure.
+If the user intends on reporting the theft to some authority, then any information we can help
+them find, may be of assistance. However, I have yet to see any instances where someone has
+reported theft of coins to the authorities, and had any resolution to their satisfaction. This
+does not mean that no-one has. I expect most users will give up and shake their fist in
+frustration that Bitcoin transactions are not reversible. Others will be aware that their
+hard drive contains personal data they do not want to give out, or that they have material
+obtained from P2P networks that might make them liable for crimes of various natures, whether
+copyright or other.
+
+The user might also be mistaken. Several Electrum Core reports were from people that did not
+understand their wallet or much about how it worked, and often were just misreading things.
+However, this is likely to be hinted at in any initial screenshots that the user provides in
+their initial report. It might be worth improving the checklist to filter this out for sure.
 
 It's even prohibitively hard to safely aid us in investigating the cause, if the assumption
-is that it is best for them to stop using the computer because it might be hacked. We should give
+is that it is best for them to stop using the computer because it might be hacked.
 
 Shared frustration
 ~~~~~~~~~~~~~~~~~~
@@ -170,7 +177,7 @@ Shared frustration
 It is not enjoyable to hear that users have had their coins stolen and the worst possible scenario
 would be that somehow an official build was compromised, and all users are now exposed to the
 possibility of having their coins stolen. This does not just relate to coin theft, no maintainer
-wants to  release a build with severe bugs in them either. Maintaining a wallet is enough work
+wants to release software with severe bugs in it either. Maintaining a wallet is enough work
 without dealing with this sort of havoc. I can see the same pained resignation in responses to
 reports like these by developers of other wallets that I feel when I have to deal with a similar
 report for ElectrumSV.
@@ -184,7 +191,7 @@ either that they were hacked or downloaded a fake version of the wallet instead.
 Summing up
 ----------
 
-The biggest discovery was that there were a much fewer reports of this, than I expected. Electron
+The biggest discovery was that there were a much fewer reports of this than I expected. Electron
 Cash had eight reports. ElectrumSV had five reports. And the older and more widely used Electrum
 Core had eleven that were discoverable, ignoring those that were because of the malicious server
 fake update alert debacle and other rarer problems.
@@ -203,9 +210,10 @@ step them through the questions one by one.
    wallet was on, and use another computer to continue the discussion.
 2. Ask the user what operating system they are using because they won't have filled out the
    new issue template.
-3. Ask the user to find the wallet file on disk and take a screenshot of it.
-4. If the file does not match any known release, inform the user they downloaded a fake wallet
-   and it is no surprise their coins were stolen. The investigation is complete.
+3. Ask the user to find the wallet file in their operating systems file explorer and take a
+   screenshot of it.
+4. If the file details do not match any known release, inform the user they downloaded a fake
+   wallet and it is no surprise their coins were stolen. The investigation is complete.
 5. Ask the user to provide the SHA256 checksum of the file. At this point their operating
    system should be known, and it should be able to provide them with instructions suited to
    that operating system.
