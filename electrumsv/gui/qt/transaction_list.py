@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (QTableView, QAbstractItemView, QHeaderView, QMenu, 
 
 from electrumsv.i18n import _
 from electrumsv.app_state import app_state
-from electrumsv.constants import PaymentFlag, TxFlags
+from electrumsv.constants import IntFlag, PaymentFlag, TxFlags
 from electrumsv.logs import logs
 from electrumsv.paymentrequest import has_expired
 from electrumsv.platform import platform
@@ -45,7 +45,7 @@ VALUE_COLUMN = 4
 FIAT_VALUE_COLUMN = 5
 
 
-class EventFlags(enum.IntFlag):
+class EventFlags(IntFlag):
     UNSET = 0 << 0
     TX_ADDED = 1 << 0
     TX_UPDATED = 1 << 1
@@ -60,7 +60,7 @@ class ListActions(enum.IntEnum):
     RESET_FIAT_VALUES = 3
 
 
-class TxEntryFlags(enum.IntFlag):
+class TxEntryFlags(IntFlag):
     # State related.
     NO_IDEA = 1 << 16
 

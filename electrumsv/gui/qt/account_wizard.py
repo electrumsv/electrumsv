@@ -43,8 +43,8 @@ from PyQt5.QtWidgets import (
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import compose_chain_string, is_new_seed, is_old_seed
-from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, KeystoreTextType,
-    MAXIMUM_COSIGNER_COUNT, ScriptType)
+from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, IntFlag,
+    KeystoreTextType, MAXIMUM_COSIGNER_COUNT, ScriptType)
 from electrumsv.device import DeviceInfo
 from electrumsv.i18n import _
 from electrumsv.keystore import (bip39_is_checksum_valid, bip44_derivation_cointype, from_seed,
@@ -124,7 +124,7 @@ TextKeystoreTypeFlags = {
     KeystoreTextType.ELECTRUM_OLD_SEED_WORDS: KeyFlags.CAN_BE_MULTISIG_WRITABLE,
 }
 
-class ResultType(enum.IntFlag):
+class ResultType(IntFlag):
     UNKNOWN = 0
 
     NEW = 1

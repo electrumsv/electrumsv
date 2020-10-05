@@ -2,46 +2,27 @@
     <body>
         <p>
             Changes included in this version of ElectrumSV are documented in a more readable
-            form within the following article: <a href="https://medium.com/@roger.taylor/electrumsv-1-3-6-a1f429bb1391">ElectrumSV 1.3.6</a>
+            form within the following article: <a href="https://medium.com/@roger.taylor/electrumsv-1-3-7-8b3833343bd3">ElectrumSV 1.3.7</a>
         </p>
         <p>
             The most prominent changes are also summarised below for convenience, if you wish to read more
             about any given change, please read the linked article.
         </p>
         <ul>
-            <li>
-                Invoices: Fixed a bug where importing an invoice through a BIP270 payment request
-                URL failed when it was done using a QR code.
-                <a href="https://github.com/electrumsv/electrumsv/issues/495" target="_new">Github issue</a>.
+            <li>Payment dangers: The place where users enter where their payment goes to allows
+                freeform entry of Bitcoin script assembly language. There was the possibility that
+                users could paste in malformed addresses and have their payment go to an unexpected
+                location. This should now be prevented.
             </li>
             <li>
-                Coin-splitting: Added support for a different kind of coin-splitting that does not
-                require the use of a faucet. It is recommended over the faucet splitting, and
-                should prevent future problems where the faucet being drained or unavailable
-                leaves users unable to split their coins.
-                <a href="https://dev.azure.com/electrumsv/ElectrumSV/_workitems/edit/97" target="_new">Azure Boards item</a>.
+                Transaction dialog: Some small interactive changes have been made to the
+                transaction dialog. This allows a user to more easily inspect their wallet data
+                and relate what coins were spent in one transaction to those received in another.
             </li>
             <li>
-                Accounts: The account information dialog would error when displayed for accounts
-                that have no keystore. This just affected the watch-only imported address accounts.
-                <a href="https://github.com/electrumsv/electrumsv/issues/497" target="_new">Github issue</a>.
-            </li>
-            <li>
-                Networking: Broadcasting a transaction when there was no current connection or the
-                wallet had not realised the connection was down, which would either block
-                indefinitely when aborted or when ElectrumSV exited. It should handle an aborted
-                or failed transaction broadcast under these circumstances a lot better now.
-                <a href="https://github.com/electrumsv/electrumsv/issues/491" target="_new">Github issue</a>.
-            </li>
-            <li>
-                User interface: The transaction dialog now colours change outputs correctly again
-                rather than colouring them the same as receiving outputs. Transaction outputs
-                that are not to addresses are now displayed as scripting "assembly language" again.
-            </li>
-            <li>
-                Wallet wizard: Opening certain kinds of invalid wallet files now displays a user
-                friendly error message to the wallet operator, rather than catching an exception.
-                <a href="https://github.com/electrumsv/electrumsv/issues/478" target="_new">Github issue</a>.
+                REST API: The example REST API has received some changes and extensions to
+                hopefully help those who want to use ElectrumSV as an automated wallet
+                do so.
             </li>
         </ul>
     </body>

@@ -24,7 +24,7 @@
 # SOFTWARE.
 
 import time
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import List, Optional, TYPE_CHECKING
 
 from bitcoinx import Address, cashaddr, Script, ScriptError
@@ -38,6 +38,7 @@ from electrumsv.bip276 import PREFIX_BIP276_SCRIPT
 from electrumsv.constants import PREFIX_ASM_SCRIPT
 from electrumsv.exceptions import InvalidPayToError
 from electrumsv.i18n import _
+from electrumsv.logs import logs
 from electrumsv.network import Net
 from electrumsv.transaction import XTxOutput
 from electrumsv.web import is_URI, URIError
@@ -48,6 +49,9 @@ from . import util
 
 if TYPE_CHECKING:
     from .send_view import SendView
+
+
+logger = logs.get_logger("ui.paytoedit")
 
 
 frozen_style = "QWidget { background-color:none; border:none;}"
@@ -125,7 +129,11 @@ class PayToEdit(ScanQRTextEdit):
             raise InvalidPayToError(_("Invalid payment destination: {}").format(line))
 
         script = self._parse_output(x)
-        amount = self._parse_amount(y)
+        try:
+            amount = self._parse_amount(y)
+        except InvalidOperation:
+            raise InvalidPayToError(_("Invalid payment destination: {}").format(line))
+
         return XTxOutput(amount, script)
 
     def _parse_output(self, text: str) -> Script:

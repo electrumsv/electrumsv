@@ -17,6 +17,7 @@ from ..constants import (TxFlags, ScriptType, DerivationType, TransactionOutputF
     KeyInstanceFlag, PaymentFlag, WalletEventFlag, WalletEventType)
 from ..logs import logs
 from .sqlite_support import SQLITE_MAX_VARS, DatabaseContext, CompletionCallbackType
+from ..types import TxoKeyType
 
 
 # TODO(rt12) The rows should be turned into NamedTuples?
@@ -67,6 +68,11 @@ def flag_clause(column: str, flags: Optional[T], mask: Optional[T]) -> Tuple[str
         return f"({column} & ?) != 0", [flags]
 
     return f"({column} & ?) == ?", [mask, flags]
+
+def collect_results(result_type: Type[T], cursor: sqlite3.Cursor, results: List[T]) -> None:
+    rows = cursor.fetchall()
+    cursor.close()
+    results.extend(result_type(*row) for row in rows)
 
 
 def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, params: List[Any], \
@@ -770,17 +776,13 @@ class TransactionOutputTable(BaseWalletStore):
     def read(self, mask: Optional[TransactionOutputFlag]=None,
             key_ids: Optional[List[int]]=None) -> Iterable[TransactionOutputRow]:
         results: List[TransactionOutputRow] = []
-        def _collect_results(cursor: sqlite3.Cursor, results: List[TransactionOutputRow]) -> None:
-            rows = cursor.fetchall()
-            cursor.close()
-            for row in rows:
-                results.append(TransactionOutputRow(*row))
 
         query = self.READ_SQL
         params: List[int] = []
         if mask is not None:
             query += " WHERE (flags & ?) != 0"
             params = [ mask ]
+
         if key_ids:
             keyword = " AND" if len(params) else " WHERE"
             batch_size = SQLITE_MAX_VARS - len(params)
@@ -789,11 +791,29 @@ class TransactionOutputTable(BaseWalletStore):
                 param_str = ",".join("?" for k in batch_ids)
                 batch_query = query + f"{keyword} keyinstance_id IN ({param_str})"
                 cursor = self._db.execute(batch_query, params + batch_ids)
-                _collect_results(cursor, results)
+                collect_results(TransactionOutputRow, cursor, results)
                 key_ids = key_ids[batch_size:]
         else:
             cursor = self._db.execute(query, params)
-            _collect_results(cursor, results)
+            collect_results(TransactionOutputRow, cursor, results)
+
+        return results
+
+    def read_txokeys(self, txo_keys: List[TxoKeyType]) -> List[TransactionOutputRow]:
+        results: List[TransactionOutputRow] = []
+
+        batch_size = SQLITE_MAX_VARS // 2
+        condition_section = "tx_hash=? AND tx_index=?"
+        while len(txo_keys):
+            batch = txo_keys[:batch_size]
+            batch_values: List[Any] = []
+            for batch_entry in batch:
+                batch_values.extend(batch_entry)
+            conditions = [ condition_section ] * len(batch)
+            batch_query = (self.READ_SQL +" WHERE "+ " OR ".join(conditions))
+            cursor = self._db.execute(batch_query, batch_values)
+            collect_results(TransactionOutputRow, cursor, results)
+            txo_keys = txo_keys[batch_size:]
 
         return results
 

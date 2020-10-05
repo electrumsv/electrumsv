@@ -727,9 +727,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.app.show_network_dialog(self)
 
     def _open_documentation(self) -> None:
-        from .help_dialog import HelpDialog
-        h = HelpDialog(self, "misc", "index")
-        h.run()
+        webbrowser.open("https://electrumsv.readthedocs.io/")
 
     def init_toolbar(self):
         self.toolbar = toolbar = QToolBar(self)

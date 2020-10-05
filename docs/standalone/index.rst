@@ -6,6 +6,9 @@ peer to peer form of electronic cash. As a wallet application it allows you to t
 spend bitcoin whenever you need to. But that's just the basics, as it manages and secures
 your keys it also helps you to do many other things.
 
+.. important::
+   ElectrumSV can only be downloaded from `electrumsv.io <https://electrumsv.io>`_.
+
 Getting started
 ---------------
 
@@ -42,6 +45,23 @@ How do you make a payment to someone else?
    /getting-started/creating-an-account
    /getting-started/receiving-a-payment
    /getting-started/making-a-payment
+
+Problem solving
+---------------
+
+Why doesn't my hardware wallet work?
+    Hardware wallet makers do not provide anywhere near enough support for their devices, and
+    some have a history of making breaking changes that stop them working in ElectrumSV. If your
+    hardware wallet does not work then this is where you should look for some pointers, whether
+    the device is a Trezor, a Ledger, a Keepkey or a Bitbox. Read more about
+    :doc:`hardware wallet issues <problem-solving/hardware-wallets>`.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+   :caption: Problem solving
+
+   /problem-solving/hardware-wallets
 
 Building on ElectrumSV
 ----------------------

@@ -23,6 +23,7 @@ TEMPLATE_PAGES = {
 TIMEZONE = 'Pacific/Auckland'
 
 DEFAULT_LANG = 'en'
+DEFAULT_DATE_FORMAT = "%Y/%m/%d %I:%M %p"
 
 # Feed generation is usually not desired when developing
 FEED_ALL_ATOM = None
@@ -44,15 +45,22 @@ class DownloadEntry(NamedTuple):
     article_link: str
     files: List[DownloadFileEntry]
 
-DOWNLOAD_LATEST = DownloadEntry("1.3.6", "2020/09/03", "https://medium.com/@roger.taylor/electrumsv-1-3-6-a1f429bb1391", [
-    DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.6.dmg","31.3 MB"),
-    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.6.exe", "27.1 MB"),
-    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.6-portable.exe", "27.1 MB"),
-    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.6.tar.gz", "4.2 MB"),
-    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.6.zip", "4.4 MB"),
+DOWNLOAD_LATEST = DownloadEntry("1.3.7", "2020/10/05", "https://medium.com/@roger.taylor/electrumsv-1-3-7-8b3833343bd3", [
+    DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.7.dmg","31.3 MB"),
+    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.7.exe", "27.1 MB"),
+    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.7-portable.exe", "27.1 MB"),
+    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.7.tar.gz", "4.2 MB"),
+    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.7.zip", "4.4 MB"),
 ])
 
 DOWNLOADS_OLDER = [
+    DownloadEntry("1.3.6", "2020/09/03", "https://medium.com/@roger.taylor/electrumsv-1-3-6-a1f429bb1391", [
+        DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.6.dmg","31.3 MB"),
+        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.6.exe", "27.1 MB"),
+        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.6-portable.exe", "27.1 MB"),
+        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.6.tar.gz", "4.2 MB"),
+        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.6.zip", "4.4 MB"),
+    ]),
 ]
 
 DEFAULT_PAGINATION = 10

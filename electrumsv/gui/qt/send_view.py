@@ -27,6 +27,7 @@
 # SOFTWARE.
 
 import textwrap
+import time
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import weakref
 
@@ -88,7 +89,7 @@ class SendView(QWidget):
 
         self._is_max = False
         self._not_enough_funds = False
-        self._require_fee_update = False
+        self._require_fee_update: Optional[int] = None
         self._payment_request: Optional[PaymentRequest] = None
         self._completions = QStringListModel()
 
@@ -328,7 +329,7 @@ class SendView(QWidget):
         self.update_widgets()
 
     def update_fee(self) -> None:
-        self._require_fee_update = True
+        self._require_fee_update = time.monotonic()
 
     def set_pay_from(self, coins: List[UTXO]) -> None:
         self.pay_from = list(coins)
@@ -362,9 +363,14 @@ class SendView(QWidget):
         update_fixed_tree_height(self._from_list)
 
     def on_timer_action(self) -> None:
-        if self._require_fee_update:
+        if self._require_fee_update is None:
+            return
+
+        # We only want to update the displayed amount data when the user stops typing. At the
+        # time of writing this, coin selection from large numbers of coins is slow and causes lag.
+        if time.monotonic() - self._require_fee_update > 0.5:
             self.do_update_fee()
-            self._require_fee_update = False
+            self._require_fee_update = None
 
     def do_update_fee(self) -> None:
         '''Recalculate the fee.  If the fee was manually input, retain it, but
