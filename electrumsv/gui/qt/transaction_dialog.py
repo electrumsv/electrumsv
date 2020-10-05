@@ -435,17 +435,17 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._update_io(self._i_table, self._o_table)
 
     def _update_io(self, i_table: MyTreeWidget, o_table: MyTreeWidget) -> None:
-        def get_xtxoutput_account(output: XTxOutput) -> Optional[AbstractAccount]:
-            if not output.x_pubkeys:
-                return None
-            for x_pubkey in output.x_pubkeys:
-                result = self._main_window._wallet.resolve_xpubkey(x_pubkey)
-                if result is not None:
-                    account, keyinstance_id = result
-                    if account.get_script_for_id(keyinstance_id) == output.script_pubkey:
-                        return account
-                    return None
-            return None
+        def get_xtxoutput_account(output: XTxOutput) -> Tuple[Optional[AbstractAccount], int]:
+            if output.x_pubkeys:
+                for x_pubkey in output.x_pubkeys:
+                    result = self._main_window._wallet.resolve_xpubkey(x_pubkey)
+                    if result is not None:
+                        account, keyinstance_id = result
+                        if account.get_script_for_id(keyinstance_id) == output.script_pubkey:
+                            return account, keyinstance_id
+                        # TODO: Document when this happens
+                        break
+            return None, -1
 
         known_txos: Set[Tuple[bytes, int]] = set()
         if self._account is not None:
@@ -469,6 +469,8 @@ class TxDialog(QDialog, MessageBoxMixin):
             name = account.display_name()
             return f"{account.get_id()}: {name}"
 
+        is_tx_complete = self.tx.is_complete()
+
         prev_txos = self._coin_service.get_outputs(
             [ TxoKeyType(txin.prev_hash, txin.prev_idx) for txin in self.tx.inputs ])
         prev_txo_dict = { TxoKeyType(r.tx_hash, r.tx_index): r for r in prev_txos }
@@ -487,6 +489,8 @@ class TxDialog(QDialog, MessageBoxMixin):
             else:
                 prev_hash_hex = hash_to_hex_str(txin.prev_hash)
                 source_text = f"{prev_hash_hex}:{txin.prev_idx}"
+                # There are only certain kinds of transactions that have values on the inputs,
+                # likely deserialised incomplete transactions from cosigners. Others?
                 value = txin.value
                 if self._account is not None:
                     keyinstance_id = get_keyinstance_id(self._account, txo_key)
@@ -495,10 +499,9 @@ class TxDialog(QDialog, MessageBoxMixin):
                     is_change = compare_key_path(self._account, keyinstance_id, CHANGE_SUBPATH)
                     account_name = name_for_account(self._account)
                     prev_txo = prev_txo_dict.get(txo_key, None)
-                    if prev_txo is not None and self.tx.is_complete():
+                    if prev_txo is not None and is_tx_complete:
                         value = prev_txo.value
                         is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) == 0
-                # TODO(rt12): When does a txin have a value? Loaded incomplete transactions only?
                 amount_text = app_state.format_amount(value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, source_text, amount_text ])
@@ -514,17 +517,26 @@ class TxDialog(QDialog, MessageBoxMixin):
             item.setFont(InputColumns.AMOUNT, self._monospace_font)
             i_table.addTopLevelItem(item)
 
+        # TODO: Rewrite this to be lot simpler when we have better TXO management. At this time
+        # we do not track UTXOs except when a transaction is known to the network as we rely on
+        # the server state to map key usage to transactions or something. We need to completely
+        # rewrite that and then rewrite this. Anyway, that is why signed tx outputs do not get
+        # identified and colourised.
+
         received_value = 0
         for tx_index, tx_output in enumerate(self.tx.outputs):
             text, _kind = tx_output_to_display_text(tx_output)
             if isinstance(_kind, Unknown_Output):
                 text = script_bytes_to_asm(tx_output.script_pubkey)
 
-            account = get_xtxoutput_account(tx_output)
+            # In the longer run we will have some form of abstraction for incomplete transactions
+            # that maps where the keys come from, but for now we manually map them to the limited
+            # key hierarchy that currently exists.
+            xtxo_account, xtxo_keyinstance_id = get_xtxoutput_account(tx_output)
             accounts: List[AbstractAccount] = []
-            if account is not None:
-                accounts.append(account)
-            if self._account is not None and account is not self._account:
+            if xtxo_account is not None:
+                accounts.append(xtxo_account)
+            if self._account is not None and xtxo_account is not self._account:
                 accounts.append(self._account)
 
             account_id: Optional[int] = None
@@ -533,7 +545,11 @@ class TxDialog(QDialog, MessageBoxMixin):
             is_receiving = is_change = False
             txo_key = TxoKeyType(self._tx_hash, tx_index)
             for account in accounts:
-                keyinstance_id = get_keyinstance_id(account, txo_key)
+                if is_tx_complete:
+                    keyinstance_id = get_keyinstance_id(account, txo_key)
+                elif account is xtxo_account and xtxo_keyinstance_id != -1:
+                    keyinstance_id = xtxo_keyinstance_id
+
                 if keyinstance_id is not None:
                     account_id = account.get_id()
                     is_receiving = compare_key_path(account, keyinstance_id, RECEIVING_SUBPATH)
