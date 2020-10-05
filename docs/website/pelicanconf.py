@@ -23,6 +23,7 @@ TEMPLATE_PAGES = {
 TIMEZONE = 'Pacific/Auckland'
 
 DEFAULT_LANG = 'en'
+DEFAULT_DATE_FORMAT = "%Y/%m/%d %I:%M %p"
 
 # Feed generation is usually not desired when developing
 FEED_ALL_ATOM = None

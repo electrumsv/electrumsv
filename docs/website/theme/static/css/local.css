@@ -120,6 +120,12 @@ p {
     margin-bottom: 24px;
 }
 
+pre {
+	margin-bottom: 24px;
+	background-color: gainsboro;
+	padding: 0.25rem 0.5rem 0.25rem 0.5rem;
+}
+
 div.figure.align-center {
     margin-left: auto;
     margin-right: auto;
@@ -169,11 +175,21 @@ div.figure p.caption {
 
 /* Pelican */
 
-.entry-content p {
+/* .entry-content p {
 	margin-bottom: 0px;
 	font-style: italic;
-}
+} */
 
 article {
 	width: 100%;
+}
+
+.literal {
+	background-color: gainsboro;
+	padding-left: 0.25rem;
+	padding-right: 0.25rem;
+}
+
+.esv-article .post-time time {
+	font-style: italic;
 }
