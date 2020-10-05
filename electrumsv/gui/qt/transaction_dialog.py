@@ -470,6 +470,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             return f"{account.get_id()}: {name}"
 
         is_tx_complete = self.tx.is_complete()
+        is_tx_known = self._account.have_transaction_data(self._tx_hash)
 
         prev_txos = self._coin_service.get_outputs(
             [ TxoKeyType(txin.prev_hash, txin.prev_idx) for txin in self.tx.inputs ])
@@ -501,7 +502,13 @@ class TxDialog(QDialog, MessageBoxMixin):
                     prev_txo = prev_txo_dict.get(txo_key, None)
                     if prev_txo is not None and is_tx_complete:
                         value = prev_txo.value
-                        is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) == 0
+                        if is_tx_known:
+                            # The transaction has been added to the account.
+                            is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) == 0
+                        else:
+                            # The transaction was most likely loaded from external source and is
+                            # being viewed but has not been added to the account.
+                            is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) != 0
                 amount_text = app_state.format_amount(value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, source_text, amount_text ])
