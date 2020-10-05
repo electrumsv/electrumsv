@@ -884,7 +884,7 @@ class TransactionDeltaTable(BaseWalletStore):
             "KI.account_id = ? AND TD.tx_hash = ? "
         "GROUP BY KI.account_id")
     READ_ACCOUNT_TXFILTERING_SQL_1 = ("SELECT KI.account_id, TOTAL(TD.value_delta), "
-            "COUNT(TD.value_delta) "
+            "COUNT(DISTINCT TD.tx_hash) "
         "FROM Transactions AS T "
         "INNER JOIN TransactionDeltas AS TD ON TD.tx_hash = T.tx_hash "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "

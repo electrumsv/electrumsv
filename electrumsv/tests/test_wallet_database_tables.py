@@ -1161,7 +1161,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
 
     balance_row = table.read_balance(ACCOUNT_ID)
     assert balance_row.total == 1319.0
-    assert balance_row.match_count == 3
+    assert balance_row.match_count == 1
 
     balance_row = table.read_balance(ACCOUNT_ID, TxFlags.Unset, TxFlags.PaysInvoice)
     assert balance_row.total == 0
@@ -1169,7 +1169,7 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
 
     balance_row = table.read_balance(ACCOUNT_ID, TxFlags.PaysInvoice, TxFlags.PaysInvoice)
     assert balance_row.total == 1319.0
-    assert balance_row.match_count == 3
+    assert balance_row.match_count == 1
 
     expected_total = 100 + 220 + 999
 
