@@ -13,8 +13,8 @@ have done to put themselves in a situation where their coins could be stolen, we
 and summarise all the past cases.
 
 We'll start with our own wallet for Bitcoin SV, then we'll look at the equivalent wallet for
-Bitcoin Cash and finally we'll look at the original wallet from Bitcoin Core. And finally, we'll
-see what conclusions we can come to from the research.
+Bitcoin Cash and lastly we'll look at the original wallet from Bitcoin Core. After that, we'll
+sum up the conclusions we came to after researching the existing identifiable cases.
 
 Summarising reports
 -------------------
@@ -34,8 +34,8 @@ find, I've supplemented this with additional remembered instances.
 
 - Coins moved on their own. User established that it was hacking not fake ElectrumSV. 1
 - Coins moved on their own. Cause unknown. `1`__ `2`__
-- Coins moved on their own. User downloaded fake ElectrumSV malware from a fake site using a bad
-  link they were given on Reddit. 1 2
+- Coins moved on their own. User downloaded fake ElectrumSV software from a fake site using a bad
+  link. 1 2
 
 __ https://github.com/electrumsv/electrumsv/issues/200
 __ https://github.com/electrumsv/electrumsv/issues/528
@@ -51,8 +51,8 @@ there were many more cases of fake software stealing coins than are listed here.
 
 - Coins moved on their own. User established it was hacking not fake ElectrumSV. `1`__
 - Coins moved on their own. Cause unknown. `1`__ `2`__ `3`__
-- Coins moved on their own. User downloaded fake software from a fake site using a bad link. `1`__
-  `2`__ `3`__ `4`__
+- Coins moved on their own. User downloaded fake Electron Cash software from a fake site using a
+  bad link. `1`__ `2`__ `3`__ `4`__
 
 __ https://github.com/Electron-Cash/Electron-Cash/issues/1433
 
@@ -81,8 +81,8 @@ there were many more cases of fake software stealing coins than are listed here.
 - Coins moved on their own. User established it was hacking not fake ElectrumSV. `1`__ `2`__
   `3`__
 - Coins moved on their own. Cause unknown. `1`__ `2`__ `3`__ `4`__ `5`__
-- Coins moved on their own. User downloaded fake software from a fake site using a bad link.
-  At the time of writing there are `69 known occurrences`__.
+- Coins moved on their own. User downloaded fake Electrum Core software from a fake site using a
+  bad link. At the time of writing there are `69 known occurrences`__.
 - Coins were stolen because of some weird Electrum bug. `1`__
 - Additional coins were stolen because of fake recovery services. `1`__
 - Coins were stolen by clipboard malware that changes addresses. `1`__
@@ -144,6 +144,43 @@ given the developers analysis of the other information. It was likely that the u
 the project's web site and copied the latest link, and said "Here, this is what I am using."
 rather than intentionally being deceitful.
 
+Why aid us if coins are not recoverable
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We cannot provide the user who has had their coins stolen with a way to easily get them back.
+So the question might be asked, why would they spend any time helping us investigate how they
+were stolen?
+
+- If the user intends on reporting the theft to some authority, then any information we can help
+  them find, may be of assistance. However, I have yet to see any instances where someone has
+  reported theft of coins to the authorities, and had any resolution to their satisfaction. I
+  expect most users will give up and shake their fist in frustration that Bitcoin transactions
+  are not reversible.
+- The user might be mistaken. Several Electrum Core reports were from people that did not
+  understand their wallet or much about how it worked, and often were just misreading things.
+  However, this is likely to be hinted at in any initial screenshots that the user provides in
+  their initial report. It might be worth improving the checklist to filter this out for sure.
+
+It's even prohibitively hard to safely aid us in investigating the cause, if the assumption
+is that it is best for them to stop using the computer because it might be hacked. We should give
+
+Shared frustration
+~~~~~~~~~~~~~~~~~~
+
+It is not enjoyable to hear that users have had their coins stolen and the worst possible scenario
+would be that somehow an official build was compromised, and all users are now exposed to the
+possibility of having their coins stolen. This does not just relate to coin theft, no maintainer
+wants to  release a build with severe bugs in them either. Maintaining a wallet is enough work
+without dealing with this sort of havoc. I can see the same pained resignation in responses to
+reports like these by developers of other wallets that I feel when I have to deal with a similar
+report for ElectrumSV.
+
+So it is reassuring to see developers on other wallets using the same reasoning I have found myself
+using. That if this were a buggy release or a compromised build, there would be a lot more reports
+of the problem and a lot more angry users. That there is one user reporting this, and that
+they lost a small amount of coins, is more indicative that the problem is not with ElectrumSV but
+either that they were hacked or downloaded a fake version of the wallet instead.
+
 Summing up
 ----------
 
@@ -197,3 +234,7 @@ For investigation of stolen coins where the user makes it past the end of the li
 likely option is that they were hacked. They should do something like preserving their hard
 drive for evidence, and reporting it to the police.
 
+For users who refuse to aid in the investigation, there is not much we can do to help them. We
+should state something along the lines that we are happy to help them investigate further when
+they are willing to assist us, and close the issue until then. Similarly if they reveal they
+have since reformatted their hard drive, then there is not much we can do.
