@@ -188,10 +188,7 @@ class AccountsView(QSplitter):
             partial(self._show_account_information, account_id))
         seed_menu = menu.addAction(_("View &Secured Data"),
             partial(self._view_secured_data, main_window=main_window, account_id=account_id))
-        seed_menu.setEnabled(
-            not account.is_watching_only() and not isinstance(account, MultisigAccount) \
-            and not account.is_hardware_wallet() \
-            and account.type() != AccountType.IMPORTED_PRIVATE_KEY)
+        seed_menu.setEnabled(self._can_view_secured_data(account))
         menu.addAction(_("&Rename"),
             partial(self._rename_account, account_id))
         menu.addSeparator()
@@ -261,7 +258,8 @@ class AccountsView(QSplitter):
 
     def _can_view_secured_data(self, account: AbstractAccount) -> None:
         return not account.is_watching_only() and not isinstance(account, MultisigAccount) \
-            and not account.is_hardware_wallet()
+            and not account.is_hardware_wallet() \
+            and account.type() != AccountType.IMPORTED_PRIVATE_KEY
 
     @protected
     def _view_secured_data(self, main_window: ElectrumWindow, account_id: int=-1,
