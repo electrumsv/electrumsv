@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import logging
 from concurrent.futures.thread import ThreadPoolExecutor
@@ -461,22 +462,20 @@ class ExtendedHandlerUtils(HandlerUtils):
         self.logger.debug("successful broadcast for %s", result)
         return result
 
-    def remove_signed_transaction(self, tx_hash: bytes, wallet: AbstractAccount):
-        # must remove signed transactions after a failed broadcast attempt (to unlock utxos)
-        # if it's a re-broadcast attempt (same txid) and we already have a StateDispatched or
-        # StateCleared transaction then *no deletion* should occur
+    def remove_transaction(self, tx_hash: bytes, wallet: AbstractAccount):
+        # removal of txs that are not in the StateSigned tx state is disabled for now as it may
+        # cause issues with expunging utxos inadvertently.
         try:
             tx = wallet.get_transaction(tx_hash)
             tx_flags = wallet._wallet._transaction_cache.get_flags(tx_hash)
             is_signed_state = (tx_flags & TxFlags.StateSigned) == TxFlags.StateSigned
+            # Todo - perhaps remove restriction to StateSigned only later (if safe for utxos state)
             if tx and is_signed_state:
                 wallet.delete_transaction(tx_hash)
             if tx and not is_signed_state:
                 raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
         except MissingRowError:
-            raise Fault(Errors.GENERIC_BAD_REQUEST_CODE,
-                        message="The transaction is not found, perhaps the transaction is "
-                                "already deleted")
+            raise Fault(Errors.TRANSACTION_NOT_FOUND_CODE, Errors.TRANSACTION_NOT_FOUND_MESSAGE)
 
     def select_inputs_and_outputs(self, config: SimpleConfig,
                                   wallet: AbstractAccount,
@@ -553,4 +552,9 @@ class ExtendedHandlerUtils(HandlerUtils):
     def cleanup_tx(self, tx, account):
         """Use of the frozen utxo mechanic may be phased out because signing a tx allocates the
         utxos thus making freezing redundant."""
-        self.remove_signed_transaction(tx.hash(), account)
+        self.remove_transaction(tx.hash(), account)
+
+    def batch_response(self, response: Dict) -> web.Response:
+        # follows this spec https://opensource.zalando.com/restful-api-guidelines/#152
+        return web.Response(text=json.dumps(response, indent=2), content_type="application/json",
+                            status=207)

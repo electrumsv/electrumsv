@@ -55,11 +55,12 @@ class TestRestAPI:
             return await resp.json()
 
     def test_create_new_wallet(self):
-        expected_json = {'parent_wallet': self.TEST_WALLET_NAME,
-                         'value': {'1':
-                                       {'wallet_type': 'Standard account',
-                                        'default_script_type': 'P2PKH',
-                                        'is_wallet_ready': True}}}
+        expected_json = {
+            'parent_wallet': self.TEST_WALLET_NAME,
+            '1': {'wallet_type': 'Standard account',
+                  'default_script_type': 'P2PKH',
+                  'is_wallet_ready': True}
+        }
         payload = {"password": "test"}
         result = requests.post(
             f"http://127.0.0.1:9999/v1/regtest/dapp/wallets/{self.TEST_WALLET_NAME}/create_new_wallet",
@@ -73,14 +74,18 @@ class TestRestAPI:
         result = requests.get(f"http://127.0.0.1:9999/v1/regtest/dapp/wallets/{self.TEST_WALLET_NAME}")
         if result.status_code != 200:
             raise requests.exceptions.HTTPError(result.text)
-        assert result.json() == expected_json
+
+        assert result.json()['parent_wallet'] == 'worker1.sqlite'
+        assert result.json()['accounts']['1']['default_script_type'] == 'P2PKH'
+        assert result.json()['accounts']['1']['wallet_type'] == 'Standard account'
 
     def test_get_all_wallets(self):
-        expected_json = {"value": [
-                            "worker1.sqlite",
-                            "worker1.sqlite-shm",
-                            "worker1.sqlite-wal"
-                          ]
+        expected_json = {
+                "wallets": [
+                    "worker1.sqlite",
+                    "worker1.sqlite-shm",
+                    "worker1.sqlite-wal"
+            ]
         }
         result = requests.get('http://127.0.0.1:9999/v1/regtest/dapp/wallets/')
         if result.status_code != 200:
@@ -94,13 +99,13 @@ class TestRestAPI:
             raise requests.exceptions.HTTPError(result.text)
 
         assert result.json()['parent_wallet'] == 'worker1.sqlite'
-        assert result.json()['value']['1']['default_script_type'] == 'P2PKH'
-        assert result.json()['value']['1']['wallet_type'] == 'Standard account'
+        assert result.json()['accounts']['1']['default_script_type'] == 'P2PKH'
+        assert result.json()['accounts']['1']['wallet_type'] == 'Standard account'
 
     def test_get_parent_wallet(self):
         expected_json = {
             "parent_wallet": "worker1.sqlite",
-            "value": {
+            "accounts": {
                 "1": {
                     "wallet_type": "Standard account",
                     "default_script_type": "P2PKH",
@@ -117,11 +122,10 @@ class TestRestAPI:
 
     def test_get_account(self):
         expected_json = {
-            'value': {'1':
-                          {'wallet_type': 'Standard account',
-                           'default_script_type': 'P2PKH',
-                           'is_wallet_ready': True}
-                      }
+            '1':
+                {'wallet_type': 'Standard account',
+                 'default_script_type': 'P2PKH',
+                 'is_wallet_ready': True}
         }
         result = requests.get(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'
                               f'{self.TEST_WALLET_NAME}/1')
@@ -143,8 +147,8 @@ class TestRestAPI:
         if result1.status_code != 200:
             raise requests.exceptions.HTTPError(result1.text)
 
-        current_cleared_count = result1.json()['value']['cleared_coins']
-        current_settled_count = result1.json()['value']['settled_coins']
+        current_cleared_count = result1.json()['cleared_coins']
+        current_settled_count = result1.json()['settled_coins']
 
         result2 = requests.post(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'
                               f'{self.TEST_WALLET_NAME}/1/topup_account')
@@ -158,8 +162,8 @@ class TestRestAPI:
             raise requests.exceptions.HTTPError(result3.text)
 
         # post-topup (no block mined)
-        assert (current_cleared_count + 1) == result3.json()['value']['cleared_coins']
-        assert current_settled_count == result3.json()['value']['settled_coins']
+        assert (current_cleared_count + 1) == result3.json()['cleared_coins']
+        assert current_settled_count == result3.json()['settled_coins']
 
         result4 = requests.post(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'
                                f'{self.TEST_WALLET_NAME}/1/generate_blocks')
@@ -173,7 +177,7 @@ class TestRestAPI:
             raise requests.exceptions.HTTPError(result5.text)
 
         # post-topup (block mined)
-        assert current_settled_count + current_cleared_count + 1 == result5.json()['value'][
+        assert current_settled_count + current_cleared_count + 1 == result5.json()[
             'settled_coins']
 
     def test_get_balance(self):
@@ -243,14 +247,14 @@ class TestRestAPI:
                 error_code = result1.get('code')
                 if error_code:
                     assert False, result1
-                len_tx_hist_before = len(result1['value'])
+                len_tx_hist_before = len(result1['history'])
 
                 # get utxos
                 result2 = await self.get_utxos(session)
                 error_code = result2.get('code')
                 if error_code:
                     assert False, result2
-                utxos = result2['value']['utxos']
+                utxos = result2['utxos']
 
                 # Prepare for two txs that use the same utxo
                 P2PKH_OUTPUT = {"value": 100,
@@ -317,7 +321,7 @@ class TestRestAPI:
                 error_code = result6.get('code')
                 if error_code:
                     assert False, result6
-                len_tx_hist_after = len(result6['value'])
+                len_tx_hist_after = len(result6['history'])
 
                 # only one extra tx should exist (in the other cases, no tx should exist)
                 assert len_tx_hist_before == (len_tx_hist_after - 1)

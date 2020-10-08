@@ -50,7 +50,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.get(self.ACCOUNT_UTXOS + "/coin_state", self.get_coin_state),
             web.get(self.ACCOUNT_UTXOS, self.get_utxos),
             web.get(self.ACCOUNT_UTXOS + "/balance", self.get_balance),
-            web.post(self.ACCOUNT_TXS + "/remove", self.remove_txs),
+            web.delete(self.ACCOUNT_TXS + "/remove", self.remove_txs),
             web.get(self.ACCOUNT_TXS + "/history", self.get_transaction_history),
             web.post(self.ACCOUNT_TXS + "/fetch", self.fetch_transaction),
             web.post(self.ACCOUNT_TXS + "/create", self.create_tx),
@@ -71,8 +71,8 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
     async def get_all_wallets(self, request):
         try:
             all_parent_wallets = self._get_all_wallets(self.wallets_path)
-            response = {"value": all_parent_wallets}
-            return good_response(response)
+            response = all_parent_wallets
+            return good_response({"wallets": response})
         except Fault as e:
             return fault_to_http_response(e)
 
@@ -84,7 +84,8 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
 
             wallet = self._get_parent_wallet(wallet_name)
             accounts = self._accounts_dto(wallet)
-            response = {"parent_wallet": wallet_name, "value": accounts}
+            response = {"parent_wallet": wallet_name,
+                        "accounts": accounts}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -96,7 +97,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             parent_wallet = await self._load_wallet(wallet_name)
             accounts = self._accounts_dto(parent_wallet)
             response = {"parent_wallet": wallet_name,
-                        "value": accounts}
+                        "accounts": accounts}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -133,7 +134,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             keystore = instantiate_keystore_from_text(text_type, text_match, vars[VNAME.PASSWORD],
                 derivation_text=None, passphrase=None)
             parent_wallet.create_account_from_keystore(keystore)
-            response = {"value": {"new_wallet": create_filepath}}
+            response = {"new_wallet": create_filepath}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -147,8 +148,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account_id = vars[VNAME.ACCOUNT_ID]
 
             account = self._get_account(wallet_name, account_id)
-            ret_val = self._account_dto(account)
-            response = {"value": ret_val}
+            response = self._account_dto(account)
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -167,7 +167,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             receive_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
             receive_address = account.get_script_template_for_id(receive_key.keyinstance_id)
             txid = regtest_topup_account(receive_address, amount)
-            response = {"value": {"txid": txid}}
+            response = {"txid": txid}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -179,7 +179,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
                 required_vars=[VNAME.WALLET_NAME, VNAME.ACCOUNT_ID])
             nblocks = vars.get(VNAME.NBLOCKS, 1)
             txid = regtest_generate_nblocks(nblocks, Net.REGTEST_P2PKH_ADDRESS)
-            response = {"value": {"txid": txid}}
+            response = {"txid": txid}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -193,8 +193,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account_id = vars[VNAME.ACCOUNT_ID]
 
             account = self._get_account(wallet_name, account_id)
-            result = self._coin_state_dto(account)
-            response = {"value": result}
+            response = self._coin_state_dto(account)
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -213,7 +212,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             utxos = account.get_utxos(exclude_frozen=exclude_frozen,
                                       confirmed_only=confirmed_only, mature=mature)
             result = self._utxo_dto(utxos)
-            response = {"value": {"utxos": result}}
+            response = {"utxos": result}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -227,13 +226,13 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account_id = vars[VNAME.ACCOUNT_ID]
 
             account = self._get_account(wallet_name, account_id)
-            ret_val = self._balance_dto(wallet=account)
-            response = {"value": ret_val}
+            response = self._balance_dto(wallet=account)
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
 
     async def remove_txs(self, request):
+        # follows this spec https://opensource.zalando.com/restful-api-guidelines/#152
         """This might be used to clean up after creating many transactions that were never sent."""
         try:
             vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
@@ -242,13 +241,21 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account_id = vars[VNAME.ACCOUNT_ID]
             txids = vars[VNAME.TXIDS]
             account = self._get_account(wallet_name, account_id)
+
+            results = []
             if txids:
                 for txid in txids:
-                    self.remove_signed_transaction(bitcoinx.hex_str_to_hash(txid), account)
-                ret_val = {"value": {"message":
-                    f"All StateSigned transactions in set: {txids} deleted from" +
-                    f"TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
-            return good_response(ret_val)
+                    try:
+                        self.remove_transaction(bitcoinx.hex_str_to_hash(txid), account)
+                        results.append({"id": txid, "result": 200})
+                    except Fault as e:
+                        if e.code == Errors.DISABLED_FEATURE_CODE:
+                            results.append({"id": txid, "result": 400,
+                                            "description": Errors.DISABLED_FEATURE_MESSAGE})
+                        if e.code == Errors.TRANSACTION_NOT_FOUND_CODE:
+                            results.append({"id": txid, "result": 400,
+                                            "description": Errors.TRANSACTION_NOT_FOUND_MESSAGE})
+            return self.batch_response({"items": results})
         except Fault as e:
             return fault_to_http_response(e)
 
@@ -262,9 +269,8 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             tx_flags = vars.get(VNAME.TX_FLAGS)
 
             account = self._get_account(wallet_name, account_id)
-            ret_val = self._history_dto(account, tx_flags)
-            response = {"value": ret_val}
-            return good_response(response)
+            response = self._history_dto(account, tx_flags)
+            return good_response({"history": response})
         except Fault as e:
             return fault_to_http_response(e)
 
@@ -278,8 +284,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             txid = vars[VNAME.TXID]
 
             account = self._get_account(wallet_name, account_id)
-            ret_val = self._fetch_transaction_dto(account, tx_id=txid)
-            response = {"value": ret_val}
+            response = self._fetch_transaction_dto(account, tx_id=txid)
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -294,8 +299,8 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         tx = None
         try:
             tx, account, password = await self._create_tx_helper(request)
-            response = {"value": {"txid": tx.txid(),
-                                  "rawtx": str(tx)}}
+            response = {"txid": tx.txid(),
+                        "rawtx": str(tx)}
             return good_response(response)
         except Fault as e:
             if tx and tx.is_complete() and e.code != Fault(Errors.ALREADY_SENT_TRANSACTION_CODE):
@@ -317,7 +322,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             except aiorpcx.jsonrpc.RPCError as e:
                 raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
             self.prev_transaction = result
-            response = {"value": {"txid": result}}
+            response = {"txid": result}
             self.logger.debug("successful broadcast for %s", result)
             return good_response(response)
         except Fault as e:
@@ -349,7 +354,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             except aiorpcx.jsonrpc.RPCError as e:
                 raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
             self.prev_transaction = result
-            response = {"value": {"txid": result}}
+            response = {"txid": result}
             return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
@@ -396,7 +401,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             # broadcast
             result = await self._broadcast_transaction(str(tx), tx.hash(), account)
             self.prev_transaction = result
-            response = {"value": {"txid": result}}
+            response = {"txid": result}
             return good_response(response)
         except Fault as e:
             if tx and tx.is_complete() and e.code != Fault(Errors.ALREADY_SENT_TRANSACTION_CODE):

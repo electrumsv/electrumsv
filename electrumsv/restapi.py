@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Optional, Dict, Union, Any
+from typing import Optional, Dict, Union, Any, List
 
 from base64 import b64decode
 from aiohttp import web
@@ -98,7 +98,7 @@ def internal_server_error(code: int, message: str) -> web.Response:
     return web.json_response(data=response_obj, status=500)
 
 
-def good_response(response: Dict) -> web.Response:
+def good_response(response: Union[Dict, List]) -> web.Response:
     return web.Response(text=json.dumps(response, indent=2), content_type="application/json")
 
 

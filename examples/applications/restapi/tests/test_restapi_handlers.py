@@ -115,8 +115,13 @@ def _fake_balance_dto_succeeded(wallet) -> Dict[Any, Any]:
             "unconfirmed_balance": 20,
             "unmatured_balance": 0}
 
-def _fake_remove_signed_transaction(tx_hash: bytes, wallet: AbstractAccount):
+
+def _fake_remove_transaction(tx_hash: bytes, wallet: AbstractAccount):
     return
+
+
+def _fake_remove_transaction_raise_fault(tx_hash: bytes, wallet: AbstractAccount):
+    raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
 
 
 async def _fake_load_wallet_succeeds(wallet_name) -> Wallet:
@@ -323,7 +328,7 @@ class TestDefaultEndpoints:
         app.router.add_get(self.ACCOUNT_UTXOS + "/coin_state", self.rest_server.get_coin_state)
         app.router.add_get(self.ACCOUNT_UTXOS, self.rest_server.get_utxos)
         app.router.add_get(self.ACCOUNT_UTXOS + "/balance", self.rest_server.get_balance)
-        app.router.add_post(self.ACCOUNT_TXS + "/remove",
+        app.router.add_delete(self.ACCOUNT_TXS + "/remove",
                             self.rest_server.remove_txs)
         app.router.add_get(self.ACCOUNT_TXS + "/history", self.rest_server.get_transaction_history)
         app.router.add_get(self.ACCOUNT_TXS + "/fetch", self.rest_server.fetch_transaction)
@@ -359,7 +364,7 @@ class TestDefaultEndpoints:
         network = "test"
         all_wallets = self.rest_server.all_wallets
         mock_request = make_mocked_request("GET", f"/v1/{network}/dapp/wallets/")
-        expected_json = {'value': all_wallets}
+        expected_json = {"wallets": all_wallets}
         resp = await self.rest_server.get_all_wallets(mock_request)
         assert resp.text == good_response(expected_json).text
 
@@ -369,13 +374,13 @@ class TestDefaultEndpoints:
         wallet_name = "wallet_file1.sqlite"
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}")
         expected_json = {'parent_wallet': "wallet_file1.sqlite",
-                         'value': {'1': {'wallet_type': 'StandardWallet',
-                                       'is_wallet_ready': True}}}
+                         'accounts': {'1': {'wallet_type': 'StandardWallet',
+                                            'is_wallet_ready': True}}}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
 
-    async def test_get_child_wallet_good_response(self, cli):
+    async def test_get_account_good_response(self, cli):
         # mock request
         network = "test"
         wallet_name = "wallet_file1.sqlite"
@@ -383,8 +388,8 @@ class TestDefaultEndpoints:
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}/"
                              f"{account_id}")
         # check
-        expected_json = {'value': {'1': {'wallet_type': 'StandardWallet',
-                                         'is_wallet_ready': True}}}
+        expected_json = {'1': {'wallet_type': 'StandardWallet',
+                               'is_wallet_ready': True}}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -400,8 +405,8 @@ class TestDefaultEndpoints:
 
         # check
         expected_json = {"parent_wallet": wallet_name,
-                         "value": {'1': {"wallet_type": "StandardWallet",
-                                       "is_wallet_ready": True}}}
+                         "accounts": {'1': {"wallet_type": "StandardWallet",
+                                            "is_wallet_ready": True}}}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -417,31 +422,86 @@ class TestDefaultEndpoints:
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/utxos/balance")
 
         # check
-        expected_json = {"value": {"confirmed_balance": 10,
-                                   "unconfirmed_balance": 20,
-                                   "unmatured_balance": 0}}
+        expected_json = {"confirmed_balance": 10,
+                         "unconfirmed_balance": 20,
+                         "unmatured_balance": 0}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
 
     async def test_remove_txs_specific_txid(self, monkeypatch, cli):
-        monkeypatch.setattr(self.rest_server, 'remove_signed_transaction',
-                            _fake_remove_signed_transaction)
+        monkeypatch.setattr(self.rest_server, 'remove_transaction',
+                            _fake_remove_transaction)
+
+        expected_response = {
+                "items": [
+                    {
+                        'id': '0000000000000000000000000000000000000000000000000000000000000000',
+                        'result': 200
+                     }
+            ]
+        }
 
         # mock request
         network = "test"
         wallet_name = "wallet_file1.sqlite"
         account_id = "1"
         txids = ["00" * 32]
-        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/"
+        resp = await cli.delete(f"/v1/{network}/dapp/wallets/{wallet_name}/"
                               f"{account_id}/txs/remove",
                               data=json.dumps({"txids": txids}))
 
-        assert resp.status == 200, await resp.read()
+        assert resp.status == 207, await resp.read()
         response = await resp.read()
-        assert json.loads(response) == {"value": {"message":
-                    f"All StateSigned transactions in set: {txids} deleted from" +
-                    f"TxCache, TxInputs and TxOutputs cache and SqliteDatabase."}}
+        assert json.loads(response) == expected_response
+
+    async def test_remove_txs_specific_txid_failed_to_delete(self, monkeypatch, cli):
+        monkeypatch.setattr(self.rest_server, 'remove_transaction',
+                            _fake_remove_transaction_raise_fault)
+
+        expected_response = {
+                "items": [
+                    {
+                        'id': '0000000000000000000000000000000000000000000000000000000000000000',
+                        'result': 400,
+                        'description': 'DisabledFeatureError: You used this endpoint in a way that '
+                                       'is not supported for safety reasons. See documentation for '
+                                       'details (https://electrumsv.readthedocs.io/ )',
+                    }
+            ]
+        }
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        account_id = "1"
+        txids = ["00" * 32]
+        resp = await cli.delete(f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                              f"{account_id}/txs/remove",
+                              data=json.dumps({"txids": txids}))
+
+        assert resp.status == 207, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == expected_response
+
+    async def test_remove_txs_bad_request(self, monkeypatch, cli):
+        monkeypatch.setattr(self.rest_server, 'remove_transaction',
+                            _fake_remove_transaction_raise_fault)
+
+        expected_response = \
+            {'code': 40403, 'message': "Required body variable: 'txids' was not provided."}
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        account_id = "1"
+        # txids = ["00" * 32]
+        resp = await cli.delete(f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                              f"{account_id}/txs/remove")
+
+        assert resp.status == 404, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == expected_response
 
     async def test_get_transaction_history_good_response(self, monkeypatch, cli):
         monkeypatch.setattr(self.rest_server, '_history_dto',
@@ -454,7 +514,8 @@ class TestDefaultEndpoints:
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/history")
 
         # check
-        expected_json = {"value": [
+        expected_json = {
+            "history": [
                 {
                     "txid": "d4e226dde5c652782679a44bfad7021fb85df6ba8d32b1b17b8dc043e85d7103",
                     "height": 1,
@@ -490,9 +551,9 @@ class TestDefaultEndpoints:
                              f"utxos/coin_state")
 
         # check
-        expected_json = {"value": {"cleared_coins": 50,
-                                   "settled_coins": 2000,
-                                   "unmatured": 100}}
+        expected_json = {"cleared_coins": 50,
+                         "settled_coins": 2000,
+                         "unmatured": 100}
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -506,7 +567,7 @@ class TestDefaultEndpoints:
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}/{index}/utxos")
 
         # check
-        expected_json = {"value": {"utxos": self.rest_server._utxo_dto(SPENDABLE_UTXOS)}}
+        expected_json = {"utxos": self.rest_server._utxo_dto(SPENDABLE_UTXOS)}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -544,8 +605,8 @@ class TestDefaultEndpoints:
                                  json={"outputs": [P2PKH_OUTPUT],
                                        "password": password})
         # check
-        expected_json = {"value": {"txid": Transaction.from_hex(rawtx).txid(),
-                                   "rawtx": rawtx}}
+        expected_json = {"txid": Transaction.from_hex(rawtx).txid(),
+                         "rawtx": rawtx}
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -613,7 +674,7 @@ class TestDefaultEndpoints:
                                  json={"outputs": [P2PKH_OUTPUT],
                                        "password": password})
         # check
-        expected_json ={'value': {'txid': Transaction.from_hex(rawtx).txid()}}
+        expected_json = {'txid': Transaction.from_hex(rawtx).txid()}
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -640,7 +701,7 @@ class TestDefaultEndpoints:
                                  json={"rawtx": rawtx})
         # check
         tx = Transaction.from_hex(rawtx)
-        expected_json = {"value": {"txid": tx.txid()}}
+        expected_json = {"txid": tx.txid()}
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -666,7 +727,7 @@ class TestDefaultEndpoints:
                                        "password": password})
         # check
         tx = Transaction.from_hex(rawtx)
-        expected_json = {"value": {"txid": tx.txid()}}
+        expected_json = {"txid": tx.txid()}
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
