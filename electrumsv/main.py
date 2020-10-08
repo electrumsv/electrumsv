@@ -76,8 +76,11 @@ def run_non_RPC(config):
 
     if cmdname == 'create_wallet':
         wallet_path = get_wallet_path()
-        password = prompt_password("Password:")
-        password = password.strip() if password is not None else password
+        if not config.cmdline_options.get('nopasswordcheck'):
+            password = prompt_password("Password:")
+            password = password.strip() if password is not None else password
+        else:
+            password = config.cmdline_options.get('wallet_password')
         if not password:
             sys.exit("error: wallet creation requires a password")
 
