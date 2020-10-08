@@ -19,6 +19,19 @@ Get a list of all available wallets
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets``
 
+**Sample Response**
+
+.. code-block::
+
+    {
+        "wallets": [
+            "worker1.sqlite",
+            "worker1.sqlite-shm",
+            "worker1.sqlite-wal"
+        ]
+    }
+
+
 get_parent_wallet
 **********************
 Get a high-level information about the parent wallet and accounts (within the parent wallet).
@@ -27,6 +40,21 @@ Get a high-level information about the parent wallet and accounts (within the pa
 :Content-Type: application/json
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite``
+
+**Sample Response**
+
+.. code-block::
+
+    {
+        "parent_wallet": "worker1.sqlite",
+        "accounts": {
+            "1": {
+                "wallet_type": "Standard account",
+                "default_script_type": "P2PKH",
+                "is_wallet_ready": true
+            }
+        }
+    }
 
 load_wallet
 **********************
@@ -39,6 +67,21 @@ parent wallet and accounts.
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite``
 
+**Sample Response**
+
+.. code-block::
+
+    {
+        "parent_wallet": "worker1.sqlite",
+        "accounts": {
+            "1": {
+                "wallet_type": "Standard account",
+                "default_script_type": "P2PKH",
+                "is_wallet_ready": true
+            }
+        }
+    }
+
 get_account
 **********************
 Get high-level information about a given account
@@ -47,6 +90,18 @@ Get high-level information about a given account
 :Content-Type: application/json
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1``
+
+**Sample Response**
+
+.. code-block::
+
+    {
+        "1": {
+            "wallet_type": "Standard account",
+            "default_script_type": "P2PKH",
+            "is_wallet_ready": true
+        }
+    }
 
 get_coin_state
 **********************
@@ -57,6 +112,16 @@ Get the count of cleared, settled and matured coins.
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/utxos/coin_state``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos/coin_state``
 
+**Sample Response**
+
+.. code-block::
+
+    {
+        "cleared_coins": 11,
+        "settled_coins": 700,
+        "unmatured_coins": 0
+    }
+
 get_utxos
 **********************
 Get a list of all utxos.
@@ -65,6 +130,38 @@ Get a list of all utxos.
 :Content-Type: application/json
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/utxos``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos``
+
+**Sample Response**
+
+.. code-block::
+
+    {
+        "utxos": [
+            {
+                "value": 20000,
+                "script_pubkey": "76a91485324d225c81d414fe8a92bf101dba1a59211e8488ac",
+                "script_type": 2,
+                "tx_hash": "ce7c2fbc25d25d945b4ad539d2b41ead29e1b786a8aa42b2677af28da3f231a0",
+                "out_index": 49,
+                "keyinstance_id": 13,
+                "address": "msfERZdhGaabQmeQ1ks8sHYdCDtxnTfL2z",
+                "is_coinbase": false,
+                "flags": 0
+            },
+            {
+                "value": 20000,
+                "script_pubkey": "76a91488471d45666dadece7f06aca22f1a1cf9a3a534988ac",
+                "script_type": 2,
+                "tx_hash": "ce7c2fbc25d25d945b4ad539d2b41ead29e1b786a8aa42b2677af28da3f231a0",
+                "out_index": 50,
+                "keyinstance_id": 12,
+                "address": "mswXPFgWJbgvyxkWBFfYjbbaD1DZmFS3ig",
+                "is_coinbase": false,
+                "flags": 0
+            },
+        ]
+    }
+
 
 get_balance
 **********************
@@ -75,29 +172,28 @@ Get account balance (confirmed, unconfirmed, unmatured) in satoshis.
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/balance``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/utxos/balance``
 
-remove
-**********************
-Removes transactions in the 'Signed' state.
-
-Deleting transactions in the
-'Dispatched', 'Cleared', 'Settled' states could cause issues and so is
-not supported at this time (a DisabledFeatureError will be returned). If you
-require this feature, please make contact via the Atlantis Slack or the
-MetanetICU slack.
-
-:Method: POST
-:Content-Type: application/json
-:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/remove``
-
-**Request Body Payload**
+**Sample Response**
 
 .. code-block::
 
     {
-        "txids": [<txid1>, <txid2>, ...]    (optional field)
+        "confirmed_balance": 14999694400,
+        "unconfirmed_balance": 98000,
+        "unmatured_balance": 0
     }
 
+remove
+**********
+Removes transactions (currently restricted to 'StateSigned' transactions.)
 
+Deleting transactions in the 'Dispatched', 'Cleared', 'Settled' states
+could cause issues with the utxo set and so is not supported at this
+time (a DisabledFeatureError will be returned). If you require this feature,
+please make contact via the Atlantis Slack or the MetanetICU slack.
+
+:Method: POST
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/remove``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/remove``
 
 **Sample Body Payload**
@@ -105,7 +201,11 @@ MetanetICU slack.
 .. code-block::
 
     {
-        "txids": ["d45145f0c2ff87f6cfe5524d46d5ba14932363e927bd5a4af899a9b8fc0ab76f"]
+        "txids": [
+            "96eee07f8e2c96e33d457138496958d912042ff4ed7b3b9c74a2b810fa5c3750",
+            "469ddc27b8ef3b386bf7451aebce64edfe22d836ad51076c7a82d78f8b4f4cf9",
+            "e81472f9bbf2dc2c7dcc64c1f84b91b6214599d9c79e63be96dcda74dcb8103d"
+        ]
     }
 
 **Sample Response**
@@ -113,9 +213,22 @@ MetanetICU slack.
 .. code-block::
 
     {
-        "value": {
-            "message": "All StateSigned transactions in set: ['299405452db66866b9fed2ebe83bee5d41c4a29a0d88e2f8590f1ced7f5531b1'] deleted fromTxCache, TxInputs and TxOutputs cache and SqliteDatabase."
-        }
+        "items": [
+            {
+                "id": "96eee07f8e2c96e33d457138496958d912042ff4ed7b3b9c74a2b810fa5c3750",
+                "result": 200
+            },
+            {
+                "id": "469ddc27b8ef3b386bf7451aebce64edfe22d836ad51076c7a82d78f8b4f4cf9",
+                "result": 400,
+                "description": "DisabledFeatureError: You used this endpoint in a way that is not supported for safety reasons. See documentation for details (https://electrumsv.readthedocs.io/ )"
+            },
+            {
+                "id": "e81472f9bbf2dc2c7dcc64c1f84b91b6214599d9c79e63be96dcda74dcb8103d",
+                "result": 400,
+                "description": "Transaction not found"
+            }
+        ]
     }
 
 get_transaction_history
@@ -160,9 +273,7 @@ Pagination is not yet implemented.
 .. code-block::
 
     {
-        "value": [
-{
-    "value": [
+        "history": [
             {
                 "txid": "64a9564588f9ebcce4ac52f4e0c8fe758b16dfd6fdb5bd8db5920da317aa15c8",
                 "height": 0,
@@ -200,9 +311,7 @@ Get the raw transaction for a given hex txid (as a hex string) - must be a trans
 .. code-block::
 
     {
-        "value": {
-            "tx_hex": "0200000001adc7943687d0f89c1e20bb1c196e16cd5f08449e5aa7e744c83cc5f67ffe1e6d000000006a47304402204a23d0a3b4f3806c741966748ab0433409e9a75eeb8203d9ddb5a4209b224a0c022034b4e134aabf77f54a37175f4e391f9ab2c08540d7dfef2cb7189e0526fb6235412102f1120ab677437a561b9c2c05584d974aedf01d6038c3edfe3a3af9742113a91cfeffffff0200f90295000000001976a914b3de43912c075239c5bba3e1061baa021d238e4d88ac1ef80295000000001976a91444afd14a53a354048320c19ccfb1833263b3bd0188acc8000000"
-        }
+        "tx_hex": "0100000001e59dd2992ed46911bea87af1b4f7ab1edce8e038520f142d2aa219492664d993160000006b483045022100ec97e4887b5dd9bb3c1e0ebd0d5b2b3520aeda4d957de4bf0e06a920c7dd3fe802200be4c58192a7c67930518bf29b30ab49883fcc342ca4ee5815288c6f17d7b486412103ab06ed1f70de1524e34a4e36575993a70ff2c8800958045137d0cc2caf67ec91ffffffff0248260000000000001976a9143ef1b7677ea1ed53400da9719380b4d0373a1b5f88ac10270000000000001976a91403d0de941da4f897a7cd3828b4905fa64190a72f88acce000000"
     }
 
 create_tx
@@ -216,8 +325,9 @@ transaction are allocated for use and so cannot be used in any other transaction
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/create``
 
 **Sample Request Payload**
-This example is of a single "OP_FALSE OP_RETURN" output with "Hello" encoded in Hex ("48656c6c6f") the preceeding
-0x05 byte represents a pushdata op code to push the next 5 bytes onto the stack (in this case "48656c6c6f").
+This example is of a single "OP_FALSE OP_RETURN" output with "Hello World" encoded in Hex.
+The preceeding 0x0b byte represents a pushdata op code to push the next 11 bytes
+onto the stack ("68656c6c6f20776f726c64").
 
 Additional outputs for leftover change will be created automatically.
 
@@ -225,7 +335,7 @@ Additional outputs for leftover change will be created automatically.
 
     {
         "outputs": [
-            {"script_pubkey":"006a0548656c6c6f", "value": 0}
+            {"script_pubkey":"006a0b68656c6c6f20776f726c64", "value": 0}
         ],
         "password": "test"
     }
@@ -235,9 +345,8 @@ Additional outputs for leftover change will be created automatically.
 .. code-block::
 
     {
-        "value": {
-            "tx_hex": "0200000001adc7943687d0f89c1e20bb1c196e16cd5f08449e5aa7e744c83cc5f67ffe1e6d000000006a47304402204a23d0a3b4f3806c741966748ab0433409e9a75eeb8203d9ddb5a4209b224a0c022034b4e134aabf77f54a37175f4e391f9ab2c08540d7dfef2cb7189e0526fb6235412102f1120ab677437a561b9c2c05584d974aedf01d6038c3edfe3a3af9742113a91cfeffffff0200f90295000000001976a914b3de43912c075239c5bba3e1061baa021d238e4d88ac1ef80295000000001976a91444afd14a53a354048320c19ccfb1833263b3bd0188acc8000000"
-        }
+        "txid": "96eee07f8e2c96e33d457138496958d912042ff4ed7b3b9c74a2b810fa5c3750",
+        "rawtx": "0100000001cfdec4ce0f10c4148b44163bf6205f53e5ab31f04a57fcaaeb33ef6487e08511000000006b483045022100873bb0dabc0b053be5602ebd1bb1ce143999221317eda8835fdf96a3197b168e022037ac7ad4c5f27beee3805e581b483b418a5298a3c467872d548accdc056321cb412103bf03fd106e69b55fc2041cc862a2c1932367899de4a734ef37b8a8f056792869ffffffff0200000000000000000e006a0b68656c6c6f20776f726c64dd250000000000001976a914c6d2e09ff211db5671ea1a9a08df13703b5a06f988acd5000000"
     }
 
 
@@ -251,15 +360,16 @@ Broadcast a rawtx (created with the previous endpoint).
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/broadcast``
 
 **Sample Request Payload**
-This example is of a single "OP_FALSE OP_RETURN" output with "Hello" encoded in Hex ("48656c6c6f") the preceeding
-0x05 byte represents a pushdata op code to push the next 5 bytes onto the stack (in this case "48656c6c6f").
+This example is of a single "OP_FALSE OP_RETURN" output with "Hello World" encoded in Hex.
+The preceeding 0x0b byte represents a pushdata op code to push the next 11 bytes
+onto the stack ("68656c6c6f20776f726c64").
 
 Additional outputs for leftover change will be created automatically.
 
 .. code-block::
 
     {
-        "rawtx": "0100000001b131557fed1c0f59f8e2880d9aa2c4415dee3be8ebd2feb96668b62d45059429010000006b48304502210087d8ef3f390e563499598501759695a519a5b405f36704f8c9506089b1d5de32022072477b3f96d1df1e4b32519f5606415928d67786b0193a87d372fb9bcf5ddc04412103e9ca43c3b2e885c8a420d5784bc3bbf26c0c3def9751a8fe7b4a4a9918c22d10ffffffff02000000000000000008006a0548656c6c6f60f70295000000001976a914b3de43912c075239c5bba3e1061baa021d238e4d88acc9000000"
+        "rawtx": "0100000001ab9aff89a92c011b5436a0c02eb53cf6328286e5cf5767f309cde5414f657661000000006a473044022050750ec47afa183d3c99e22bc4324c3af83115fb409f966e345f72e0bcfa780302201e5d5920e0164c26f2fee2a71b079a4c4918ec9b269df624f3fb2fd483d6dedc4121038cac099086f38c1298d745f3b67e14bc4ab29a21fab5514111c65e196d430b29ffffffff0200000000000000000e006a0b68656c6c6f20776f726c64dd250000000000001976a914ee8f1e9312200924a406e4c39a2d0685df60924988acce000000"
     }
 
 **Sample Response**
@@ -267,9 +377,7 @@ Additional outputs for leftover change will be created automatically.
 .. code-block::
 
     {
-        "value": {
-            "txid": "53b1b2886f038183199f3dc6979c9c54934ebe74166e20addb0f318165d1b7ce"
-        }
+        "txid": "7ff0fcf6de91ffa71ef145e31d0bffe31467ecaa125a8db307cf9066fea55db5"
     }
 
 create_and_broadcast
@@ -283,8 +391,9 @@ transaction will be reversed (i.e. the transaction will be deleted and the utxos
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/create_and_broadcast``
 
 **Sample Request Payload**
-This example is of a single "OP_FALSE OP_RETURN" output with "Hello" encoded in Hex ("48656c6c6f") the preceeding
-0x05 byte represents a pushdata op code to push the next 5 bytes onto the stack (in this case "48656c6c6f").
+This example is of a single "OP_FALSE OP_RETURN" output with "Hello World" encoded in Hex.
+The preceeding 0x0b byte represents a pushdata op code to push the next 11 bytes
+onto the stack ("68656c6c6f20776f726c64").
 
 Additional outputs for leftover change will be created automatically.
 
@@ -292,7 +401,7 @@ Additional outputs for leftover change will be created automatically.
 
     {
         "outputs": [
-            {"script_pubkey":"006a0548656c6c6f", "value": 0}
+            {"script_pubkey":"006a0b68656c6c6f20776f726c64", "value": 0}
         ],
         "password": "test"
     }
@@ -302,9 +411,7 @@ Additional outputs for leftover change will be created automatically.
 .. code-block::
 
     {
-        "value": {
-            "txid": "7a77e888bb9a60f277cf3ae570c1fb61f99c13c9335170895efa07c6a923c91c"
-        }
+        "txid": "469ddc27b8ef3b386bf7451aebce64edfe22d836ad51076c7a82d78f8b4f4cf9"
     }
 
 split_utxos
@@ -335,9 +442,7 @@ for the transaction. "desired_utxo_count" determines when the desired utxo count
 .. code-block::
 
     {
-        "value": {
-            "txid": "7a77e888bb9a60f277cf3ae570c1fb61f99c13c9335170895efa07c6a923c91c"
-        }
+        "txid": "42329848db94cb16379b0c8898eb2b98542fb25d9257a47663c3fac7b0f49938"
     }
 
 Regtest only endpoints
@@ -367,9 +472,7 @@ Tops up the RegTest wallet from the RegTest node wallet (new blocks may be gener
 .. code-block::
 
     {
-        "value": {
-            "txid": "cea035abf5b8c6814db2b3ab4240a7c8f65ea08d8b3a32a0bdb1d6c0605bb7e0"
-        }
+        "txid": "8f3dfe9b9e84c1d0b6d6ead8700be4114bb2d3ca1f97e1e84c64ea944415c723"
     }
 
 generate_blocks
@@ -394,13 +497,9 @@ Tops up the RegTest wallet from the RegTest node wallet (new blocks may be gener
 .. code-block::
 
     {
-        "value": {
-            "txid": [
-                "410a6fd9024613d8e98953706b31f13ed875a7dfd9f2cee39b33ed2de0a15c92",
-                "262b113c711eb11e8a44b58aea8be36ba788b599a2089b425d0eb7f94d7d3913",
-                "12a972760942e24b53d74c18608a16aeef6df3d193a80e5f503d1457b1fb815a"
-            ]
-        }
+        "txid": [
+            "72d1270d0b3ad4c71d8257db8d6f880186108152534658ae6a127b616795530d"
+        ]
     }
 
 
@@ -431,7 +530,5 @@ ElectrumSV instance with data-dir=G:\\electrumsv_official\\electrumsv1.
 .. code-block::
 
     {
-        "value": {
-            "new_wallet": "G:\\electrumsv_official\\electrumsv1\\regtest\\wallets\\worker1.sqlite"
-        }
+        "new_wallet": "G:\\electrumsv_official\\electrumsv1\\regtest\\wallets\\worker1.sqlite"
     }
