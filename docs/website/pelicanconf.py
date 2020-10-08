@@ -11,7 +11,10 @@ THEME = "theme"
 PATH = "content"
 PAGE_PATHS = [ "pages" ]
 ARTICLE_PATHS = [ "articles" ]
-STATIC_PATHS = [ "download" ]
+STATIC_PATHS = [
+    "download",
+    "release.json",
+]
 
 ARTICLE_SAVE_AS = 'articles/{date:%Y}/{slug}.html'
 ARTICLE_URL = 'articles/{date:%Y}/{slug}.html'
