@@ -1,0 +1,15 @@
+{
+	"version": "1.0.0",
+	"date": "2019-01-11T06:41:45.720171+13:00",
+	"stable": {
+			"version": "1.3.7",
+			"date": "2020-10-08T20:00:00.000000+13:00",
+			"signatures": ["H4XbvJgJB0gWxV+ZdxbKW5gSBBiv/nwhHSJocxFQQ6jMHswUO1nWdO7/DC4rADSZD+OCwlL12I0uhbS5Kkxywyo="]
+	},
+	"unstable": {
+			"version": "1.3.0b5",
+			"date": "2020-04-16T20:00:00.000000+13:00",
+			"signatures": ["IONnpk7KI8tikjmBxtoTiPfqaQWSnnwteVpiLWC159IkYHba465DmRvV2YlNKNqAxkRc5lyswxH8nLgNuQB2D7w="]
+	}
+}
+
