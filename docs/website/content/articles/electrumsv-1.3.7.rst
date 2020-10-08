@@ -6,5 +6,6 @@ What changed in ElectrumSV 1.3.7?
 :authors: The ElectrumSV Developers
 :summary: This update mostly includes bug fixes, both in the new coin-splitting feature and in how users can pay to advanced forms of payment scripts.
 :category: releases
+:status: draft
 
 ...
