@@ -316,6 +316,8 @@ def add_global_options(parser):
                        help="Run the built-in restapi")
     group.add_argument("--restapi-port", dest="restapi_port",
                        help="Select the restapi port")
+    group.add_argument("--no-password-check", action="store_true", dest="nopasswordcheck",
+                       default=False, help="Skip password confirmation step")
 
 def get_parser():
     global known_commands
