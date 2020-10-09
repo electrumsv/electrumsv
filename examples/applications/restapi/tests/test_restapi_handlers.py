@@ -488,7 +488,7 @@ class TestDefaultEndpoints:
                             _fake_remove_transaction_raise_fault)
 
         expected_response = \
-            {'code': 40403, 'message': "Required body variable: 'txids' was not provided."}
+            {'code': 40000, 'message': "Required body variable: 'txids' was not provided."}
 
         # mock request
         network = "test"
@@ -498,7 +498,7 @@ class TestDefaultEndpoints:
         resp = await cli.delete(f"/v1/{network}/dapp/wallets/{wallet_name}/"
                               f"{account_id}/txs")
 
-        assert resp.status == 404, await resp.read()
+        assert resp.status == 400, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_response
 
