@@ -1,5 +1,4 @@
 import asyncio
-import os
 from functools import partial
 from pathlib import Path
 from typing import Union, Any
@@ -7,9 +6,9 @@ from typing import Union, Any
 import aiorpcx
 import bitcoinx
 from aiohttp import web
-from electrumsv.constants import RECEIVING_SUBPATH, DATABASE_EXT, KeystoreTextType
+from electrumsv.constants import RECEIVING_SUBPATH, KeystoreTextType
 from electrumsv.keystore import instantiate_keystore_from_text
-
+from electrumsv.storage import WalletStorage
 from electrumsv.networks import Net
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
@@ -104,23 +103,13 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
 
     async def create_new_wallet(self, request):
         """only for regtest for the moment..."""
-        def check_if_wallet_exists():
-            if os.path.exists(create_filepath):
-                raise Fault(code=Errors.BAD_WALLET_NAME_CODE,
-                    message=f"'{create_filepath + DATABASE_EXT}' already exists")
-
-            if not create_filepath.endswith(DATABASE_EXT):
-                if os.path.exists(create_filepath + DATABASE_EXT):
-                    raise Fault(code=Errors.BAD_WALLET_NAME_CODE,
-                        message=f"'{create_filepath + DATABASE_EXT}' already exists")
         try:
             vars = await self.argparser(request, required_vars=[VNAME.PASSWORD, VNAME.WALLET_NAME],
                 check_wallet_availability=False)
 
             create_filepath = str(Path(self.wallets_path).joinpath(vars[VNAME.WALLET_NAME]))
-            check_if_wallet_exists()
+            self.check_if_wallet_exists(create_filepath)
 
-            from electrumsv.storage import WalletStorage
             storage = WalletStorage.create(create_filepath, vars[VNAME.PASSWORD])
             storage.close()
 

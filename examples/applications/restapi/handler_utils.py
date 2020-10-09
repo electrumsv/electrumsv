@@ -12,7 +12,7 @@ from aiohttp import web
 
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.coinchooser import PRNG
-from electrumsv.constants import TxFlags, RECEIVING_SUBPATH
+from electrumsv.constants import TxFlags, RECEIVING_SUBPATH, DATABASE_EXT
 from electrumsv.exceptions import NotEnoughFunds
 from electrumsv.networks import Net
 from electrumsv.restapi_endpoints import HandlerUtils, VARNAMES, ARGTYPES
@@ -558,3 +558,13 @@ class ExtendedHandlerUtils(HandlerUtils):
         # follows this spec https://opensource.zalando.com/restful-api-guidelines/#152
         return web.Response(text=json.dumps(response, indent=2), content_type="application/json",
                             status=207)
+
+    def check_if_wallet_exists(self, file_path):
+        if os.path.exists(file_path):
+            raise Fault(code=Errors.BAD_WALLET_NAME_CODE,
+                        message=f"'{file_path + DATABASE_EXT}' already exists")
+
+        if not file_path.endswith(DATABASE_EXT):
+            if os.path.exists(file_path + DATABASE_EXT):
+                raise Fault(code=Errors.BAD_WALLET_NAME_CODE,
+                            message=f"'{file_path + DATABASE_EXT}' already exists")
