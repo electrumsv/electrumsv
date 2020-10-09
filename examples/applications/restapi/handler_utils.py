@@ -118,10 +118,10 @@ class ExtendedHandlerUtils(HandlerUtils):
         for varname in required_vars:
             if vars.get(varname) is None:
                 if varname in HEADER_VARS:
-                    raise Fault(Errors.HEADER_VAR_NOT_PROVIDED_CODE,
+                    raise Fault(Errors.GENERIC_BAD_REQUEST_CODE,
                                 Errors.HEADER_VAR_NOT_PROVIDED_MESSAGE.format(varname))
                 else:
-                    raise Fault(Errors.BODY_VAR_NOT_PROVIDED_CODE,
+                    raise Fault(Errors.GENERIC_BAD_REQUEST_CODE,
                                 Errors.BODY_VAR_NOT_PROVIDED_MESSAGE.format(varname))
 
     def raise_for_type_okay(self, vars):

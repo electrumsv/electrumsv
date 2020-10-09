@@ -134,6 +134,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             keystore = instantiate_keystore_from_text(text_type, text_match, vars[VNAME.PASSWORD],
                 derivation_text=None, passphrase=None)
             parent_wallet.create_account_from_keystore(keystore)
+            await self._load_wallet(vars[VNAME.WALLET_NAME])
             response = {"new_wallet": create_filepath}
             return good_response(response)
         except Fault as e:

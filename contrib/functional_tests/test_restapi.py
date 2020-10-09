@@ -55,12 +55,6 @@ class TestRestAPI:
             return await resp.json()
 
     def test_create_new_wallet(self):
-        expected_json = {
-            'parent_wallet': self.TEST_WALLET_NAME,
-            '1': {'wallet_type': 'Standard account',
-                  'default_script_type': 'P2PKH',
-                  'is_wallet_ready': True}
-        }
         payload = {"password": "test"}
         result = requests.post(
             f"http://127.0.0.1:9999/v1/regtest/dapp/wallets/{self.TEST_WALLET_NAME}/create_new_wallet",

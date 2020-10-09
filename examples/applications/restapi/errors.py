@@ -30,8 +30,6 @@ class Errors:
 
     # http 404 not found
     WALLET_NOT_FOUND_CODE = 40401
-    HEADER_VAR_NOT_PROVIDED_CODE = 40402
-    BODY_VAR_NOT_PROVIDED_CODE = 40403
     TRANSACTION_NOT_FOUND_CODE = 40404
 
     # http 500 internal server error
