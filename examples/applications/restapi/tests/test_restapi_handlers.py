@@ -328,8 +328,7 @@ class TestDefaultEndpoints:
         app.router.add_get(self.ACCOUNT_UTXOS + "/coin_state", self.rest_server.get_coin_state)
         app.router.add_get(self.ACCOUNT_UTXOS, self.rest_server.get_utxos)
         app.router.add_get(self.ACCOUNT_UTXOS + "/balance", self.rest_server.get_balance)
-        app.router.add_delete(self.ACCOUNT_TXS + "/remove",
-                            self.rest_server.remove_txs)
+        app.router.add_delete(self.ACCOUNT_TXS, self.rest_server.remove_txs)
         app.router.add_get(self.ACCOUNT_TXS + "/history", self.rest_server.get_transaction_history)
         app.router.add_get(self.ACCOUNT_TXS + "/fetch", self.rest_server.fetch_transaction)
         app.router.add_post(self.ACCOUNT_TXS + "/create", self.rest_server.create_tx)
@@ -448,7 +447,7 @@ class TestDefaultEndpoints:
         account_id = "1"
         txids = ["00" * 32]
         resp = await cli.delete(f"/v1/{network}/dapp/wallets/{wallet_name}/"
-                              f"{account_id}/txs/remove",
+                              f"{account_id}/txs",
                               data=json.dumps({"txids": txids}))
 
         assert resp.status == 207, await resp.read()
@@ -477,7 +476,7 @@ class TestDefaultEndpoints:
         account_id = "1"
         txids = ["00" * 32]
         resp = await cli.delete(f"/v1/{network}/dapp/wallets/{wallet_name}/"
-                              f"{account_id}/txs/remove",
+                              f"{account_id}/txs",
                               data=json.dumps({"txids": txids}))
 
         assert resp.status == 207, await resp.read()
@@ -497,7 +496,7 @@ class TestDefaultEndpoints:
         account_id = "1"
         # txids = ["00" * 32]
         resp = await cli.delete(f"/v1/{network}/dapp/wallets/{wallet_name}/"
-                              f"{account_id}/txs/remove")
+                              f"{account_id}/txs")
 
         assert resp.status == 404, await resp.read()
         response = await resp.read()

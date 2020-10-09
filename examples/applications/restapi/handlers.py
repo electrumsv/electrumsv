@@ -50,7 +50,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.get(self.ACCOUNT_UTXOS + "/coin_state", self.get_coin_state),
             web.get(self.ACCOUNT_UTXOS, self.get_utxos),
             web.get(self.ACCOUNT_UTXOS + "/balance", self.get_balance),
-            web.delete(self.ACCOUNT_TXS + "/remove", self.remove_txs),
+            web.delete(self.ACCOUNT_TXS, self.remove_txs),
             web.get(self.ACCOUNT_TXS + "/history", self.get_transaction_history),
             web.post(self.ACCOUNT_TXS + "/fetch", self.fetch_transaction),
             web.post(self.ACCOUNT_TXS + "/create", self.create_tx),
