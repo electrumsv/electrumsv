@@ -223,7 +223,11 @@ Running unit tests (with the `pytest` package)::
 
 Running pylint::
 
-    pylint --rcfile=.pylintrc electrumsv
+    pylint --rcfile=.pylintrc electrum-sv electrumsv
+
+Running mypy::
+
+    mypy --config-file mypy.ini --python-version 3.7
 
 
 Builds
