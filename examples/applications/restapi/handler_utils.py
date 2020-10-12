@@ -251,7 +251,12 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     def _get_all_wallets(self, wallets_path) -> List[str]:
         """returns all parent wallet paths"""
-        all_parent_wallets = os.listdir(wallets_path)
+        all_parent_wallets = []
+        for item in os.listdir(wallets_path):
+            if item.endswith("-shm") or item.endswith("-wal"):
+                continue
+            else:
+                all_parent_wallets.append(item)
         return sorted(all_parent_wallets)
 
     def _get_parent_wallet(self, wallet_name: str) -> Wallet:
