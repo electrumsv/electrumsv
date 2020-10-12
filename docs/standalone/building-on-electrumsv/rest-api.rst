@@ -25,9 +25,7 @@ Get a list of all available wallets
 
     {
         "wallets": [
-            "worker1.sqlite",
-            "worker1.sqlite-shm",
-            "worker1.sqlite-wal"
+            "worker1.sqlite"
         ]
     }
 

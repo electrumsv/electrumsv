@@ -77,8 +77,6 @@ class TestRestAPI:
         expected_json = {
                 "wallets": [
                     "worker1.sqlite",
-                    "worker1.sqlite-shm",
-                    "worker1.sqlite-wal"
             ]
         }
         result = requests.get('http://127.0.0.1:9999/v1/regtest/dapp/wallets/')
