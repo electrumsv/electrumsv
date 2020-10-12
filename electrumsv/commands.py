@@ -292,6 +292,7 @@ def add_network_options(parser):
     parser.add_argument("-p", "--proxy", dest="proxy", default=None,
                         help="set proxy [type:]host[:port], where type is socks4 or socks5")
 
+
 def add_global_options(parser):
     group = parser.add_argument_group('global options')
     group.add_argument("-v", "--verbose", action="store", dest="verbose",
@@ -304,6 +305,8 @@ def add_global_options(parser):
     group.add_argument("-w", "--wallet", dest="wallet_path", help="wallet path")
     group.add_argument("-wp", "--walletpassword", dest="wallet_password", default=None,
                        help="Supply wallet password")
+
+    # Select Network
     group.add_argument("--testnet", action="store_true", dest="testnet", default=False,
                        help="Use Testnet")
     group.add_argument("--scaling-testnet", action="store_true", dest="scalingtestnet",
@@ -312,12 +315,21 @@ def add_global_options(parser):
                        default=False, help="Use Regression Testnet")
     group.add_argument("--file-logging", action="store_true", dest="file_logging", default=False,
                        help="Redirect logging to log file")
+
+    # REST API
     group.add_argument("--restapi", action="store_true", dest="restapi",
                        help="Run the built-in restapi")
     group.add_argument("--restapi-port", dest="restapi_port",
-                       help="Select the restapi port")
+                       help="Set restapi port")
+    group.add_argument("--restapi-username", dest="restapi_username",
+                       help="Set restapi username (Basic Auth)")
+    group.add_argument("--restapi-password", dest="restapi_password",
+                       help="Set restapi password (Basic Auth)")
+
+    # Wallet Creation
     group.add_argument("--no-password-check", action="store_true", dest="nopasswordcheck",
-                       default=False, help="Skip password confirmation step")
+                       default=False, help="Skip password confirmation step for wallet creation")
+
 
 def get_parser():
     global known_commands
