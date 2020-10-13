@@ -76,8 +76,11 @@ def run_non_RPC(config):
 
     if cmdname == 'create_wallet':
         wallet_path = get_wallet_path()
-        password = prompt_password("Password:")
-        password = password.strip() if password is not None else password
+        if not config.cmdline_options.get('nopasswordcheck'):
+            password = prompt_password("Password:")
+            password = password.strip() if password is not None else password
+        else:
+            password = config.cmdline_options.get('wallet_password')
         if not password:
             sys.exit("error: wallet creation requires a password")
 
@@ -265,6 +268,44 @@ def enforce_requirements():
             sys.exit(str(e))
 
 
+def read_cli_args():
+    # read arguments from stdin pipe and prompt
+    for i, arg in enumerate(sys.argv):
+        if arg == '-':
+            if not sys.stdin.isatty():
+                sys.argv[i] = sys.stdin.read()
+                break
+            else:
+                raise Exception('Cannot get argument from stdin')
+        elif arg == '?':
+            sys.argv[i] = input("Enter argument:")
+        elif arg == ':':
+            sys.argv[i] = prompt_password('Enter argument (will not echo):', False)
+
+
+def get_config_options():
+    read_cli_args()
+    parser = get_parser()
+    args = parser.parse_args()
+
+    # config is an object passed to various constructors
+    config_options = args.__dict__
+    config_options = {
+        key: value for key, value in config_options.items()
+        if value is not None and key not in config_variables.get(args.cmd, {})
+    }
+    return config_options
+
+
+def set_restapi_credentials(config, config_options):
+    if config_options.get('restapi_username'):
+        config._set_key_in_user_config(
+            "rpcuser", config_options.get('restapi_username'), save=True)
+    if config_options.get('restapi_password') == '' or config_options.get('restapi_password'):
+        config._set_key_in_user_config(
+            "rpcpassword", config_options.get('restapi_password'), save=True)
+
+
 def main():
     enforce_requirements()
     if sys.platform == 'win32':
@@ -282,30 +323,7 @@ def main():
         sys.argv.remove('help')
         sys.argv.append('-h')
 
-    # read arguments from stdin pipe and prompt
-    for i, arg in enumerate(sys.argv):
-        if arg == '-':
-            if not sys.stdin.isatty():
-                sys.argv[i] = sys.stdin.read()
-                break
-            else:
-                raise Exception('Cannot get argument from stdin')
-        elif arg == '?':
-            sys.argv[i] = input("Enter argument:")
-        elif arg == ':':
-            sys.argv[i] = prompt_password('Enter argument (will not echo):', False)
-
-    # parse command line
-    parser = get_parser()
-    args = parser.parse_args()
-
-    # config is an object passed to various constructors
-    config_options = args.__dict__
-    config_options = {
-        key: value for key, value in config_options.items()
-        if value is not None and key not in config_variables.get(args.cmd, {})
-    }
-
+    config_options = get_config_options()
     logs.set_level(config_options['verbose'])
 
     if config_options.get('server'):
@@ -356,6 +374,7 @@ def main():
 
     # todo: defer this to gui
     config = SimpleConfig(config_options)
+    set_restapi_credentials(config, config_options)
     cmdname = config.get('cmd')
 
     # Set the app state proxy

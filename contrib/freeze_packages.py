@@ -34,7 +34,9 @@ for r_suffix in [ '',  '-hw', '-binaries']:
     print(f"Installing dependencies for '{requirements_filename}'")
 
     r_path = os.path.join(CONTRIB_PATH, "requirements", requirements_filename)
-    result = subprocess.run([ venv_pip, "install", "-r", r_path, "--upgrade" ])
+    result = subprocess.run([ venv_pip,
+        "--disable-pip-version-check",
+        "install", "-r", r_path, "--upgrade" ])
 
     result = subprocess.run([ venv_pip, 'freeze', '--all'], stdout=subprocess.PIPE)
     package_names = result.stdout.splitlines()
@@ -42,7 +44,9 @@ for r_suffix in [ '',  '-hw', '-binaries']:
     print("OK.")
 
     print("Generating package hashes...")
-    subprocess.run([ venv_pip, "install", "hashin" ])
+    subprocess.run([ venv_pip,
+        "--disable-pip-version-check",
+        "install", "hashin" ])
 
     dr_path = os.path.join(CONTRIB_PATH, "deterministic-build", f"requirements{r_suffix}.txt")
     # If these files are not updating correctly, they can be forced to update by deleting them.
