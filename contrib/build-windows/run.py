@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import threading
-from typing import Any, Dict, TextIO, Optional, Sequence, Tuple
+from typing import TextIO, Optional, Sequence, Tuple
 import zipfile
 
 import requests
@@ -30,7 +30,13 @@ EMBED_FILENAME = "python-{version}-embed-{arch}.zip"
 HASH_CHUNK_SIZE = 65536
 
 PYTHON_VERSION = "3.7.9"
-PYTHON_ARCH = "win32"
+PYTHON_ARCH = "win32" # amd64
+PYTHON_ABI = "cp37"
+
+WINDOWS_PLATFORM = {
+    "win32": "win32",
+    "amd64": "win_amd64",
+}
 
 
 assert (REQUIREMENTS_PATH / "requirements.txt").exists(), f"{REQUIREMENTS_PATH} does not exist"
@@ -85,9 +91,7 @@ def _run_command(*args: Sequence[str], cwd: Optional[pathlib.Path]=None) -> None
         thread.start()
         return local_queue, thread
 
-    env = {}
-    env['SYSTEMROOT'] = os.environ['SYSTEMROOT']
-    process = subprocess.Popen(args, env=env, cwd=cwd, stdout=subprocess.PIPE,
+    process = subprocess.Popen(args, cwd=cwd, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, universal_newlines=True)
 
     debug_queue, stdout_thread = create_reader_thread(process.stdout)
@@ -105,9 +109,9 @@ def _run_command(*args: Sequence[str], cwd: Optional[pathlib.Path]=None) -> None
         raise Exception("Process errored")
 
 
-def run(arch: str, python_version: str) -> None:
+def run(python_arch: str, python_version: str, python_abi: str) -> None:
     base_output_path = BASE_PATH / "output"
-    output_path = base_output_path / arch / python_version
+    output_path = base_output_path / python_arch / python_version
     output_path.mkdir(exist_ok=True, parents=True)
 
     build_path = output_path / "build"
@@ -120,8 +124,8 @@ def run(arch: str, python_version: str) -> None:
 
     # We start off with the embeddable release of Python, which is provided for both win32 and
     # amd64. https://docs.python.org/3.7/using/windows.html#the-embeddable-package
-    embed_url = EMBED_URL.format(arch=PYTHON_ARCH, version=PYTHON_VERSION)
-    embed_filename = EMBED_FILENAME.format(arch=PYTHON_ARCH, version=PYTHON_VERSION)
+    embed_url = EMBED_URL.format(arch=python_arch, version=python_version)
+    embed_filename = EMBED_FILENAME.format(arch=python_arch, version=python_version)
     _download_file(embed_url, output_path / embed_filename)
 
     logger.info(f"Extracting {embed_filename}")
@@ -134,31 +138,41 @@ def run(arch: str, python_version: str) -> None:
     with open(build_path / "python37._pth", "r") as f:
         text = f.read()
     with open(build_path / "python37._pth", "w") as f:
+        f.write("Lib" + os.linesep)
         f.write(text.replace("#import site", "import site"))
 
-    # We align pip, setuptools and wheel in order to prevent pip-related errors.
-    _run_command(str(build_path / "python.exe"), str(base_output_path / "get-pip.py"),
-        "--no-warn-script-location", "pip==20.2.3", "setuptools==50.3.0",
-        "wheel==0.35.1", cwd=build_path)
-
-    # _run_command(str(build_path / "Scripts" / "pip3.exe"), "install", "virtualenv",
-    #     "--no-warn-script-location", cwd=build_path)
-
-    # _run_command(str(build_path / "Scripts" / "virtualenv.exe"), str(venv_path), cwd=build_path)
-
-    # assert venv_path.exists()
+    lib_path = build_path / "Lib"
+    lib_path.mkdir()
 
     for ext_text in ("", "-binaries", "-hw"):
-        _run_command(str(build_path / "Scripts" / "pip3.exe"), "-v", "install", "-r",
-            str(REQUIREMENTS_PATH / f"requirements{ext_text}.txt"), "--no-warn-script-location",
+        _run_command(sys.executable, "-m", "pip", "-v", "install",
+            "--target", str(lib_path),
+            "--no-deps",
+            "--platform", WINDOWS_PLATFORM[python_arch],
+            "--python-version", python_version,
+            "--implementation", "cp",
+            "--abi", python_abi,
+            "-r", str(REQUIREMENTS_PATH / f"requirements{ext_text}.txt"),
+            "--no-warn-script-location",
             cwd=build_path)
 
-    _run_command(str(build_path / "Scripts" / "pip3.exe"), "install", ".",
-        "--no-warn-script-location", cwd=SOURCE_PATH)
+    _run_command(sys.executable, "-m", "pip", "-v", "install",
+        "--target", str(lib_path),
+        "--no-deps",
+        "--platform", WINDOWS_PLATFORM[python_arch],
+        "--python-version", python_version,
+        "--implementation", "cp",
+        "--abi", python_abi,
+        ".",
+        "--no-warn-script-location",
+        cwd=SOURCE_PATH)
 
-    _run_command(str(build_path / "Scripts" / "pip3.exe"), "install", "pyinstaller",
-        "--no-warn-script-location", cwd=SOURCE_PATH)
+    # _run_command(str(build_path / "Scripts" / "pip3.exe"), "install", ".",
+    #     "--no-warn-script-location", cwd=SOURCE_PATH)
+
+    # _run_command(str(build_path / "Scripts" / "pip3.exe"), "install", "pyinstaller",
+    #     "--no-warn-script-location", cwd=SOURCE_PATH)
 
 
 logger = _initialise_logging("build-windows")
-run(PYTHON_ARCH, PYTHON_VERSION)
+run(PYTHON_ARCH, PYTHON_VERSION, PYTHON_ABI)
