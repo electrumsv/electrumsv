@@ -1,3 +1,18 @@
+# TODO: Run pyinstaller using `PCbuild\<arch>\python.exe -m PyInstaller <spec file>`
+# TODO: Verify the Python source archive GPG signature.
+#       - It might actually be better to do download and verification as a developer who is
+#         priming the initial (hopefully) reproducible build. Then the hashes can help ensure
+#         that the content does not change, and can be embedded in github for the reproducibility.
+# TODO: The whole point of specifying what pip, setuptools and wheel versions to use when
+#       bootstrapping pip, is to make sure they match the versions in the deterministic
+#       requirements.
+
+#
+# Git commits of interest:
+#
+# Where the Python embedded build would run with ElectrumSV installed into it.
+# https://github.com/electrumsv/electrumsv/blob/a4f6da0a7778553acf89a6fae669abfd11d32388/contrib/build-windows/run.py
+
 import hashlib
 import logging
 import os
@@ -5,7 +20,7 @@ import pathlib
 import queue
 import shutil
 import subprocess
-import sys
+import tarfile
 import threading
 from typing import TextIO, Optional, Sequence, Tuple
 import zipfile
@@ -13,25 +28,25 @@ import zipfile
 import requests
 
 
-# TODO: Fix ._pth hard-coded version.
-# TODO: Verify the Python.org gpg signatures.
-#       - It might actually be better to do download and verification as a developer who is
-#         priming the initial (hopefully) reproducible build. Then the hashes can help ensure
-#         that the content does not change, and can be embedded in github for the reproducibility.
-
-
 SCRIPT_PATH = pathlib.Path(os.path.realpath(__file__))
 BASE_PATH = SCRIPT_PATH.parent
 REQUIREMENTS_PATH = BASE_PATH.parent / "deterministic-build"
 SOURCE_PATH = BASE_PATH.parent.parent
-EMBED_URL = "https://www.python.org/ftp/python/{version}/python-{version}-embed-{arch}.zip"
-EMBED_FILENAME = "python-{version}-embed-{arch}.zip"
+SOURCE_SNAPSHOT_URL = "https://www.python.org/ftp/python/{version}/Python-{version}.tar.xz"
+SOURCE_ARCHIVE_FILENAME = "Python-{version}.tar.xz"
+PYINSTALLER_SPEC_NAME = "electrum-sv.spec"
+LIBUSB_DLL_NAME = "libusb-1.0.dll"
 
 HASH_CHUNK_SIZE = 65536
 
 PYTHON_VERSION = "3.7.9"
 PYTHON_ARCH = "win32" # amd64
 PYTHON_ABI = "cp37"
+
+BUILD_ARCH = {
+    "amd64": "x64",
+    "win32": "win32",
+}
 
 WINDOWS_PLATFORM = {
     "win32": "win32",
@@ -78,7 +93,8 @@ def _download_file(url: str, output_path: pathlib.Path) -> None:
     logger.info(f"sha256 {output_path.name}: {file_hash}")
 
 
-def _run_command(*args: Sequence[str], cwd: Optional[pathlib.Path]=None) -> None:
+def _run_command(*args: Sequence[str], cwd: Optional[pathlib.Path]=None,
+        preserve_env: bool=True) -> None:
     def get_lines(fd: TextIO, local_queue: queue.Queue) -> None:
         for line in iter(fd.readline, ''):
             local_queue.put(line)
@@ -91,7 +107,8 @@ def _run_command(*args: Sequence[str], cwd: Optional[pathlib.Path]=None) -> None
         thread.start()
         return local_queue, thread
 
-    process = subprocess.Popen(args, cwd=cwd, stdout=subprocess.PIPE,
+    env = None if preserve_env else { 'SYSTEMROOT': os.environ['SYSTEMROOT'], 'PATH': '.' }
+    process = subprocess.Popen(args, env=env, cwd=cwd, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, universal_newlines=True)
 
     debug_queue, stdout_thread = create_reader_thread(process.stdout)
@@ -108,71 +125,93 @@ def _run_command(*args: Sequence[str], cwd: Optional[pathlib.Path]=None) -> None
     if errored:
         raise Exception("Process errored")
 
+def _build_libusb(download_path: pathlib.Path, output_path: pathlib.Path, build_arch: str) \
+        -> pathlib.Path:
+    """ Returns path to compiled DLL or raises exception. """
+    source_archive_filename = "eee6998395184d87bd8e9c07ce2637caed1207f4.zip"
+    download_url = ("https://github.com/libusb/libusb/archive/"
+        "eee6998395184d87bd8e9c07ce2637caed1207f4.zip")
+    _download_file(download_url, download_path / source_archive_filename)
+
+    # The zip file has an internal folder that differs from the archive name.
+    build_path = output_path / "libusb-eee6998395184d87bd8e9c07ce2637caed1207f4"
+    if not build_path.exists():
+        logger.info(f"Extracting {source_archive_filename}")
+        with zipfile.ZipFile(download_path / source_archive_filename) as z:
+            z.extractall(output_path)
+
+    _run_command("msbuild.exe", os.path.join("msvc", "libusb_dll_2019.vcxproj"),
+        "/p:Configuration=Release", f"/p:Platform={build_arch}",
+        cwd=build_path)
+
+    dll_path = build_path / build_arch / "Release" / "dll" / LIBUSB_DLL_NAME
+    assert dll_path.exists(), "The libusb dll did not appear to get built"
+    return dll_path
 
 def run(python_arch: str, python_version: str, python_abi: str) -> None:
-    base_output_path = BASE_PATH / "output"
-    output_path = base_output_path / python_arch / python_version
+    # Where to store the downloaded files.
+    download_path = BASE_PATH / "downloads"
+    download_path.mkdir(exist_ok=True, parents=True)
+
+    # Where to produce build artifacts / working data.
+    output_path = BASE_PATH / python_arch
     output_path.mkdir(exist_ok=True, parents=True)
 
-    build_path = output_path / "build"
+    # Download the libusb source code and compile it for the build platform.
+    build_arch = BUILD_ARCH[python_arch]
+    libusb_dll_path = _build_libusb(download_path, output_path, build_arch)
+
+    build_path = output_path / f"Python-{python_version}"
     if build_path.exists():
         shutil.rmtree(build_path)
-    build_path.mkdir(exist_ok=False)
-    (build_path / "DLLs").mkdir(exist_ok=False)
 
-    # venv_path = output_path / "venv"
+    # Download the Python source code.
+    download_url = SOURCE_SNAPSHOT_URL.format(version=python_version)
+    source_archive_filename = SOURCE_ARCHIVE_FILENAME.format(version=python_version)
+    _download_file(download_url, download_path / source_archive_filename)
 
-    # We start off with the embeddable release of Python, which is provided for both win32 and
-    # amd64. https://docs.python.org/3.7/using/windows.html#the-embeddable-package
-    embed_url = EMBED_URL.format(arch=python_arch, version=python_version)
-    embed_filename = EMBED_FILENAME.format(arch=python_arch, version=python_version)
-    _download_file(embed_url, output_path / embed_filename)
+    # The Python source code does not include pip support. We need the bootstrap script.
+    getpip_script_path = download_path / "get-pip.py"
+    _download_file("https://bootstrap.pypa.io/get-pip.py", getpip_script_path)
 
-    logger.info(f"Extracting {embed_filename}")
-    with zipfile.ZipFile(output_path / embed_filename, 'r') as z:
-        z.extractall(build_path)
+    # Extract and build the Python source code.
+    logger.info(f"Extracting {source_archive_filename}")
+    with tarfile.open(download_path / source_archive_filename, 'r') as z:
+        z.extractall(output_path)
 
-    _download_file("https://bootstrap.pypa.io/get-pip.py", base_output_path / "get-pip.py")
+    _run_command(str(build_path / "PCbuild" / "build.bat"), "-e", "--no-tkinter",
+        "-p", build_arch)
 
-    shutil.copyfile(build_path / "python37._pth", build_path / "python37.pth.orig")
-    with open(build_path / "python37._pth", "r") as f:
-        text = f.read()
-    with open(build_path / "python37._pth", "w") as f:
-        f.write("Lib" + os.linesep)
-        f.write(text.replace("#import site", "import site"))
+    executable_path = build_path / "PCbuild" / build_arch / "python.exe"
+    assert executable_path.exists(), "failed to build the python interpreter"
 
-    lib_path = build_path / "Lib"
-    lib_path.mkdir()
+    # Ensure that the libusb DLL is in the right place for PyInstaller to find (via the spec file).
+    shutil.copyfile(libusb_dll_path, build_path / LIBUSB_DLL_NAME)
 
-    for ext_text in ("", "-binaries", "-hw"):
-        _run_command(sys.executable, "-m", "pip", "-v", "install",
-            "--target", str(lib_path),
-            "--no-deps",
-            "--platform", WINDOWS_PLATFORM[python_arch],
-            "--python-version", python_version,
-            "--implementation", "cp",
-            "--abi", python_abi,
+    # Ensure the PyInstaller spec file in in the right place for us to execute later.
+    pyinstaller_spec_path = BASE_PATH / PYINSTALLER_SPEC_NAME
+    shutil.copyfile(pyinstaller_spec_path, build_path / PYINSTALLER_SPEC_NAME)
+
+    # These versions should be aligned with the existing deterministic requirements.
+    _run_command(str(executable_path),
+        str(getpip_script_path),
+        "--no-warn-script-location", "pip==20.2.3", "setuptools==50.3.0", "wheel==0.35.1",
+        cwd=build_path, preserve_env=False)
+
+    for ext_text in ("", "-binaries", "-hw", "-pyinstaller"):
+        _run_command(str(executable_path), "-m", "pip", "-v", "install",
             "-r", str(REQUIREMENTS_PATH / f"requirements{ext_text}.txt"),
             "--no-warn-script-location",
-            cwd=build_path)
+            cwd=build_path, preserve_env=False)
 
-    _run_command(sys.executable, "-m", "pip", "-v", "install",
-        "--target", str(lib_path),
-        "--no-deps",
-        "--platform", WINDOWS_PLATFORM[python_arch],
-        "--python-version", python_version,
-        "--implementation", "cp",
-        "--abi", python_abi,
-        ".",
+    _run_command(str(executable_path), "-m", "pip", "-v", "install", ".",
         "--no-warn-script-location",
-        cwd=SOURCE_PATH)
+        cwd=SOURCE_PATH, preserve_env=False)
 
-    # _run_command(str(build_path / "Scripts" / "pip3.exe"), "install", ".",
-    #     "--no-warn-script-location", cwd=SOURCE_PATH)
-
-    # _run_command(str(build_path / "Scripts" / "pip3.exe"), "install", "pyinstaller",
-    #     "--no-warn-script-location", cwd=SOURCE_PATH)
+    _run_command(str(executable_path), "-m", "PyInstaller", PYINSTALLER_SPEC_NAME,
+        cwd=build_path, preserve_env=False)
 
 
-logger = _initialise_logging("build-windows")
-run(PYTHON_ARCH, PYTHON_VERSION, PYTHON_ABI)
+if __name__ == "__main__":
+    logger = _initialise_logging("build-windows")
+    run(PYTHON_ARCH, PYTHON_VERSION, PYTHON_ABI)
