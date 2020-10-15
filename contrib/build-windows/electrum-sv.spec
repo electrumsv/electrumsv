@@ -17,12 +17,15 @@ import electrumsv
 home = pathlib.Path(electrumsv.__path__[0])
 
 libusb_dll_path = pathlib.Path("libusb-1.0.dll")
-
-# Add libusb binary
+libzbar_dll_path = pathlib.Path("libzbar-0.dll")
 
 assert libusb_dll_path.exists(), "libusb dll not found, run.py should have placed in top level"
+assert libzbar_dll_path.exists(), "libzbar dll not found, run.py should have placed in top level"
+
+# Add libusb binary
 binaries = [
     (str(libusb_dll_path), "."),
+    (str(libzbar_dll_path), "."),
 ]
 
 # Workaround for "Retro Look":
@@ -30,7 +33,6 @@ binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]
 
 datas = [
     (str(home / 'data'), 'electrumsv/data'),
-    # ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),
 ]
 datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
