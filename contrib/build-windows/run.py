@@ -1,4 +1,4 @@
-# TODO: Run pyinstaller using `PCbuild\<arch>\python.exe -m PyInstaller <spec file>`
+# TODO: Add the missing QR code dependencies.
 # TODO: Verify the Python source archive GPG signature.
 #       - It might actually be better to do download and verification as a developer who is
 #         priming the initial (hopefully) reproducible build. Then the hashes can help ensure
@@ -6,6 +6,7 @@
 # TODO: The whole point of specifying what pip, setuptools and wheel versions to use when
 #       bootstrapping pip, is to make sure they match the versions in the deterministic
 #       requirements.
+# TODO:
 
 #
 # Git commits of interest:
@@ -20,6 +21,7 @@ import pathlib
 import queue
 import shutil
 import subprocess
+import sys
 import tarfile
 import threading
 from typing import TextIO, Optional, Sequence, Tuple
@@ -36,6 +38,7 @@ SOURCE_SNAPSHOT_URL = "https://www.python.org/ftp/python/{version}/Python-{versi
 SOURCE_ARCHIVE_FILENAME = "Python-{version}.tar.xz"
 PYINSTALLER_SPEC_NAME = "electrum-sv.spec"
 LIBUSB_DLL_NAME = "libusb-1.0.dll"
+LIBZBAR_DLL_NAME = "libzbar-0.dll"
 
 HASH_CHUNK_SIZE = 65536
 
@@ -46,6 +49,11 @@ PYTHON_ABI = "cp37"
 BUILD_ARCH = {
     "amd64": "x64",
     "win32": "win32",
+}
+
+VS_ARCH = {
+    "amd64": "x64",
+    "win32": "x86",
 }
 
 WINDOWS_PLATFORM = {
@@ -67,6 +75,7 @@ def _initialise_logging(context_name: str) -> logging.Logger:
     logger.addHandler(ch)
     return logger
 
+logger = _initialise_logging("build-windows")
 
 def _sha256hash_file(file_path: pathlib.Path) -> str:
     hasher = hashlib.sha256()
@@ -148,7 +157,7 @@ def _build_libusb(download_path: pathlib.Path, output_path: pathlib.Path, build_
     assert dll_path.exists(), "The libusb dll did not appear to get built"
     return dll_path
 
-def run(python_arch: str, python_version: str, python_abi: str) -> None:
+def build_for_platform(python_arch: str, python_version: str, python_abi: str) -> None:
     # Where to store the downloaded files.
     download_path = BASE_PATH / "downloads"
     download_path.mkdir(exist_ok=True, parents=True)
@@ -157,13 +166,13 @@ def run(python_arch: str, python_version: str, python_abi: str) -> None:
     output_path = BASE_PATH / python_arch
     output_path.mkdir(exist_ok=True, parents=True)
 
-    # Download the libusb source code and compile it for the build platform.
-    build_arch = BUILD_ARCH[python_arch]
-    libusb_dll_path = _build_libusb(download_path, output_path, build_arch)
-
     build_path = output_path / f"Python-{python_version}"
     if build_path.exists():
         shutil.rmtree(build_path)
+
+    # Download the libusb source code and compile it for the build platform.
+    build_arch = BUILD_ARCH[python_arch]
+    libusb_dll_path = _build_libusb(download_path, output_path, build_arch)
 
     # Download the Python source code.
     download_url = SOURCE_SNAPSHOT_URL.format(version=python_version)
@@ -188,6 +197,9 @@ def run(python_arch: str, python_version: str, python_abi: str) -> None:
     # Ensure that the libusb DLL is in the right place for PyInstaller to find (via the spec file).
     shutil.copyfile(libusb_dll_path, build_path / LIBUSB_DLL_NAME)
 
+    zbar_dll_path = BASE_PATH / "prebuilt" / LIBZBAR_DLL_NAME
+    shutil.copyfile(zbar_dll_path, build_path / LIBZBAR_DLL_NAME)
+
     # Ensure the PyInstaller spec file in in the right place for us to execute later.
     pyinstaller_spec_path = BASE_PATH / PYINSTALLER_SPEC_NAME
     shutil.copyfile(pyinstaller_spec_path, build_path / PYINSTALLER_SPEC_NAME)
@@ -211,7 +223,16 @@ def run(python_arch: str, python_version: str, python_abi: str) -> None:
     _run_command(str(executable_path), "-m", "PyInstaller", PYINSTALLER_SPEC_NAME,
         cwd=build_path, preserve_env=False)
 
+def run(python_arch: str, python_version: str) -> None:
+    vs_arch = VS_ARCH[python_arch]
+    vs_target_arch = os.environ.get("VSCMD_ARG_TGT_ARCH", None)
+    if vs_target_arch is None:
+        sys.exit(f"Please run native tools command prompt for {vs_arch}")
+    if vs_target_arch != vs_arch:
+        sys.exit(f"Please run native tools command prompt for {vs_arch}, "
+            f"you are currently in the native tools command prompt for {vs_target_arch}")
+    build_for_platform(python_arch, python_version, PYTHON_ABI)
+
 
 if __name__ == "__main__":
-    logger = _initialise_logging("build-windows")
-    run(PYTHON_ARCH, PYTHON_VERSION, PYTHON_ABI)
+    run(PYTHON_ARCH, PYTHON_VERSION)
