@@ -189,7 +189,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # network callbacks
         if self.network:
             self.network_signal.connect(self.on_network_qt)
-            interests = ['updated', 'status', 'banner', 'verified', 'on_header_backfill']
+            interests = ['updated', 'status', 'banner', 'verified']
             # To avoid leaking references to "self" that prevent the
             # window from being GC-ed when closed, callbacks should be
             # methods of this class only, and specifically not be
@@ -474,7 +474,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.need_update.set()
             return
 
-        if event in ['status', 'banner', 'on_header_backfill']:
+        if event in ['status', 'banner']:
             # Handle in GUI thread
             self.network_signal.emit(event, args)
         else:
