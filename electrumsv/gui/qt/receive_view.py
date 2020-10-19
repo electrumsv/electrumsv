@@ -194,7 +194,7 @@ class ReceiveView(QWidget):
 
     def _toggle_qr_window(self, event: QEvent) -> None:
         if self._receive_key_id is None:
-            self.show_message(_("No available receiving destination."))
+            self._main_window.show_message(_("No available receiving destination."))
             return
 
         if not self._qr_window:
