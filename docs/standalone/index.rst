@@ -56,12 +56,20 @@ Why doesn't my hardware wallet work?
     the device is a Trezor, a Ledger, a Keepkey or a Bitbox. Read more about
     :doc:`hardware wallet issues <problem-solving/hardware-wallets>`.
 
+How do I split my coins?
+    If you have coins you have not touched since before Bitcoin SV and Bitcoin Cash split from each
+    other, you might want to make sure that you can send one of these without accidentally sending
+    the other. Read more about
+    :doc:`coin splitting <problem-solving/coin-splitting>`.
+
+
 .. toctree::
    :maxdepth: 1
    :hidden:
    :caption: Problem solving
 
    /problem-solving/hardware-wallets
+   /problem-solving/coin-splitting
 
 Building on ElectrumSV
 ----------------------
