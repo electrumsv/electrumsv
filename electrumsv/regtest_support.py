@@ -1,11 +1,13 @@
 import json
 import logging
 import os
+import time
 from typing import List, Optional
 
 import requests
 from bitcoinx import Headers, MissingHeader, CheckPoint, bits_to_work, P2PKH_Address, \
     hash_to_hex_str
+from urllib3.exceptions import NewConnectionError
 
 from electrumsv.bitcoin import COINBASE_MATURITY
 
@@ -41,12 +43,22 @@ def delete_headers_file(path_to_headers):
 
 
 def setup_regtest(app_state) -> HeadersRegTestMod:
-    regtest_import_privkey_to_node()
-    delete_headers_file(app_state.headers_filename())
-    Net._net.CHECKPOINT, Net._net.VERIFICATION_BLOCK_MERKLE_ROOT = calculate_regtest_checkpoint(
-        Net.MIN_CHECKPOINT_HEIGHT)
-    logger.info("using regtest network - miner funds go to: '%s' (not part of this wallet)",
-                Net.REGTEST_P2PKH_ADDRESS)
+    while True:
+        try:
+            regtest_import_privkey_to_node()
+            delete_headers_file(app_state.headers_filename())
+            Net._net.CHECKPOINT, Net._net.VERIFICATION_BLOCK_MERKLE_ROOT = \
+                calculate_regtest_checkpoint(Net.MIN_CHECKPOINT_HEIGHT)
+            logger.info("using regtest network - miner funds go to: '%s' (not part of this wallet)",
+                        Net.REGTEST_P2PKH_ADDRESS)
+            break
+        except (NewConnectionError, requests.exceptions.ConnectionError) as e:
+            sleep_time = 5.0
+            logger.error(f"node is offline, retrying in {sleep_time} seconds...")
+            time.sleep(sleep_time)
+        except Exception:
+            break
+
     return HeadersRegTestMod.from_file(Net.COIN, app_state.headers_filename(), Net.CHECKPOINT)
 
 
