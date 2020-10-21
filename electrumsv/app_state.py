@@ -63,6 +63,10 @@ class DefaultApp(object):
         # Initialise things dependent upon app_state.daemon here."""
         return
 
+    def on_new_wallet_event(self, wallet_path, row) -> None:
+        # hack - an expected api when resetting / creating a new wallet...
+        pass
+
 
 class AppStateProxy(object):
     app = None

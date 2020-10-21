@@ -31,10 +31,15 @@ import os
 import sys
 import time
 
+import bitcoinx
+from os import urandom
+
 from electrumsv import daemon, web
 from electrumsv.app_state import app_state, AppStateProxy, DefaultApp
 from electrumsv.commands import get_parser, known_commands, Commands, config_variables
+from electrumsv.constants import KeystoreTextType
 from electrumsv.exceptions import IncompatibleWalletError, InvalidPassword
+from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.logs import logs
 from electrumsv.networks import Net, SVTestnet, SVScalingTestnet, SVRegTestnet
 from electrumsv.platform import platform
@@ -74,8 +79,7 @@ def run_non_RPC(config):
 
         return final_path
 
-    if cmdname == 'create_wallet':
-        wallet_path = get_wallet_path()
+    if cmdname in {'create_wallet', 'create_account'}:
         if not config.cmdline_options.get('nopasswordcheck'):
             password = prompt_password("Password:")
             password = password.strip() if password is not None else password
@@ -84,11 +88,30 @@ def run_non_RPC(config):
         if not password:
             sys.exit("error: wallet creation requires a password")
 
-        storage = WalletStorage.create(wallet_path, password)
-        storage.close()
+        if cmdname == 'create_wallet':
+            wallet_path = get_wallet_path()
+            storage = WalletStorage.create(wallet_path, password)
+            storage.close()
+            print(f"Wallet saved in '{wallet_path}'")
+            sys.exit(0)
 
-        print(f"Wallet saved in '{wallet_path}'")
-        sys.exit(0)
+        elif cmdname == 'create_account':
+            wallet_path = config.get_cmdline_wallet_filepath()
+            storage = WalletStorage.create(wallet_path, password)
+            parent_wallet = Wallet(storage)
+
+            # create an account for the Wallet (only random new seeds supported - no importing)
+            text_type = KeystoreTextType.EXTENDED_PRIVATE_KEY
+            data = urandom(64)
+            coin = bitcoinx.BitcoinRegtest
+            xprv = bitcoinx.BIP32PrivateKey._from_parts(data[:32], data[32:], coin)
+            text_match = xprv.to_extended_key_string()
+            keystore = instantiate_keystore_from_text(text_type, text_match, password,
+                derivation_text=None, passphrase=None, watch_only=False)
+            parent_wallet.create_account_from_keystore(keystore)
+            print(f"New standard (bip32) account created for: '{wallet_path}'")
+            sys.exit(0)
+
     else:
         sys.exit("error: unrecognised command")
 

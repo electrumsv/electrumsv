@@ -143,6 +143,12 @@ class Commands:
         """Create a new wallet"""
         raise Exception('Not a JSON-RPC command')
 
+    @command('')
+    def create_account(self):
+        """Create a new account"""
+        raise Exception('Not a JSON-RPC command')
+
+
 
 param_descriptions = {
     'privkey': 'Private key. Type \'?\' to get a prompt.',
