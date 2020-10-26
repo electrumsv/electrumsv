@@ -31,7 +31,7 @@ jobs:
       python3 -m pip install pytest pytest-cov
       electrumsv-sdk start --background node
       electrumsv-sdk start --background electrumx
-      electrumsv-sdk start --background --new --repo=$PWD electrumsv
+      electrumsv-sdk start --background --repo=$PWD electrumsv
       sleep 5
       python3 -m pytest -v -v -v contrib/functional_tests/
     displayName: 'Functional testing via SDK & restapi'
