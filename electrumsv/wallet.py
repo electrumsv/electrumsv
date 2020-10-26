@@ -76,7 +76,8 @@ from .wallet_database.tables import (AccountRow, AccountTable, InvoiceTable,
     TransactionOutputTable, TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow,
     TransactionDeltaSumRow, PaymentRequestTable, PaymentRequestRow, WalletEventRow,
     WalletEventTable)
-from .wallet_database.sqlite_support import CompletionCallbackType, DatabaseContext
+from .wallet_database.sqlite_support import CompletionCallbackType, DatabaseContext, \
+    SynchronousWriter
 
 if TYPE_CHECKING:
     from .network import Network
@@ -2397,9 +2398,12 @@ class Wallet(TriggeredCallbacks):
             account_id += 1
 
         self._storage.put("next_account_id", account_id)
-        with AccountTable(self.get_db_context()) as table:
-            table.create(rows)
 
+        # Block waiting for the write to succeed here.
+        with AccountTable(self.get_db_context()) as table:
+            with SynchronousWriter() as writer:
+                table.create(rows, completion_callback=writer.get_callback())
+                assert writer.succeeded()
         return rows
 
     def create_keyinstances(self, account_id: int,
