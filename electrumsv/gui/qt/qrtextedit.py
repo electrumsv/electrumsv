@@ -72,7 +72,12 @@ class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
             new_text = self.text() + data + '\n'
         else:
             new_text = data
-        self.setText(new_text, ignore_uris)
+        # This should only be set if the subclass is calling itself and knows that it has replaced
+        # this method and it supports the extra parameter. See `PayToEdit.qr_input()`.
+        if ignore_uris:
+            self.setText(new_text, ignore_uris)
+        else:
+            self.setText(new_text)
         return data
 
     def contextMenuEvent(self, e):
