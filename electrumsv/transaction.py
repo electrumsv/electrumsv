@@ -73,6 +73,7 @@ def tx_output_to_display_text(tx_output: TxOutput) -> Tuple[str, ScriptTemplate]
 @attr.s(slots=True, repr=True)
 class TransactionContext:
     invoice_id: Optional[int] = attr.ib(default=None)
+    description: Optional[str] = attr.ib(default=None)
 
 
 class XPublicKeyType(enum.IntEnum):

@@ -1494,8 +1494,11 @@ class AbstractAccount:
             self._wallet.add_transaction(tx_hash, tx, tx_flags)
 
             # The transaction has to be in the database before we can refer to it in the invoice.
-            if tx_context is not None and tx_flags & TxFlags.PaysInvoice:
-                self.invoices.set_invoice_transaction(cast(int, tx_context.invoice_id), tx_hash)
+            if tx_context is not None:
+                if tx_flags & TxFlags.PaysInvoice:
+                    self.invoices.set_invoice_transaction(cast(int, tx_context.invoice_id), tx_hash)
+                if tx_context.description:
+                    self._wallet.set_transaction_label(tx_hash, tx_context.description)
 
     def get_payment_status(self, req: PaymentRequestRow) -> Tuple[bool, int]:
         local_height = self._wallet.get_local_height()

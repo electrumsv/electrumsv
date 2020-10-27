@@ -518,7 +518,10 @@ class SendView(QWidget):
 
         tx_context: Optional[TransactionContext] = None
         if self._payment_request is not None:
-            tx_context = TransactionContext(invoice_id=self._payment_request.get_id())
+            tx_context = TransactionContext(invoice_id=self._payment_request.get_id(),
+                description=tx.description)
+        else:
+            tx_context = TransactionContext(description=tx.description)
 
         self._main_window.sign_tx_with_password(tx, sign_done, password, tx_context=tx_context)
 
