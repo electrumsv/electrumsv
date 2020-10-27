@@ -63,8 +63,12 @@ def max_sql_variables():
     db.close()
     return low
 
+# This shows how to estimate the maximum variables.
 # https://stackoverflow.com/a/36788489
-SQLITE_MAX_VARS = max_sql_variables()
+# This shows that even if you have higher maximum variables you get:
+#   "Expression tree is too large (maximum depth 1000)"
+# https://github.com/electrumsv/electrumsv/issues/539
+SQLITE_MAX_VARS = min(max_sql_variables(), 999)
 
 
 class WriteDisabledError(Exception):
