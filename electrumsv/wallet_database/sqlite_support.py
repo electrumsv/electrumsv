@@ -63,12 +63,16 @@ def max_sql_variables():
     db.close()
     return low
 
-# This shows how to estimate the maximum variables.
-# https://stackoverflow.com/a/36788489
-# This shows that even if you have higher maximum variables you get:
+# If the query deals with a list of values, then just batching using `SQLITE_MAX_VARS` should
+# be enough. If it deals with expressions, then batch using the least of that and
+# `SQLITE_EXPR_TREE_DEPTH`.
+# - This shows how to estimate the maximum variables.
+#   https://stackoverflow.com/a/36788489
+# - This shows that even if you have higher maximum variables you get:
 #   "Expression tree is too large (maximum depth 1000)"
-# https://github.com/electrumsv/electrumsv/issues/539
-SQLITE_MAX_VARS = min(max_sql_variables(), 999)
+#   https://github.com/electrumsv/electrumsv/issues/539
+SQLITE_MAX_VARS = max_sql_variables()
+SQLITE_EXPR_TREE_DEPTH = 1000
 
 
 class WriteDisabledError(Exception):
