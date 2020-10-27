@@ -1,7 +1,7 @@
 aiohttp
 aiorpcX>=0.18.0,<0.19
 certifi
-dnspython
+dnspython<2.0
 ecdsa>=0.13.3
 jsonrpclib-pelix
 pyaes>=0.1a1

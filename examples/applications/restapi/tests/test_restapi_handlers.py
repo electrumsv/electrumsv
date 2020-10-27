@@ -15,7 +15,10 @@ from electrumsv.constants import TransactionOutputFlag, ScriptType
 from electrumsv.restapi import good_response, Fault
 from electrumsv.wallet import UTXO, Wallet, AbstractAccount
 from electrumsv.transaction import Transaction
+from ..errors import Errors
+
 from ..handlers import ExtensionEndpoints
+
 
 
 class SVTestnet(object):
@@ -78,18 +81,27 @@ rawtx = "0100000001c2f9bbe87ab222fa84954a9f8140696eafdeb578e8a7555c1db60c7cb4b39
         "92c1bcaad98b387aa5d8db3f7d88ac7c761400"
 
 
-def _fake_history_dto_succeeded(account) -> List[Dict[Any, Any]]:
+def _fake_history_dto_succeeded(account: AbstractAccount, tx_states: int=None) -> List[Dict[
+    Any, Any]]:
     result = [
-        {"tx_hash": '...',
-         "height": 0,
-         "conf": 0,
-         "timestamp": 1573709467,
-         "delta": 10000},
-        {"tx_hash": '...',
-         "height": 1,
-         "conf": 1,
-         "timestamp": 1573709467,
-         "delta": 10000}
+        {
+            "txid": "d4e226dde5c652782679a44bfad7021fb85df6ba8d32b1b17b8dc043e85d7103",
+            "height": 1,
+            "tx_flags": 2097152,
+            "value": 5000000000
+        },
+        {
+            "txid": "6a25882b47b3f2e97c09ee9f3131831df4b2ec1b54cc45fe3899bb4a3b5e2b29",
+            "height": 0,
+            "tx_flags": 1048576,
+            "value": -104
+        },
+        {
+            "txid": "611baae09b4db5894bbb4f13f35ae3ef492f34b388905a31a0ef82898cd3e6f6",
+            "height": None,
+            "tx_flags": 8388608,
+            "value": -5999999718
+        }
     ]
     return result
 
@@ -99,22 +111,17 @@ async def _fake_reset_wallet_transaction_state_succeeded(wallet_name, index) -> 
 
 
 def _fake_balance_dto_succeeded(wallet) -> Dict[Any, Any]:
-    confirmed_bal, unconfirmed_bal, mature_coinbase_bal = 10, 20, 0
-    return {"confirmed_balance": confirmed_bal + mature_coinbase_bal,
-            "unconfirmed_balance": unconfirmed_bal}
+    return {"confirmed_balance": 10,
+            "unconfirmed_balance": 20,
+            "unmatured_balance": 0}
 
 
-def _fake_transaction_state_dto_succeeded(account, tx_ids) -> Dict[Any, Any]:
-    results = {
-        "txid1...": {"block_id": 1,
-                     "height": 1,
-                     "conf": 1,
-                     "timestamp": 1000000000},
-        "txid2...": {"block_id": 1,
-                     "height": 1,
-                     "conf": 1,
-                     "timestamp": 1000000000}}
-    return results
+def _fake_remove_transaction(tx_hash: bytes, wallet: AbstractAccount):
+    return
+
+
+def _fake_remove_transaction_raise_fault(tx_hash: bytes, wallet: AbstractAccount):
+    raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
 
 
 async def _fake_load_wallet_succeeds(wallet_name) -> Wallet:
@@ -123,7 +130,8 @@ async def _fake_load_wallet_succeeds(wallet_name) -> Wallet:
 
 def _fake_coin_state_dto(wallet) -> Union[Fault, Dict[str, Any]]:
     results = {"cleared_coins": 50,
-               "settled_coins": 2000}
+               "settled_coins": 2000,
+               "unmatured": 100}
     return results
 
 
@@ -134,13 +142,8 @@ def _fake_create_transaction_succeeded(file_id, message_bytes, child_wallet, pas
     frozen_utxos = set([])
     return tx, frozen_utxos
 
-
-async def _fake_broadcast_tx(tx, child_wallet=None, frozen_utxos=None, wallet_memo=None,
-                             file_id=None) -> \
-        Union[Dict, Fault]:
-    pass
-    # TODO - fix
-
+async def _fake_broadcast_tx(rawtx: str, tx_hash: bytes, account: AbstractAccount) -> str:
+    return "6797415e3b4a9fbb61b209302374853bdefeb4567ad0ed76ade055e94b9b66a2"
 
 def _fake_get_frozen_utxos_for_tx(tx: Transaction, child_wallet: AbstractAccount) \
         -> List[UTXO]:
@@ -151,11 +154,17 @@ def _fake_get_frozen_utxos_for_tx(tx: Transaction, child_wallet: AbstractAccount
 def _fake_spawn(fn, *args):
     return '<throwaway _future>'
 
-
 class MockAccount(AbstractAccount):
 
-    def __init__(self):
+    def __init__(self, wallet=None):
         self._id = 1
+        self._frozen_coins = set([])
+        self._subpath_gap_limits = {(0,): 20,
+                                    (1,): 20}
+        self._wallet = wallet
+
+    def maybe_set_transaction_dispatched(self, tx_hash):
+        return True
 
     def dumps(self):
         return None
@@ -177,7 +186,11 @@ class MockAccount(AbstractAccount):
 class MockWallet(Wallet):
 
     def __init__(self):
-        self._accounts: Dict[int, AbstractAccount] = {1: MockAccount()}
+        self._accounts: Dict[int, AbstractAccount] = {1: MockAccount(self)}
+        self._frozen_coins = set([])
+
+    def set_boolean_setting(self, setting_name: str, enabled: bool) -> None:
+        return
 
     def _fake_get_account(self, account_id):
         return self._accounts[account_id]
@@ -190,13 +203,16 @@ class MockApp:
     def _create_transaction(self):
         pass
 
-    def broadcast_tx(self):
+    def _broadcast_transaction(self):
         pass
 
     def broadcast_file(*args):
         pass
 
     def get_and_set_frozen_utxos_for_tx(self):
+        pass
+
+    def _create_tx_helper(self):
         pass
 
 
@@ -217,11 +233,35 @@ class MockAsync(object):
         return '<throwaway _future>'
 
 
+class MockSession:
+    def __init__(self):
+        pass
+
+    def set_throttled(self, flag: bool):
+        return True
+
+    async def send_request(self, method, args):
+        return '6797415e3b4a9fbb61b209302374853bdefeb4567ad0ed76ade055e94b9b66a2'
+
+
+async def mock_main_session():
+    return MockSession()
+
+class MockNetwork:
+    def __init__(self):
+        self._main_session = mock_main_session
+
+class MockDaemon:
+    def __init__(self):
+        self.network = MockNetwork()
+        self.wallets = {"wallet_file1.sqlite": "path/to/wallet"}
+
 class MockAppState:
     def __init__(self):
         self.app = MockApp()
         self.config = MockConfig()
         self.async_ = MockAsync()
+        self.daemon = MockDaemon()
 
 
 class MockDefaultEndpoints(ExtensionEndpoints):
@@ -232,6 +272,12 @@ class MockDefaultEndpoints(ExtensionEndpoints):
         self.app_state = MockAppState()
         self.logger = logging.getLogger("mock-restapi")
         self.prev_transaction = ''
+        self.txb_executor = ThreadPoolExecutor(max_workers=1)
+
+    def select_inputs_and_outputs(self, config=None, child_wallet=None, base_fee=None,
+            split_count=None, desired_utxo_count=None, max_utxo_margin=200, split_value=3000,
+            require_confirmed=None):
+        return SPENDABLE_UTXOS, None, True
 
     # monkeypatching methods of LocalRESTExtensions
     def _fake_get_all_wallets(self, wallets_path):
@@ -246,6 +292,9 @@ class MockDefaultEndpoints(ExtensionEndpoints):
 
     def _fake_get_and_set_frozen_utxos_for_tx(self, tx, child_wallet):
         return
+
+    def _fake_create_tx_helper_raise_exception(self, request) -> Tuple[Any, set]:
+        raise Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE)
 
     async def _fake_send_request(self, method, args):
         '''fake for 'blockchain.transaction.broadcast' '''
@@ -279,16 +328,14 @@ class TestDefaultEndpoints:
         app.router.add_get(self.ACCOUNT_UTXOS + "/coin_state", self.rest_server.get_coin_state)
         app.router.add_get(self.ACCOUNT_UTXOS, self.rest_server.get_utxos)
         app.router.add_get(self.ACCOUNT_UTXOS + "/balance", self.rest_server.get_balance)
-        app.router.add_post(self.ACCOUNT_TXS + "/delete_signed_txs",
-                            self.rest_server.delete_signed_txs)
+        app.router.add_delete(self.ACCOUNT_TXS, self.rest_server.remove_txs)
         app.router.add_get(self.ACCOUNT_TXS + "/history", self.rest_server.get_transaction_history)
-        app.router.add_post(self.ACCOUNT_TXS + "/metadata",
-                          self.rest_server.get_transactions_metadata)
         app.router.add_get(self.ACCOUNT_TXS + "/fetch", self.rest_server.fetch_transaction)
         app.router.add_post(self.ACCOUNT_TXS + "/create", self.rest_server.create_tx)
         app.router.add_post(self.ACCOUNT_TXS + "/create_and_broadcast",
                             self.rest_server.create_and_broadcast)
         app.router.add_post(self.ACCOUNT_TXS + "/broadcast", self.rest_server.broadcast)
+        app.router.add_post(self.ACCOUNT_TXS + "/split_utxos", self.rest_server.split_utxos)
         return loop.run_until_complete(aiohttp_client(app))
 
     @pytest.fixture(autouse=True)
@@ -316,7 +363,7 @@ class TestDefaultEndpoints:
         network = "test"
         all_wallets = self.rest_server.all_wallets
         mock_request = make_mocked_request("GET", f"/v1/{network}/dapp/wallets/")
-        expected_json = {'value': all_wallets}
+        expected_json = {"wallets": all_wallets}
         resp = await self.rest_server.get_all_wallets(mock_request)
         assert resp.text == good_response(expected_json).text
 
@@ -326,13 +373,13 @@ class TestDefaultEndpoints:
         wallet_name = "wallet_file1.sqlite"
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}")
         expected_json = {'parent_wallet': "wallet_file1.sqlite",
-                         'value': {'1': {'wallet_type': 'StandardWallet',
-                                       'is_wallet_ready': True}}}
+                         'accounts': {'1': {'wallet_type': 'StandardWallet',
+                                            'is_wallet_ready': True}}}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
 
-    async def test_get_child_wallet_good_response(self, cli):
+    async def test_get_account_good_response(self, cli):
         # mock request
         network = "test"
         wallet_name = "wallet_file1.sqlite"
@@ -340,8 +387,8 @@ class TestDefaultEndpoints:
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}/"
                              f"{account_id}")
         # check
-        expected_json = {'value': {'1': {'wallet_type': 'StandardWallet',
-                                         'is_wallet_ready': True}}}
+        expected_json = {'1': {'wallet_type': 'StandardWallet',
+                               'is_wallet_ready': True}}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -357,27 +404,8 @@ class TestDefaultEndpoints:
 
         # check
         expected_json = {"parent_wallet": wallet_name,
-                         "value": {'1': {"wallet_type": "StandardWallet",
-                                       "is_wallet_ready": True}}}
-        assert resp.status == 200
-        response = await resp.read()
-        assert json.loads(response) == expected_json
-
-    async def test_reset_child_wallet_coin_state_good_response(self, monkeypatch, cli):
-        monkeypatch.setattr(self.rest_server, '_delete_signed_txs',
-                            _fake_reset_wallet_transaction_state_succeeded)
-
-        # mock request
-        network = "test"
-        wallet_name = "wallet_file1.sqlite"
-        account_id = "1"
-        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/"
-                              f"{account_id}/txs/delete_signed_txs")
-
-        # check
-        expected_json = {"value": {"message": "All StateSigned transactions deleted from TxCache, "
-                                        "TxInputs and TxOutputs cache and SqliteDatabase. "
-                                        "Corresponding utxos also removed from frozen list."}}
+                         "accounts": {'1': {"wallet_type": "StandardWallet",
+                                            "is_wallet_ready": True}}}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -393,11 +421,86 @@ class TestDefaultEndpoints:
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/utxos/balance")
 
         # check
-        expected_json = {"value": {"confirmed_balance": 10,
-                                   "unconfirmed_balance": 20}}
+        expected_json = {"confirmed_balance": 10,
+                         "unconfirmed_balance": 20,
+                         "unmatured_balance": 0}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
+
+    async def test_remove_txs_specific_txid(self, monkeypatch, cli):
+        monkeypatch.setattr(self.rest_server, 'remove_transaction',
+                            _fake_remove_transaction)
+
+        expected_response = {
+                "items": [
+                    {
+                        'id': '0000000000000000000000000000000000000000000000000000000000000000',
+                        'result': 200
+                     }
+            ]
+        }
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        account_id = "1"
+        txids = ["00" * 32]
+        resp = await cli.delete(f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                              f"{account_id}/txs",
+                              data=json.dumps({"txids": txids}))
+
+        assert resp.status == 207, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == expected_response
+
+    async def test_remove_txs_specific_txid_failed_to_delete(self, monkeypatch, cli):
+        monkeypatch.setattr(self.rest_server, 'remove_transaction',
+                            _fake_remove_transaction_raise_fault)
+
+        expected_response = {
+                "items": [
+                    {
+                        'id': '0000000000000000000000000000000000000000000000000000000000000000',
+                        'result': 400,
+                        'description': 'DisabledFeatureError: You used this endpoint in a way that '
+                                       'is not supported for safety reasons. See documentation for '
+                                       'details (https://electrumsv.readthedocs.io/ )',
+                    }
+            ]
+        }
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        account_id = "1"
+        txids = ["00" * 32]
+        resp = await cli.delete(f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                              f"{account_id}/txs",
+                              data=json.dumps({"txids": txids}))
+
+        assert resp.status == 207, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == expected_response
+
+    async def test_remove_txs_bad_request(self, monkeypatch, cli):
+        monkeypatch.setattr(self.rest_server, 'remove_transaction',
+                            _fake_remove_transaction_raise_fault)
+
+        expected_response = \
+            {'code': 40000, 'message': "Required body variable: 'txids' was not provided."}
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        account_id = "1"
+        # txids = ["00" * 32]
+        resp = await cli.delete(f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                              f"{account_id}/txs")
+
+        assert resp.status == 400, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == expected_response
 
     async def test_get_transaction_history_good_response(self, monkeypatch, cli):
         monkeypatch.setattr(self.rest_server, '_history_dto',
@@ -410,25 +513,28 @@ class TestDefaultEndpoints:
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/history")
 
         # check
-        expected_json = {"value": _fake_history_dto_succeeded(account=None)}
-        assert resp.status == 200
-        response = await resp.read()
-        assert json.loads(response) == expected_json
-
-    async def test_get_transactions_metadata_good_response(self, monkeypatch, cli):
-        monkeypatch.setattr(self.rest_server, '_transaction_state_dto',
-                            _fake_transaction_state_dto_succeeded)
-
-        # mock request
-        network = "test"
-        wallet_name = "wallet_file1.sqlite"
-        account_id = "1"
-        resp = await cli.request(path=f"/v1/{network}/dapp/wallets/{wallet_name}/"
-                                      f"{account_id}/txs/metadata",
-                                 method='post',
-                                 json={"txids": ["txid1...", "txid2..."]})
-        # check
-        expected_json = {"value": _fake_transaction_state_dto_succeeded(None, None)}
+        expected_json = {
+            "history": [
+                {
+                    "txid": "d4e226dde5c652782679a44bfad7021fb85df6ba8d32b1b17b8dc043e85d7103",
+                    "height": 1,
+                    "tx_flags": 2097152,
+                    "value": 5000000000
+                },
+                {
+                    "txid": "6a25882b47b3f2e97c09ee9f3131831df4b2ec1b54cc45fe3899bb4a3b5e2b29",
+                    "height": 0,
+                    "tx_flags": 1048576,
+                    "value": -104
+                },
+                {
+                    "txid": "611baae09b4db5894bbb4f13f35ae3ef492f34b388905a31a0ef82898cd3e6f6",
+                    "height": None,
+                    "tx_flags": 8388608,
+                    "value": -5999999718
+                }
+            ]
+        }
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -444,8 +550,10 @@ class TestDefaultEndpoints:
                              f"utxos/coin_state")
 
         # check
-        expected_json = {"value": _fake_coin_state_dto(None)}
-        assert resp.status == 200
+        expected_json = {"cleared_coins": 50,
+                         "settled_coins": 2000,
+                         "unmatured": 100}
+        assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
 
@@ -458,7 +566,7 @@ class TestDefaultEndpoints:
         resp = await cli.get(f"/v1/{network}/dapp/wallets/{wallet_name}/{index}/utxos")
 
         # check
-        expected_json = {"value": {"utxos": self.rest_server._utxo_dto(SPENDABLE_UTXOS)}}
+        expected_json = {"utxos": self.rest_server._utxo_dto(SPENDABLE_UTXOS)}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -496,19 +604,53 @@ class TestDefaultEndpoints:
                                  json={"outputs": [P2PKH_OUTPUT],
                                        "password": password})
         # check
-        expected_json = {"value": {"txid": Transaction.from_hex(rawtx).txid(),
-                                   "rawtx": rawtx}}
+        expected_json = {"txid": Transaction.from_hex(rawtx).txid(),
+                         "rawtx": rawtx}
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
 
-    async def test_create_and_broadcast_response(self, monkeypatch, cli):
+    async def test_create_tx_insufficient_coins(self, monkeypatch, cli):
+        """ensure that exception handling works even if no tx was successfully created"""
+        class MockEventLoop:
+
+            def get_debug(self):
+                return
+
+        def _fake_get_event_loop():
+            return MockEventLoop()
+
+        monkeypatch.setattr(self.rest_server, '_get_account',
+                            _fake_get_account_succeeded)
+        monkeypatch.setattr(self.rest_server, '_create_tx_helper',
+                            self.rest_server._fake_create_tx_helper_raise_exception)
+        monkeypatch.setattr(asyncio, 'get_event_loop', _fake_get_event_loop)
+        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
+                            self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        index = "1"
+        password = "mypass"
+        resp = await cli.request(path=f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                                      f"{index}/txs/create",
+                                 method='post',
+                                 json={"outputs": [P2PKH_OUTPUT],
+                                       "password": password})
+        # check
+        expected_json = {'code': 40006, 'message': 'You have insufficient coins for this transaction'}
+        assert resp.status == 400, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == expected_json
+
+    async def test_create_and_broadcast_good_response(self, monkeypatch, cli):
 
         monkeypatch.setattr(self.rest_server, '_get_account',
                             _fake_get_account_succeeded)
         monkeypatch.setattr(self.rest_server.app_state.app, '_create_transaction',
                             _fake_create_transaction_succeeded)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'broadcast_tx',
+        monkeypatch.setattr(self.rest_server, '_broadcast_transaction',
                             _fake_broadcast_tx)
         monkeypatch.setattr(self.rest_server.app_state.async_, 'spawn',
                             _fake_spawn)
@@ -518,6 +660,7 @@ class TestDefaultEndpoints:
                             self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
         monkeypatch.setattr(self.rest_server, 'send_request',
                             self.rest_server._fake_send_request)
+
 
         # mock request
         network = "test"
@@ -530,7 +673,7 @@ class TestDefaultEndpoints:
                                  json={"outputs": [P2PKH_OUTPUT],
                                        "password": password})
         # check
-        expected_json ={'value': {'txid': Transaction.from_hex(rawtx).txid()}}
+        expected_json = {'txid': Transaction.from_hex(rawtx).txid()}
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -540,7 +683,7 @@ class TestDefaultEndpoints:
                             _fake_get_account_succeeded)
         monkeypatch.setattr(self.rest_server.app_state.app, '_create_transaction',
                             _fake_create_transaction_succeeded)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'broadcast_tx',
+        monkeypatch.setattr(self.rest_server, '_broadcast_transaction',
                             _fake_broadcast_tx)
         monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
                             self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
@@ -557,7 +700,33 @@ class TestDefaultEndpoints:
                                  json={"rawtx": rawtx})
         # check
         tx = Transaction.from_hex(rawtx)
-        expected_json = {"value": {"txid": tx.txid()}}
+        expected_json = {"txid": tx.txid()}
+        assert resp.status == 200, await resp.read()
+        response = await resp.read()
+        assert json.loads(response) == expected_json
+
+    @pytest.mark.parametrize("spendable_utxos", [SPENDABLE_UTXOS[0]])
+    async def test_split_utxos_good_response(self, monkeypatch, cli, spendable_utxos):
+        monkeypatch.setattr(self.rest_server, '_get_account',
+                            _fake_get_account_succeeded)
+        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
+                            _fake_get_frozen_utxos_for_tx)
+
+        # mock request
+        network = "test"
+        wallet_name = "wallet_file1.sqlite"
+        account_id = "1"
+        password = "mypass"
+        resp = await cli.request(path=f"/v1/{network}/dapp/wallets/{wallet_name}/"
+                                      f"{account_id}/txs/split_utxos",
+                                 method='post',
+                                 json={"split_count": 10,
+                                       "desired_utxo_count": 100,
+                                       "split_value": 3000,
+                                       "password": password})
+        # check
+        tx = Transaction.from_hex(rawtx)
+        expected_json = {"txid": tx.txid()}
         assert resp.status == 200, await resp.read()
         response = await resp.read()
         assert json.loads(response) == expected_json

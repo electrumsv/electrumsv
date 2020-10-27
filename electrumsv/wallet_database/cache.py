@@ -149,13 +149,13 @@ class TransactionCache:
         self._store.create(inserts, completion_callback=completion_callback)  # type:ignore
 
     def update(self, updates: List[Tuple[bytes, TxData, Optional[Transaction], TxFlags]],
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+            completion_callback: Optional[CompletionCallbackType]=None) -> int:
         with self._lock:
-            self._update(updates, completion_callback=completion_callback)
+            return self._update(updates, completion_callback=completion_callback)
 
     def _update(self, updates: List[Tuple[bytes, TxData, Optional[Transaction], TxFlags]],
             update_all: bool=True,
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+            completion_callback: Optional[CompletionCallbackType]=None) -> int:
         """
         The flagged changes are applied to the existing entry, leaving the unflagged aspects
         as they were. An example of this is bytedata, the bytedata in the existing entry should
@@ -203,9 +203,8 @@ class TransactionCache:
 
             self._validate_new_flags(tx_hash, flags)
             new_entry = TransactionCacheEntry(new_metadata, flags, entry.time_loaded)
-            self._logger.debug("_update: %s %r %s %s %r %r", hash_to_hex_str(tx_hash),
-                incoming_metadata, TxFlags.to_repr(incoming_flags),
-                incoming_tx, entry, new_entry)
+            self._logger.debug("_update: %s %r %s %r %r", hash_to_hex_str(tx_hash),
+                incoming_metadata, TxFlags.to_repr(incoming_flags), entry, new_entry)
             self._cache[tx_hash] = new_entry
             if incoming_tx:  # serialize txs -> binary before all db writes
                 incoming_bytedata: Optional[bytes] = incoming_tx.to_bytes()
@@ -223,7 +222,10 @@ class TransactionCache:
         # is that there's no way of reusing a completion context for more than one thing.
         if len(updated_entries):
             self._store.update(updated_entries, completion_callback=completion_callback)
+        return len(updated_entries)
 
+    # TODO: This is problematic as it discards non-metadata flags unless the caller provides a mask
+    # that preserves the ones that should be preserved. Perhaps mask should be obligatory.
     def update_flags(self, tx_hash: bytes, flags: TxFlags, mask: Optional[TxFlags]=None,
             completion_callback: Optional[CompletionCallbackType]=None) -> TxFlags:
         # This is an odd function. It logical ors metadata flags, but replaces the other
@@ -504,6 +506,8 @@ class TransactionCache:
         results = self.get_metadatas(
             flags=TxFlags.HasByteData | TxFlags.HasHeight,
             mask=TxFlags.HasByteData | TxFlags.HasPosition | TxFlags.HasHeight)
+        if len(results) > 200:
+            results = results[:200]
         return [ (tx_hash, self._cache[tx_hash]) for (tx_hash, metadata) in results
             if 0 < cast(int, metadata.height) <= watermark_height ]
 

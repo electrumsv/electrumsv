@@ -3,7 +3,7 @@ import weakref
 
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPainter, QPixmap
-from PyQt5.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QLineEdit, QSizePolicy, QStatusBar,
+from PyQt5.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QStatusBar,
     QStyle, QStyleOptionToolButton, QToolButton, QWidget, QWidgetAction)
 
 from electrumsv.app_state import app_state
@@ -192,11 +192,6 @@ class StatusBar(QStatusBar):
         network_widget.setLayout(hbox)
         network_widget.setMinimumWidth(150)
         self.addPermanentWidget(network_widget)
-
-        self.search_box = QLineEdit()
-        self.search_box.textChanged.connect(main_window.do_search)
-        self.search_box.hide()
-        self.addPermanentWidget(self.search_box)
 
         self._notification_default_icon = read_QIcon("icons8-topic-32.png")
         self._notification_urgent_icon = read_QIcon("icons8-topic-32-windows-urgent.png")

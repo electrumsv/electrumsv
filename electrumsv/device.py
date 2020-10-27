@@ -185,7 +185,6 @@ class DeviceMgr:
             try:
                 return self.get_plugin(device_kind)
             except Exception as e:
-                logger.exception(f'cannot load plugin for {device_kind}')
                 return e
 
         return {device_kind: plugin(device_kind) for device_kind in self.all_devices}
@@ -354,12 +353,12 @@ class DeviceMgr:
 
         # Let plugins enumerate devices
         devices = []
-        for vendor in self.all_devices:
-            try:
-                plugin = self.get_plugin(vendor)
-                devices.extend(plugin.enumerate_devices())
-            except Exception as e:
-                logger.exception(f"Failed to enumerate devices from {vendor} plugin")
+        for vendor, plugin in self.supported_devices().items():
+            if not isinstance(plugin, Exception):
+                try:
+                    devices.extend(plugin.enumerate_devices())
+                except Exception as e:
+                    logger.exception(f"Failed to enumerate devices from {vendor} plugin")
 
         # find out what was disconnected
         pairs = [(dev.path, dev.id_) for dev in devices]

@@ -1,6 +1,5 @@
 
 from decimal import Decimal
-from functools import partial
 from typing import Any, Optional, Iterable, List, Tuple
 import weakref
 
@@ -26,11 +25,21 @@ class WalletAPI(QObject):
 
         self.wallet_window = weakref.proxy(wallet_window)
 
-        app_state.app.identity_added_signal.connect(partial(self._on_contact_change, True))
-        app_state.app.identity_removed_signal.connect(partial(self._on_contact_change, False))
-        app_state.app.contact_added_signal.connect(partial(self._on_contact_change, True))
-        app_state.app.contact_removed_signal.connect(partial(self._on_contact_change, False))
+        app_state.app.identity_added_signal.connect(self._on_contact_added)
+        app_state.app.identity_removed_signal.connect(self._on_contact_removed)
+        app_state.app.contact_added_signal.connect(self._on_contact_added)
+        app_state.app.contact_removed_signal.connect(self._on_contact_removed)
         app_state.app.new_notification.connect(self._on_new_notification)
+
+    def clean_up(self) -> None:
+        app_state.app.identity_added_signal.disconnect(self._on_contact_added)
+        app_state.app.identity_removed_signal.disconnect(self._on_contact_removed)
+        app_state.app.contact_added_signal.disconnect(self._on_contact_added)
+        app_state.app.contact_removed_signal.disconnect(self._on_contact_removed)
+        app_state.app.new_notification.disconnect(self._on_new_notification)
+
+    # def __del__(self) -> None:
+    #     print(f"Wallet API {self!r} was garbage collected")
 
     # Contact related:
 
@@ -98,9 +107,13 @@ class WalletAPI(QObject):
     def get_base_amount(self, sv_value: int) -> str:
         return app_state.format_amount(sv_value)
 
-    def _on_contact_change(self, added: bool, contact: ContactEntry,
+    def _on_contact_added(self, contact: ContactEntry,
             identity: Optional[ContactIdentity]=None) -> None:
-        self.contact_changed.emit(added, contact, identity)
+        self.contact_changed.emit(True, contact, identity)
+
+    def _on_contact_removed(self, contact: ContactEntry,
+            identity: Optional[ContactIdentity]=None) -> None:
+        self.contact_changed.emit(False, contact, identity)
 
     # Notification related.
 
@@ -123,5 +136,5 @@ class WalletAPI(QObject):
 
     def show_help(self, dirname: str, filename: str) -> None:
         from .help_dialog import HelpDialog
-        h = HelpDialog(self.wallet_window, dirname, filename)
+        h = HelpDialog(self.wallet_window.reference(), dirname, filename)
         h.run()

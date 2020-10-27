@@ -1,26 +1,27 @@
+import concurrent
 from enum import IntEnum
 from functools import partial, lru_cache
 import os.path
 import sys
 import traceback
-from typing import Any, Iterable, List, Callable, Optional, TYPE_CHECKING, Union
+from typing import Any, Iterable, List, Callable, Optional, Set, TYPE_CHECKING, Union
 import weakref
 
 from aiorpcx import RPCError
 
-from PyQt5.QtCore import pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess, QModelIndex
-from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QResizeEvent
+from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess,
+    QModelIndex, QSize, QTimer)
+from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QPixmap, QResizeEvent
 from PyQt5.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QGridLayout, QGroupBox, QMessageBox, QHBoxLayout,
     QHeaderView, QLabel, QLayout, QLineEdit, QFileDialog, QFrame, QPlainTextEdit, QPushButton,
     QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QTableWidget, QToolButton, QToolTip,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QWizard
 )
 from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import DATABASE_EXT, PaymentFlag
-from electrumsv.crypto import pw_encode
+from electrumsv.constants import DATABASE_EXT
 from electrumsv.i18n import _, languages
 from electrumsv.logs import logs
 from electrumsv.util import resource_path
@@ -33,25 +34,6 @@ logger = logs.get_logger("qt-util")
 
 dialogs = []
 
-pr_icons = {
-    PaymentFlag.UNPAID: "unpaid.png",
-    PaymentFlag.PAID: "icons8-checkmark-green-52.png",
-    PaymentFlag.EXPIRED: "expired.png"
-}
-
-pr_tooltips = {
-    PaymentFlag.UNPAID:_('Pending'),
-    PaymentFlag.PAID:_('Paid'),
-    PaymentFlag.EXPIRED:_('Expired')
-}
-
-expiration_values = [
-    (_('1 hour'), 60*60),
-    (_('1 day'), 24*60*60),
-    (_('1 week'), 7*24*60*60),
-    (_('Never'), None)
-]
-
 
 class EnterButton(QPushButton):
     def __init__(self, text, func, parent: Optional[QWidget]=None):
@@ -60,15 +42,22 @@ class EnterButton(QPushButton):
         self.clicked.connect(func)
 
     def keyPressEvent(self, e: QKeyEvent):
-        if e.key() == Qt.Key_Return:
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
             self.func()
 
-class XLineEdit(QLineEdit):
-    text_submitted_signal = pyqtSignal()
+
+class KeyEventLineEdit(QLineEdit):
+    key_event_signal = pyqtSignal(int)
+
+    def __init__(self, parent: Optional[QWidget]=None, text: str='',
+            override_events: Set[int]=frozenset()) -> None:
+        QLineEdit.__init__(self, text, parent)
+
+        self._override_events = override_events
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
-            self.text_submitted_signal.emit()
+        if event.key() in self._override_events:
+            self.key_event_signal.emit(event.key())
         else:
             super().keyPressEvent(event)
 
@@ -107,22 +96,23 @@ class HelpLabel(QLabel):
 
 
 class HelpButton(QPushButton):
-    def __init__(self, text, textFormat=Qt.AutoText, title="Help"):
+    def __init__(self, text, textFormat=Qt.AutoText, title="Help", button_text="?"):
         self.textFormat = textFormat
         self.title = title
-        QPushButton.__init__(self, '?')
+        QPushButton.__init__(self, button_text)
         self.help_text = text
         self.setFocusPolicy(Qt.NoFocus)
         self.setFixedWidth(20)
-        self.clicked.connect(self.onclick)
+        self.clicked.connect(self._on_clicked)
 
-    def onclick(self):
+    def _on_clicked(self) -> None:
         b = QMessageBox()
         b.setIcon(QMessageBox.Information)
         b.setTextFormat(self.textFormat)
         b.setText(self.help_text)
         b.setWindowTitle(self.title)
         b.exec()
+
 
 class Buttons(QHBoxLayout):
     _insert_index: int = 0
@@ -208,7 +198,7 @@ def query_choice(win, msg, choices):
 
 
 def top_level_window_recurse(window) -> QWidget:
-    classes = (WindowModalDialog, QMessageBox)
+    classes = (WindowModalDialog, QMessageBox, QWizard)
     for n, child in enumerate(window.children()):
         # Test for visibility as old closed dialogs may not be GC-ed
         if isinstance(child, classes) and child.isVisible():
@@ -246,7 +236,8 @@ class MessageBoxMixin(object):
                 defaultButton=QMessageBox.NoButton):
         parent = parent or self.top_level_window()
         d = QMessageBox(icon, title, str(text), buttons, parent)
-        d.setWindowModality(Qt.WindowModal)
+        if not app_state.config.get('ui_disable_modal_dialogs', False):
+            d.setWindowModality(Qt.WindowModal)
         d.setWindowFlags(d.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         d.setDefaultButton(defaultButton)
         return d.exec_()
@@ -281,7 +272,8 @@ class MessageBox:
 
 
 class UntrustedMessageDialog(QDialog):
-    def __init__(self, parent, title, description, exception):
+    def __init__(self, parent, title, description, exception: Optional[Exception]=None,
+            untrusted_text: str="") -> None:
         QDialog.__init__(self, parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
             Qt.WindowCloseButtonHint)
         self.setWindowTitle(title)
@@ -300,10 +292,11 @@ class UntrustedMessageDialog(QDialog):
         text_label.setWordWrap(True)
         vbox.addWidget(text_label)
         if isinstance(exception, RPCError):
-            exc_text = str(exception)
-        else:
-            exc_text = "".join(traceback.TracebackException.from_exception(exception).format())
-        text_edit = QPlainTextEdit(exc_text)
+            untrusted_text += str(exception)
+        elif isinstance(exception, Exception):
+            untrusted_text += "".join(traceback.TracebackException.from_exception(
+                exception).format())
+        text_edit = QPlainTextEdit(untrusted_text)
         text_edit.setReadOnly(True)
         vbox.addWidget(text_edit)
         vbox.addStretch(1)
@@ -316,7 +309,8 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
     def __init__(self, parent, title=None):
         QDialog.__init__(self, parent, flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
             Qt.WindowCloseButtonHint)
-        self.setWindowModality(Qt.WindowModal)
+        if not app_state.config.get('ui_disable_modal_dialogs', False):
+            self.setWindowModality(Qt.WindowModal)
         if title:
             self.setWindowTitle(title)
 
@@ -324,18 +318,60 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
 class WaitingDialog(WindowModalDialog):
     '''Shows a please wait dialog whilst runnning a task.  It is not
     necessary to maintain a reference to this dialog.'''
-    def __init__(self, parent, message, func, *args, on_done=None):
-        assert parent
-        super().__init__(parent, _("Please wait"))
-        vbox = QVBoxLayout(self)
-        vbox.addWidget(QLabel(message))
+    watch_signal = pyqtSignal(object)
+    _timer: Optional[QTimer] = None
+    _title: Optional[str] = None
 
-        def _on_done(future):
+    def __init__(self, parent, message: str, func, *args,
+            on_done: Optional[Callable[[concurrent.futures.Future], None]]=None,
+            title: Optional[str]=None, watch_events: bool=False) -> None:
+        assert parent
+        if title is None:
+            title = _("Please wait")
+        WindowModalDialog.__init__(self, parent, title)
+
+        self.setAttribute(Qt.WA_DeleteOnClose)
+
+        self._title = title
+        self._base_message = message
+        self._main_label = QLabel()
+        self._main_label.setAlignment(Qt.AlignCenter)
+        self._main_label.setWordWrap(True)
+        self._secondary_label = QLabel()
+        self._secondary_label.setAlignment(Qt.AlignCenter)
+        self._secondary_label.setWordWrap(True)
+        vbox = QVBoxLayout(self)
+        vbox.addWidget(self._main_label)
+        vbox.addWidget(self._secondary_label)
+
+        def _on_done(future) -> None:
+            if self._timer is not None:
+                self._timer.stop()
             self.accept()
-            on_done(future)
+
+            QTimer.singleShot(0, partial(on_done, future))
+
         future = app_state.app.run_in_thread(func, *args, on_done=_on_done)
         self.accepted.connect(future.cancel)
+
+        if watch_events:
+            timer = self._timer = QTimer(self)
+            timer.timeout.connect(self._relay_watch_event)
+            timer.start(1000)
+
+        self.update_message(_("Please wait."))
+        self.setMinimumSize(250, 100)
         self.show()
+
+    def __del__(self) -> None:
+        logger.debug("%s[%s]: deleted", self.__class__.__name__, self._title)
+
+    def _relay_watch_event(self) -> None:
+        self.watch_signal.emit(self)
+
+    def update_message(self, extra_message: Optional[str]=None) -> None:
+        self._main_label.setText(self._base_message)
+        self._secondary_label.setText(extra_message or ' ')
 
 
 def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,
@@ -468,12 +504,14 @@ class MyTreeWidget(QTreeWidget):
             stretch_column=None, editable_columns=None):
         QTreeWidget.__init__(self, parent)
 
+        self.setAlternatingRowColors(True)
+        self.setUniformRowHeights(True)
+
         self._main_window = weakref.proxy(main_window)
         self.config = self._main_window.config
         self.stretch_column = stretch_column
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(create_menu)
-        self.setUniformRowHeights(True)
         # extend the syntax for consistency
         self.addChild = self.addTopLevelItem
         self.insertChild = self.insertTopLevelItem
@@ -606,6 +644,7 @@ class ButtonsMode(IntEnum):
 
 class ButtonsWidget(QWidget):
     buttons_mode = ButtonsMode.INTERNAL
+    qt_css_extra = ""
 
     def __init__(self):
         super().__init__()
@@ -660,12 +699,14 @@ class ButtonsWidget(QWidget):
         if self.buttons_mode == ButtonsMode.TOOLBAR_RIGHT:
             self.button_padding = max(button.sizeHint().width() for button in self.buttons) + 4
             self.setStyleSheet(self.qt_css_class +
-                " { margin-right: "+ str(self.button_padding) +"px; }")
+                " { margin-right: "+ str(self.button_padding) +"px; }"+
+                self.qt_css_extra)
         elif self.buttons_mode == ButtonsMode.TOOLBAR_BOTTOM:
             self.button_padding = max(button.sizeHint().height() for button in self.buttons) + \
                 frame_width
             self.setStyleSheet(
-                self.qt_css_class +" { margin-bottom: "+ str(self.button_padding) +"px; }")
+                self.qt_css_class +" { margin-bottom: "+ str(self.button_padding) +"px; }"+
+                self.qt_css_extra)
         return button
 
     def addCopyButton(self, app, tooltipText: Optional[str]=None) -> QAbstractButton:
@@ -680,11 +721,11 @@ class ButtonsWidget(QWidget):
         QToolTip.showText(QCursor.pos(), _("Text copied to clipboard"), self)
 
 
-class ButtonsLineEdit(XLineEdit, ButtonsWidget):
+class ButtonsLineEdit(KeyEventLineEdit, ButtonsWidget):
     qt_css_class = "QLineEdit"
 
     def __init__(self, text=''):
-        QLineEdit.__init__(self, text, None)
+        KeyEventLineEdit.__init__(self, None, text, {Qt.Key_Return, Qt.Key_Enter})
         self.buttons: Iterable[QAbstractButton] = []
 
     def resizeEvent(self, event: QResizeEvent) -> None:
@@ -732,10 +773,14 @@ class ColorSchemeItem:
     def _get_color(self, background):
         return self.colors[(int(background) + int(ColorScheme.dark_scheme)) % 2]
 
-    def as_stylesheet(self, background=False):
+    def as_stylesheet(self, background: bool=False, class_name: str="QWidget", id_name: str="") \
+            -> str:
         css_prefix = "background-" if background else ""
         color = self._get_color(background)
-        return "QWidget {{ {}color:{}; }}".format(css_prefix, color)
+        key_name = class_name
+        if id_name:
+            key_name += "#"+ id_name
+        return "{} {{ {}color:{}; }}".format(key_name, css_prefix, color)
 
     def as_color(self, background=False):
         color = self._get_color(background)
@@ -745,10 +790,11 @@ class ColorSchemeItem:
 class ColorScheme:
     dark_scheme = False
 
+    DEFAULT = ColorSchemeItem("black", "white")
+    BLUE = ColorSchemeItem("#123b7c", "#8cb3f2")
     GREEN = ColorSchemeItem("#117c11", "#8af296")
     RED = ColorSchemeItem("#7c1111", "#f18c8c")
-    BLUE = ColorSchemeItem("#123b7c", "#8cb3f2")
-    DEFAULT = ColorSchemeItem("black", "white")
+    YELLOW = ColorSchemeItem("yellow", "yellow")
 
     @staticmethod
     def has_dark_background(widget):
@@ -878,6 +924,11 @@ def show_in_file_explorer(path: str) -> bool:
 def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     create_filepath, __ = QFileDialog.getSaveFileName(parent, _("Enter a new wallet file name"),
         initial_dirpath)
+    if not create_filepath:
+        return None
+
+    # QFileDialog.getSaveFileName uses forward slashes for "easier pathing".. correct this.
+    create_filepath = os.path.normpath(create_filepath)
 
     if os.path.exists(create_filepath):
         MessageBox.show_error(_("Overwriting existing files not supported at this time."))
@@ -907,11 +958,18 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
         return None
 
     from electrumsv.storage import WalletStorage
-    storage = WalletStorage(create_filepath)
-    storage.put("password-token", pw_encode(os.urandom(32).hex(), new_password))
+    storage = WalletStorage.create(create_filepath, new_password)
     storage.close()
-
     return create_filepath
+
+
+class FormSeparatorLine(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.setObjectName("FormSeparatorLine")
+        self.setFrameShape(QFrame.HLine)
+        self.setFixedHeight(1)
 
 
 FieldType = Union[QWidget, QLayout]
@@ -975,11 +1033,7 @@ class FormSectionWidget(QWidget):
         result: Optional[QLabel] = None
 
         if self.frame_layout.count() > 0:
-            line = QFrame()
-            line.setObjectName("FormSeparatorLine")
-            line.setFrameShape(QFrame.HLine)
-            line.setFixedHeight(1)
-            self.frame_layout.addWidget(line)
+            self.frame_layout.addWidget(FormSeparatorLine())
 
         if isinstance(label_text, QLabel):
             label = label_text
@@ -1048,4 +1102,34 @@ class ClickableLabel(QLabel):
 
     def mousePressEvent(self, ev):
         self.clicked.emit()
+
+
+# Derived from: https://stackoverflow.com/a/22618496/11881963
+class AspectRatioPixmapLabel(QLabel):
+    _pixmap: Optional[QPixmap] = None
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setMinimumSize(1,1)
+        self.setScaledContents(True)
+
+    def setPixmap(self, pixmap: QPixmap) -> None:
+        self._pixmap = pixmap
+        super().setPixmap(self._scaled_pixmap())
+
+    def heightForWidth(self, width: int) -> int:
+        return self.height() if self._pixmap is None else \
+            (self._pixmap.height() * width) / self._pixmap.width()
+
+    def sizeHint(self) -> QSize:
+        width = self.parent().width()
+        return QSize(width, self.heightForWidth(width))
+
+    def _scaled_pixmap(self) -> QPixmap:
+        return self._pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        if self._pixmap is not None:
+            super().setPixmap(self._scaled_pixmap())
+        super().resizeEvent(event)
 

@@ -23,13 +23,14 @@
 
 '''ElectrumSV application.'''
 
+import concurrent
 import datetime
 import os
 from functools import partial
 import signal
 import sys
 import threading
-from typing import Optional
+from typing import Callable, Optional
 
 from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
@@ -151,7 +152,15 @@ class SVApplication(QApplication):
         for window in self.windows:
             window.close()
 
-    def close_window(self, window):
+    def close_window(self, window) -> None:
+        # NOTE: `ElectrumWindow` removes references to itself while it is closing. This creates
+        # a problem where it gets garbage collected before it's Qt5 `closeEvent` handling is
+        # completed and on Linux/MacOS it segmentation faults. On Windows, it is fine.
+        QTimer.singleShot(0, partial(self._close_window, window))
+        logger.debug("app.close_window.queued")
+
+    def _close_window(self, window):
+        logger.debug(f"app.close_window.executing {window!r}")
         app_state.daemon.stop_wallet_at_path(window._wallet.get_storage_path())
         self.windows.remove(window)
         self.window_closed_signal.emit(window)
@@ -346,7 +355,7 @@ class SVApplication(QApplication):
 
     def initial_dialogs(self) -> None:
         '''Suppressible dialogs that are shown when first opening the app.'''
-        dialogs.show_named('welcome-ESV-1.3.5')
+        dialogs.show_named('welcome-ESV-1.3.7')
 
     def event_loop_started(self) -> None:
         self.cosigner_pool = CosignerPool()
@@ -394,7 +403,8 @@ class SVApplication(QApplication):
         future.add_done_callback(task_done)
         return future
 
-    def run_in_thread(self, func, *args, on_done=None):
+    def run_in_thread(self, func, *args,
+            on_done: Optional[Callable[[concurrent.futures.Future], None]]=None):
         '''Run func(*args) in a thread.  on_done, if given, is passed the future containing the
         reuslt or exception, and is guaranteed to be called in the context of the GUI
         thread.

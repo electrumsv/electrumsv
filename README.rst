@@ -1,22 +1,25 @@
+|azureboards_badge| |crowdin_badge| |azurepipeline_badge|
+
+.. |azureboards_badge| image:: https://dev.azure.com/electrumsv/dc4594d0-46c9-4b75-ad35-f7fb21ce6933/46962181-6adc-4d37-bf1a-4f3f98c9c649/_apis/work/boardbadge/74437d75-4be7-4c91-8049-518350865962
+    :target: https://dev.azure.com/electrumsv/dc4594d0-46c9-4b75-ad35-f7fb21ce6933/_boards/board/t/46962181-6adc-4d37-bf1a-4f3f98c9c649/Microsoft.RequirementCategory
+    :alt: Board Status \
+.. |azurepipeline_badge| image:: https://dev.azure.com/electrumsv/ElectrumSV/_apis/build/status/electrumsv.electrumsv?branchName=master
+    :target: https://dev.azure.com/electrumsv/ElectrumSV/_build/latest?definitionId=4&branchName=master
+    :alt: Build status on Azure Pipelines \
+.. |crowdin_badge| image:: https://d322cqt584bo4o.cloudfront.net/electrumsv/localized.svg
+    :target: https://crowdin.com/project/electrumsv
+    :alt: Help translate ElectrumSV online
+
 ElectrumSV - Lightweight Bitcoin SV client
 ==========================================
 
 ::
 
-  Licence: Open BSV license
+  Licence: Open BSV
   Maintainers: Neil Booth, Roger Taylor, AustEcon
   Project Lead: Roger Taylor
-  Language: Python (>=3.6)
+  Language: Python (>=3.7.8)
   Homepage: https://electrumsv.io/
-
-|crowdin_badge| |azurepipeline_badge|
-
-.. |crowdin_badge| image:: https://d322cqt584bo4o.cloudfront.net/electrumsv/localized.svg
-    :target: https://crowdin.com/project/electrumsv
-    :alt: Help translate ElectrumSV online \
-.. |azurepipeline_badge| image:: https://dev.azure.com/electrumsv/ElectrumSV/_apis/build/status/electrumsv.electrumsv?branchName=master
-    :target: https://dev.azure.com/electrumsv/ElectrumSV/_build/latest?definitionId=4&branchName=master
-    :alt: Build status on Azure Pipelines
 
 Getting started on Linux/MacOS
 ==============================
@@ -74,14 +77,14 @@ version on their computer.
 
 Linux::
 
-    $ python3 -m pip install -U pysqlite3_binary
-    $ python3 -c "import pysqlite3_binary; print pysqlite3_binary.sqlite_version"
+    $ python3 -m pip install -U pysqlite3-binary
+    $ python3 -c "import pysqlite3; print(pysqlite3.sqlite_version)"
     3.31.1
 
 MacOS::
 
     $ brew upgrade sqlite3
-    $ python3 -c "import sqlite3; print sqlite3.sqlite_version"
+    $ python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
     3.31.1
 
 You may see a different version displayed than 3.31.1, but as long as it is higher, this is fine.
@@ -256,7 +259,11 @@ Running unit tests (with the `pytest` package)::
 
 Running pylint::
 
-    pylint --rcfile=.pylintrc electrumsv
+    pylint --rcfile=.pylintrc electrum-sv electrumsv
+
+Running mypy::
+
+    mypy --config-file mypy.ini --python-version 3.7
 
 
 Builds

@@ -133,7 +133,7 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
         raise ValueError(f'no box with name {name} found')
     return box.result(parent, wallet, **kwargs)
 
-article_uri = "https://medium.com/@roger.taylor/electrumsv-1-3-5-ea885204a2ce"
+article_uri = "https://medium.com/@roger.taylor/electrumsv-1-3-7-8b3833343bd3"
 
 take_care_notice = """
 <span>ElectrumSV is just a Bitcoin SV wallet, it cannot stop you from making bad decisions. Read
@@ -144,8 +144,8 @@ Your coins are your responsibility, take care with them.</span>
 """
 
 all_boxes = [
-    InfoBox('welcome-ESV-1.3.5',
-            _('Welcome to ElectrumSV 1.3.5'),
+    InfoBox('welcome-ESV-1.3.7',
+            _('Welcome to ElectrumSV 1.3.7'),
             '<p>'+ take_care_notice +'</p>'+
             '<p>You can read about the changes included in this release, in the '+
             f'<a href="{article_uri}">release guide</a> we have written.</p>'
@@ -161,6 +161,13 @@ all_boxes = [
             _("Avoid Coin Loss"),
             take_care_notice,
             frequency=DisplayFrequency.OncePerRun),
+    InfoBox("sv-only-disabled",
+        _("Hiding This Option"),
+        "\n".join((
+            _("You can remove this option from the 'Send' tab by unchecking the relevant option "
+            "in the 'Wallet' section in the Preferences. Use the 'Help' button to find out more "
+            "about this option."),
+        ))),
 ]
 
 all_boxes_by_name = {box.name: box for box in all_boxes}

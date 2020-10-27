@@ -55,15 +55,25 @@ def classify_tx_output(tx_output: TxOutput) -> ScriptTemplate:
     return classify_output_script(tx_output.script_pubkey, Net.COIN)
 
 
-def tx_output_to_display_text(tx_output: TxOutput):
-    kind = classify_tx_output(tx_output)
+def script_to_display_text(script: Script, kind: ScriptTemplate) -> str:
     if isinstance(kind, Address):
         text = kind.to_string()
     elif isinstance(kind, P2PK_Output):
         text = kind.public_key.to_hex()
     else:
-        text = tx_output.script_pubkey.to_asm()
+        text = script.to_asm()
+    return text
+
+def tx_output_to_display_text(tx_output: TxOutput) -> Tuple[str, ScriptTemplate]:
+    kind = classify_tx_output(tx_output)
+    text = script_to_display_text(tx_output.script_pubkey, kind)
     return text, kind
+
+
+@attr.s(slots=True, repr=True)
+class TransactionContext:
+    invoice_id: Optional[int] = attr.ib(default=None)
+    description: Optional[str] = attr.ib(default=None)
 
 
 class XPublicKeyType(enum.IntEnum):
@@ -233,7 +243,9 @@ class XPublicKey:
 @attr.s(slots=True, repr=False)
 class XTxInput(TxInput):
     '''An extended bitcoin transaction input.'''
-    value: int = attr.ib(default=0)
+    # Used for signing metadata for hardware wallets.
+    # Exchanged in incomplete transactions to aid in comprehending unknown inputs.
+    value: Optional[int] = attr.ib(default=None)
     x_pubkeys: List[XPublicKey] = attr.ib(default=attr.Factory(list))
     threshold: int = attr.ib(default=0)
     signatures: List[bytes] = attr.ib(default=attr.Factory(list))
@@ -251,7 +263,7 @@ class XTxInput(TxInput):
             parse_script_sig(script_sig.to_bytes(), kwargs)
             if 'address' in kwargs:
                 del kwargs['address']
-        result = cls(prev_hash, prev_idx, script_sig, sequence, value=0, **kwargs)
+        result = cls(prev_hash, prev_idx, script_sig, sequence, value=None, **kwargs)
         if not result.is_complete():
             result.value = read_le_int64(read)
         return result
@@ -500,6 +512,8 @@ def txdict_from_str(txt: str) -> Dict[str, Any]:
     return tx_dict
 
 
+# ...
+
 
 @attr.s(slots=True)
 class Transaction(Tx):
@@ -636,7 +650,8 @@ class Transaction(Tx):
         return None
 
     def input_value(self) -> int:
-        return sum(txin.value for txin in self.inputs)
+        # This will raise if a value is None, which is expected.
+        return sum(txin.value for txin in self.inputs) # type: ignore
 
     def output_value(self) -> int:
         return sum(output.value for output in self.outputs)
@@ -708,7 +723,9 @@ class Transaction(Tx):
                         for v in output_data[i]['x_pubkeys']]
             if 'description' in data:
                 tx.description = str(data['description'])
-        assert tx.is_complete() == data["complete"]
+            assert tx.is_complete() == data["complete"], "transaction completeness mismatch"
+        elif version == 0:
+            assert tx.is_complete(), "raw transactions must be complete"
         return tx
 
     def to_dict(self, force_signing_metadata: bool=False) -> Dict[str, Any]:

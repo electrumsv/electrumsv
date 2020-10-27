@@ -57,7 +57,10 @@ class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
             return
         self.setText(data)
 
-    def qr_input(self):
+    def qr_input(self, ignore_uris: bool=False):
+        """
+        ignore_uris - external logic may already be handling post-processing of scanned data.
+        """
         try:
             data = qrscanner.scan_barcode(app_state.config.get_video_device())
         except Exception as e:
@@ -69,7 +72,12 @@ class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
             new_text = self.text() + data + '\n'
         else:
             new_text = data
-        self.setText(new_text)
+        # This should only be set if the subclass is calling itself and knows that it has replaced
+        # this method and it supports the extra parameter. See `PayToEdit.qr_input()`.
+        if ignore_uris:
+            self.setText(new_text, ignore_uris)
+        else:
+            self.setText(new_text)
         return data
 
     def contextMenuEvent(self, e):

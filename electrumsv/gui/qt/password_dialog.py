@@ -40,7 +40,7 @@ from electrumsv.i18n import _
 from .virtual_keyboard import VirtualKeyboard
 from .util import (
     Buttons, ButtonsLineEdit, CancelButton, FormSectionWidget, icon_path, MessageBox, OkButton,
-    read_QIcon, WindowModalDialog
+    read_QIcon, WindowModalDialog, WWLabel
 )
 
 
@@ -100,7 +100,7 @@ class PasswordLineEdit(QWidget):
         self.setLayout(layout)
 
         # Pass-throughs
-        self.text_submitted_signal = self.pw.text_submitted_signal
+        self.key_event_signal = self.pw.key_event_signal
         self.returnPressed = self.pw.returnPressed
         self.setFocus = self.pw.setFocus
         self.setMaxLength = self.pw.setMaxLength
@@ -266,8 +266,8 @@ class ChangePasswordDialog(WindowModalDialog):
         vbox.addStretch(1)
         vbox.addLayout(Buttons(CancelButton(self), ok_button))
 
-        self.playout.new_pw.text_submitted_signal.connect(self._on_text_submitted)
-        self.playout.conf_pw.text_submitted_signal.connect(self._on_text_submitted)
+        self.playout.new_pw.key_event_signal.connect(self._on_key_event)
+        self.playout.conf_pw.key_event_signal.connect(self._on_key_event)
 
     def run(self):
         try:
@@ -279,7 +279,9 @@ class ChangePasswordDialog(WindowModalDialog):
             self.playout.conf_pw.setText('')
             self.playout.new_pw.setText('')
 
-    def _on_text_submitted(self) -> None:
+    def _on_key_event(self, keycode: int) -> None:
+        if keycode not in {Qt.Key_Return, Qt.Key_Enter}:
+            return
         if self._ok_button.isEnabled():
             self.accept()
 
@@ -329,7 +331,7 @@ class PasswordDialog(WindowModalDialog):
         vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         self.setLayout(vbox)
 
-        self.pw.text_submitted_signal.connect(self._on_text_submitted)
+        self.pw.key_event_signal.connect(self._on_key_event)
 
         # Real-time password validation and OK button disabling/enabling.
         self._password_check_fn = password_check_fn
@@ -349,7 +351,9 @@ class PasswordDialog(WindowModalDialog):
         else:
             self._ok_button.setEnabled(False)
 
-    def _on_text_submitted(self) -> None:
+    def _on_key_event(self, keycode: int) -> None:
+        if keycode not in {Qt.Key_Return, Qt.Key_Enter}:
+            return
         if self._ok_button.isEnabled():
             self.accept()
 
@@ -360,3 +364,29 @@ class PasswordDialog(WindowModalDialog):
             return self.pw.text()
         finally:
             self.pw.setText("")
+
+
+class PassphraseDialog(WindowModalDialog):
+    '''Prompt for passphrase for hardware wallets.'''
+
+    def __init__(self, parent):
+        super().__init__(parent, _("Enter Passphrase"))
+
+    def _on_key_event(self, keycode: int) -> None:
+        if keycode in {Qt.Key_Return, Qt.Key_Enter}:
+            self.accept()
+
+    @classmethod
+    def run(cls, parent, msg):
+        d = cls(parent)
+        pw = PasswordLineEdit()
+        pw.setMinimumWidth(200)
+        pw.key_event_signal.connect(d._on_key_event)
+        vbox = QVBoxLayout()
+        vbox.addWidget(WWLabel(msg))
+        vbox.addWidget(pw)
+        vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
+        d.setLayout(vbox)
+        passphrase = pw.text() if d.exec_() else None
+        pw.setText('')
+        return passphrase

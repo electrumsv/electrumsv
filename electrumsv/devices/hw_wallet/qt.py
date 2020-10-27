@@ -28,6 +28,7 @@ from functools import partial
 from queue import Queue
 import threading
 from typing import Optional
+import weakref
 
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QAction
@@ -39,9 +40,8 @@ from electrumsv.i18n import _
 
 from electrumsv.gui.qt.main_window import ElectrumWindow
 from electrumsv.gui.qt.password_dialog import (ChangePasswordDialog, PasswordAction,
-    PasswordLineEdit)
-from electrumsv.gui.qt.util import (WindowModalDialog, Buttons, OkButton, CancelButton, WWLabel,
-    read_QIcon)
+                                               PassphraseDialog)
+from electrumsv.gui.qt.util import WindowModalDialog, Buttons, CancelButton, read_QIcon
 
 
 HandlerWindow = ElectrumWindow
@@ -63,6 +63,8 @@ class QtHandlerBase(QObject):
     yes_no_signal = pyqtSignal(object)
     status_signal = pyqtSignal(object)
 
+    _cleaned_up: bool = False
+
     def __init__(self, win: HandlerWindow, device):
         super(QtHandlerBase, self).__init__()
         self.clear_signal.connect(self.clear_dialog)
@@ -79,6 +81,12 @@ class QtHandlerBase(QObject):
         self.dialog: Optional[WindowModalDialog] = None
         self.done = threading.Event()
         self.passphrase_queue: Queue = Queue()
+
+    def clean_up(self) -> None:
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
+        del self.win
 
     def top_level_window(self):
         return self.win.top_level_window()
@@ -136,16 +144,7 @@ class QtHandlerBase(QObject):
             d = ChangePasswordDialog(parent, msg=msg, kind=PasswordAction.PASSPHRASE)
             confirmed, p, passphrase = d.run()
         else:
-            d = WindowModalDialog(parent, _("Enter Passphrase"))
-            pw = PasswordLineEdit()
-            pw.setMinimumWidth(200)
-            vbox = QVBoxLayout()
-            vbox.addWidget(WWLabel(msg))
-            vbox.addWidget(pw)
-            vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
-            d.setLayout(vbox)
-            passphrase = pw.text() if d.exec_() else None
-            pw.setText('')
+            passphrase = PassphraseDialog.run(parent, msg)
         self.passphrase_queue.put(passphrase)
 
     def word_dialog(self, msg):
@@ -214,7 +213,8 @@ class QtPluginBase(object):
         if keystore.label and keystore.label.strip():
             action_label = keystore.label.strip()
         action = QAction(read_QIcon(self.icon_unpaired), action_label, window)
-        action.triggered.connect(partial(self.show_settings_wrapped, window, keystore))
+        action.triggered.connect(partial(self.show_settings_wrapped, weakref.proxy(window),
+            keystore))
         action.setToolTip(_("Hardware Wallet"))
         window.add_toolbar_action(action)
         handler.action = action
@@ -245,6 +245,8 @@ class QtPluginBase(object):
         raise NotImplementedError
 
     def show_settings_wrapped(self, window: ElectrumWindow, keystore: Hardware_KeyStore) -> None:
+        if isinstance(window, weakref.ProxyType):
+            window = window.reference()
         try:
             self.show_settings_dialog(window, keystore)
         except Exception as e:

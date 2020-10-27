@@ -2,21 +2,27 @@
     <body>
         <p>
             Changes included in this version of ElectrumSV are documented in a more readable
-            form within the following article: <a href="https://medium.com/@roger.taylor/electrumsv-1-3-5-ea885204a2ce">ElectrumSV 1.3.5</a>
+            form within the following article: <a href="https://medium.com/@roger.taylor/electrumsv-1-3-7-8b3833343bd3">ElectrumSV 1.3.7</a>
         </p>
         <p>
             The most prominent changes are also summarised below for convenience, if you wish to read more
             about any given change, please read the linked article.
         </p>
         <ul>
-            <li>
-                Payment destinations: New export feature for bulk access to types of payment
-                destinations like addresses, for accounts.
+            <li>Payment dangers: The place where users enter where their payment goes to allows
+                freeform entry of Bitcoin script assembly language. There was the possibility that
+                users could paste in malformed addresses and have their payment go to an unexpected
+                location. This should now be prevented.
             </li>
             <li>
-                Transaction broadcasting: Broadcasting external transactions in a wallet would
-                error. The broadcast would succeed, but the user would see an unhelpful error after
-                the fact.
+                Transaction dialog: Some small interactive changes have been made to the
+                transaction dialog. This allows a user to more easily inspect their wallet data
+                and relate what coins were spent in one transaction to those received in another.
+            </li>
+            <li>
+                REST API: The example REST API has received some changes and extensions to
+                hopefully help those who want to use ElectrumSV as an automated wallet
+                do so.
             </li>
         </ul>
     </body>

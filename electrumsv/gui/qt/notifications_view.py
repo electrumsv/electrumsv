@@ -44,27 +44,6 @@ from .util import ClickableLabel, icon_path, read_QIcon
 from .wallet_api import WalletAPI
 
 
-card_stylesheet = """
-#Card {
-    background-color: white;
-    border-bottom: 1px solid #E3E2E2;
-}
-
-#CardImage {
-    padding: 4px;
-    border: 1px solid #E2E2E2;
-}
-
-#CardTitle {
-    font-weight: bold;
-    font-size: 14pt;
-}
-
-#CardContext {
-    color: grey;
-}
-"""
-
 
 class ListContext(QObject):
     entry_added = pyqtSignal(object)
@@ -117,7 +96,6 @@ class View(QWidget):
         self._context = ListContext(wallet_api, self)
 
         cards = Cards(self._context, self)
-        self.setStyleSheet(card_stylesheet)
 
         sort_action = QAction(self)
         sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-2-80-blueui.png"))
@@ -187,10 +165,7 @@ class Cards(QWidget):
             self._layout.addWidget(self._list)
 
         card = self._context.card_factory(row)
-        item_label_text = self._context.get_entry_text(row)
-
         list_item = QListWidgetItem()
-        list_item.setText(item_label_text)
         # The item won't display unless it gets a size hint. It seems to resize horizontally
         # but unless the height is a minimal amount it won't do anything proactive..
         list_item.setSizeHint(card.sizeHint())
@@ -243,11 +218,11 @@ class Card(QWidget):
         image_filename = self._context.get_entry_image_filename(row)
         image_text = self._context.get_entry_image_text(row)
 
-        self.setObjectName("Card")
+        self.setObjectName("NotificationCard")
 
         image_container_label = QLabel("")
         image_container_label.setPixmap(QPixmap(icon_path(image_filename)))
-        image_container_label.setObjectName("CardImage")
+        image_container_label.setObjectName("NotificationCardImage")
 
         image_label = QLabel(image_text)
         image_label.setAlignment(Qt.AlignHCenter)
@@ -294,7 +269,7 @@ class NotificationCard(Card):
         layout.addStretch(1)
         if self._row.event_type == WalletEventType.SEED_BACKUP_REMINDER:
             title_label = QLabel(_("Backup your wallet"))
-            title_label.setObjectName("CardTitle")
+            title_label.setObjectName("NotificationCardTitle")
 
             description_label = QLabel(_("You should make sure you back up your wallet. If you "
                 "lose access to it, you may not have any way to access or recover your funds and "
@@ -302,18 +277,18 @@ class NotificationCard(Card):
                 "write down and use your "
                 "<a href=\"action:view-secured-data\">account's secured data</a>. More information "
                 "is <a href=\"help:view-secured-data\">available here</a>."))
-            description_label.setObjectName("CardDescription")
+            description_label.setObjectName("NotificationCardDescription")
             description_label.setWordWrap(True)
             description_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
             description_label.linkActivated.connect(self.on_link_activated)
 
             date_context_label = QLabel(format_time(self._row.date_created, _("Unknown")))
             date_context_label.setAlignment(Qt.AlignRight)
-            date_context_label.setObjectName("CardContext")
+            date_context_label.setObjectName("NotificationCardContext")
 
             account_name = self._context.wallet_api.get_account_name(self._row.account_id)
             account_context_label = QLabel(_("Account: {}").format(account_name))
-            account_context_label.setObjectName("CardContext")
+            account_context_label.setObjectName("NotificationCardContext")
 
             bottom_layout = QHBoxLayout()
             bottom_layout.addWidget(account_context_label, 1, Qt.AlignLeft)

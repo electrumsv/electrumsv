@@ -20,7 +20,7 @@ python_exe = shutil.which("python3")
 if sys.platform == "win32":
     python_exe = sys.executable
 
-for r_suffix in [ '',  '-hw', '-binaries', '-dev']:
+for r_suffix in [ '-pyinstaller', '',  '-hw', '-binaries' ]:
     if os.path.exists(venv_dir):
         shutil.rmtree(venv_dir)
 
@@ -34,7 +34,9 @@ for r_suffix in [ '',  '-hw', '-binaries', '-dev']:
     print(f"Installing dependencies for '{requirements_filename}'")
 
     r_path = os.path.join(CONTRIB_PATH, "requirements", requirements_filename)
-    result = subprocess.run([ venv_pip, "install", "-r", r_path, "--upgrade" ])
+    result = subprocess.run([ venv_pip,
+        "--disable-pip-version-check",
+        "install", "-r", r_path, "--upgrade" ])
 
     result = subprocess.run([ venv_pip, 'freeze', '--all'], stdout=subprocess.PIPE)
     package_names = result.stdout.splitlines()
@@ -42,7 +44,9 @@ for r_suffix in [ '',  '-hw', '-binaries', '-dev']:
     print("OK.")
 
     print("Generating package hashes...")
-    subprocess.run([ venv_pip, "install", "hashin" ])
+    subprocess.run([ venv_pip,
+        "--disable-pip-version-check",
+        "install", "hashin" ])
 
     dr_path = os.path.join(CONTRIB_PATH, "deterministic-build", f"requirements{r_suffix}.txt")
     # If these files are not updating correctly, they can be forced to update by deleting them.

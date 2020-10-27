@@ -24,18 +24,16 @@
 # SOFTWARE.
 
 import json
-import os
 import time
 from typing import Any, List, Optional, Dict, TYPE_CHECKING
 import urllib.parse
 
-from .bip276 import bip276_encode, BIP276Network, PREFIX_SCRIPT
+from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
 from bitcoinx import Script
 import certifi
 import requests
 
-from .constants import RECEIVING_SUBPATH, PaymentFlag
-from .exceptions import FileImportFailed, FileImportFailedEncrypted, Bip270Exception
+from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
@@ -48,10 +46,13 @@ if TYPE_CHECKING:
 
 logger = logs.get_logger("paymentrequest")
 
+# BIP 273 - Use "Accept" header for response type negotiation with Simplified Payment Request URLs
+# https://github.com/moneybutton/bips/blob/master/bip-0273.mediawiki
 REQUEST_HEADERS = {
     'Accept': 'application/bitcoinsv-paymentrequest',
     'User-Agent': 'ElectrumSV'
 }
+
 ACK_HEADERS = {
     'Content-Type': 'application/bitcoinsv-payment',
     'Accept': 'application/bitcoinsv-paymentack',
@@ -61,6 +62,11 @@ ACK_HEADERS = {
 # Used for requests.
 ca_path = certifi.where()
 
+# BIP 270 - Simplified Payment Protocol
+# https://github.com/moneybutton/bips/blob/master/bip-0270.mediawiki
+
+def has_expired(expiration_timestamp: Optional[int]=None) -> bool:
+    return expiration_timestamp is not None and expiration_timestamp < int(time.time())
 
 
 class Output:
@@ -120,6 +126,8 @@ class Output:
 
 
 class PaymentRequest:
+    HANDCASH_NETWORK = "bitcoin"
+    BIP270_NETWORK = "bitcoin-sv"
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
     error: Optional[str] = None
@@ -127,9 +135,10 @@ class PaymentRequest:
     def __init__(self, outputs, creation_timestamp=None, expiration_timestamp=None, memo=None,
                  payment_url=None, merchant_data=None):
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
-        self.id = os.urandom(16).hex()
+        self._id: Optional[int] = None
         self.tx = None
 
+        self.network = self.BIP270_NETWORK
         self.outputs = outputs
         if creation_timestamp is not None:
             creation_timestamp = int(creation_timestamp)
@@ -159,56 +168,58 @@ class PaymentRequest:
     @classmethod
     def from_json(cls, s: str) -> 'PaymentRequest':
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
-            raise Bip270Exception(f"Invalid payment request, too large")
+            raise Bip270Exception(_("Payment request oversized"))
 
         d = json.loads(s)
 
         network = d.get('network')
-        if network != 'bitcoin-sv':
-            raise Bip270Exception(f"Invalid json network: {network}")
+        if network not in (cls.BIP270_NETWORK, cls.HANDCASH_NETWORK):
+            raise Bip270Exception(_("Invalid network '{}'").format(network))
 
         if 'outputs' not in d:
-            raise Bip270Exception("Missing required json 'outputs' field")
+            raise Bip270Exception(_("Payment details missing"))
         if type(d['outputs']) is not list:
-            raise Bip270Exception("Invalid json 'outputs' field")
+            raise Bip270Exception(_("Corrupt payment details"))
 
         outputs = []
         for ui_dict in d['outputs']:
             outputs.append(Output.from_dict(ui_dict))
         pr = cls(outputs)
+        # We preserve the network we were given as maybe it is HandCash's non-standard "bitcoin"
+        pr.network = network
 
         if 'creationTimestamp' not in d:
-            raise Bip270Exception("Missing required json 'creationTimestamp' field")
+            raise Bip270Exception(_("Creation time missing"))
         creation_timestamp = d['creationTimestamp']
         if type(creation_timestamp) is not int:
-            raise Bip270Exception("Invalid json 'creationTimestamp' field")
+            raise Bip270Exception(_("Corrupt creation time"))
         pr.creation_timestamp = creation_timestamp
 
         expiration_timestamp = d.get('expirationTimestamp')
         if expiration_timestamp is not None and type(expiration_timestamp) is not int:
-            raise Bip270Exception("Invalid json 'expirationTimestamp' field")
+            raise Bip270Exception(_("Corrupt expiration time"))
         pr.expiration_timestamp = expiration_timestamp
 
         memo = d.get('memo')
         if memo is not None and type(memo) is not str:
-            raise Bip270Exception("Invalid json 'memo' field")
+            raise Bip270Exception(_("Corrupt memo"))
         pr.memo = memo
 
         payment_url = d.get('paymentUrl')
         if payment_url is not None and type(payment_url) is not str:
-            raise Bip270Exception("Invalid json 'paymentUrl' field")
+            raise Bip270Exception(_("Corrupt payment URL"))
         pr.payment_url = payment_url
 
         merchant_data = d.get('merchantData')
         if merchant_data is not None and type(merchant_data) is not str:
-            raise Bip270Exception("Invalid json 'merchantData' field")
+            raise Bip270Exception(_("Corrupt merchant data"))
         pr.merchant_data = merchant_data
 
         return pr
 
     def to_json(self) -> str:
         d = {}
-        d['network'] = 'bitcoin-sv'
+        d['network'] = self.network
         d['outputs'] = [output.to_dict() for output in self.outputs]  # type: ignore
         d['creationTimestamp'] = self.creation_timestamp
         if self.expiration_timestamp is not None:
@@ -225,7 +236,7 @@ class PaymentRequest:
         return self.get_amount() != 0
 
     def has_expired(self) -> bool:
-        return self.expiration_timestamp and self.expiration_timestamp < int(time.time())
+        return has_expired(self.expiration_timestamp)
 
     def get_expiration_date(self) -> int:
         return self.expiration_timestamp
@@ -244,17 +255,20 @@ class PaymentRequest:
             network = BIP276Network.NETWORK_REGTEST
         else:
             raise Exception("unhandled network", Net._net)
-        return bip276_encode(PREFIX_SCRIPT, bytes(self.outputs[0].script), network)
+        return bip276_encode(PREFIX_BIP276_SCRIPT, bytes(self.outputs[0].script), network)
 
-    def get_requestor(self) -> str:
+    def get_payment_uri(self) -> str:
         assert self.payment_url is not None
         return self.payment_url
 
     def get_memo(self) -> str:
         return self.memo
 
-    def get_id(self) -> str:
-        return self.id
+    def get_id(self) -> Optional[int]:
+        return self._id
+
+    def set_id(self, invoice_id: int) -> None:
+        self._id = invoice_id
 
     def get_outputs(self) -> List[XTxOutput]:
         return [output.to_tx_output() for output in self.outputs]
@@ -266,16 +280,12 @@ class PaymentRequest:
             self.error = _("No URL")
             return False
 
-        refund_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-        script_template = account.get_script_template_for_id(refund_key.keyinstance_id)
-
         payment_memo = "Paid using ElectrumSV"
-        payment = Payment(self.merchant_data, transaction_hex, [], payment_memo)
-        payment.refund_outputs.append(Output(script_template.to_script()))
+        payment = Payment(self.merchant_data, transaction_hex, payment_memo)
 
         parsed_url = urllib.parse.urlparse(self.payment_url)
         response = self._make_request(parsed_url.geturl(), payment.to_json())
-        if response.get_status_code() != 200:
+        if response.get_status_code() not in (200, 201, 202):
             # Propagate 'Bad request' (HTTP 400) messages to the user since they
             # contain valuable information.
             if response.get_status_code() == 400:
@@ -301,7 +311,7 @@ class PaymentRequest:
             self.error = e.args[0]
             return False
 
-        logger.debug("PaymentACK message received: %s", payment_ack.memo)
+        logger.debug("PaymentACK message received: memo=%r", payment_ack.memo)
         return True
 
     # The following function and classes is abstracted to allow unit testing.
@@ -326,11 +336,9 @@ class PaymentRequest:
 class Payment:
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
-    def __init__(self, merchant_data: Any, transaction_hex: str, refund_outputs: List[Output],
-                 memo: Optional[str]=None) -> None:
+    def __init__(self, merchant_data: Any, transaction_hex: str, memo: Optional[str]=None) -> None:
         self.merchant_data = merchant_data
         self.transaction_hex = transaction_hex
-        self.refund_outputs = refund_outputs
         self.memo = memo
 
     @classmethod
@@ -350,28 +358,16 @@ class Payment:
         else:
             raise Bip270Exception("Missing required json 'transaction' field")
 
-        refund_outputs: List[Output]
-        if 'refundTo' in data:
-            refundTo = data['refundTo']
-            if type(refundTo) is not list:
-                raise Bip270Exception("Invalid json 'refundTo' field")
-            refund_outputs = [ Output.from_dict(data) for data in refundTo ]
-        elif ack:
-            refund_outputs = []
-        else:
-            raise Bip270Exception("Missing required json 'refundTo' field")
-
         memo = data.get('memo')
         if memo is not None and type(memo) is not str:
             raise Bip270Exception("Invalid json 'memo' field")
 
-        return cls(merchant_data, transaction_hex, refund_outputs, memo)
+        return cls(merchant_data, transaction_hex, memo)
 
     def to_dict(self) -> dict:
         data = {
             'merchantData': self.merchant_data,
             'transaction': self.transaction_hex,
-            'refundTo': [ output.to_dict() for output in self.refund_outputs ],
         }
         if self.memo:
             data['memo'] = self.memo
@@ -465,82 +461,3 @@ def get_payment_request(url: str) -> PaymentRequest:
         raise Bip270Exception(error)
 
     return PaymentRequest.from_json(data)
-
-
-class InvoiceStore:
-    def __init__(self, wallet_data: Dict[str, Any]) -> None:
-        self._wallet_data = wallet_data
-        self.invoices: Dict[str, PaymentRequest] = {}
-        self.paid: Dict[str, str] = {}
-
-        d = wallet_data.get('invoices', {})
-        self.load(d)
-
-    def set_paid(self, pr: PaymentRequest, tx_id: str) -> None:
-        pr.tx = tx_id
-        self.paid[tx_id] = pr.get_id()
-
-    def load(self, d) -> None:
-        for k, v in d.items():
-            try:
-                pr = PaymentRequest(bytes.fromhex(v.get('hex')))
-                pr.tx = v.get('txid')
-                self.invoices[k] = pr
-                if pr.tx:
-                    self.paid[pr.tx] = k
-            except Exception:
-                continue
-
-    def import_file(self, path) -> None:
-        try:
-            with open(path, 'r') as f:
-                d = json.loads(f.read())
-                self.load(d)
-        except json.decoder.JSONDecodeError:
-            logger.exception("")
-            raise FileImportFailedEncrypted()
-        except Exception:
-            logger.exception("")
-            raise FileImportFailed()
-        self.save()
-
-    def save(self) -> None:
-        l = {}
-        for k, pr in self.invoices.items():
-            l[k] = {
-                'txid': pr.tx
-            }
-        self._wallet_data['invoices'] = l
-
-    def get_status(self, pr: PaymentRequest) -> PaymentFlag:
-        if pr.tx is not None:
-            return PaymentFlag.PAID
-        if pr.has_expired():
-            return PaymentFlag.EXPIRED
-        return PaymentFlag.UNPAID
-
-    def add(self, pr: PaymentRequest) -> str:
-        request_id = pr.get_id()
-        self.invoices[request_id] = pr
-        self.save()
-        return request_id
-
-    def remove(self, request_id: str) -> None:
-        paid_list = self.paid.items()
-        for p in paid_list:
-            if p[1] == request_id:
-                self.paid.pop(p[0])
-                break
-        self.invoices.pop(request_id)
-        self.save()
-
-    def get(self, request_id: str) -> Optional[PaymentRequest]:
-        return self.invoices.get(request_id)
-
-    def sorted_list(self) -> List[PaymentRequest]:
-        # sort
-        return list(self.invoices.values())
-
-    def unpaid_invoices(self) -> List[PaymentRequest]:
-        return [invoice for invoice in self.invoices.values()
-                if self.get_status(invoice) & PaymentFlag.UNPAID_MASK != 0]

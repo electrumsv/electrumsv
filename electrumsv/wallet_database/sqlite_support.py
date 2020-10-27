@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 import queue
 try:
@@ -62,8 +63,16 @@ def max_sql_variables():
     db.close()
     return low
 
-# https://stackoverflow.com/a/36788489
+# If the query deals with a list of values, then just batching using `SQLITE_MAX_VARS` should
+# be enough. If it deals with expressions, then batch using the least of that and
+# `SQLITE_EXPR_TREE_DEPTH`.
+# - This shows how to estimate the maximum variables.
+#   https://stackoverflow.com/a/36788489
+# - This shows that even if you have higher maximum variables you get:
+#   "Expression tree is too large (maximum depth 1000)"
+#   https://github.com/electrumsv/electrumsv/issues/539
 SQLITE_MAX_VARS = max_sql_variables()
+SQLITE_EXPR_TREE_DEPTH = 1000
 
 
 class WriteDisabledError(Exception):
@@ -99,16 +108,14 @@ class SqliteWriteDispatcher:
         self._writer_queue: "queue.Queue[WriteEntryType]" = queue.Queue()
         self._writer_thread = threading.Thread(target=self._writer_thread_main, daemon=True)
         self._writer_loop_event = threading.Event()
-        self._callback_queue: "queue.Queue[CompletionEntryType]" = queue.Queue()
-        self._callback_thread = threading.Thread(target=self._callback_thread_main, daemon=True)
-        self._callback_loop_event = threading.Event()
+
+        self._callback_thread_pool = ThreadPoolExecutor()
 
         self._allow_puts = True
         self._is_alive = True
         self._exit_when_empty = False
 
         self._writer_thread.start()
-        self._callback_thread.start()
 
     def _writer_thread_main(self) -> None:
         self._db: sqlite3.Connection = self._db_context.acquire_connection()
@@ -174,25 +181,15 @@ class SqliteWriteDispatcher:
                         len(write_entries), total_size_hint, time_ms)
 
             for dispatchable_callback in completion_callbacks:
-                self._callback_queue.put_nowait(dispatchable_callback)
+                self._callback_thread_pool.submit(self._dispatch_callback, *dispatchable_callback)
 
-    def _callback_thread_main(self) -> None:
-        while self._is_alive:
-            self._callback_loop_event.set()
-
-            # A perpetually blocking get will not get interrupted by CTRL+C.
-            try:
-                callback, exc_value = self._callback_queue.get(timeout=0.2)
-            except queue.Empty:
-                if self._exit_when_empty:
-                    return
-                continue
-
-            try:
-                callback(exc_value)
-            except Exception as e:
-                traceback.print_exc()
-                self._logger.exception("Exception within completion callback", exc_info=e)
+    def _dispatch_callback(self, callback: CompletionCallbackType,
+            exc_value: Optional[Exception]) -> None:
+        try:
+            callback(exc_value)
+        except Exception as e:
+            traceback.print_exc()
+            self._logger.exception("Exception within completion callback", exc_info=e)
 
     def put(self, write_entry: WriteEntryType) -> None:
         # If the writer is closed, then it is expected the caller should have made sure that
@@ -214,9 +211,7 @@ class SqliteWriteDispatcher:
         self._writer_loop_event.wait()
         self._writer_thread.join()
         self._db_context.release_connection(self._db)
-        self._callback_loop_event.wait()
-        self._callback_thread.join()
-
+        self._callback_thread_pool.shutdown(wait=True)
         self._is_alive = False
 
     def is_stopped(self) -> bool:

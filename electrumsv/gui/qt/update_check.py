@@ -76,6 +76,9 @@ class UpdateCheckDialog(WindowModalDialog):
             progress_fraction = counter / (10 * 10)
             self._set_progress(progress_fraction)
 
+        # This will receive a rejected result when the user presses escape to close the window.
+        self.finished.connect(self._close_cleanup)
+
         self._timer = QTimer()
         self._timer.timeout.connect(_on_timer_event)
         self._timer.start(1000/10)
@@ -84,10 +87,13 @@ class UpdateCheckDialog(WindowModalDialog):
         app_state.app.update_check()
 
     def closeEvent(self, event):
-        self._stop_updates()
-        self._timer = None
-
+        self._close_cleanup()
         event.accept()
+
+    def _close_cleanup(self, result: int=0) -> None:
+        if self._timer is not None:
+            self._stop_updates()
+            self._timer = None
 
     def _stop_updates(self):
         self._timer.stop()

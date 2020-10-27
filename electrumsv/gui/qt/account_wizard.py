@@ -43,8 +43,8 @@ from PyQt5.QtWidgets import (
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import compose_chain_string, is_new_seed, is_old_seed
-from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, KeystoreTextType,
-    MAXIMUM_COSIGNER_COUNT, ScriptType)
+from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, IntFlag,
+    KeystoreTextType, MAXIMUM_COSIGNER_COUNT, ScriptType)
 from electrumsv.device import DeviceInfo
 from electrumsv.i18n import _
 from electrumsv.keystore import (bip39_is_checksum_valid, bip44_derivation_cointype, from_seed,
@@ -124,7 +124,7 @@ TextKeystoreTypeFlags = {
     KeystoreTextType.ELECTRUM_OLD_SEED_WORDS: KeyFlags.CAN_BE_MULTISIG_WRITABLE,
 }
 
-class ResultType(enum.IntFlag):
+class ResultType(IntFlag):
     UNKNOWN = 0
 
     NEW = 1
@@ -167,6 +167,7 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
         self.setModal(True)
         self.setMinimumSize(600, 600)
         self.setOption(QWizard.HaveCustomButton1, True)
+        self.button(QWizard.CustomButton1).setVisible(False)
 
         self.setPage(AccountPage.ADD_ACCOUNT_MENU, AddAccountWizardPage(self))
         self.setPage(AccountPage.IMPORT_ACCOUNT_TEXT, ImportWalletTextPage(self))
@@ -617,7 +618,7 @@ class ImportWalletTextPage(QWizardPage):
         button = self.wizard().button(QWizard.CustomButton1)
         button.setEnabled(self._checked_match_type is not None and \
             self._checked_match_type not in { KeystoreTextType.ADDRESSES,
-                KeystoreTextType.PRIVATE_KEYS })
+                KeystoreTextType.PRIVATE_KEYS, KeystoreTextType.ELECTRUM_OLD_SEED_WORDS })
         self.completeChanged.emit()
 
     def _on_text_changed(self) -> None:
@@ -835,8 +836,7 @@ class ImportWalletTextCustomPage(QWizardPage):
 
     def _allow_watch_only_usage(self) -> bool:
         return self._text_type in (KeystoreTextType.BIP39_SEED_WORDS,
-            KeystoreTextType.ELECTRUM_SEED_WORDS, KeystoreTextType.ELECTRUM_OLD_SEED_WORDS,
-            KeystoreTextType.EXTENDED_PRIVATE_KEY)
+            KeystoreTextType.ELECTRUM_SEED_WORDS, KeystoreTextType.EXTENDED_PRIVATE_KEY)
 
     @protected
     def _create_account(self, main_window: Optional[ElectrumWindow]=None,
@@ -1276,11 +1276,12 @@ class SetupHardwareWalletAccountPage(QWizardPage):
             MessageBox.show_error(str(e))
             return False
 
+        label = device_info.label
         data = {
             'hw_type': name,
             'derivation': derivation_text,
             'xpub': mpk.to_extended_key_string(),
-            'label': device_info.label.strip(),
+            'label': label.strip() if label and label.strip() else None,
         }
         keystore = instantiate_keystore(DerivationType.HARDWARE, data)
         wizard.set_keystore_result(ResultType.HARDWARE, keystore)

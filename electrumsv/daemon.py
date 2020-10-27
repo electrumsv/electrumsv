@@ -79,12 +79,12 @@ def get_fd_or_server(config: SimpleConfig) -> Tuple[Optional[int], Optional[json
 
 
 def get_server(config: SimpleConfig) -> Optional[jsonrpclib.Server]:
-    lockfile = get_lockfile(config)
+    lockfile_path = get_lockfile(config)
     while True:
         create_time = None
         server_url = None
         try:
-            with open(lockfile) as f:
+            with open(lockfile_path) as f:
                 (host, port), create_time = ast.literal_eval(f.read())
                 rpc_user, rpc_password = get_rpc_credentials(config)
                 if rpc_password == '':
@@ -100,13 +100,17 @@ def get_server(config: SimpleConfig) -> Optional[jsonrpclib.Server]:
         except ConnectionRefusedError:
             logger.warning("get_server could not connect to the rpc server, is it running?")
         except SyntaxError:
-            if os.path.getsize(lockfile):
+            if os.path.getsize(lockfile_path):
                 logger.exception("RPC server lockfile exists, but is invalid")
             else:
                 # Our caller 'get_fd_or_server' has created the empty file before we check.
                 logger.warning("get_server could not connect to the rpc server, is it running?")
+        except FileNotFoundError as e:
+            if lockfile_path == e.filename:
+                logger.info("attempt to connect to the RPC server failed")
+            else:
+                logger.exception("attempt to connect to the RPC server failed")
         except Exception:
-            # We do not want the full stacktrace, this will limit it.
             logger.exception("attempt to connect to the RPC server failed")
         if not create_time or create_time < time.time() - 1.0:
             return None
@@ -168,10 +172,10 @@ class Daemon(DaemonThread):
 
     def init_restapi_server(self, config: SimpleConfig, fd) -> None:
         host = config.get('rpchost', '127.0.0.1')
-        port = 9999  # hard-code until added to config
+        restapi_port = int(config.get('restapi_port', 9999))
 
         username, password = get_rpc_credentials(config, is_restapi=True)
-        self.rest_server = AiohttpServer(host=host, port=port, username=username,
+        self.rest_server = AiohttpServer(host=host, port=restapi_port, username=username,
                                          password=password)
 
     def init_server(self, config: SimpleConfig, fd, is_gui: bool) -> None:

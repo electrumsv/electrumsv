@@ -4,5 +4,4 @@ PyQt5
 pycryptodomex
 websocket-client
 dmgbuild
-psutil==5.6.6
-setuptools<45.0.0
+psutil

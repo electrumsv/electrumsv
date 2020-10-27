@@ -1,0 +1,195 @@
+html {
+  overflow-y: scroll;
+}
+
+body {
+	font-family: "Lato","proxima-nova","Helvetica Neue",Arial,sans-serif;
+}
+
+.content-container {
+  max-width: 960px;
+}
+
+.site-header {
+  background-color: rgba(0, 0, 0, .85);
+}
+.site-header a {
+  color: #DDD;
+  transition: ease-in-out color .15s;
+}
+.site-header a:hover {
+  color: #fff;
+  text-decoration: none;
+}
+
+.site-header a .text-logo-prefix {
+	font-size: 4em;
+}
+.site-header a .text-logo-suffix {
+	font-size: 4em;
+}
+
+.site-name-color {
+	color: #EAB300;
+}
+
+.disabled-text {
+	color: lightgrey;
+}
+
+.site-tld-color {
+	color: #999999;
+}
+
+.title-font {
+	font-family: "Segoe UI","Helvetica Neue","Helvetica",Arial,sans-serif;
+	font-weight: 100;
+}
+
+img.bcomm {
+	height: 3em;
+}
+
+.icon-download-type {
+	min-width: 22px;
+	text-align: center;
+}
+
+.bitcoin-character {
+	font-weight: 900;
+	line-height: 1;
+}
+
+.modal.key-linux .modal-dialog {
+	max-width: 800px;
+}
+
+.esv-btn-navbar {
+	font-weight: 500;
+	border-color: lightgrey;
+}
+
+.navbar .nav-link .fab {
+	font-size: 20pt;
+}
+
+.card-icon-featured {
+	font-size: 10em;
+	line-height: 1em;
+}
+
+.esv-carousel-overlay {
+	background-color: rgba(0, 0, 0, .55);
+}
+
+.esv-background-grey {
+	background-color: rgba(0,0,0,.125) !important;
+}
+
+.esv-border-grey {
+	border: 1px solid rgba(0,0,0,.125);
+}
+
+h1, h2, h3, h4, h5 {
+	font-family: "Lato","ff-tisa-web-pro","Georgia",Arial,sans-serif;
+	font-weight: 700;
+	margin-bottom: .5rem;
+	line-height: 1.2;
+}
+
+h1 {
+	font-size: 175%;
+}
+
+h2 {
+	font-size: 150%;
+}
+
+h3 {
+	font-size: 125%;
+}
+
+h4 {
+	font-size: 110%;
+}
+
+p {
+	line-height: 24px;
+    margin: 0;
+    font-size: 16px;
+    margin-bottom: 24px;
+}
+
+pre {
+	margin-bottom: 24px;
+	background-color: gainsboro;
+	padding: 0.25rem 0.5rem 0.25rem 0.5rem;
+}
+
+div.figure.align-center {
+    margin-left: auto;
+    margin-right: auto;
+    display: block;
+}
+
+div.figure {
+	margin-top: 24px;
+	margin-bottom: 24px;
+}
+
+div.figure.align-center {
+	text-align: center;
+}
+
+div.figure p.caption {
+	margin-top: 5px;
+	font-size: smaller;
+}
+
+.esv-box-border {
+	border-width: .2rem;
+	border: solid #f8f9fa;
+}
+
+.esv-box-padding {
+	padding: 1.0rem;
+}
+
+.esv-feature-icon {
+	font-size: 2rem;
+	color: #61A3CE;
+}
+
+.esv-section-title {
+	width: 100%;
+    color: #d73a15;
+    display: inline-block;
+	font-size: 1.2rem/1.8rem;
+	font-weight: bold;
+    letter-spacing: 1.92px;
+    padding: 0 0.8rem;
+	text-transform: uppercase;
+	text-align: center;
+	margin-bottom: 4px;
+}
+
+/* Pelican */
+
+/* .entry-content p {
+	margin-bottom: 0px;
+	font-style: italic;
+} */
+
+article {
+	width: 100%;
+}
+
+.literal {
+	background-color: gainsboro;
+	padding-left: 0.25rem;
+	padding-right: 0.25rem;
+}
+
+.esv-article .post-time time {
+	font-style: italic;
+}

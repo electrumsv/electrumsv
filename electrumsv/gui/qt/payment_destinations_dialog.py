@@ -44,7 +44,7 @@ class PaymentDestinationsDialog(QDialog):
         self._table = table = ButtonsTableWidget()
         table.addButton("icons8-copy-to-clipboard-32.png", self._on_copy_button_click,
             _("Copy all listed destinations to the clipboard"))
-        table.addButton("icons8-save-as-32.png", self._on_save_as_button_click,
+        table.addButton("icons8-save-as-32-windows.png", self._on_save_as_button_click,
             _("Save the listed destinations to a file"))
         hh = table.horizontalHeader()
         hh.setStretchLastSection(True)

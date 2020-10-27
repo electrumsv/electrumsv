@@ -8,7 +8,7 @@ except ModuleNotFoundError:
     # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
     import sqlite3 # type: ignore
 import time
-from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple, TypeVar
+from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple, Type, TypeVar
 
 import bitcoinx
 from bitcoinx import hash_to_hex_str
@@ -16,7 +16,9 @@ from bitcoinx import hash_to_hex_str
 from ..constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
     KeyInstanceFlag, PaymentFlag, WalletEventFlag, WalletEventType)
 from ..logs import logs
-from .sqlite_support import SQLITE_MAX_VARS, DatabaseContext, CompletionCallbackType
+from .sqlite_support import SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS, DatabaseContext, \
+    CompletionCallbackType
+from ..types import TxoKeyType
 
 
 # TODO(rt12) The rows should be turned into NamedTuples?
@@ -67,6 +69,26 @@ def flag_clause(column: str, flags: Optional[T], mask: Optional[T]) -> Tuple[str
         return f"({column} & ?) != 0", [flags]
 
     return f"({column} & ?) == ?", [mask, flags]
+
+def collect_results(result_type: Type[T], cursor: sqlite3.Cursor, results: List[T]) -> None:
+    rows = cursor.fetchall()
+    cursor.close()
+    results.extend(result_type(*row) for row in rows)
+
+
+def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, params: List[Any], \
+        ids: Sequence[int]) -> List[T]:
+    results = []
+    batch_size = SQLITE_MAX_VARS - len(params)
+    while len(ids):
+        batch_ids = ids[:batch_size]
+        query = sql.format(",".join("?" for k in batch_ids))
+        cursor = db.execute(query, params + batch_ids) # type: ignore
+        rows = cursor.fetchall()
+        cursor.close()
+        results.extend(rows)
+        ids = ids[batch_size:]
+    return [ return_type(*t) for t in results ]
 
 
 class BaseWalletStore:
@@ -434,8 +456,8 @@ class TransactionTable(BaseWalletStore):
         datas = [ (mask, flags, date_updated, tx_hash)
             for (tx_hash, flags, mask, date_updated) in entries ]
         def _write(db: sqlite3.Connection) -> None:
-            tx_ids = [ hash_to_hex_str(entry[0]) for entry in entries ]
-            self._logger.debug("update_flags '%s'", tx_ids)
+            log_entries = [ (*entry[:3], hash_to_hex_str(entry[3])) for entry in datas ]
+            self._logger.debug("update_flags %r", log_entries)
             db.executemany(self.UPDATE_FLAGS_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)
 
@@ -755,17 +777,13 @@ class TransactionOutputTable(BaseWalletStore):
     def read(self, mask: Optional[TransactionOutputFlag]=None,
             key_ids: Optional[List[int]]=None) -> Iterable[TransactionOutputRow]:
         results: List[TransactionOutputRow] = []
-        def _collect_results(cursor: sqlite3.Cursor, results: List[TransactionOutputRow]) -> None:
-            rows = cursor.fetchall()
-            cursor.close()
-            for row in rows:
-                results.append(TransactionOutputRow(*row))
 
         query = self.READ_SQL
         params: List[int] = []
         if mask is not None:
             query += " WHERE (flags & ?) != 0"
             params = [ mask ]
+
         if key_ids:
             keyword = " AND" if len(params) else " WHERE"
             batch_size = SQLITE_MAX_VARS - len(params)
@@ -774,11 +792,31 @@ class TransactionOutputTable(BaseWalletStore):
                 param_str = ",".join("?" for k in batch_ids)
                 batch_query = query + f"{keyword} keyinstance_id IN ({param_str})"
                 cursor = self._db.execute(batch_query, params + batch_ids)
-                _collect_results(cursor, results)
+                collect_results(TransactionOutputRow, cursor, results)
                 key_ids = key_ids[batch_size:]
         else:
             cursor = self._db.execute(query, params)
-            _collect_results(cursor, results)
+            collect_results(TransactionOutputRow, cursor, results)
+
+        return results
+
+    def read_txokeys(self, txo_keys: List[TxoKeyType]) -> List[TransactionOutputRow]:
+        results: List[TransactionOutputRow] = []
+
+        # As we are dealing with expressions not a raw list of variables, we have to use the
+        # least of the max variables and expression tree depth constraints.
+        batch_size = min(SQLITE_MAX_VARS, SQLITE_EXPR_TREE_DEPTH) // 2
+        condition_section = "tx_hash=? AND tx_index=?"
+        while len(txo_keys):
+            batch = txo_keys[:batch_size]
+            batch_values: List[Any] = []
+            for batch_entry in batch:
+                batch_values.extend(batch_entry)
+            conditions = [ condition_section ] * len(batch)
+            batch_query = (self.READ_SQL +" WHERE "+ " OR ".join(conditions))
+            cursor = self._db.execute(batch_query, batch_values)
+            collect_results(TransactionOutputRow, cursor, results)
+            txo_keys = txo_keys[batch_size:]
 
         return results
 
@@ -800,6 +838,7 @@ class TransactionOutputTable(BaseWalletStore):
 
 
 class TransactionDeltaSumRow(NamedTuple):
+    account_id: int
     total: int
     match_count: int
 
@@ -807,6 +846,27 @@ class TransactionDeltaRow(NamedTuple):
     tx_hash: bytes
     keyinstance_id: int
     value_delta: int
+
+class TransactionKeyHistoryRow(NamedTuple):
+    tx_hash: bytes
+    keyinstance_id: int
+
+class TransactionDeltaHistoryRow(NamedTuple):
+    tx_hash: bytes
+    tx_flags: TxFlags
+    value_delta: int
+
+class TransactionDeltaKeySummaryRow(NamedTuple):
+    keyinstance_id: int
+    masterkey_id: Optional[int]
+    derivation_type: DerivationType
+    derivation_data: bytes
+    script_type: ScriptType
+    flags: KeyInstanceFlag
+    date_updated: int
+    total_value: int
+    match_count: int
+
 
 class TransactionDeltaTable(BaseWalletStore):
     LOGGER_NAME = "db-table-txdelta"
@@ -816,12 +876,23 @@ class TransactionDeltaTable(BaseWalletStore):
         "VALUES (?, ?, ?, ?, ?)")
     CREATE_SQL = "INSERT "+ CREATE_SQL_BASE
     CREATE_OR_IGNORE_SQL = "INSERT OR IGNORE "+ CREATE_SQL_BASE
-    READ_SQL = ("SELECT TOTAL(value_delta), COUNT(value_delta) FROM TransactionDeltas "
-        "WHERE tx_hash=?")
-    READ_ACCOUNT_SQL = ("SELECT TOTAL(TD.value_delta), COUNT(TD.value_delta) "
+    READ_SQL = ("SELECT KI.account_id, TOTAL(TD.value_delta), COUNT(TD.value_delta) "
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ? AND TD.tx_hash = ?")
+            "TD.tx_hash = ? "
+        "GROUP BY KI.account_id")
+    READ_ACCOUNT_SQL = ("SELECT KI.account_id, TOTAL(TD.value_delta), COUNT(TD.value_delta) "
+        "FROM TransactionDeltas AS TD "
+        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
+            "KI.account_id = ? AND TD.tx_hash = ? "
+        "GROUP BY KI.account_id")
+    READ_ACCOUNT_TXFILTERING_SQL_1 = ("SELECT KI.account_id, TOTAL(TD.value_delta), "
+            "COUNT(DISTINCT TD.tx_hash) "
+        "FROM Transactions AS T "
+        "INNER JOIN TransactionDeltas AS TD ON TD.tx_hash = T.tx_hash "
+        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
+            "KI.account_id = ? ")
+    READ_ACCOUNT_TXFILTERING_SQL_2 = "GROUP BY KI.account_id"
     READ_DESCRIPTIONS_SQL = ("SELECT T.tx_hash, T.description  "
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
@@ -829,10 +900,45 @@ class TransactionDeltaTable(BaseWalletStore):
         "INNER JOIN Transactions AS T ON TD.tx_hash = T.tx_hash "
         "WHERE T.description IS NOT NULL "
         "GROUP BY T.tx_hash")
-    READ_HISTORY_SQL = ("SELECT TD.tx_hash, TD.value_delta, TD.keyinstance_id "
+    READ_HISTORY_SQL = ("SELECT T.tx_hash, T.flags, TOTAL(TD.value_delta) "
+        "FROM Transactions T "
+        "INNER JOIN TransactionDeltas AS TD ON T.tx_hash = TD.tx_hash "
+        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
+            "KI.account_id = ? "
+        "GROUP BY T.tx_hash")
+    READ_HISTORY_DOMAIN_SQL = ("SELECT T.tx_hash, T.flags, TOTAL(TD.value_delta) "
+        "FROM Transactions T "
+        "INNER JOIN TransactionDeltas AS TD ON T.tx_hash = TD.tx_hash "
+        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
+            "KI.account_id = ? AND TD.keyinstance_id IN ({}) "
+        "GROUP BY T.tx_hash")
+    READ_KEY_SUMMARY_SQL = ("SELECT KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
+            "KI.derivation_data, KI.script_type, KI.flags, KI.date_updated, "
+            "TOTAL(TD.value_delta), COUNT(TD.value_delta) "
+        "FROM KeyInstances AS KI "
+        "LEFT JOIN TransactionDeltas TD ON TD.keyinstance_id = KI.keyinstance_id "
+        "WHERE KI.account_id = ? "
+        "GROUP BY KI.keyinstance_id")
+    READ_KEY_SUMMARY_DOMAIN_SQL = ("SELECT KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
+            "KI.derivation_data, KI.script_type, KI.flags, KI.date_updated, "
+            "TOTAL(TD.value_delta), COUNT(TD.value_delta) "
+        "FROM KeyInstances AS KI "
+        "LEFT JOIN TransactionDeltas TD ON TD.keyinstance_id = KI.keyinstance_id "
+        "WHERE KI.account_id = ? AND KI.keyinstance_id IN ({}) "
+        "GROUP BY KI.keyinstance_id")
+    READ_PAID_KEYS_SQL = ("SELECT TD.keyinstance_id "
+        "FROM TransactionDeltas TD "
+        "INNER JOIN PaymentRequests AS PR ON TD.keyinstance_id = PR.keyinstance_id "
+        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
+            "KI.account_id = ? AND TD.keyinstance_id IN ({}) AND "
+            f"(PR.state & {PaymentFlag.UNPAID}) != 0 "
+        "GROUP BY TD.keyinstance_id "
+        "HAVING PR.value IS NULL OR PR.value <= TOTAL(TD.value_delta)")
+    READ_KEY_HISTORY_SQL = ("SELECT TD.tx_hash, TD.keyinstance_id "
         "FROM TransactionDeltas AS TD "
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ?")
+            "KI.account_id = ?"
+        "GROUP BY TD.tx_hash, TD.keyinstance_id")
     READ_CANDIDATE_USED_KEYS = (f"""
         WITH active_keys AS (
                 SELECT keyinstance_id
@@ -944,23 +1050,71 @@ class TransactionDeltaTable(BaseWalletStore):
         cursor.close()
         return [ TransactionDeltaRow(*t) for t in rows ]
 
+    def read_key_history(self, account_id: int) -> List[TransactionKeyHistoryRow]:
+        results: List[TransactionKeyHistoryRow] = []
+        for row in self._get_many_common(self.READ_KEY_HISTORY_SQL, [ account_id ]):
+            results.append(TransactionKeyHistoryRow(*row))
+        return results
+
+    def read_key_summary(self, account_id: int,
+            keyinstance_ids: Optional[Sequence[int]]=None) -> List[TransactionDeltaKeySummaryRow]:
+        params = [ account_id ]
+        if keyinstance_ids is not None:
+            return read_rows_by_id(TransactionDeltaKeySummaryRow, self._db,
+                self.READ_KEY_SUMMARY_DOMAIN_SQL, [ account_id ], keyinstance_ids)
+
+        query = self.READ_KEY_SUMMARY_SQL
+        cursor = self._db.execute(query, [account_id])
+        rows = cursor.fetchall()
+        cursor.close()
+        return [ TransactionDeltaKeySummaryRow(*t) for t in rows ]
+
     def read_history(self, account_id: int,
-            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes, int, int]]:
-        return self._get_many_common(self.READ_HISTORY_SQL, [ account_id ], tx_hashes)
+            keyinstance_ids: Optional[Sequence[int]]=None) -> List[TransactionDeltaHistoryRow]:
+        params = [ account_id ]
+        if keyinstance_ids:
+            return read_rows_by_id(TransactionDeltaHistoryRow, self._db,
+                self.READ_HISTORY_DOMAIN_SQL, [ account_id ], keyinstance_ids)
+
+        query = self.READ_HISTORY_SQL
+        cursor = self._db.execute(query, [account_id])
+        rows = cursor.fetchall()
+        cursor.close()
+        return [ TransactionDeltaHistoryRow(*t) for t in rows ]
+
+    def read_paid_requests(self, account_id: int, keyinstance_ids: Sequence[int]) \
+            -> List[int]:
+        return read_rows_by_id(int, self._db, self.READ_PAID_KEYS_SQL,
+            [ account_id ], keyinstance_ids)
 
     def read_descriptions(self, account_id: int) -> List[Tuple[bytes, str]]:
         return self._get_many_common(self.READ_DESCRIPTIONS_SQL, [ account_id ])
 
+    def read_balance(self, account_id: int, flags: Optional[int]=None,
+            mask: Optional[int]=None) -> TransactionDeltaSumRow:
+        query = self.READ_ACCOUNT_TXFILTERING_SQL_1
+        params: List[Any] = [ account_id ]
+        clause, extra_params = flag_clause("T.flags", flags, mask)
+        if clause:
+            query += f" WHERE {clause} "
+            params.extend(extra_params)
+        query += self.READ_ACCOUNT_TXFILTERING_SQL_2
+        cursor = self._db.execute(query, params)
+        row = cursor.fetchone()
+        cursor.close()
+        if row is None:
+            return TransactionDeltaSumRow(account_id, 0, 0)
+        return TransactionDeltaSumRow(*row)
+
     def read_transaction_value(self, tx_hash: bytes, account_id: Optional[int]=None) \
-            -> TransactionDeltaSumRow:
+            -> List[TransactionDeltaSumRow]:
         if account_id is None:
             cursor = self._db.execute(self.READ_SQL, [tx_hash])
         else:
             cursor = self._db.execute(self.READ_ACCOUNT_SQL, [account_id, tx_hash])
-        row = cursor.fetchone()
-        if row is None:
-            return TransactionDeltaSumRow(0, 0)
-        return TransactionDeltaSumRow(row[0], row[1])
+        rows = cursor.fetchall()
+        cursor.close()
+        return [ TransactionDeltaSumRow(*row) for row in rows ]
 
     def update(self, entries: Iterable[Tuple[int, bytes, int]],
             date_updated: Optional[int]=None,
@@ -1004,13 +1158,9 @@ class PaymentRequestTable(BaseWalletStore):
         "WHERE K.account_id=?")
     UPDATE_SQL = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, expiration=?, "
         "description=? WHERE paymentrequest_id=?")
+    UPDATE_STATE_SQL = (f"""UPDATE PaymentRequests SET date_updated=?,
+        state=(state&{~PaymentFlag.STATE_MASK})|? WHERE keyinstance_id=?""")
     DELETE_SQL = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
-    ARCHIVE_SQL = f"""
-    UPDATE PaymentRequests SET state=state|{PaymentFlag.ARCHIVED} WHERE paymentrequest_id=%d;
-    UPDATE KeyInstances SET flags=flags&{int((~KeyInstanceFlag.IS_PAYMENT_REQUEST) & 0xFFFFFFFF)}
-        WHERE keyinstance_id = (SELECT keyinstance_id FROM PaymentRequests
-            WHERE paymentrequest_id=%d);
-    """
 
     def create(self, entries: Iterable[PaymentRequestRow],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -1058,7 +1208,8 @@ class PaymentRequestTable(BaseWalletStore):
         return [ PaymentRequestRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6])
             for t in rows ]
 
-    def update(self, entries: Iterable[Tuple[Optional[int], Optional[int], Optional[str], int]],
+    def update(self,
+            entries: Iterable[Tuple[Optional[PaymentFlag], Optional[int], int, Optional[str], int]],
             date_updated: Optional[int]=None,
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         if date_updated is None:
@@ -1068,12 +1219,175 @@ class PaymentRequestTable(BaseWalletStore):
             db.executemany(self.UPDATE_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)
 
+    def update_state(self,
+            entries: Iterable[Tuple[Optional[PaymentFlag], int]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection):
+            db.executemany(self.UPDATE_STATE_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
     def delete(self, entries: Iterable[Tuple[int]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         def _write(db: sqlite3.Connection):
             db.executemany(self.DELETE_SQL, entries)
         self._db_context.queue_write(_write, completion_callback)
 
+
+class InvoiceRow(NamedTuple):
+    invoice_id: int
+    account_id: int
+    tx_hash: Optional[bytes]
+    payment_uri: str
+    description: Optional[str]
+    flags: PaymentFlag
+    value: int
+    invoice_data: bytes
+    date_expires: Optional[int]
+    date_created: int
+
+
+class InvoiceAccountRow(NamedTuple):
+    invoice_id: int
+    payment_uri: str
+    description: Optional[str]
+    flags: PaymentFlag
+    value: int
+    date_expires: Optional[int]
+    date_created: int
+
+
+class InvoiceTable(BaseWalletStore):
+    LOGGER_NAME = "db-table-invoice"
+
+    # For recording the invoice after it is selected and the PaymentRequest is fetched.
+    CREATE_SQL = ("INSERT INTO Invoices "
+        "(account_id, tx_hash, payment_uri, description, invoice_flags, value, "
+        "invoice_data, date_expires, date_created, date_updated) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    READ_ALL_SQL = ("SELECT invoice_id, account_id, tx_hash, payment_uri, description, "
+        "invoice_flags, value, invoice_data, date_expires, date_created FROM Invoices")
+    # For the displayed listing of all the invoices for the current account.
+    READ_ACCOUNT_SQL = ("SELECT invoice_id, payment_uri, description, invoice_flags, value, "
+        "date_expires, date_created FROM Invoices WHERE account_id=?")
+    UPDATE_DESCRIPTION_SQL = ("UPDATE Invoices SET date_updated=?, description=? "
+        "WHERE invoice_id=?")
+    UPDATE_FLAGS_SQL = ("UPDATE Invoices SET date_updated=?, invoice_flags=((invoice_flags&?)|?) "
+        "WHERE invoice_id=?")
+    UPDATE_TRANSACTION_SQL = "UPDATE Invoices SET date_updated=?, tx_hash=? WHERE invoice_id=?"
+    CLEAR_TRANSACTION_SQL = "UPDATE Invoices SET date_updated=?, tx_hash=NULL WHERE tx_hash=?"
+    DELETE_SQL = "DELETE FROM Invoices WHERE invoice_id=?"
+    ARCHIVE_SQL = f"""
+    UPDATE Invoices SET state=state|{PaymentFlag.ARCHIVED} WHERE invoice_id=%d
+    """
+
+    def create(self, entries: Iterable[InvoiceRow],
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        # Discard the first column for the id.
+        # Duplicate the last column for date_updated = date_created
+        datas = [ (*t[1:], t[-1]) for t in entries ]
+        def _write(db: sqlite3.Connection):
+            db.executemany(self.CREATE_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def _read_one(self, query: str, params: List[Any]) -> Optional[InvoiceRow]:
+        cursor = self._db.execute(query, params)
+        t = cursor.fetchone()
+        cursor.close()
+        if t is not None:
+            return InvoiceRow(t[0], t[1], t[2], t[3], t[4], PaymentFlag(t[5]), t[6], t[7], t[8],
+                t[9])
+        return None
+
+    def read_one(self, invoice_id: Optional[int]=None, tx_hash: Optional[bytes]=None,
+            payment_uri: Optional[str]=None) -> Optional[InvoiceRow]:
+        query = self.READ_ALL_SQL
+        params: List[Any]
+        if invoice_id is not None:
+            query += f" WHERE invoice_id=?"
+            params = [ invoice_id ]
+        elif tx_hash is not None:
+            query += f" WHERE tx_hash=?"
+            params = [ tx_hash ]
+        elif payment_uri is not None:
+            query += f" WHERE payment_uri=?"
+            params = [ payment_uri ]
+        else:
+            raise Exception("bad read, no id")
+        return self._read_one(query, params)
+
+    def read_duplicate(self, value: int, payment_uri: str) -> Optional[InvoiceRow]:
+        query = self.READ_ALL_SQL
+        query += f" WHERE value=? AND payment_uri=?"
+        params = [ value, payment_uri ]
+        return self._read_one(query, params)
+
+    def read_account(self, account_id: int, flags: Optional[int]=None,
+            mask: Optional[int]=None) -> List[InvoiceAccountRow]:
+        params: List[Any] = [ account_id ]
+        query = self.READ_ACCOUNT_SQL
+        # We keep the filtering in case we want to let the user define whether to show only
+        # invoices in a certain state. If we never do that, we can remove this.
+        clause, extra_params = flag_clause("invoice_flags", flags, mask)
+        if clause:
+            query += f" AND {clause}"
+            params.extend(extra_params)
+        cursor = self._db.execute(query, params)
+        rows = cursor.fetchall()
+        cursor.close()
+        return [ InvoiceAccountRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6])
+            for t in rows ]
+
+    def clear_transaction(self, entries: Iterable[Tuple[bytes]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        payment_datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection) -> None:
+            nonlocal payment_datas
+            db.executemany(self.CLEAR_TRANSACTION_SQL, payment_datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def update_transaction(self, entries: Iterable[Tuple[Optional[bytes], int]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        payment_datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection) -> None:
+            nonlocal payment_datas
+            db.executemany(self.UPDATE_TRANSACTION_SQL, payment_datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def update_description(self, entries: Iterable[Tuple[Optional[str], int]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection) -> None:
+            db.executemany(self.UPDATE_DESCRIPTION_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def update_flags(self, entries: Iterable[Tuple[PaymentFlag, PaymentFlag, int]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        datas = [ (date_updated, *entry) for entry in entries ]
+        def _write(db: sqlite3.Connection) -> None:
+            db.executemany(self.UPDATE_FLAGS_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    def delete(self, entries: Iterable[Tuple[int]],
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        def _write(db: sqlite3.Connection) -> None:
+            db.executemany(self.DELETE_SQL, entries)
+        self._db_context.queue_write(_write, completion_callback)
 
 
 class WalletEventRow(NamedTuple):

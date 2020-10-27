@@ -36,7 +36,7 @@ try:
 
     TREZORLIB = True
 except Exception as e:
-    logger.exception("Failed to import trezorlib")
+    logger.warning(f"Failed to import trezorlib: {e}")
     TREZORLIB = False
 
     RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX = range(2)
@@ -118,6 +118,8 @@ class TrezorPlugin(HW_PluginBase):
             raise LibraryFoundButUnusable(library_version=version)
 
     def enumerate_devices(self):
+        if not TREZORLIB:
+            return []
         devices = trezorlib.transport.enumerate_devices()
         return [Device(path=d.get_path(),
                        interface_number=-1,

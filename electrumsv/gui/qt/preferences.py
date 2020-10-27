@@ -37,7 +37,7 @@ from PyQt5.QtWidgets import (
 from electrumsv import qrscanner
 from electrumsv.app_state import app_state
 from electrumsv.constants import (MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
-    ScriptType)
+    WalletSettings)
 from electrumsv.extensions import label_sync
 from electrumsv.extensions import extensions
 from electrumsv.i18n import _, languages
@@ -81,10 +81,9 @@ class PreferencesDialog(QDialog):
             (self.fiat_widgets, _('Fiat')),
             (partial(self.extensions_widgets, account), _('Extensions')),
         ]
-        tabs_info.append((partial(self.wallet_widgets, wallet), _('Wallet')))
-        if account is not None:
-            tabs_info.append((partial(self.account_widgets, account), _('Account')))
+        tabs_info.append((partial(self._wallet_widgets, wallet), _('Wallet')))
         tabs_info.append((self.network_widgets, _('Network')))
+        tabs_info.append((self.ui_widgets, _('UI')))
 
         tabs = QTabWidget()
         tabs.setUsesScrollButtons(False)
@@ -374,40 +373,76 @@ class PreferencesDialog(QDialog):
         vbox.addStretch(1)
         tab.setLayout(vbox)
 
-    def wallet_widgets(self, wallet: Wallet, tab: QWidget) -> None:
-        usechange_cb = QCheckBox(_('Use change addresses'))
-        usechange_cb.setChecked(wallet.get_use_change())
-        usechange_cb.setEnabled(app_state.config.is_modifiable('use_change'))
-        usechange_cb.setToolTip(
+    def _wallet_widgets(self, wallet: Wallet, tab: QWidget) -> None:
+        use_change_addresses_cb = QCheckBox(_('Use change addresses'))
+        use_change_addresses_cb.setChecked(wallet.get_boolean_setting(WalletSettings.USE_CHANGE))
+        use_change_addresses_cb.setEnabled(
+            app_state.config.is_modifiable(WalletSettings.USE_CHANGE))
+        use_change_addresses_cb.setToolTip(
             _('Using a different change key each time improves your privacy by '
               'making it more difficult for others to analyze your transactions.')
         )
-        def on_usechange(state):
-            usechange_result = state == Qt.Checked
-            if wallet.get_use_change() != usechange_result:
-                wallet.set_use_change(usechange_result)
-                multiple_cb.setEnabled(wallet.get_use_change())
-        usechange_cb.stateChanged.connect(on_usechange)
+        def on_usechange(state: int):
+            should_enable = state == Qt.Checked
+            if wallet.get_boolean_setting(WalletSettings.USE_CHANGE) != should_enable:
+                wallet.set_boolean_setting(WalletSettings.USE_CHANGE, should_enable)
+                multiple_change_cb.setEnabled(should_enable)
+        use_change_addresses_cb.stateChanged.connect(on_usechange)
 
-        multiple_cb = QCheckBox(_('Use multiple change addresses'))
-        multiple_cb.setChecked(wallet.get_multiple_change())
-        multiple_cb.setEnabled(wallet.get_use_change())
-        multiple_cb.setToolTip('\n'.join([
+        multiple_change_cb = QCheckBox(_('Use multiple change addresses'))
+        multiple_change_cb.setChecked(wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE))
+        multiple_change_cb.setEnabled(wallet.get_boolean_setting(WalletSettings.USE_CHANGE))
+        multiple_change_cb.setToolTip('\n'.join([
             _('In some cases, use up to 3 change keys in order to break '
               'up large coin amounts and obfuscate the recipient key.'),
             _('This may result in higher transactions fees.')
         ]))
-        def on_multiple(state):
+        def on_multiple_change_toggled(state: int) -> None:
             multiple = state == Qt.Checked
-            if wallet.get_multiple_change() != multiple:
-                wallet.set_multiple_change(multiple)
-        multiple_cb.stateChanged.connect(on_multiple)
+            if wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE) != multiple:
+                wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, multiple)
+        multiple_change_cb.stateChanged.connect(on_multiple_change_toggled)
+
+        coinsplitting_option_cb = QCheckBox(_('Show coin-splitting option on the Send tab'))
+        coinsplitting_option_cb.setChecked(wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT))
+        coinsplitting_option_cb.setEnabled(
+            app_state.config.is_modifiable(WalletSettings.ADD_SV_OUTPUT))
+        coinsplitting_option_cb.setToolTip(
+            _('Whether to feature the the option to add Bitcoin SV only data to the transaction '
+              'on the Send tab. Will only be shown for compatible account types.')
+        )
+        def on_coinsplitting_option_cb(state: int):
+            should_enable = state == Qt.Checked
+            if wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT) != should_enable:
+                wallet.set_boolean_setting(WalletSettings.ADD_SV_OUTPUT, should_enable)
+        coinsplitting_option_cb.stateChanged.connect(on_coinsplitting_option_cb)
 
         options_box = QGroupBox()
         options_vbox = QVBoxLayout()
         options_box.setLayout(options_vbox)
-        options_vbox.addWidget(usechange_cb)
-        options_vbox.addWidget(multiple_cb)
+        options_vbox.addWidget(use_change_addresses_cb)
+        options_vbox.addWidget(multiple_change_cb)
+        options_vbox.addWidget(coinsplitting_option_cb)
+
+        multiple_accounts_cb = QCheckBox(_('Enable multiple accounts'))
+        multiple_accounts_cb.setChecked(
+            wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS))
+        multiple_accounts_cb.setToolTip('\n'.join([
+            _('Multiple accounts are to a large degree ready for use, but not tested to the level '
+              'where they are enabled for general use. Users who may wish to use these are warned '
+              'that they are in the experimental section for a reason.')
+        ]))
+        def on_multiple_accounts_toggled(state: int) -> None:
+            should_enable = state == Qt.Checked
+            is_enabled = wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
+            if should_enable != is_enabled:
+                wallet.set_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS, should_enable)
+        multiple_accounts_cb.stateChanged.connect(on_multiple_accounts_toggled)
+
+        experimental_box = QGroupBox()
+        experimental_vbox = QVBoxLayout()
+        experimental_box.setLayout(experimental_vbox)
+        experimental_vbox.addWidget(multiple_accounts_cb)
 
         # Todo - add ability here to toggle deactivation of used keys - AustEcon
         transaction_cache_size = wallet.get_cache_size_for_tx_bytedata()
@@ -435,47 +470,9 @@ class PreferencesDialog(QDialog):
         tx_cache_layout.addWidget(QLabel(_("MiB")))
 
         form = FormSectionWidget(minimum_label_width=120)
-        form.add_row(_('Options'), options_box, True)
+        form.add_row(_('General options'), options_box, True)
+        form.add_row(_('Experimental options'), experimental_box, True)
         form.add_row(_('Transaction Cache Size'), tx_cache_layout)
-
-        vbox = QVBoxLayout()
-        vbox.addWidget(form)
-        vbox.addStretch(1)
-        tab.setLayout(vbox)
-
-    def account_widgets(self, account: AbstractAccount, tab: QWidget) -> None:
-        label = QLabel(_("The settings below only affect the account '{}'")
-                       .format(account.display_name()))
-
-        script_type_combo = QComboBox()
-
-        def update_script_types():
-            default_script_type = account.get_default_script_type()
-            combo_items = [ v.name for v in account.get_valid_script_types() ]
-
-            script_type_combo.clear()
-            script_type_combo.addItems(combo_items)
-            script_type_combo.setCurrentIndex(script_type_combo.findText(default_script_type.name))
-
-        def on_script_type_change(index):
-            script_type_name = script_type_combo.currentText()
-            new_script_type = getattr(ScriptType, script_type_name)
-            current_script_type = account.get_default_script_type()
-            if current_script_type == new_script_type:
-                return
-            account.set_default_script_type(new_script_type)
-            self._main_window.update_receive_address_widget()
-
-        if account.is_watching_only():
-            script_type_combo.setEnabled(False)
-        else:
-            script_type_combo.currentIndexChanged.connect(on_script_type_change)
-
-        update_script_types()
-
-        form = FormSectionWidget(minimum_label_width=120)
-        form.add_title(_("Account: {}").format(account.display_name()))
-        form.add_row(_("Default script type"), script_type_combo)
 
         vbox = QVBoxLayout()
         vbox.addWidget(form)
@@ -513,6 +510,31 @@ class PreferencesDialog(QDialog):
         form = FormSectionWidget(minimum_label_width=120)
         form.add_row(nz_label, tx_cache_layout)
         # form.add_row(_('Message size limit'), tx_cache_layout)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(form)
+        vbox.addStretch(1)
+        tab.setLayout(vbox)
+
+    def ui_widgets(self, tab: QWidget) -> None:
+        modal_cb = QCheckBox(_('Disable MacOS sheets.'))
+        modal_cb.setToolTip(_("The Qt5 framework used for the user interface has bugs on MacOS\n"
+            "One of these is that in some rare occasions a blank drop down box may be left in\n"
+            "place and there is no way for ElectrumSV to know about it or to remove it. If you\n"
+            "set this option ElectrumSV will try and avoid using the drop down sheets, preventing\n"
+            "you from experiencing these problems."))
+        modal_cb.setChecked(app_state.config.get('ui_disable_modal_dialogs', False))
+        def on_unconf(state):
+            app_state.config.set_key('ui_disable_modal_dialogs', state != Qt.Unchecked)
+        modal_cb.stateChanged.connect(on_unconf)
+
+        options_box = QGroupBox()
+        options_vbox = QVBoxLayout()
+        options_box.setLayout(options_vbox)
+        options_vbox.addWidget(modal_cb)
+
+        form = FormSectionWidget()
+        form.add_row(_("Options"), options_box, stretch_field=True)
 
         vbox = QVBoxLayout()
         vbox.addWidget(form)

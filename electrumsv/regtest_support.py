@@ -1,10 +1,14 @@
 import json
 import logging
 import os
-from typing import List
+import time
+from typing import List, Optional
 
 import requests
-from bitcoinx import Headers, MissingHeader, CheckPoint, bits_to_work, P2PKH_Address
+from bitcoinx import Headers, MissingHeader, CheckPoint, bits_to_work, P2PKH_Address, \
+    hash_to_hex_str
+from urllib3.exceptions import NewConnectionError
+
 from electrumsv.bitcoin import COINBASE_MATURITY
 
 from electrumsv.networks import Net, BLOCK_HEIGHT_OUT_OF_RANGE_ERROR
@@ -39,30 +43,61 @@ def delete_headers_file(path_to_headers):
 
 
 def setup_regtest(app_state) -> HeadersRegTestMod:
-    regtest_import_privkey_to_node()
-    delete_headers_file(app_state.headers_filename())
-    Net._net.CHECKPOINT, Net._net.VERIFICATION_BLOCK_MERKLE_ROOT = calculate_regtest_checkpoint(
-        Net.MIN_CHECKPOINT_HEIGHT)
-    logger.info("using regtest network - miner funds go to: '%s' (not part of this wallet)",
-                Net.REGTEST_P2PKH_ADDRESS)
-    logger.info("top-up via 'regtest_topup_account' method")
+    while True:
+        try:
+            regtest_import_privkey_to_node()
+            delete_headers_file(app_state.headers_filename())
+            Net._net.CHECKPOINT, Net._net.VERIFICATION_BLOCK_MERKLE_ROOT = \
+                calculate_regtest_checkpoint(Net.MIN_CHECKPOINT_HEIGHT)
+            logger.info("using regtest network - miner funds go to: '%s' (not part of this wallet)",
+                        Net.REGTEST_P2PKH_ADDRESS)
+            break
+        except (NewConnectionError, requests.exceptions.ConnectionError) as e:
+            sleep_time = 5.0
+            logger.error(f"node is offline, retrying in {sleep_time} seconds...")
+            time.sleep(sleep_time)
+        except Exception:
+            break
+
     return HeadersRegTestMod.from_file(Net.COIN, app_state.headers_filename(), Net.CHECKPOINT)
 
 
-def regtest_topup_account(receive_address: P2PKH_Address, max_amount: int=25) -> str:
+def node_rpc_call(method_name: str, *args):
+    result = None
+    try:
+        if not args:
+            params = []
+        else:
+            params = [*args]
+        payload = json.dumps({"jsonrpc": "2.0", "method": f"{method_name}", "params": params,
+            "id": 0})
+        result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
+        result.raise_for_status()
+        return result
+    except requests.exceptions.HTTPError as e:
+        if result is not None:
+            logger.error(result.json()['error']['message'])
+        raise e
+
+
+def regtest_topup_account(receive_address: P2PKH_Address, amount: int=25) -> Optional[str]:
     matured_balance = regtest_get_mined_balance()
-    # Sweep up to 25 coins to wallet receive address
-    amount = min(max_amount, matured_balance)
-    if not amount > 0:
-        logger.error("Insufficient funds in regtest slush fund to topup wallet. Mine "
-            "more blocks")
+    while matured_balance < amount:
+        nblocks = 1
+        if matured_balance == 0:
+            nblocks = 200
+        result = node_rpc_call("generatetoaddress", nblocks, Net.REGTEST_P2PKH_ADDRESS)
+        if result.status_code == 200:
+            logger.debug(f"generated {nblocks}: {result.json()['result']}")
+        matured_balance = regtest_get_mined_balance()
 
     # Note: for bare multi-sig support may need to craft rawtxs manually via bitcoind's
     #  'signrawtransaction' jsonrpc method - AustEcon
     payload = json.dumps({"jsonrpc": "2.0", "method": "sendtoaddress",
                           "params": [receive_address.to_string(), amount], "id": 0})
     result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
-    result.raise_for_status()
+    if result.status_code != 200:
+        raise requests.exceptions.HTTPError(result.text)
     txid = result.json()['result']
     logger.info("topped up wallet with %s coins to receive address='%s'. txid=%s", amount,
         receive_address.to_string(), txid)
@@ -135,7 +170,8 @@ def calculate_regtest_checkpoint(height):
 
         checkpoint = CheckPoint(raw_header=checkpoint_raw_header,
             height=Net.MIN_CHECKPOINT_HEIGHT, prev_work=prev_work)
-        verification_block_merkle_root = checkpoint_raw_header[36:68]
+        verification_block_merkle_root = None if Net.MIN_CHECKPOINT_HEIGHT < 150 \
+            else hash_to_hex_str(checkpoint_raw_header[36:68])
         return checkpoint, verification_block_merkle_root
 
     except requests.HTTPError as e:

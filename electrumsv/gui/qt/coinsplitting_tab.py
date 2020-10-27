@@ -4,21 +4,21 @@ import weakref
 
 from PyQt5.QtCore import Qt, pyqtSignal, QUrl
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QProgressDialog
-)
+from PyQt5.QtWidgets import QFrame, QGridLayout, QLabel, QHBoxLayout, QVBoxLayout, \
+    QProgressDialog, QSizePolicy, QWidget
 from bitcoinx import TxOutput
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import ADDRESSABLE_SCRIPT_TYPES, RECEIVING_SUBPATH
+from electrumsv.constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType
+from electrumsv.exceptions import NotEnoughFunds
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import Transaction
+from electrumsv.transaction import Transaction, XTxOutput
 from electrumsv.wallet import AbstractAccount
 
 from .main_window import ElectrumWindow
-from . import util
+from .util import EnterButton, HelpDialogButton
 
 logger = logs.get_logger("coinsplitting")
 
@@ -54,7 +54,11 @@ class CoinSplittingTab(QWidget):
     unsplittable_unit_label = None
     waiting_dialog = None
     new_transaction_cv = None
-    split_button = None
+
+    _direct_splitting_enabled = False
+    _direct_splitting = False
+    _faucet_splitting_enabled = False
+    _faucet_splitting = False
 
     def __init__(self, main_window: ElectrumWindow) -> None:
         super().__init__(main_window)
@@ -70,11 +74,74 @@ class CoinSplittingTab(QWidget):
         self._account_id = new_account_id
         self._account = new_account
 
+        script_type = new_account.get_default_script_type()
+
+        # Hardware wallets will not sign OP_FALSE OP_RETURN.
+        self._direct_splitting_enabled = self._account.is_deterministic() and \
+            new_account.can_spend() and \
+            not new_account.is_hardware_wallet()
+        # The faucet requires an address to send to. There are only P2PKH addresses.
+        self._faucet_splitting_enabled = self._account.is_deterministic() and \
+          script_type == ScriptType.P2PKH
         self.update_layout()
 
-    def _on_split_button_clicked(self):
-        self.split_button.setText(_("Splitting") +"...")
-        self.split_button.setEnabled(False)
+    def _on_direct_split(self) -> None:
+        assert self._direct_splitting_enabled, "direct splitting not enabled"
+        assert not self._faucet_splitting, "already faucet splitting"
+
+        self._direct_splitting = True
+        self._direct_button.setText(_("Splitting") +"...")
+        self._direct_button.setEnabled(False)
+
+        unused_key = self._account.get_fresh_keys(CHANGE_SUBPATH, 1)[0]
+        script = self._account.get_script_for_id(unused_key.keyinstance_id)
+        coins = self._account.get_utxos(exclude_frozen=True, mature=True)
+        outputs = [ XTxOutput(all, script) ]
+        outputs.extend(self._account.create_extra_outputs(coins, outputs, force=True))
+        try:
+            tx = self._account.make_unsigned_transaction(coins, outputs, self._main_window.config)
+        except NotEnoughFunds:
+            self._cleanup_tx_final()
+            self._main_window.show_message(_("Insufficient funds"))
+            return
+
+        if self._account.type() == AccountType.MULTISIG:
+            self._cleanup_tx_final()
+            self._main_window.show_transaction(self._account, tx, f"{TX_DESC_PREFIX} (multisig)")
+            return
+
+        amount = tx.output_value()
+        fee = tx.get_fee()
+        fields = [
+            (_("Amount to be sent"), QLabel(app_state.format_amount_and_units(amount))),
+            (_("Mining fee"), QLabel(app_state.format_amount_and_units(fee))),
+        ]
+        msg = "\n".join([
+            "",
+            _("Enter your password to proceed"),
+        ])
+        password = self._main_window.password_dialog(msg, fields=fields)
+
+        def sign_done(success: bool) -> None:
+            if success:
+                if not tx.is_complete():
+                    dialog = self._main_window.show_transaction(self._account, tx)
+                    dialog.exec()
+                else:
+                    extra_text = _("Your split coins")
+                    self._main_window.broadcast_transaction(self._account, tx,
+                        f"{TX_DESC_PREFIX}: {extra_text}",
+                        success_text=_("Your coins have now been split."))
+            self._cleanup_tx_final()
+        self._main_window.sign_tx_with_password(tx, sign_done, password)
+
+    def _on_faucet_split(self) -> None:
+        assert self._faucet_splitting_enabled, "faucet splitting not enabled"
+        assert not self._faucet_splitting, "already direct splitting"
+
+        self._faucet_splitting = True
+        self._faucet_button.setText(_("Splitting") +"...")
+        self._faucet_button.setEnabled(False)
 
         # At this point we know we should get a key that is addressable.
         unused_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
@@ -83,7 +150,7 @@ class CoinSplittingTab(QWidget):
         self.split_stage = STAGE_PREPARING
         self.new_transaction_cv = threading.Condition()
 
-        self._main_window._wallet.register_callback(self._on_wallet_event, ['new_transaction'])
+        self._main_window._wallet.register_callback(self._on_wallet_event, ['transaction_added'])
         self.waiting_dialog = SplitWaitingDialog(self._main_window.reference(), self,
             self._split_prepare_task, on_done=self._on_split_prepare_done,
             on_cancel=self._on_split_abort)
@@ -148,7 +215,7 @@ class CoinSplittingTab(QWidget):
         # Verify that our dust receiving address is in the available UTXOs, if it isn't, the
         # process has failed in some unexpected way.
         for coin in coins:
-            if coin['address'] == self.receiving_script_template:
+            if coin.script_pubkey == self.receiving_script_template.to_script():
                 break
         else:
             self._main_window.show_error(_("Error accessing dust coins for correct splitting."))
@@ -174,7 +241,7 @@ class CoinSplittingTab(QWidget):
         msg.append(_("Enter your password to proceed"))
         password = self._main_window.password_dialog('\n'.join(msg))
 
-        def sign_done(success):
+        def sign_done(success) -> None:
             if success:
                 if not tx.is_complete():
                     dialog = self._main_window.show_transaction(self._account, tx)
@@ -200,18 +267,28 @@ class CoinSplittingTab(QWidget):
         self.faucet_status_code = None
         self.split_stage = STAGE_INACTIVE
 
-    def _cleanup_tx_final(self):
+    def _cleanup_tx_final(self) -> None:
         logger.debug("final cleanup performed")
-        self.split_button.setText(_("Split"))
-        self.split_button.setEnabled(True)
+        if self._direct_splitting:
+            self._direct_button.setText(_("Direct Split"))
+            self._direct_button.setEnabled(True)
+            self._direct_splitting = False
+        if self._faucet_splitting:
+            self._faucet_button.setText(_("Faucet Split"))
+            self._faucet_button.setEnabled(True)
+            self._faucet_splitting = False
 
-    def _on_wallet_event(self, event, *args):
-        if event == 'new_transaction':
+    def _on_wallet_event(self, event, *args) -> None:
+        if event == 'transaction_added':
             if self.receiving_script_template is None:
                 return
 
+            if self._account_id not in args[2]:
+                return
+
             our_script = self.receiving_script_template.to_script_bytes()
-            tx: Transaction = args[0]
+            # args = (tx_hash, tx, involved_account_ids, external)
+            tx: Transaction = args[1]
             for tx_output in tx.outputs:
                 if tx_output.script_pubkey == our_script:
                     extra_text = _("Dust from BSV faucet")
@@ -221,148 +298,125 @@ class CoinSplittingTab(QWidget):
                         self.new_transaction_cv.notify()
                     break
 
+    def update_layout(self) -> None:
+        if self._account is None:
+            vbox = self._create_disabled_layout(_("No active account."))
+            self._replace_layout(vbox)
+            return
 
-    def update_balances(self):
-        wallet = self._main_window._wallet
+        intro_text = _("If this account contains coins that may be linked on both the Bitcoin SV "
+            "blockchain and the Bitcoin Cash blockchain, then the approaches listed below "
+            "can be used to unlink (also known as coin-splitting) them. If no approaches are "
+            "enabled or you want to take control of the process, refer to the help offered "
+            "below.")
 
-        self.unfrozen_balance = self._account.get_balance(exclude_frozen_coins=True)
-        self.frozen_balance = self._account.get_frozen_balance()
+        direct_text = _("The recommended approach. This approach "
+            "will combine the coins in this account into a Bitcoin SV only transaction and send "
+            "them back to this account.")
+        if not self._direct_splitting_enabled:
+            direct_text += "<br/><br/>"
+            direct_text += "<i>"+ _("Incompatible with this account type.") +"</i>"
 
-        unfrozen_confirmed, unfrozen_unconfirmed, _unfrozen_unmature = self.unfrozen_balance
-        _frozen_confirmed, _frozen_unconfirmed, _frozen_unmature = self.frozen_balance
+        faucet_text = _("The fallback approach. This approach requests a very small amount "
+            "of known Bitcoin SV coins and combines it with the coins in this account and sends "
+            "them back to this account.")
+        if not self._faucet_splitting_enabled:
+            faucet_text += "<br/><br/>"
+            faucet_text += "<i>"+ _("Incompatible with this account type.") +"</i>"
 
-        splittable_amount = unfrozen_confirmed + unfrozen_unconfirmed
-        # unsplittable_amount = unfrozen_unmature + frozen_confirmed + frozen_unconfirmed
-        # + frozen_unmature
+        self._intro_label = QLabel()
+        self._intro_label.setWordWrap(True)
+        self._intro_label.setMaximumWidth(600)
+        self._intro_label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.MinimumExpanding)
+        self._intro_label.setText(intro_text)
+        self._intro_label.setMinimumHeight(self._intro_label.sizeHint().height() + 8)
 
-        splittable_amount_text = app_state.format_amount(splittable_amount)
-        unit_text = app_state.base_unit()
+        self._direct_label = QLabel(direct_text)
+        self._direct_label.setMaximumWidth(300)
+        self._direct_label.setMinimumWidth(300)
+        self._direct_label.setWordWrap(True)
 
-        text = [
-            "<p>",
-            _("As of the November 2018 hard-fork, Bitcoin Cash split into Bitcoin ABC "
-              "and Bitcoin SV."),
-            " ",
-            _("This tab allows you to easily split the available coins in this account "
-              "(approximately {} {}) on the Bitcoin SV chain.".format(
-                  splittable_amount_text, unit_text)),
-            " ",
-            _("This will involve the following steps if you choose to proceed:"),
-            "</p>",
-            "<ol>",
-            "<li>",
-            _("Your browser will open to a faucet that can provide you with a small amount of SV "
-            "coin. Once you have operated the faucet, and obtained it, ElectrumSV will "
-            "detect it."),
-            "</li>",
-            "<li>",
-            _("A transaction will be constructed including your entire spendable balance "
-              "combined with the new known SV coin from the faucet, to be sent back into "
-              "this account."),
-            "</li>",
-        ]
-        text.extend([
-            "<li>",
-            _("As this account is password protected, you will be prompted to "
-                "enter your password to sign the transaction."),
-            "</li>",
-        ])
-        text.extend([
-            "<li>",
-            _("The transaction will then be broadcast, and immediately added to your "
-              "account history so you can see it confirmed. It will be labeled as splitting "
-              "related, so you can easily identify it."),
-            "</li>",
-            "<li>",
-            _("You can then open Electron Cash and move your ABC coins to a different address, "
-              "in order to finalise the split."),
-            "</li>",
-            "</ol>",
-            "<p>",
-            _("<b>This will only split the coins currently available in this account.</b> "
-              "While any further coins you send to your account are included in the overall "
-              "balance, if they were unsplit before sending, they remain unsplit on arrival. "
-              "It it your responsibility to ensure you know if you are sending unsplit coins "
-              "and what the repercussions are. If in doubt, click split and be sure."),
-            "</p>",
-        ])
+        self._faucet_label = QLabel(faucet_text)
+        self._faucet_label.setMaximumWidth(300)
+        self._faucet_label.setMinimumWidth(300)
+        self._faucet_label.setWordWrap(True)
 
-        self.intro_label.setText("".join(text))
+        self._faucet_button = EnterButton(_("Faucet Split"), self._on_faucet_split)
+        self._faucet_button.setEnabled(self._faucet_splitting_enabled)
 
-    def update_layout(self):
-        disabled_text = None
-        if self._account_id is None:
-            disabled_text = _("No active account.")
+        self._direct_button = EnterButton(_("Direct Split"), self._on_direct_split)
+        self._direct_button.setEnabled(self._direct_splitting_enabled)
 
-        if disabled_text is None:
-            script_type = self._account.get_default_script_type()
-            if self._account.is_deterministic() and script_type in ADDRESSABLE_SCRIPT_TYPES:
-                grid = QGridLayout()
-                grid.setColumnStretch(0, 1)
-                grid.setColumnStretch(4, 1)
+        vbox = QVBoxLayout()
+        vbox.addStretch(1)
+        vbox.addWidget(self._intro_label, 0, Qt.AlignCenter)
+        vbox.addStretch(1)
 
-                self.intro_label = QLabel("")
-                self.intro_label.setTextFormat(Qt.RichText)
-                self.intro_label.setMinimumWidth(600)
-                self.intro_label.setWordWrap(True)
+        grid = QGridLayout()
+        grid.setColumnStretch(0, 1)
+        grid.setColumnMinimumWidth(1, 100)
+        grid.setColumnStretch(3, 1)
+        row_index = 0
 
-                self.split_button = QPushButton(_("Split"))
-                self.split_button.setMaximumWidth(120)
-                self.split_button.clicked.connect(self._on_split_button_clicked)
+        line = QFrame()
+        line.setStyleSheet("QFrame { border: 1px solid #E3E2E2; }")
+        line.setFrameShape(QFrame.HLine)
+        line.setFixedHeight(1)
 
-                help_content = "".join([
-                    "<ol>",
-                    "<li>",
-                    _("Frozen coins will not be included in any split you make. You can use the "
-                    "Coins tab to freeze or unfreeze selected coins, and by doing so only split "
-                    "chosen amounts of your coins at a time.  The View menu can be used to toggle "
-                    "tabs."),
-                    "</li>",
-                    "<li>",
-                    _("In order to prevent abuse, the faucet will limit how often you can obtain "
-                    "dust to split with. But that's okay, you can wait and split more coins. "
-                    "Or, if you are not concerned with your coins being linked, you can split "
-                    "dust from your already split coins, and use that to split further subsets."),
-                    "</li>",
-                    "</ol>",
-                ])
+        grid.addWidget(line, row_index, 1, 1, 2)
+        row_index += 1
 
-                button_row = QHBoxLayout()
-                button_row.addWidget(self.split_button)
-                button_row.addWidget(util.HelpButton(help_content, textFormat=Qt.RichText,
-                                                    title="Additional Information"))
+        grid.addWidget(self._direct_button, row_index, 1, 1, 1, Qt.AlignLeft)
+        grid.addWidget(self._direct_label, row_index, 2, 1, 1, Qt.AlignCenter)
+        row_index += 1
 
-                grid.addWidget(self.intro_label, 0, 1, 1, 3)
-                # grid.addWidget(balance_widget, 2, 1, 1, 3, Qt.AlignHCenter)
-                grid.addLayout(button_row, 2, 1, 1, 3, Qt.AlignHCenter)
+        line = QFrame()
+        line.setStyleSheet("QFrame { border: 1px solid #E3E2E2; }")
+        line.setFrameShape(QFrame.HLine)
+        line.setFixedHeight(1)
 
-                vbox = QVBoxLayout()
-                vbox.addStretch(1)
-                vbox.addLayout(grid)
-                vbox.addStretch(1)
+        grid.addWidget(line, row_index, 1, 1, 2)
+        row_index += 1
 
-                self.update_balances()
-            else:
-                disabled_text = _("This is not the type of account that generates new addresses, "+
-                        "and therefore it cannot be used for <br/>coin-splitting. Create a new "+
-                        "standard account in ElectrumSV and send your coins there, then<br/>split "+
-                        "them.")
+        grid.addWidget(self._faucet_button, row_index, 1, 1, 1, Qt.AlignLeft)
+        grid.addWidget(self._faucet_label, row_index, 2, 1, 1, Qt.AlignCenter)
+        row_index += 1
 
-        if disabled_text is not None:
-            label = QLabel(disabled_text)
+        line = QFrame()
+        line.setStyleSheet("QFrame { border: 1px solid #E3E2E2; }")
+        line.setFrameShape(QFrame.HLine)
+        line.setFixedHeight(1)
 
-            hbox = QHBoxLayout()
-            hbox.addWidget(label, 0, Qt.AlignHCenter | Qt.AlignVCenter)
+        grid.addWidget(line, row_index, 1, 1, 2)
+        row_index += 1
 
-            vbox = QVBoxLayout()
-            vbox.addLayout(hbox)
+        self._help_button = HelpDialogButton(self, "misc", "coinsplitting-tab", _("Help"))
 
+        vbox.addLayout(grid)
+        vbox.addStretch(1)
+        vbox.addWidget(self._help_button, 0, Qt.AlignCenter)
+        vbox.addStretch(1)
+
+        self._replace_layout(vbox)
+
+    def _create_disabled_layout(self, disabled_text: str) -> QVBoxLayout:
+        label = QLabel(disabled_text)
+
+        hbox = QHBoxLayout()
+        hbox.addWidget(label, 0, Qt.AlignHCenter | Qt.AlignVCenter)
+
+        vbox = QVBoxLayout()
+        vbox.addLayout(hbox)
+
+        return vbox
+
+    def _replace_layout(self, layout: QVBoxLayout) -> None:
         # If the tab is already laid out, it's current layout needs to be
         # reparented/removed before we can replace it.
         existingLayout = self.layout()
         if existingLayout:
             QWidget().setLayout(existingLayout)
-        self.setLayout(vbox)
+        self.setLayout(layout)
 
 
 class SplitWaitingDialog(QProgressDialog):

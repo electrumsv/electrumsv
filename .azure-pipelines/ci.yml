@@ -12,6 +12,8 @@ trigger:
       - master
       - releases/*
       - features/*
+  paths:
+    exclude: [ 'README.md', 'docs' ]
 
 pr:
   - master
@@ -60,6 +62,8 @@ jobs:
   - ValidateCommit
   steps:
   - script: |
+      COMMIT_REVISION=$(Build.SourceVersion)
+      COMMIT_KEY=${COMMIT_REVISION:0:8}
       MOST_RECENT_TAG=`git describe --tags --abbrev=0 --match sv-*`
       RX_VERSION='^[0-9]+\.[0-9]+\.[0-9]+[ab]{1}[0-9]+$'
       if [[ ${MOST_RECENT_TAG:3} =~ $RX_VERSION ]]
@@ -80,6 +84,7 @@ jobs:
         echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
         echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
       fi
+
       TAGGED_COMMIT=`git rev-list -n 1 ${MOST_RECENT_TAG}`
       # Only set this flag if the commit is on the tag.
       if [ "$(Build.SourceVersion)" == "$TAGGED_COMMIT" ]
@@ -89,6 +94,7 @@ jobs:
           echo "##vso[build.addbuildtag]TAGGED_BUILD"
         fi
 
+        RELEASE_KEY=${MOST_RECENT_TAG:3}
         echo "vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]yes"
         echo "##vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]yes"
         echo "vso[task.setvariable variable=COMMIT_TAG;isOutput=true]${MOST_RECENT_TAG}"
@@ -99,11 +105,16 @@ jobs:
           echo "##vso[build.addbuildtag]UNTAGGED_BUILD"
         fi
 
+        RELEASE_KEY=${MOST_RECENT_TAG:3}-${COMMIT_KEY}
         echo "vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]no"
         echo "##vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]no"
         echo "vso[task.setvariable variable=COMMIT_TAG;isOutput=true]"
         echo "##vso[task.setvariable variable=COMMIT_TAG;isOutput=true]"
       fi
+      echo "vso[task.setvariable variable=RELEASE_KEY;isOutput=true]${RELEASE_KEY}"
+      echo "##vso[task.setvariable variable=RELEASE_KEY;isOutput=true]${RELEASE_KEY}"
+
+      echo "RELEASE_KEY = $RELEASE_KEY"
       echo "Commit description = $TAGGED_COMMIT"
       echo "Commit closest tag = $MOST_RECENT_TAG"
       echo "Commit source version = $(Build.SourceVersion)"
@@ -140,11 +151,11 @@ jobs:
       OverWrite: true
   - task: PublishPipelineArtifact@0
     inputs:
-      artifactName: 'build-files-intermediate-windows'
+      artifactName: 'build-windows'
       targetPath: $(Build.ArtifactStagingDirectory)
   variables:
     imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img@sha256:8274d555237fc569f032006eccb7d76c1e2e4c9d9ca420d98a00efb527cce46e'
-- job: BuildSourceArchives
+- job: BuildSourceArchive
   dependsOn:
   - Preparation
   pool:
@@ -170,7 +181,40 @@ jobs:
       OverWrite: true
   - task: PublishPipelineArtifact@0
     inputs:
-      artifactName: 'build-files-intermediate-source'
+      artifactName: 'build-source'
+      targetPath: $(Build.ArtifactStagingDirectory)
+- job: BuildDocumentationArchive
+  dependsOn:
+  - Preparation
+  pool:
+    vmImage: 'ubuntu-16.04'
+  variables:
+    RELEASE_KEY: $[dependencies.Preparation.outputs['exportVars.RELEASE_KEY']]
+  steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: 3.7
+      addToPath: true
+      architecture: x64
+  - script: |
+      pushd docs/standalone
+      python3 -m pip install -r requirements.txt
+      make html
+      popd
+    displayName: 'Build documentation archives'
+    enabled: true
+    continueOnError: false
+    failOnStderr: false
+  - task: ArchiveFiles@2
+    inputs:
+      rootFolderOrFile: 'docs/standalone/_build/html'
+      includeRootFolder: true
+      archiveType: 'zip'
+      archiveFile: '$(Build.ArtifactStagingDirectory)/ElectrumSV-$(RELEASE_KEY)-docs.zip'
+      replaceExistingArchive: true
+  - task: PublishPipelineArtifact@0
+    inputs:
+      artifactName: 'build-documentation'
       targetPath: $(Build.ArtifactStagingDirectory)
 - job: BuildMacOS10_14
   dependsOn:
@@ -184,9 +228,9 @@ jobs:
       addToPath: true
       architecture: x64
   - script: |
+      sudo pip3 install --upgrade pip setuptools wheel
       # Calin's QR reader requires SDK 10.14, which is not available in the default Xcode version.
       /bin/bash -c "sudo xcode-select -s /Applications/Xcode_10.3.app/Contents/Developer"
-      sudo pip3 install --upgrade pip setuptools wheel
       brew install gettext && brew link gettext --force
       ./contrib/osx/make_osx
     enabled: true
@@ -201,14 +245,14 @@ jobs:
       OverWrite: true
   - task: PublishPipelineArtifact@0
     inputs:
-      artifactName: 'build-files-intermediate-macos'
+      artifactName: 'build-macos'
       targetPath: $(Build.ArtifactStagingDirectory)
 - job: ProcessArtifacts
   pool:
     vmImage: 'ubuntu-16.04'
   dependsOn:
     - BuildLinuxBasedWindows
-    - BuildSourceArchives
+    - BuildSourceArchive
     - BuildMacOS10_14
     - Preparation
   variables:
@@ -223,15 +267,15 @@ jobs:
       echo "Commit TAG_UNSTABLE = $(TAG_UNSTABLE)"
   - task: DownloadPipelineArtifact@0
     inputs:
-      artifactName: 'build-files-intermediate-windows'
+      artifactName: 'build-windows'
       targetPath: $(Build.ArtifactStagingDirectory)
   - task: DownloadPipelineArtifact@0
     inputs:
-      artifactName: 'build-files-intermediate-source'
+      artifactName: 'build-source'
       targetPath: $(Build.ArtifactStagingDirectory)
   - task: DownloadPipelineArtifact@0
     inputs:
-      artifactName: 'build-files-intermediate-macos'
+      artifactName: 'build-macos'
       targetPath: $(Build.ArtifactStagingDirectory)
   - script: |
       cd $(Build.ArtifactStagingDirectory)
@@ -242,7 +286,7 @@ jobs:
     displayName: 'Collect build artifacts'
   - task: PublishPipelineArtifact@0
     inputs:
-      artifactName: 'build-files'
+      artifactName: 'all-build-files'
       targetPath: $(Build.ArtifactStagingDirectory)
 - template: jobs-run-python-tests.yml
   parameters:

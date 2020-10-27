@@ -4,24 +4,24 @@ import json
 import os
 import threading
 import time
-from typing import List, Optional
+from typing import List, Optional, Sequence
 import weakref
 
 from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, pyqtSignal, QSize, Qt
-# from PyQt5.QtGui import QModel
-from PyQt5.QtWidgets import (QDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
-    QSplitter, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+from PyQt5.QtGui import QPainter, QPaintEvent
+from PyQt5.QtWidgets import (QLabel, QListWidget, QListWidgetItem, QMenu, QSplitter, QTabWidget,
+    QTextEdit, QVBoxLayout)
 
 from electrumsv.bitcoin import address_from_string, script_template_to_string
-from electrumsv.constants import AccountType, DerivationType
+from electrumsv.constants import AccountType, DerivationType, KeystoreType
 from electrumsv.i18n import _
+from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount, MultisigAccount, Wallet
 
-from .cosigners_view import CosignerState, CosignerList
+from .account_dialog import AccountDialog
 from .main_window import ElectrumWindow
-from .qrtextedit import ShowQRTextEdit
-from .util import (Buttons, CancelButton, CloseButton, filename_field,
-    FormSectionWidget, line_dialog, MessageBox, OkButton, protected, read_QIcon, WindowModalDialog)
+from .util import (Buttons, CancelButton, filename_field, line_dialog, MessageBox, OkButton,
+    protected, read_QIcon, WindowModalDialog)
 
 
 class AccountsView(QSplitter):
@@ -31,6 +31,7 @@ class AccountsView(QSplitter):
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet) -> None:
         super().__init__(main_window)
 
+        self._logger = logs.get_logger("accounts-view")
         self._main_window = weakref.proxy(main_window)
         self._wallet = wallet
 
@@ -45,6 +46,15 @@ class AccountsView(QSplitter):
                 if flags == QItemSelectionModel.Deselect:
                     return QItemSelectionModel.NoUpdate
                 return flags
+
+            def paintEvent(self, event: QPaintEvent) -> None:
+                super().paintEvent(event)
+
+                if self.count() > 0:
+                    return
+
+                painter = QPainter(self.viewport())
+                painter.drawText(self.rect(), Qt.AlignCenter, _("Add your first account.."))
 
         self._account_ids: List[int] = []
         self._tab_widget = QTabWidget()
@@ -61,10 +71,17 @@ class AccountsView(QSplitter):
         self.addWidget(self._selection_list)
         self.addWidget(self._tab_widget)
 
-        self.setStretchFactor(1, 2)
+        self.setChildrenCollapsible(False)
 
     def on_wallet_loaded(self) -> None:
         self._initialize_account_list()
+
+    def init_geometry(self, sizes: Optional[Sequence[int]]=None) -> None:
+        self._logger.debug("init_geometry.1 %r", sizes)
+        if sizes is None:
+            sizes = [ 200, self._main_window.size().width() - 200 ]
+            self._logger.debug("init_geometry.2 %r", sizes)
+        self.setSizes(sizes)
 
     def _on_account_created(self, new_account_id: int, new_account: AbstractAccount) -> None:
         # It should be made the active wallet account and followed up with the change event.
@@ -157,43 +174,60 @@ class AccountsView(QSplitter):
         account = self._wallet.get_account(account_id)
 
         menu = QMenu()
+        self.add_menu_items(menu, account, self._main_window)
+        menu.exec_(self._selection_list.viewport().mapToGlobal(position))
+
+    def add_menu_items(self, menu: QMenu, account: AbstractAccount, main_window: ElectrumWindow) \
+            -> None:
+        menu.clear()
+
+        # This expects a reference to the main window, not the weakref.
+        account_id = account.get_id()
+
         menu.addAction(_("&Information"),
             partial(self._show_account_information, account_id))
         seed_menu = menu.addAction(_("View &Secured Data"),
-            partial(self._view_secured_data, main_window=self._main_window, account_id=account_id))
-        seed_menu.setEnabled(
-            not account.is_watching_only() and not isinstance(account, MultisigAccount) \
-            and not account.is_hardware_wallet() \
-            and account.type() != AccountType.IMPORTED_PRIVATE_KEY)
+            partial(self._view_secured_data, main_window=main_window, account_id=account_id))
+        seed_menu.setEnabled(self._can_view_secured_data(account))
         menu.addAction(_("&Rename"),
             partial(self._rename_account, account_id))
         menu.addSeparator()
 
         private_keys_menu = menu.addMenu(_("&Private keys"))
         import_menu = private_keys_menu.addAction(_("&Import"), partial(self._import_privkey,
-                main_window=self._main_window, account_id=account_id))
+                main_window=main_window, account_id=account_id))
         import_menu.setEnabled(account.can_import_privkey())
         export_menu = private_keys_menu.addAction(_("&Export"), partial(self._export_privkeys,
-            main_window=self._main_window, account_id=account_id))
+            main_window=main_window, account_id=account_id))
         export_menu.setEnabled(account.can_export())
         if account.can_import_address():
             menu.addAction(_("Import addresses"), partial(self._import_addresses, account_id))
 
         menu.addSeparator()
 
+        hist_menu = menu.addMenu(_("&History"))
+        hist_menu.addAction("Export", main_window.export_history_dialog)
+
         labels_menu = menu.addMenu(_("&Labels"))
         action = labels_menu.addAction(_("&Import"),
-            partial(self._main_window.do_import_labels, account_id))
-        labels_menu.addAction(_("&Export"), partial(self._main_window.do_export_labels, account_id))
+            partial(self._on_menu_import_labels, account_id))
+        labels_menu.addAction(_("&Export"), partial(self._on_menu_export_labels, account_id))
 
         invoices_menu = menu.addMenu(_("Invoices"))
         invoices_menu.addAction(_("Import"), partial(self._on_menu_import_invoices, account_id))
 
         payments_menu = menu.addMenu(_("Payments"))
-        payments_menu.addAction(_("Export destinations"),
+        ed_action = payments_menu.addAction(_("Export destinations"),
             partial(self._generate_destinations, account_id))
+        keystore = account.get_keystore()
+        ed_action.setEnabled(keystore is not None and
+            keystore.type() != KeystoreType.IMPORTED_PRIVATE_KEY)
 
-        menu.exec_(self._selection_list.viewport().mapToGlobal(position))
+    def _on_menu_import_labels(self, account_id: int) -> None:
+        self._main_window.do_import_labels(account_id)
+
+    def _on_menu_export_labels(self, account_id: int) -> None:
+        self._main_window.do_export_labels(account_id)
 
     def _on_menu_import_invoices(self, account_id: int) -> None:
         send_view = self._main_window.get_send_view(account_id)
@@ -211,7 +245,7 @@ class AccountsView(QSplitter):
         item.setText(new_account_name)
 
     def _show_account_information(self, account_id: int) -> None:
-        dialog = AccountInformationDialog(self._main_window, self._wallet, account_id, self)
+        dialog = AccountDialog(self._main_window, self._wallet, account_id, self)
         dialog.exec_()
 
     def _generate_destinations(self, account_id) -> None:
@@ -224,7 +258,8 @@ class AccountsView(QSplitter):
 
     def _can_view_secured_data(self, account: AbstractAccount) -> None:
         return not account.is_watching_only() and not isinstance(account, MultisigAccount) \
-            and not account.is_hardware_wallet()
+            and not account.is_hardware_wallet() \
+            and account.type() != AccountType.IMPORTED_PRIVATE_KEY
 
     @protected
     def _view_secured_data(self, main_window: ElectrumWindow, account_id: int=-1,
@@ -239,7 +274,7 @@ class AccountsView(QSplitter):
             d.exec_()
         else:
             MessageBox.show_message(_("This type of account has no secured data. You are advised "
-                "to manually back up this wallet."), self._main_window)
+                "to manually back up this wallet."), self._main_window.reference())
 
     @protected
     def _import_privkey(self, main_window: ElectrumWindow, account_id: int=-1,
@@ -292,7 +327,7 @@ class AccountsView(QSplitter):
 
         defaultname = 'electrumsv-private-keys.csv'
         select_msg = _('Select file to export your private keys to')
-        hbox, filename_e, csv_button = filename_field(self._main_window.config, defaultname,
+        hbox, filename_e, csv_button = filename_field(main_window.config, defaultname,
             select_msg)
         vbox.addLayout(hbox)
 
@@ -358,10 +393,10 @@ class AccountsView(QSplitter):
             ])
             MessageBox.show_error(txt, title=_("Unable to create csv"))
         except Exception as e:
-            MessageBox.show_message(str(e), self._main_window)
+            MessageBox.show_message(str(e), main_window.reference())
             return
 
-        MessageBox.show_message(_('Private keys exported'), self._main_window)
+        MessageBox.show_message(_('Private keys exported'), main_window.reference())
 
     def _do_export_privkeys(self, fileName: str, pklist, is_csv):
         with open(fileName, "w+") as f:
@@ -372,73 +407,4 @@ class AccountsView(QSplitter):
                     transaction.writerow([key_text, pk])
             else:
                 f.write(json.dumps(pklist, indent = 4))
-
-
-
-class AccountInformationDialog(QDialog):
-    _list: Optional[CosignerList] = None
-
-    def __init__(self, main_window: ElectrumWindow, wallet: Wallet, account_id: int,
-            parent: QWidget) -> None:
-        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
-
-        self._main_window = weakref.proxy(main_window)
-        self._wallet = wallet
-
-        self._account = account = self._wallet.get_account(account_id)
-        keystore = account.get_keystore()
-
-        self.setWindowTitle(_("Account Information"))
-        self.setMinimumSize(600, 400)
-
-        vbox = QVBoxLayout()
-
-        self._form = form = FormSectionWidget(minimum_label_width=160)
-        form.add_title("Account properties")
-        name_widget = QLineEdit()
-        name_widget.setText(account.display_name())
-        name_widget.setReadOnly(True)
-        form.add_row(_("Name"), name_widget, True)
-        form.add_row(_("Type"), QLabel(account.type().value))
-        script_type_widget = QLineEdit()
-        script_type_widget.setText(account.get_default_script_type().name)
-        script_type_widget.setReadOnly(True)
-        form.add_row(_("Script type"), script_type_widget, True)
-        vbox.addWidget(form)
-
-        add_stretch = True
-        if keystore is not None:
-            if keystore.derivation_type == DerivationType.ELECTRUM_MULTISIG:
-                multisig_form = FormSectionWidget(minimum_label_width=160)
-                multisig_form.add_title("Multi-signature properties")
-                multisig_form.add_row(_("Number of cosigners"), QLabel(str(keystore.n)))
-                multisig_form.add_row(_("Number of signatures required"), QLabel(str(keystore.m)))
-                vbox.addWidget(multisig_form)
-
-                self._list = list = CosignerList(self._main_window, create=False)
-                list.setMinimumHeight(350)
-                for i, keystore in enumerate(account.get_keystores()):
-                    state = CosignerState(i, keystore)
-                    list.add_state(state)
-                vbox.addWidget(list, 1)
-                add_stretch = False
-            elif account.is_deterministic():
-                form.add_row(_("Keystore"), QLabel(keystore.type().value))
-
-                mpk_list = account.get_master_public_keys()
-                mpk_text = ShowQRTextEdit()
-                mpk_text.setFixedHeight(65)
-                mpk_text.addCopyButton(self._main_window.app)
-                mpk_text.setText(mpk_list[0])
-                mpk_text.repaint()   # macOS hack for Electrum #4777
-                form.add_row(QLabel(_("Master public key")), mpk_text, True)
-        if add_stretch:
-            vbox.addStretch(1)
-
-        buttons = Buttons(CloseButton(self))
-        self._buttons = buttons
-
-        vbox.addLayout(self._buttons)
-        self.setLayout(vbox)
 

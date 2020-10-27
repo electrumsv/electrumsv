@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="{% block html_lang %}{{ DEFAULT_LANG }}{% endblock html_lang %}" class="h-100">
+  <head>
+    {% block head %}
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
+    <meta name="description" content="The ElectrumSV Wallet"/>
+    <meta name="author" content="The ElectrumSV Developers"/>
+    <title>{% block title %}{{ SITENAME }}{%endblock%}</title>
+    <link rel="stylesheet" href="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/css/fontawesome-v5.6.3.min.css">
+    <link rel="stylesheet" href="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/css/bootstrap.min.css">
+    <link rel="stylesheet" href="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/css/local.css?4">
+    <link rel="icon" href="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/img/favicon.ico">
+    {% if FEED_ALL_ATOM %}
+    <link href="{{ FEED_DOMAIN }}/{% if FEED_ALL_ATOM_URL %}{{ FEED_ALL_ATOM_URL }}{% else %}{{ FEED_ALL_ATOM }}{% endif %}" type="application/atom+xml" rel="alternate" title="{{ SITENAME }} Atom Feed" />
+    {% endif %}
+    {% if FEED_ALL_RSS %}
+    <link href="{{ FEED_DOMAIN }}/{% if FEED_ALL_RSS_URL %}{{ FEED_ALL_RSS_URL }}{% else %}{{ FEED_ALL_RSS }}{% endif %}" type="application/rss+xml" rel="alternate" title="{{ SITENAME }} RSS Feed" />
+    {% endif %}
+    {% block extra_head %}{% endblock extra_head %}
+    {% endblock head %}
+  </head>
+  <body class="d-flex flex-column h-100">
+	<main role="main" class="flex-shrink-0 mb-3">
+		<div class="bg-dark">
+			<div class="container">
+				<nav class="navbar navbar-dark navbar-expand-lg">
+					<a class="navbar-brand" href="{{ SITEURL }}/index.html"><img class="d-md-block" src="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/img/title_lg.png" height="40px" title="ElectrumSV"/></a>
+					<button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+						<span class="navbar-toggler-icon"></span>
+					</button>
+					<div class="collapse navbar-collapse" id="navbarSupportedContent">
+						<ul class="navbar-nav ml-auto">
+							<li class='nav-item {% if output_file == "index.html" %}active{% endif %}'>
+								<a class="nav-link esv-btn-navbar mr-2" href="{{ SITEURL }}/index.html">About{% if output_file == "index.html" %}<span class="sr-only"> (current)</span>{% endif %}</a>
+							</li>
+							<li class='nav-item {% if output_file == "download.html" %}active{% endif %}'>
+								<a class="nav-link esv-btn-navbar mr-2" href="{{ SITEURL }}/download.html">Download{% if output_file == "download.html" %}<span class="sr-only"> (current)</span>{% endif %}</a>
+							</li>
+							<li class='nav-item'>
+								<a class="nav-link esv-btn-navbar mr-2" href="https://electrumsv.readthedocs.io/" target="_blank">Documentation</a>
+							</li>
+							<li class='nav-item'>
+								<a class="nav-link esv-btn-navbar mr-2" href="https://github.com/electrumsv/electrumsv/issues/new/choose" target="_blank">Support</a>
+							</li>
+							<li class="nav-item">
+								<a class="nav-link" href="https://github.com/electrumsv"><i class="fab fa-github-square" title="Github"></i><span class="d-lg-none"> Github</span></a>
+							</li>
+							<li class="nav-item">
+								<a class="nav-link" href="https://twitter.com/electrumsv"><i class="fab fa-twitter-square" title="Twitter"></i><span class="d-lg-none"> Twitter</span></a>
+							</li>
+						</ul>
+					</div>
+				</nav>
+			</div>
+        </div>
+
+        <div class="container content-container pt-2">
+            {% block content %}
+            {% endblock %}
+        </div>
+    </main>
+
+	<footer class="footer site-footer bg-dark py-2 mt-auto">
+      <div class="container">
+		<p class="text-center">
+			<a class="py-2" href="https://bitcoinassociation.net/" target="_blank" ><img class="bcomm" src="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/img/BAI_logo_white.svg"  onerror="this.onerror=null; this.src='{{ SITEURL }}/{{ THEME_STATIC_DIR }}/img/BAI_logo_white_nobg.png'" title="Bitcoin Association"/></a>
+		</p>
+		<p class="text-center text-white-50 mt-4 mb-2">
+			This web site is copyright 2018-2020 Roger Taylor
+		</p>
+      </div>
+    </footer>
+
+    <script src="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/js/jquery-3.3.1.min.js"></script>
+    <script src="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/js/bootstrap.min.js"></script>
+    <script src="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/js/local.js"></script>
+  </body>
+</html>

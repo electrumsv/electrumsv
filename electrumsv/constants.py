@@ -1,6 +1,12 @@
 # ...
-from enum import Enum, IntEnum, IntFlag
+from enum import Enum, IntEnum
+from enum import IntFlag as _IntFlag
 from typing import Optional
+
+# https://bugs.python.org/issue41907
+class IntFlag(_IntFlag):
+    def __format__(self, spec):
+        return format(self.value, spec)
 
 ## Wallet
 
@@ -22,7 +28,7 @@ class StorageKind(IntEnum):
 
 DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
-MIGRATION_CURRENT = 24
+MIGRATION_CURRENT = 26
 
 class TxFlags(IntFlag):
     Unset = 0
@@ -41,10 +47,13 @@ class TxFlags(IntFlag):
     # A transaction received from another party which is unknown to the p2p network.
     StateReceived = 1 << 22
     # A transaction you have not sent or given to anyone else, but are with-holding and are
-    # considering the inputs it uses frozen. """
+    # considering the inputs it uses allocated. """
     StateSigned = 1 << 23
-    # A transaction you have given to someone else, and are considering the inputs it uses frozen.
+    # A transaction you have given to someone else, and are considering the inputs it uses
+    # allocated.
     StateDispatched = 1 << 24
+
+    PaysInvoice = 1 << 30
 
     METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition)
     STATE_MASK = (StateSettled | StateDispatched | StateReceived | StateCleared | StateSigned)
@@ -67,7 +76,7 @@ class TxFlags(IntFlag):
             return f"TxFlags({entry.name})"
 
         # Handle bit flags.
-        mask = int(TxFlags.StateDispatched)
+        mask = int(TxFlags.PaysInvoice)
         names = []
         while mask > 0:
             value = bitmask & mask
@@ -169,12 +178,16 @@ class TransactionOutputFlag(IntFlag):
 class PaymentFlag(IntFlag):
     NONE =     0
     UNPAID  =  1 << 0
-    EXPIRED =  1 << 1
+    EXPIRED =  1 << 1     # deprecated
     UNKNOWN =  1 << 2     # sent but not propagated
     PAID    =  1 << 3     # send and propagated
-    ARCHIVED = 1 << 4
+    ARCHIVED = 1 << 4     # unused until we have ui support for filtering
 
+    STATE_MASK = (UNPAID | EXPIRED | PAID | ARCHIVED)
     UNPAID_MASK = ~(PAID | ARCHIVED)
+
+    CLEARED_STATE_MASK = ~STATE_MASK
+    ALL_SET_MASK = ~NONE
 
 
 # Transaction limits
@@ -223,3 +236,17 @@ class WalletEventFlag(IntFlag):
     UNREAD = 1 << 0
     # Set to indicate that it is an event the user sees in their notifications.
     FEATURED = 1 << 1
+
+
+class WalletSettings:
+    USE_CHANGE = 'use_change'
+    MULTIPLE_CHANGE = 'multiple_change'
+    MULTIPLE_ACCOUNTS = 'multiple_accounts'
+    ADD_SV_OUTPUT = 'sv_output'
+
+
+class NetworkEventNames:
+    HISTORICAL_EXCHANGE_RATES = "on_history"
+    EXCHANGE_RATE_QUOTES = "on_quotes"
+
+PREFIX_ASM_SCRIPT = "asm:"

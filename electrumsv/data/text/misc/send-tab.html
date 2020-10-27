@@ -1,0 +1,90 @@
+<h2>The Send tab</h2>
+<p style="text-align: center"><i>Provisional in-wallet help</i></p>
+<p>
+The Send tab is used to construct outgoing payments. The wallet owner can opt to leave choosing
+what coins to spend to the wallet to select, or can manually select the ones to use from the
+Coins tab using the <cite>Spend</cite> menu option.
+</p>
+<h4>From (optionally present)</h4>
+<p>
+The <cite>From</cite> field is only visible if the wallet owner has selected coins from the
+<cite>Coins</cite> tab, and used the <cite>Spend</cite> menu option to manually designate that
+the payment should only use those coins. If the user has not manually designated the spending of
+specific coins, then the wallet will choose from all the coins as needed to cover the
+amount being spent.
+</p>
+<h4>Pay to (required)</h4>
+<p>
+The wallet owner is required to provide a destination for the payment. There are several different
+types of destination that can be provided:
+<ul>
+    <li><b>An address</b>. This is implicitly used in what is known as a "pay to public key hash"
+        (P2PKH) output, as an address is a public key hash. In the past "pay to script hash" (P2SH)
+        outputs were also supported, using a different form of address, but these are now disabled
+        on the Bitcoin SV blockchain. It must have the standard base58 encoding.
+    </li>
+    <li><b>A
+        <a href="https://github.com/moneybutton/bips/blob/master/bip-0276.mediawiki" target="_new">
+            BIP276-encoded</a> script</b> (external link). This provides a way for payments to be
+        made to destinations that do not have addresses. ElectrumSV uses these for multi-signature
+        accounts, as both bare multi-signature and accumulator multi-signature accounts are not
+        addressable. It must have the prefix "bitcoin-script:".
+    </li>
+    <li>
+        <b>Script assembly.</b> There is no exact standard specification for consistent
+        representation of bitcoin script in assembly language form. While for the most part
+        assembly is used at a user's own risk, it can be used with some care. In order for the
+        wallet to recognize script assembly, it must have the prefix "asm:".
+    </li>
+    <li><b>Multiple destinations</b>. The <cite>Tools</cite> menu option <cite>Pay to many</cite>
+        can be used to toggle the <cite>Pay to</cite> field so that it accepts more than one
+        destination.
+    </li>
+</ul>
+</p>
+<h4>Description (optional)</h4>
+<p>
+If provided by the wallet owner, the description is recorded against the transaction and is
+shown on the <cite>History</cite> tab (public transaction) or <cite>Transactions</cite> tab
+(non-public transaction), depending on whether the transaction is public yet.
+</p>
+<h4>Optional setting: Bitcoin SV blockchain compatibility only</h4>
+<p>
+One way to ensure that all the coins in the current account are not also linked to the
+Bitcoin Cash blockchain, is to spend them in a way that is only compatible with the Bitcoin SV
+blockchain.
+</p>
+<p>
+The simplest way to do this is to:
+<ol>
+    <li>Check this setting.</li>
+    <li>Copy an address from the <cite>Receiving</cite> tab.</li>
+    <li>Paste the address into the <cite>Pay to</cite> field.</li>
+    <li>Click the <cite>Max</cite> button to spend all the coins in the account.</li>
+    <li>Send the transaction.</li>
+</ol>
+All the coins in the account should now be Bitcoin SV only, and can be spent without worrying about
+any previously linked Bitcoin Cash coins. This will not necessarily apply to new coins that arrive
+in the account, which depending on the source may still be linked. One downside to this approach
+is that it has no privacy, and links all the coins in your wallet to some degree. A wallet owner
+who is paranoid about their privacy, can individually split their coins.
+</p>
+<p>
+This setting is not available for hardware wallets. The existing hardware wallets that are
+supported by ElectrumSV are made in such a way that they can only sign a very limited range of
+transaction types. They are unable to sign correctly formed transaction data, like those used by
+ElectrumSV to make transactions only compatible with the Bitcoin SV blockchain.
+</p>
+<p>
+If this setting is visible and enabled, any payments made will be made with a transaction that
+includes an extra data carrier output. This data carrier output is constructed with <cite>OP_FALSE
+OP_RETURN</cite> and by including it, the transaction will be considered "non-standard" and
+will be rejected by any Bitcoin Cash nodes it is sent to. It is possible that a malicious Bitcoin
+Cash miner could choose to bypass the rules that would otherwise cause this transaction to be
+rejected, but it is very unlikely that they will choose to and it would have negative repercussions
+for the Bitcoin Cash blockchain.
+</p>
+<p>
+This setting can be made visible or hidden from the <cite>Wallet</cite> tab of the
+<cite>Preferences</cite> window, where a setting for that purpose is present.
+</p>

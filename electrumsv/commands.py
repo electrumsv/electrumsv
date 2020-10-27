@@ -28,6 +28,7 @@ from decimal import Decimal
 from functools import wraps
 import json
 import sys
+from typing import Dict
 
 from .bitcoin import COIN
 from .i18n import _
@@ -35,7 +36,7 @@ from .logs import logs
 
 logger = logs.get_logger("commands")
 
-known_commands = {}
+known_commands: Dict[str, 'Command'] = {}
 
 
 def satoshis(amount):
@@ -44,13 +45,15 @@ def satoshis(amount):
 
 
 class Command:
-    def __init__(self, func, s):
+    def __init__(self, func, s: str) -> None:
         self.name = func.__name__
+        self.description = func.__doc__
+        self.help = self.description.split('.')[0] if self.description else None
+
         self.requires_network = 'n' in s
         self.requires_wallet = 'w' in s
         self.requires_password = 'p' in s
-        self.description = func.__doc__
-        self.help = self.description.split('.')[0] if self.description else None
+
         varnames = func.__code__.co_varnames[1:func.__code__.co_argcount]
         self.defaults = func.__defaults__
         if self.defaults:
@@ -66,17 +69,16 @@ class Command:
         return "<Command {}>".format(self)
 
     def __str__(self):
-        return "{}({})".format(
-            self.name,
-            ", ".join(self.params + ["{}={!r}".format(name, self.defaults[i])
-                                     for i, name in enumerate(self.options)]))
+        return "{}({})".format(self.name, ", ".join(self.params +
+            [ "{}={!r}".format(name, self.defaults[i]) for i, name in enumerate(self.options) ]))
 
 
-def command(s):
+def command(s: str):
     def decorator(func):
         global known_commands
         name = func.__name__
         known_commands[name] = Command(func, s)
+
         @wraps(func)
         def func_wrapper(*args, **kwargs):
             c = known_commands[func.__name__]
@@ -95,16 +97,15 @@ def command(s):
 
 
 class Commands:
-
     def __init__(self, config, wallet, network, callback = None):
         self.config = config
         self._wallet = wallet
         self._network = network
         self._callback = callback
 
-    def _run(self, method, *args, password_getter=None, **kwargs):
+    def _run(self, method_name: str, *args, password_getter=None, **kwargs):
         # this wrapper is called from the python console
-        cmd = known_commands[method]
+        cmd = known_commands[method_name]
         if cmd.requires_password:
             password = password_getter()
             if password is None:
@@ -112,7 +113,7 @@ class Commands:
         else:
             password = None
 
-        f = getattr(self, method)
+        f = getattr(self, method_name)
         if cmd.requires_password:
             kwargs.update(password=password)
         result = f(*args, **kwargs)
@@ -122,12 +123,12 @@ class Commands:
         return result
 
     @command('')
-    def commands(self):
+    def commands(self) -> str:
         """List of commands"""
-        return ' '.join(sorted(known_commands.keys()))
+        return ' '.join(sorted(k for k in known_commands.keys()))
 
     @command('')
-    def version(self):
+    def version(self) -> str:
         """Return the version of electrum-sv."""
         from .version import PACKAGE_VERSION
         return PACKAGE_VERSION
@@ -136,6 +137,18 @@ class Commands:
     def help(self):
         # for the python console
         return sorted(known_commands.keys())
+
+    @command('')
+    def create_wallet(self):
+        """Create a new wallet"""
+        raise Exception('Not a JSON-RPC command')
+
+    @command('')
+    def create_account(self):
+        """Create a new account"""
+        raise Exception('Not a JSON-RPC command')
+
+
 
 param_descriptions = {
     'privkey': 'Private key. Type \'?\' to get a prompt.',
@@ -224,7 +237,7 @@ config_variables = {
     }
 }
 
-def set_default_subparser(self, name, args=None):
+def set_default_subparser(self, name, args=None) -> None:
     """see http://stackoverflow.com/questions/5176691"""
     subparser_found = False
     for arg in sys.argv[1:]:
@@ -285,6 +298,7 @@ def add_network_options(parser):
     parser.add_argument("-p", "--proxy", dest="proxy", default=None,
                         help="set proxy [type:]host[:port], where type is socks4 or socks5")
 
+
 def add_global_options(parser):
     group = parser.add_argument_group('global options')
     group.add_argument("-v", "--verbose", action="store", dest="verbose",
@@ -297,6 +311,8 @@ def add_global_options(parser):
     group.add_argument("-w", "--wallet", dest="wallet_path", help="wallet path")
     group.add_argument("-wp", "--walletpassword", dest="wallet_password", default=None,
                        help="Supply wallet password")
+
+    # Select Network
     group.add_argument("--testnet", action="store_true", dest="testnet", default=False,
                        help="Use Testnet")
     group.add_argument("--scaling-testnet", action="store_true", dest="scalingtestnet",
@@ -305,10 +321,25 @@ def add_global_options(parser):
                        default=False, help="Use Regression Testnet")
     group.add_argument("--file-logging", action="store_true", dest="file_logging", default=False,
                        help="Redirect logging to log file")
+
+    # REST API
     group.add_argument("--restapi", action="store_true", dest="restapi",
                        help="Run the built-in restapi")
+    group.add_argument("--restapi-port", dest="restapi_port",
+                       help="Set restapi port")
+    group.add_argument("--restapi-username", dest="restapi_username",
+                       help="Set restapi username (Basic Auth)")
+    group.add_argument("--restapi-password", dest="restapi_password",
+                       help="Set restapi password (Basic Auth)")
+
+    # Wallet Creation
+    group.add_argument("--no-password-check", action="store_true", dest="nopasswordcheck",
+                       default=False, help="Skip password confirmation step for wallet creation")
+
 
 def get_parser():
+    global known_commands
+
     # create main parser
     parser = argparse.ArgumentParser(
         epilog="Run 'electrum-sv help <command>' to see the help for a command")
@@ -338,34 +369,40 @@ def get_parser():
     #parser_daemon.set_defaults(func=run_daemon)
     add_network_options(parser_daemon)
     add_global_options(parser_daemon)
-    # commands
-    for cmdname in sorted(known_commands.keys()):
-        cmd = known_commands[cmdname]
-        p = subparsers.add_parser(cmdname, help=cmd.help, description=cmd.description)
-        add_global_options(p)
-        if cmdname == 'restore':
-            p.add_argument("-o", "--offline", action="store_true", dest="offline", default=False,
-                           help="Run offline")
-        for optname, default in zip(cmd.options, cmd.defaults):
-            a, help = command_options[optname]
-            b = '--' + optname
-            action = "store_true" if type(default) is bool else 'store'
-            args = (a, b) if a else (b,)
-            if action == 'store':
-                _type = arg_types.get(optname, str)
-                p.add_argument(*args, dest=optname, action=action, default=default,
-                               help=help, type=_type)
-            else:
-                p.add_argument(*args, dest=optname, action=action, default=default, help=help)
 
-        for param in cmd.params:
+    # commands
+    for command_name in sorted(known_commands.keys()):
+        command = known_commands[command_name]
+        command_option_name = command_name
+        subparser = subparsers.add_parser(command_option_name, help=command.help,
+            description=command.description)
+        add_global_options(subparser)
+
+        if command_option_name == 'restore':
+            subparser.add_argument("-o", "--offline", action="store_true", dest="offline",
+                default=False, help="Run offline")
+
+        for option_name, option_default_value in zip(command.options, command.defaults):
+            short_option, help = command_options[option_name]
+            long_option = '--' + option_name
+            action = "store_true" if type(option_default_value) is bool else 'store'
+            args = (short_option, long_option) if short_option else (long_option,)
+            if action == 'store':
+                _type = arg_types.get(option_name, str)
+                subparser.add_argument(*args, dest=option_name, action=action,
+                    default=option_default_value, help=help, type=_type)
+            else:
+                subparser.add_argument(*args, dest=option_name, action=action,
+                    default=option_default_value, help=help)
+
+        for param in command.params:
             h = param_descriptions.get(param, '')
             _type = arg_types.get(param, str)
-            p.add_argument(param, help=h, type=_type)
+            subparser.add_argument(param, help=h, type=_type)
 
-        cvh = config_variables.get(cmdname)
+        cvh = config_variables.get(command_option_name)
         if cvh:
-            group = p.add_argument_group('configuration variables',
+            group = subparser.add_argument_group('configuration variables',
                                          '(set with setconfig/getconfig)')
             for k, v in cvh.items():
                 group.add_argument(k, nargs='?', help=v)

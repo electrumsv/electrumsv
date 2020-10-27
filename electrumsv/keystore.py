@@ -55,6 +55,9 @@ class KeyStore:
     def __init__(self, row: Optional[MasterKeyRow]=None) -> None:
         self.set_row(row)
 
+    def clean_up(self) -> None:
+        pass
+
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         self._row = row
 
@@ -678,6 +681,11 @@ class Hardware_KeyStore(Xpub, KeyStore):
         self.handler = None
         self.plugin = None
         self.libraries_available = False
+
+    def clean_up(self) -> None:
+        app_state.device_manager.unpair_xpub(self.xpub)
+        if self.handler is not None:
+            self.handler.clean_up()
 
     def type(self) -> KeystoreType:
         return KeystoreType.HARDWARE

@@ -1,6 +1,5 @@
 from decimal import Decimal
 from concurrent.futures import CancelledError
-import csv
 import datetime
 import decimal
 import inspect
@@ -9,11 +8,13 @@ import os
 import requests
 import sys
 import time
+from typing import Dict
 
 from aiorpcx import ignore_after, run_in_thread
 
 from .app_state import app_state
 from .bitcoin import COIN
+from .constants import NetworkEventNames
 from .i18n import _
 from .logs import logs
 from .util import resource_path
@@ -42,26 +43,22 @@ class ExchangeBase(object):
         response = requests.request('GET', url, headers={'User-Agent' : 'ElectrumSV'}, timeout=10)
         return response.json()
 
-    def get_csv(self, site, get_string):
-        url = ''.join(['https://', site, get_string])
-        response = requests.request('GET', url, headers={'User-Agent' : 'ElectrumSV'})
-        reader = csv.DictReader(response.content.decode().split('\n'))
-        return list(reader)
-
-    def name(self):
+    def name(self) -> str:
         return self.__class__.__name__
 
-    async def update(self, ccy):
+    async def update(self, ccy: str) -> None:
         try:
             logger.debug(f'getting fx quotes for {ccy}')
             self.quotes = await run_in_thread(self.get_rates, ccy)
             logger.debug('received fx quotes')
         except CancelledError:
             pass
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"unable to establish connection: {e}")
         except Exception:
-            logger.exception(f'exception updating FX quotes')
+            logger.exception('exception updating FX quotes')
 
-    def get_rates(self, ccy):
+    def get_rates(self, ccy) -> Dict:
         raise NotImplementedError()
 
     def read_historical_rates(self, ccy, cache_dir):
@@ -89,6 +86,8 @@ class ExchangeBase(object):
     async def get_historical_rates(self, ccy, cache_dir):
         try:
             self.history[ccy] = await run_in_thread(self._get_historical_rates, ccy, cache_dir)
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"unable to establish connection {e}")
         except Exception:
             logger.exception('exception getting historical FX rates')
 
@@ -319,11 +318,11 @@ class FxTask:
                 self.fetch_history = False
                 await self.exchange.get_historical_rates(self.ccy, self.cache_dir)
                 if self.network:
-                    self.network.trigger_callback('on_history')
+                    self.network.trigger_callback(NetworkEventNames.HISTORICAL_EXCHANGE_RATES)
 
             await self.exchange.update(self.ccy)
             if self.network:
-                self.network.trigger_callback('on_quotes')
+                self.network.trigger_callback(NetworkEventNames.EXCHANGE_RATE_QUOTES)
 
     def is_enabled(self):
         return bool(self.config.get('use_exchange_rate'))

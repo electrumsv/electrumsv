@@ -44,7 +44,7 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import DATABASE_EXT, StorageKind
+from electrumsv.constants import DATABASE_EXT, IntFlag, StorageKind
 from electrumsv.exceptions import DatabaseMigrationError, IncompatibleWalletError
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -53,8 +53,8 @@ from electrumsv.util import get_wallet_name_from_path, read_resource_text
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import Wallet
 
-from .util import (can_show_in_file_explorer, create_new_wallet, icon_path, MessageBox,
-    show_in_file_explorer)
+from .util import (AspectRatioPixmapLabel, can_show_in_file_explorer, create_new_wallet, icon_path,
+    MessageBox, show_in_file_explorer)
 from .wizard_common import BaseWizard, HelpContext
 
 
@@ -90,7 +90,7 @@ class WalletPage(enum.IntEnum):
     CHOOSE_WALLET = 3
     MIGRATE_OLDER_WALLET = 4
 
-class PasswordState(enum.IntFlag):
+class PasswordState(IntFlag):
     UNKNOWN = 0
     NONE = 1
     PASSWORDED = 2
@@ -131,7 +131,11 @@ def create_file_state(wallet_path: str) -> Optional[FileState]:
 
         if storage_info.kind == StorageKind.FILE:
             text_store = storage.get_text_store()
-            text_store.attempt_load_data()
+            try:
+                text_store.attempt_load_data()
+            except IOError:
+                # IOError: storage.py:load_data() raises when selected file cannot be parsed.
+                return None
             if storage.get("use_encryption"):
                 # If there is a password and the wallet is not encrypted, then the private data
                 # is encrypted.
@@ -270,13 +274,15 @@ class SplashScreenPage(QWizardPage):
 
         layout = QVBoxLayout()
         logo_layout = QHBoxLayout()
-        logo_label = QLabel()
-        logo_label.setPixmap(QPixmap(icon_path("title_logo.png"))
-            .scaledToWidth(500, Qt.SmoothTransformation))
+        logo_label = AspectRatioPixmapLabel(self)
         logo_layout.addStretch(1)
         logo_layout.addWidget(logo_label)
         logo_layout.addStretch(1)
         layout.addLayout(logo_layout)
+
+        logo_pixmap = QPixmap(icon_path("title_logo.png"))
+        logo_label.setPixmap(logo_pixmap)
+
         version_label = QLabel(f"<b><big>v{PACKAGE_VERSION}</big></b>")
         version_label.setAlignment(Qt.AlignHCenter)
         version_label.setTextFormat(Qt.RichText)
@@ -289,10 +295,11 @@ class SplashScreenPage(QWizardPage):
             "</p>"+
             "<p>"+
             _("Bitcoin SV is the only Bitcoin that follows "+
-            "the original whitepaper<br/> and values being stable and non-experimental.") +
+            "the original whitepaper and values being stable and non-experimental.") +
             "</p>"+
             "</big>")
-        release_label = QLabel(release_text)
+        self._release_label = release_label = QLabel(release_text)
+        release_label.setContentsMargins(50, 10, 50, 10)
         release_label.setAlignment(Qt.AlignHCenter)
         release_label.setWordWrap(True)
         layout.addWidget(release_label)
@@ -546,6 +553,8 @@ class ChooseWalletPage(QWizardPage):
         wallet_filepath, __ = QFileDialog.getOpenFileName(self, "Select your wallet file",
             initial_dirpath)
         if wallet_filepath:
+            # QFileDialog.getOpenFileName uses forward slashes for "easier pathing".. correct this.
+            wallet_filepath = os.path.normpath(wallet_filepath)
             self._attempt_open_wallet(wallet_filepath, change_page=True)
 
     def _event_click_open_selected_file(self) -> None:
@@ -565,12 +574,17 @@ class ChooseWalletPage(QWizardPage):
         # page switching.
         self._commit_pressed = True
 
-    def _event_selection_changed(self, selected: QItemSelection, deselected: QItemSelection) \
+    def _event_selection_changed(self, _selected: QItemSelection, _deselected: QItemSelection) \
             -> None:
         # Selecting an entry should change the page elements to be ready to either move to another
         # page, or whatever else is applicable.
-        if len(selected.indexes()):
-            wallet_path = self._recent_wallet_paths[selected.indexes()[0].row()]
+        # NOTE: We request the selected indexes rather than using those from the events, as there
+        # have been occasional error reports where the selection did not match the wallet paths.
+        # https://github.com/electrumsv/electrumsv/issues/404
+        selected_indexes = self._wallet_table.selectedIndexes()
+        selected_row = selected_indexes[0].row() if len(selected_indexes) else -1
+        if selected_row != -1:
+            wallet_path = self._recent_wallet_paths[selected_row]
             entry = self._recent_wallet_entries[wallet_path]
             if entry.requires_upgrade:
                 self._next_page_id = WalletPage.MIGRATE_OLDER_WALLET
