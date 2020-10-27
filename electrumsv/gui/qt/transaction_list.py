@@ -507,10 +507,10 @@ class TransactionView(QTableView):
         for tx_hash, flags in pending_state.items():
             if flags & EventFlags.TX_ADDED:
                 additions.append(tx_hash)
-            elif flags & EventFlags.TX_UPDATED:
-                updates.append(tx_hash)
             elif flags & EventFlags.TX_REMOVED:
                 removals.append(tx_hash)
+            elif flags & EventFlags.TX_UPDATED:
+                updates.append(tx_hash)
 
         # self._logger.debug("_on_update_check actions=%s adds=%d updates=%d removals=%d",
         #     pending_actions, len(additions), len(updates), len(removals))
