@@ -450,10 +450,6 @@ class TxDialog(QDialog, MessageBoxMixin):
                         break
             return None, -1
 
-        known_txos: Set[Tuple[bytes, int]] = set()
-        if self._account is not None:
-            known_txos = set(self._account._utxos) | set(self._account._stxos)
-
         def get_keyinstance_id(account: AbstractAccount, txo_key: TxoKeyType) -> Optional[int]:
             utxo = account._utxos.get(txo_key)
             if utxo is not None:

@@ -16,7 +16,8 @@ from bitcoinx import hash_to_hex_str
 from ..constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
     KeyInstanceFlag, PaymentFlag, WalletEventFlag, WalletEventType)
 from ..logs import logs
-from .sqlite_support import SQLITE_MAX_VARS, DatabaseContext, CompletionCallbackType
+from .sqlite_support import SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS, DatabaseContext, \
+    CompletionCallbackType
 from ..types import TxoKeyType
 
 
@@ -802,7 +803,9 @@ class TransactionOutputTable(BaseWalletStore):
     def read_txokeys(self, txo_keys: List[TxoKeyType]) -> List[TransactionOutputRow]:
         results: List[TransactionOutputRow] = []
 
-        batch_size = SQLITE_MAX_VARS // 2
+        # As we are dealing with expressions not a raw list of variables, we have to use the
+        # least of the max variables and expression tree depth constraints.
+        batch_size = min(SQLITE_MAX_VARS, SQLITE_EXPR_TREE_DEPTH) // 2
         condition_section = "tx_hash=? AND tx_index=?"
         while len(txo_keys):
             batch = txo_keys[:batch_size]
