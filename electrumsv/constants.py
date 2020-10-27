@@ -76,7 +76,7 @@ class TxFlags(IntFlag):
             return f"TxFlags({entry.name})"
 
         # Handle bit flags.
-        mask = int(TxFlags.StateDispatched)
+        mask = int(TxFlags.PaysInvoice)
         names = []
         while mask > 0:
             value = bitmask & mask
