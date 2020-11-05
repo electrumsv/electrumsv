@@ -13,7 +13,7 @@ import re
 import requests
 import struct
 import time
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from bitcoinx import PublicKey, compact_signature_to_der, bip32_key_from_string
 
@@ -512,7 +512,8 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             self.give_error(e)
         return sig
 
-    def sign_transaction(self, tx: Transaction, password: str) -> None:
+    def sign_transaction(self, tx: Transaction, password: str,
+            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
         if tx.is_complete():
             return
 
@@ -562,12 +563,13 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     def input_script(self, txin, estimate_size=False):
                         type_ = txin.type()
                         if type_ == ScriptType.P2PKH:
-                            return Transaction.get_preimage_script(txin)
+                            return Transaction.get_preimage_script_bytes(txin).hex()
                         if type_ == ScriptType.MULTISIG_P2SH:
                             # Multisig verification has partial support, but is
                             # disabled. This is the expected serialization though, so we
                             # leave it here until we activate it.
-                            return '00' + push_script(Transaction.get_preimage_script(txin))
+                            return '00' + \
+                                push_script(Transaction.get_preimage_script_bytes(txin).hex())
                         raise RuntimeError(f'unsupported type {type_}')
                 tx_dbb_serialized = CustomTXSerialization.from_hex(tx.serialize()).serialize()
             else:

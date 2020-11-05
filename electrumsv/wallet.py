@@ -53,7 +53,8 @@ from .constants import (AccountType, CHANGE_SUBPATH, DEFAULT_TXDATA_CACHE_SIZE_M
     WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
-from .exceptions import (ExcessiveFee, NotEnoughFunds, UserCancelled, UnknownTransactionException,
+from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsUnsetException,
+    PreviousTransactionsMissingException, UserCancelled, UnknownTransactionException,
     WalletLoadError)
 from .i18n import _
 from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
@@ -293,6 +294,9 @@ class AbstractAccount:
 
     def involves_hardware_wallet(self) -> bool:
         return any(isinstance(keystore, Hardware_KeyStore) for keystore in self.get_keystores())
+
+    def requires_input_transactions(self) -> bool:
+        return any(k.requires_input_transactions() for k in self.get_keystores())
 
     def get_keyinstance(self, key_id: int) -> KeyInstanceRow:
         return self._keyinstances[key_id]
@@ -1462,25 +1466,42 @@ class AbstractAccount:
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
         raise NotImplementedError
 
+    def check_input_transactions(self, tx: Transaction,
+            tx_context: Optional[TransactionContext]=None) -> Optional[Dict[bytes, Transaction]]:
+        if not self.requires_input_transactions():
+            return None
+
+        if tx_context is None or tx_context.prev_txs is None:
+            raise PreviousTransactionsUnsetException()
+        need_tx_hashes = set(txin.prev_hash for txin in tx.inputs)
+        have_tx_hashes = set(tx_context.prev_txs)
+        if need_tx_hashes != have_tx_hashes:
+            raise PreviousTransactionsMissingException(have_tx_hashes, need_tx_hashes)
+
+        return tx_context.prev_txs
+
     def sign_transaction(self, tx: Transaction, password: str,
             tx_context: Optional[TransactionContext]=None) -> None:
         if self.is_watching_only():
             return
+
+        # This is now required by hardware wallets in order for them to sign transactions.
+        # But it should be extended to bundle SPV proofs at a later time.
+        prev_txs = self.check_input_transactions(tx, tx_context)
 
         # Annotate the outputs to the account's own keys for hardware wallets.
         # - Digitalbitbox makes use of all available output annotations.
         # - Keepkey and Trezor use this to annotate one arbitrary change address.
         # - Ledger kind of ignores it.
         # Hardware wallets cannot send to internal outputs for multi-signature, only have P2SH!
-        if any([(isinstance(k, Hardware_KeyStore) and k.can_sign(tx))
-                for k in self.get_keystores()]):
+        if any([isinstance(k,Hardware_KeyStore) and k.can_sign(tx) for k in self.get_keystores()]):
             self._add_hw_info(tx)
 
         # sign
         for k in self.get_keystores():
             try:
                 if k.can_sign(tx):
-                    k.sign_transaction(tx, password)
+                    k.sign_transaction(tx, password, prev_txs)
             except UserCancelled:
                 continue
 

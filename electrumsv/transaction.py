@@ -74,6 +74,7 @@ def tx_output_to_display_text(tx_output: TxOutput) -> Tuple[str, ScriptTemplate]
 class TransactionContext:
     invoice_id: Optional[int] = attr.ib(default=None)
     description: Optional[str] = attr.ib(default=None)
+    prev_txs: Optional[Dict[bytes, 'Transaction']] = attr.ib(default=None)
 
 
 class XPublicKeyType(enum.IntEnum):
@@ -604,21 +605,21 @@ class Transaction(Tx):
                     break
 
     @classmethod
-    def get_preimage_script(self, txin) -> str:
+    def get_preimage_script_bytes(self, txin) -> bytes:
         _type = txin.type()
         if _type == ScriptType.P2PKH:
             x_pubkey = txin.x_pubkeys[0]
             script = x_pubkey.to_public_key().P2PKH_script()
-            return script.to_bytes().hex()
+            return script.to_bytes()
         elif _type == ScriptType.MULTISIG_P2SH or _type == ScriptType.MULTISIG_BARE:
-            return multisig_script(txin.x_pubkeys, txin.threshold).hex()
+            return multisig_script(txin.x_pubkeys, txin.threshold)
         elif _type == ScriptType.MULTISIG_ACCUMULATOR:
             return AccumulatorMultiSigOutput(
-                [ v.to_bytes() for v in txin.x_pubkeys ], txin.threshold).to_script_bytes().hex()
+                [ v.to_bytes() for v in txin.x_pubkeys ], txin.threshold).to_script_bytes()
         elif _type == ScriptType.P2PK:
             x_pubkey = txin.x_pubkeys[0]
             script = x_pubkey.to_public_key().P2PK_script()
-            return script.to_bytes().hex()
+            return script.to_bytes()
         else:
             raise RuntimeError('Unknown txin type', _type)
 
@@ -634,7 +635,7 @@ class Transaction(Tx):
 
     def preimage_hash(self, txin):
         input_index = self.inputs.index(txin)
-        script_code = bytes.fromhex(self.get_preimage_script(txin))
+        script_code = self.get_preimage_script_bytes(txin)
         sighash = SigHash(self.nHashType())
         # Original BTC algorithm: https://en.bitcoin.it/wiki/OP_CHECKSIG
         # Current algorithm: https://github.com/moneybutton/bips/blob/master/bip-0143.mediawiki

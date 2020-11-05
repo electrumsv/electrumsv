@@ -1,6 +1,6 @@
 import hashlib
 from struct import pack, unpack
-from typing import Any, cast, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx import (
     BIP32Derivation, BIP32PublicKey, PublicKey, pack_be_uint32, pack_list, pack_le_int64
@@ -39,6 +39,15 @@ except ImportError:
 logger = logs.get_logger("plugin.ledger")
 
 BITCOIN_CASH_SUPPORT = (1, 1, 8)
+
+
+class YInput(NamedTuple):
+    value: Optional[int]
+    script_sig: bytes
+    txin_xpub_idx: int
+    sequence: int
+
+
 
 class Ledger_Client():
     handler: 'Ledger_Handler'
@@ -235,9 +244,10 @@ class Ledger_KeyStore(Hardware_KeyStore):
     def get_client_electrum(self):
         return self.plugin.get_client(self)
 
-    def give_error(self, message, clear_client = False):
+    def give_error(self, message, clear_client = False) -> None:
         logger.error(message)
         if not self.signing:
+            assert self.handler is not None
             self.handler.show_error(message)
         else:
             self.signing = False
@@ -308,13 +318,14 @@ class Ledger_KeyStore(Hardware_KeyStore):
         return bytes([27 + 4 + (signature[0] & 0x01)]) + r + s
 
     @set_and_unset_signing
-    def sign_transaction(self, tx, password: str) -> None:
+    def sign_transaction(self, tx: Transaction, password: str,
+            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
         if tx.is_complete():
             return
 
         assert self.handler is not None
         client = self.get_client()
-        inputs = []
+        inputs: List[YInput] = []
         inputsPaths = []
         chipInputs = []
         redeemScripts = []
@@ -326,34 +337,37 @@ class Ledger_KeyStore(Hardware_KeyStore):
         pin = ""
         self.get_client() # prompt for the PIN before displaying the dialog if necessary
 
-        # Sanity check
-        is_p2sh = any(txin.type() == ScriptType.MULTISIG_P2SH for txin in tx.inputs)
-        if is_p2sh and not all(txin.type() == ScriptType.MULTISIG_P2SH for txin in tx.inputs):
-            self.give_error("P2SH / regular input mixed in same transaction not supported")
 
         # Fetch inputs of the transaction to sign
+        foundP2SHSpend = False
+        allSpendsAreP2SH = True
         for txin in tx.inputs:
+            foundP2SHSpend = foundP2SHSpend or txin.type() == ScriptType.MULTISIG_P2SH
+            allSpendsAreP2SH = allSpendsAreP2SH and txin.type() == ScriptType.MULTISIG_P2SH
+
             for i, x_pubkey in enumerate(txin.x_pubkeys):
                 if self.is_signature_candidate(x_pubkey):
-                    signingPos = i
-                    key_derivation = x_pubkey.bip32_path()
-                    inputPath = "%s/%d/%d" % (self.get_derivation()[2:], *key_derivation)
+                    txin_xpub_idx = i
+                    inputPath = "%s/%d/%d" % (self.get_derivation()[2:], *x_pubkey.bip32_path())
                     break
             else:
                 self.give_error("No matching x_key for sign_transaction") # should never happen
 
-            redeemScript = Transaction.get_preimage_script(txin)
-            inputs.append([txin.value, None, redeemScript,
-                           None, signingPos, txin.sequence])
+            inputs.append(YInput(txin.value, Transaction.get_preimage_script_bytes(txin),
+                txin_xpub_idx, txin.sequence))
             inputsPaths.append(inputPath)
+
+        # Sanity check
+        if foundP2SHSpend and not allSpendsAreP2SH:
+            self.give_error("P2SH / regular input mixed in same transaction not supported")
 
         # Concatenate all the tx outputs as binary
         txOutput = pack_list(tx.outputs, XTxOutput.to_bytes)
 
         # Recognize outputs - only one output and one change is authorized
-        if not is_p2sh:
+        if not foundP2SHSpend:
             keystore_fingerprint = self.get_fingerprint()
-            # TODO(rt12) BACKLOG this does nothing, it seems half-finished.
+            assert tx.output_info is not None
             for tx_output, output_metadatas in zip(tx.outputs, tx.output_info):
                 info = output_metadatas.get(keystore_fingerprint)
                 if (info is not None) and len(tx.outputs) != 1:
@@ -369,11 +383,11 @@ class Ledger_KeyStore(Hardware_KeyStore):
         try:
             for i, utxo in enumerate(inputs):
                 txin = tx.inputs[i]
-                sequence = int_to_hex(utxo[5], 4)
+                sequence = int_to_hex(utxo.sequence, 4)
                 prevout_bytes = txin.prevout_bytes()
-                value_bytes = prevout_bytes + pack_le_int64(utxo[0])
+                value_bytes = prevout_bytes + pack_le_int64(utxo.value)
                 chipInputs.append({'value' : value_bytes, 'witness' : True, 'sequence' : sequence})
-                redeemScripts.append(bytes.fromhex(utxo[2]))
+                redeemScripts.append(utxo.script_sig)
 
             # Sign all inputs
             inputIndex = 0
@@ -419,7 +433,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             self.handler.finished()
 
         for txin, input, signature in zip(tx.inputs, inputs, signatures):
-            txin.signatures[input[4]] = signature
+            txin.signatures[input.txin_xpub_idx] = signature
 
     @set_and_unset_signing
     def show_address(self, derivation_subpath: str) -> None:

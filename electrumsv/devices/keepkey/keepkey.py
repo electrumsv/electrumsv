@@ -23,7 +23,7 @@
 # SOFTWARE.
 
 import threading
-from typing import cast
+from typing import cast, Dict, Optional
 
 from bitcoinx import (
     BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, Address,
@@ -68,7 +68,8 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         msg_sig = client.sign_message(self.plugin.get_coin_name(client), address_n, message)
         return msg_sig.signature
 
-    def sign_transaction(self, tx, password: str) -> None:
+    def sign_transaction(self, tx: Transaction, password: str,
+            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
         if tx.is_complete():
             return
         # path of the xpubs that are involved

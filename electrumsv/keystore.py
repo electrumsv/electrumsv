@@ -133,7 +133,11 @@ class KeyStore:
         return any(self.is_signature_candidate(x_pubkey) for txin in tx.inputs
             for x_pubkey in txin.unused_x_pubkeys())
 
-    def sign_transaction(self, tx: Transaction, password: str) -> None:
+    def requires_input_transactions(self) -> bool:
+        return False
+
+    def sign_transaction(self, tx: Transaction, password: str,
+            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
         raise NotImplementedError
 
 
@@ -157,7 +161,8 @@ class Software_KeyStore(KeyStore):
     def check_password(self, password: Optional[str]) -> None:
         raise NotImplementedError
 
-    def sign_transaction(self, tx: Transaction, password: str) -> None:
+    def sign_transaction(self, tx: Transaction, password: str,
+            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
         if self.is_watching_only():
             return
         # Raise if password is not correct.
