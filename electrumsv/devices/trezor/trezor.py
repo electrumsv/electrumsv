@@ -76,6 +76,7 @@ class TrezorKeyStore(Hardware_KeyStore):
             prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
         if tx.is_complete():
             return
+
         assert prev_txs is not None, "This keystore requires all input transactions"
         # path of the xpubs that are involved
         xpub_path: Dict[str, str] = {}

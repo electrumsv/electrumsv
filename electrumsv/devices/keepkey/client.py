@@ -29,7 +29,7 @@ from bitcoinx import (
     pack_be_uint32,
 )
 
-from keepkeylib.client import proto, BaseClient, ProtocolMixin
+from keepkeylib.client import proto, BaseClient, ProtocolMixin, types
 
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
@@ -50,7 +50,6 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         self.device = plugin.device
         self.handler = handler
         self.tx_api = plugin
-        self.types = plugin.types
         self.msg = None
         self.creating_wallet = False
         self.used()
@@ -207,9 +206,8 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         # However, making the user acknowledge they cancelled
         # gets old very quickly, so we suppress those.  The NotInitialized
         # one is misnamed and indicates a passphrase request was cancelled.
-        if msg.code in (self.types.Failure_PinCancelled,
-                        self.types.Failure_ActionCancelled,
-                        self.types.Failure_NotInitialized):
+        if msg.code in (types.Failure_PinCancelled, types.Failure_ActionCancelled,
+                        types.Failure_NotInitialized):
             raise UserCancelled()
         raise RuntimeError(msg.message)
 

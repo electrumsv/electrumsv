@@ -663,7 +663,6 @@ class Hardware_KeyStore(Xpub, KeyStore):
 
     # Derived classes must set:
     #   - device
-    #   - DEVICE_IDS
     #   - wallet_type
     hw_type: str
     device: str
@@ -685,7 +684,6 @@ class Hardware_KeyStore(Xpub, KeyStore):
         self.label = data.get('label')
         self.handler = None
         self.plugin = None
-        self.libraries_available = False
 
     def clean_up(self) -> None:
         app_state.device_manager.unpair_xpub(self.xpub)
