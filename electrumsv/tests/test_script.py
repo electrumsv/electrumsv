@@ -95,10 +95,10 @@ def test_accumulator_multisig_scriptsig_NofM(masks, scripts_hex):
 
 @pytest.mark.parametrize("m,script_hex", [
     (2, '006b6376a914e91d89f4b52fe2a04d1d225e14dbe868d824a92e88ad6c8b6b686376a914229683d879479f3b'
-        '80c938045a68c1da1c02715f88ad6c8b6b68526ca2'),
+        '80c938045a68c1da1c02715f88ad6c8b6b686c52a2'),
     (3, '006b6376a914e91d89f4b52fe2a04d1d225e14dbe868d824a92e88ad6c8b6b686376a914229683d879479f3b'
         '80c938045a68c1da1c02715f88ad6c8b6b686376a914fa95306e6d18d4508f555bab2c22d124f4e009f588ad'
-        '6c8b6b68536ca2')
+        '6c8b6b686c53a2')
 ])
 def test_accumulator_multisig_scriptpubkey_ofM(m, script_hex):
     public_keys = []

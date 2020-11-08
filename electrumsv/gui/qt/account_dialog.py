@@ -75,6 +75,8 @@ class AccountDialog(QDialog):
             script_type_combo.currentIndexChanged.connect(on_script_type_change)
 
         update_script_types()
+        # Prevent users from changing their script type.
+        script_type_combo.setEnabled(False)
         form.add_row(_("Script type"), script_type_combo, True)
 
         vbox.addWidget(form)

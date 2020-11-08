@@ -1078,7 +1078,7 @@ class TextStore(AbstractStore):
                 derivation_data = json.dumps(mk_data).encode()
                 masterkey_rows.append(MasterKeyRow(masterkey_id, None,
                     DerivationType.ELECTRUM_MULTISIG, derivation_data))
-                account_rows.append(AccountRow(account_id, masterkey_id, ScriptType.MULTISIG_P2SH,
+                account_rows.append(AccountRow(account_id, masterkey_id, ScriptType.MULTISIG_BARE,
                     "Multisig account"))
                 process_keyinstances_receiving_change(ScriptType.MULTISIG_P2SH)
                 process_transactions(P2SH_Address)
