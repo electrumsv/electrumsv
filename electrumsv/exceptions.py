@@ -80,11 +80,6 @@ class WalletLoadError(Exception):
 class InvalidPayToError(Exception):
     pass
 
-class PreviousTransactionsUnsetException(Exception):
-    def __str__(self) -> str:
-        return _("Signing this transaction requires the other transactions " \
-            "the coins are being spent from. They are not present.")
-
 class PreviousTransactionsMissingException(Exception):
     have_tx_hashes: Set[bytes]
     need_tx_hashes: Set[bytes]

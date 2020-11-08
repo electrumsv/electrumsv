@@ -57,7 +57,7 @@ from electrumsv.app_state import app_state
 from electrumsv.bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
 from electrumsv.constants import DATABASE_EXT, NetworkEventNames, TxFlags, WalletSettings
-from electrumsv.exceptions import PreviousTransactionsMissingException, UserCancelled
+from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.network import broadcast_failure_reason
@@ -1302,21 +1302,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 callback(True)
 
         def sign_tx() -> None:
-            nonlocal tx, tx_context
-            prev_txs: Optional[Dict[bytes, Transaction]] = None
-            if self._account.requires_input_transactions():
-                prev_txs = {}
-                for txin in tx.inputs:
-                    self._logger.debug("getting input tx %s", txin.prev_hash)
-                    prev_tx = self._account.get_transaction(txin.prev_hash)
-                    if prev_tx is not None:
-                        self._logger.debug("got input tx %s", txin.prev_hash)
-                        prev_txs[txin.prev_hash] = prev_tx
-                    else:
-                        raise PreviousTransactionsMissingException(set(), { txin.prev_hash })
-                if tx_context is None:
-                    tx_context = TransactionContext()
-                tx_context.prev_txs = prev_txs
+            nonlocal tx, password, tx_context
             self._account.sign_transaction(tx, password, tx_context=tx_context)
 
         window = window or self

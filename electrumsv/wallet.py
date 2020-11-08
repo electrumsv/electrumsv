@@ -40,6 +40,7 @@ from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Seque
     TypeVar, TYPE_CHECKING, Union)
 import weakref
 
+import aiorpcx
 import attr
 from bitcoinx import (Address, PrivateKey, PublicKey, hash_to_hex_str, hash160, hex_str_to_hash,
     MissingHeader, Ops, P2MultiSig_Output, P2PK_Output, P2SH_Address, pack_byte, push_item, Script)
@@ -53,9 +54,8 @@ from .constants import (AccountType, CHANGE_SUBPATH, DEFAULT_TXDATA_CACHE_SIZE_M
     WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
-from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsUnsetException,
-    PreviousTransactionsMissingException, UserCancelled, UnknownTransactionException,
-    WalletLoadError)
+from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
+    UserCancelled, UnknownTransactionException, WalletLoadError)
 from .i18n import _
 from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
     instantiate_keystore, KeyStore, Multisig_KeyStore, MultisigChildKeyStoreTypes,
@@ -291,9 +291,6 @@ class AbstractAccount:
 
     def get_wallet(self) -> 'Wallet':
         return self._wallet
-
-    def involves_hardware_wallet(self) -> bool:
-        return any(isinstance(keystore, Hardware_KeyStore) for keystore in self.get_keystores())
 
     def requires_input_transactions(self) -> bool:
         return any(k.requires_input_transactions() for k in self.get_keystores())
@@ -661,8 +658,8 @@ class AbstractAccount:
         keystore = self.get_keystore()
         return keystore is not None and keystore.is_deterministic()
 
-    def is_hardware_wallet(self) -> bool:
-        return any([ isinstance(k, Hardware_KeyStore) for k in self.get_keystores() ])
+    def involves_hardware_wallet(self) -> bool:
+        return any([ k for k in self.get_keystores() if isinstance(k, Hardware_KeyStore) ])
 
     def get_label_data(self) -> Dict[str, Any]:
         # Create exported data structure for account labels/descriptions.
@@ -1466,28 +1463,49 @@ class AbstractAccount:
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
         raise NotImplementedError
 
-    def check_input_transactions(self, tx: Transaction,
-            tx_context: Optional[TransactionContext]=None) -> Optional[Dict[bytes, Transaction]]:
-        if not self.requires_input_transactions():
-            return None
-
-        if tx_context is None or tx_context.prev_txs is None:
-            raise PreviousTransactionsUnsetException()
-        need_tx_hashes = set(txin.prev_hash for txin in tx.inputs)
-        have_tx_hashes = set(tx_context.prev_txs)
-        if need_tx_hashes != have_tx_hashes:
-            raise PreviousTransactionsMissingException(have_tx_hashes, need_tx_hashes)
-
-        return tx_context.prev_txs
+    def obtain_supporting_data(self, tx: Transaction, tx_context: TransactionContext) -> None:
+        # Called by the signing logic to ensure all the required data is present.
+        # Should be called by the logic that serialises incomplete transactions to gather the
+        # context for the next party.
+        if self.requires_input_transactions():
+            for txin in tx.inputs:
+                if txin.prev_hash in tx_context.prev_txs:
+                    continue
+                # If the input is a coin we are spending, then it should be in the database.
+                # Otherwise we'll try to get it from the network - as long as we are not offline.
+                # In the longer term, the other party whose coin is being spent should have
+                # provided the source transaction. The only way we should lack it is because of
+                # bad wallet management.
+                txid = hash_to_hex_str(txin.prev_hash)
+                prev_tx: Optional[Transaction] = None
+                if self.have_transaction_data(txin.prev_hash):
+                    self._logger.debug("fetching input transaction %s from cache", txid)
+                    prev_tx = self.get_transaction(txin.prev_hash)
+                elif self._network is not None:
+                    self._logger.debug("fetching input transaction %s from network", txid)
+                    try:
+                        tx_hex = self._network.request_and_wait(
+                            'blockchain.transaction.get', [ txid ])
+                    except aiorpcx.jsonrpc.RPCError:
+                        self._logger.exception("failed retrieving transaction")
+                    else:
+                        prev_tx = Transaction.from_hex(tx_hex)
+                if prev_tx is None:
+                    raise PreviousTransactionsMissingException(set(), { txin.prev_hash })
+                self._logger.debug("found input transaction %s", txin.prev_hash)
+                tx_context.prev_txs[txin.prev_hash] = prev_tx
 
     def sign_transaction(self, tx: Transaction, password: str,
             tx_context: Optional[TransactionContext]=None) -> None:
         if self.is_watching_only():
             return
 
+        if tx_context is None:
+            tx_context = TransactionContext()
+
         # This is now required by hardware wallets in order for them to sign transactions.
         # But it should be extended to bundle SPV proofs at a later time.
-        prev_txs = self.check_input_transactions(tx, tx_context)
+        self.obtain_supporting_data(tx, tx_context)
 
         # Annotate the outputs to the account's own keys for hardware wallets.
         # - Digitalbitbox makes use of all available output annotations.
@@ -1501,7 +1519,7 @@ class AbstractAccount:
         for k in self.get_keystores():
             try:
                 if k.can_sign(tx):
-                    k.sign_transaction(tx, password, prev_txs)
+                    k.sign_transaction(tx, password, tx_context.prev_txs)
             except UserCancelled:
                 continue
 

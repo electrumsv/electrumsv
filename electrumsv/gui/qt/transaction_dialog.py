@@ -305,12 +305,9 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.update()
             self._main_window.pop_top_level_window(self)
 
-        tx_context: Optional[TransactionContext] = None
+        tx_context = TransactionContext(description=self.tx.description)
         if self._payment_request is not None:
-            tx_context = TransactionContext(invoice_id=self._payment_request.get_id(),
-                description=self.tx.description)
-        else:
-            tx_context = TransactionContext(description=self.tx.description)
+            tx_context.invoice_id = self._payment_request.get_id()
 
         self.sign_button.setDisabled(True)
         self._main_window.push_top_level_window(self)
