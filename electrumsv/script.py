@@ -27,8 +27,8 @@ class AccumulatorMultiSigOutput(P2MultiSig_Output):
                 pack_byte(Ops.OP_ENDIF),
             ])
         parts.extend([
-            push_int(self.threshold),
             pack_byte(Ops.OP_FROMALTSTACK),
+            push_int(self.threshold),
             pack_byte(Ops.OP_GREATERTHANOREQUAL),
         ])
         return b''.join(parts)
