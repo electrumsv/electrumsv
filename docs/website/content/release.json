@@ -2,9 +2,9 @@
 	"version": "1.0.0",
 	"date": "2019-01-11T06:41:45.720171+13:00",
 	"stable": {
-			"version": "1.3.7",
-			"date": "2020-10-08T20:00:00.000000+13:00",
-			"signatures": ["H4XbvJgJB0gWxV+ZdxbKW5gSBBiv/nwhHSJocxFQQ6jMHswUO1nWdO7/DC4rADSZD+OCwlL12I0uhbS5Kkxywyo="]
+			"version": "1.3.8",
+			"date": "2020-11-09T20:00:00.000000+13:00",
+			"signatures": ["ICoUQxEiRu5qpCbYQiSEe6YUHpg8yJBdoeyHFqlU5+d0VD6YRV0J2mK7MLuEZb0gAPnYFfo+cXBkU9u2sf4WecY="]
 	},
 	"unstable": {
 			"version": "1.3.0b5",

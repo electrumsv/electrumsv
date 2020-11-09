@@ -50,33 +50,5 @@ Message: "Signing transaction" never goes away
 
 In order to address flaws in the Bitcoin Core protocol,
 `Trezor made changes <https://blog.trezor.io/latest-firmware-updates-correct-possible-segwit-transaction-vulnerability-266df0d2860>`_
-to transaction signing which causes errors when users try to sign transactions in ElectrumSV. This
-means that anyone who updates their Trezor firmware will not be able to sign transactions.
-
-Let us be clear. It appears that Trezor decided to break all transaction signing for everyone in
-order to fix a Bitcoin Core problem. They could have chosen to have Bitcoin Core users opt-in to
-the fixes, and not casually broken all other transaction signing for all their users who use
-other cryptocurrencies.
-
-The changes to fix this are comprehensive. This is part of a recent pattern of hardware wallet
-makers making changes that break their customers ability to use their devices. It is very likely
-we will fix this, but we have a lot of other more pressing work to do and the cost of getting
-side-tracked for this is too high at this time.
-
-Trezor Model T
-______________
-
-:Supported firmware version: `trezor-2.3.0.bin <https://wallet.trezor.io/data/firmware/2/trezor-2.3.0.bin>`_
-:Firmware release data: `Trezor Model T feed <https://wallet.trezor.io/data/firmware/2/releases.json>`_
-
-If you are using a later firmware than the recommended version, you will need to downgrade. Make
-sure that you have backed up your seed words, as this may cause the device to be wiped.
-
-Trezor One
-__________
-
-:Supported firmware version: `trezor-1.9.0.bin <https://wallet.trezor.io/data/firmware/1/trezor-1.9.0.bin>`_
-:Firmware release data: `Trezor One feed <https://wallet.trezor.io/data/firmware/1/releases.json>`_
-
-If you are using a later firmware than the recommended version, you will need to downgrade. Make
-sure that you have backed up your seed words, as this may cause the device to be wiped.
+to transaction signing which caused errors when users try to sign transactions in ElectrumSV. If
+you have the latest version of ElectrumSV, this problem should be solved.
