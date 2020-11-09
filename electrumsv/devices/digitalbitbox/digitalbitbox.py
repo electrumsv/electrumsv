@@ -13,7 +13,7 @@ import re
 import requests
 import struct
 import time
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, TYPE_CHECKING
 
 from bitcoinx import PublicKey, compact_signature_to_der, bip32_key_from_string
 
@@ -513,7 +513,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
         return sig
 
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
+            prev_txs: Dict[bytes, Transaction]) -> None:
         if tx.is_complete():
             return
 

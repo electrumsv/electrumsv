@@ -73,11 +73,11 @@ class TrezorKeyStore(Hardware_KeyStore):
         return True
 
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
+            prev_txs: Dict[bytes, Transaction]) -> None:
         if tx.is_complete():
             return
 
-        assert prev_txs is not None, "This keystore requires all input transactions"
+        assert len(prev_txs), "This keystore requires all input transactions"
         # path of the xpubs that are involved
         xpub_path: Dict[str, str] = {}
         for txin in tx.inputs:

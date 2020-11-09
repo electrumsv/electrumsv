@@ -23,7 +23,7 @@
 # SOFTWARE.
 
 import threading
-from typing import cast, Dict, List, Optional
+from typing import cast, Dict, List
 
 from bitcoinx import (
     BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, Address,
@@ -87,11 +87,11 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         return msg_sig.signature
 
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
+            prev_txs: Dict[bytes, Transaction]) -> None:
         if tx.is_complete():
             return
 
-        assert prev_txs is None, "This keystore does not require input transactions"
+        assert not len(prev_txs), "This keystore does not require input transactions"
         # path of the xpubs that are involved
         xpub_path: Dict[str, str] = {}
         for txin in tx.inputs:

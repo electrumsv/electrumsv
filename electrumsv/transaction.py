@@ -74,7 +74,7 @@ def tx_output_to_display_text(tx_output: TxOutput) -> Tuple[str, ScriptTemplate]
 class TransactionContext:
     invoice_id: Optional[int] = attr.ib(default=None)
     description: Optional[str] = attr.ib(default=None)
-    prev_txs: Dict[bytes, 'Transaction'] = attr.Factory(dict)
+    prev_txs: Dict[bytes, 'Transaction'] = attr.ib(default=attr.Factory(dict))
 
 
 class XPublicKeyType(enum.IntEnum):

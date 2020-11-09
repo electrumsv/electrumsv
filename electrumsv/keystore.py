@@ -137,7 +137,7 @@ class KeyStore:
         return False
 
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
+            prev_txs: Dict[bytes, Transaction]) -> None:
         raise NotImplementedError
 
 
@@ -162,7 +162,7 @@ class Software_KeyStore(KeyStore):
         raise NotImplementedError
 
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
+            prev_txs: Dict[bytes, Transaction]=None) -> None:
         if self.is_watching_only():
             return
         # Raise if password is not correct.

@@ -319,7 +319,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
 
     @set_and_unset_signing
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Optional[Dict[bytes, Transaction]]=None) -> None:
+            prev_txs: Dict[bytes, Transaction]) -> None:
         if tx.is_complete():
             return
 
