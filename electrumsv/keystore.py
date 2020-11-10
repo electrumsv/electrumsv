@@ -42,7 +42,7 @@ from .exceptions import InvalidPassword, OverloadedMultisigKeystore, Incompatibl
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
 from .networks import Net
-from .transaction import Transaction, XPublicKey, XPublicKeyType
+from .transaction import Transaction, TransactionContext, XPublicKey, XPublicKeyType
 from .wallet_database.tables import KeyInstanceRow, MasterKeyRow
 
 
@@ -137,7 +137,7 @@ class KeyStore:
         return False
 
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Dict[bytes, Transaction]) -> None:
+            tx_context: TransactionContext) -> None:
         raise NotImplementedError
 
 
@@ -162,7 +162,7 @@ class Software_KeyStore(KeyStore):
         raise NotImplementedError
 
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Dict[bytes, Transaction]=None) -> None:
+            tx_context: TransactionContext) -> None:
         if self.is_watching_only():
             return
         # Raise if password is not correct.

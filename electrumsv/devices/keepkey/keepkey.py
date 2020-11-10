@@ -36,7 +36,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output, Transaction
+from electrumsv.transaction import classify_tx_output, Transaction, TransactionContext
 from electrumsv.wallet import AbstractAccount
 
 logger = logs.get_logger("plugin.keepkey")
@@ -87,11 +87,11 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         return msg_sig.signature
 
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Dict[bytes, Transaction]) -> None:
+            tx_context: TransactionContext) -> None:
         if tx.is_complete():
             return
 
-        assert not len(prev_txs), "This keystore does not require input transactions"
+        assert not len(tx_context.prev_txs), "This keystore does not require input transactions"
         # path of the xpubs that are involved
         xpub_path: Dict[str, str] = {}
         for txin in tx.inputs:

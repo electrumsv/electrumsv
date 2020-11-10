@@ -13,7 +13,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import Transaction, classify_tx_output, XTxOutput
+from electrumsv.transaction import classify_tx_output, Transaction, TransactionContext, XTxOutput
 from electrumsv.util import versiontuple
 from electrumsv.wallet import AbstractAccount
 
@@ -319,7 +319,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
 
     @set_and_unset_signing
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Dict[bytes, Transaction]) -> None:
+            tx_context: TransactionContext) -> None:
         if tx.is_complete():
             return
 

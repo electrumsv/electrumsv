@@ -11,7 +11,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output, XTxOutput, Transaction
+from electrumsv.transaction import classify_tx_output, XTxOutput, Transaction, TransactionContext
 from electrumsv.wallet import MultisigAccount, StandardAccount
 
 from ..hw_wallet import HW_PluginBase
@@ -73,11 +73,11 @@ class TrezorKeyStore(Hardware_KeyStore):
         return True
 
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Dict[bytes, Transaction]) -> None:
+            tx_context: TransactionContext) -> None:
         if tx.is_complete():
             return
 
-        assert len(prev_txs), "This keystore requires all input transactions"
+        assert len(tx_context.prev_txs), "This keystore requires all input transactions"
         # path of the xpubs that are involved
         xpub_path: Dict[str, str] = {}
         for txin in tx.inputs:
@@ -89,7 +89,7 @@ class TrezorKeyStore(Hardware_KeyStore):
                     xpub_path[xpub] = self.get_derivation()
 
         assert self.plugin is not None
-        self.plugin.sign_transaction(self, tx, xpub_path, prev_txs)
+        self.plugin.sign_transaction(self, tx, xpub_path, tx_context)
 
 
 class TrezorPlugin(HW_PluginBase):
@@ -272,9 +272,9 @@ class TrezorPlugin(HW_PluginBase):
             return InputScriptType.SPENDADDRESS
 
     def sign_transaction(self, keystore: TrezorKeyStore, tx: Transaction,
-            xpub_path: Dict[str, str], prev_txs: Dict[bytes, Transaction]) -> None:
+            xpub_path: Dict[str, str], tx_context: TransactionContext) -> None:
         prev_txtypes: Dict[bytes, TransactionType] = {}
-        for prev_tx_hash, prev_tx in prev_txs.items():
+        for prev_tx_hash, prev_tx in tx_context.prev_txs.items():
             txtype = TransactionType()
             txtype.version = prev_tx.version
             txtype.lock_time = prev_tx.locktime

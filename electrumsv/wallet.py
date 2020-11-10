@@ -1426,7 +1426,114 @@ class AbstractAccount:
                 return True
         return False
 
-    def _add_hw_info(self, tx: Transaction) -> None:
+    def get_xpubkeys_for_id(self, keyinstance_id: int) -> List[XPublicKey]:
+        raise NotImplementedError
+
+    def get_master_public_keys(self):
+        raise NotImplementedError
+
+    def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
+        raise NotImplementedError
+
+    def sign_transaction(self, tx: Transaction, password: str,
+            tx_context: Optional[TransactionContext]=None) -> None:
+        if self.is_watching_only():
+            return
+
+        # TODO(rt12): Consider if this should be merged into the Transaction class.
+        if tx_context is None:
+            tx_context = TransactionContext()
+
+        # This is primarily required by hardware wallets in order for them to sign transactions.
+        # But it should be extended to bundle SPV proofs, and other general uses at a later time.
+        self.obtain_supporting_data(tx, tx_context)
+
+        # sign
+        for k in self.get_keystores():
+            try:
+                if k.can_sign(tx):
+                    k.sign_transaction(tx, password, tx_context)
+            except UserCancelled:
+                continue
+
+        # Incomplete transactions are multi-signature transactions that have not passed the
+        # required signature threshold. We do not store these until they are fully signed.
+        if tx.is_complete():
+            tx_hash = tx.hash()
+            tx_flags = TxFlags.StateSigned
+            if tx_context.invoice_id:
+                tx_flags |= TxFlags.PaysInvoice
+
+            self._wallet.add_transaction(tx_hash, tx, tx_flags)
+
+            # The transaction has to be in the database before we can refer to it in the invoice.
+            if tx_flags & TxFlags.PaysInvoice:
+                self.invoices.set_invoice_transaction(cast(int, tx_context.invoice_id), tx_hash)
+            if tx_context.description:
+                self._wallet.set_transaction_label(tx_hash, tx_context.description)
+
+    def obtain_supporting_data(self, tx: Transaction, tx_context: TransactionContext) -> None:
+        # Called by the signing logic to ensure all the required data is present.
+        # Should be called by the logic that serialises incomplete transactions to gather the
+        # context for the next party.
+        if self.requires_input_transactions():
+            self._add_previous_transactions(tx, tx_context)
+
+        # Annotate the outputs to the account's own keys for hardware wallets.
+        # - Digitalbitbox makes use of all available output annotations.
+        # - Keepkey and Trezor use this to annotate one arbitrary change address.
+        # - Ledger kind of ignores it?
+        # Hardware wallets cannot send to internal outputs for multi-signature, only have P2SH!
+        if any([isinstance(k,Hardware_KeyStore) and k.can_sign(tx) for k in self.get_keystores()]):
+            self._add_hardware_derivation_context(tx)
+
+    def _add_previous_transactions(self, tx: Transaction, tx_context: TransactionContext) -> None:
+        # Called by the signing logic to ensure all the required data is present.
+        # Should be called by the logic that serialises incomplete transactions to gather the
+        # context for the next party.
+        need_tx_hashes: Set[bytes] = set()
+        for txin in tx.inputs:
+            prev_tx: Optional[Transaction] = tx_context.prev_txs.get(txin.prev_hash)
+            if prev_tx is None:
+                # If the input is a coin we are spending, then it should be in the database.
+                # Otherwise we'll try to get it from the network - as long as we are not offline.
+                # In the longer term, the other party whose coin is being spent should have
+                # provided the source transaction. The only way we should lack it is because of
+                # bad wallet management.
+                txid = hash_to_hex_str(txin.prev_hash)
+                if self.have_transaction_data(txin.prev_hash):
+                    self._logger.debug("fetching input transaction %s from cache", txid)
+                    prev_tx = self.get_transaction(txin.prev_hash)
+                else:
+                    prev_tx = self._external_transaction_request(txin.prev_hash)
+            if prev_tx is None:
+                need_tx_hashes.add(txin.prev_hash)
+            else:
+                self._logger.debug("found input transaction %s", txin.prev_hash)
+                tx_context.prev_txs[txin.prev_hash] = prev_tx
+        have_tx_hashes = set(tx_context.prev_txs)
+        if need_tx_hashes != have_tx_hashes:
+            raise PreviousTransactionsMissingException(have_tx_hashes, need_tx_hashes)
+
+    def _external_transaction_request(self, tx_hash: bytes) -> Optional[Transaction]:
+        txid = hash_to_hex_str(tx_hash)
+        if self._network is None:
+            self._logger.debug("unable to fetch input transaction %s from network (offline)", txid)
+            return None
+
+        self._logger.debug("fetching input transaction %s from network", txid)
+        try:
+            tx_hex = self._network.request_and_wait('blockchain.transaction.get', [ txid ])
+        except aiorpcx.jsonrpc.RPCError:
+            self._logger.exception("failed retrieving transaction")
+            return None
+        else:
+            # TODO(rt12) Once we've moved away from indexer state being authoritative
+            # over the contents of a wallet, we should be able to add this to the
+            # database as an non-owned input transaction.
+            return Transaction.from_hex(tx_hex)
+
+    def _add_hardware_derivation_context(self, tx: Transaction) -> None:
         # add output info for hw wallets
         # the hw keystore at the time of signing does not have access to either the threshold
         # or the larger set of xpubs it's own mpk is included in. So we collect these in the
@@ -1453,92 +1560,6 @@ class AbstractAccount:
                     output_items[candidate_keystores[0].get_fingerprint()] = item
             info.append(output_items)
         tx.output_info = info
-
-    def get_xpubkeys_for_id(self, keyinstance_id: int) -> List[XPublicKey]:
-        raise NotImplementedError
-
-    def get_master_public_keys(self):
-        raise NotImplementedError
-
-    def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
-        raise NotImplementedError
-
-    def obtain_supporting_data(self, tx: Transaction, tx_context: TransactionContext) -> None:
-        # Called by the signing logic to ensure all the required data is present.
-        # Should be called by the logic that serialises incomplete transactions to gather the
-        # context for the next party.
-        if self.requires_input_transactions():
-            for txin in tx.inputs:
-                if txin.prev_hash in tx_context.prev_txs:
-                    continue
-                # If the input is a coin we are spending, then it should be in the database.
-                # Otherwise we'll try to get it from the network - as long as we are not offline.
-                # In the longer term, the other party whose coin is being spent should have
-                # provided the source transaction. The only way we should lack it is because of
-                # bad wallet management.
-                txid = hash_to_hex_str(txin.prev_hash)
-                prev_tx: Optional[Transaction] = None
-                if self.have_transaction_data(txin.prev_hash):
-                    self._logger.debug("fetching input transaction %s from cache", txid)
-                    prev_tx = self.get_transaction(txin.prev_hash)
-                elif self._network is not None:
-                    self._logger.debug("fetching input transaction %s from network", txid)
-                    try:
-                        tx_hex = self._network.request_and_wait(
-                            'blockchain.transaction.get', [ txid ])
-                    except aiorpcx.jsonrpc.RPCError:
-                        self._logger.exception("failed retrieving transaction")
-                    else:
-                        prev_tx = Transaction.from_hex(tx_hex)
-                if prev_tx is None:
-                    raise PreviousTransactionsMissingException(set(), { txin.prev_hash })
-                self._logger.debug("found input transaction %s", txin.prev_hash)
-                tx_context.prev_txs[txin.prev_hash] = prev_tx
-
-    def sign_transaction(self, tx: Transaction, password: str,
-            tx_context: Optional[TransactionContext]=None) -> None:
-        if self.is_watching_only():
-            return
-
-        if tx_context is None:
-            tx_context = TransactionContext()
-
-        # This is now required by hardware wallets in order for them to sign transactions.
-        # But it should be extended to bundle SPV proofs at a later time.
-        self.obtain_supporting_data(tx, tx_context)
-
-        # Annotate the outputs to the account's own keys for hardware wallets.
-        # - Digitalbitbox makes use of all available output annotations.
-        # - Keepkey and Trezor use this to annotate one arbitrary change address.
-        # - Ledger kind of ignores it.
-        # Hardware wallets cannot send to internal outputs for multi-signature, only have P2SH!
-        if any([isinstance(k,Hardware_KeyStore) and k.can_sign(tx) for k in self.get_keystores()]):
-            self._add_hw_info(tx)
-
-        # sign
-        for k in self.get_keystores():
-            try:
-                if k.can_sign(tx):
-                    k.sign_transaction(tx, password, tx_context.prev_txs)
-            except UserCancelled:
-                continue
-
-        # Incomplete transactions are multi-signature transactions that have not passed the
-        # required signature threshold. We do not store these until they are fully signed.
-        if tx.is_complete():
-            tx_hash = tx.hash()
-            tx_flags = TxFlags.StateSigned
-            if tx_context is not None and tx_context.invoice_id:
-                tx_flags |= TxFlags.PaysInvoice
-
-            self._wallet.add_transaction(tx_hash, tx, tx_flags)
-
-            # The transaction has to be in the database before we can refer to it in the invoice.
-            if tx_context is not None:
-                if tx_flags & TxFlags.PaysInvoice:
-                    self.invoices.set_invoice_transaction(cast(int, tx_context.invoice_id), tx_hash)
-                if tx_context.description:
-                    self._wallet.set_transaction_label(tx_hash, tx_context.description)
 
     def get_payment_status(self, req: PaymentRequestRow) -> Tuple[bool, int]:
         local_height = self._wallet.get_local_height()
