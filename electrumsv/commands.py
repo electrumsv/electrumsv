@@ -258,7 +258,8 @@ def set_default_subparser(self, name, args=None) -> None:
             else:
                 args.insert(0, name)
 
-argparse.ArgumentParser.set_default_subparser = set_default_subparser
+# NOTE(rt12) Ignore typing due to '"Type[ArgumentParser]" has no attribute "set_default_subparser"'
+argparse.ArgumentParser.set_default_subparser = set_default_subparser # type: ignore
 
 
 # workaround https://bugs.python.org/issue23058
@@ -286,7 +287,8 @@ def subparser_call(self, parser, namespace, values, option_string=None):
         vars(namespace).setdefault(_UNRECOGNIZED_ARGS_ATTR, [])
         getattr(namespace, _UNRECOGNIZED_ARGS_ATTR).extend(arg_strings)
 
-argparse._SubParsersAction.__call__ = subparser_call
+# NOTE(rt12) Ignore typing due to "Cannot assign to a method"
+argparse._SubParsersAction.__call__ = subparser_call # type: ignore
 
 
 def add_network_options(parser):

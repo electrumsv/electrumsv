@@ -25,10 +25,11 @@
 
 import ast
 import base64
-from typing import Optional, Tuple, Any
+from typing import Any, Dict, Optional, Tuple, Union
 import os
 import time
 import jsonrpclib
+
 from .restapi import AiohttpServer
 from .app_state import app_state
 from .commands import known_commands, Commands
@@ -139,6 +140,8 @@ def get_rpc_credentials(config: SimpleConfig, is_restapi=False) \
 
 
 class Daemon(DaemonThread):
+    rest_server: Optional[AiohttpServer]
+    cmd_runner: Commands
 
     def __init__(self, fd, is_gui: bool) -> None:
         super().__init__('daemon')
@@ -154,7 +157,7 @@ class Daemon(DaemonThread):
             self.network = Network()
             app_state.fx = FxTask(app_state.config, self.network)
             self.fx_task = app_state.async_.spawn(app_state.fx.refresh_loop)
-        self.wallets = {}
+        self.wallets: Dict[str, Wallet] = {}
         # RPC API - (synchronous)
         self.init_server(config, fd, is_gui)
         # self.init_thread_watcher()
@@ -222,10 +225,11 @@ class Daemon(DaemonThread):
     def ping(self) -> bool:
         return True
 
-    def run_daemon(self, config_options: dict) -> Any:
+    def run_daemon(self, config_options: dict) -> Union[bool, str, Dict[str, Any]]:
         config = SimpleConfig(config_options)
         sub = config.get('subcommand')
         assert sub in [None, 'start', 'stop', 'status', 'load_wallet', 'close_wallet']
+        response: Union[bool, str, Dict[str, Any]]
         if sub in [None, 'start']:
             response = "Daemon already running"
         elif sub == 'load_wallet':
@@ -234,7 +238,9 @@ class Daemon(DaemonThread):
             self.cmd_runner._wallet = wallet
             response = True
         elif sub == 'close_wallet':
-            path = WalletStorage.canonical_path(config.get_cmdline_wallet_filepath())
+            cmdline_wallet_filepath = config.get_cmdline_wallet_filepath()
+            assert cmdline_wallet_filepath is not None
+            path = WalletStorage.canonical_path(cmdline_wallet_filepath)
             if path in self.wallets:
                 self.stop_wallet_at_path(path)
                 response = True
@@ -265,28 +271,28 @@ class Daemon(DaemonThread):
 
         return "error: ElectrumSV is running in daemon mode; stop the daemon first."
 
-    def load_wallet(self, wallet_filepath: str) -> Wallet:
+    def load_wallet(self, wallet_filepath: str) -> Optional[Wallet]:
         # wizard will be launched if we return
         if wallet_filepath in self.wallets:
             wallet = self.wallets[wallet_filepath]
             return wallet
         if not WalletStorage.files_are_matched_by_path(wallet_filepath):
-            return
+            return None
         storage = WalletStorage(wallet_filepath)
         if storage.requires_split():
             storage.close()
             logger.debug("Wallet '%s' requires an split", wallet_filepath)
-            return
+            return None
         if storage.requires_upgrade():
             storage.close()
             logger.debug("Wallet '%s' requires an upgrade", wallet_filepath)
-            return
+            return None
 
         wallet = Wallet(storage)
         self.start_wallet(wallet)
         return wallet
 
-    def get_wallet(self, path: str) -> Wallet:
+    def get_wallet(self, path: str) -> Optional[Wallet]:
         wallet_filepath = WalletStorage.canonical_path(path)
         return self.wallets.get(wallet_filepath)
 
@@ -314,7 +320,9 @@ class Daemon(DaemonThread):
         cmdname = config.get('cmd')
         cmd = known_commands[cmdname]
         if cmd.requires_wallet:
-            wallet_path = WalletStorage.canonical_path(config.get_cmdline_wallet_filepath())
+            cmdline_wallet_filepath = config.get_cmdline_wallet_filepath()
+            assert cmdline_wallet_filepath is not None
+            wallet_path = WalletStorage.canonical_path(cmdline_wallet_filepath)
             wallet = self.wallets.get(wallet_path)
             if wallet is None:
                 return {'error': 'Wallet "%s" is not loaded. Use "electrum-sv daemon load_wallet"'
@@ -353,6 +361,7 @@ class Daemon(DaemonThread):
         logger.warning("no longer running")
         if self.network:
             logger.warning("wait for network shutdown")
+            assert self.fx_task is not None, "fx task should be valid if network is"
             self.fx_task.cancel()
             app_state.async_.spawn_and_wait(self.network.shutdown_wait)
         self.on_stop()
