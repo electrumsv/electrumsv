@@ -27,7 +27,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.platform import platform
-from electrumsv.transaction import Transaction
+from electrumsv.transaction import Transaction, TransactionContext
 from electrumsv.util import to_string
 
 from ..hw_wallet import HW_PluginBase
@@ -513,7 +513,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
         return sig
 
     def sign_transaction(self, tx: Transaction, password: str,
-            prev_txs: Dict[bytes, Transaction]) -> None:
+            tx_context: TransactionContext) -> None:
         if tx.is_complete():
             return
 
