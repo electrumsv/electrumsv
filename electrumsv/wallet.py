@@ -2839,7 +2839,7 @@ class Wallet(TriggeredCallbacks):
                 account.response_count = 0
         return request_count, response_count
 
-    def start(self, network: 'Network') -> None:
+    def start(self, network: Optional['Network']) -> None:
         self._network = network
         if network is not None:
             network.add_wallet(self)

@@ -21,6 +21,7 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import asyncio
 from collections import defaultdict
 from contextlib import suppress
 from enum import IntEnum
@@ -31,7 +32,7 @@ import re
 import ssl
 import stat
 import time
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
 
 import certifi
 from aiorpcx import (
@@ -46,7 +47,7 @@ from bitcoinx import (
 
 from .app_state import app_state
 from .bitcoin import scripthash_hex
-from .constants import TxFlags
+from .constants import ScriptType, TxFlags
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
@@ -188,7 +189,7 @@ class SVServerState:
 class SVServer:
     '''A smart wrapper around a (host, port, protocol) tuple.'''
 
-    all_servers = {}
+    all_servers: Dict[Tuple[str, int, str], 'SVServer'] = {}
 
     def __init__(self, host, port, protocol):
         if not isinstance(host, str) or not host:
@@ -336,12 +337,12 @@ class SVProxy(SOCKSProxy):
 class SVSession(RPCSession):
 
     ca_path = certifi.where()
-    _connecting_tips = {}
+    _connecting_tips: Dict[bytes, asyncio.Event] = {}
     _need_checkpoint_headers = True
     # account -> list of script hashes.  Also acts as a list of registered accounts
-    _subs_by_account = {}
-    # script_hash -> keyinstance_id
-    _keyinstance_map = {}
+    _subs_by_account: Dict['AbstractAccount', List[str]] = {}
+    # script_hash -> (keyinstance_id, script_type)
+    _keyinstance_map: Dict[str, Tuple[int, ScriptType]] = {}
 
     def __init__(self, network, server, logger, *args, **kwargs):
         super().__init__(*args, **kwargs)
