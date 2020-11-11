@@ -36,8 +36,8 @@ import os
 import random
 import threading
 import time
-from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence, Set, Tuple,
-    TypeVar, TYPE_CHECKING, Union)
+from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence,
+    Set, Tuple, TypeVar, TYPE_CHECKING, Union)
 import weakref
 
 import aiorpcx
@@ -66,9 +66,9 @@ from .script import AccumulatorMultiSigOutput
 from .services import InvoiceService, KeyService, RequestService
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
-from .transaction import (Transaction, TransactionContext, NO_SIGNATURE, XPublicKey,
-    XPublicKeyType, XTxInput, XTxOutput)
-from .types import TxoKeyType
+from .transaction import (Transaction, TransactionContext, TxSerialisationFormat, NO_SIGNATURE,
+    XPublicKey, XPublicKeyType, XTxInput, XTxOutput)
+from .types import TxoKeyType, WaitingUpdateCallback
 from .util import (format_satoshis, get_wallet_name_from_path, profiler, timestamp_to_datetime,
     TriggeredCallbacks)
 from .wallet_database import TxData, TxProof, TransactionCacheEntry, TransactionCache
@@ -516,7 +516,7 @@ class AbstractAccount:
             # Populate the description.
             desc = self._wallet.get_transaction_label(tx_hash)
             if desc:
-                tx.description = desc
+                tx.context.description = desc
             return tx
         return None
 
@@ -1440,7 +1440,6 @@ class AbstractAccount:
         if self.is_watching_only():
             return
 
-        # TODO(rt12): Consider if this should be merged into the Transaction class.
         if tx_context is None:
             tx_context = TransactionContext()
 
@@ -1477,7 +1476,7 @@ class AbstractAccount:
         # Should be called by the logic that serialises incomplete transactions to gather the
         # context for the next party.
         if self.requires_input_transactions():
-            self._add_previous_transactions(tx, tx_context)
+            self.obtain_previous_transactions(tx, tx_context)
 
         # Annotate the outputs to the account's own keys for hardware wallets.
         # - Digitalbitbox makes use of all available output annotations.
@@ -1487,12 +1486,15 @@ class AbstractAccount:
         if any([isinstance(k,Hardware_KeyStore) and k.can_sign(tx) for k in self.get_keystores()]):
             self._add_hardware_derivation_context(tx)
 
-    def _add_previous_transactions(self, tx: Transaction, tx_context: TransactionContext) -> None:
+    def obtain_previous_transactions(self, tx: Transaction, tx_context: TransactionContext,
+            update_cb: Optional[WaitingUpdateCallback]=None) -> None:
         # Called by the signing logic to ensure all the required data is present.
         # Should be called by the logic that serialises incomplete transactions to gather the
         # context for the next party.
+        # Raises PreviousTransactionsMissingException
         need_tx_hashes: Set[bytes] = set()
         for txin in tx.inputs:
+            txid = hash_to_hex_str(txin.prev_hash)
             prev_tx: Optional[Transaction] = tx_context.prev_txs.get(txin.prev_hash)
             if prev_tx is None:
                 # If the input is a coin we are spending, then it should be in the database.
@@ -1500,19 +1502,23 @@ class AbstractAccount:
                 # In the longer term, the other party whose coin is being spent should have
                 # provided the source transaction. The only way we should lack it is because of
                 # bad wallet management.
-                txid = hash_to_hex_str(txin.prev_hash)
                 if self.have_transaction_data(txin.prev_hash):
                     self._logger.debug("fetching input transaction %s from cache", txid)
+                    if update_cb is not None:
+                        update_cb(False, _("Retrieving local transaction.."))
                     prev_tx = self.get_transaction(txin.prev_hash)
                 else:
+                    if update_cb is not None:
+                        update_cb(False, _("Requesting transaction from external service.."))
                     prev_tx = self._external_transaction_request(txin.prev_hash)
             if prev_tx is None:
                 need_tx_hashes.add(txin.prev_hash)
             else:
-                self._logger.debug("found input transaction %s", txin.prev_hash)
                 tx_context.prev_txs[txin.prev_hash] = prev_tx
-        have_tx_hashes = set(tx_context.prev_txs)
-        if need_tx_hashes != have_tx_hashes:
+                if update_cb is not None:
+                    update_cb(True)
+        if need_tx_hashes:
+            have_tx_hashes = set(tx_context.prev_txs)
             raise PreviousTransactionsMissingException(have_tx_hashes, need_tx_hashes)
 
     def _external_transaction_request(self, tx_hash: bytes) -> Optional[Transaction]:
@@ -1560,6 +1566,37 @@ class AbstractAccount:
                     output_items[candidate_keystores[0].get_fingerprint()] = item
             info.append(output_items)
         tx.output_info = info
+
+    def estimate_extend_serialised_transaction_steps(self, format: TxSerialisationFormat,
+            tx: Transaction, data: Dict[str, Any]) -> int:
+        # This should be updated as `extend_serialised_transaction` or any called functions are
+        # changed.
+        #
+        # If there is possibly time consuming work involved in extending the data, we indicate
+        # how many units of work are required so that any indication of progress can help the
+        # user visualise the progress.
+        if format == TxSerialisationFormat.JSON_WITH_PROOFS:
+            return len(tx.inputs)
+        return 0
+
+    def extend_serialised_transaction(self, format: TxSerialisationFormat, tx: Transaction,
+            data: Dict[str, Any], update_cb: Optional[WaitingUpdateCallback]=None) \
+            -> Optional[Dict[str, Any]]:
+        # `update_cb` if provided is provided after the preceding arguments by
+        # `WaitingDialog`/`TxDialog`.
+        if format == TxSerialisationFormat.JSON_WITH_PROOFS:
+            try:
+                self.obtain_previous_transactions(tx, tx.context, update_cb)
+            except RuntimeError:
+                if update_cb is None:
+                    self._logger.exception("unexpected runtime error")
+                else:
+                    # RuntimeError: wrapped C/C++ object of type WaitingDialog has been deleted
+                    self._logger.debug("extend_serialised_transaction interrupted")
+                return None
+            else:
+                data["prev_txs"] = [ ptx.to_hex() for ptx in tx.context.prev_txs.values() ]
+        return data
 
     def get_payment_status(self, req: PaymentRequestRow) -> Tuple[bool, int]:
         local_height = self._wallet.get_local_height()

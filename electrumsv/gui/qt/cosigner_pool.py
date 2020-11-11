@@ -186,7 +186,7 @@ class CosignerPool:
                     _("Open your cosigner wallet to retrieve it."),
                 )))
 
-        def send_message():
+        def send_message() -> None:
             server.put(item.keyhash_hex, message)
 
         account_id = account.get_id()

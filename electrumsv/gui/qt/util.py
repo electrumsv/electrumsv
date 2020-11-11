@@ -3,6 +3,7 @@ from enum import IntEnum
 from functools import partial, lru_cache
 import os.path
 import sys
+import time
 import traceback
 from typing import Any, Iterable, List, Callable, Optional, Set, TYPE_CHECKING, Union
 import weakref
@@ -14,16 +15,18 @@ from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProc
 from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QPixmap, QResizeEvent
 from PyQt5.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QGridLayout, QGroupBox, QMessageBox, QHBoxLayout,
-    QHeaderView, QLabel, QLayout, QLineEdit, QFileDialog, QFrame, QPlainTextEdit, QPushButton,
-    QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QTableWidget, QToolButton, QToolTip,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QWizard
+    QHeaderView, QLabel, QLayout, QLineEdit, QFileDialog, QFrame, QPlainTextEdit, QProgressBar,
+    QPushButton, QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QTableWidget,
+    QToolButton, QToolTip, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QWizard
 )
 from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import DATABASE_EXT
+from electrumsv.exceptions import WaitingTaskCancelled
 from electrumsv.i18n import _, languages
 from electrumsv.logs import logs
+from electrumsv.types import WaitingUpdateCallback
 from electrumsv.util import resource_path
 
 if TYPE_CHECKING:
@@ -306,58 +309,113 @@ class UntrustedMessageDialog(QDialog):
 class WindowModalDialog(QDialog, MessageBoxMixin):
     '''Handy wrapper; window modal dialogs are better for our multi-window
     daemon model as other wallet windows can still be accessed.'''
-    def __init__(self, parent, title=None):
-        QDialog.__init__(self, parent, flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+    def __init__(self, parent, title: Optional[str]=None, hide_close_button: bool=False):
+        flags = Qt.WindowSystemMenuHint | Qt.WindowTitleHint
+        # This is the window close button, not any one we add ourselves.
+        if not hide_close_button:
+            flags |= Qt.WindowCloseButtonHint
+        QDialog.__init__(self, parent, flags)
         if not app_state.config.get('ui_disable_modal_dialogs', False):
             self.setWindowModality(Qt.WindowModal)
         if title:
             self.setWindowTitle(title)
 
 
+WaitingCompletionCallback = Optional[Callable[[concurrent.futures.Future], None]]
+
 class WaitingDialog(WindowModalDialog):
-    '''Shows a please wait dialog whilst runnning a task.  It is not
-    necessary to maintain a reference to this dialog.'''
-    watch_signal = pyqtSignal(object)
-    _timer: Optional[QTimer] = None
+    """
+    Shows a please wait dialog whilst runnning a task.  It is not necessary to maintain a reference
+    to this dialog.
+
+    Possible user experiences:
+    - Task completes and dismissal count ends.
+      - Use the `on_done` argument to notify the creator with the completed future.
+      - `accept`
+    - Task completes and user dismisses before the count ends.
+      - Use the `on_done` argument to notify the creator with a `None` value.
+      - `reject`
+    - User closes the dialog before the task completes cancelling the task.
+      - Use the `on_done` argument to notify the creator with a `None` value.
+      - `reject`
+
+    If a task does work, and is interrupted while doing this work, it should not be expected that
+    the work done to that point is rolled back or never happened. An example of this is
+    broadcasting a transaction, where the start of the work is the posting of a transaction
+    to a remote node. The broadcasting process may wait for a response and incur rate limiting
+    on the remote service delaying things, and interruption just prevents learning of the response.
+    """
+    advance_progress_signal = pyqtSignal(object, object)
+
     _title: Optional[str] = None
 
-    def __init__(self, parent, message: str, func, *args,
-            on_done: Optional[Callable[[concurrent.futures.Future], None]]=None,
-            title: Optional[str]=None, watch_events: bool=False) -> None:
+    _future: Optional[concurrent.futures.Future] = None
+    _on_done_callback: WaitingCompletionCallback = None
+    _was_accepted: bool = False
+    _was_rejected: bool = False
+
+    def __init__(self, parent: QWidget, message: str, func, *args,
+            on_done: WaitingCompletionCallback=None, title: Optional[str]=None,
+            watch_events: bool=False, progress_steps: int=0, close_delay: int=0,
+            allow_cancel: bool=False) -> None:
         assert parent
         if title is None:
             title = _("Please wait")
-        WindowModalDialog.__init__(self, parent, title)
+        # Disable the window close button, not any one we add ourselves.
+        super().__init__(parent, title)
 
+        # If we do not do this, waiting dialogs get leaked. This can be observed by commenting
+        # out this line and looking for the `__del__` call which should happen after this
+        # dialog is closed.
         self.setAttribute(Qt.WA_DeleteOnClose)
 
         self._title = title
         self._base_message = message
+        self._close_delay = close_delay
+
         self._main_label = QLabel()
         self._main_label.setAlignment(Qt.AlignCenter)
         self._main_label.setWordWrap(True)
+
         self._secondary_label = QLabel()
         self._secondary_label.setAlignment(Qt.AlignCenter)
         self._secondary_label.setWordWrap(True)
+
+        self._progress_bar: Optional[QProgressBar] = None
+        if progress_steps:
+            progress_bar = self._progress_bar = QProgressBar()
+            progress_bar.setRange(0, progress_steps)
+            progress_bar.setValue(0)
+            progress_bar.setOrientation(Qt.Horizontal)
+            progress_bar.setMinimumWidth(250)
+            # This explicitly needs to be done for the progress bar else it has some RHS space.
+            progress_bar.setAlignment(Qt.AlignCenter)
+
+            self.advance_progress_signal.connect(self._advance_progress)
+
+        self._dismiss_button = QPushButton(_("Dismiss"))
+        self._dismiss_button.clicked.connect(self.accept)
+        self._dismiss_button.setEnabled(False)
+
         vbox = QVBoxLayout(self)
         vbox.addWidget(self._main_label)
         vbox.addWidget(self._secondary_label)
+        if self._progress_bar is not None:
+            vbox.addWidget(self._progress_bar)
+        button_box_1 = QHBoxLayout()
+        lm, tm, rm, bm = button_box_1.getContentsMargins()
+        button_box_1.setContentsMargins(lm, tm + 10, rm, bm)
+        button_box_1.addWidget(self._dismiss_button, False, Qt.AlignHCenter)
+        vbox.addLayout(button_box_1)
 
-        def _on_done(future) -> None:
-            if self._timer is not None:
-                self._timer.stop()
-            self.accept()
+        if self._progress_bar is not None:
+            args = (*args, self._step_progress)
+        # NOTE: The `on_done` callback runs in the GUI thread.
+        self._on_done_callback = on_done
+        self._future = app_state.app.run_in_thread(func, *args, on_done=self._on_run_done)
 
-            QTimer.singleShot(0, partial(on_done, future))
-
-        future = app_state.app.run_in_thread(func, *args, on_done=_on_done)
-        self.accepted.connect(future.cancel)
-
-        if watch_events:
-            timer = self._timer = QTimer(self)
-            timer.timeout.connect(self._relay_watch_event)
-            timer.start(1000)
+        self.accepted.connect(self._on_accepted)
+        self.rejected.connect(self._on_rejected)
 
         self.update_message(_("Please wait."))
         self.setMinimumSize(250, 100)
@@ -366,12 +424,98 @@ class WaitingDialog(WindowModalDialog):
     def __del__(self) -> None:
         logger.debug("%s[%s]: deleted", self.__class__.__name__, self._title)
 
+    def _on_accepted(self) -> None:
+        if self._was_accepted or self._was_rejected or self._future is None:
+            return
+        self._was_accepted = True
+        self._future.cancel()
+
+    def _on_rejected(self) -> None:
+        if self._was_accepted or self._was_rejected or self._future is None:
+            return
+        self._was_rejected = True
+        self._future.cancel()
+
+    def _step_progress(self, advance: bool, message: Optional[str]=None) -> None:
+        # This is likely called from the threaded task. It effectively passes over the arguments
+        # to the GUI thread to deal with.
+        try:
+            self.advance_progress_signal.emit(advance, message)
+        except RuntimeError:
+            # This happens because of the DeleteOnClose setting.
+            # "RuntimeError: wrapped C/C++ object of type WaitingDialog has been deleted"
+            raise WaitingTaskCancelled()
+
+    def _on_run_done(self, future: concurrent.futures.Future) -> None:
+        self._advance_dismissal_process(self._close_delay)
+
+    def _advance_dismissal_process(self, remaining_steps: int) -> None:
+        if not (self._was_accepted or self._was_rejected) and remaining_steps > 0:
+            self._dismiss_button.setEnabled(True)
+            self._dismiss_button.setText(_("Dismiss ({})").format(remaining_steps))
+            QTimer.singleShot(1000, partial(self._advance_dismissal_process, remaining_steps-1))
+        else:
+            self._dispatch_result()
+
+    def _dispatch_result(self) -> None:
+        if self._future is None:
+            return
+        future = self._future
+        self._future = None
+        on_done_callback = self._on_done_callback
+        self._on_done_callback = None
+
+        # To get here the future has to have completed successfully (or unsuccessfully).
+        assert future.done()
+        if not future.cancelled() and not self._was_accepted:
+            self.accept()
+        QTimer.singleShot(0, partial(on_done_callback, future))
+
     def _relay_watch_event(self) -> None:
         self.watch_signal.emit(self)
 
     def update_message(self, extra_message: Optional[str]=None) -> None:
         self._main_label.setText(self._base_message)
         self._secondary_label.setText(extra_message or ' ')
+
+    def _advance_progress(self, advance: bool, message: Optional[str]=None) -> None:
+        if advance:
+            self._progress_bar.setValue(self._progress_bar.value()+1)
+        if message is not None:
+            self.update_message(message)
+
+    @classmethod
+    def test(cls, window: 'ElectrumWindow', delay: int=5) -> None:
+        title = "title"
+        message = "message"
+        steps = 5
+
+        def func(update_cb: WaitingUpdateCallback) -> Optional[bool]:
+            nonlocal delay, steps
+            interval = delay / steps
+            for i in range(steps):
+                update_message = "Working on it (even).." if i % 2 else "Working on it (odd).."
+                update_cb(False, update_message)
+                time.sleep(interval)
+                try:
+                    update_cb(True)
+                except WaitingTaskCancelled:
+                    return None
+            update_cb(False, "Done")
+            return True
+
+        def completed(future: concurrent.futures.Future) -> None:
+            try:
+                data = future.result()
+            except concurrent.futures.CancelledError:
+                logger.debug(f"{cls.__name__} cancelled")
+            except Exception as exc:
+                logger.exception(f"{cls.__name__} errored with: {exc}")
+            else:
+                logger.debug(f"{cls.__name__} completed with: {data}")
+
+        return cls(window, message, func, title=title, progress_steps=steps, on_done=completed,
+            allow_cancel=True, close_delay=5)
 
 
 def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,

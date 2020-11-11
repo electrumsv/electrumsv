@@ -981,10 +981,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.config.set_key('io_dir', os.path.dirname(fileNames[0]), True)
         return fileNames
 
-    def getSaveFileName(self, title, filename, filter = ""):
+    def getSaveFileName(self, title, filename, filter: str = "", parent: Optional[QWidget]=None):
+        parent = self if parent is None else parent
         directory = self.config.get('io_dir', os.path.expanduser('~'))
         path = os.path.join( directory, filename )
-        fileName, __ = QFileDialog.getSaveFileName(self, title, path, filter)
+        fileName, _selectedFilter = QFileDialog.getSaveFileName(parent, title, path, filter)
         if fileName and directory != os.path.dirname(fileName):
             self.config.set_key('io_dir', os.path.dirname(fileName), True)
         return fileName
@@ -1118,15 +1119,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d.exec_()
 
     def show_transaction(self, account: AbstractAccount, tx: Transaction,
-            tx_desc: Optional[str]=None, prompt_if_unsaved: bool=False,
+            prompt_if_unsaved: bool=False,
             pr: Optional[paymentrequest.PaymentRequest]=None) -> None:
         '''tx_desc is set only for txs created in the Send tab'''
         self._wallet.synchronize_incomplete_transaction(tx)
         from . import transaction_dialog
         # from importlib import reload
         # reload(transaction_dialog)
-        tx_dialog = transaction_dialog.TxDialog(account, tx, self, tx_desc, prompt_if_unsaved,
-            pr)
+        tx_dialog = transaction_dialog.TxDialog(account, tx, self, prompt_if_unsaved, pr)
         tx_dialog.finished.connect(partial(self.on_tx_dialog_finished, tx_dialog))
         self.tx_dialogs.append(tx_dialog)
         tx_dialog.show()
@@ -1310,7 +1310,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             title=_("Transaction signing"))
 
     def broadcast_transaction(self, account: AbstractAccount, tx: Transaction,
-            tx_desc: Optional[str], success_text: Optional[str]=None, window=None) -> Optional[str]:
+            success_text: Optional[str]=None, window=None) -> Optional[str]:
         if success_text is None:
             success_text = _('Payment sent.')
         window = window or self
@@ -1339,7 +1339,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return result
 
         def on_done(future: concurrent.futures.Future) -> None:
-            nonlocal window, tx_desc, success_text
+            nonlocal window, success_text
             # GUI thread
             try:
                 tx_id: Optional[str] = future.result()
@@ -1358,34 +1358,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 d.exec()
             else:
                 if tx_id:
-                    if tx_desc is not None:
-                        self._wallet.set_transaction_label(tx.hash(), tx_desc)
+                    if tx.context.description is not None:
+                        self._wallet.set_transaction_label(tx.hash(), tx.context.description)
                     window.show_message(success_text + '\n' + tx_id)
 
                     self._send_view.clear()
 
         WaitingDialog(window, _('Broadcasting the transaction..'), broadcast_tx,
-            on_done=on_done, title=_("Transaction broadcast"),
-            watch_events=True).watch_signal.connect(self._on_broadcast_event)
-
-    def _on_broadcast_event(self, dialog: WaitingDialog) -> None:
-        synchronizing = not self._wallet.is_synchronized()
-        if not synchronizing:
-            request_count, response_count = self._wallet.get_request_response_counts()
-            synchronizing = request_count > response_count
-
-        text = _("Please wait.")
-        if synchronizing:
-            text = _("This may be delayed until the wallet finishes synchronizing.")
-        else:
-            main_session = self.network.main_session()
-            if main_session is not None:
-                current = main_session.get_current_outgoing_concurrency_target()
-                f = min(100, max(0, int(100*((250-current)/250))))
-                if f:
-                    text = _("This may be delayed as server access is currently {}% rate limited.")
-                    text = text.format(f)
-        dialog.update_message(text)
+            on_done=on_done, title=_("Transaction broadcast"))
 
     def query_choice(self, msg, choices):
         return query_choice(self, msg, choices)

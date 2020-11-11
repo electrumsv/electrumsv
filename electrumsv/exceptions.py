@@ -91,6 +91,9 @@ class PreviousTransactionsMissingException(Exception):
         self.need_tx_hashes = need_tx_hashes
 
     def __str__(self) -> str:
-        required_count = len(self.need_tx_hashes) - len(self.have_tx_hashes)
+        required_count = len(self.need_tx_hashes)
         return _("Signing this transaction requires {} other transactions " \
             "the coins are being spent from.").format(required_count)
+
+class WaitingTaskCancelled(Exception):
+    pass
