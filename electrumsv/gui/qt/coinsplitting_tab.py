@@ -107,7 +107,8 @@ class CoinSplittingTab(QWidget):
 
         if self._account.type() == AccountType.MULTISIG:
             self._cleanup_tx_final()
-            self._main_window.show_transaction(self._account, tx, f"{TX_DESC_PREFIX} (multisig)")
+            tx.context.description = f"{TX_DESC_PREFIX} (multisig)"
+            self._main_window.show_transaction(self._account, tx)
             return
 
         amount = tx.output_value()
@@ -129,8 +130,8 @@ class CoinSplittingTab(QWidget):
                     dialog.exec()
                 else:
                     extra_text = _("Your split coins")
+                    tx.context.description = f"{TX_DESC_PREFIX}: {extra_text}"
                     self._main_window.broadcast_transaction(self._account, tx,
-                        f"{TX_DESC_PREFIX}: {extra_text}",
                         success_text=_("Your coins have now been split."))
             self._cleanup_tx_final()
         self._main_window.sign_tx_with_password(tx, sign_done, password)
@@ -248,8 +249,8 @@ class CoinSplittingTab(QWidget):
                     dialog.exec()
                 else:
                     extra_text = _("Your split coins")
+                    tx.context.description = f"{TX_DESC_PREFIX}: {extra_text}"
                     self._main_window.broadcast_transaction(self._account, tx,
-                        f"{TX_DESC_PREFIX}: {extra_text}",
                         success_text=_("Your coins have now been split."))
             self._cleanup_tx_final()
         self._main_window.sign_tx_with_password(tx, sign_done, password)

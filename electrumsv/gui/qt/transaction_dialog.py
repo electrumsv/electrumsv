@@ -23,6 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import concurrent
 import copy
 import datetime
 import enum
@@ -30,10 +31,11 @@ from functools import partial
 import gzip
 import json
 import math
-from typing import List, NamedTuple, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
+import weakref
 import webbrowser
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QBrush, QCursor, QFont
 from PyQt5.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
     QToolTip, QTreeWidgetItem, QVBoxLayout, QWidget)
@@ -49,18 +51,19 @@ from electrumsv.logs import logs
 from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.platform import platform
 from electrumsv.services.coins import CoinService
-from electrumsv.transaction import (Transaction, TransactionContext, tx_output_to_display_text,
-    XTxOutput)
-from electrumsv.types import TxoKeyType
+from electrumsv.transaction import (Transaction, TxFileExtensions, TxSerialisationFormat,
+    tx_output_to_display_text, XTxOutput)
+from electrumsv.types import TxoKeyType, WaitingUpdateCallback
 from electrumsv.wallet import AbstractAccount
 import electrumsv.web as web
 
 from .constants import UIBroadcastSource
 from .util import (Buttons, ButtonsLineEdit, ColorScheme, FormSectionWidget, MessageBox,
-    MessageBoxMixin, MyTreeWidget, read_QIcon)
+    MessageBoxMixin, MyTreeWidget, read_QIcon, WaitingDialog)
 
 
 logger = logs.get_logger("tx-dialog")
+
 
 class TxInfo(NamedTuple):
     hash: bytes
@@ -97,9 +100,17 @@ class Roles(enum.IntEnum):
     KEY_ID = Qt.UserRole + 3
 
 
+class InvalidAction(Exception):
+    pass
+
+
 class TxDialog(QDialog, MessageBoxMixin):
+    copy_data_ready_signal = pyqtSignal(object, object)
+    save_data_ready_signal = pyqtSignal(object, object)
+    dummy_signal = pyqtSignal(object, object)
+
     def __init__(self, account: Optional[AbstractAccount], tx: Transaction,
-            main_window: 'ElectrumWindow', desc: Optional[str], prompt_if_unsaved: bool,
+            main_window: 'ElectrumWindow', prompt_if_unsaved: bool,
             payment_request: Optional[PaymentRequest]=None) -> None:
         '''Transactions in the wallet will show their description.
         Pass desc to give a description for txs not yet in the wallet.
@@ -107,11 +118,14 @@ class TxDialog(QDialog, MessageBoxMixin):
         # We want to be a top-level window
         QDialog.__init__(self, parent=None, flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
             Qt.WindowCloseButtonHint)
+
+        self.copy_data_ready_signal.connect(self._copy_transaction_ready)
+        self.save_data_ready_signal.connect(self._save_transaction_ready)
+
         # Take a copy; it might get updated in the main window by the FX thread.  If this
         # happens during or after a long sign operation the signatures are lost.
         self.tx = copy.deepcopy(tx)
-        if desc is not None:
-            self.tx.description = desc
+        self.tx.context = copy.deepcopy(tx.context)
         self._tx_hash = tx.hash()
 
         self._main_window = main_window
@@ -174,9 +188,6 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.broadcast_button = b = QPushButton(_("Broadcast"))
         b.clicked.connect(self.do_broadcast)
 
-        self.save_button = b = QPushButton(_("Save"))
-        b.clicked.connect(self.save)
-
         self.cancel_button = b = QPushButton(_("Close"))
         b.clicked.connect(self.close)
         b.setDefault(True)
@@ -185,8 +196,13 @@ class TxDialog(QDialog, MessageBoxMixin):
         b.setIcon(read_QIcon("qrcode.png"))
         b.clicked.connect(self._show_qr)
 
-        self.copy_button = QPushButton(_("Copy"))
-        self.copy_button.clicked.connect(self.copy_tx_to_clipboard)
+        self._copy_menu = QMenu()
+        self._copy_button = QPushButton(_("Copy"))
+        self._copy_button.setMenu(self._copy_menu)
+
+        self._save_menu = QMenu()
+        self.save_button = QPushButton(_("Save"))
+        self.save_button.setMenu(self._save_menu)
 
         self.cosigner_button = b = QPushButton(_("Send to cosigner"))
         b.clicked.connect(self.cosigner_send)
@@ -195,7 +211,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.buttons = [self.cosigner_button, self.sign_button, self.broadcast_button,
                         self.cancel_button]
         # Transaction sharing buttons
-        self.sharing_buttons = [self.copy_button, self.qr_button, self.save_button]
+        self.sharing_buttons = [self._copy_button, self.qr_button, self.save_button]
 
         hbox = QHBoxLayout()
         hbox.addLayout(Buttons(*self.sharing_buttons))
@@ -229,9 +245,6 @@ class TxDialog(QDialog, MessageBoxMixin):
     def cosigner_send(self) -> None:
         app_state.app.cosigner_pool.do_send(self._main_window, self._account, self.tx)
 
-    def copy_tx_to_clipboard(self) -> None:
-        self._main_window.app.clipboard().setText(self._tx_to_text())
-
     def _on_click_show_tx_hash_qr(self) -> None:
         self._main_window.show_qrcode(str(self.tx_hash_e.text()), 'Transaction ID', parent=self)
 
@@ -252,8 +265,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 UIBroadcastSource.TRANSACTION_DIALOG):
             return
 
-        self._main_window.broadcast_transaction(self._account, self.tx, self.tx.description,
-            window=self)
+        self._main_window.broadcast_transaction(self._account, self.tx, window=self)
         self._saved = True
         self.update()
 
@@ -305,37 +317,22 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.update()
             self._main_window.pop_top_level_window(self)
 
-        tx_context = TransactionContext(description=self.tx.description)
         if self._payment_request is not None:
-            tx_context.invoice_id = self._payment_request.get_id()
+            self.tx.context.invoice_id = self._payment_request.get_id()
 
         self.sign_button.setDisabled(True)
         self._main_window.push_top_level_window(self)
-        self._main_window.sign_tx(self.tx, sign_done, window=self, tx_context=tx_context)
+        self._main_window.sign_tx(self.tx, sign_done, window=self, tx_context=self.tx.context)
         if not self.tx.is_complete():
             self.sign_button.setDisabled(False)
 
     def _tx_to_text(self, prefer_readable: bool=False) -> str:
-        # if self.tx.is_complete():
-        #     return str(self.tx)
+        assert not self.tx.is_complete(), "complete transactions are directly encoded from raw"
 
         tx_dict = self.tx.to_dict()
         if prefer_readable:
             return json.dumps(tx_dict, indent=4) + '\n'
         return json.dumps(tx_dict)
-
-    def save(self) -> None:
-        if self.tx.is_complete():
-            name = 'signed_%s.txn' % (self.tx.txid()[0:8])
-        else:
-            name = 'unsigned.txn'
-        fileName = self._main_window.getSaveFileName(
-            _("Select where to save your signed transaction"), name, "*.txn")
-        if fileName:
-            with open(fileName, "w+") as f:
-                f.write(self._tx_to_text(prefer_readable=True))
-            self.show_message(_("Transaction saved successfully"))
-            self._saved = True
 
     def update(self) -> None:
         base_unit = app_state.base_unit()
@@ -366,10 +363,10 @@ class TxDialog(QDialog, MessageBoxMixin):
                 if tx_info_fee < 0:
                     tx_info_fee = None
 
-        if self.tx.description is None:
+        if self.tx.context.description is None:
             self.tx_desc.hide()
         else:
-            self.tx_desc.setText(self.tx.description)
+            self.tx_desc.setText(self.tx.context.description)
             self.tx_desc.show()
         self.status_label.setText(tx_info.status)
 
@@ -410,6 +407,132 @@ class TxDialog(QDialog, MessageBoxMixin):
         visible = app_state.app.cosigner_pool.show_send_to_cosigner_button(self._main_window,
             self._account, self.tx)
         self.cosigner_button.setVisible(visible)
+
+        # Copy options.
+        self._copy_menu.clear()
+        if self.tx.is_complete():
+            self._copy_hex_menu = self._copy_menu.addAction(
+                _("Transaction (hex)"),
+                partial(self._copy_transaction, TxSerialisationFormat.HEX))
+            self._copy_extended_full_menu = self._copy_menu.addAction(
+                _("Transaction with proofs (JSON)"),
+                partial(self._copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+        else:
+            self._copy_extended_basic_menu = self._copy_menu.addAction(
+                _("Incomplete transaction (JSON)"),
+                partial(self._copy_transaction, TxSerialisationFormat.JSON))
+            self._copy_extended_full_menu = self._copy_menu.addAction(
+                _("Incomplete transaction with proofs (JSON)"),
+                partial(self._copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+
+        # Save options.
+        self._save_menu.clear()
+        if self.tx.is_complete():
+            self._save_raw_menu = self._save_menu.addAction(
+                _("Transaction (raw)"),
+                partial(self._save_transaction, TxSerialisationFormat.RAW))
+            self._save_hex_menu = self._save_menu.addAction(
+                _("Transaction (hex)"),
+                partial(self._save_transaction, TxSerialisationFormat.HEX))
+            self._save_extended_full_menu = self._save_menu.addAction(
+                _("Transaction with proofs (JSON)"),
+                partial(self._save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+        else:
+            self._save_extended_basic_menu = self._save_menu.addAction(
+                _("Incomplete transaction (JSON)"),
+                partial(self._save_transaction, TxSerialisationFormat.JSON))
+            self._save_extended_full_menu = self._save_menu.addAction(
+                _("Incomplete transaction with proofs (JSON)"),
+                partial(self._save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+
+    def _obtain_transaction_data(self, format: TxSerialisationFormat,
+            completion_signal: Optional[pyqtSignal], done_signal: pyqtSignal,
+            completion_text: str) -> None:
+        tx_data = self.tx.to_format(format)
+        if not isinstance(tx_data, dict):
+            # This is not ideal, but it covers both bases.
+            completion_signal.emit(format, tx_data)
+            done_signal.emit(format, tx_data)
+            return
+
+        steps = self._account.estimate_extend_serialised_transaction_steps(format, self.tx,
+            tx_data)
+
+        # The done callbacks should happen in the context of the GUI thread.
+        def on_done(weakwindow: 'ElectrumWindow', future: concurrent.futures.Future) -> None:
+            nonlocal format, done_signal
+            try:
+                data = future.result()
+            except concurrent.futures.CancelledError:
+                done_signal.emit(format, None)
+            except Exception as exc:
+                weakwindow.on_exception(exc)
+            else:
+                done_signal.emit(format, data)
+
+        title = _("Obtaining transaction data")
+        func = partial(self._obtain_transaction_data_worker, format, tx_data, completion_signal,
+            completion_text)
+        weakwindow = weakref.proxy(self._main_window)
+        WaitingDialog(self, title, func, on_done=partial(on_done, weakwindow),
+            progress_steps=steps, allow_cancel=True, close_delay=5)
+
+    def _obtain_transaction_data_worker(self, format: TxSerialisationFormat,
+            tx_data: Dict[str, Any], completion_signal: Optional[pyqtSignal], completion_text: str,
+            update_cb: Optional[WaitingUpdateCallback]=None) -> Optional[Dict[str, Any]]:
+        """ This wraps the worker code that runs in the threaded task by the waiting dialog. """
+        data = self._account.extend_serialised_transaction(format, self.tx, tx_data, update_cb)
+        if data is not None:
+            if completion_signal is not None:
+                completion_signal.emit(format, data)
+            update_cb(False, completion_text)
+        return data
+
+    def _copy_transaction(self, format: TxSerialisationFormat) -> None:
+        # Completion: The dialog is still open and they should be able to use the copied data.
+        # Done: The dialog is closed, we do not need to do anything else.
+        self._obtain_transaction_data(format, self.copy_data_ready_signal, self.dummy_signal,
+            _("Data copied to clipboard"))
+
+    def _copy_transaction_ready(self, format: TxSerialisationFormat,
+            tx_data: Optional[Dict[str, Any]]=None) -> None:
+        if tx_data is None:
+            logger.debug("_copy_transaction_ready aborted")
+            return
+
+        # NOTE(rt12) Will not be RAW, as we do not support non-textual clipboard data at this time
+        # and we do not offer it as a menu option anyway for copying because of this.
+        tx_text: str = tx_data if type(tx_data) is str else json.dumps(tx_data)
+        self._main_window.app.clipboard().setText(tx_text)
+
+    def _save_transaction(self, format: TxSerialisationFormat) -> None:
+        # Completion: The dialog is still open and it is not the right time to save.
+        # Done: The dialog is closed, give them the option to save then.
+        self._obtain_transaction_data(format, None, self.save_data_ready_signal,
+            _("Data ready to save"))
+
+    def _save_transaction_ready(self, format: TxSerialisationFormat,
+            tx_data: Optional[Dict[str, Any]]=None) -> None:
+        if tx_data is None:
+            logger.debug("_copy_transaction_ready aborted")
+            return
+
+        suffix_text = TxFileExtensions[format]
+        if self.tx.is_complete():
+            tx_short_id = self.tx.txid()[0:8]
+            name = f'signed_{tx_short_id}.{suffix_text}'
+        else:
+            tx_short_id = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+            name = f'incomplete_{tx_short_id}.{suffix_text}'
+        fileName = self._main_window.getSaveFileName(_("Select where to save your transaction"),
+            name, filter=f"*.{suffix_text}", parent=self)
+        if fileName:
+            mode = "wb" if format == TxSerialisationFormat.RAW else "w"
+            write_data = json.dumps(tx_data) if type(tx_data) is dict else tx_data
+            with open(fileName, mode) as f:
+                f.write(write_data)
+            self.show_message(_("Transaction saved successfully"))
+            self._saved = True
 
     def _add_io(self, vbox: QVBoxLayout) -> None:
         self._i_table = InputTreeWidget(self, self._main_window)

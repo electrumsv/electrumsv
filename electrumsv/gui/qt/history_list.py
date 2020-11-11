@@ -335,9 +335,7 @@ class HistoryList(MyTreeWidget):
             # reported issue.
             menu.addAction(_("Edit {}").format(column_title),
                 lambda: self.currentItem() and self.editItem(self.currentItem(), column))
-        label = self._wallet.get_transaction_label(tx_hash) or None
-        menu.addAction(_("Details"), lambda: self._main_window.show_transaction(account,
-            tx, label))
+        menu.addAction(_("Details"), lambda: self._main_window.show_transaction(account, tx))
         if is_unconfirmed and tx:
             child_tx = account.cpfp(tx, 0)
             if child_tx:

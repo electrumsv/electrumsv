@@ -43,7 +43,7 @@ from electrumsv.exceptions import ExcessiveFee, NotEnoughFunds
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.paymentrequest import has_expired, PaymentRequest
-from electrumsv.transaction import Transaction, TransactionContext, XTxOutput
+from electrumsv.transaction import Transaction, XTxOutput
 from electrumsv.util import format_satoshis_plain
 from electrumsv.wallet import AbstractAccount, UTXO
 from electrumsv.wallet_database.tables import InvoiceRow
@@ -418,12 +418,11 @@ class SendView(QWidget):
             tx = self.get_transaction_for_invoice()
             if tx is not None:
                 if preview or not tx.is_complete():
-                    self._main_window.show_transaction(self._account, tx, tx.description,
-                        pr=self._payment_request)
+                    self._main_window.show_transaction(self._account, tx, pr=self._payment_request)
                     self.clear()
                     return
 
-                self._main_window.broadcast_transaction(self._account, tx, tx.description)
+                self._main_window.broadcast_transaction(self._account, tx)
                 return
 
         r = self._read()
@@ -446,11 +445,12 @@ class SendView(QWidget):
             self._main_window.show_message(str(e))
             return
 
+        tx.context.description = tx_desc
         if preview:
-            self._main_window.show_transaction(self._account, tx, tx_desc, pr=self._payment_request)
+            self._main_window.show_transaction(self._account, tx, pr=self._payment_request)
         else:
             amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
-            self._sign_tx_and_broadcast_if_complete(amount, tx, tx_desc)
+            self._sign_tx_and_broadcast_if_complete(amount, tx)
 
     def _read(self) -> Tuple[List[XTxOutput], Optional[int], str, List[UTXO]]:
         if self._payment_request and self._payment_request.has_expired():
@@ -488,8 +488,7 @@ class SendView(QWidget):
             return self.pay_from
         return self._account.get_spendable_coins(None, self._main_window.config)
 
-    def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction,
-            tx_desc: str) -> None:
+    def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction) -> None:
         # confirmation dialog
         fee = tx.get_fee()
 
@@ -507,6 +506,9 @@ class SendView(QWidget):
         if not password:
             return
 
+        if self._payment_request is not None:
+            tx.context.invoice_id = self._payment_request.get_id()
+
         def sign_done(success: bool) -> None:
             if success:
                 if not tx.is_complete():
@@ -514,16 +516,9 @@ class SendView(QWidget):
                     self.clear()
                     return
 
-                self._main_window.broadcast_transaction(self._account, tx, tx_desc)
+                self._main_window.broadcast_transaction(self._account, tx)
 
-        tx_context: Optional[TransactionContext] = None
-        if self._payment_request is not None:
-            tx_context = TransactionContext(invoice_id=self._payment_request.get_id(),
-                description=tx.description)
-        else:
-            tx_context = TransactionContext(description=tx.description)
-
-        self._main_window.sign_tx_with_password(tx, sign_done, password, tx_context=tx_context)
+        self._main_window.sign_tx_with_password(tx, sign_done, password, tx_context=tx.context)
 
     def get_transaction_for_invoice(self) -> Optional[Transaction]:
         invoice_row = self._account.invoices.get_invoice_for_id(self._payment_request.get_id())

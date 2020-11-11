@@ -818,9 +818,8 @@ class TransactionView(QTableView):
         self._main_window.show_invoice(self._account, row)
 
     def _broadcast_transaction(self, tx_hash: bytes) -> None:
-        desc = None
         tx = self._account.get_transaction(tx_hash)
-        self._main_window.broadcast_transaction(self._account, tx, desc,
+        self._main_window.broadcast_transaction(self._account, tx,
             window=self._main_window.reference())
 
     def _delete_transaction(self, tx_hash: bytes) -> None:
