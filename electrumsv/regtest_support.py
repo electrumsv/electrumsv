@@ -18,6 +18,14 @@ MAX_BITS = 0x1d00ffff
 
 logger = logs.get_logger("app_state")
 
+# Makes this code docker-friendly (can access a node on host with "host.docker.internal"
+BITCOIN_NODE_HOST = os.environ.get("BITCOIN_NODE_HOST") or "127.0.0.1"
+BITCOIN_NODE_PORT = os.environ.get("BITCOIN_NODE_PORT") or 18332
+BITCOIN_NODE_RPCUSER = os.environ.get("BITCOIN_NODE_RPCUSER") or "rpcuser"
+BITCOIN_NODE_RPCPASSWORD = os.environ.get("BITCOIN_NODE_RPCPASSWORD") or "rpcpassword"
+BITCOIN_NODE_URI = f"http://{BITCOIN_NODE_RPCUSER}:{BITCOIN_NODE_RPCPASSWORD}" \
+                   f"@{BITCOIN_NODE_HOST}:{BITCOIN_NODE_PORT}"
+
 
 class HeadersRegTestMod(Headers):
 
@@ -71,7 +79,7 @@ def node_rpc_call(method_name: str, *args):
             params = [*args]
         payload = json.dumps({"jsonrpc": "2.0", "method": f"{method_name}", "params": params,
             "id": 0})
-        result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
+        result = requests.post(BITCOIN_NODE_URI, data=payload)
         result.raise_for_status()
         return result
     except requests.exceptions.HTTPError as e:
@@ -95,7 +103,7 @@ def regtest_topup_account(receive_address: P2PKH_Address, amount: int=25) -> Opt
     #  'signrawtransaction' jsonrpc method - AustEcon
     payload = json.dumps({"jsonrpc": "2.0", "method": "sendtoaddress",
                           "params": [receive_address.to_string(), amount], "id": 0})
-    result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
+    result = requests.post(BITCOIN_NODE_URI, data=payload)
     if result.status_code != 200:
         raise requests.exceptions.HTTPError(result.text)
     txid = result.json()['result']
@@ -110,7 +118,7 @@ def regtest_import_privkey_to_node():
     payload = json.dumps(
         {"jsonrpc": "2.0", "method": "importprivkey",
          "params": [Net.REGTEST_FUNDS_PRIVATE_KEY_WIF], "id": 0})
-    result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
+    result = requests.post(BITCOIN_NODE_URI, data=payload)
     result.raise_for_status()
 
 
@@ -118,7 +126,7 @@ def regtest_get_mined_balance():
     # Calculate matured balance
     payload = json.dumps({"jsonrpc": "2.0", "method": "listunspent",
                           "params": [1, 1_000_000_000, [Net.REGTEST_P2PKH_ADDRESS]], "id": 0})
-    result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
+    result = requests.post(BITCOIN_NODE_URI, data=payload)
     result.raise_for_status()
     utxos = result.json()['result']
     matured_balance = sum(
@@ -131,7 +139,7 @@ def regtest_generate_nblocks(nblocks: int, address: str) -> List:
     payload1 = json.dumps(
         {"jsonrpc": "2.0", "method": "generatetoaddress", "params": [nblocks, address],
          "id": 0})
-    result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload1)
+    result = requests.post(BITCOIN_NODE_URI, data=payload1)
     result.raise_for_status()
     block_hashes = []
     for block_hash in result.json()['result']:
@@ -145,7 +153,7 @@ def regtest_generate_nblocks(nblocks: int, address: str) -> List:
 def get_blockhash_by_height(height) -> str:
     payload = json.dumps(
         {"jsonrpc": "2.0", "method": "getblockbyheight", "params": [height], "id": height})
-    result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
+    result = requests.post(BITCOIN_NODE_URI, data=payload)
     result.raise_for_status()
     hash_ = result.json()['result']['hash']
     return hash_
@@ -154,7 +162,7 @@ def get_blockhash_by_height(height) -> str:
 def get_raw_block_header_by_hash(hash_: str) -> bytes:
     payload = json.dumps(
         {"jsonrpc": "2.0", "method": "getblockheader", "params": [hash_, False], "id": 1})
-    result = requests.post("http://rpcuser:rpcpassword@127.0.0.1:18332", data=payload)
+    result = requests.post(BITCOIN_NODE_URI, data=payload)
     checkpoint_raw_header = bytes.fromhex(result.json()['result'])
     return checkpoint_raw_header
 
