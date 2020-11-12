@@ -4,6 +4,7 @@ certifi
 dnspython<2.0
 ecdsa>=0.13.3
 jsonrpclib-pelix
+mypy-extensions
 pyaes>=0.1a1
 requests>=2.22.0
 python-dateutil>=2.8.0
