@@ -25,7 +25,7 @@
 
 import ast
 import base64
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, cast, Dict, Optional, Tuple, Union
 import os
 import time
 import jsonrpclib
@@ -180,7 +180,7 @@ class Daemon(DaemonThread):
 
         restapi_port = int(config.get('restapi_port', 9999))
         if os.environ.get('RESTAPI_PORT'):
-            restapi_port = os.environ.get('RESTAPI_PORT')
+            restapi_port = int(cast(str, os.environ.get('RESTAPI_PORT')))
 
         username, password = get_rpc_credentials(config, is_restapi=True)
         self.rest_server = AiohttpServer(host=host, port=restapi_port, username=username,
