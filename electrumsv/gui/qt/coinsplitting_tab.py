@@ -225,9 +225,7 @@ class CoinSplittingTab(QWidget):
 
         unused_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
         script = self._account.get_script_for_id(unused_key.keyinstance_id)
-        outputs = [
-            TxOutput(all, script)
-        ]
+        outputs = [ XTxOutput(all, script) ]
         tx = self._account.make_unsigned_transaction(coins, outputs, self._main_window.config)
 
         amount = tx.output_value()
