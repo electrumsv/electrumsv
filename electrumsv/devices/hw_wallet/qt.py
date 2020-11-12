@@ -32,6 +32,7 @@ import weakref
 
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QAction
+from PyQt5 import sip
 
 from electrumsv.app_state import app_state
 from electrumsv.exceptions import UserCancelled
@@ -182,8 +183,9 @@ class QtHandlerBase(QObject):
         self.done.set()
 
     def clear_dialog(self):
-        if self.dialog:
-            self.dialog.accept()
+        if self.dialog is not None:
+            if not sip.isdeleted(self.dialog):
+                self.dialog.accept()
             self.dialog = None
 
     def win_query_choice(self, msg, labels):

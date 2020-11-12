@@ -50,6 +50,7 @@ from PyQt5.QtWidgets import (
     QLineEdit, QMainWindow, QMenu, QMenuBar, QMessageBox, QPushButton, QSizePolicy, QShortcut,
     QStackedWidget, QTextEdit, QToolBar, QVBoxLayout, QWidget
 )
+from PyQt5 import sip
 
 import electrumsv
 from electrumsv import bitcoin, commands, paymentrequest, qrscanner, util
@@ -1678,13 +1679,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     @protected
     def do_sign(self, account: AbstractAccount, key_id: int, message: str, signature,
-            password: str):
+            password: str) -> None:
         message = message.toPlainText().strip()
         if account.is_watching_only():
             self.show_message(_('This is a watching-only account.'))
             return
 
-        def show_signed_message(sig):
+        def show_signed_message(sig: bytes) -> None:
+            nonlocal signature
+            # Empty signature indicates user exit.
+            # Deleted signature object indicates that user pre-emptively closed widget.
+            if not len(sig) or sip.isdeleted(signature):
+                return
             signature.setText(base64.b64encode(sig).decode('ascii'))
         self.run_in_thread(account.sign_message, key_id, message, password,
             on_success=show_signed_message)
