@@ -1,6 +1,6 @@
 electrumsv-secp256k1>=0.9.1
 bitcoinX>=0.2.4,<0.2.5
-PyQt5
+PyQt5==5.13.1
 pycryptodomex
 websocket-client
 dmgbuild
