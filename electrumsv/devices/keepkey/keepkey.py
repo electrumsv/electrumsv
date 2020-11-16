@@ -284,8 +284,13 @@ class KeepKeyPlugin(HW_PluginBase):
         elif method == TIM_RECOVER:
             word_count = 6 * (item + 2)  # 12, 18 or 24
             client.step = 0
-            client.recovery_device(False, word_count, passphrase_protection,
-                                   pin_protection, label, language)
+            client.recovery_device(
+                False, # use_trezor_method
+                word_count,
+                passphrase_protection,
+                pin_protection,
+                label,
+                language)
         elif method == TIM_MNEMONIC:
             pin = pin_protection  # It's the pin, not a boolean
             client.load_device_by_mnemonic(str(item), pin,
@@ -305,7 +310,7 @@ class KeepKeyPlugin(HW_PluginBase):
         client.handler = self.create_handler(wizard)
         if not device_info.initialized:
             self.initialize_device(device_id, wizard, client.handler)
-        client.get_master_public_key('m')
+        client.get_master_public_key('m', creating=True)
 
     def get_master_public_key(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)
