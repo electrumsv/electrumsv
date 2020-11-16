@@ -2,22 +2,25 @@
     <body>
         <p>
             Changes included in this version of ElectrumSV are documented in a more readable
-            form within the following article: <a href="https://medium.com/@roger-taylor/electrumsv-1-3-8-e07700fb9058">ElectrumSV 1.3.8</a>
+            form within the following article: <a href="https://medium.com/@roger-taylor/electrumsv-1-3-9-50c39bc7ef68">ElectrumSV 1.3.9</a>
         </p>
         <p>
             The most prominent changes are also summarised below for convenience, if you wish to read more
             about any given change, please read the linked article.
         </p>
         <ul>
-            <li>Account script types: It is no longer possible to change the script type for an
-                account, and only the safe default script type is usable for each kind of account.
-                This prevents adventurous users from enabling advanced options.
-            </li>
-            <li>
-                Trezor firmware: It should now be possible to sign transactions if a hardware wallet
-                has been updated to the latest Trezor firmware. Trezor do not support Bitcoin SV,
-                but we still want our users to be able to easily use them if they are already.
-            </li>
+            <li>MacOS compatibility: When used in conjunction, both PyQt5 and PyInstaller which are used to
+            provide our user interface and builds respectively, do not work on MacOS Big Sur. This is
+            something to do with versions of PyQt5 later than 5.13.1, and so we have rolled back our
+            required version of PyQt5 to 5.13.1.</li>
+            <li>Transaction export:</li> The copy and save options in the transaction dialog, have been fixed and
+            extended. There are now different options for both incomplete transactions and fully signed
+            transactions, allowing export of transaction byte data, hex, and hex with proof data. At this
+            time proof data is limited to parent transactions.</li>
+            <li>Waiting dialog: This UI element shown when doing actions that may take some time, has been
+            extended to optionally show a progress bar and remain open after the task has been completed
+            for a given number of seconds unless the user manually dismisses it. This is used for
+            transaction broadcast, transaction signing and copy/saving transactions with proof.</li>
         </ul>
     </body>
 </html>
