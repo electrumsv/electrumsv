@@ -259,7 +259,7 @@ class TrezorPlugin(HW_PluginBase):
         client.handler = self.create_handler(wizard)
         if not device_info.initialized:
             self.initialize_device(device_id, wizard, client.handler)
-        client.get_master_public_key('m')
+        client.get_master_public_key('m', creating=True)
 
     def get_master_public_key(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)
