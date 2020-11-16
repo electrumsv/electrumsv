@@ -26,12 +26,12 @@
 import enum
 import math
 import re
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QVBoxLayout, QGridLayout, QLabel, QLineEdit, QWidget
+    QGridLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 )
 
 from electrumsv.exceptions import IncompatibleWalletError
@@ -238,7 +238,9 @@ class ChangePasswordDialog(WindowModalDialog):
             title: Optional[str]=None,
             fields: Optional[LayoutFields]=None,
             kind: PasswordAction=PasswordAction.CHANGE,
-            password_check_fn: Optional[PasswordCheckCallbackType]=None) -> None:
+            password_check_fn: Optional[PasswordCheckCallbackType]=None,
+            custom_button: Optional[QPushButton]=None,
+            custom_button_result: Optional[Any]=None) -> None:
         WindowModalDialog.__init__(self, parent)
 
         ok_button = OkButton(self)
@@ -264,15 +266,24 @@ class ChangePasswordDialog(WindowModalDialog):
         vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
         vbox.addLayout(self.playout.layout())
         vbox.addStretch(1)
-        vbox.addLayout(Buttons(CancelButton(self), ok_button))
+        buttons = Buttons(CancelButton(self), ok_button)
+        if custom_button is not None and custom_button_result is not None:
+            custom_button.clicked.connect(self._on_custom_button_clicked)
+            buttons.add_left_button(custom_button)
+        vbox.addLayout(buttons)
 
         self.playout.new_pw.key_event_signal.connect(self._on_key_event)
         self.playout.conf_pw.key_event_signal.connect(self._on_key_event)
 
-    def run(self):
+        self._on_custom_button_used = False
+        self._custom_button_result = custom_button_result
+
+    def run(self) -> Tuple[bool, Optional[str], Optional[str]]:
         try:
             if not self.exec_():
                 return False, None, None
+            if self._on_custom_button_used:
+                return (True, self._custom_button_result, self._custom_button_result)
             return (True, self.playout.old_password(), self.playout.new_password())
         finally:
             self.playout.pw.setText('')
@@ -284,6 +295,10 @@ class ChangePasswordDialog(WindowModalDialog):
             return
         if self._ok_button.isEnabled():
             self.accept()
+
+    def _on_custom_button_clicked(self) -> None:
+        self._on_custom_button_used = True
+        self.accept()
 
 
 PASSWORD_REQUEST_TEXT = _("Your wallet has a password, you will need to provide that password "
@@ -369,24 +384,44 @@ class PasswordDialog(WindowModalDialog):
 class PassphraseDialog(WindowModalDialog):
     '''Prompt for passphrase for hardware wallets.'''
 
-    def __init__(self, parent):
+    def __init__(self, parent: QWidget, on_device_result: Optional[Any]=None) -> None:
         super().__init__(parent, _("Enter Passphrase"))
+        self._on_device_result = on_device_result
+        self._on_device_selected = False
 
     def _on_key_event(self, keycode: int) -> None:
         if keycode in {Qt.Key_Return, Qt.Key_Enter}:
             self.accept()
 
+    def _on_device_clicked(self) -> None:
+        self._on_device_selected = True
+        self.accept()
+
     @classmethod
-    def run(cls, parent, msg):
-        d = cls(parent)
+    def run(cls, parent: QWidget, msg: str, on_device_result: Optional[Any]=None) -> Optional[Any]:
+        d = cls(parent, on_device_result)
         pw = PasswordLineEdit()
         pw.setMinimumWidth(200)
         pw.key_event_signal.connect(d._on_key_event)
         vbox = QVBoxLayout()
         vbox.addWidget(WWLabel(msg))
         vbox.addWidget(pw)
-        vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
+        buttons = Buttons(CancelButton(d), OkButton(d))
+        if d._on_device_result is not None:
+            on_device_button = QPushButton(_("On Device"))
+            on_device_button.setToolTip(
+                _("Use the hardware device to enter the passphrase instead."))
+            on_device_button.clicked.connect(d._on_device_clicked)
+            buttons.add_left_button(on_device_button)
+        vbox.addLayout(buttons)
         d.setLayout(vbox)
-        passphrase = pw.text() if d.exec_() else None
-        pw.setText('')
-        return passphrase
+        if d.exec():
+            # We want to be sure we clear the passphrase regardless.
+            passphrase = pw.text()
+            pw.setText('')
+            if d._on_device_selected:
+                return d._on_device_result
+            return passphrase
+        else:
+            pw.setText('')
+            return None

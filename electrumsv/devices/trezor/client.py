@@ -125,7 +125,7 @@ class TrezorClientSV:
             logger.error("timed out")
             self.clear_session()
 
-    def get_master_public_key(self, bip32_path, creating=False):
+    def get_master_public_key(self, bip32_path: str, creating=False) -> BIP32PublicKey:
         address_n = bip32_decompose_chain_string(bip32_path)
         with self.run_flow(creating_wallet=creating):
             node = trezorlib.btc.get_public_node(self.client, address_n).node
@@ -263,7 +263,8 @@ class TrezorClientSV:
                     "access the bitcoins in the wallet.").format(self.device)
         else:
             msg = _("Enter the passphrase to unlock this wallet:")
-        self.handler.passphrase_on_device = available_on_device
+        self.handler.set_on_device_passphrase_result(
+            PASSPHRASE_ON_DEVICE if available_on_device else None)
         passphrase = self.handler.get_passphrase(msg, self.creating_wallet)
         if passphrase is PASSPHRASE_ON_DEVICE:
             return passphrase

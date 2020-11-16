@@ -115,7 +115,6 @@ class QtHandler(QtHandlerBase):
         self.matrix_signal.connect(self.matrix_recovery_dialog)
         self.close_matrix_dialog_signal.connect(self._close_matrix_dialog)
         self.matrix_dialog = None
-        self.passphrase_on_device = False
 
     def get_pin(self, msg):
         self.done.clear()
