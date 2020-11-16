@@ -11,7 +11,7 @@ from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 
-from trezorlib.client import TrezorClient
+from trezorlib.client import PASSPHRASE_ON_DEVICE, TrezorClient
 from trezorlib.exceptions import TrezorFailure, Cancelled, OutdatedFirmwareError
 from trezorlib.messages import ButtonRequestType, WordRequestType, RecoveryDeviceType
 import trezorlib.btc
@@ -255,7 +255,7 @@ class TrezorClientSV:
             raise Cancelled
         return pin
 
-    def get_passphrase(self):
+    def get_passphrase(self, available_on_device: bool):
         if self.creating_wallet:
             msg = _("Enter a passphrase to generate this wallet.  Each time "
                     "you use this wallet your {} will prompt you for the "
@@ -263,7 +263,10 @@ class TrezorClientSV:
                     "access the bitcoins in the wallet.").format(self.device)
         else:
             msg = _("Enter the passphrase to unlock this wallet:")
+        self.handler.passphrase_on_device = available_on_device
         passphrase = self.handler.get_passphrase(msg, self.creating_wallet)
+        if passphrase is PASSPHRASE_ON_DEVICE:
+            return passphrase
         if passphrase is None:
             raise Cancelled
         passphrase = bip39_normalize_passphrase(passphrase)

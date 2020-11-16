@@ -134,11 +134,11 @@ class QtHandlerBase(QObject):
         self.done.wait()
         return self.word
 
-    def get_passphrase(self, msg, confirm):
+    def get_passphrase(self, msg: str, confirm: bool):
         self.passphrase_signal.emit(msg, confirm)
         return self.passphrase_queue.get()
 
-    def passphrase_dialog(self, msg, confirm):
+    def passphrase_dialog(self, msg: str, confirm: bool) -> None:
         # If confirm is true, require the user to enter the passphrase twice
         parent = self.top_level_window()
         if confirm:

@@ -16,8 +16,8 @@ from electrumsv.gui.qt.util import (
     WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton,
 )
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase, HandlerWindow
-from .trezor import (TrezorPlugin, TIM_RECOVER,
-                     RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX)
+from .trezor import (TrezorPlugin, RECOVERY_TYPE_SCRAMBLED_WORDS,
+    RECOVERY_TYPE_MATRIX, TIM_RECOVER)
 
 
 PASSPHRASE_HELP_SHORT =_(
@@ -115,6 +115,7 @@ class QtHandler(QtHandlerBase):
         self.matrix_signal.connect(self.matrix_recovery_dialog)
         self.close_matrix_dialog_signal.connect(self._close_matrix_dialog)
         self.matrix_dialog = None
+        self.passphrase_on_device = False
 
     def get_pin(self, msg):
         self.done.clear()

@@ -25,6 +25,7 @@ try:
 
     from .client import TrezorClientSV
 
+    from trezorlib.client import PASSPHRASE_ON_DEVICE # pylint: disable=unused-import
     from trezorlib.messages import (
         RecoveryDeviceType, HDNodeType, HDNodePathType,
         InputScriptType, OutputScriptType, MultisigRedeemScriptType,
@@ -38,7 +39,7 @@ except Exception as e:
     logger.warning(f"Failed to import trezorlib: {e}")
     TREZORLIB = False
 
-    RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX = range(2)
+    RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX, PASSPHRASE_ON_DEVICE = range(3)
 
 
 # Trezor initialization methods
