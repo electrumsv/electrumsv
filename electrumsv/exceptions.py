@@ -21,6 +21,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from typing import Set
+
 from .i18n import _
 
 class NotEnoughFunds(Exception):
@@ -76,4 +78,22 @@ class WalletLoadError(Exception):
     pass
 
 class InvalidPayToError(Exception):
+    pass
+
+class PreviousTransactionsMissingException(Exception):
+    have_tx_hashes: Set[bytes]
+    need_tx_hashes: Set[bytes]
+
+    def __init__(self, have_tx_hashes: Set[bytes], need_tx_hashes: Set[bytes]) -> None:
+        super().__init__()
+
+        self.have_tx_hashes = have_tx_hashes
+        self.need_tx_hashes = need_tx_hashes
+
+    def __str__(self) -> str:
+        required_count = len(self.need_tx_hashes)
+        return _("Signing this transaction requires {} other transactions " \
+            "the coins are being spent from.").format(required_count)
+
+class WaitingTaskCancelled(Exception):
     pass

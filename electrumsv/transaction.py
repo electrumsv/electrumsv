@@ -49,6 +49,23 @@ dummy_signature = bytes(72)
 logger = logs.get_logger("transaction")
 
 
+class TxSerialisationFormat(enum.IntEnum):
+    RAW = 0
+    HEX = 1
+    JSON = 2
+    JSON_WITH_PROOFS = 3
+
+
+TxFileExtensions = {
+    TxSerialisationFormat.RAW: "txn",
+    TxSerialisationFormat.HEX: "txt",
+    TxSerialisationFormat.JSON: "json",
+    TxSerialisationFormat.JSON_WITH_PROOFS: "json",
+}
+
+TxSerialisedType = Union[bytes, str, Dict]
+
+
 def classify_tx_output(tx_output: TxOutput) -> ScriptTemplate:
     # This returns a P2PKH_Address, P2SH_Address, P2PK_Output, OP_RETURN_Output,
     # P2MultiSig_Output or Unknown_Output
@@ -74,6 +91,7 @@ def tx_output_to_display_text(tx_output: TxOutput) -> Tuple[str, ScriptTemplate]
 class TransactionContext:
     invoice_id: Optional[int] = attr.ib(default=None)
     description: Optional[str] = attr.ib(default=None)
+    prev_txs: Dict[bytes, 'Transaction'] = attr.ib(default=attr.Factory(dict))
 
 
 class XPublicKeyType(enum.IntEnum):
@@ -517,8 +535,8 @@ def txdict_from_str(txt: str) -> Dict[str, Any]:
 
 @attr.s(slots=True)
 class Transaction(Tx):
-    description: Optional[str] = attr.ib(default=None)
     output_info: Optional[List[Dict[bytes, Any]]] = attr.ib(default=None)
+    context: TransactionContext = attr.ib(default=attr.Factory(TransactionContext))
 
     SIGHASH_FORKID = 0x40
 
@@ -604,21 +622,21 @@ class Transaction(Tx):
                     break
 
     @classmethod
-    def get_preimage_script(self, txin) -> str:
+    def get_preimage_script_bytes(self, txin) -> bytes:
         _type = txin.type()
         if _type == ScriptType.P2PKH:
             x_pubkey = txin.x_pubkeys[0]
             script = x_pubkey.to_public_key().P2PKH_script()
-            return script.to_bytes().hex()
+            return script.to_bytes()
         elif _type == ScriptType.MULTISIG_P2SH or _type == ScriptType.MULTISIG_BARE:
-            return multisig_script(txin.x_pubkeys, txin.threshold).hex()
+            return multisig_script(txin.x_pubkeys, txin.threshold)
         elif _type == ScriptType.MULTISIG_ACCUMULATOR:
             return AccumulatorMultiSigOutput(
-                [ v.to_bytes() for v in txin.x_pubkeys ], txin.threshold).to_script_bytes().hex()
+                [ v.to_bytes() for v in txin.x_pubkeys ], txin.threshold).to_script_bytes()
         elif _type == ScriptType.P2PK:
             x_pubkey = txin.x_pubkeys[0]
             script = x_pubkey.to_public_key().P2PK_script()
-            return script.to_bytes().hex()
+            return script.to_bytes()
         else:
             raise RuntimeError('Unknown txin type', _type)
 
@@ -634,7 +652,7 @@ class Transaction(Tx):
 
     def preimage_hash(self, txin):
         input_index = self.inputs.index(txin)
-        script_code = bytes.fromhex(self.get_preimage_script(txin))
+        script_code = self.get_preimage_script_bytes(txin)
         sighash = SigHash(self.nHashType())
         # Original BTC algorithm: https://en.bitcoin.it/wiki/OP_CHECKSIG
         # Current algorithm: https://github.com/moneybutton/bips/blob/master/bip-0143.mediawiki
@@ -722,7 +740,11 @@ class Transaction(Tx):
                     txout.x_pubkeys = [ XPublicKey.from_dict(v)
                         for v in output_data[i]['x_pubkeys']]
             if 'description' in data:
-                tx.description = str(data['description'])
+                tx.context.description = str(data['description'])
+            if 'prev_txs' in data:
+                for tx_hex in data["prev_txs"]:
+                    ptx = cls.from_hex(tx_hex)
+                    tx.context.prev_txs[ptx.hash()] = ptx
             assert tx.is_complete() == data["complete"], "transaction completeness mismatch"
         elif version == 0:
             assert tx.is_complete(), "raw transactions must be complete"
@@ -734,8 +756,8 @@ class Transaction(Tx):
             'hex': self.to_hex(),
             'complete': self.is_complete(),
         }
-        if self.description:
-            out['description'] = self.description
+        if self.context.description:
+            out['description'] = self.context.description
         if force_signing_metadata or not out['complete']:
             out['inputs'] = []
             for txin in self.inputs:
@@ -756,3 +778,16 @@ class Transaction(Tx):
             if len(output_data):
                 out['outputs'] = output_data
         return out
+
+    def to_format(self, format: TxSerialisationFormat) -> TxSerialisedType:
+        # Will raise `NotImplementedError` on incomplete implementation of new formats.
+        if format == TxSerialisationFormat.RAW:
+            return self.to_bytes()
+        elif format == TxSerialisationFormat.HEX:
+            return self.to_hex()
+        elif format in (TxSerialisationFormat.JSON, TxSerialisationFormat.JSON_WITH_PROOFS):
+            # It is expected the caller may wish to extend this and they will take care of the
+            # final serialisation step.
+            return self.to_dict()
+        raise NotImplementedError(f"unhanded format {format}")
+

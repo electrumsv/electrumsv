@@ -226,96 +226,97 @@ class TestRestAPI:
 
         event_loop.run_until_complete(main())
 
-    def test_create_and_broadcast_exception_handling(self, event_loop):
-        Net.set_to(SVRegTestnet)
-        p2pkh_object = SVRegTestnet.REGTEST_FUNDS_PUBLIC_KEY.to_address()
-
-        async def main():
-            async with aiohttp.ClientSession() as session:
-                # Todo - use websocket instead of sleeps
-                time.sleep(6)
-                # get tx history before tests to compare later
-                result1 = await self.get_tx_history(session)
-                error_code = result1.get('code')
-                if error_code:
-                    assert False, result1
-                len_tx_hist_before = len(result1['history'])
-
-                # get utxos
-                result2 = await self.get_utxos(session)
-                error_code = result2.get('code')
-                if error_code:
-                    assert False, result2
-                utxos = result2['utxos']
-
-                # Prepare for two txs that use the same utxo
-                P2PKH_OUTPUT = {"value": 100,
-                                "script_pubkey": p2pkh_object.to_script().to_hex()}
-                # base tx
-                payload1 = {
-                    "outputs": [P2PKH_OUTPUT],
-                    "password": "test",
-                    "utxos": [utxos[0]]
-                }
-                # trigger mempool conflict
-                payload2 = {
-                    "outputs": [P2PKH_OUTPUT, P2PKH_OUTPUT],
-                    "password": "test",
-                    "utxos": [utxos[0]]
-                }
-                # trigger 'duplicate set' internal server error (same exact txid in tx cache)
-                payload3 = {
-                    "outputs": [P2PKH_OUTPUT],
-                    "password": "test",
-                    "utxos": [utxos[0]]
-                }
-                # First tx
-                result3 = await self.create_and_send(session, payload1)
-                error_code = result3.get('code')
-                if error_code:
-                    assert False, result3
-
-                # Trigger "mempool conflict"
-                result4 = await self.create_and_send(session, payload2)
-                error_code = result4.get('code')
-                if not error_code:
-                    assert False, result4
-
-                assert result4['code'] == 40011
-
-                # Trigger 'duplicate set' internal server error (same exact txid in tx cache)
-                result4 = await self.create_and_send(session, payload3)
-                error_code = result4.get('code')
-                if not error_code:
-                    assert False, result4
-
-                assert result4['code'] == 50000
-
-                # trigger insufficient coins
-                P2PKH_OUTPUT = {"value": 1_000 * 100_000_000,
-                                "script_pubkey": p2pkh_object.to_script().to_hex()}
-                payload2 = {
-                    "outputs": [P2PKH_OUTPUT],
-                    "password": "test"
-                }
-                result5 = await self.create_and_send(session, payload2)
-                error_code = result5.get('code')
-                if not error_code:
-                    assert False, result5
-                assert result5 == {'code': 40006,
-                                   'message': 'You have insufficient coins for this transaction'}
-
-                # Todo - use websocket instead of sleeps
-                time.sleep(6)
-
-                # check that only 1 new txs was created
-                result6 = await self.get_tx_history(session)
-                error_code = result6.get('code')
-                if error_code:
-                    assert False, result6
-                len_tx_hist_after = len(result6['history'])
-
-                # only one extra tx should exist (in the other cases, no tx should exist)
-                assert len_tx_hist_before == (len_tx_hist_after - 1)
-
-        event_loop.run_until_complete(main())
+"""Disabled test until websockets are implemented for waiting on tx processing"""
+    # def test_create_and_broadcast_exception_handling(self, event_loop):
+    #     Net.set_to(SVRegTestnet)
+    #     p2pkh_object = SVRegTestnet.REGTEST_FUNDS_PUBLIC_KEY.to_address()
+    #
+    #     async def main():
+    #         async with aiohttp.ClientSession() as session:
+    #             # Todo - use websocket instead of sleeps
+    #             time.sleep(6)
+    #             # get tx history before tests to compare later
+    #             result1 = await self.get_tx_history(session)
+    #             error_code = result1.get('code')
+    #             if error_code:
+    #                 assert False, result1
+    #             len_tx_hist_before = len(result1['history'])
+    #
+    #             # get utxos
+    #             result2 = await self.get_utxos(session)
+    #             error_code = result2.get('code')
+    #             if error_code:
+    #                 assert False, result2
+    #             utxos = result2['utxos']
+    #
+    #             # Prepare for two txs that use the same utxo
+    #             P2PKH_OUTPUT = {"value": 100,
+    #                             "script_pubkey": p2pkh_object.to_script().to_hex()}
+    #             # base tx
+    #             payload1 = {
+    #                 "outputs": [P2PKH_OUTPUT],
+    #                 "password": "test",
+    #                 "utxos": [utxos[0]]
+    #             }
+    #             # trigger mempool conflict
+    #             payload2 = {
+    #                 "outputs": [P2PKH_OUTPUT, P2PKH_OUTPUT],
+    #                 "password": "test",
+    #                 "utxos": [utxos[0]]
+    #             }
+    #             # trigger 'duplicate set' internal server error (same exact txid in tx cache)
+    #             payload3 = {
+    #                 "outputs": [P2PKH_OUTPUT],
+    #                 "password": "test",
+    #                 "utxos": [utxos[0]]
+    #             }
+    #             # First tx
+    #             result3 = await self.create_and_send(session, payload1)
+    #             error_code = result3.get('code')
+    #             if error_code:
+    #                 assert False, result3
+    #
+    #             # Trigger "mempool conflict"
+    #             result4 = await self.create_and_send(session, payload2)
+    #             error_code = result4.get('code')
+    #             if not error_code:
+    #                 assert False, result4
+    #
+    #             assert result4['code'] == 40011
+    #
+    #             # Trigger 'duplicate set' internal server error (same exact txid in tx cache)
+    #             result4 = await self.create_and_send(session, payload3)
+    #             error_code = result4.get('code')
+    #             if not error_code:
+    #                 assert False, result4
+    #
+    #             assert result4['code'] == 50000
+    #
+    #             # trigger insufficient coins
+    #             P2PKH_OUTPUT = {"value": 1_000 * 100_000_000,
+    #                             "script_pubkey": p2pkh_object.to_script().to_hex()}
+    #             payload2 = {
+    #                 "outputs": [P2PKH_OUTPUT],
+    #                 "password": "test"
+    #             }
+    #             result5 = await self.create_and_send(session, payload2)
+    #             error_code = result5.get('code')
+    #             if not error_code:
+    #                 assert False, result5
+    #             assert result5 == {'code': 40006,
+    #                                'message': 'You have insufficient coins for this transaction'}
+    #
+    #             # Todo - use websocket instead of sleeps
+    #             time.sleep(6)
+    #
+    #             # check that only 1 new txs was created
+    #             result6 = await self.get_tx_history(session)
+    #             error_code = result6.get('code')
+    #             if error_code:
+    #                 assert False, result6
+    #             len_tx_hist_after = len(result6['history'])
+    #
+    #             # only one extra tx should exist (in the other cases, no tx should exist)
+    #             assert len_tx_hist_before == (len_tx_hist_after - 1)
+    #
+    #     event_loop.run_until_complete(main())

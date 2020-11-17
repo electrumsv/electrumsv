@@ -1251,6 +1251,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
             return
         except Exception as e:
             self._plugin_debug_message = str(e)
+            logger.exception("Problem encountered setting up hardware device")
             return
 
     def _on_derivation_path_changed(self, text: str) -> None:

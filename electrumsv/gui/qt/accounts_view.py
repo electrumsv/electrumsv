@@ -258,7 +258,7 @@ class AccountsView(QSplitter):
 
     def _can_view_secured_data(self, account: AbstractAccount) -> None:
         return not account.is_watching_only() and not isinstance(account, MultisigAccount) \
-            and not account.is_hardware_wallet() \
+            and not account.involves_hardware_wallet() \
             and account.type() != AccountType.IMPORTED_PRIVATE_KEY
 
     @protected

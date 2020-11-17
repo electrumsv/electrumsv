@@ -42,7 +42,7 @@ from .exceptions import InvalidPassword, OverloadedMultisigKeystore, Incompatibl
 from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
 from .networks import Net
-from .transaction import Transaction, XPublicKey, XPublicKeyType
+from .transaction import Transaction, TransactionContext, XPublicKey, XPublicKeyType
 from .wallet_database.tables import KeyInstanceRow, MasterKeyRow
 
 
@@ -133,7 +133,11 @@ class KeyStore:
         return any(self.is_signature_candidate(x_pubkey) for txin in tx.inputs
             for x_pubkey in txin.unused_x_pubkeys())
 
-    def sign_transaction(self, tx: Transaction, password: str) -> None:
+    def requires_input_transactions(self) -> bool:
+        return False
+
+    def sign_transaction(self, tx: Transaction, password: str,
+            tx_context: TransactionContext) -> None:
         raise NotImplementedError
 
 
@@ -157,7 +161,8 @@ class Software_KeyStore(KeyStore):
     def check_password(self, password: Optional[str]) -> None:
         raise NotImplementedError
 
-    def sign_transaction(self, tx: Transaction, password: str) -> None:
+    def sign_transaction(self, tx: Transaction, password: str,
+            tx_context: TransactionContext) -> None:
         if self.is_watching_only():
             return
         # Raise if password is not correct.
@@ -658,7 +663,6 @@ class Hardware_KeyStore(Xpub, KeyStore):
 
     # Derived classes must set:
     #   - device
-    #   - DEVICE_IDS
     #   - wallet_type
     hw_type: str
     device: str
@@ -680,7 +684,6 @@ class Hardware_KeyStore(Xpub, KeyStore):
         self.label = data.get('label')
         self.handler = None
         self.plugin = None
-        self.libraries_available = False
 
     def clean_up(self) -> None:
         app_state.device_manager.unpair_xpub(self.xpub)

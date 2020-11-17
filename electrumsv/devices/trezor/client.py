@@ -11,9 +11,9 @@ from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 
-from trezorlib.client import TrezorClient
+from trezorlib.client import PASSPHRASE_ON_DEVICE, TrezorClient
 from trezorlib.exceptions import TrezorFailure, Cancelled, OutdatedFirmwareError
-from trezorlib.messages import WordRequestType, RecoveryDeviceType
+from trezorlib.messages import ButtonRequestType, WordRequestType, RecoveryDeviceType
 import trezorlib.btc
 import trezorlib.device
 
@@ -21,14 +21,17 @@ import trezorlib.device
 logger = logs.get_logger("plugin.trezor")
 
 MESSAGES = {
-    3: _("Confirm the transaction output on your {} device"),
-    4: _("Confirm internal entropy on your {} device to begin"),
-    5: _("Write down the seed word shown on your {}"),
-    6: _("Confirm on your {} that you want to wipe it clean"),
-    7: _("Confirm on your {} device the message to sign"),
-    8: _("Confirm the total amount spent and the transaction fee on your {} device"),
-    10: _("Confirm wallet address on your {} device"),
-    14: _("Choose on your {} device where to enter your passphrase"),
+    ButtonRequestType.ConfirmOutput: _("Confirm the transaction output on your {} device"),
+    ButtonRequestType.ResetDevice: _("Complete the initialization process on your {} device"),
+    ButtonRequestType.ConfirmWord: _("Write down the seed word shown on your {}"),
+    ButtonRequestType.WipeDevice: _("Confirm on your {} that you want to wipe it clean"),
+    ButtonRequestType.ProtectCall: _("Confirm on your {} device the message to sign"),
+    ButtonRequestType.SignTx:
+        _("Confirm the total amount spent and the transaction fee on your {} device"),
+    ButtonRequestType.Address: _("Confirm wallet address on your {} device"),
+    ButtonRequestType._Deprecated_ButtonRequest_PassphraseType:
+        _("Choose on your {} device where to enter your passphrase"),
+    ButtonRequestType.PassphraseEntry: _("Please enter your passphrase on the {} device"),
     'default': _("Check your {} device to continue"),
 }
 
@@ -122,7 +125,7 @@ class TrezorClientSV:
             logger.error("timed out")
             self.clear_session()
 
-    def get_master_public_key(self, bip32_path, creating=False):
+    def get_master_public_key(self, bip32_path: str, creating=False) -> BIP32PublicKey:
         address_n = bip32_decompose_chain_string(bip32_path)
         with self.run_flow(creating_wallet=creating):
             node = trezorlib.btc.get_public_node(self.client, address_n).node
@@ -252,7 +255,7 @@ class TrezorClientSV:
             raise Cancelled
         return pin
 
-    def get_passphrase(self):
+    def get_passphrase(self, available_on_device: bool):
         if self.creating_wallet:
             msg = _("Enter a passphrase to generate this wallet.  Each time "
                     "you use this wallet your {} will prompt you for the "
@@ -260,7 +263,11 @@ class TrezorClientSV:
                     "access the bitcoins in the wallet.").format(self.device)
         else:
             msg = _("Enter the passphrase to unlock this wallet:")
+        self.handler.set_on_device_passphrase_result(
+            PASSPHRASE_ON_DEVICE if available_on_device else None)
         passphrase = self.handler.get_passphrase(msg, self.creating_wallet)
+        if passphrase is PASSPHRASE_ON_DEVICE:
+            return passphrase
         if passphrase is None:
             raise Cancelled
         passphrase = bip39_normalize_passphrase(passphrase)

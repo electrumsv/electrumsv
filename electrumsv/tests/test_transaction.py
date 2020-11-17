@@ -7,7 +7,7 @@ from bitcoinx import (
 
 from electrumsv.bitcoin import address_from_string
 from electrumsv.keystore import Old_KeyStore, BIP32_KeyStore
-from electrumsv.transaction import XPublicKey, Transaction, NO_SIGNATURE
+from electrumsv.transaction import XPublicKey, Transaction, TransactionContext, NO_SIGNATURE
 
 
 unsigned_blob = '010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000005701ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300feffffffd8e43201000000000118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700'
@@ -228,19 +228,19 @@ class TestTransaction2:
         assert json.dumps(tx.to_dict()) == unsigned_json
 
         # Sign with keystore 1, then 2
-        keystore1.sign_transaction(tx, "OLD")
+        keystore1.sign_transaction(tx, "OLD", TransactionContext())
         assert json.dumps(tx.to_dict()) == signed1_json
 
-        keystore2.sign_transaction(tx, "BIP32")
+        keystore2.sign_transaction(tx, "BIP32", TransactionContext())
         assert tx.serialize() == fully_signed_hex
 
         # Sign with keystore 2, then 1
         tx = Transaction.from_extended_bytes(bytes.fromhex(unsigned_hex))
 
-        keystore2.sign_transaction(tx, "BIP32")
+        keystore2.sign_transaction(tx, "BIP32", TransactionContext())
         assert json.dumps(tx.to_dict()) == signed2_json
 
-        keystore1.sign_transaction(tx, "OLD")
+        keystore1.sign_transaction(tx, "OLD", TransactionContext())
         assert tx.serialize() == fully_signed_hex
         assert json.dumps(tx.to_dict()) == fully_signed_json
 

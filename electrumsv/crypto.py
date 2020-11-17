@@ -37,7 +37,7 @@ from .util import assert_bytes, to_bytes, to_string
 try:
     from Cryptodome.Cipher import AES
 except ImportError:
-    AES = None
+    AES = None # type: ignore
 
 
 class InvalidPadding(Exception):

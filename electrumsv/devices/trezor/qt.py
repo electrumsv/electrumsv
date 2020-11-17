@@ -16,8 +16,8 @@ from electrumsv.gui.qt.util import (
     WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton,
 )
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase, HandlerWindow
-from .trezor import (TrezorPlugin, TIM_RECOVER,
-                     RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX)
+from .trezor import (TrezorPlugin, RECOVERY_TYPE_SCRAMBLED_WORDS,
+    RECOVERY_TYPE_MATRIX, TIM_RECOVER)
 
 
 PASSPHRASE_HELP_SHORT =_(

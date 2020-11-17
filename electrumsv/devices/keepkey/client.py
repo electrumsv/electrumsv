@@ -29,7 +29,7 @@ from bitcoinx import (
     pack_be_uint32,
 )
 
-from keepkeylib.client import proto, BaseClient, ProtocolMixin
+from keepkeylib.client import proto, BaseClient, ProtocolMixin, types
 
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
@@ -50,13 +50,9 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         self.device = plugin.device
         self.handler = handler
         self.tx_api = plugin
-        self.types = plugin.types
         self.msg = None
         self.creating_wallet = False
         self.used()
-
-    def recovery_device(self, *args):
-        ProtocolMixin.recovery_device(self, False, *args)
 
     def __str__(self):
         return "%s/%s" % (self.label(), self.features.device_id)
@@ -96,10 +92,11 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         '''Provided here as in keepkeylib but not trezorlib.'''
         self.transport.write(self.proto.Cancel())
 
-    def get_master_public_key(self, bip32_path):
+    def get_master_public_key(self, bip32_path: str, creating: bool=False) -> BIP32PublicKey:
         address_n = bip32_decompose_chain_string(bip32_path)
-        creating = False
-        node = self.get_public_node(address_n, creating).node
+        # This will be cleared by the wrapper around `get_public_node`.
+        self.creating_wallet = creating
+        node = self.get_public_node(address_n).node
         self.used()
         derivation = BIP32Derivation(chain_code=node.chain_code, depth=node.depth,
                                      parent_fingerprint=pack_be_uint32(node.fingerprint),
@@ -141,10 +138,6 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         except Exception as e:
             # If the device was removed it has the same effect...
             logger.error("clear_session: ignoring error %s", e)
-
-    def get_public_node(self, address_n, creating):
-        self.creating_wallet = creating
-        return ProtocolMixin.get_public_node(self, address_n)
 
     def close(self):
         '''Called when Our wallet was closed or the device removed.'''
@@ -207,9 +200,8 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         # However, making the user acknowledge they cancelled
         # gets old very quickly, so we suppress those.  The NotInitialized
         # one is misnamed and indicates a passphrase request was cancelled.
-        if msg.code in (self.types.Failure_PinCancelled,
-                        self.types.Failure_ActionCancelled,
-                        self.types.Failure_NotInitialized):
+        if msg.code in (types.Failure_PinCancelled, types.Failure_ActionCancelled,
+                        types.Failure_NotInitialized):
             raise UserCancelled()
         raise RuntimeError(msg.message)
 

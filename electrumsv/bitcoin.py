@@ -89,14 +89,14 @@ def op_push(i: int) -> str:
         return '4e' + int_to_hex(i,4)
 
 
-def push_script(data: str) -> str:
+def push_script(data_hex: str) -> str:
     """Returns pushed data to the script, automatically
     choosing canonical opcodes depending on the length of the data.
     hex -> hex
 
     ported from https://github.com/btcsuite/btcd
     """
-    data = bfh(data)
+    data = bfh(data_hex)
     data_len = len(data)
 
     # "small integer" opcodes
@@ -236,14 +236,14 @@ def scripthash_bytes(script: Script) -> bytes:
 def scripthash_hex(item: Script) -> str:
     return hash_to_hex_str(scripthash_bytes(item))
 
-def msg_magic(message):
+def msg_magic(message) -> bytes:
     length = bfh(var_int(len(message)))
     return b"\x18Bitcoin Signed Message:\n" + length + message
 
-def address_from_string(address):
+def address_from_string(address) -> Address:
     return Address.from_string(address, Net.COIN)
 
-def is_address_valid(address):
+def is_address_valid(address) -> bool:
     try:
         address_from_string(address)
         return True

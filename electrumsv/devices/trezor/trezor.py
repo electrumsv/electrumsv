@@ -1,5 +1,4 @@
-from collections import defaultdict
-from typing import cast, Sequence, Union
+from typing import cast, Dict, List, Optional, Sequence, Union
 
 from bitcoinx import (
     bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string, Address,
@@ -12,7 +11,7 @@ from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output, XTxOutput, Transaction
+from electrumsv.transaction import classify_tx_output, XTxOutput, Transaction, TransactionContext
 from electrumsv.wallet import MultisigAccount, StandardAccount
 
 from ..hw_wallet import HW_PluginBase
@@ -26,10 +25,11 @@ try:
 
     from .client import TrezorClientSV
 
+    from trezorlib.client import PASSPHRASE_ON_DEVICE # pylint: disable=unused-import
     from trezorlib.messages import (
         RecoveryDeviceType, HDNodeType, HDNodePathType,
         InputScriptType, OutputScriptType, MultisigRedeemScriptType,
-        TxInputType, TxOutputType, TransactionType, SignTx)
+        TxInputType, TxOutputBinType, TxOutputType, TransactionType, SignTx)
 
     RECOVERY_TYPE_SCRAMBLED_WORDS = RecoveryDeviceType.ScrambledWords
     RECOVERY_TYPE_MATRIX = RecoveryDeviceType.Matrix
@@ -39,7 +39,7 @@ except Exception as e:
     logger.warning(f"Failed to import trezorlib: {e}")
     TREZORLIB = False
 
-    RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX = range(2)
+    RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX, PASSPHRASE_ON_DEVICE = range(3)
 
 
 # Trezor initialization methods
@@ -54,7 +54,7 @@ class TrezorKeyStore(Hardware_KeyStore):
     hw_type = 'trezor'
     device = 'TREZOR'
 
-    def get_derivation(self):
+    def get_derivation(self) -> str:
         return self.derivation
 
     def get_client(self, force_pair=True):
@@ -70,11 +70,17 @@ class TrezorKeyStore(Hardware_KeyStore):
         msg_sig = client.sign_message(address_path, message)
         return msg_sig.signature
 
-    def sign_transaction(self, tx, password: str) -> None:
+    def requires_input_transactions(self) -> bool:
+        return True
+
+    def sign_transaction(self, tx: Transaction, password: str,
+            tx_context: TransactionContext) -> None:
         if tx.is_complete():
             return
+
+        assert len(tx_context.prev_txs), "This keystore requires all input transactions"
         # path of the xpubs that are involved
-        xpub_path = {}
+        xpub_path: Dict[str, str] = {}
         for txin in tx.inputs:
             for x_pubkey in txin.x_pubkeys:
                 if not x_pubkey.is_bip32_key():
@@ -84,16 +90,16 @@ class TrezorKeyStore(Hardware_KeyStore):
                     xpub_path[xpub] = self.get_derivation()
 
         assert self.plugin is not None
-        self.plugin.sign_transaction(self, tx, xpub_path)
+        self.plugin.sign_transaction(self, tx, xpub_path, tx_context)
 
 
 class TrezorPlugin(HW_PluginBase):
     firmware_URL = 'https://wallet.trezor.io'
-    libraries_URL = 'https://github.com/trezor/python-trezor'
+    libraries_URL = 'https://pypi.org/project/trezor/'
     minimum_firmware = (1, 5, 2)
     keystore_class = TrezorKeyStore
-    minimum_library = (0, 11, 0)
-    maximum_library = (0, 12)
+    minimum_library = (0, 12, 0)
+    maximum_library = (0, 13)
     DEVICE_IDS = (TREZOR_PRODUCT_KEY,)
 
     MAX_LABEL_LEN = 32
@@ -253,7 +259,7 @@ class TrezorPlugin(HW_PluginBase):
         client.handler = self.create_handler(wizard)
         if not device_info.initialized:
             self.initialize_device(device_id, wizard, client.handler)
-        client.get_master_public_key('m')
+        client.get_master_public_key('m', creating=True)
 
     def get_master_public_key(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)
@@ -266,13 +272,28 @@ class TrezorPlugin(HW_PluginBase):
         else:
             return InputScriptType.SPENDADDRESS
 
-    def sign_transaction(self, keystore: TrezorKeyStore, tx, xpub_path):
+    def sign_transaction(self, keystore: TrezorKeyStore, tx: Transaction,
+            xpub_path: Dict[str, str], tx_context: TransactionContext) -> None:
+        prev_txtypes: Dict[bytes, TransactionType] = {}
+        for prev_tx_hash, prev_tx in tx_context.prev_txs.items():
+            txtype = TransactionType()
+            txtype.version = prev_tx.version
+            txtype.lock_time = prev_tx.locktime
+            txtype.inputs = self.tx_inputs(prev_tx, is_prev_tx=True)
+            txtype.bin_outputs = [
+                TxOutputBinType(amount=tx_output.value,
+                    script_pubkey=bytes(tx_output.script_pubkey)) for tx_output in prev_tx.outputs
+            ]
+            # Trezor tx hashes are same byte order as the reversed hex tx id.
+            prev_trezor_tx_hash = bytes(reversed(prev_tx_hash))
+            prev_txtypes[prev_trezor_tx_hash] = txtype
+
         client = self.get_client(keystore)
         inputs = self.tx_inputs(tx, xpub_path)
         outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx)
         details = SignTx(lock_time=tx.locktime)
         signatures, _ = client.sign_tx(self.get_coin_name(), inputs, outputs, details=details,
-                                       prev_txes=defaultdict(TransactionType))
+            prev_txes=prev_txtypes)
         tx.update_signatures(signatures)
 
     def show_key(self, account: ValidWalletTypes, keyinstance_id: int) -> None:
@@ -300,27 +321,32 @@ class TrezorPlugin(HW_PluginBase):
         script_type = self.get_trezor_input_script_type(multisig is not None)
         client.show_address(derivation_text, script_type, multisig)
 
-    def tx_inputs(self, tx, xpub_path):
+    def tx_inputs(self, tx: Transaction, xpub_path: Optional[Dict[str, str]]=None,
+            is_prev_tx: bool=False) -> List[TxInputType]:
         inputs = []
         for txin in tx.inputs:
             txinputtype = TxInputType()
+            # Trezor tx hashes are same byte order as the reversed hex tx id.
             txinputtype.prev_hash = bytes(reversed(txin.prev_hash))
             txinputtype.prev_index = txin.prev_idx
             txinputtype.sequence = txin.sequence
             txinputtype.amount = txin.value
-            xpubs = [x_pubkey.bip32_extended_key_and_path() for x_pubkey in txin.x_pubkeys]
-            txinputtype.multisig = self._make_multisig(txin.threshold,
-                xpubs, txin.stripped_signatures_with_blanks())
-            txinputtype.script_type = self.get_trezor_input_script_type(
-                txinputtype.multisig is not None)
-            # find which key is mine
-            for xpub, path in xpubs:
-                if xpub in xpub_path:
-                    xpub_n = tuple(bip32_decompose_chain_string(xpub_path[xpub]))
-                    txinputtype.address_n = xpub_n + path
-                    break
-            # if txin.script_sig:
-            #     txinputtype.script_sig = bytes(txin.script_sig)
+            if txin.script_sig:
+                txinputtype.script_sig = bytes(txin.script_sig)
+            if not is_prev_tx:
+                assert xpub_path is not None, "no xpubs provided for hw signing operation"
+                xpubs = [x_pubkey.bip32_extended_key_and_path() for x_pubkey in txin.x_pubkeys]
+                txinputtype.multisig = self._make_multisig(txin.threshold,
+                    xpubs, txin.stripped_signatures_with_blanks())
+                txinputtype.script_type = self.get_trezor_input_script_type(
+                    txinputtype.multisig is not None)
+                # find which key is mine
+                for xpub, path in xpubs:
+                    if xpub in xpub_path:
+                        xpub_n = tuple(bip32_decompose_chain_string(xpub_path[xpub]))
+                        # Sequences cannot be added according to mypy, annoying..
+                        txinputtype.address_n = xpub_n + path # type: ignore
+                        break
             inputs.append(txinputtype)
 
         return inputs
@@ -340,7 +366,8 @@ class TrezorPlugin(HW_PluginBase):
             signatures=signatures,
             m=m)
 
-    def tx_outputs(self, keystore: TrezorKeyStore, derivation: str, tx: Transaction):
+    def tx_outputs(self, keystore: TrezorKeyStore, derivation: str, tx: Transaction) \
+            -> List[TxOutputType]:
         account_derivation: Sequence[int] = tuple(bip32_decompose_chain_string(derivation))
         keystore_fingerprint = keystore.get_fingerprint()
 

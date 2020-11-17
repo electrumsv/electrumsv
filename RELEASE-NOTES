@@ -31,11 +31,44 @@ Ensure you are running ElectrumSV and not Electrum or Electron Cash by checking 
 "ElectrumSV" in the title bar wording.
 
 We STRONGLY recommend you get comfortable and only send a small amount of Bitcoin SV coins
-at first, to yourself, to confirm the network is processing your transactions as expecte7d.
+at first, to yourself, to confirm the network is processing your transactions as expected.
 
 
 ElectrumSV
 -----------
+# Release 1.3.9
+  * Release guide: https://medium.com/@roger-taylor/electrumsv-1-3-9-50c39bc7ef68
+  * MacOS compatibility: When used in conjunction, both PyQt5 and PyInstaller which are used to
+    provide our user interface and builds respectively, do not work on MacOS Big Sur. This is
+    something to do with versions of PyQt5 later than 5.13.1, and so we have rolled back our
+    required version of PyQt5 to 5.13.1.
+  * Transaction export: The copy and save options in the transaction dialog, have been fixed and
+    extended. There are now different options for both incomplete transactions and fully signed
+    transactions, allowing export of transaction byte data, hex, and hex with proof data. At this
+    time proof data is limited to parent transactions.
+  * Waiting dialog: This UI element shown when doing actions that may take some time, has been
+    extended to optionally show a progress bar and remain open after the task has been completed
+    for a given number of seconds unless the user manually dismisses it. This is used for
+    transaction broadcast, transaction signing and copy/saving transactions with proof.
+
+# Release 1.3.8
+  * Release guide: https://medium.com/@roger-taylor/electrumsv-1-3-8-e07700fb9058
+  * Account script types: It is no longer possible to change the script type for an
+    account, and only the safe default script type is usable for each kind of account.
+    This prevents adventurous users from enabling advanced options.
+  * Trezor firmware: It should now be possible to sign transactions if a hardware wallet
+    has been updated to the latest Trezor firmware. Trezor do not support Bitcoin SV,
+    but we still want our users to be able to easily use them if they are already.
+  * Linux databases: There are limits built into our database solution SQLite that differ depending
+    on the platform the database is running on. On Linux these are significantly higher, and the
+    different database limits conflict with each other and caused errors when viewing transactions
+    that spend more than 1000 coins. All limits has been hard-limited to 1000 for now to prevent
+    this.
+  * Transactions tab: Due to the ordering of event processing, transactions that had been
+    dispatched (broadcast to the network) might remain in the Transactions tab when they should
+    not. Now ordering is correctly observed, and if they should be removed, they will be removed.
+  * QR codes: In some obscure situations QR code scanning was erroring, and would cause exceptions.
+
 # Release 1.3.7
   * Release guide: https://medium.com/@roger.taylor/electrumsv-1-3-7-8b3833343bd3
   * Payment dangers: The place where users enter where their payment goes to allows

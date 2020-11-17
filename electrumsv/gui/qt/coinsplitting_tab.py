@@ -6,7 +6,6 @@ from PyQt5.QtCore import Qt, pyqtSignal, QUrl
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import QFrame, QGridLayout, QLabel, QHBoxLayout, QVBoxLayout, \
     QProgressDialog, QSizePolicy, QWidget
-from bitcoinx import TxOutput
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType
@@ -79,7 +78,7 @@ class CoinSplittingTab(QWidget):
         # Hardware wallets will not sign OP_FALSE OP_RETURN.
         self._direct_splitting_enabled = self._account.is_deterministic() and \
             new_account.can_spend() and \
-            not new_account.is_hardware_wallet()
+            not new_account.involves_hardware_wallet()
         # The faucet requires an address to send to. There are only P2PKH addresses.
         self._faucet_splitting_enabled = self._account.is_deterministic() and \
           script_type == ScriptType.P2PKH
@@ -107,7 +106,8 @@ class CoinSplittingTab(QWidget):
 
         if self._account.type() == AccountType.MULTISIG:
             self._cleanup_tx_final()
-            self._main_window.show_transaction(self._account, tx, f"{TX_DESC_PREFIX} (multisig)")
+            tx.context.description = f"{TX_DESC_PREFIX} (multisig)"
+            self._main_window.show_transaction(self._account, tx)
             return
 
         amount = tx.output_value()
@@ -129,8 +129,8 @@ class CoinSplittingTab(QWidget):
                     dialog.exec()
                 else:
                     extra_text = _("Your split coins")
+                    tx.context.description = f"{TX_DESC_PREFIX}: {extra_text}"
                     self._main_window.broadcast_transaction(self._account, tx,
-                        f"{TX_DESC_PREFIX}: {extra_text}",
                         success_text=_("Your coins have now been split."))
             self._cleanup_tx_final()
         self._main_window.sign_tx_with_password(tx, sign_done, password)
@@ -224,9 +224,7 @@ class CoinSplittingTab(QWidget):
 
         unused_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
         script = self._account.get_script_for_id(unused_key.keyinstance_id)
-        outputs = [
-            TxOutput(all, script)
-        ]
+        outputs = [ XTxOutput(all, script) ]
         tx = self._account.make_unsigned_transaction(coins, outputs, self._main_window.config)
 
         amount = tx.output_value()
@@ -248,8 +246,8 @@ class CoinSplittingTab(QWidget):
                     dialog.exec()
                 else:
                     extra_text = _("Your split coins")
+                    tx.context.description = f"{TX_DESC_PREFIX}: {extra_text}"
                     self._main_window.broadcast_transaction(self._account, tx,
-                        f"{TX_DESC_PREFIX}: {extra_text}",
                         success_text=_("Your coins have now been split."))
             self._cleanup_tx_final()
         self._main_window.sign_tx_with_password(tx, sign_done, password)
