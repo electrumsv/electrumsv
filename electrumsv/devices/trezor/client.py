@@ -11,7 +11,7 @@ from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 
-from trezorlib.client import TrezorClient
+from trezorlib.client import PASSPHRASE_ON_DEVICE, TrezorClient
 from trezorlib.exceptions import TrezorFailure, Cancelled, OutdatedFirmwareError
 from trezorlib.messages import ButtonRequestType, WordRequestType, RecoveryDeviceType
 import trezorlib.btc
@@ -125,7 +125,7 @@ class TrezorClientSV:
             logger.error("timed out")
             self.clear_session()
 
-    def get_master_public_key(self, bip32_path, creating=False):
+    def get_master_public_key(self, bip32_path: str, creating=False) -> BIP32PublicKey:
         address_n = bip32_decompose_chain_string(bip32_path)
         with self.run_flow(creating_wallet=creating):
             node = trezorlib.btc.get_public_node(self.client, address_n).node
@@ -255,7 +255,7 @@ class TrezorClientSV:
             raise Cancelled
         return pin
 
-    def get_passphrase(self):
+    def get_passphrase(self, available_on_device: bool):
         if self.creating_wallet:
             msg = _("Enter a passphrase to generate this wallet.  Each time "
                     "you use this wallet your {} will prompt you for the "
@@ -263,7 +263,11 @@ class TrezorClientSV:
                     "access the bitcoins in the wallet.").format(self.device)
         else:
             msg = _("Enter the passphrase to unlock this wallet:")
+        self.handler.set_on_device_passphrase_result(
+            PASSPHRASE_ON_DEVICE if available_on_device else None)
         passphrase = self.handler.get_passphrase(msg, self.creating_wallet)
+        if passphrase is PASSPHRASE_ON_DEVICE:
+            return passphrase
         if passphrase is None:
             raise Cancelled
         passphrase = bip39_normalize_passphrase(passphrase)

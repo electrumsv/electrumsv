@@ -25,6 +25,7 @@ try:
 
     from .client import TrezorClientSV
 
+    from trezorlib.client import PASSPHRASE_ON_DEVICE # pylint: disable=unused-import
     from trezorlib.messages import (
         RecoveryDeviceType, HDNodeType, HDNodePathType,
         InputScriptType, OutputScriptType, MultisigRedeemScriptType,
@@ -38,7 +39,7 @@ except Exception as e:
     logger.warning(f"Failed to import trezorlib: {e}")
     TREZORLIB = False
 
-    RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX = range(2)
+    RECOVERY_TYPE_SCRAMBLED_WORDS, RECOVERY_TYPE_MATRIX, PASSPHRASE_ON_DEVICE = range(3)
 
 
 # Trezor initialization methods
@@ -258,7 +259,7 @@ class TrezorPlugin(HW_PluginBase):
         client.handler = self.create_handler(wizard)
         if not device_info.initialized:
             self.initialize_device(device_id, wizard, client.handler)
-        client.get_master_public_key('m')
+        client.get_master_public_key('m', creating=True)
 
     def get_master_public_key(self, device_id, derivation, wizard):
         client = app_state.device_manager.client_by_id(device_id)

@@ -6,7 +6,6 @@ from PyQt5.QtCore import Qt, pyqtSignal, QUrl
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import QFrame, QGridLayout, QLabel, QHBoxLayout, QVBoxLayout, \
     QProgressDialog, QSizePolicy, QWidget
-from bitcoinx import TxOutput
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType

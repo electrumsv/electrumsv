@@ -27,11 +27,11 @@
 from functools import partial
 from queue import Queue
 import threading
-from typing import Optional
+from typing import Any, Optional
 import weakref
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QAction
+from PyQt5.QtWidgets import QAction, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout
 from PyQt5 import sip
 
 from electrumsv.app_state import app_state
@@ -82,6 +82,7 @@ class QtHandlerBase(QObject):
         self.dialog: Optional[WindowModalDialog] = None
         self.done = threading.Event()
         self.passphrase_queue: Queue = Queue()
+        self._on_device_passphrase_result: Optional[Any] = None
 
     def clean_up(self) -> None:
         if self._cleaned_up:
@@ -91,6 +92,9 @@ class QtHandlerBase(QObject):
 
     def top_level_window(self):
         return self.win.top_level_window()
+
+    def set_on_device_passphrase_result(self, value: Optional[Any]) -> None:
+        self._on_device_passphrase_result = value
 
     def update_status(self, paired):
         self.status_signal.emit(paired)
@@ -134,21 +138,31 @@ class QtHandlerBase(QObject):
         self.done.wait()
         return self.word
 
-    def get_passphrase(self, msg, confirm):
+    def get_passphrase(self, msg: str, confirm: bool) -> Optional[Any]:
+        """
+        Returns:
+          str -> passphrase entered in ESV.
+          None -> user cancelled.
+          other -> custom result to indicate special per-device handling.
+        """
         self.passphrase_signal.emit(msg, confirm)
         return self.passphrase_queue.get()
 
-    def passphrase_dialog(self, msg, confirm):
+    def passphrase_dialog(self, msg: str, confirm: bool) -> None:
         # If confirm is true, require the user to enter the passphrase twice
         parent = self.top_level_window()
         if confirm:
-            d = ChangePasswordDialog(parent, msg=msg, kind=PasswordAction.PASSPHRASE)
-            confirmed, p, passphrase = d.run()
+            custom_button: Optional[QPushButton] = None
+            if self._on_device_passphrase_result is not None:
+                custom_button = QPushButton(_("On Device"))
+            d = ChangePasswordDialog(parent, msg=msg, kind=PasswordAction.PASSPHRASE,
+                custom_button=custom_button, custom_button_result=self._on_device_passphrase_result)
+            _confirmed, _p, passphrase = d.run()
         else:
-            passphrase = PassphraseDialog.run(parent, msg)
+            passphrase = PassphraseDialog.run(parent, msg, self._on_device_passphrase_result)
         self.passphrase_queue.put(passphrase)
 
-    def word_dialog(self, msg):
+    def word_dialog(self, msg: str) -> None:
         dialog = WindowModalDialog(self.top_level_window(), "")
         hbox = QHBoxLayout(dialog)
         hbox.addWidget(QLabel(msg))
