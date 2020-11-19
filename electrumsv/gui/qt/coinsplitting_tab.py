@@ -60,7 +60,7 @@ class CoinSplittingTab(QWidget):
     _faucet_splitting = False
 
     def __init__(self, main_window: ElectrumWindow) -> None:
-        super().__init__(main_window)
+        super().__init__()
 
         self._main_window = weakref.proxy(main_window)
         self._main_window.account_change_signal.connect(self._on_account_change)
