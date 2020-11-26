@@ -4,7 +4,7 @@ Hardware wallet issues
 Trezor
 ------
 
-While Trezor as a company do not support Bitcoin SV as a coin on their device. Generally Bitcoin SV
+While Trezor as a company do not support Bitcoin SV as a coin on their device, generally Bitcoin SV
 users have been able to use their Trezor devices with ElectrumSV by having it in the Bitcoin Cash
 coin mode. However, users are encountering situations where the limitations of the Trezor device
 result in it no being longer sufficient to work with Bitcoin SV transactions. This likely means
