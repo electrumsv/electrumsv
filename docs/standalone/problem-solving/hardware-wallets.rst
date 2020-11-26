@@ -1,54 +1,74 @@
 Hardware wallet issues
 ======================
 
-Ledger
-------
-
-Message: "The sign path is unusual"
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-`Ledger have implemented <https://support.ledger.com/hc/en-us/articles/360015739499-Sign-or-derivation-path-is-unusual>`_
-enforced derivation paths for each cryptocurrency. If you set up your hardware wallet with a
-different derivation path than it expects for the app you are using on your Ledger device, then
-it will in theory show you the above message warning you. You can read the reasons why on the
-article linked above. However, some of our users have reported that this is not a warning and
-in fact it prevents them from signing leaving them unable to access their funds.
-
-It is recommended that users who experience this upgrade their Ledger firmware to the latest
-version and if it still does not allow them to sign, then work out some way to get the funds
-from their Ledger back into it with the derivation path Ledger expects. It is very likely that
-if users were unable to sign, given that Ledger say it should only be a warning, that this
-was a temporary bug in their firmware and an upgrade should fix it when they do.
-
-The process of moving funds to the correct derivation path might be done as follows:
-
-1. Make a new wallet and account in ElectrumSV using the text account option. This will involve
-   entering your seed words from your Ledger, so that you can manage the coins directly in
-   ElectrumSV.
-2. Verify that you can see your coins in your new account, and send a small amount back to yourself
-   to ensure you have access.
-3. Make a second wallet and account in ElectrumSV using the hardware wallet option. Ensure you
-   use the derivation path that Ledger expects you to use, whatever that is.
-4. Send a small amount from the first (imported text words) account to the second (new hardware
-   wallet) account. Verify that it arrives. This is intended to put an existing small amount of
-   coins in your new hardware wallet account so you can verify it works correctly.
-5. Send a small amount from the new hardware wallet account back to itself. Verify that the
-   hardware wallet signs the transaction correctly as it has in the past, and the problem is
-   solved.
-6. Send all the coins remaining in the imported text words account over to the new hardware wallet
-   account. You should now have your funds safely stored in your Ledger again.
-
-This process of moving your coins of course completely bypasses the protection that your hardware
-wallet was supposed to provide, but there's not much else you can do if you want to continue using
-it and it won't otherwise let you.
-
 Trezor
 ------
 
-Message: "Signing transaction" never goes away
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+While Trezor as a company do not support Bitcoin SV as a coin on their device. Generally Bitcoin SV
+users have been able to use their Trezor devices with ElectrumSV by having it in the Bitcoin Cash
+coin mode. However, users are encountering situations where the limitations of the Trezor device
+result in it no being longer sufficient to work with Bitcoin SV transactions. This likely means
+that if a user is planning to continue to use a Trezor device, it may require them to jump through
+hoops to do so.
 
-In order to address flaws in the Bitcoin Core protocol,
-`Trezor made changes <https://blog.trezor.io/latest-firmware-updates-correct-possible-segwit-transaction-vulnerability-266df0d2860>`_
-to transaction signing which caused errors when users try to sign transactions in ElectrumSV. If
-you have the latest version of ElectrumSV, this problem should be solved.
+There are two complications:
+
+- Later versions of firmware (starting with 1.9.1 for One and 2.3.0 for Model T) require ElectrumSV
+  to pass in parent transactions with the transaction you are signing. ElectrumSV only started
+  supporting this in ElectrumSV 1.3.8 or newer. What this means is that if you are using these
+  later versions of firmware, you must be using ElectrumSV 1.3.8 or newer - or it will error.
+- Bitcoin SV transactions can have large output scripts, larger than what Trezor can handle.
+  Trezor can only sign simple payments and nothing else, but this does not prevent payments from
+  being made into the wallet with additional output scripts added for other reasons that exceed
+  Trezor's size limit of 15 kilobytes. The parent transaction processing in the Trezor device will
+  error when it encounters these.
+
+Trezor devices are becoming problematic for Bitcoin SV users to use. While they are polished and
+enjoyable devices to use, unless the large output problem is solved by Trezor, we cannot
+recommend users buy these devices unless they accept they have to own and deal with these problems.
+For this reason it is recommended that Trezor users downgrade their devices.
+
+Downgrading your Trezor device
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+These are Trezor's firmware version pages, for users who plan to downgrade:
+
+- Trezor One: `1.9.0 <https://github.com/trezor/webwallet-data/blob/master/firmware/1/trezor-1.9.0.bin>`_.
+- Trezor Model T: `2.3.0 <https://github.com/trezor/webwallet-data/blob/master/firmware/2/trezor-2.3.0.bin>`_.
+
+You will need to visit those pages and download the firmware file. Trezor
+`provide instructions <https://wiki.trezor.io/Firmware_downgrade>`_ on how to downgrade, and
+let you know how and where to use the file.
+
+Problem: You see a random looking series of numbers and letters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. figure:: images/trezor-01-parent-tx-unsupported.jpg
+   :alt: What this problem looks like..
+   :align: center
+   :scale: 80%
+
+   What this problem looks like..
+
+You are using ElectrumSV 1.3.7 or earlier, and your Trezor device has a later version of the
+firmware. It expects ElectrumSV to have provided the transaction associated with those numbers
+and letters, but the ElectrumSV version you are using does not know how to or even that it should.
+You can take the risk of updating to a more recent version of ElectrumSV that supports these
+parent transactions, and possibly encounter the "DataError: bytes overflow" problem. Or you can
+downgrade your Trezor firmware to the version listed above.
+
+Problem: You see the message "DataError: bytes overflow"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. figure:: images/trezor-02-output-script-too-big.png
+   :alt: What this problem looks like..
+   :align: center
+   :scale: 80%
+
+   What this problem looks like..
+
+One of your parent transactions contains not only the coin you are trying to spend, but a large
+output script. Your Trezor device has a later version of firmware where parent transactions are
+required to be provided, and the device is choking on the large output. This is a limit in the
+device itself, and ElectrumSV can do nothing about this. To spend the coin associated with the
+problem parent transaction, you need to downgrade your firmware to the versions listed above.
