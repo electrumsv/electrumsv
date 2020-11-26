@@ -183,14 +183,14 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
     #
 
     messages = {
-        3: _("Confirm the transaction output on your {} device"),
-        4: _("Confirm internal entropy on your {} device to begin"),
-        5: _("Write down the seed word shown on your {}"),
-        6: _("Confirm on your {} that you want to wipe it clean"),
-        7: _("Confirm on your {} device the message to sign"),
-        8: _("Confirm the total amount spent and the transaction fee on your "
-             "{} device"),
-        10: _("Confirm wallet address on your {} device"),
+        types.ButtonRequest_ConfirmOutput: _("Confirm the transaction output on your {} device"),
+        types.ButtonRequest_ResetDevice: _("Confirm internal entropy on your {} device to begin"),
+        types.ButtonRequest_ConfirmWord: _("Write down the seed word shown on your {}"),
+        types.ButtonRequest_WipeDevice: _("Confirm on your {} that you want to wipe it clean"),
+        types.ButtonRequest_ProtectCall: _("Confirm on your {} device the message to sign"),
+        types.ButtonRequest_SignTx: _("Confirm the total amount spent and the transaction fee "
+            "on your {} device"),
+        types.ButtonRequest_Address: _("Confirm wallet address on your {} device"),
         'default': _("Check your {} device to continue"),
     }
 
@@ -213,12 +213,13 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         return self.proto.ButtonAck()
 
     def callback_PinMatrixRequest(self, msg):
-        if msg.type == 2:
+        if msg.type == types.PinMatrixRequestType_NewFirst:
             msg = _("Enter a new PIN for your {}:")
-        elif msg.type == 3:
+        elif msg.type == types.PinMatrixRequestType_NewSecond:
             msg = (_("Re-enter the new PIN for your {}.\n\n"
                      "NOTE: the positions of the numbers have changed!"))
         else:
+            # PinMatrixRequestType_Current
             msg = _("Enter your current {} PIN:")
         pin = self.handler.get_pin(msg.format(self.device))
         if not pin:

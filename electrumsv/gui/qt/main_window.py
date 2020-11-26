@@ -1369,7 +1369,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         WaitingDialog(window, _('Broadcasting the transaction..'), broadcast_tx,
             on_done=on_done, title=_("Transaction broadcast"))
 
-    def query_choice(self, msg, choices):
+    # Used by hardware wallets.
+    def query_choice(self, msg: str, choices: Iterable[str]) -> Optional[int]:
         return query_choice(self, msg, choices)
 
     def pay_to_URI(self, URI: str) -> None:
