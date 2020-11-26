@@ -414,16 +414,18 @@ class TxDialog(QDialog, MessageBoxMixin):
             self._copy_hex_menu = self._copy_menu.addAction(
                 _("Transaction (hex)"),
                 partial(self._copy_transaction, TxSerialisationFormat.HEX))
-            self._copy_extended_full_menu = self._copy_menu.addAction(
-                _("Transaction with proofs (JSON)"),
-                partial(self._copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+            if self._account:
+                self._copy_extended_full_menu = self._copy_menu.addAction(
+                    _("Transaction with proofs (JSON)"),
+                    partial(self._copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
         else:
             self._copy_extended_basic_menu = self._copy_menu.addAction(
                 _("Incomplete transaction (JSON)"),
                 partial(self._copy_transaction, TxSerialisationFormat.JSON))
-            self._copy_extended_full_menu = self._copy_menu.addAction(
-                _("Incomplete transaction with proofs (JSON)"),
-                partial(self._copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+            if self._account:
+                self._copy_extended_full_menu = self._copy_menu.addAction(
+                    _("Incomplete transaction with proofs (JSON)"),
+                    partial(self._copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
 
         # Save options.
         self._save_menu.clear()
@@ -434,16 +436,18 @@ class TxDialog(QDialog, MessageBoxMixin):
             self._save_hex_menu = self._save_menu.addAction(
                 _("Transaction (hex)"),
                 partial(self._save_transaction, TxSerialisationFormat.HEX))
-            self._save_extended_full_menu = self._save_menu.addAction(
-                _("Transaction with proofs (JSON)"),
-                partial(self._save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+            if self._account:
+                self._save_extended_full_menu = self._save_menu.addAction(
+                    _("Transaction with proofs (JSON)"),
+                    partial(self._save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
         else:
             self._save_extended_basic_menu = self._save_menu.addAction(
                 _("Incomplete transaction (JSON)"),
                 partial(self._save_transaction, TxSerialisationFormat.JSON))
-            self._save_extended_full_menu = self._save_menu.addAction(
-                _("Incomplete transaction with proofs (JSON)"),
-                partial(self._save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+            if self._account:
+                self._save_extended_full_menu = self._save_menu.addAction(
+                    _("Incomplete transaction with proofs (JSON)"),
+                    partial(self._save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
 
     def _obtain_transaction_data(self, format: TxSerialisationFormat,
             completion_signal: Optional[pyqtSignal], done_signal: pyqtSignal,
@@ -589,7 +593,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             return f"{account.get_id()}: {name}"
 
         is_tx_complete = self.tx.is_complete()
-        is_tx_known = self._account.have_transaction_data(self._tx_hash)
+        is_tx_known = self._account and self._account.have_transaction_data(self._tx_hash)
 
         prev_txos = self._coin_service.get_outputs(
             [ TxoKeyType(txin.prev_hash, txin.prev_idx) for txin in self.tx.inputs ])

@@ -1156,7 +1156,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         if self._account_id is None:
             assert isinstance(current_widget, QWidget)
-            return
+            return None
 
         view = create_func(self._account_id)
         widget_index = stack_tab.indexOf(view)
@@ -1246,7 +1246,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Pass in the context of the call and check against the relevant contexts.
 
         # Skip confirmation for transactions loaded for broadcast.
-        entry = self._account.get_transaction_entry(tx_hash)
+        entry = self._account.get_transaction_entry(tx_hash) \
+            if self._account is not None else None
         if entry is None:
             return True
 
@@ -1310,7 +1311,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         WaitingDialog(window, _('Signing transaction...'), sign_tx, on_done=on_done,
             title=_("Transaction signing"))
 
-    def broadcast_transaction(self, account: AbstractAccount, tx: Transaction,
+    def broadcast_transaction(self, account: Optional[AbstractAccount], tx: Transaction,
             success_text: Optional[str]=None, window=None) -> Optional[str]:
         if success_text is None:
             success_text = _('Payment sent.')
@@ -1319,7 +1320,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         def broadcast_tx() -> None:
             nonlocal tx, account
             # non-GUI thread
-            if not self._send_view.maybe_send_invoice_payment(tx):
+            if account and not self._send_view.maybe_send_invoice_payment(tx):
                 return None
 
             try:
@@ -1335,7 +1336,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             tx_hash = tx.hash()
             # Not all transactions that are broadcast are in the account. Arbitrary transaction
             # broadcast is supported.
-            if result == tx.txid() and account.have_transaction(tx_hash):
+            if result == tx.txid() and account and account.have_transaction(tx_hash):
                 account.maybe_set_transaction_dispatched(tx_hash)
             return result
 
@@ -1358,7 +1359,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     exception)
                 d.exec()
             else:
-                if tx_id:
+                if account and tx_id:
                     if tx.context.description is not None:
                         self._wallet.set_transaction_label(tx.hash(), tx.context.description)
                     window.show_message(success_text + '\n' + tx_id)
