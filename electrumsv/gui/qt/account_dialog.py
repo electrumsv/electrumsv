@@ -4,7 +4,7 @@ import weakref
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QComboBox, QDialog, QLabel, QLineEdit, QVBoxLayout, QWidget
 
-from electrumsv.constants import DerivationType, ScriptType
+from electrumsv.constants import DerivationType, KeystoreType, ScriptType
 from electrumsv.i18n import _
 from electrumsv.wallet import Wallet
 
@@ -46,6 +46,9 @@ class AccountDialog(QDialog):
             form.add_row(_("Keystore type"), QLabel(keystore.type().value))
 
         #######
+
+        if keystore is not None and keystore.type() == KeystoreType.HARDWARE:
+            form.add_row(_("Derivation path"), QLabel(keystore.derivation))
 
         script_type_combo = QComboBox()
 
