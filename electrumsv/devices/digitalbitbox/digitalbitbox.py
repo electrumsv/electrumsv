@@ -393,7 +393,7 @@ class DigitalBitbox_Client():
             r = r.replace(b"\0", b'')
             r = to_string(r, 'utf8')
             reply = json.loads(r)
-        except Exception as e:
+        except Exception:
             logger.exception('Exception caught')
         return reply
 
@@ -418,7 +418,7 @@ class DigitalBitbox_Client():
                 reply = json.loads(reply)
             if 'error' in reply:
                 self.password = None
-        except Exception as e:
+        except Exception:
             logger.exception('Exception caught')
         return reply
 
@@ -558,20 +558,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             # the mobile verification app.
             # At the moment, verification only works for p2pkh transactions.
             if p2pkhTransaction:
-                class CustomTXSerialization(Transaction):
-                    @classmethod
-                    def input_script(self, txin, estimate_size=False):
-                        type_ = txin.type()
-                        if type_ == ScriptType.P2PKH:
-                            return Transaction.get_preimage_script_bytes(txin).hex()
-                        if type_ == ScriptType.MULTISIG_P2SH:
-                            # Multisig verification has partial support, but is
-                            # disabled. This is the expected serialization though, so we
-                            # leave it here until we activate it.
-                            return '00' + \
-                                push_script(Transaction.get_preimage_script_bytes(txin).hex())
-                        raise RuntimeError(f'unsupported type {type_}')
-                tx_dbb_serialized = CustomTXSerialization.from_hex(tx.serialize()).serialize()
+                tx_dbb_serialized = tx.serialize()
             else:
                 # We only need this for the signing echo / verification.
                 tx_dbb_serialized = None
