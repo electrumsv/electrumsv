@@ -13,7 +13,7 @@ hoops to do so.
 
 There are two complications:
 
-- Later versions of firmware (starting with 1.9.1 for One and 2.3.0 for Model T) require ElectrumSV
+- Later versions of firmware (starting with 1.9.1 for One and 2.3.1 for Model T) require ElectrumSV
   to pass in parent transactions with the transaction you are signing. ElectrumSV only started
   supporting this in ElectrumSV 1.3.8 or newer. What this means is that if you are using these
   later versions of firmware, you must be using ElectrumSV 1.3.8 or newer - or it will error.
