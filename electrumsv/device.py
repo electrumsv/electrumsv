@@ -304,8 +304,7 @@ class DeviceMgr:
                         .format(info.label, _("initialized") if info.initialized else _("wiped"))
                         for info in infos]
         c = handler.query_choice(msg, descriptions)
-        if c is None:
-            raise UserCancelled()
+        assert c is not None, "UserCancelled should already be raised"
         info = infos[c]
         # save new label
         keystore.set_label(info.label)
