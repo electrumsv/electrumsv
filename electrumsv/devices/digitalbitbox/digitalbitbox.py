@@ -13,7 +13,7 @@ import re
 import requests
 import struct
 import time
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from bitcoinx import PublicKey, compact_signature_to_der, bip32_key_from_string
 
@@ -557,6 +557,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             # Special serialization of the unsigned transaction for
             # the mobile verification app.
             # At the moment, verification only works for p2pkh transactions.
+            tx_dbb_serialized: Optional[str]
             if p2pkhTransaction:
                 tx_dbb_serialized = tx.serialize()
             else:
