@@ -65,7 +65,7 @@ DOWNLOADS_OLDER = [
         DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.10.tar.gz", "7.3 MB"),
         DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.10.zip", "7.6 MB"),
         DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.3.10-docs.zip", "11.5 MB"),
-    ],
+    ]),
     DownloadEntry("1.3.9", "2020/11/16", "https://medium.com/@roger-taylor/electrumsv-1-3-9-50c39bc7ef68", [
         DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.9.dmg","30.3 MB"),
         DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.9.exe", "26.4 MB"),
