@@ -35,6 +35,17 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.3.11
+  * Release guide: https://medium.com/@roger-taylor/electrumsv-1-3-11-6f09f2aaed94
+  * Ledger hardware devices: The latest Ledger software has been updated in a way that is not
+    backwards compatible. This means that anyone who updates their device needs to get the changes
+    in this release that update ElectrumSV to work with these latest Ledger updates.
+  * Hardware wallet accounts: The derivation path is now visible in the account information
+    dialog.
+  * Account-less: Loading transactions in a wallet with no accounts no longer errors due to an
+    unnecessary dependency on accounts in this functionality.
+  * Invoices: Importing invoices into an account would error displaying the open file dialog.
+
 # Release 1.3.10
   * Release guide: https://medium.com/@roger-taylor/electrumsv-1-3-10-f0a60d031d81
   * Trezor passphrases: Support for Trezor passphrase entry, which applies to all

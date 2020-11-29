@@ -133,7 +133,7 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
         raise ValueError(f'no box with name {name} found')
     return box.result(parent, wallet, **kwargs)
 
-article_uri = "https://medium.com/@roger-taylor/electrumsv-1-3-10-f0a60d031d81"
+article_uri = "https://medium.com/@roger-taylor/electrumsv-1-3-11-6f09f2aaed94"
 
 take_care_notice = """
 <span>ElectrumSV is just a Bitcoin SV wallet, it cannot stop you from making bad decisions. Read
@@ -144,8 +144,8 @@ Your coins are your responsibility, take care with them.</span>
 """
 
 all_boxes = [
-    InfoBox('welcome-ESV-1.3.10',
-            _('Welcome to ElectrumSV 1.3.10'),
+    InfoBox('welcome-ESV-1.3.11',
+            _('Welcome to ElectrumSV 1.3.11'),
             '<p>'+ take_care_notice +'</p>'+
             '<p>You can read about the changes included in this release, in the '+
             f'<a href="{article_uri}">release guide</a> we have written.</p>'

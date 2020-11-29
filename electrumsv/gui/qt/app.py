@@ -355,7 +355,7 @@ class SVApplication(QApplication):
 
     def initial_dialogs(self) -> None:
         '''Suppressible dialogs that are shown when first opening the app.'''
-        dialogs.show_named('welcome-ESV-1.3.10')
+        dialogs.show_named('welcome-ESV-1.3.11')
 
     def event_loop_started(self) -> None:
         self.cosigner_pool = CosignerPool()
