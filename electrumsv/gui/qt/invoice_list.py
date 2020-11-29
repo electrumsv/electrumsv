@@ -170,8 +170,8 @@ class InvoiceList(MyTreeWidget):
             self._main_window.show_error(str(e))
             return
 
-        filename, __ = QFileDialog.getOpenFileName(self._main_window, _("Select your wallet file"),
-            wallet_folder)
+        filename, __ = QFileDialog.getOpenFileName(self._main_window.reference(),
+            _("Select your wallet file"), wallet_folder)
         if not filename:
             return
 
