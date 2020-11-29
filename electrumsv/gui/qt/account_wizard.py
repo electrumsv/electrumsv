@@ -28,7 +28,7 @@
 
 import concurrent
 import enum
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
 from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
     bip32_key_from_string, PrivateKey, P2SH_Address)
@@ -183,7 +183,7 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
         self.setStartId(AccountPage.ADD_ACCOUNT_MENU)
 
     # Used by hardware wallets.
-    def query_choice(self, msg, choices):
+    def query_choice(self, msg: str, choices: Iterable[str]) -> Optional[int]:
         return query_choice(self, msg, choices)
 
     def set_subtitle(self, subtitle: str) -> None:

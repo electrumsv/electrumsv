@@ -27,7 +27,7 @@
 from functools import partial
 from queue import Queue
 import threading
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 import weakref
 
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -65,6 +65,8 @@ class QtHandlerBase(QObject):
     status_signal = pyqtSignal(object)
 
     _cleaned_up: bool = False
+    _choice: Optional[int] = None
+    _ok: int = 0
 
     def __init__(self, win: HandlerWindow, device):
         super(QtHandlerBase, self).__init__()
@@ -103,17 +105,21 @@ class QtHandlerBase(QObject):
         icon = self.icon_paired if paired else self.icon_unpaired
         self.action.setIcon(read_QIcon(icon))
 
-    def query_choice(self, msg, labels):
+    def query_choice(self, msg: str, labels: Iterable[str]) -> Optional[int]:
         self.done.clear()
         self.query_signal.emit(msg, labels)
         self.done.wait()
-        return self.choice
+        if self._choice is None:
+            raise UserCancelled()
+        return self._choice
 
-    def yes_no_question(self, msg):
+    def yes_no_question(self, msg) -> int:
         self.done.clear()
         self.yes_no_signal.emit(msg)
         self.done.wait()
-        return self.ok
+        if self._ok == -1:
+            raise UserCancelled()
+        return self._ok
 
     def show_message(self, msg, on_cancel=None):
         self.message_signal.emit(msg, on_cancel)
@@ -202,12 +208,16 @@ class QtHandlerBase(QObject):
                 self.dialog.accept()
             self.dialog = None
 
-    def win_query_choice(self, msg, labels):
-        self.choice = self.win.query_choice(msg, labels)
+    def win_query_choice(self, msg, labels) -> None:
+        self._choice = None
+        if not self._cleaned_up:
+            self._choice = self.win.query_choice(msg, labels)
         self.done.set()
 
-    def win_yes_no_question(self, msg):
-        self.ok = self.win.question(msg)
+    def win_yes_no_question(self, msg: str) -> None:
+        self._ok = -1
+        if not self._cleaned_up:
+            self._ok = self.win.question(msg)
         self.done.set()
 
 

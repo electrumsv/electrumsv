@@ -188,7 +188,7 @@ class HelpDialogButton(QPushButton):
         h.run()
 
 
-def query_choice(win, msg, choices):
+def query_choice(win, msg: str, choices: Iterable[str]) -> Optional[int]:
     # Needed by QtHandler for hardware wallets
     dialog = WindowModalDialog(win.top_level_window())
     clayout = ChoicesLayout(msg, choices)
@@ -213,30 +213,30 @@ class MessageBoxMixin(object):
     def top_level_window(self):
         return top_level_window_recurse(self)
 
-    def question(self, msg, parent=None, title=None, icon=None):
+    def question(self, msg: str, parent=None, title=None, icon=None) -> int:
         Yes, No = QMessageBox.Yes, QMessageBox.No
         return self.msg_box(icon or QMessageBox.Question,
                             parent, title or '',
                             msg, buttons=Yes|No, defaultButton=No) == Yes
 
-    def show_warning(self, msg, parent=None, title=None):
+    def show_warning(self, msg: str, parent=None, title=None) -> int:
         return self.msg_box(QMessageBox.Warning, parent,
                             title or _('Warning'), msg)
 
-    def show_error(self, msg, parent=None):
+    def show_error(self, msg: str, parent=None) -> int:
         return self.msg_box(QMessageBox.Warning, parent,
                             _('Error'), msg)
 
-    def show_critical(self, msg, parent=None, title=None):
+    def show_critical(self, msg: str, parent=None, title=None) -> int:
         return self.msg_box(QMessageBox.Critical, parent,
                             title or _('Critical Error'), msg)
 
-    def show_message(self, msg, parent=None, title=None):
+    def show_message(self, msg: str, parent=None, title=None) -> int:
         return self.msg_box(QMessageBox.Information, parent,
                             title or _('Information'), msg)
 
     def msg_box(self, icon, parent, title, text, buttons=QMessageBox.Ok,
-                defaultButton=QMessageBox.NoButton):
+                defaultButton=QMessageBox.NoButton) -> int:
         parent = parent or self.top_level_window()
         d = QMessageBox(icon, title, str(text), buttons, parent)
         if not app_state.config.get('ui_disable_modal_dialogs', False):
@@ -559,7 +559,7 @@ def text_dialog(parent, title, label, ok_label, default=None, allow_multi=False)
         return txt.toPlainText()
 
 class ChoicesLayout(object):
-    def __init__(self, msg, choices, on_clicked=None, checked_index=0):
+    def __init__(self, msg: str, choices, on_clicked=None, checked_index=0):
         vbox = QVBoxLayout()
         if len(msg) > 50:
             vbox.addWidget(WWLabel(msg))
@@ -588,7 +588,7 @@ class ChoicesLayout(object):
     def layout(self):
         return self.vbox
 
-    def selected_index(self):
+    def selected_index(self) -> int:
         return self.group.checkedId()
 
 

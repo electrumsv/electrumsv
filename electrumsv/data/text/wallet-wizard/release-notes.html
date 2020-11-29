@@ -2,21 +2,21 @@
     <body>
         <p>
             Changes included in this version of ElectrumSV are documented in a more readable
-            form within the following article: <a href="https://medium.com/@roger-taylor/electrumsv-1-3-10-f0a60d031d81">ElectrumSV 1.3.10</a>
+            form within the following article: <a href="https://medium.com/@roger-taylor/electrumsv-1-3-11-6f09f2aaed94">ElectrumSV 1.3.11</a>
         </p>
         <p>
             The most prominent changes are also summarised below for convenience, if you wish to read more
             about any given change, please read the linked article.
         </p>
         <ul>
-            <li>Trezor passphrases: Support for Trezor passphrase entry, which applies to all
-                devices that have the passphrase setting enabled, was broken in 1.3.8.</li>
-            <li>Trezor on device passphrase entry: The Trezor Model T device allows on
-            device passphrase entry. Now ElectrumSV supports users opting to use this instead
-            of entering the passphrase in ElectrumSV.</li>
-            <li>Trezor/Keepkey passphrase confirmation: When creating an account for a Trezor
-                or Keepkey hardware wallet, now it shows the proper confirmation dialog for
-                passphrase entry, rather than the simple entry dialog.</li>
+          <li>Ledger hardware devices: The latest Ledger software has been updated in a way that is not
+            backwards compatible. This means that anyone who updates their device needs to get the changes
+            in this release that update ElectrumSV to work with these latest Ledger updates.</li>
+          <li>Hardware wallet accounts: The derivation path is now visible in the account information
+            dialog.</li>
+          <li>Account-less: Loading transactions in a wallet with no accounts no longer errors due to an
+            unnecessary dependency on accounts in this functionality.</li>
+          <li>Invoices: Importing invoices into an account would error displaying the open file dialog.</li>
         </ul>
     </body>
 </html>

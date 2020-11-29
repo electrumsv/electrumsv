@@ -13,7 +13,8 @@ from electrumsv.networks import Net
 
 from trezorlib.client import PASSPHRASE_ON_DEVICE, TrezorClient
 from trezorlib.exceptions import TrezorFailure, Cancelled, OutdatedFirmwareError
-from trezorlib.messages import ButtonRequestType, WordRequestType, RecoveryDeviceType
+from trezorlib.messages import ButtonRequestType, PinMatrixRequestType, RecoveryDeviceType, \
+    WordRequestType
 import trezorlib.btc
 import trezorlib.device
 
@@ -235,17 +236,20 @@ class TrezorClientSV:
 
     # ========= UI methods ==========
 
-    def button_request(self, code):
+    def button_request(self, code: int) -> None:
         message = self.msg or MESSAGES.get(code) or MESSAGES['default']
         self.handler.show_message(message.format(self.device), self.client.cancel)
 
-    def get_pin(self, code=None):
-        if code == 2:
+    def get_pin(self, code: int) -> str:
+        if code == PinMatrixRequestType.NewFirst:
             msg = _("Enter a new PIN for your {}:")
-        elif code == 3:
+        elif code == PinMatrixRequestType.NewSecond:
             msg = (_("Re-enter the new PIN for your {}.\n\n"
                      "NOTE: the positions of the numbers have changed!"))
         else:
+            # PinMatrixRequestType.Current
+            # PinMatrixRequestType.WipeCodeFirst (likely irrelevant in this context)
+            # PinMatrixRequestType.WipeCodeSecond (likely irrelevant in this context)
             msg = _("Enter your current {} PIN:")
         pin = self.handler.get_pin(msg.format(self.device))
         if not pin:
