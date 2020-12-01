@@ -1344,7 +1344,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return result
 
         def on_done(future: concurrent.futures.Future) -> None:
-            nonlocal window, success_text
+            nonlocal account, window, success_text
             # GUI thread
             try:
                 tx_id: Optional[str] = future.result()
@@ -1364,7 +1364,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 if account and tx_id:
                     if tx.context.description is not None:
-                        self._wallet.set_transaction_label(tx.hash(), tx.context.description)
+                        account.set_transaction_label(tx.hash(), tx.context.description)
                     window.show_message(success_text + '\n' + tx_id)
 
                     self._send_view.clear()

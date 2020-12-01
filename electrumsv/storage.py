@@ -54,6 +54,7 @@ from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
 from .transaction import Transaction, classify_tx_output, parse_script_sig
+from .util.misc import ProgressCallbacks
 from .wallet_database import (AccountTable, TxData, DatabaseContext, migration,
     KeyInstanceTable, MasterKeyTable, PaymentRequestTable, TransactionDeltaTable,
     TransactionOutputTable, TransactionTable, WalletDataTable)
@@ -254,7 +255,8 @@ class AbstractStore:
     def requires_upgrade(self) -> bool:
         raise NotImplementedError
 
-    def upgrade(self, has_password: bool, new_password: str) -> Optional['AbstractStore']:
+    def upgrade(self, has_password: bool, new_password: str,
+            callbacks: Optional[ProgressCallbacks]=None) -> Optional['AbstractStore']:
         raise NotImplementedError
 
     def _get_version(self) -> int:
@@ -337,12 +339,12 @@ class DatabaseStore(AbstractStore):
     def requires_upgrade(self) -> bool:
         return self.get("migration") < MIGRATION_CURRENT
 
-    def upgrade(self: 'DatabaseStore', has_password: bool, new_password: str) \
-            -> Optional['DatabaseStore']:
+    def upgrade(self: 'DatabaseStore', has_password: bool, new_password: str,
+            callbacks: Optional[ProgressCallbacks]=None) -> Optional['DatabaseStore']:
         from .wallet_database.migration import update_database
         connection = self._db_context.acquire_connection()
         try:
-            update_database(connection)
+            update_database(connection, callbacks)
         finally:
             self._db_context.release_connection(connection)
         # Refresh the cached data.
@@ -529,7 +531,8 @@ class TextStore(AbstractStore):
             raise IncompatibleWalletError("Not an ElectrumSV wallet")
         return False
 
-    def upgrade(self, has_password: bool, new_password: str) -> Optional[AbstractStore]:
+    def upgrade(self, has_password: bool, new_password: str,
+            callbacks: Optional[ProgressCallbacks]=None) -> Optional[AbstractStore]:
         self._convert_imported()
         self._convert_wallet_type()
         self._convert_account()
@@ -895,7 +898,7 @@ class TextStore(AbstractStore):
                 # TODO(rt12) BACKLOG what if this code is later reused and the operation is an
                 # import and the rows already exist?
                 transaction_rows.append(TransactionRow(tx_hash, tx_metadata, tx_bytedata, flags,
-                    description))
+                    description, -1, -1))
 
             # Index all the address usage via the ElectrumX server scripthash state.
             for address_string, usage_list in address_usage.items():
@@ -1425,14 +1428,15 @@ class WalletStorage:
     def get_backup_filepaths(self) -> Optional[Tuple[str, str]]:
         return self._backup_filepaths
 
-    def upgrade(self, has_password: bool, new_password: str) -> None:
+    def upgrade(self, has_password: bool, new_password: str,
+            callbacks: Optional[ProgressCallbacks]=None) -> None:
         logger.debug('upgrading wallet format')
         self._backup_filepaths = backup_wallet_file(self._path)
 
         # The store can change if the old kind of store was obsoleted. We upgrade through
         # obsoleted kinds of stores to the final in-use kind of store.
         while True:
-            new_store = self._store.upgrade(has_password, new_password)
+            new_store = self._store.upgrade(has_password, new_password, callbacks)
             if new_store is not None:
                 self._set_store(new_store)
                 if new_store.requires_upgrade():

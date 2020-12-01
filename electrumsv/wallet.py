@@ -42,13 +42,14 @@ import weakref
 
 import aiorpcx
 import attr
-from bitcoinx import (Address, PrivateKey, PublicKey, hash_to_hex_str, hash160, hex_str_to_hash,
-    MissingHeader, Ops, P2MultiSig_Output, P2PK_Output, P2SH_Address, pack_byte, push_item, Script)
+from bitcoinx import (Address, PrivateKey, PublicKey, hash_to_hex_str, hex_str_to_hash,
+    MissingHeader, Ops, pack_byte, push_item, Script)
 
 from . import coinchooser
 from .app_state import app_state
 from .bitcoin import compose_chain_string, COINBASE_MATURITY, ScriptTemplate
-from .constants import (AccountType, CHANGE_SUBPATH, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
+from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
+    DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
     KeyInstanceFlag, KeystoreTextType, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
     RECEIVING_SUBPATH, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
     WalletEventType, WalletSettings)
@@ -57,12 +58,13 @@ from .crypto import pw_encode, sha256
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
     UserCancelled, UnknownTransactionException, WalletLoadError)
 from .i18n import _
+from .keys import extract_public_key_hash, get_multi_signer_script_template, \
+    get_single_signer_script_template
 from .keystore import (DerivablePaths, Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
-    instantiate_keystore, KeyStore, Multisig_KeyStore, MultisigChildKeyStoreTypes,
+    instantiate_keystore, KeyStore, Multisig_KeyStore, SinglesigKeyStoreTypes,
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
 from .networks import Net
-from .script import AccumulatorMultiSigOutput
 from .services import InvoiceService, KeyService, RequestService
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
@@ -72,7 +74,8 @@ from .types import TxoKeyType, WaitingUpdateCallback
 from .util import (format_satoshis, get_wallet_name_from_path, profiler, timestamp_to_datetime,
     TriggeredCallbacks)
 from .wallet_database import TxData, TxProof, TransactionCacheEntry, TransactionCache
-from .wallet_database.tables import (AccountRow, AccountTable, InvoiceTable,
+from .wallet_database.tables import (AccountRow, AccountTable, AccountTransactionDescriptionRow,
+    AccountTransactionTable, InvoiceTable,
     KeyInstanceRow, KeyInstanceTable, MasterKeyRow, MasterKeyTable, TransactionTable,
     TransactionOutputTable, TransactionOutputRow, TransactionDeltaTable, TransactionDeltaRow,
     TransactionDeltaSumRow, PaymentRequestTable, PaymentRequestRow, WalletEventRow,
@@ -208,7 +211,8 @@ class AbstractAccount:
     max_change_outputs = 10
 
     def __init__(self, wallet: 'Wallet', row: AccountRow, keyinstance_rows: List[KeyInstanceRow],
-            output_rows: List[TransactionOutputRow]) -> None:
+            output_rows: List[TransactionOutputRow],
+            transaction_descriptions: List[AccountTransactionDescriptionRow]) -> None:
         # Prevent circular reference keeping parent and accounts alive.
         self._wallet = weakref.proxy(wallet)
         self._row = row
@@ -243,6 +247,8 @@ class AbstractAccount:
             in keyinstance_rows }
         self._masterkey_ids: Set[int] = set(row.masterkey_id for row in keyinstance_rows
             if row.masterkey_id is not None)
+        self._transaction_descriptions: Dict[bytes, str] = { r.tx_hash: cast(str, r.description)
+            for r in transaction_descriptions }
 
         # { txids -> { scripthashes: [ <set of txo indices> ]} }
         self._script_txos: Dict[str, Dict[bytes, Set[int]]] = {}
@@ -437,16 +443,14 @@ class AbstractAccount:
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         raise NotImplementedError
 
-    def get_enabled_script_types(self) -> Sequence[ScriptType]:
-        "The allowed set of script types that this account can make use of."
-        raise NotImplementedError
-
-    def get_supported_script_types(self) -> Sequence[ScriptType]:
-        "The complete set of script types that this account type can make use of."
-        return self.get_enabled_script_types()
-
-    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Script]:
-        raise NotImplementedError
+    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
+        script_types = ACCOUNT_SCRIPT_TYPES.get(self.type())
+        if script_types is None:
+            raise NotImplementedError
+        keyinstance = self._keyinstances[keyinstance_id]
+        return [ (script_type,
+                self.get_script_template_for_id(keyinstance_id, script_type).to_script())
+            for script_type in script_types ]
 
     def get_script_for_id(self, keyinstance_id: int,
             script_type: Optional[ScriptType]=None) -> Script:
@@ -502,9 +506,6 @@ class AbstractAccount:
     def have_transaction(self, tx_hash: bytes) -> bool:
         return self._wallet._transaction_cache.is_cached(tx_hash)
 
-    def have_transaction_data(self, tx_hash: bytes) -> bool:
-        return self._wallet._transaction_cache.have_transaction_data(tx_hash)
-
     def has_received_transaction(self, tx_hash: bytes) -> bool:
         # At this time, this means received over the P2P network.
         flags = self._wallet._transaction_cache.get_flags(tx_hash)
@@ -514,7 +515,7 @@ class AbstractAccount:
         tx = self._wallet._transaction_cache.get_transaction(tx_hash, flags)
         if tx is not None:
             # Populate the description.
-            desc = self._wallet.get_transaction_label(tx_hash)
+            desc = self.get_transaction_label(tx_hash)
             if desc:
                 tx.context.description = desc
             return tx
@@ -526,6 +527,29 @@ class AbstractAccount:
 
     def get_transaction_metadata(self, tx_hash: bytes) -> Optional[TxData]:
         return self._wallet._transaction_cache.get_metadata(tx_hash)
+
+    def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) -> None:
+        self.set_transaction_labels([ (tx_hash, text) ])
+
+    def set_transaction_labels(self, entries: List[Tuple[bytes, Optional[str]]]) -> None:
+        update_entries = []
+        for tx_hash, value in entries:
+            text = None if value is None or value.strip() == "" else value.strip()
+            label = self._transaction_descriptions.get(tx_hash)
+            if label != text:
+                if label is not None and value is None:
+                    del self._transaction_descriptions[tx_hash]
+                update_entries.append((text, self._id, tx_hash))
+
+        with self._wallet.get_account_transaction_table() as table:
+            table.update_descriptions(update_entries)
+
+        for text, _account_id, tx_hash in update_entries:
+            app_state.app.on_transaction_label_change(self, tx_hash, text)
+
+    def get_transaction_label(self, tx_hash: bytes) -> str:
+        label = self._transaction_descriptions.get(tx_hash)
+        return "" if label is None else label
 
     def __str__(self) -> str:
         return self.name()
@@ -704,12 +728,7 @@ class AbstractAccount:
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         if script_type is None:
             script_type = self.get_default_script_type()
-        if script_type == ScriptType.P2PK:
-            return P2PK_Output(public_key)
-        elif script_type == ScriptType.P2PKH:
-            return public_key.to_address(coin=Net.COIN)
-        else:
-            raise Exception("unsupported script type", script_type)
+        return get_single_signer_script_template(public_key, script_type)
 
     def get_default_script_type(self) -> ScriptType:
         return ScriptType(self._row.default_script_type)
@@ -1082,6 +1101,9 @@ class AbstractAccount:
             self._logger.debug("set_key_history on stopped wallet: %s", keyinstance_id)
             return
 
+        # TODO: Re-enable network synchronisation.
+        return
+
         # We need to delay post-processing until all of the following are completed:
         # - Any adds are written to the database.
         # - Any updates are written to the database.
@@ -1149,8 +1171,8 @@ class AbstractAccount:
                     # likely that we added it locally and broadcast it ourselves. Transactions
                     # without bytedata cannot have a state.
                     if entry_flags & \
-                            (TxFlags.HasByteData|TxFlags.StateCleared|TxFlags.StateSettled) \
-                            == TxFlags.HasByteData:
+                            (TxFlags.ZHasByteData|TxFlags.StateCleared|TxFlags.StateSettled) \
+                            == TxFlags.ZHasByteData:
                         flags |= TxFlags.StateCleared
                         # Event workaround.
                         update_state_changes.append((tx_hash, entry_flags & TxFlags.STATE_MASK,
@@ -1178,9 +1200,8 @@ class AbstractAccount:
 
             for tx_id, tx_height in hist:
                 tx_hash = hex_str_to_hash(tx_id)
-                entry_flags = self._wallet._transaction_cache.get_flags(tx_hash)
-                if entry_flags & TxFlags.HasByteData == TxFlags.HasByteData:
-                    tx = self._wallet._transaction_cache.get_transaction(tx_hash)
+                tx = self._wallet._transaction_cache.get_transaction(tx_hash)
+                if tx is not None:
                     relevant_txos = self.get_relevant_txos(keyinstance_id, tx, tx_id)
                     self.process_key_usage(tx_hash, tx, relevant_txos)
 
@@ -1255,7 +1276,7 @@ class AbstractAccount:
                 'value': format_satoshis(history_line.value_delta,
                             is_diff=True) if history_line.value_delta is not None else '--',
                 'balance': format_satoshis(balance),
-                'label': self._wallet.get_transaction_label(history_line.tx_hash)
+                'label': self.get_transaction_label(history_line.tx_hash)
             }
             if fx:
                 date = timestamp
@@ -1469,7 +1490,7 @@ class AbstractAccount:
             if tx_flags & TxFlags.PaysInvoice:
                 self.invoices.set_invoice_transaction(cast(int, tx_context.invoice_id), tx_hash)
             if tx_context.description:
-                self._wallet.set_transaction_label(tx_hash, tx_context.description)
+                self.set_transaction_label(tx_hash, tx_context.description)
 
     def obtain_supporting_data(self, tx: Transaction, tx_context: TransactionContext) -> None:
         # Called by the signing logic to ensure all the required data is present.
@@ -1502,7 +1523,7 @@ class AbstractAccount:
                 # In the longer term, the other party whose coin is being spent should have
                 # provided the source transaction. The only way we should lack it is because of
                 # bad wallet management.
-                if self.have_transaction_data(txin.prev_hash):
+                if self.have_transaction(txin.prev_hash):
                     self._logger.debug("fetching input transaction %s from cache", txid)
                     if update_cb is not None:
                         update_cb(False, _("Retrieving local transaction.."))
@@ -1775,9 +1796,10 @@ class ImportedAddressAccount(ImportedAccountBase):
 
     def __init__(self, wallet: 'Wallet', row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
-            output_rows: List[TransactionOutputRow]) -> None:
+            output_rows: List[TransactionOutputRow],
+            description_rows: List[AccountTransactionDescriptionRow]) -> None:
         self._hashes: Dict[int, str] = {}
-        super().__init__(wallet, row, keyinstance_rows, output_rows)
+        super().__init__(wallet, row, keyinstance_rows, output_rows, description_rows)
 
     def type(self) -> AccountType:
         return AccountType.IMPORTED_ADDRESS
@@ -1793,11 +1815,8 @@ class ImportedAddressAccount(ImportedAccountBase):
 
     def _load_keys(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
         self._hashes.clear()
-
         for row in keyinstance_rows:
-            derivation_data = json.loads(row.derivation_data)
-            assert row.derivation_type == DerivationType.PUBLIC_KEY_HASH
-            self._hashes[row.keyinstance_id] = derivation_data['hash']
+            self._hashes[row.keyinstance_id] = extract_public_key_hash(row)
 
     def _unload_keys(self, key_ids: Set[int]) -> None:
         for key_id in key_ids:
@@ -1831,15 +1850,6 @@ class ImportedAddressAccount(ImportedAccountBase):
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
         return [ ]
 
-    def get_enabled_script_types(self) -> Sequence[ScriptType]:
-        return (ScriptType.P2PKH,)
-
-    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
-        keyinstance = self._keyinstances[keyinstance_id]
-        return [ (script_type,
-                self.get_script_template_for_id(keyinstance_id, script_type).to_script())
-            for script_type in self.get_enabled_script_types() ]
-
     def get_script_template_for_id(self, keyinstance_id: int,
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         keyinstance = self._keyinstances[keyinstance_id]
@@ -1851,10 +1861,11 @@ class ImportedAddressAccount(ImportedAccountBase):
 class ImportedPrivkeyAccount(ImportedAccountBase):
     def __init__(self, wallet: 'Wallet', row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
-            output_rows: List[TransactionOutputRow]) -> None:
+            output_rows: List[TransactionOutputRow],
+            description_rows: List[AccountTransactionDescriptionRow]) -> None:
         assert all(row.derivation_type == DerivationType.PRIVATE_KEY for row in keyinstance_rows)
         self._default_keystore = Imported_KeyStore()
-        AbstractAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
+        AbstractAccount.__init__(self, wallet, row, keyinstance_rows, output_rows, description_rows)
 
     def type(self) -> AccountType:
         return AccountType.IMPORTED_PRIVATE_KEY
@@ -1918,15 +1929,6 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         public_key = keystore.get_public_key_for_id(keyinstance_id)
         return [XPublicKey(pubkey_bytes=public_key.to_bytes())]
 
-    def get_enabled_script_types(self) -> Sequence[ScriptType]:
-        return (ScriptType.P2PKH,)
-
-    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
-        keyinstance = self._keyinstances[keyinstance_id]
-        return [ (script_type,
-                self.get_script_template_for_id(keyinstance_id, script_type).to_script())
-            for script_type in self.get_enabled_script_types() ]
-
     def get_script_template_for_id(self, keyinstance_id: int,
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         public_key = self.get_public_keys_for_id(keyinstance_id)[0]
@@ -1938,8 +1940,9 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
 class DeterministicAccount(AbstractAccount):
     def __init__(self, wallet: 'Wallet', row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
-            output_rows: List[TransactionOutputRow]) -> None:
-        AbstractAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
+            output_rows: List[TransactionOutputRow],
+            description_rows: List[AccountTransactionDescriptionRow]) -> None:
+        AbstractAccount.__init__(self, wallet, row, keyinstance_rows, output_rows, description_rows)
 
     def has_seed(self) -> bool:
         return cast(Deterministic_KeyStore, self.get_keystore()).has_seed()
@@ -2033,8 +2036,10 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
 
     def __init__(self, wallet: 'Wallet', row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
-            output_rows: List[TransactionOutputRow]) -> None:
-        DeterministicAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
+            output_rows: List[TransactionOutputRow],
+            description_rows: List[AccountTransactionDescriptionRow]) -> None:
+        DeterministicAccount.__init__(self, wallet, row, keyinstance_rows, output_rows,
+            description_rows)
 
     def get_xpubkeys_for_id(self, keyinstance_id: int) -> List[XPublicKey]:
         keyinstance = self._keyinstances[keyinstance_id]
@@ -2053,18 +2058,6 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
 
     def get_public_keys_for_id(self, keyinstance_id: int) -> List[PublicKey]:
         return [ self._get_public_key_for_id(keyinstance_id) ]
-
-    def get_enabled_script_types(self) -> Sequence[ScriptType]:
-        return (ScriptType.P2PKH,) # ScriptType.P2PK)
-
-    def get_supported_script_types(self) -> Sequence[ScriptType]:
-        return (ScriptType.P2PKH, ScriptType.P2PK)
-
-    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
-        public_key = self._get_public_key_for_id(keyinstance_id)
-        keyinstance = self._keyinstances[keyinstance_id]
-        return [ (script_type, self.get_script_template(public_key, script_type).to_script())
-            for script_type in self.get_enabled_script_types() ]
 
     def get_script_template_for_id(self, keyinstance_id: int,
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
@@ -2091,19 +2084,21 @@ class StandardAccount(SimpleDeterministicAccount):
 class MultisigAccount(DeterministicAccount):
     def __init__(self, wallet: 'Wallet', row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
-            output_rows: List[TransactionOutputRow]) -> None:
+            output_rows: List[TransactionOutputRow],
+            description_rows: List[AccountTransactionDescriptionRow]) -> None:
         self._multisig_keystore = cast(Multisig_KeyStore,
             wallet.get_keystore(cast(int, row.default_masterkey_id)))
         self.m = self._multisig_keystore.m
         self.n = self._multisig_keystore.n
 
-        DeterministicAccount.__init__(self, wallet, row, keyinstance_rows, output_rows)
+        DeterministicAccount.__init__(self, wallet, row, keyinstance_rows, output_rows,
+            description_rows)
 
     def type(self) -> AccountType:
         return AccountType.MULTISIG
 
     def get_threshold(self, script_type: ScriptType) -> int:
-        assert script_type in self.get_enabled_script_types(), \
+        assert script_type in ACCOUNT_SCRIPT_TYPES[AccountType.MULTISIG], \
             f"get_threshold got bad script_type {script_type}"
         return self.m
 
@@ -2111,14 +2106,11 @@ class MultisigAccount(DeterministicAccount):
         derivation_path = self._keypath[keyinstance_id]
         return [ k.derive_pubkey(derivation_path) for k in self.get_keystores() ]
 
-    def get_enabled_script_types(self) -> Sequence[ScriptType]:
-        return (ScriptType.MULTISIG_P2SH, ScriptType.MULTISIG_BARE, ScriptType.MULTISIG_ACCUMULATOR)
-
-    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Script]:
+    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
         public_keys = self.get_public_keys_for_id(keyinstance_id)
         public_keys_hex = [pubkey.to_hex() for pubkey in public_keys]
         return [ (script_type, self.get_script_template(public_keys_hex, script_type).to_script())
-            for script_type in self.get_enabled_script_types() ]
+            for script_type in ACCOUNT_SCRIPT_TYPES[AccountType.MULTISIG] ]
 
     def get_script_template_for_id(self, keyinstance_id: int,
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
@@ -2139,15 +2131,7 @@ class MultisigAccount(DeterministicAccount):
             script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         if script_type is None:
             script_type = self.get_default_script_type()
-        if script_type == ScriptType.MULTISIG_BARE:
-            return P2MultiSig_Output(sorted(public_keys_hex), self.m)
-        elif script_type == ScriptType.MULTISIG_P2SH:
-            redeem_script = P2MultiSig_Output(sorted(public_keys_hex), self.m).to_script_bytes()
-            return P2SH_Address(hash160(redeem_script), Net.COIN)
-        elif script_type == ScriptType.MULTISIG_ACCUMULATOR:
-            return AccumulatorMultiSigOutput(sorted(public_keys_hex), self.m)
-        else:
-            raise Exception("unsupported script type", script_type)
+        return get_multi_signer_script_template(public_keys_hex, self.m, script_type)
 
     def derive_pubkeys(self, derivation_path: Sequence[int]) -> List[PublicKey]:
         return [ k.derive_pubkey(derivation_path) for k in self.get_keystores() ]
@@ -2159,7 +2143,7 @@ class MultisigAccount(DeterministicAccount):
     def get_keystore(self) -> Multisig_KeyStore:
         return self._multisig_keystore
 
-    def get_keystores(self) -> Sequence[MultisigChildKeyStoreTypes]:
+    def get_keystores(self) -> Sequence[SinglesigKeyStoreTypes]:
         return self._multisig_keystore.get_cosigner_keystores()
 
     def has_seed(self) -> bool:
@@ -2213,7 +2197,6 @@ class Wallet(TriggeredCallbacks):
         self._transaction_table = TransactionTable(self._db_context)
         self._transaction_cache = TransactionCache(self._transaction_table,
             txdata_cache_size=txdata_cache_size)
-        self._transaction_descriptions: Dict[bytes, str] = {}
 
         self._masterkey_rows: Dict[int, MasterKeyRow] = {}
         self._account_rows: Dict[int, AccountRow] = {}
@@ -2262,12 +2245,9 @@ class Wallet(TriggeredCallbacks):
 
         self._keystores.clear()
         self._accounts.clear()
-        self._transaction_descriptions.clear()
 
-        with TransactionTable(self._db_context) as table:
-            # NOTE(rt12) BACKLOG These are actually read in the transaction cache but perhaps
-            # shouldn't be, if they are managed separately.
-            self._transaction_descriptions = dict(table.read_descriptions())
+        with self.get_account_transaction_table() as table:
+            all_account_tx_descriptions = { r.account_id: r for r in table.read_descriptions() }
 
         with MasterKeyTable(self._db_context) as table:
             for row in sorted(table.read(), key=lambda t: 0 if t[1] is None else t[1]):
@@ -2283,6 +2263,8 @@ class Wallet(TriggeredCallbacks):
         with TransactionOutputTable(self._db_context) as table:
             all_account_outputs: Dict[int, List[TransactionOutputRow]] = defaultdict(list)
             for row in table.read():
+                if row.keyinstance_id is None:
+                    continue
                 keyinstance = keyinstances[row.keyinstance_id]
                 all_account_outputs[keyinstance.account_id].append(row)
 
@@ -2290,17 +2272,21 @@ class Wallet(TriggeredCallbacks):
             for row in table.read():
                 account_keys = all_account_keys.get(row.account_id, [])
                 account_outputs = all_account_outputs.get(row.account_id, [])
+                account_descriptions = all_account_tx_descriptions.get(row.account_id, [])
                 if row.default_masterkey_id is not None:
-                    account = self._realize_account(row, account_keys, account_outputs)
+                    account = self._realize_account(row, account_keys, account_outputs,
+                        account_descriptions)
                 else:
                     found_types = set(key.derivation_type for key in account_keys)
                     prvkey_types = set([ DerivationType.PRIVATE_KEY ])
                     address_types = set([ DerivationType.PUBLIC_KEY_HASH,
                         DerivationType.SCRIPT_HASH ])
                     if found_types & prvkey_types:
-                        account = ImportedPrivkeyAccount(self, row, account_keys, account_outputs)
+                        account = ImportedPrivkeyAccount(self, row, account_keys, account_outputs,
+                            account_descriptions)
                     elif found_types & address_types:
-                        account = ImportedAddressAccount(self, row, account_keys, account_outputs)
+                        account = ImportedAddressAccount(self, row, account_keys, account_outputs,
+                            account_descriptions)
                     else:
                         raise WalletLoadError(_("Account corrupt, types: %s"), found_types)
                 self.register_account(row.account_id, account)
@@ -2375,7 +2361,9 @@ class Wallet(TriggeredCallbacks):
 
     def _realize_account(self, account_row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
-            output_rows: List[TransactionOutputRow]) -> AbstractAccount:
+            output_rows: List[TransactionOutputRow],
+            transaction_descriptions: List[AccountTransactionDescriptionRow]) \
+                -> AbstractAccount:
         account_constructors = {
             DerivationType.BIP32: StandardAccount,
             DerivationType.BIP32_SUBPATH: StandardAccount,
@@ -2385,20 +2373,24 @@ class Wallet(TriggeredCallbacks):
         }
         if account_row.default_masterkey_id is None:
             if keyinstance_rows[0].derivation_type == DerivationType.PUBLIC_KEY_HASH:
-                return ImportedAddressAccount(self, account_row, keyinstance_rows, output_rows)
+                return ImportedAddressAccount(self, account_row, keyinstance_rows, output_rows,
+                    transaction_descriptions)
             elif keyinstance_rows[0].derivation_type == DerivationType.PRIVATE_KEY:
-                return ImportedPrivkeyAccount(self, account_row, keyinstance_rows, output_rows)
+                return ImportedPrivkeyAccount(self, account_row, keyinstance_rows, output_rows,
+                    transaction_descriptions)
         else:
             masterkey_row = self._masterkey_rows[account_row.default_masterkey_id]
             klass = account_constructors.get(masterkey_row.derivation_type, None)
             if klass is not None:
-                return klass(self, account_row, keyinstance_rows, output_rows)
+                return klass(self, account_row, keyinstance_rows, output_rows,
+                    transaction_descriptions)
         raise WalletLoadError(_("unknown account type %d"), masterkey_row.derivation_type)
 
     def _realize_account_from_row(self, account_row: AccountRow,
-            keyinstance_rows: List[KeyInstanceRow],
-            output_rows: List[TransactionOutputRow]) -> AbstractAccount:
-        account = self._realize_account(account_row, keyinstance_rows, output_rows)
+            keyinstance_rows: List[KeyInstanceRow], output_rows: List[TransactionOutputRow],
+            transaction_descriptions: List[AccountTransactionDescriptionRow]) -> AbstractAccount:
+        account = self._realize_account(account_row, keyinstance_rows, output_rows,
+            transaction_descriptions)
         self.register_account(account_row.account_id, account)
         self.trigger_callback("on_account_created", account_row.account_id)
 
@@ -2429,7 +2421,7 @@ class Wallet(TriggeredCallbacks):
             raise WalletLoadError(f"Unhandled derivation type {masterkey_row.derivation_type}")
         basic_row = AccountRow(-1, masterkey_row.masterkey_id, script_type, account_name)
         rows = self.add_accounts([ basic_row ])
-        return self._realize_account_from_row(rows[0], [], [])
+        return self._realize_account_from_row(rows[0], [], [], [])
 
     def create_masterkey_from_keystore(self, keystore: KeyStore) -> MasterKeyRow:
         basic_row = keystore.to_masterkey_row()
@@ -2472,7 +2464,7 @@ class Wallet(TriggeredCallbacks):
         basic_account_row = AccountRow(-1, None, script_type, account_name)
         account_row = self.add_accounts([ basic_account_row ])[0]
         keyinstance_rows = self.create_keyinstances(account_row.account_id, raw_keyinstance_rows)
-        return self._realize_account_from_row(account_row, keyinstance_rows, [])
+        return self._realize_account_from_row(account_row, keyinstance_rows, [], [])
 
     def add_masterkeys(self, entries: Sequence[MasterKeyRow]) -> Sequence[MasterKeyRow]:
         masterkey_id = self._storage.get("next_masterkey_id", 1)
@@ -2527,6 +2519,9 @@ class Wallet(TriggeredCallbacks):
             table.create(entries)
         return entries
 
+    def get_account_transaction_table(self) -> AccountTransactionTable:
+        return AccountTransactionTable(self.get_db_context())
+
     def get_invoice_table(self) -> InvoiceTable:
         return InvoiceTable(self.get_db_context())
 
@@ -2550,29 +2545,6 @@ class Wallet(TriggeredCallbacks):
         with PaymentRequestTable(self.get_db_context()) as table:
             table.create(rows, completion_callback=completion_callback)
         return rows
-
-    def update_transaction_descriptions(self,
-            entries: Sequence[Tuple[Optional[str], bytes]]) -> None:
-        for text, tx_hash in entries:
-            if text is None:
-                del self._transaction_descriptions[tx_hash]
-            else:
-                self._transaction_descriptions[tx_hash] = text
-
-        with TransactionTable(self.get_db_context()) as table:
-            table.update_descriptions(entries)
-
-    def get_transaction_label(self, tx_hash: bytes) -> str:
-        label = self._transaction_descriptions.get(tx_hash)
-        return "" if label is None else label
-
-    def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) -> None:
-        text = None if text is None or text.strip() == "" else text.strip()
-        label = self._transaction_descriptions.get(tx_hash)
-        if label == text:
-            return
-        self.update_transaction_descriptions([ (text, tx_hash) ])
-        app_state.app.on_transaction_label_change(self, tx_hash, text)
 
     def update_account_script_types(self, entries: Sequence[Tuple[ScriptType, int]]) -> None:
         with AccountTable(self.get_db_context()) as table:
@@ -2689,7 +2661,7 @@ class Wallet(TriggeredCallbacks):
 
     def missing_transactions(self) -> List[bytes]:
         '''Returns a set of tx_hashes.'''
-        return self._transaction_cache.get_unsynced_hashes()
+        raise NotImplementedError()
 
     def unverified_transactions(self) -> Dict[bytes, int]:
         '''Returns a map of tx_hash to tx_height.'''
@@ -2750,15 +2722,9 @@ class Wallet(TriggeredCallbacks):
         # Ensure we are not verifying transactions multiple times.
         if entry is None:
             # We have proof now so regardless what TxState is, we can 'upgrade' it to StateSettled.
-            # This rests on the commitment that any of the following four tx States *will*
-            # Have tx bytedata i.e. "HasByteData" flag is set.
             entry = self._transaction_cache.get_entry(tx_hash, TxFlags.STATE_UNCLEARED_MASK)
             assert entry is not None, f"expected uncleared tx {hash_to_hex_str(tx_hash)}"
-            if entry.flags & TxFlags.HasByteData != 0:
-                self._logger.debug("Fast_tracking entry to StateSettled: %r", entry)
-            else:
-                self._logger.error("Transaction bytedata absent for %s %r", tx_id, entry)
-                return
+            self._logger.debug("Fast_tracking entry to StateSettled: %r", entry)
 
         # We only update a subset.
         flags = TxFlags.HasHeight | TxFlags.HasPosition

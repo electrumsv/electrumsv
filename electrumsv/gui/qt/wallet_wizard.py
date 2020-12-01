@@ -39,7 +39,7 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView, QAction,
     QFileDialog, QHeaderView, QHBoxLayout, QLabel, QMenu,
-    QProgressBar, QPushButton, QSizePolicy, QTableWidget, QTextBrowser,
+    QProgressBar, QPushButton, QSizePolicy, QSpacerItem, QTableWidget, QTextBrowser,
     QVBoxLayout, QWidget, QWizard, QWizardPage
 )
 
@@ -49,6 +49,7 @@ from electrumsv.exceptions import DatabaseMigrationError, IncompatibleWalletErro
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.storage import WalletStorage, categorise_file
+from electrumsv.util.misc import ProgressCallbacks
 from electrumsv.util import get_wallet_name_from_path, read_resource_text
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import Wallet
@@ -740,6 +741,10 @@ class OlderWalletMigrationPage(QWizardPage):
     _migration_storage: Optional[WalletStorage] = None
     _migration_password: Optional[str] = None
 
+    set_progress_stages = pyqtSignal(int)
+    begin_progress_stage = pyqtSignal(int)
+    change_progress = pyqtSignal(int, str)
+
     def __init__(self, parent: WalletWizard,
             migration_data: Optional[MigrationContext]=None) -> None:
         super().__init__(parent)
@@ -750,33 +755,73 @@ class OlderWalletMigrationPage(QWizardPage):
         self.setTitle(_("Migrating wallet.."))
         self.setFinalPage(True)
 
-        self._progress_bar = QProgressBar()
-        self._progress_bar.setRange(0, 0)
-        self._progress_bar.setOrientation(Qt.Horizontal)
-        self._progress_bar.setMinimumWidth(250)
+        self._stages_label = QLabel(_("Overall progress:"))
+        self._stage_label = QLabel(_("Current operation:"))
+
+        self._stages_progress_bar = QProgressBar()
+        self._stages_progress_bar.setRange(0, 0)
+        self._stages_progress_bar.setOrientation(Qt.Horizontal)
+        self._stages_progress_bar.setMinimumWidth(250)
         # This explicitly needs to be done for the progress bar otherwise it has some RHS space.
-        self._progress_bar.setAlignment(Qt.AlignCenter)
+        self._stages_progress_bar.setAlignment(Qt.AlignCenter)
+
+        self._stage_progress_bar = QProgressBar()
+        self._stage_progress_bar.setRange(0, 0)
+        self._stage_progress_bar.setOrientation(Qt.Horizontal)
+        self._stage_progress_bar.setMinimumWidth(250)
+        # This explicitly needs to be done for the progress bar otherwise it has some RHS space.
+        self._stage_progress_bar.setAlignment(Qt.AlignCenter)
+
+        self._stage_index = -1
+        self._stage_count = 1
+        self.set_progress_stages.connect(self._set_progress_stages)
+        self.begin_progress_stage.connect(self._begin_progress_stage)
+        self.change_progress.connect(self._change_progress)
 
         self._progress_label = QLabel(_("Please wait while your wallet is backed up and migrated "
-            "to the new format."))
+            "to the new format. This may take some time depending on the number of transactions "
+            "in your wallet."))
+        self._progress_label.setWordWrap(True)
         self._progress_label.setAlignment(Qt.AlignCenter)
+        self._progress_label.setSizePolicy(QSizePolicy.MinimumExpanding,
+            QSizePolicy.MinimumExpanding)
 
         vbox = QVBoxLayout()
+        vbox.setContentsMargins(0, 0, 20, 0)
         vbox.addStretch(1)
-        vbox.addWidget(self._progress_bar, alignment=Qt.AlignCenter)
-        vbox.addWidget(self._progress_label, alignment=Qt.AlignCenter)
+        vbox.addWidget(self._stages_label)
+        vbox.addWidget(self._stages_progress_bar)
+        vbox.addWidget(self._stage_label)
+        vbox.addWidget(self._stage_progress_bar)
+        vbox.addSpacerItem(QSpacerItem(10, 40))
+        vbox.addWidget(self._progress_label)
         vbox.addStretch(1)
 
-        hlayout = QHBoxLayout()
-        hlayout.addStretch(1)
-        hlayout.addLayout(vbox)
-        hlayout.addStretch(1)
-        self.setLayout(hlayout)
+        self.setLayout(vbox)
 
     def set_migration_data(self, entry: FileState, storage: WalletStorage, password: str) -> None:
         self._migration_entry = entry
         self._migration_storage = storage
         self._migration_password = password
+
+    # Progress callback.
+    def _set_progress_stages(self, stage_count: int) -> None:
+        self._stage_index = -1
+        self._stage_count = stage_count
+        self._stages_progress_bar.setRange(0, stage_count)
+        self._stage_progress_bar.setRange(0, 100)
+
+    # Progress callback.
+    def _begin_progress_stage(self, stage_id: int) -> None:
+        # Stage index is 0-based.
+        self._stage_index += 1
+        self._stages_progress_bar.setValue(self._stage_index + 1)
+        self._stage_progress_bar.setValue(1)
+
+    # Progress callback.
+    def _change_progress(self, progress: int, message: str) -> None:
+        self._stage_progress_bar.setValue(progress)
+        self._stage_progress_bar.setFormat(message+ " (%p%)")
 
     def isComplete(self) -> bool:
         # Called to determine if 'Next' or 'Finish' should be enabled or disabled.
@@ -833,6 +878,17 @@ class OlderWalletMigrationPage(QWizardPage):
         wallet_password = self._migration_password
         has_password = entry.password_state & PasswordState.PASSWORDED == PasswordState.PASSWORDED
 
+        wizard_page = self
+        class MigrationCallbacks(ProgressCallbacks):
+            def set_stage_count(self, stages: int) -> None:
+                wizard_page.set_progress_stages.emit(stages)
+
+            def begin_stage(self, stage_id: int) -> None:
+                wizard_page.begin_progress_stage.emit(stage_id)
+
+            def progress(self, progress: int, message: str) -> None:
+                wizard_page.change_progress.emit(progress, message)
+
         try:
             if storage.is_legacy_format():
                 text_store = storage.get_text_store()
@@ -850,8 +906,9 @@ class OlderWalletMigrationPage(QWizardPage):
                 else:
                     assert text_store.attempt_load_data()
 
+            callbacks = MigrationCallbacks()
             try:
-                storage.upgrade(has_password, wallet_password)
+                storage.upgrade(has_password, wallet_password, callbacks)
             except (IncompatibleWalletError, DatabaseMigrationError) as e:
                 logger.exception("wallet migration error '%s'", entry.path)
                 self._migration_error_text += "\n"+ e.args[0]
@@ -869,8 +926,15 @@ class OlderWalletMigrationPage(QWizardPage):
 
         logger.debug("wallet migration completed")
         self._migration_completed = True
-        self._progress_bar.setRange(1, 5)
-        self._progress_bar.setValue(5)
+        self._stage_progress_bar.setFormat("%p%")
+        if self._stage_index == -1:
+            self._stages_progress_bar.setRange(1, 5)
+            self._stages_progress_bar.setValue(5)
+            self._stage_progress_bar.setRange(1, 5)
+            self._stage_progress_bar.setValue(5)
+        else:
+            self._stages_progress_bar.setValue(self._stage_count)
+            self._stage_progress_bar.setValue(100)
 
         if self._migration_successful:
             self._progress_label.setText(_("Your wallet has been backed up and migrated."))
@@ -881,7 +945,8 @@ class OlderWalletMigrationPage(QWizardPage):
                 "x2: 1, y2: 0,stop: 0 #FF0350,stop: 0.4999 #FF0020,stop: 0.5 #FF0019,"+
                 "stop: 1 #FF0000 );border-bottom-right-radius: 5px;"+
                 "border-bottom-left-radius: 5px;border: .px solid black;}")
-            self._progress_bar.setStyleSheet(style_sheet)
+            self._stages_progress_bar.setStyleSheet(style_sheet)
+            self._stage_progress_bar.setStyleSheet(style_sheet)
             self._progress_label.setText(self._migration_error_text)
 
             wizard: WalletWizard = self.wizard()

@@ -745,7 +745,8 @@ class MyTreeWidget(QTreeWidget):
         if text == "":
             text = None
         account_id, tx_hash = item.data(0, Qt.UserRole)
-        self._main_window._wallet.set_transaction_label(tx_hash, text)
+        account = self._main_window._wallet.get_account(account_id)
+        account.set_transaction_label(tx_hash, text)
         self._main_window.history_view.update_tx_labels()
 
     def update(self) -> None:

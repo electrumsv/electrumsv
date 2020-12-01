@@ -83,7 +83,7 @@ def test_key_archive_unarchive(mocker) -> None:
     ]
 
     wallet = MockWallet()
-    account = CustomAccount(wallet, account_row, keyinstance_rows, transactionoutput_rows)
+    account = CustomAccount(wallet, account_row, keyinstance_rows, transactionoutput_rows, [])
 
     assert (TX_HASH_1, 1) in account._stxos
     assert KEYINSTANCE_ID + 1 in account._keyinstances
@@ -162,7 +162,7 @@ def test_remove_transaction(mocker) -> None:
     ]
 
     wallet = MockWallet()
-    account = CustomAccount(wallet, account_row, keyinstance_rows, transactionoutput_rows)
+    account = CustomAccount(wallet, account_row, keyinstance_rows, transactionoutput_rows, [])
 
     def fake_get_transaction(tx_hash: bytes):
         tx = unittest.mock.Mock()

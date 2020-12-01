@@ -47,7 +47,7 @@ from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 from electrumsv.i18n import _
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import compose_chain_string, scripthash_hex
-from electrumsv.constants import DerivationType, IntFlag, ScriptType
+from electrumsv.constants import ACCOUNT_SCRIPT_TYPES, DerivationType, IntFlag, ScriptType
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
@@ -415,7 +415,7 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
             column_index = source_model.index(source_row, KEY_COLUMN, source_parent)
             line: KeyLine = source_model.data(column_index, QT_FILTER_ROLE)
             account = self._account
-            for script_type in account.get_enabled_script_types():
+            for script_type in ACCOUNT_SCRIPT_TYPES[account.type()]:
                 template = account.get_script_template_for_id(line.keyinstance_id, script_type)
                 if match == template:
                     return True

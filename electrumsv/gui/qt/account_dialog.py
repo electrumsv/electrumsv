@@ -4,7 +4,7 @@ import weakref
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QComboBox, QDialog, QLabel, QLineEdit, QVBoxLayout, QWidget
 
-from electrumsv.constants import DerivationType, KeystoreType, ScriptType
+from electrumsv.constants import ACCOUNT_SCRIPT_TYPES, DerivationType, KeystoreType, ScriptType
 from electrumsv.i18n import _
 from electrumsv.wallet import Wallet
 
@@ -55,7 +55,7 @@ class AccountDialog(QDialog):
         def update_script_types() -> None:
             nonlocal account, script_type_combo
             default_script_type = account.get_default_script_type()
-            combo_items = [ v.name for v in account.get_enabled_script_types() ]
+            combo_items = [ v.name for v in ACCOUNT_SCRIPT_TYPES[account.type()] ]
 
             script_type_combo.clear()
             script_type_combo.addItems(combo_items)

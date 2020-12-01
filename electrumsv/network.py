@@ -622,6 +622,10 @@ class SVSession(RPCSession):
             return
 
         # Status has changed; get history
+        # This returns a list of first the confirmed transactions in blockchain order followed by
+        # the mempool transactions. Only the mempool transactions have a fee value, and they are
+        # in arbitrary order. This means that the account cannot guarantee to have matching
+        # script hash as it either needs to store the order, or guess.
         result = await self.request_history(script_hash)
         self.logger.debug(f'received history of {keyinstance_id} length {len(result)}')
         try:
@@ -1135,12 +1139,10 @@ class Network(TriggeredCallbacks):
                     session.logger.debug(f'received tx {tx_id} bytes: {len(tx_hex)//2}')
                 except CancelledError:
                     had_timeout = True
-                except Exception as e:
-                    logger.exception(e)
-                    logger.error(f'fetching transaction {tx_id}: {e}')
+                except Exception:
+                    logger.exception(f'fetching transaction {tx_id}')
                 else:
-                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared | TxFlags.HasByteData,
-                        True)
+                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared, external=True)
         return had_timeout
 
     def _available_servers(self, protocol):

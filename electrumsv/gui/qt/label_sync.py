@@ -40,7 +40,7 @@ from electrumsv.exceptions import UserCancelled
 from electrumsv.extensions import label_sync
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.wallet import AbstractAccount, Wallet
+from electrumsv.wallet import AbstractAccount
 
 from .util import (Buttons, EnterButton, FormSectionWidget, FramedTextWidget, OkButton,
     WindowModalDialog)
@@ -98,7 +98,8 @@ class LabelSync(object):
         # TODO BACKLOG there is no working account get/set
         account.put("wallet_nonce", nonce)
 
-    def set_transaction_label(self, wallet: Wallet, tx_hash: bytes, text: Optional[str]) -> None:
+    def set_transaction_label(self, account: AbstractAccount, tx_hash: bytes,
+            text: Optional[str]) -> None:
         if DISABLE_INTEGRATION:
             return
         raise NotImplementedError("Transaction labels not supported")

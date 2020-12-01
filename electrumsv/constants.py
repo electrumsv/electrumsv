@@ -28,7 +28,7 @@ class StorageKind(IntEnum):
 
 DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
-MIGRATION_CURRENT = 26
+MIGRATION_CURRENT = 27
 
 class TxFlags(IntFlag):
     Unset = 0
@@ -37,8 +37,14 @@ class TxFlags(IntFlag):
     HasFee = 1 << 4
     HasHeight = 1 << 5
     HasPosition = 1 << 6
+
+    # Complete transactions must always be added with bytedata. We no longer use this flag.
+    # There will be incomplete transactions which may allow b'' perhaps, and which should be
+    # updateable, but we're not there yet.
     HasByteData = 1 << 12
     HasProofData = 1 << 13
+    # Not currently used.
+    IsIncomplete = 1 << 14
 
     # A transaction received over the p2p network which is unconfirmed and in the mempool.
     StateCleared = 1 << 20
@@ -94,6 +100,23 @@ class TxFlags(IntFlag):
 # All these states can only be set if there is transaction data present.
 TRANSACTION_FLAGS = (TxFlags.StateSettled, TxFlags.StateDispatched, TxFlags.StateReceived,
     TxFlags.StateCleared, TxFlags.StateSigned)
+
+
+class AccountTxFlags(IntFlag):
+    NONE = 0
+
+    # This transaction has been replaced by another transaction and is no longer relevant.
+    # An example of this is a transaction in a payment channel that is no longer the latest
+    # transaction that has the same set of ordered inputs.
+    REPLACED = 1 << 10
+    # This transaction has been manually removed from the account by the user.
+    DELETED = 1 << 11
+
+    # This transaction is part of paying an invoice.
+    PAYS_INVOICE = 1 << 30
+
+    # This transaction should be ignored from being included in the account balance.
+    IRRELEVANT_MASK = REPLACED | DELETED
 
 
 class ScriptType(IntEnum):
@@ -156,6 +179,10 @@ class KeyInstanceFlag(IntFlag):
     ACTIVE_MASK = IS_ACTIVE | USER_SET_ACTIVE
     INACTIVE_MASK = ~IS_ACTIVE
     ALLOCATED_MASK = IS_PAYMENT_REQUEST | IS_INVOICE
+
+
+class TransactionInputFlag(IntFlag):
+    NONE = 0
 
 
 class TransactionOutputFlag(IntFlag):
@@ -250,3 +277,19 @@ class NetworkEventNames:
     EXCHANGE_RATE_QUOTES = "on_quotes"
 
 PREFIX_ASM_SCRIPT = "asm:"
+
+ACCOUNT_SCRIPT_TYPES = {
+    AccountType.IMPORTED_ADDRESS: set([
+        ScriptType.P2PKH,
+    ]),
+    AccountType.IMPORTED_PRIVATE_KEY: set([
+        ScriptType.P2PKH,
+    ]),
+    AccountType.MULTISIG: set([
+        ScriptType.MULTISIG_P2SH,
+        ScriptType.MULTISIG_BARE,
+    ]),
+    AccountType.STANDARD: set([
+        ScriptType.P2PKH,
+    ]),
+}
