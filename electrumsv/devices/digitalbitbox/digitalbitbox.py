@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from bitcoinx import PublicKey, compact_signature_to_der, bip32_key_from_string
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import push_script, msg_magic, compose_chain_string
+from electrumsv.bitcoin import msg_magic, compose_chain_string
 from electrumsv.constants import ScriptType
 from electrumsv.crypto import (sha256d, EncodeAES_base64, EncodeAES_bytes, DecodeAES_bytes,
     hmac_oneshot)
