@@ -25,15 +25,16 @@
 import enum
 from io import BytesIO
 import struct
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from struct import error as struct_error
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
 
 import attr
 from bitcoinx import (
     Address, base58_encode_check, bip32_key_from_string, BIP32PublicKey, classify_output_script,
     der_signature_to_compact, double_sha256, hash160, hash_to_hex_str, InvalidSignatureError,
     Ops, P2PK_Output, P2SH_Address, pack_byte, pack_le_int32, pack_le_uint32, pack_list,
-    PrivateKey, PublicKey, push_int, push_item, Script, SigHash, Tx, TxInput, TxOutput,
-    read_le_uint32, read_le_int32, read_le_int64, read_list, read_varbytes, unpack_le_uint16,
+    PrivateKey, PublicKey, push_int, push_item, read_le_int32, read_le_int64, read_le_uint32,
+    read_varint, Script, SigHash, Tx, TxInput, TxOutput, unpack_le_uint16,
 )
 
 from .bitcoin import ScriptTemplate
@@ -64,6 +65,27 @@ TxFileExtensions = {
 }
 
 TxSerialisedType = Union[bytes, str, Dict]
+ReadBytesFunc = Callable[[int], bytes]
+TellFunc = Callable[[], int]
+T = TypeVar('T')
+
+# Duplicated and extended from the bitcoinx implementation.
+def xread_list(read: ReadBytesFunc, tell: TellFunc,
+        read_one: Callable[[ReadBytesFunc, TellFunc], T]) -> List[T]:
+    '''Return a list of items.
+
+    Each item is read with read_one, the stream begins with a count of the items.'''
+    return [read_one(read, tell) for _ in range(read_varint(read))]
+
+# Reimplemented from bitcoinx, to take the tell argument and return the offset.
+def xread_varbytes(read: ReadBytesFunc, tell: TellFunc) -> Tuple[bytes, int]:
+    n = read_varint(read)
+    offset = tell()
+    result = read(n)
+    if len(result) != n:
+        raise struct_error(f'varbytes requires a buffer of {n:,d} bytes')
+    return result, offset
+
 
 
 def classify_tx_output(tx_output: TxOutput) -> ScriptTemplate:
@@ -269,19 +291,46 @@ class XTxInput(TxInput):
     signatures: List[bytes] = attr.ib(default=attr.Factory(list))
     script_type: ScriptType = attr.ib(default=ScriptType.NONE)
     keyinstance_id: Optional[int] = attr.ib(default=None)
+    script_offset: int = attr.ib(default=0)
+    script_length: int = attr.ib(default=0)
 
     @classmethod
-    def read_extended(cls, read):
+    def read(cls, read: ReadBytesFunc, tell: TellFunc) -> 'XTxInput':
+        # This section is duplicated in `XTxInput.read_extended`
         prev_hash = read(32)
         prev_idx = read_le_uint32(read)
-        script_sig = Script(read_varbytes(read))
+        script_sig_bytes, script_sig_offset = xread_varbytes(read, tell)
+        script_sig = Script(script_sig_bytes)
         sequence = read_le_uint32(read)
-        kwargs = {'x_pubkeys': [], 'threshold': 0, 'signatures': []}
+
+        # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
+        return cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore
+            script_offset=script_sig_offset, script_length=len(script_sig_bytes))
+
+    @classmethod
+    def read_extended(cls, read: ReadBytesFunc, tell: TellFunc) -> 'XTxInput':
+        # This section is duplicated in `XTxInput.read`
+        prev_hash = read(32)
+        prev_idx = read_le_uint32(read)
+        script_sig_bytes, script_sig_offset = xread_varbytes(read, tell)
+        script_sig = Script(script_sig_bytes)
+        sequence = read_le_uint32(read)
+
+        kwargs = {
+            'x_pubkeys': [],
+            'threshold': 0,
+            'signatures': [],
+            'script_offset': script_sig_offset,
+            'script_length': len(script_sig_bytes),
+        }
         if prev_hash != bytes(32):
-            parse_script_sig(script_sig.to_bytes(), kwargs)
+            parse_script_sig(script_sig_bytes, kwargs)
+            # NOTE(rt12) Why do we delete this?
             if 'address' in kwargs:
                 del kwargs['address']
-        result = cls(prev_hash, prev_idx, script_sig, sequence, value=None, **kwargs)
+        # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
+        result = cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore
+            value=None, **kwargs) # type: ignore
         if not result.is_complete():
             result.value = read_le_int64(read)
         return result
@@ -339,11 +388,23 @@ class XTxInput(TxInput):
             f'keyinstance_id={self.keyinstance_id}'
         )
 
+
 @attr.s(slots=True, repr=False)
 class XTxOutput(TxOutput):
     '''An extended bitcoin transaction output.'''
     script_type: ScriptType = attr.ib(default=ScriptType.NONE)
     x_pubkeys: List[XPublicKey] = attr.ib(default=attr.Factory(list))
+    script_offset: int = attr.ib(default=0)
+    script_length: int = attr.ib(default=0)
+
+    @classmethod
+    def read(cls, read: ReadBytesFunc, tell: TellFunc) -> 'XTxOutput':
+        value = read_le_int64(read)
+        script_pubkey_bytes, script_pubkey_offset = xread_varbytes(read, tell)
+        script_pubkey = Script(script_pubkey_bytes)
+        return cls(value, script_pubkey,
+            script_offset=script_pubkey_offset,
+            script_length=len(script_pubkey_bytes))
 
     def estimated_size(self) -> int:
         return len(self.to_bytes())
@@ -530,8 +591,6 @@ def txdict_from_str(txt: str) -> Dict[str, Any]:
     return tx_dict
 
 
-# ...
-
 
 @attr.s(slots=True)
 class Transaction(Tx):
@@ -545,22 +604,23 @@ class Transaction(Tx):
         return cls(version=1, inputs=inputs, outputs=outputs.copy(), locktime=locktime)
 
     @classmethod
-    def read(cls, read):
+    def read(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> 'Transaction':
         '''Overridden to specialize reading the inputs.'''
-        return cls(
-            read_le_int32(read),
-            read_list(read, XTxInput.read),
-            read_list(read, XTxOutput.read),
+        # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
+        return cls( # type: ignore
+            read_le_int32(read), # type: ignore
+            xread_list(read, tell, XTxInput.read), # type: ignore
+            xread_list(read, tell, XTxOutput.read),
             read_le_uint32(read),
         )
 
     @classmethod
-    def read_extended(cls, read):
+    def read_extended(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> 'Transaction':
         '''Overridden to specialize reading the inputs.'''
-        return cls(
-            read_le_int32(read),
-            read_list(read, XTxInput.read_extended),
-            read_list(read, XTxOutput.read),
+        return cls( # type: ignore
+            read_le_int32(read), # type: ignore
+            xread_list(read, tell, XTxInput.read_extended), # type: ignore
+            xread_list(read, tell, XTxOutput.read),
             read_le_uint32(read),
         )
 
@@ -573,8 +633,14 @@ class Transaction(Tx):
         ))
 
     @classmethod
+    def from_bytes(cls, raw) -> 'Transaction':
+        stream = BytesIO(raw)
+        return cls.read(stream.read, stream.tell)
+
+    @classmethod
     def from_extended_bytes(cls, raw: bytes) -> 'Transaction':
-        return cls.read_extended(BytesIO(raw).read)
+        stream = BytesIO(raw)
+        return cls.read_extended(stream.read, stream.tell)
 
     def __str__(self):
         return self.serialize()

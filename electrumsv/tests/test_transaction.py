@@ -25,13 +25,17 @@ class TestTransaction:
         assert txin.prev_hash.hex() == '49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'
         assert txin.prev_idx == 1
         assert txin.script_sig.to_hex() == '01ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300'
+        assert txin.script_length == 87
+        assert txin.script_offset == 42
         assert txin.sequence == 4294967294
         assert txin.value == 20112600
         assert txin.signatures == [NO_SIGNATURE]
         assert txin.x_pubkeys == [XPublicKey.from_hex('ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300')]
         assert txin.threshold == 1
-        assert (tx.outputs[0].value == 20112408 and tx.outputs[0].script_pubkey == \
-            address_from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())
+        txout = tx.outputs[0]
+        assert txout.value == 20112408 and txout.script_pubkey == address_from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script()
+        assert txout.script_length == 25
+        assert txout.script_offset == 151
         assert tx.locktime == 507231
 
         assert json.dumps(tx.to_dict()) == '{"version": 1, "hex": "010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000002401ff2103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166feffffff0118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 20112600, "signatures": ["ff"], "x_pubkeys": [{"bip32_xpub": "xpub661MyMwAqRbcFL6WFqND2XM2w1EfpBwFfhsSUcw9xDR3nH8eYLv4z4HAhxv5zkqjHojWsPYK1ZSK7yCr8fZ9iWU6D361G2ryv5UgsKjbeDq", "derivation_path": [0, 35]}]}]}'
@@ -45,12 +49,16 @@ class TestTransaction:
         assert txin.prev_hash.hex() == '49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'
         assert txin.prev_idx == 1
         assert txin.script_sig.to_hex() == '473044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f46885412103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166'
+        assert txin.script_length == 106
+        assert txin.script_offset == 42
         assert txin.sequence == 4294967294
         assert txin.signatures == [bytes.fromhex('3044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f4688541')]
         assert txin.x_pubkeys == [XPublicKey.from_hex('03b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166')]
         assert txin.threshold == 1
-        assert (tx.outputs[0].value == 20112408 and tx.outputs[0].script_pubkey == \
-            address_from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())
+        txout = tx.outputs[0]
+        assert txout.value == 20112408 and txout.script_pubkey == address_from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script()
+        assert txout.script_length == 25
+        assert txout.script_offset == 162
         assert tx.locktime == 507231
         assert tx.to_dict() == {'hex': signed_blob, 'complete': True, 'version': 1}
         assert tx.serialize() == signed_blob
