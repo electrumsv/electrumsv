@@ -595,7 +595,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             return f"{account.get_id()}: {name}"
 
         is_tx_complete = self.tx.is_complete()
-        is_tx_known = self._account and self._account.have_transaction_data(self._tx_hash)
+        is_tx_known = self._account and self._account.have_transaction(self._tx_hash)
 
         prev_txos = self._coin_service.get_outputs(
             [ TxoKeyType(txin.prev_hash, txin.prev_idx) for txin in self.tx.inputs ])
@@ -738,7 +738,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     except MissingHeader:
                         pass
 
-                label = wallet.get_transaction_label(self._tx_hash)
+                label = self._account.get_transaction_label(self._tx_hash)
 
                 state = wallet._transaction_cache.get_flags(self._tx_hash) & TxFlags.STATE_MASK
                 if state & TxFlags.StateSettled:
@@ -820,7 +820,7 @@ class InputTreeWidget(MyTreeWidget):
         column_data = item.text(column).strip()
 
         tx_hash = item.data(InputColumns.INDEX, Roles.TX_HASH)
-        have_tx = self.parent()._account.have_transaction_data(tx_hash)
+        have_tx = self.parent()._account.have_transaction(tx_hash)
 
         tx_id = hash_to_hex_str(tx_hash)
         tx_URL = web.BE_URL(self._main_window.config, 'tx', tx_id)

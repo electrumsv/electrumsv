@@ -148,8 +148,10 @@ class HistoryList(MyTreeWidget):
         text = item.text(column).strip()
         if text == "":
             text = None
+        account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
         tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
-        self._main_window._wallet.set_transaction_label(tx_hash, text)
+        account = self._wallet.get_account(account_id)
+        account.set_transaction_label(tx_hash, text)
         self._main_window.history_view.update_tx_labels()
 
     def update_tx_headers(self) -> None:
@@ -200,7 +202,7 @@ class HistoryList(MyTreeWidget):
             status_str = get_tx_desc(status, timestamp)
             v_str = app_state.format_amount(line.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(balance, whitespaces=True)
-            label = self._wallet.get_transaction_label(line.tx_hash)
+            label = self._account.get_transaction_label(line.tx_hash)
             entry = [None, tx_id, status_str, label, v_str, balance_str]
             if fx and fx.show_history():
                 date = timestamp_to_datetime(time.time() if conf <= 0 else timestamp)
@@ -260,8 +262,10 @@ class HistoryList(MyTreeWidget):
         child_count = root.childCount()
         for i in range(child_count):
             item = root.child(i)
+            account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
             tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
-            label = self._wallet.get_transaction_label(tx_hash)
+            account = self._wallet.get_account(account_id)
+            label = account.get_transaction_label(tx_hash)
             item.setText(Columns.DESCRIPTION, label)
 
     # From the wallet 'verified' event.
@@ -363,8 +367,8 @@ class HistoryList(MyTreeWidget):
 
 def get_tx_status(account: AbstractAccount, tx_hash: bytes, height: int, conf: int,
         timestamp: Union[bool, int]) -> TxStatus:
-    if not account.have_transaction_data(tx_hash):
-        return TxStatus.MISSING
+    # if not account.have_transaction(tx_hash):
+    #     return TxStatus.MISSING
 
     metadata = account.get_transaction_metadata(tx_hash)
     if metadata.position == 0:

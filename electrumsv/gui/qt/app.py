@@ -239,8 +239,9 @@ class SVApplication(QApplication):
             if dialog:
                 dialog.accept()
 
-    def on_transaction_label_change(self, wallet: Wallet, tx_hash: bytes, text: str) -> None:
-        self.label_sync.set_transaction_label(wallet, tx_hash, text)
+    def on_transaction_label_change(self, account: AbstractAccount, tx_hash: bytes, text: str) \
+            -> None:
+        self.label_sync.set_transaction_label(account, tx_hash, text)
 
     def on_keyinstance_label_change(self, account: AbstractAccount, key_id: int, text: str) -> None:
         self.label_sync.set_keyinstance_label(account, key_id, text)

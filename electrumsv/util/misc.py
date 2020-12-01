@@ -69,3 +69,15 @@ def obj_size(o):
         return s
 
     return sizeof(o)
+
+
+class ProgressCallbacks:
+    def set_stage_count(self, stages: int) -> None:
+        pass
+
+    def begin_stage(self, stage_id: int) -> None:
+        pass
+
+    def progress(self, progress: int, message: str) -> None:
+        pass
+

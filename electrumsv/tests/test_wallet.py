@@ -307,7 +307,7 @@ class TestLegacyWalletCreation:
         wallet.update_password(password)
 
         account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
-        account = StandardAccount(wallet, account_row, [], [])
+        account = StandardAccount(wallet, account_row, [], [], [])
         wallet.register_account(account.get_id(), account)
 
         check_legacy_parent_of_standard_wallet(wallet, password=password)
@@ -322,7 +322,7 @@ class TestLegacyWalletCreation:
         wallet = Wallet(tmp_storage)
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
         account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
-        account = StandardAccount(wallet, account_row, [], [])
+        account = StandardAccount(wallet, account_row, [], [], [])
         wallet.register_account(account.get_id(), account)
 
         parent_keystores = wallet.get_keystores()
@@ -389,7 +389,7 @@ class TestLegacyWalletCreation:
         masterkey_row = wallet.create_masterkey_from_keystore(keystore)
 
         account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.MULTISIG_BARE, 'text')
-        account = MultisigAccount(wallet, account_row, [], [])
+        account = MultisigAccount(wallet, account_row, [], [], [])
         wallet.register_account(account.get_id(), account)
 
         check_legacy_parent_of_multisig_wallet(wallet)

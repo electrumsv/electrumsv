@@ -290,7 +290,8 @@ class CoinSplittingTab(QWidget):
             for tx_output in tx.outputs:
                 if tx_output.script_pubkey == our_script:
                     extra_text = _("Dust from BSV faucet")
-                    self._wallet.set_transaction_label(tx.hash(), f"{TX_DESC_PREFIX}: {extra_text}")
+                    self._account.set_transaction_label(tx.hash(),
+                        f"{TX_DESC_PREFIX}: {extra_text}")
                     # Notify the progress dialog task thread.
                     with self.new_transaction_cv:
                         self.new_transaction_cv.notify()

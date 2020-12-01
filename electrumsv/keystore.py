@@ -746,13 +746,13 @@ class Hardware_KeyStore(Xpub, KeyStore):
         raise NotImplementedError
 
 
-MultisigChildKeyStoreTypes = Union[BIP32_KeyStore, Hardware_KeyStore, Old_KeyStore]
+SinglesigKeyStoreTypes = Union[BIP32_KeyStore, Hardware_KeyStore, Old_KeyStore]
 
 class Multisig_KeyStore(DerivablePaths, KeyStore):
     # This isn't used, it's mostly included for consistency. Generally this attribute is used
     # only by this class, to classify derivation data of cosigner information.
     derivation_type = DerivationType.ELECTRUM_MULTISIG
-    _cosigner_keystores: List[MultisigChildKeyStoreTypes]
+    _cosigner_keystores: List[SinglesigKeyStoreTypes]
 
     def __init__(self, data: Dict[str, Any], row: Optional[MasterKeyRow]=None) -> None:
         self.set_row(row)
@@ -766,7 +766,7 @@ class Multisig_KeyStore(DerivablePaths, KeyStore):
             assert derivation_type in (DerivationType.BIP32, DerivationType.HARDWARE,
                 DerivationType.ELECTRUM_OLD)
             keystore = instantiate_keystore(derivation_type, derivation_data)
-            keystore = cast(MultisigChildKeyStoreTypes, keystore)
+            keystore = cast(SinglesigKeyStoreTypes, keystore)
             self.add_cosigner_keystore(keystore)
 
     def type(self) -> KeystoreType:
@@ -816,10 +816,10 @@ class Multisig_KeyStore(DerivablePaths, KeyStore):
             if keystore.can_change_password():
                 keystore.update_password(new_password, old_password)
 
-    def get_cosigner_keystores(self) -> Sequence[MultisigChildKeyStoreTypes]:
+    def get_cosigner_keystores(self) -> Sequence[SinglesigKeyStoreTypes]:
         return self._cosigner_keystores
 
-    def add_cosigner_keystore(self, keystore: MultisigChildKeyStoreTypes) -> None:
+    def add_cosigner_keystore(self, keystore: SinglesigKeyStoreTypes) -> None:
         if len(self._cosigner_keystores) == self.n:
             raise OverloadedMultisigKeystore()
         self._cosigner_keystores.append(keystore)

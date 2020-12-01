@@ -13,8 +13,8 @@ from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tu
 import bitcoinx
 from bitcoinx import hash_to_hex_str
 
-from ..constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
-    KeyInstanceFlag, PaymentFlag, WalletEventFlag, WalletEventType)
+from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, TransactionOutputFlag,
+    PaymentFlag, ScriptType, TxFlags, WalletEventFlag, WalletEventType)
 from ..logs import logs
 from .sqlite_support import SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS, DatabaseContext, \
     CompletionCallbackType
@@ -238,7 +238,6 @@ class TxData(NamedTuple):
         return (self.height == other.height and self.position == other.position
             and self.fee == other.fee)
 
-MAGIC_UNTOUCHED_BYTEDATA = b''
 
 class TxProof(NamedTuple):
     position: int
@@ -250,22 +249,25 @@ class TransactionRow(NamedTuple):
     tx_bytes: Optional[bytes]
     flags: TxFlags
     description: Optional[str]
+    version: Optional[int]
+    locktime: Optional[int]
 
 
 class TransactionTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-tx"
 
     CREATE_SQL = ("INSERT INTO Transactions (tx_hash, tx_data, flags, "
-        "block_height, block_position, fee_value, description, date_created, date_updated) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    READ_DESCRIPTION_SQL = ("SELECT tx_hash, description FROM Transactions T "
+        "block_height, block_position, fee_value, description, version, locktime, "
+        "date_created, date_updated) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+    READ_DESCRIPTION_SQL = ("SELECT tx_hash, T.description FROM Transactions T "
         "WHERE description IS NOT NULL")
-    READ_MANY_BASE_SQL = ("SELECT tx_hash, tx_data, flags, block_height, block_position, "
-        "fee_value, date_created, date_updated FROM Transactions T")
-    READ_METADATA_BASE_SQL = ("SELECT flags, block_height, block_position, fee_value, "
-        "date_created, date_updated FROM Transactions T WHERE tx_hash=?")
-    READ_METADATA_MANY_BASE_SQL = ("SELECT tx_hash, flags, block_height, block_position, "
-        "fee_value, date_created, date_updated FROM Transactions T")
+    READ_MANY_BASE_SQL = ("SELECT tx_hash, tx_data, T.flags, block_height, block_position, "
+        "fee_value, T.date_created, T.date_updated FROM Transactions T")
+    READ_METADATA_BASE_SQL = ("SELECT T.flags, block_height, block_position, fee_value, "
+        "T.date_created, T.date_updated FROM Transactions T WHERE tx_hash=?")
+    READ_METADATA_MANY_BASE_SQL = ("SELECT tx_hash, T.flags, block_height, block_position, "
+        "fee_value, T.date_created, T.date_updated FROM Transactions T")
     READ_PROOF_SQL = "SELECT tx_hash, proof_data FROM Transactions T"
     UPDATE_DESCRIPTION_SQL = "UPDATE Transactions SET date_updated=?, description=? WHERE tx_hash=?"
     UPDATE_FLAGS_SQL = "UPDATE Transactions SET flags=((flags&?)|?),date_updated=? WHERE tx_hash=?"
@@ -311,7 +313,7 @@ class TransactionTable(BaseDatabaseAPI):
     def _get_many_common(self, query: str, flags: Optional[int]=None, mask: Optional[int]=None,
             tx_hashes: Optional[Sequence[bytes]]=None, account_id: Optional[int]=None) -> List[Any]:
         params = []
-        clause, extra_params = flag_clause("flags", flags, mask)
+        clause, extra_params = flag_clause("T.flags", flags, mask)
 
         conjunction = "WHERE"
         if " WHERE " in query:
@@ -350,15 +352,14 @@ class TransactionTable(BaseDatabaseAPI):
     def create(self, entries: List[TransactionRow], completion_callback: Optional[
             CompletionCallbackType]=None) -> None:
         datas = []
-        for tx_hash, metadata, bytedata, flags, description in entries:
-            assert type(tx_hash) is bytes
-            flags &= ~TxFlags.HasByteData
-            if bytedata is not None:
-                flags |= TxFlags.HasByteData
+        for tx_hash, metadata, bytedata, flags, description, version, locktime in entries:
+            assert type(tx_hash) is bytes and bytedata is not None
+            assert (flags & TxFlags.HasByteData) == 0, "this flag is not applicable"
             flags = self._apply_flags(metadata, flags)
             assert metadata.date_added is not None and metadata.date_updated is not None
             datas.append((tx_hash, bytedata, flags, metadata.height, metadata.position,
-                metadata.fee, description, metadata.date_added, metadata.date_updated))
+                metadata.fee, description, version, locktime, metadata.date_added,
+                metadata.date_updated))
 
         def _write(db: sqlite3.Connection) -> None:
             self._logger.debug("add %d transactions", len(datas))
@@ -367,7 +368,7 @@ class TransactionTable(BaseDatabaseAPI):
 
     def read(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,
             tx_hashes: Optional[Sequence[bytes]]=None, account_id: Optional[int]=None) \
-            -> List[Tuple[bytes, Optional[bytes], TxFlags, TxData]]:
+            -> List[Tuple[bytes, bytes, TxFlags, TxData]]:
         query = self.READ_MANY_BASE_SQL
         return [ (row[0], row[1], TxFlags(row[2]), TxData(row[3], row[4], row[5], row[6], row[7]))
             for row in self._get_many_common(query, flags, mask, tx_hashes, account_id) ]
@@ -383,7 +384,6 @@ class TransactionTable(BaseDatabaseAPI):
     def read_descriptions(self,
             tx_hashes: Optional[Sequence[bytes]]=None) -> List[Tuple[bytes, str]]:
         query = self.READ_DESCRIPTION_SQL
-        # This can be used directly as the query results map to the return type.
         return self._get_many_common(query, None, None, tx_hashes)
 
     # Not called outside of the unit tests (at this time).
@@ -400,18 +400,13 @@ class TransactionTable(BaseDatabaseAPI):
             assert type(tx_hash) is bytes
             assert type(bytedata) is bytes or bytedata is None
             flags = self._apply_flags(metadata, flags)
-            if bytedata == MAGIC_UNTOUCHED_BYTEDATA:
+            if bytedata is None:
                 # This is where we are updating a row which has existing bytedata that is not
                 # changing, but we don't want to still have to  pass it into the update call to
                 # avoid changing it.
-                assert flags & TxFlags.HasByteData != 0, f"{hash_to_hex_str(tx_hash)} flag wrong"
                 metadata_rows.append((flags, metadata.height, metadata.position,
                     metadata.fee, metadata.date_updated, tx_hash))
             else:
-                if bytedata is None:
-                    assert flags & TxFlags.HasByteData == 0, f"{hash_to_hex_str(tx_hash)} no flag"
-                else:
-                    assert flags & TxFlags.HasByteData != 0, f"{hash_to_hex_str(tx_hash)} flag"
                 data_rows.append((bytedata, flags, metadata.height, metadata.position,
                     metadata.fee, metadata.date_updated, tx_hash))
 
@@ -1442,6 +1437,110 @@ class WalletEventTable(BaseDatabaseAPI):
         self._db_context.queue_write(_write, completion_callback)
 
 
+class AccountTransactionRow(NamedTuple):
+    account_id: int
+    tx_hash: bytes
+    flags: AccountTxFlags
+    description: Optional[str]
+
+class AccountTransactionBasicRow(NamedTuple):
+    account_id: int
+    tx_hash: bytes
+
+class AccountTransactionDescriptionRow(NamedTuple):
+    account_id: int
+    tx_hash: bytes
+    description: Optional[str]
+
+
+class AccountTransactionTable(BaseDatabaseAPI):
+    LOGGER_NAME = "db-table-accttx"
+
+    CREATE_SQL = ("INSERT INTO AccountTransactions "
+        "(account_id, tx_hash, flags, description, date_created, date_updated) "
+        "VALUES (?, ?, ?, ?, ?, ?)")
+    READ_BASIC_SQL = ("SELECT account_id, tx_hash FROM AccountTransactions AT")
+    READ_DESCRIPTION_SQL = ("SELECT account_id, tx_hash, AT.description "
+        "FROM AccountTransactions AT WHERE description IS NOT NULL")
+    UPDATE_DESCRIPTION_SQL = "UPDATE AccountTransactions SET date_updated=?, description=? " \
+        "WHERE account_id=? AND tx_hash=?"
+    DELETE_SQL = "DELETE FROM AccountTransactions WHERE account_id=? AND tx_hash=?"
+
+    def _get_many_common(self, query: str, flags: Optional[int]=None, mask: Optional[int]=None,
+            account_id: Optional[int]=None, tx_hashes: Optional[Sequence[bytes]]=None) -> List[Any]:
+        params = []
+        clause, extra_params = flag_clause("AT.flags", flags, mask)
+
+        conjunction = "WHERE"
+        if " WHERE " in query:
+            assert account_id is None, "This query is incompatible with account filtering"
+            conjunction = "AND"
+
+        if account_id is not None:
+            query += f" {conjunction} AT.account_id=?"
+            params.append(account_id)
+            conjunction = "AND"
+
+        if clause:
+            query += f" {conjunction} {clause}"
+            params.extend(extra_params)
+            conjunction = "AND"
+
+        if tx_hashes is None or not len(tx_hashes):
+            cursor = self._db.execute(query, params)
+            rows = cursor.fetchall()
+            cursor.close()
+            return rows
+
+        results = []
+        batch_size = SQLITE_MAX_VARS - len(params)
+        while len(tx_hashes):
+            batch_tx_hashes = tx_hashes[:batch_size]
+            batch_query = (query +" "+ conjunction +" "+
+                "tx_hash IN ({0})".format(",".join("?" for k in batch_tx_hashes)))
+            cursor = self._db.execute(batch_query, params + batch_tx_hashes) # type: ignore
+            rows = cursor.fetchall()
+            cursor.close()
+            results.extend(rows)
+            tx_hashes = tx_hashes[batch_size:]
+        return results
+
+    def create(self, entries: Iterable[AccountTransactionRow],
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        timestamp = self._get_current_timestamp()
+        datas = [ (*t, timestamp, timestamp) for t in entries ]
+        def _write(db: sqlite3.Connection):
+            db.executemany(self.CREATE_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+    # def read(self, account_id: int) -> List[AccountTransactionRow]:
+    #     query = self.READ_BASIC_SQL
+    #     return [ AccountTransactionDescriptionRow(row) for row in
+    #         self._get_many_common(query, account_id=account_id) ]
+
+    def read_basic(self, account_id) -> List[AccountTransactionBasicRow]:
+        query = self.READ_BASIC_SQL
+        return [ AccountTransactionBasicRow(*row) for row in
+            self._get_many_common(query, account_id=account_id) ]
+
+    def read_descriptions(self, account_id: Optional[int]=None) \
+            -> List[AccountTransactionDescriptionRow]:
+        query = self.READ_DESCRIPTION_SQL
+        return [ AccountTransactionDescriptionRow(*row) for row in
+            self._get_many_common(query, account_id=account_id) ]
+
+    def update_descriptions(self, entries: Iterable[Tuple[str, int, bytes]],
+            date_updated: Optional[int]=None,
+            completion_callback: Optional[CompletionCallbackType]=None) -> None:
+        if date_updated is None:
+            date_updated = self._get_current_timestamp()
+        datas = [ (date_updated,) + entry for entry in entries ]
+        def _write(db: sqlite3.Connection) -> None:
+            self._logger.debug("updating %d transaction descriptions", len(datas))
+            db.executemany(self.UPDATE_DESCRIPTION_SQL, datas)
+        self._db_context.queue_write(_write, completion_callback)
+
+
 # TODO: Write some async database functions.
 class AsyncFunctions(BaseDatabaseAPI):
     def _test(self, db: sqlite3.Connection) -> Any:
@@ -1449,3 +1548,7 @@ class AsyncFunctions(BaseDatabaseAPI):
 
     async def test(self) -> Any:
         return await self._db_context.run_in_thread(self._test)
+
+    # async def add_transaction(self) -> None:
+    #     pass
+

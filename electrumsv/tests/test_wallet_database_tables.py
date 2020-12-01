@@ -13,16 +13,17 @@ except ModuleNotFoundError:
 import tempfile
 from typing import List
 
-from electrumsv.constants import (TxFlags, ScriptType, DerivationType, TransactionOutputFlag,
-    PaymentFlag, KeyInstanceFlag, WalletEventFlag, WalletEventType)
+from electrumsv.constants import (AccountTxFlags, DerivationType, KeyInstanceFlag,
+    PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
 from electrumsv.types import TxoKeyType
 from electrumsv.wallet_database import (migration, KeyInstanceTable, MasterKeyTable,
     PaymentRequestTable, TransactionTable, DatabaseContext, TransactionDeltaTable,
     TransactionOutputTable, SynchronousWriter, TxData, TxProof, AccountTable)
 from electrumsv.wallet_database.sqlite_support import LeakedSQLiteConnectionError
-from electrumsv.wallet_database.tables import (AccountRow, InvoiceAccountRow, InvoiceRow,
-    InvoiceTable, KeyInstanceRow, MAGIC_UNTOUCHED_BYTEDATA, MasterKeyRow, PaymentRequestRow,
+from electrumsv.wallet_database.tables import (AccountRow, AccountTransactionTable,
+    AccountTransactionRow, InvoiceAccountRow, InvoiceRow,
+    InvoiceTable, KeyInstanceRow, MasterKeyRow, PaymentRequestRow,
     TransactionDeltaRow, TransactionDeltaKeySummaryRow, TransactionRow, TransactionOutputRow,
     WalletEventTable, WalletEventRow)
 
@@ -276,15 +277,15 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     tx1 = TransactionRow(
         tx_hash=TX_HASH_1, tx_data=TxData(height=1, position=1, fee=250, date_added=1,
         date_updated=2), tx_bytes=TX_BYTES_1,
-        flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
-        description=None)
+        flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+        description=None, version=None, locktime=None)
     TX_BYTES_2 = os.urandom(10)
     TX_HASH_2 = bitcoinx.double_sha256(TX_BYTES_2)
     tx2 = TransactionRow(
         tx_hash=TX_HASH_2, tx_data=TxData(height=1, position=1, fee=250, date_added=1,
         date_updated=2), tx_bytes=TX_BYTES_2,
-        flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
-        description=None)
+        flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+        description=None, version=None, locktime=None)
     with TransactionTable(db_context) as transaction_table:
         with SynchronousWriter() as writer:
             transaction_table.create([ tx1, tx2 ], completion_callback=writer.get_callback())
@@ -298,12 +299,19 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
             table.create([ txd1, txd2 ], completion_callback=writer.get_callback())
             assert writer.succeeded()
 
+    with AccountTransactionTable(db_context) as table:
+        with SynchronousWriter() as writer:
+            table.create([
+                AccountTransactionRow(ACCOUNT_ID_1, TX_HASH_1, AccountTxFlags.NONE, None),
+                AccountTransactionRow(ACCOUNT_ID_2, TX_HASH_2, AccountTxFlags.NONE, None),
+            ], completion_callback=writer.get_callback())
+            assert writer.succeeded()
+
     # Now finally, test the account linkages.
     with TransactionTable(db_context) as table:
         ## Test `TransactionTable.read_metadata`.
         # Both tx should be matched.
         metadatas = table.read_metadata()
-        print(metadatas)
         assert 2 == len(metadatas)
         assert { TX_HASH_1, TX_HASH_2 } == { t[0] for t in metadatas }
 
@@ -493,7 +501,8 @@ class TestTransactionTable:
         tx_hash = bitcoinx.double_sha256(bytedata_1)
         metadata_1 = TxData(height=None, fee=None, position=None, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            self.store.create([ (tx_hash, metadata_1, bytedata_1, TxFlags.StateDispatched, None) ],
+            self.store.create([ TransactionRow(tx_hash, metadata_1, bytedata_1,
+                TxFlags.StateDispatched, None, None, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -512,7 +521,8 @@ class TestTransactionTable:
             tx_bytes = os.urandom(10)
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             tx_data = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
-            to_add.append((tx_hash, tx_data, tx_bytes, TxFlags.Unset, None))
+            to_add.append(TransactionRow(tx_hash, tx_data, tx_bytes, TxFlags.Unset, None, None,
+                None))
         with SynchronousWriter() as writer:
             self.store.create(to_add, completion_callback=writer.get_callback())
             assert writer.succeeded()
@@ -528,16 +538,14 @@ class TestTransactionTable:
             tx_bytes = os.urandom(10)
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
-            if i % 2:
-                to_add.append((tx_hash, tx_data, tx_bytes, TxFlags.HasByteData, None))
-            else:
-                to_add.append((tx_hash, tx_data, None, TxFlags.Unset, None))
+            to_add.append(TransactionRow(tx_hash, tx_data, tx_bytes, TxFlags.Unset, None,
+                None, None))
         with SynchronousWriter() as writer:
             self.store.create(to_add, completion_callback=writer.get_callback())
             assert writer.succeeded()
 
         to_update = []
-        for tx_hash, metadata, tx_bytes, flags, description in to_add:
+        for tx_hash, metadata, tx_bytes, flags, description, version, locktime in to_add:
             tx_metadata = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
             to_update.append((tx_hash, tx_metadata, tx_bytes, flags))
         with SynchronousWriter() as writer:
@@ -552,86 +560,22 @@ class TestTransactionTable:
                     continue
 
     @pytest.mark.timeout(8)
-    def test_update__entry_with_set_bytedata_flag(self):
-        tx_bytes = os.urandom(10)
-        tx_hash = bitcoinx.double_sha256(tx_bytes)
-        tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
-        row = (tx_hash, tx_data, tx_bytes, TxFlags.HasByteData, None)
-        with SynchronousWriter() as writer:
-            self.store.create([ row ], completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        # Ensure that a set bytedata flag requires bytedata to be included.
-        with pytest.raises(AssertionError):
-            self.store.update([(tx_hash, tx_data, None, TxFlags.HasByteData)])
-
-    @pytest.mark.timeout(8)
-    def test_update__entry_with_unset_bytedata_flag(self):
-        tx_bytes = os.urandom(10)
-        tx_hash = bitcoinx.double_sha256(tx_bytes)
-        tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
-        row = (tx_hash, tx_data, tx_bytes, TxFlags.HasByteData, None)
-        with SynchronousWriter() as writer:
-            self.store.create([ row ], completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        # Ensure that a unset bytedata flag requires bytedata to not be included.
-        with pytest.raises(AssertionError):
-            self.store.update([(tx_hash, tx_data, tx_bytes, TxFlags.Unset)])
-
-    @pytest.mark.timeout(8)
-    def test_update__entry_with_magic_bytedata_and_set_flag(self):
-        tx_bytes = os.urandom(10)
-        tx_hash = bitcoinx.double_sha256(tx_bytes)
-        tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
-        row = (tx_hash, tx_data, tx_bytes, TxFlags.HasByteData, None)
-        with SynchronousWriter() as writer:
-            self.store.create([ row ], completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        # Ensure that the magic bytedata requires a set bytedata flag.
-        with pytest.raises(AssertionError):
-            self.store.update([(tx_hash, tx_data, MAGIC_UNTOUCHED_BYTEDATA, TxFlags.Unset)])
-
-    @pytest.mark.timeout(8)
-    def test_update__with_valid_magic_bytedata(self):
-        tx_bytes = os.urandom(10)
-        tx_hash = bitcoinx.double_sha256(tx_bytes)
-        tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
-        row = (tx_hash, tx_data, tx_bytes, TxFlags.HasByteData, None)
-        with SynchronousWriter() as writer:
-            self.store.create([ row ], completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        # Ensure that
-        with SynchronousWriter() as writer:
-            self.store.update([(tx_hash, tx_data, MAGIC_UNTOUCHED_BYTEDATA, TxFlags.HasByteData)],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        rows = self.store.read()
-        assert 1 == len(rows)
-        get_tx_hash, bytedata_get, flags_get, metadata_get = rows[0]
-        assert tx_bytes == bytedata_get
-        assert flags_get & TxFlags.HasByteData != 0
-
-    @pytest.mark.timeout(8)
     def test_update_flags(self):
         bytedata = os.urandom(10)
         tx_hash = bitcoinx.double_sha256(bytedata)
         metadata = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            self.store.create([ (tx_hash, metadata, bytedata, TxFlags.Unset, None) ],
-                completion_callback=writer.get_callback())
+            self.store.create([ TransactionRow(tx_hash, metadata, bytedata, TxFlags.Unset, None,
+                None, None) ], completion_callback=writer.get_callback())
             assert writer.succeeded()
 
         # Verify the field flags are assigned correctly on the add.
-        expected_flags = TxFlags.HasByteData | TxFlags.HasFee | TxFlags.HasHeight
+        expected_flags = TxFlags.HasFee | TxFlags.HasHeight
         _tx_hash, flags, _metadata = self.store.read_metadata(tx_hashes=[tx_hash])[0]
         assert expected_flags == flags, f"expected {expected_flags!r}, got {TxFlags.to_repr(flags)}"
 
         flags = TxFlags.StateReceived
-        mask = TxFlags.METADATA_FIELD_MASK | TxFlags.HasByteData | TxFlags.HasProofData
+        mask = TxFlags.METADATA_FIELD_MASK | TxFlags.HasProofData
         date_updated = 1
         with SynchronousWriter() as writer:
             self.store.update_flags([ (tx_hash, flags, mask, date_updated) ],
@@ -663,7 +607,8 @@ class TestTransactionTable:
             bytedata = os.urandom(10)
             tx_hash = bitcoinx.double_sha256(bytedata)
             metadata = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
-            to_add.append((tx_hash, metadata, bytedata, TxFlags.Unset, None))
+            to_add.append(TransactionRow(tx_hash, metadata, bytedata, TxFlags.Unset, None,
+                None, None))
         with SynchronousWriter() as writer:
             self.store.create(to_add, completion_callback=writer.get_callback())
             assert writer.succeeded()
@@ -686,8 +631,8 @@ class TestTransactionTable:
             tx_hash = bitcoinx.double_sha256(bytedata)
             metadata = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
             with SynchronousWriter() as writer:
-                self.store.create([ (tx_hash, metadata, bytedata, TxFlags.Unset, None) ],
-                    completion_callback=writer.get_callback())
+                self.store.create([ TransactionRow(tx_hash, metadata, bytedata, TxFlags.Unset,
+                    None, None, None) ], completion_callback=writer.get_callback())
                 assert writer.succeeded()
             get_tx_hashes.add(tx_hash)
 
@@ -701,7 +646,8 @@ class TestTransactionTable:
             tx_bytes = os.urandom(10)
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             tx_data = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
-            to_add.append((tx_hash, tx_data, tx_bytes, TxFlags.HasFee, None))
+            to_add.append(TransactionRow(tx_hash, tx_data, tx_bytes, TxFlags.HasFee, None,
+                None, None))
         with SynchronousWriter() as writer:
             self.store.create(to_add, completion_callback=writer.get_callback())
             assert writer.succeeded()
@@ -710,7 +656,7 @@ class TestTransactionTable:
         tx_hash_1 = to_add[0][0]
         matches = self.store.read(tx_hashes=[tx_hash_1])
         assert tx_hash_1 == matches[0][0]
-        assert self.store.read(TxFlags.HasByteData, TxFlags.HasByteData, [tx_hash_1])
+        assert self.store.read(tx_hashes=[tx_hash_1])
 
         # Test no id is matched.
         matches = self.store.read(tx_hashes=[b"aaaa"])
@@ -739,7 +685,8 @@ class TestTransactionTable:
             bytedata = os.urandom(10)
             tx_hash = bitcoinx.double_sha256(bytedata)
             metadata = TxData(height=i*100, fee=i*1000, position=None, date_added=1, date_updated=1)
-            datas.append((tx_hash, metadata, bytedata, TxFlags.Unset, None))
+            datas.append(TransactionRow(tx_hash, metadata, bytedata, TxFlags.Unset, None,
+                None, None))
             all_tx_hashes.append(tx_hash)
         with SynchronousWriter() as writer:
             self.store.create(datas, completion_callback=writer.get_callback())
@@ -769,7 +716,8 @@ class TestTransactionTable:
             bytedata = os.urandom(10)
             tx_hash = bitcoinx.double_sha256(bytedata)
             metadata = TxData(height=i*100, fee=i*1000, position=None, date_added=1, date_updated=1)
-            datas.append((tx_hash, metadata, bytedata, TxFlags.Unset, None))
+            datas.append(TransactionRow(tx_hash, metadata, bytedata, TxFlags.Unset, None, None,
+                None))
             tx_hashes.append(tx_hash)
         with SynchronousWriter() as writer:
             self.store.create(datas, completion_callback=writer.get_callback())
@@ -804,7 +752,7 @@ class TestTransactionTable:
         tx_hash = bitcoinx.double_sha256(bytedata)
         metadata = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            self.store.create([ (tx_hash, metadata, bytedata, 0, None) ],
+            self.store.create([ TransactionRow(tx_hash, metadata, bytedata, 0, None, None, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -836,8 +784,10 @@ class TestTransactionTable:
         metadata_2 = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
 
         with SynchronousWriter() as writer:
-            self.store.create([ (tx_hash_1, metadata_1, bytedata_1, 0, None),
-                    (tx_hash_2, metadata_2, bytedata_2, 0, None) ],
+            self.store.create([
+                    TransactionRow(tx_hash_1, metadata_1, bytedata_1, 0, None, None, None),
+                    TransactionRow(tx_hash_2, metadata_2, bytedata_2, 0, None, None, None),
+                ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -897,8 +847,8 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
         with SynchronousWriter() as writer:
             transaction_table.create([ (TX_HASH, TxData(height=1, fee=2, position=None,
                     date_added=1, date_updated=1), TX_BYTES,
-                    TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight,
-                    None) ],
+                    TxFlags.HasFee|TxFlags.HasHeight,
+                    None, None, None) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
@@ -1042,12 +992,12 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
             transaction_table.create([
                     (TX_HASH, TxData(height=1, fee=2, position=None, date_added=1,
                     date_updated=1), TX_BYTES,
-                    TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight|TxFlags.PaysInvoice,
-                    "tx 1"),
+                    TxFlags.HasFee|TxFlags.HasHeight|TxFlags.PaysInvoice,
+                    "tx 1", None, None),
                     (TX_HASH2, TxData(height=1, fee=2, position=None, date_added=1,
                     date_updated=1), TX_BYTES2,
-                    TxFlags.HasByteData|TxFlags.HasFee|TxFlags.HasHeight,
-                    None)
+                    TxFlags.HasFee|TxFlags.HasHeight,
+                    None, None, None)
                 ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
@@ -1119,14 +1069,14 @@ def test_table_transactiondeltas_crud(db_context: DatabaseContext) -> None:
     assert hrows is not None
     assert len(hrows) == 1
     assert hrows[0].tx_hash == TX_HASH
-    assert hrows[0].tx_flags != TxFlags.HasByteData | TxFlags.HasHeight | TxFlags.HasFee
+    assert hrows[0].tx_flags != TxFlags.HasHeight | TxFlags.HasFee
     assert hrows[0].value_delta == hrow_sum
 
     hrows = table.read_history(ACCOUNT_ID)
     assert hrows is not None
     assert len(hrows) == 1
     assert hrows[0].tx_hash == TX_HASH
-    assert hrows[0].tx_flags != TxFlags.HasByteData | TxFlags.HasHeight | TxFlags.HasFee
+    assert hrows[0].tx_flags != TxFlags.HasHeight | TxFlags.HasFee
     assert hrows[0].value_delta == hrow_sum
 
     srows = table.read_key_summary(ACCOUNT_ID)
@@ -1498,35 +1448,35 @@ def test_update_used_keys(db_context: DatabaseContext):
         TransactionRow(
             tx_hash=b'1', tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
                 date_updated=timestamp), tx_bytes=b'tx_bytes1',
-            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
-            description=None),
+            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+            description=None, version=None, locktime=None),
         TransactionRow(tx_hash=b'2',
             tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
                 date_updated=timestamp), tx_bytes=b'tx_bytes1',
-            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
-            description=None),
+            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+            description=None, version=None, locktime=None),
         # 2 x Unsettled txs -> Not yet "Used" until settled (key_id = 2)
         TransactionRow(tx_hash=b'3',
             tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
                 date_updated=timestamp), tx_bytes=b'tx_bytes3',
-            flags=TxFlags(TxFlags.StateCleared | TxFlags.HasByteData | TxFlags.HasHeight),
-            description=None),
+            flags=TxFlags(TxFlags.StateCleared | TxFlags.HasHeight),
+            description=None, version=None, locktime=None),
         TransactionRow(tx_hash=b'4',
             tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
                 date_updated=timestamp), tx_bytes=b'tx_bytes4',
-            flags=TxFlags(TxFlags.StateCleared | TxFlags.HasByteData | TxFlags.HasHeight),
-            description=None),
+            flags=TxFlags(TxFlags.StateCleared | TxFlags.HasHeight),
+            description=None, version=None, locktime=None),
         # 2 x Settled txs BUT keyinstance has flag: USER_SET_ACTIVE manually so not deactivated.
         TransactionRow(tx_hash=b'5',
             tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
                 date_updated=timestamp), tx_bytes=b'tx_bytes5',
-            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
-            description=None),
+            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+            description=None, version=None, locktime=None),
         TransactionRow(tx_hash=b'6',
             tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
                 date_updated=timestamp), tx_bytes=b'tx_bytes6',
-            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
-            description=None),
+            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+            description=None, version=None, locktime=None),
     ]
     tx_delta_entries = [
         TransactionDeltaRow(tx_hash=b'1',keyinstance_id=1,value_delta=10),
@@ -1659,8 +1609,8 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
         tx = TransactionRow(
             tx_hash=txh, tx_data=TxData(height=1, position=1, fee=250, date_added=1,
             date_updated=2), tx_bytes=txb,
-            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasByteData | TxFlags.HasHeight),
-            description=None)
+            flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+            description=None, version=None, locktime=None)
         txs.append(tx)
     transaction_table = TransactionTable(db_context)
     with SynchronousWriter() as writer:

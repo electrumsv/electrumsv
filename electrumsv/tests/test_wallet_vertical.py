@@ -74,7 +74,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
     def _create_standard_wallet(self, ks: keystore.KeyStore) -> StandardAccount:
         masterkey_row = self.wallet.create_masterkey_from_keystore(ks)
         account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
-        account = StandardAccount(self.wallet, account_row, [], [])
+        account = StandardAccount(self.wallet, account_row, [], [], [])
         account.synchronize()
         return account
 
@@ -84,7 +84,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         keystore.add_cosigner_keystore(ks2)
         masterkey_row = self.wallet.create_masterkey_from_keystore(keystore)
         account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.MULTISIG_P2SH, 'text')
-        account = MultisigAccount(self.wallet, account_row, [], [])
+        account = MultisigAccount(self.wallet, account_row, [], [], [])
         self.wallet.register_account(account.get_id(), account)
         account.synchronize()
         return account

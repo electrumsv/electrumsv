@@ -207,7 +207,7 @@ class _ItemModel(QAbstractItemModel):
                     else:
                         return 3
                 elif column == LABEL_COLUMN:
-                    return self._view._wallet.get_transaction_label(line.hash)
+                    return self._view._account.get_transaction_label(line.hash)
                 elif column in (VALUE_COLUMN, FIAT_VALUE_COLUMN):
                     return line.value
 
@@ -232,7 +232,7 @@ class _ItemModel(QAbstractItemModel):
                         return _("Signed")
                     return line.flags
                 elif column == LABEL_COLUMN:
-                    return self._view._wallet.get_transaction_label(line.hash)
+                    return self._view._account.get_transaction_label(line.hash)
                 elif column == VALUE_COLUMN:
                     return app_state.format_amount(line.value, whitespaces=True)
                 elif column == FIAT_VALUE_COLUMN:
@@ -266,7 +266,7 @@ class _ItemModel(QAbstractItemModel):
 
             elif role == Qt.EditRole:
                 if column == LABEL_COLUMN:
-                    return self._view._wallet.get_transaction_label(line.hash)
+                    return self._view._account.get_transaction_label(line.hash)
 
     def flags(self, model_index: QModelIndex) -> int:
         if model_index.isValid():
@@ -300,7 +300,7 @@ class _ItemModel(QAbstractItemModel):
             if model_index.column() == LABEL_COLUMN:
                 if value.strip() == "":
                     value = None
-                self._view._wallet.set_transaction_label(line.hash, value)
+                self._view._account.set_transaction_label(line.hash, value)
             self.dataChanged.emit(model_index, model_index)
             return True
         return False

@@ -24,12 +24,9 @@ class HistoryListTests(unittest.TestCase):
         account = MockWhatever()
         def _get_utxo(tx_hash: bytes, output_index: int) -> Optional[UTXO]:
             return None
-        def _have_transaction_data(tx_hash: bytes) -> bool:
-            return True
         def _get_transaction_metadata(tx_hash: bytes):
             return TxData(position=1)
         account.get_transaction_metadata = _get_transaction_metadata
-        account.have_transaction_data = _have_transaction_data
         account.get_utxo = _get_utxo
         local_height = 1000
         def _get_local_height() -> int:
@@ -71,12 +68,9 @@ class HistoryListTests(unittest.TestCase):
         account = MockWhatever()
         def _get_utxo(tx_hash: bytes, output_index: int) -> Optional[UTXO]:
             return UTXO(100, b'', 0, tx_hash, output_index, 1000, 1, None, False, 0)
-        def _have_transaction_data(tx_hash: bytes) -> bool:
-            return True
         def _get_transaction_metadata(tx_hash: bytes):
             return TxData(position=0)
         account.get_transaction_metadata = _get_transaction_metadata
-        account.have_transaction_data = _have_transaction_data
         account.get_utxo = _get_utxo
         local_height = 1000
         def _get_local_height() -> int:
