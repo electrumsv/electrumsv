@@ -1326,10 +1326,10 @@ class AbstractAccount:
                     change_outs.append(XTxOutput(0, # type: ignore
                         self.get_script_for_id(keyinstance.keyinstance_id, script_type),
                         script_type,
-                        self.get_xpubkeys_for_id(keyinstance.keyinstance_id)))
+                        self.get_xpubkeys_for_id(keyinstance.keyinstance_id))) # type: ignore
             else:
                 change_outs = [ XTxOutput(0, utxos[0].script_pubkey, # type: ignore
-                    inputs[0].script_type, inputs[0].x_pubkeys) ]
+                    inputs[0].script_type, inputs[0].x_pubkeys) ] # type: ignore
             coin_chooser = coinchooser.CoinChooserPrivacy()
             tx = coin_chooser.make_tx(inputs, outputs, change_outs, fee_estimator,
                 self.dust_threshold())
@@ -1413,7 +1413,7 @@ class AbstractAccount:
         # TODO(rt12) BACKLOG does CPFP need to pay to the parent's output script? If not fix.
         # NOTE: Typing does not work well with attrs and subclasses attributes.
         outputs = [XTxOutput(tx_output.value - fee, utxo.script_pubkey, # type: ignore
-            utxo.script_type, self.get_xpubkeys_for_id(utxo.keyinstance_id))]
+            utxo.script_type, self.get_xpubkeys_for_id(utxo.keyinstance_id))] # type: ignore
         locktime = self._wallet.get_local_height()
         # note: no need to call tx.BIP_LI01_sort() here - single input/output
         return Transaction.from_io(inputs, outputs, locktime=locktime)
