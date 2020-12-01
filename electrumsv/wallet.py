@@ -405,6 +405,29 @@ class AbstractAccount:
         label = self._transaction_descriptions.get(tx_hash)
         return "" if label is None else label
 
+    def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) -> None:
+        self.set_transaction_labels([ (tx_hash, text) ])
+
+    def set_transaction_labels(self, entries: List[Tuple[bytes, Optional[str]]]) -> None:
+        update_entries = []
+        for tx_hash, value in entries:
+            text = None if value is None or value.strip() == "" else value.strip()
+            label = self._transaction_descriptions.get(tx_hash)
+            if label != text:
+                if label is not None and value is None:
+                    del self._transaction_descriptions[tx_hash]
+                update_entries.append((text, self._id, tx_hash))
+
+        with self._wallet.get_account_transaction_table() as table:
+            table.update_descriptions(update_entries)
+
+        for text, _account_id, tx_hash in update_entries:
+            app_state.app.on_transaction_label_change(self, tx_hash, text)
+
+    def get_transaction_label(self, tx_hash: bytes) -> str:
+        label = self._transaction_descriptions.get(tx_hash)
+        return "" if label is None else label
+
     def __str__(self) -> str:
         return self.name()
 
