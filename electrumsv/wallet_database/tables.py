@@ -21,10 +21,6 @@ from .sqlite_support import SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS, DatabaseCon
 from ..types import TxoKeyType
 
 
-# TODO(rt12) The rows should be turned into NamedTuples?
-# TODO(rt12) Do not read the `date_created` / `date_updated` columns for non-transactions. They
-#            are never used and are good for debugging purposes only.
-
 __all__ = [
     "MissingRowError", "DataPackingError", "TransactionTable", "TransactionOutputTable",
     "TransactionDeltaTable", "MasterKeyTable", "KeyInstanceTable", "WalletDataTable",
@@ -91,7 +87,7 @@ def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, para
     return [ return_type(*t) for t in results ]
 
 
-class BaseWalletStore:
+class BaseDatabaseAPI:
     LOGGER_NAME: str
 
     def __init__(self, db_context: DatabaseContext) -> None:
@@ -125,7 +121,7 @@ class WalletDataRow(NamedTuple):
     value: Any
 
 
-class WalletDataTable(BaseWalletStore):
+class WalletDataTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-walletdata"
 
     CREATE_SQL = ("INSERT INTO WalletData (key, value, date_created, date_updated) "
@@ -256,7 +252,7 @@ class TransactionRow(NamedTuple):
     description: Optional[str]
 
 
-class TransactionTable(BaseWalletStore):
+class TransactionTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-tx"
 
     CREATE_SQL = ("INSERT INTO Transactions (tx_hash, tx_data, flags, "
@@ -354,13 +350,11 @@ class TransactionTable(BaseWalletStore):
     def create(self, entries: List[TransactionRow], completion_callback: Optional[
             CompletionCallbackType]=None) -> None:
         datas = []
-        size_hint = 0
         for tx_hash, metadata, bytedata, flags, description in entries:
             assert type(tx_hash) is bytes
             flags &= ~TxFlags.HasByteData
             if bytedata is not None:
                 flags |= TxFlags.HasByteData
-                size_hint += len(bytedata)
             flags = self._apply_flags(metadata, flags)
             assert metadata.date_added is not None and metadata.date_updated is not None
             datas.append((tx_hash, bytedata, flags, metadata.height, metadata.position,
@@ -369,7 +363,7 @@ class TransactionTable(BaseWalletStore):
         def _write(db: sqlite3.Connection) -> None:
             self._logger.debug("add %d transactions", len(datas))
             db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback, size_hint)
+        self._db_context.queue_write(_write, completion_callback)
 
     def read(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,
             tx_hashes: Optional[Sequence[bytes]]=None, account_id: Optional[int]=None) \
@@ -402,7 +396,6 @@ class TransactionTable(BaseWalletStore):
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         data_rows = []
         metadata_rows = []
-        size_hint = 0
         for tx_hash, metadata, bytedata, flags in entries:
             assert type(tx_hash) is bytes
             assert type(bytedata) is bytes or bytedata is None
@@ -419,7 +412,6 @@ class TransactionTable(BaseWalletStore):
                     assert flags & TxFlags.HasByteData == 0, f"{hash_to_hex_str(tx_hash)} no flag"
                 else:
                     assert flags & TxFlags.HasByteData != 0, f"{hash_to_hex_str(tx_hash)} flag"
-                    size_hint += len(bytedata)
                 data_rows.append((bytedata, flags, metadata.height, metadata.position,
                     metadata.fee, metadata.date_updated, tx_hash))
 
@@ -435,7 +427,7 @@ class TransactionTable(BaseWalletStore):
             if len(metadata_rows):
                 db.executemany(self.UPDATE_METADATA_MANY_SQL, metadata_rows)
 
-        self._db_context.queue_write(_write, completion_callback, size_hint)
+        self._db_context.queue_write(_write, completion_callback)
 
     def update_metadata(self, entries: List[Tuple[bytes, TxData, TxFlags]],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -476,12 +468,11 @@ class TransactionTable(BaseWalletStore):
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         datas = [ (self._pack_proof(proof), date_updated, TxFlags.HasProofData, tx_hash)
             for (tx_hash, proof, date_updated) in entries ]
-        size_hint = sum(len(t[0]) for t in datas)
         def _write(db: sqlite3.Connection) -> None:
             tx_ids = [ hash_to_hex_str(entry[0]) for entry in entries ]
             self._logger.debug("updating %d transaction proof '%s'", 1, tx_ids)
             db.executemany(self.UPDATE_PROOF_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback, size_hint)
+        self._db_context.queue_write(_write, completion_callback)
 
     def delete(self, tx_hashes: Sequence[bytes],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -501,7 +492,7 @@ class MasterKeyRow(NamedTuple):
     derivation_data: bytes
 
 
-class MasterKeyTable(BaseWalletStore):
+class MasterKeyTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-masterkey"
 
     CREATE_SQL = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
@@ -515,10 +506,9 @@ class MasterKeyTable(BaseWalletStore):
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         timestamp = self._get_current_timestamp()
         datas = [ (*t, timestamp, timestamp) for t in entries ]
-        size_hint = sum(len(t[3]) for t in entries)
         def _write(db: sqlite3.Connection):
             db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback, size_hint)
+        self._db_context.queue_write(_write, completion_callback)
 
     def read(self) -> List[MasterKeyRow]:
         cursor = self._db.execute(self.READ_SQL)
@@ -532,13 +522,11 @@ class MasterKeyTable(BaseWalletStore):
         if date_updated is None:
             date_updated = self._get_current_timestamp()
         datas = []
-        size_hint = 0
         for t in entries:
             datas.append((t[0], date_updated, t[1]))
-            size_hint += len(t[0])
         def _write(db: sqlite3.Connection):
             db.executemany(self.UPDATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback, size_hint)
+        self._db_context.queue_write(_write, completion_callback)
 
     def delete(self, key_ids: Iterable[int],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
@@ -555,7 +543,7 @@ class AccountRow(NamedTuple):
     account_name: str
 
 
-class AccountTable(BaseWalletStore):
+class AccountTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-account"
 
     CREATE_SQL = ("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
@@ -636,7 +624,7 @@ class KeyInstanceRow(NamedTuple):
     description: Optional[str]
 
 
-class KeyInstanceTable(BaseWalletStore):
+class KeyInstanceTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-keyinstance"
 
     CREATE_SQL = ("INSERT INTO KeyInstances "
@@ -660,10 +648,9 @@ class KeyInstanceTable(BaseWalletStore):
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         timestamp = self._get_current_timestamp()
         datas = [ (*t, timestamp, timestamp) for t in entries]
-        size_hint = sum(len(t[4]) for t in entries)
         def _write(db: sqlite3.Connection):
             db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback, size_hint)
+        self._db_context.queue_write(_write, completion_callback)
 
     # We cannot take Sequence in place of List, because Sequences are not addable.
     def read(self, mask: Optional[KeyInstanceFlag]=None, key_ids: Optional[List[int]]=None) \
@@ -703,7 +690,6 @@ class KeyInstanceTable(BaseWalletStore):
         if date_updated is None:
             date_updated = self._get_current_timestamp()
         datas = [(date_updated,) + entry for entry in entries]
-        size_hint = sum(len(entry[0]) for entry in entries)
         def _write(db: sqlite3.Connection):
             db.executemany(self.UPDATE_DERIVATION_DATA_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)
@@ -754,7 +740,7 @@ class TransactionOutputRow(NamedTuple):
     flags: TransactionOutputFlag
 
 
-class TransactionOutputTable(BaseWalletStore):
+class TransactionOutputTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-txoutput"
 
     CREATE_SQL = ("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, keyinstance_id, "
@@ -868,7 +854,7 @@ class TransactionDeltaKeySummaryRow(NamedTuple):
     match_count: int
 
 
-class TransactionDeltaTable(BaseWalletStore):
+class TransactionDeltaTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-txdelta"
 
     CREATE_SQL_BASE = ("INTO TransactionDeltas "
@@ -1146,7 +1132,7 @@ class PaymentRequestRow(NamedTuple):
     date_created: int
 
 
-class PaymentRequestTable(BaseWalletStore):
+class PaymentRequestTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-prequest"
 
     CREATE_SQL = ("INSERT INTO PaymentRequests "
@@ -1260,7 +1246,7 @@ class InvoiceAccountRow(NamedTuple):
     date_created: int
 
 
-class InvoiceTable(BaseWalletStore):
+class InvoiceTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-invoice"
 
     # For recording the invoice after it is selected and the PaymentRequest is fetched.
@@ -1399,7 +1385,7 @@ class WalletEventRow(NamedTuple):
     date_created: int
 
 
-class WalletEventTable(BaseWalletStore):
+class WalletEventTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-walletevent"
 
     CREATE_SQL = ("INSERT INTO WalletEvents "
@@ -1455,3 +1441,11 @@ class WalletEventTable(BaseWalletStore):
             db.executemany(self.DELETE_SQL, entries)
         self._db_context.queue_write(_write, completion_callback)
 
+
+# TODO: Write some async database functions.
+class AsyncFunctions(BaseDatabaseAPI):
+    def _test(self, db: sqlite3.Connection) -> Any:
+        return 1
+
+    async def test(self) -> Any:
+        return await self._db_context.run_in_thread(self._test)

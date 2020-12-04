@@ -726,7 +726,7 @@ class TestSqliteWriteDispatcher:
             nonlocal _write_callback_called
             _write_callback_called = True
 
-        self.dispatcher.put(WriteEntryType(_write_callback, _completion_callback, 0))
+        self.dispatcher.put(WriteEntryType(_write_callback, _completion_callback))
         self.dispatcher.stop()
 
         assert _write_callback_called
@@ -744,7 +744,7 @@ class TestSqliteWriteDispatcher:
             nonlocal _write_callback_called
             _write_callback_called = True
 
-        self.dispatcher.put(WriteEntryType(_write_callback, None, 0))
+        self.dispatcher.put(WriteEntryType(_write_callback))
         self.dispatcher.stop()
 
         assert _write_callback_called
