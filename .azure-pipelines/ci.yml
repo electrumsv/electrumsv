@@ -10,6 +10,7 @@ trigger:
   branches:
     include:
       - master
+      - develop
       - releases/*
       - features/*
   paths:
