@@ -134,10 +134,13 @@ class SqliteWriteDispatcher:
             # Using the connection as a context manager, apply the batch as a transaction.
             time_start = time.time()
             is_synchronous = not isinstance(write_entry.write_callback, ExecutorItem)
+            self._db.execute("BEGIN")
             try:
-                with self._db:
-                    write_entry.write_callback(self._db)
+                # `isolation_level=None` means we opt to explicitly start transactions.
+                write_entry.write_callback(self._db)
+                self._db.execute("COMMIT")
             except Exception as e:
+                self._db.execute("ROLLBACK")
                 # The transaction was rolled back.
                 # Exception: This is caught because we need to relay any exception to the
                 # calling context's completion notification callback.
