@@ -156,7 +156,8 @@ class ReceiveView(QWidget):
     def update_destination(self) -> None:
         text = ""
         if self._receive_key_id is not None:
-            script_template = self._account.get_script_template_for_id(self._receive_key_id)
+            script_template = self._account.get_script_template_for_id(self._receive_key_id,
+                self._account.get_default_script_type())
             if script_template is not None:
                 text = script_template_to_string(script_template)
         self._receive_destination_e.setText(text)
@@ -183,7 +184,8 @@ class ReceiveView(QWidget):
         message = self._receive_message_e.text()
         self._save_request_button.setEnabled((amount is not None) or (message != ""))
 
-        script_template = self._account.get_script_template_for_id(self._receive_key_id)
+        script_template = self._account.get_script_template_for_id(self._receive_key_id,
+            self._account.get_default_script_type())
         address_text = script_template_to_string(script_template)
 
         uri = web.create_URI(address_text, amount, message)

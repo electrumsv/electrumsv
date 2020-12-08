@@ -224,13 +224,11 @@ class DatabaseContext:
     def acquire_connection(self) -> sqlite3.Connection:
         try:
             conn = self._connection_pool.get_nowait()
-            self._active_connections.add(conn)
-            return conn
-        except queue.Empty as e:
+        except queue.Empty:
             self.increase_connection_pool()
             conn = self._connection_pool.get_nowait()
-            self._active_connections.add(conn)
-            return conn
+        self._active_connections.add(conn)
+        return conn
 
     def release_connection(self, connection: sqlite3.Connection) -> None:
         self._active_connections.remove(connection)
@@ -315,9 +313,10 @@ class DatabaseContext:
         for conn in range(self.SQLITE_CONN_POOL_SIZE):
             self.decrease_connection_pool()
 
-        if len(outstanding_connections) != 0:
-            raise LeakedSQLiteConnectionError("There were still outstanding SQLite connections "
-                "when attempting to close DatabaseContext! Force closed all connections.")
+        leak_count = len(outstanding_connections)
+        if leak_count:
+            raise LeakedSQLiteConnectionError(f"Leaked {leak_count} SQLite connections "
+                "when closing DatabaseContext.")
         assert self.is_closed(), f"{self._write_dispatcher.is_stopped()}"
 
     def is_closed(self) -> bool:
@@ -380,6 +379,7 @@ class _QueryCompleter:
         return callback
 
     def succeeded(self) -> bool:
+        assert self._gave_callback, "Query completer not active, no callback given out"
         if not self._have_result:
             self._event.wait()
         if self._result is None:
@@ -397,7 +397,7 @@ class SynchronousWriter:
     def __enter__(self):
         return self._completer
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, _type, _value, _traceback):
         pass
 
 
@@ -463,3 +463,12 @@ class SqliteExecutor(concurrent.futures.Executor):
             if self._active_items == 0:
                 self._shutdown_event.set()
 
+
+def replace_db_context_with_connection(func):
+    def wrapped_call(db_context: DatabaseContext, *args, **kwargs):
+        db = db_context.acquire_connection()
+        try:
+            return func(db, *args, **kwargs)
+        finally:
+            db_context.release_connection(db)
+    return wrapped_call

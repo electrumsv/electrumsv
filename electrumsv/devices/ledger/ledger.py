@@ -21,7 +21,7 @@ from ..hw_wallet import HW_PluginBase
 
 if TYPE_CHECKING:
     from .qt import Ledger_Handler
-    from electrumsv.wallet_database.tables import MasterKeyRow
+    from electrumsv.wallet_database.types import MasterKeyRow
 
 try:
     import hid

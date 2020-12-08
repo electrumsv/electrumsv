@@ -82,14 +82,15 @@ class PaymentDestinationsDialog(QDialog):
         self._show_warning(_("The destinations have been written to the file."))
 
     def _on_value_changed(self, new_value: int) -> None:
-        keyinstances = self._account.get_fresh_keys(RECEIVING_SUBPATH, new_value)
         self._table.clear()
         self._table.setColumnCount(1)
         self._table.setHorizontalHeaderLabels([ _("Destination") ])
         self._table.setRowCount(new_value)
+
         self._entries = [ "" ] * new_value
-        for row, keyinstance in enumerate(keyinstances):
-            text = self._account.get_script_template_for_id(keyinstance.keyinstance_id).to_string()
-            self._entries[row] = text
-            label = QLabel(text)
-            self._table.setCellWidget(row, 0, label)
+        keyinstances = self._account.get_fresh_keys(RECEIVING_SUBPATH, new_value)
+        for i, keyinstance in enumerate(keyinstances):
+            text = self._account.get_script_template_for_id(keyinstance.keyinstance_id,
+                self._account.get_default_script_type()).to_string()
+            self._entries[i] = text
+            self._table.setCellWidget(i, 0, QLabel(text))

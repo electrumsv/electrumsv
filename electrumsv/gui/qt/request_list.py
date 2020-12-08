@@ -50,6 +50,11 @@ if TYPE_CHECKING:
     from .receive_view import ReceiveView
 
 
+# TODO(ScriptTypeAssumption) It is assumed that all active payment requests from the receive tab
+# are given out for the wallet's default script type. This isn't necessarily true but is close
+# enough for now. To fix it we'd have to extend the database table, and also display the
+# script type in the list or similarly allow the user to see it.
+
 class RequestList(MyTreeWidget):
     filter_columns = [0, 1, 2, 3, 4]  # Date, Account, Destination, Description, Amount
 
@@ -85,7 +90,9 @@ class RequestList(MyTreeWidget):
         expires = age(pr.date_created + pr.expiration) if pr.expiration else _('Never')
 
         self._receive_view.set_receive_key_id(pr.keyinstance_id)
-        script_template = self._account.get_script_template_for_id(pr.keyinstance_id)
+        # TODO(ScriptTypeAssumption) see above for context
+        script_template = self._account.get_script_template_for_id(pr.keyinstance_id,
+            self._account.get_default_script_type())
         address_text = script_template_to_string(script_template)
         self._receive_view.set_form_contents(address_text, pr.value, pr.description, expires)
 
@@ -116,7 +123,9 @@ class RequestList(MyTreeWidget):
             date = format_time(row.date_created, _("Unknown"))
             amount_str = app_state.format_amount(row.value, whitespaces=True) if row.value else ""
 
-            script_template = self._account.get_script_template_for_id(row.keyinstance_id)
+            # TODO(ScriptTypeAssumption) see above for context
+            script_template = self._account.get_script_template_for_id(row.keyinstance_id,
+                self._account.get_default_script_type())
             address_text = script_template_to_string(script_template)
 
             state = row.state & sum(pr_icons.keys())
@@ -155,7 +164,9 @@ class RequestList(MyTreeWidget):
         with self._account.get_wallet().get_payment_request_table() as table:
             req = table.read_one(pr_id)
         message = self._account.get_keyinstance_label(req.keyinstance_id)
-        script_template = self._account.get_script_template_for_id(req.keyinstance_id)
+        # TODO(ScriptTypeAssumption) see above for context
+        script_template = self._account.get_script_template_for_id(req.keyinstance_id,
+            self._account.get_default_script_type())
         address_text = script_template_to_string(script_template)
 
         URI = web.create_URI(address_text, req.value, message)

@@ -10,9 +10,11 @@ from electrumsv.logs import logs
 from electrumsv import wallet_database
 from electrumsv.wallet_database import (DatabaseContext, SynchronousWriter, TxData, TxProof,
     TransactionCache, TransactionCacheEntry)
+from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.migration import create_database, update_database
 from electrumsv.wallet_database.sqlite_support import WriteEntryType
-from electrumsv.wallet_database.tables import TransactionRow, WalletDataRow
+from electrumsv.wallet_database.tables import WalletDataRow
+from electrumsv.wallet_database.types import TransactionRow
 
 logs.set_level("debug")
 
@@ -211,7 +213,7 @@ class TestTransactionCache:
         db.commit()
 
     def test_entry_visible(self):
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         combos = [
             (TxFlags.Unset, None, None, True),
@@ -228,7 +230,7 @@ class TestTransactionCache:
 
     @pytest.mark.timeout(5)
     def test_add_transaction(self):
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         tx = Transaction.from_hex(tx_hex_1)
         tx_hash = tx.hash()
@@ -242,7 +244,7 @@ class TestTransactionCache:
 
     @pytest.mark.timeout(5)
     def test_add_then_update(self):
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         tx_1 = Transaction.from_hex(tx_hex_1)
         tx_hash_1 = tx_1.hash()
@@ -281,7 +283,7 @@ class TestTransactionCache:
 
     @pytest.mark.timeout(5)
     def test_delete(self):
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         tx_1 = Transaction.from_hex(tx_hex_1)
         tx_hash_1 = tx_1.hash()
@@ -303,7 +305,7 @@ class TestTransactionCache:
 
     @pytest.mark.timeout(5)
     def test_bytedata_required(self) -> None:
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         tx_1 = Transaction.from_hex(tx_hex_1)
         tx_hash_1 = tx_1.hash()
@@ -314,7 +316,7 @@ class TestTransactionCache:
 
     @pytest.mark.timeout(5)
     def test_get_flags(self):
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         assert cache.get_flags(os.urandom(10).hex()) is None
 
@@ -335,28 +337,32 @@ class TestTransactionCache:
         bytedata_set_1 = bytes.fromhex(tx_hex_1)
         tx_hash_1 = bitcoinx.double_sha256(bytedata_set_1)
         metadata_set_1 = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
+        tx_row_1 = TransactionRow(tx_hash=tx_hash_1, tx_bytes=bytedata_set_1, flags=TxFlags.Unset,
+            block_height=None, block_position=None, fee_value=2, locktime=None, version=None,
+            description=None, date_created=1, date_updated=1)
+
         bytedata_set_2 = bytes.fromhex(tx_hex_2)
         tx_hash_2 = bitcoinx.double_sha256(bytedata_set_2)
         metadata_set_2 = TxData(height=1, fee=2, position=10, date_added=1, date_updated=1)
+        tx_row_2 = TransactionRow(tx_hash=tx_hash_2, tx_bytes=bytedata_set_2,
+            flags=TxFlags.StateSettled, block_height=1, block_position=10, fee_value=2,
+            locktime=None, version=None, description=None,
+            date_created=1, date_updated=1)
         with SynchronousWriter() as writer:
-            self.store.create([
-                TransactionRow(tx_hash_1, metadata_set_1, bytedata_set_1,
-                    TxFlags.Unset, None, None, None),
-                TransactionRow(tx_hash_2, metadata_set_2, bytedata_set_2, TxFlags.StateSettled,
-                    None, None, None), ],
+            db_functions.create_transactions(self.db_context, [ tx_row_1, tx_row_2 ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
         metadata_get = cache.get_metadata(tx_hash_1)
-        assert metadata_set_1.height == metadata_get.height
-        assert metadata_set_1.fee == metadata_get.fee
-        assert metadata_set_1.position == metadata_get.position
+        assert tx_row_1.block_height == metadata_get.height
+        assert tx_row_1.block_position == metadata_get.position
+        assert tx_row_1.fee_value == metadata_get.fee
 
         metadata_get = cache.get_metadata(tx_hash_2)
-        assert metadata_set_2.height == metadata_get.height
-        assert metadata_set_2.fee == metadata_get.fee
-        assert metadata_set_2.position == metadata_get.position
+        assert tx_row_2.block_height == metadata_get.height
+        assert tx_row_2.block_position == metadata_get.position
+        assert tx_row_2.fee_value == metadata_get.fee
 
         entry = cache._cache[tx_hash_1]
         assert cache.have_transaction_data_cached(tx_hash_1)
@@ -369,14 +375,17 @@ class TestTransactionCache:
         # Getting an entry for a settled transaction should update from metadata-only to full.
         bytedata_set = bytes.fromhex(tx_hex_1)
         tx_hash = bitcoinx.double_sha256(bytedata_set)
-        metadata_set = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            self.store.create([ TransactionRow(tx_hash, metadata_set, bytedata_set,
-                TxFlags.StateSettled, None, None, None) ],
+            db_functions.create_transactions(self.db_context,
+                [ TransactionRow(tx_hash=tx_hash, tx_bytes=bytedata_set,
+                    flags=TxFlags.StateSettled,
+                    block_height=1, block_position=None, fee_value=2,
+                    locktime=None, version=None, description=None,
+                    date_created=1, date_updated=1) ],
                 completion_callback=writer.get_callback())
             assert writer.succeeded()
 
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
         metadata_get = cache.get_metadata(tx_hash)
         assert metadata_get is not None
 
@@ -396,13 +405,15 @@ class TestTransactionCache:
     def test_get_transaction(self):
         bytedata = bytes.fromhex(tx_hex_1)
         tx_hash = bitcoinx.double_sha256(bytedata)
-        metadata = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
         with SynchronousWriter() as writer:
-            self.store.create([ TransactionRow(tx_hash, metadata, bytedata, TxFlags.Unset, None,
-                None, None) ], completion_callback=writer.get_callback())
+            db_functions.create_transactions(self.db_context,
+                [ TransactionRow(tx_hash=tx_hash, tx_bytes=bytedata, flags=TxFlags.Unset,
+                    block_height=1, block_position=None, fee_value=2,
+                    locktime=None, version=None, description=None,
+                    date_created=1, date_updated=1) ], completion_callback=writer.get_callback())
             assert writer.succeeded()
 
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
         tx = cache.get_transaction(tx_hash)
         assert tx is not None
         assert tx_hash == tx.hash()
@@ -413,21 +424,24 @@ class TestTransactionCache:
         for tx_hex in (tx_hex_1, tx_hex_2):
             tx_bytes = bytes.fromhex(tx_hex)
             tx_hash = bitcoinx.double_sha256(tx_bytes)
-            data = TxData(height=1, fee=2, position=None, date_added=1, date_updated=1)
             with SynchronousWriter() as writer:
-                self.store.create([ TransactionRow(tx_hash, data, tx_bytes, TxFlags.Unset, None,
-                    None, None) ], completion_callback=writer.get_callback())
+                db_functions.create_transactions(self.db_context, [
+                    TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.Unset,
+                        block_height=1, block_position=None, fee_value=2,
+                        locktime=None, version=None, description=None,
+                        date_created=1, date_updated=1) ],
+                        completion_callback=writer.get_callback())
                 assert writer.succeeded()
             tx_hashes.append(tx_hash)
 
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
         for (tx_hash, tx) in cache.get_transactions(tx_hashes=tx_hashes):
             assert tx is not None
             assert tx_hash in  tx_hashes
 
     @pytest.mark.timeout(5)
     def test_get_entry(self):
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         tx_1 = Transaction.from_hex(tx_hex_1)
         tx_hash_1 = tx_1.hash()
@@ -461,7 +475,7 @@ class TestTransactionCache:
         def _transaction_from_bytes(bytedata: bytes) -> Transaction:
             return Transaction(2, [], [], 0)
 
-        cache = TransactionCache(mock_store, 0)
+        cache = TransactionCache(self.db_context, mock_store, 0)
         cache.transaction_from_bytes = _transaction_from_bytes
 
         # Verify that we do not hit the store for our cached entry.
@@ -490,7 +504,7 @@ class TestTransactionCache:
         def _transaction_from_bytes(bytedata: bytes) -> Transaction:
             return Transaction(2, [], [], 0)
 
-        cache = TransactionCache(mock_store, 0)
+        cache = TransactionCache(self.db_context, mock_store, 0)
         cache.transaction_from_bytes = _transaction_from_bytes
 
         their_entry = cache.get_entry(b"tx_hash")
@@ -499,7 +513,7 @@ class TestTransactionCache:
 
     @pytest.mark.timeout(5)
     def test_get_height(self):
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         tx_1 = Transaction.from_hex(tx_hex_1)
         tx_hash_1 = tx_1.hash()
@@ -518,7 +532,7 @@ class TestTransactionCache:
         assert None is cache.get_height(tx_hash_1)
 
     def test_get_unverified_entries_too_high(self):
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         tx_1 = Transaction.from_hex(tx_hex_1)
         tx_hash_1 = tx_1.hash()
@@ -532,7 +546,7 @@ class TestTransactionCache:
         assert 0 == len(results)
 
     def test_get_unverified_entries(self) -> None:
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         tx_1 = Transaction.from_hex(tx_hex_1)
         tx_hash_1 = tx_1.hash()
@@ -552,7 +566,7 @@ class TestTransactionCache:
     @pytest.mark.timeout(5)
     def test_apply_reorg(self) -> None:
         common_height = 5
-        cache = TransactionCache(self.store)
+        cache = TransactionCache(self.db_context, self.store)
 
         # Add the transaction that should be reset back to settled, with data fields cleared.
         tx_y1 = Transaction.from_hex(tx_hex_1)

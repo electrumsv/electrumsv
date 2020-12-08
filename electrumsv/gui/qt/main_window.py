@@ -57,7 +57,8 @@ from electrumsv import bitcoin, commands, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from electrumsv.constants import DATABASE_EXT, NetworkEventNames, TxFlags, WalletSettings
+from electrumsv.constants import (DATABASE_EXT, NetworkEventNames, ScriptType, TxFlags,
+    WalletSettings)
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -1115,9 +1116,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.transaction_view = TransactionView(self._accounts_view, self)
         return self.create_list_tab(self.transaction_view)
 
-    def show_key(self, account: AbstractAccount, key_id: int) -> None:
+    def show_key(self, account: AbstractAccount, key_id: int, script_type: ScriptType) -> None:
         from . import address_dialog
-        d = address_dialog.KeyDialog(self, account.get_id(), key_id)
+        d = address_dialog.KeyDialog(self, account.get_id(), key_id, script_type)
         d.exec_()
 
     def show_transaction(self, account: AbstractAccount, tx: Transaction,
@@ -1657,7 +1658,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     @protected
     def show_private_key(self, account: AbstractAccount, keyinstance_id: int,
-            password: str) -> None:
+            script_type: ScriptType, password: str) -> None:
         try:
             privkey_text = account.export_private_key(keyinstance_id, password)
         except Exception as e:
@@ -1665,7 +1666,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_message(str(e))
             return
 
-        script_template = account.get_script_template_for_id(keyinstance_id)
+        script_template = account.get_script_template_for_id(keyinstance_id, script_type)
 
         d = WindowModalDialog(self, _("Private key"))
         d.setMinimumSize(600, 150)

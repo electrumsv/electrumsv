@@ -342,15 +342,20 @@ class AccountsView(QSplitter):
 
         private_keys = {}
         keyinstance_ids = account.get_keyinstance_ids()
+        # TODO(ScriptTypeAssumption) really what we would have is the used script type for
+        # each key, rather than just using the redeem script based on the accounts default
+        # script type.
+        script_type = account.get_default_script_type()
         done = False
         cancelled = False
         def privkeys_thread():
+            nonlocal done, cancelled, keyinstance_ids, password, private_keys, script_type
             for keyinstance_id in keyinstance_ids:
                 time.sleep(0.1)
                 if done or cancelled:
                     break
                 privkey = account.export_private_key(keyinstance_id, password)
-                script_template = account.get_script_template_for_id(keyinstance_id)
+                script_template = account.get_script_template_for_id(keyinstance_id, script_type)
                 script_text = script_template_to_string(script_template)
                 private_keys[script_text] = privkey
                 self.computing_privkeys_signal.emit()

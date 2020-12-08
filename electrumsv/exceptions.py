@@ -23,6 +23,7 @@
 
 from typing import Set
 
+from .constants import DatabaseWriteErrorCodes
 from .i18n import _
 
 class NotEnoughFunds(Exception):
@@ -97,3 +98,16 @@ class PreviousTransactionsMissingException(Exception):
 
 class WaitingTaskCancelled(Exception):
     pass
+
+
+class DatabaseWriteError(Exception):
+    def __init__(self, error_code: DatabaseWriteErrorCodes):
+        super().__init__()
+        self.error_code = error_code
+
+    def __str__(self) -> str:
+        if self.error_code == DatabaseWriteErrorCodes.TX_ADD_MISSING_KEYS:
+            return _("When adding a transaction we failed to find known keys for all the "
+                "outputs.")
+        return _("Fallthrough database write error, code={}").format(self.error_code)
+

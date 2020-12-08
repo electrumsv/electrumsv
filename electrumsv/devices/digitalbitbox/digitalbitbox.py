@@ -39,7 +39,7 @@ except ImportError as e:
     DIGIBOX = False
 
 if TYPE_CHECKING:
-    from electrumsv.wallet_database.tables import MasterKeyRow
+    from electrumsv.wallet_database.types import MasterKeyRow
     from electrumsv.gui.qt.account_wizard import AccountWizard
 
 

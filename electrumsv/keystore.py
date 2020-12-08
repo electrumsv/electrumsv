@@ -43,7 +43,7 @@ from .logs import logs
 from .mnemonic import Mnemonic, load_wordlist
 from .networks import Net
 from .transaction import Transaction, TransactionContext, XPublicKey, XPublicKeyType
-from .wallet_database.tables import KeyInstanceRow, MasterKeyRow
+from .wallet_database.types import KeyInstanceRow, MasterKeyRow
 
 
 logger = logs.get_logger("keystore")

@@ -614,43 +614,45 @@ class SVSession(RPCSession):
             return
         keyinstance_id, script_type = keydata
 
-        # Accounts needing a notification.
-        accounts = [account for account, subs in self._subs_by_account.items()
-            if script_hash in subs and
-            _history_status(account.get_key_history(keyinstance_id, script_type)) != status]
-        if not accounts:
-            return
+        # TODO(nocheckin) rewrite this, relates to the active/inactive key model.
 
-        # Status has changed; get history
-        # This returns a list of first the confirmed transactions in blockchain order followed by
-        # the mempool transactions. Only the mempool transactions have a fee value, and they are
-        # in arbitrary order. This means that the account cannot guarantee to have matching
-        # script hash as it either needs to store the order, or guess.
-        result = await self.request_history(script_hash)
-        self.logger.debug(f'received history of {keyinstance_id} length {len(result)}')
-        try:
-            history = [(item['tx_hash'], item['height']) for item in result]
-            tx_fees = {item['tx_hash']: item['fee'] for item in result if 'fee' in item}
-            # Check that txids are unique
-            assert len(set(tx_hash for tx_hash, tx_height in history)) == len(history), \
-                f'server history for {keyinstance_id} has duplicate transactions'
-        except (AssertionError, KeyError) as e:
-            self._network._on_status_queue.put_nowait((script_hash, status))  # re-queue
-            raise DisconnectSessionError(f'bad history returned: {e}')
+        # # Accounts needing a notification.
+        # accounts = [account for account, subs in self._subs_by_account.items()
+        #     if script_hash in subs and
+        #     _history_status(account.get_key_history(keyinstance_id, script_type)) != status]
+        # if not accounts:
+        #     return
 
-        # Check the status; it can change legitimately between initial notification and
-        # history request
-        hstatus = _history_status(history)
-        if hstatus != status:
-            self.logger.warning(
-                f'history status mismatch {hstatus} vs {status} for {keyinstance_id}')
+        # # Status has changed; get history
+        # # This returns a list of first the confirmed transactions in blockchain order followed by
+        # # the mempool transactions. Only the mempool transactions have a fee value, and they are
+        # # in arbitrary order. This means that the account cannot guarantee to have matching
+        # # script hash as it either needs to store the order, or guess.
+        # result = await self.request_history(script_hash)
+        # self.logger.debug(f'received history of {keyinstance_id} length {len(result)}')
+        # try:
+        #     history = [(item['tx_hash'], item['height']) for item in result]
+        #     tx_fees = {item['tx_hash']: item['fee'] for item in result if 'fee' in item}
+        #     # Check that txids are unique
+        #     assert len(set(tx_hash for tx_hash, tx_height in history)) == len(history), \
+        #         f'server history for {keyinstance_id} has duplicate transactions'
+        # except (AssertionError, KeyError) as e:
+        #     self._network._on_status_queue.put_nowait((script_hash, status))  # re-queue
+        #     raise DisconnectSessionError(f'bad history returned: {e}')
 
-        for account in accounts:
-            if history != account.get_key_history(keyinstance_id, script_type):
-                self.logger.debug("_on_status_changed new=%s old=%s", history,
-                    account.get_key_history(keyinstance_id, script_type))
+        # # Check the status; it can change legitimately between initial notification and
+        # # history request
+        # hstatus = _history_status(history)
+        # if hstatus != status:
+        #     self.logger.warning(
+        #         f'history status mismatch {hstatus} vs {status} for {keyinstance_id}')
 
-            await account.set_key_history(keyinstance_id, script_type, history, tx_fees)
+        # for account in accounts:
+        #     if history != account.get_key_history(keyinstance_id, script_type):
+        #         self.logger.debug("_on_status_changed new=%s old=%s", history,
+        #             account.get_key_history(keyinstance_id, script_type))
+
+        #     await account.set_key_history(keyinstance_id, script_type, history, tx_fees)
 
     async def _main_server_batch(self):
         '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
@@ -1142,7 +1144,10 @@ class Network(TriggeredCallbacks):
                 except Exception:
                     logger.exception(f'fetching transaction {tx_id}')
                 else:
-                    wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared, external=True)
+                    # TODO(nocheckin) needs to pass in the latest block_height and block_position
+                    # and fee_hint if the network has some cached values for it.
+                    await wallet.import_transaction(tx_hash, tx, TxFlags.StateCleared,
+                        external=True)
         return had_timeout
 
     def _available_servers(self, protocol):
@@ -1227,8 +1232,9 @@ class Network(TriggeredCallbacks):
             if wanted_proof_map:
                 coros.append(self._request_proofs(wallet, wanted_proof_map))
             if not coros:
-                for account in wallet.get_accounts():
-                    account.poll_used_key_detection(every_n_seconds=20)
+                # TODO(nocheckin) need to remove when we deal with a new deactivated key system
+                # for account in wallet.get_accounts():
+                #     account.poll_used_key_detection(every_n_seconds=20)
 
                 await wallet.txs_changed_event.wait()
                 wallet.txs_changed_event.clear()

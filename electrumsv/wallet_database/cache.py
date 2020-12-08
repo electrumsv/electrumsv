@@ -13,9 +13,12 @@ from bitcoinx import double_sha256, hash_to_hex_str
 from ..constants import TxFlags, MAXIMUM_TXDATA_CACHE_SIZE_MB
 from ..logs import logs
 from ..transaction import Transaction
-from .tables import (CompletionCallbackType, InvalidDataError,
-    MissingRowError, TransactionTable, TxData, TxProof, TransactionRow)
 from ..util.cache import LRUCache
+
+from . import functions as db_functions
+from .sqlite_support import DatabaseContext
+from .tables import CompletionCallbackType, InvalidDataError, MissingRowError, TransactionTable
+from .types import TransactionRow, TxData, TxProof
 
 
 class TransactionCacheEntry:
@@ -29,7 +32,8 @@ class TransactionCacheEntry:
 
 
 class TransactionCache:
-    def __init__(self, store: TransactionTable, txdata_cache_size: Optional[int]=None) -> None:
+    def __init__(self, db_context: DatabaseContext, store: TransactionTable,
+            txdata_cache_size: Optional[int]=None) -> None:
         if txdata_cache_size is None:
             txdata_cache_size = MAXIMUM_TXDATA_CACHE_SIZE_MB * (1024 * 1024)
 
@@ -37,6 +41,7 @@ class TransactionCache:
         self._cache: Dict[bytes, TransactionCacheEntry] = {}
         self._txdata_cache = LRUCache(max_size=txdata_cache_size)
         self._store = store
+        self._db_context = db_context
 
         self._lock = threading.RLock()
 
@@ -148,9 +153,11 @@ class TransactionCache:
             self._cache[tx_hash] = TransactionCacheEntry(metadata, flags)
             self._txdata_cache.set(tx_hash, tx)
             bytedata = tx.to_bytes()
-            _inserts[i] = TransactionRow(tx_hash, metadata, bytedata, flags, description,
-                tx.version, tx.locktime)
-        self._store.create(cast(List[TransactionRow], _inserts),
+            _inserts[i] = TransactionRow(tx_hash=tx_hash, tx_bytes=bytedata, flags=flags,
+                block_height=metadata.height, block_position=metadata.position,
+                fee_value=metadata.fee, description=description, version=tx.version,
+                locktime=tx.locktime, date_created=date_added, date_updated=date_added)
+        db_functions.create_transactions(self._db_context, cast(List[TransactionRow], _inserts),
             completion_callback=completion_callback)
 
     def update(self, updates: List[Tuple[bytes, TxData, Optional[Transaction], TxFlags]],

@@ -47,15 +47,15 @@ from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 from electrumsv.i18n import _
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import compose_chain_string, scripthash_hex
-from electrumsv.constants import ACCOUNT_SCRIPT_TYPES, DerivationType, IntFlag, ScriptType
+from electrumsv.constants import (ACCOUNT_SCRIPT_TYPES, DerivationType, IntFlag, KeyInstanceFlag,
+    ScriptType)
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.platform import platform
 from electrumsv.util import profiler
 from electrumsv.wallet import MultisigAccount, AbstractAccount, StandardAccount
-from electrumsv.wallet_database.tables import (KeyInstanceRow, KeyInstanceFlag,
-    TransactionDeltaKeySummaryRow)
+from electrumsv.wallet_database.types import KeyInstanceRow, KeyListRow
 from electrumsv import web
 
 from .main_window import ElectrumWindow
@@ -65,15 +65,13 @@ from .util import read_QIcon, get_source_index
 QT_SORT_ROLE = Qt.UserRole+1
 QT_FILTER_ROLE = Qt.UserRole+2
 
-COLUMN_NAMES = [ _("Type"), _("State"), _('Key'), _('Script'), _('Label'), _('Usages'),
-    _('Balance'), '' ]
+COLUMN_NAMES = [ _("Type"), _("State"), _('Key'), _('Script'), _('Label'), _('Balance'), '' ]
 
 TYPE_COLUMN = 0
 STATE_COLUMN = 1
 KEY_COLUMN = 2
 SCRIPT_COLUMN = 3
 LABEL_COLUMN = 4
-USAGES_COLUMN = 5
 BALANCE_COLUMN = 6
 FIAT_BALANCE_COLUMN = 7
 
@@ -101,7 +99,7 @@ class KeyFlags(IntFlag):
     INACTIVE = 1 << 17
 
 
-KeyLine = TransactionDeltaKeySummaryRow
+KeyLine = KeyListRow
 
 
 def get_key_text(line: KeyLine) -> str:
@@ -235,24 +233,23 @@ class _ItemModel(QAbstractItemModel):
             # First check the custom sort role.
             if role == QT_SORT_ROLE:
                 if column == TYPE_COLUMN:
-                    return line.script_type
+                    return line.txo_script_type
                 elif column == STATE_COLUMN:
                     return line.flags
                 elif column == KEY_COLUMN:
                     return get_key_text(line)
                 elif column == SCRIPT_COLUMN:
-                    return ScriptType(line.script_type).name
+                    return ScriptType(line.txo_script_type).name
                 elif column == LABEL_COLUMN:
                     return self._view._account.get_keyinstance_label(line.keyinstance_id)
-                elif column == USAGES_COLUMN:
-                    return line.match_count
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
-                    if column == BALANCE_COLUMN:
-                        return line.total_value
-                    elif column == FIAT_BALANCE_COLUMN:
-                        fx = app_state.fx
-                        rate = fx.exchange_rate()
-                        return fx.value_str(line.total_value, rate)
+                    if line.txo_value is not None:
+                        if column == BALANCE_COLUMN:
+                            return line.txo_value
+                        elif column == FIAT_BALANCE_COLUMN:
+                            fx = app_state.fx
+                            rate = fx.exchange_rate()
+                            return fx.value_str(line.txo_value, rate)
 
             elif role == QT_FILTER_ROLE:
                 if column == KEY_COLUMN:
@@ -279,11 +276,9 @@ class _ItemModel(QAbstractItemModel):
                 elif column == KEY_COLUMN:
                     return get_key_text(line)
                 elif column == SCRIPT_COLUMN:
-                    return ScriptType(line.script_type).name
+                    return ScriptType(line.txo_script_type).name
                 elif column == LABEL_COLUMN:
                     return self._view._account.get_keyinstance_label(line.keyinstance_id)
-                elif column == USAGES_COLUMN:
-                    return line.match_count
                 elif column == BALANCE_COLUMN:
                     return app_state.format_amount(line.total_value, whitespaces=True)
                 elif column == FIAT_BALANCE_COLUMN:
@@ -300,7 +295,7 @@ class _ItemModel(QAbstractItemModel):
             elif role == Qt.TextAlignmentRole:
                 if column in (TYPE_COLUMN, STATE_COLUMN):
                     return Qt.AlignCenter
-                elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN, USAGES_COLUMN):
+                elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     return Qt.AlignRight | Qt.AlignVCenter
                 return Qt.AlignVCenter
 
@@ -480,7 +475,6 @@ class KeyView(QTableView):
         horizontalHeader.resizeSection(KEY_COLUMN, fw("1442:01:m/000/1392"))
         horizontalHeader.resizeSection(SCRIPT_COLUMN, fw("MULTISIG_ACCUMULATOR"))
         horizontalHeader.setSectionResizeMode(LABEL_COLUMN, QHeaderView.Stretch)
-        horizontalHeader.resizeSection(USAGES_COLUMN, fw(COLUMN_NAMES[USAGES_COLUMN]))
         balance_width = mw(app_state.format_amount(1.2, whitespaces=True))
         horizontalHeader.resizeSection(BALANCE_COLUMN, balance_width)
 
@@ -604,7 +598,7 @@ class KeyView(QTableView):
         if ListActions.RESET in pending_actions:
             self._logger.debug("_on_update_check reset")
 
-            self._data = account.keys.get_key_summaries()
+            self._data = account.get_key_list()
             self._base_model.set_data(account_id, self._data)
             return
 
@@ -669,7 +663,7 @@ class KeyView(QTableView):
         self._logger.debug("_add_keys %r", key_ids)
         if not len(key_ids):
             return
-        for line in account.keys.get_key_summaries(key_ids):
+        for line in account.get_key_list(key_ids):
             self._base_model.add_line(line)
 
     def _update_keys(self, account: AbstractAccount, key_ids: List[int],
@@ -679,7 +673,7 @@ class KeyView(QTableView):
         covered_key_ids = set(key_ids)
         matched_key_ids = set()
         new_line_map = { line.keyinstance_id: line
-            for line in account.keys.get_key_summaries(key_ids) }
+            for line in account.get_key_list(key_ids) }
         for row_index, line in enumerate(self._data):
             if line.keyinstance_id in covered_key_ids:
                 matched_key_ids.add(line.keyinstance_id)
@@ -779,7 +773,7 @@ class KeyView(QTableView):
             self.edit(model_index)
         else:
             line = self._data[base_index.row()]
-            self._main_window.show_key(self._account, line.keyinstance_id)
+            self._main_window.show_key(self._account, line.keyinstance_id, line.txo_script_type)
 
     def _event_create_menu(self, position):
         account_id = self._account_id
@@ -824,7 +818,7 @@ class KeyView(QTableView):
                 row, column, line, selected_index, base_index = selected[0]
                 key_id = line.keyinstance_id
                 menu.addAction(_('Details'),
-                    lambda: self._main_window.show_key(self._account, key_id))
+                    lambda: self._main_window.show_key(self._account, key_id, line.txo_script_type))
                 if column == LABEL_COLUMN:
                     menu.addAction(_("Edit {}").format(column_title),
                         lambda: self.edit(selected_index))
@@ -832,7 +826,8 @@ class KeyView(QTableView):
                     lambda: self._main_window._receive_view.receive_at_id(key_id))
                 if self._account.can_export():
                     menu.addAction(_("Private key"),
-                        lambda: self._main_window.show_private_key(self._account, key_id))
+                        lambda: self._main_window.show_private_key(self._account, key_id,
+                            line.txo_script_type))
                 if not is_multisig and not self._account.is_watching_only():
                     menu.addAction(_("Sign/verify message"),
                         lambda: self._main_window.sign_verify_message(self._account, key_id))
@@ -843,8 +838,9 @@ class KeyView(QTableView):
 
                 keyinstance = self._account.get_keyinstance(key_id)
                 addr_URL = script_URL = None
-                if keyinstance.script_type != ScriptType.NONE:
-                    script_template = self._account.get_script_template_for_id(key_id)
+                if line.txo_script_type != ScriptType.NONE:
+                    script_template = self._account.get_script_template_for_id(key_id,
+                        line.txo_script_type)
                     if isinstance(script_template, Address):
                         addr_URL = web.BE_URL(self._main_window.config, 'addr', script_template)
 

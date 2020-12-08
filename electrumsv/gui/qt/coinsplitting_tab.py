@@ -93,7 +93,8 @@ class CoinSplittingTab(QWidget):
         self._direct_button.setEnabled(False)
 
         unused_key = self._account.get_fresh_keys(CHANGE_SUBPATH, 1)[0]
-        script = self._account.get_script_for_id(unused_key.keyinstance_id)
+        script_type = self._account.get_default_script_type()
+        script = self._account.get_script_for_id(unused_key.keyinstance_id, script_type)
         coins = self._account.get_utxos(exclude_frozen=True, mature=True)
         outputs = [ XTxOutput(all, script) ]
         outputs.extend(self._account.create_extra_outputs(coins, outputs, force=True))
@@ -146,7 +147,7 @@ class CoinSplittingTab(QWidget):
         # At this point we know we should get a key that is addressable.
         unused_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
         self.receiving_script_template = self._account.get_script_template_for_id(
-            unused_key.keyinstance_id)
+            unused_key.keyinstance_id, self._account.get_default_script_type())
         self.split_stage = STAGE_PREPARING
         self.new_transaction_cv = threading.Condition()
 
@@ -223,7 +224,8 @@ class CoinSplittingTab(QWidget):
             return
 
         unused_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-        script = self._account.get_script_for_id(unused_key.keyinstance_id)
+        script_type = self._account.get_default_script_type()
+        script = self._account.get_script_for_id(unused_key.keyinstance_id, script_type)
         outputs = [ XTxOutput(all, script) ]
         tx = self._account.make_unsigned_transaction(coins, outputs, self._main_window.config)
 
