@@ -155,7 +155,8 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account = self._get_account(wallet_name, account_id)
 
             receive_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-            receive_address = account.get_script_template_for_id(receive_key.keyinstance_id)
+            receive_address = account.get_script_template_for_id(receive_key.keyinstance_id,
+                account.get_default_script_type())
             txid = regtest_topup_account(receive_address, amount)
             response = {"txid": txid}
             return good_response(response)

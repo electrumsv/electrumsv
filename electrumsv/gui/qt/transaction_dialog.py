@@ -570,7 +570,9 @@ class TxDialog(QDialog, MessageBoxMixin):
                     result = self._main_window._wallet.resolve_xpubkey(x_pubkey)
                     if result is not None:
                         account, keyinstance_id = result
-                        if account.get_script_for_id(keyinstance_id) == output.script_pubkey:
+                        script_type = account.get_default_script_type()
+                        if account.get_script_for_id(keyinstance_id, script_type) \
+                                == output.script_pubkey:
                             return account, keyinstance_id
                         # TODO: Document when this happens
                         break

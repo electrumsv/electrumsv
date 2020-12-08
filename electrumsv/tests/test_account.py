@@ -7,15 +7,15 @@ from electrumsv.app_state import app_state
 from electrumsv.bitcoin import ScriptTemplate
 from electrumsv.constants import DerivationType, KeyInstanceFlag, ScriptType, TransactionOutputFlag
 from electrumsv.wallet import AbstractAccount
-from electrumsv.wallet_database.tables import AccountRow, KeyInstanceRow, TransactionOutputRow
+from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, TransactionOutputRow
 
 
 class CustomAccount(AbstractAccount):
     def _load_sync_state(self) -> None:
         pass
 
-    def get_script_template_for_id(self, keyinstance_id: int,
-            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
+    def get_script_template_for_id(self, keyinstance_id: int, script_type: ScriptType) \
+            -> ScriptTemplate:
         return MockScriptTemplate()
 
 
@@ -63,23 +63,22 @@ def test_key_archive_unarchive(mocker) -> None:
     mock_prt = mocker.patch("electrumsv.wallet_database.tables.PaymentRequestTable.read")
     mock_prt.return_value = []
 
-    mock_tdt = mocker.patch(
-        "electrumsv.wallet_database.tables.TransactionDeltaTable.update_used_keys")
-    mock_tdt.return_value = [ KEYINSTANCE_ID+1 ]
-
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, "ACCOUNT 1")
     keyinstance_rows = [
         KeyInstanceRow(KEYINSTANCE_ID+1, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            b'111', ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, None),
+            b'111', None, KeyInstanceFlag.IS_ACTIVE, None),
         KeyInstanceRow(KEYINSTANCE_ID+2, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            b'111', ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, None),
+            b'111', None, KeyInstanceFlag.IS_ACTIVE, None),
         KeyInstanceRow(KEYINSTANCE_ID+3, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            b'111', ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, None),
+            b'111', None, KeyInstanceFlag.IS_ACTIVE, None),
     ]
     transactionoutput_rows = [
-        TransactionOutputRow(TX_HASH_1, 1, 100, KEYINSTANCE_ID+1, TransactionOutputFlag.IS_SPENT),
-        TransactionOutputRow(TX_HASH_1, 2, 100, KEYINSTANCE_ID+2, TransactionOutputFlag.IS_SPENT),
-        TransactionOutputRow(TX_HASH_1, 3, 200, KEYINSTANCE_ID+3, TransactionOutputFlag.NONE),
+        TransactionOutputRow(TX_HASH_1, 1, 100, KEYINSTANCE_ID+1, ScriptType.P2PKH, b'',
+            TransactionOutputFlag.IS_SPENT),
+        TransactionOutputRow(TX_HASH_1, 2, 100, KEYINSTANCE_ID+2, ScriptType.P2PKH, b'',
+            TransactionOutputFlag.IS_SPENT),
+        TransactionOutputRow(TX_HASH_1, 3, 200, KEYINSTANCE_ID+3, ScriptType.P2PKH, b'',
+            TransactionOutputFlag.NONE),
     ]
 
     wallet = MockWallet()
@@ -122,7 +121,7 @@ def test_key_archive_unarchive(mocker) -> None:
             key_ids: Optional[List[int]]=None) -> List[KeyInstanceRow]:
         return [
             KeyInstanceRow(KEYINSTANCE_ID+1, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-                b'111', ScriptType.P2PKH, KeyInstanceFlag.NONE, None)
+                b'111', None, KeyInstanceFlag.NONE, None)
         ]
     wallet.read_keyinstances = fake_read_keyinstances
 
@@ -149,16 +148,19 @@ def test_remove_transaction(mocker) -> None:
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, "ACCOUNT 1")
     keyinstance_rows = [
         KeyInstanceRow(KEYINSTANCE_ID+1, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            b'111', ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, None),
+            b'111', None, KeyInstanceFlag.IS_ACTIVE, None),
         KeyInstanceRow(KEYINSTANCE_ID+2, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            b'111', ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, None),
+            b'111', None, KeyInstanceFlag.IS_ACTIVE, None),
         KeyInstanceRow(KEYINSTANCE_ID+3, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            b'111', ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, None),
+            b'111', None, KeyInstanceFlag.IS_ACTIVE, None),
     ]
     transactionoutput_rows = [
-        TransactionOutputRow(TX_HASH_1, 1, 100, KEYINSTANCE_ID+1, TransactionOutputFlag.IS_SPENT),
-        TransactionOutputRow(TX_HASH_1, 2, 100, KEYINSTANCE_ID+2, TransactionOutputFlag.IS_SPENT),
-        TransactionOutputRow(TX_HASH_2, 1, 200, KEYINSTANCE_ID+3, TransactionOutputFlag.NONE),
+        TransactionOutputRow(TX_HASH_1, 1, 100, KEYINSTANCE_ID+1, ScriptType.P2PKH, b'',
+            TransactionOutputFlag.IS_SPENT),
+        TransactionOutputRow(TX_HASH_1, 2, 100, KEYINSTANCE_ID+2, ScriptType.P2PKH, b'',
+            TransactionOutputFlag.IS_SPENT),
+        TransactionOutputRow(TX_HASH_2, 1, 200, KEYINSTANCE_ID+3, ScriptType.P2PKH, b'',
+            TransactionOutputFlag.NONE),
     ]
 
     wallet = MockWallet()

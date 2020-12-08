@@ -36,6 +36,9 @@ def create_database(db: sqlite3.Connection) -> None:
 
 
 def create_database_file(wallet_path: str) -> None:
+    """
+    Create a non-updated wallet database. If a
+    """
     if wallet_path.endswith(DATABASE_EXT):
         raise DatabaseMigrationError("wallet path is not base path")
     if 22 != MIGRATION_FIRST:
@@ -51,7 +54,6 @@ def create_database_file(wallet_path: str) -> None:
     create_database(db)
     db.close()
 
-    update_database_file(wallet_path)
 
 def update_database(conn: sqlite3.Connection, callbacks: Optional[ProgressCallbacks]=None) -> None:
     # This will error if the database has not been created correctly with the metadata.

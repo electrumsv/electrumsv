@@ -38,7 +38,7 @@ from .i18n import _
 from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
 from .transaction import XTxOutput
-from .wallet_database.tables import PaymentRequestRow
+from .wallet_database.types import PaymentRequestRow
 
 
 if TYPE_CHECKING:
@@ -158,7 +158,8 @@ class PaymentRequest:
     @classmethod
     def from_wallet_entry(cls, account: 'DeterministicAccount',
             pr: PaymentRequestRow) -> 'PaymentRequest':
-        script = account.get_script_for_id(pr.keyinstance_id)
+        script_type = account.get_default_script_type()
+        script = account.get_script_for_id(pr.keyinstance_id, script_type)
         date_expiry = None
         if pr.expiration is not None:
             date_expiry = pr.date_created + pr.expiration

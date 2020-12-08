@@ -5,7 +5,7 @@ import weakref
 from electrumsv.constants import KeyInstanceFlag, PaymentFlag
 from electrumsv.logs import logs
 from electrumsv.wallet_database.sqlite_support import CompletionCallbackType
-from electrumsv.wallet_database.tables import PaymentRequestRow
+from electrumsv.wallet_database.types import PaymentRequestRow
 
 if TYPE_CHECKING:
     from electrumsv.wallet import AbstractAccount
@@ -89,19 +89,12 @@ class RequestService:
         if exc_value is not None:
             raise exc_value
 
-        # TODO: This logic is blocking the database write completion callback. We need a better
-        # solution.
-        wallet = self._account.get_wallet()
-        account_id = self._account.get_id()
-
-        with wallet.get_transaction_delta_table() as td_table:
-            paid_key_ids = td_table.read_paid_requests(account_id, list(checkable_key_ids))
-
-            state_updates: List[Tuple[PaymentFlag, int]] = []
-            for keyinstance_id in paid_key_ids:
-                state_updates.append((PaymentFlag.PAID, keyinstance_id))
+        state_updates: List[Tuple[PaymentFlag, int]] = []
+        for keyinstance_id in self._account.get_paid_requests(list(checkable_key_ids)):
+            state_updates.append((PaymentFlag.PAID, keyinstance_id))
 
         if len(state_updates):
+            wallet = self._account.get_wallet()
             with wallet.get_payment_request_table() as pr_table:
                 pr_table.update_state(state_updates) #,
                     # completion_callback=partial(

@@ -10,7 +10,7 @@ from electrumsv.keystore import Multisig_KeyStore
 from electrumsv.networks import Net, SVMainnet
 from electrumsv import wallet_database
 from electrumsv.wallet import MultisigAccount, StandardAccount, Wallet
-from electrumsv.wallet_database.tables import AccountRow
+from electrumsv.wallet_database.types import AccountRow
 
 from .util import setup_async, tear_down_async
 
@@ -73,7 +73,8 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
 
     def _create_standard_wallet(self, ks: keystore.KeyStore) -> StandardAccount:
         masterkey_row = self.wallet.create_masterkey_from_keystore(ks)
-        account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+        account_row = self.wallet.add_accounts([ account_row ])[0]
         account = StandardAccount(self.wallet, account_row, [], [], [])
         account.synchronize()
         return account
@@ -83,7 +84,8 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         keystore.add_cosigner_keystore(ks1)
         keystore.add_cosigner_keystore(ks2)
         masterkey_row = self.wallet.create_masterkey_from_keystore(keystore)
-        account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.MULTISIG_P2SH, 'text')
+        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_P2SH, 'text')
+        account_row = self.wallet.add_accounts([ account_row ])[0]
         account = MultisigAccount(self.wallet, account_row, [], [], [])
         self.wallet.register_account(account.get_id(), account)
         account.synchronize()

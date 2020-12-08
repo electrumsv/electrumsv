@@ -455,10 +455,8 @@ class HistoryView(QWidget):
         local_value = 0
 
         if self._account_id is not None:
-            wallet = self._account.get_wallet()
-            with wallet.get_transaction_delta_table() as table:
-                _account_id, local_value, local_count = table.read_balance(self._account_id,
-                    mask=TxFlags.STATE_UNCLEARED_MASK)
+            _account_id, local_value, local_count = self._account.get_balance2(
+                mask=TxFlags.STATE_UNCLEARED_MASK)
 
         if local_count == 0:
             self._local_summary_label.setVisible(False)

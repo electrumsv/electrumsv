@@ -55,12 +55,12 @@ from .logs import logs
 from .networks import Net
 from .transaction import Transaction, classify_tx_output, parse_script_sig
 from .util.misc import ProgressCallbacks
-from .wallet_database import (AccountTable, TxData, DatabaseContext, migration,
-    KeyInstanceTable, MasterKeyTable, PaymentRequestTable, TransactionDeltaTable,
-    TransactionOutputTable, TransactionTable, WalletDataTable)
-from .wallet_database.tables import (AccountRow, KeyInstanceRow, MasterKeyRow,
-    PaymentRequestRow, TransactionDeltaRow, TransactionOutputRow, TransactionRow,
-    WalletDataRow)
+from .wallet_database import TxData, DatabaseContext, migration, SynchronousWriter, WalletDataTable
+from .wallet_database.storage_migration import (create_accounts1, create_keys1,
+    create_master_keys1, create_payment_requests1, create_transaction_outputs1,
+    create_transactions1, AccountRow1, KeyInstanceRow1, MasterKeyRow1, PaymentRequestRow1,
+    TransactionOutputRow1, TransactionRow1)
+from .wallet_database.tables import WalletDataRow
 
 
 logger = logs.get_logger("storage")
@@ -272,9 +272,12 @@ class DatabaseStore(AbstractStore):
 
         database_already_exists = os.path.exists(self.get_path())
         if not database_already_exists:
-            # The database does not exist. Create it.
-            from .wallet_database.migration import create_database_file
+            # The database does not exist. Create it with the latest schema.
+            # Note that the migration process will have pre-created it through in
+            # `_convert_to_database`.
+            from .wallet_database.migration import create_database_file, update_database_file
             create_database_file(path)
+            update_database_file(path)
         self.open_database()
         self.attempt_load_data()
 
@@ -823,13 +826,12 @@ class TextStore(AbstractStore):
             account_id = next_account_id
             next_account_id += 1
 
-            masterkey_rows: List[MasterKeyRow] = []
-            account_rows: List[AccountRow] = []
-            keyinstance_rows: List[KeyInstanceRow] = []
-            transaction_rows: List[TransactionRow] = []
-            txdelta_rows: List[TransactionDeltaRow] = []
-            txoutput_rows: List[TransactionOutputRow] = []
-            paymentrequest_rows: List[PaymentRequestRow] = []
+            masterkey_rows: List[MasterKeyRow1] = []
+            account_rows: List[AccountRow1] = []
+            keyinstance_rows: List[KeyInstanceRow1] = []
+            transaction_rows: List[TransactionRow1] = []
+            txoutput_rows: List[TransactionOutputRow1] = []
+            paymentrequest_rows: List[PaymentRequestRow1] = []
 
             class _TxState(NamedTuple):
                 tx: Transaction
@@ -897,7 +899,7 @@ class TextStore(AbstractStore):
                     date_added=date_added, date_updated=date_added)
                 # TODO(rt12) BACKLOG what if this code is later reused and the operation is an
                 # import and the rows already exist?
-                transaction_rows.append(TransactionRow(tx_hash, tx_metadata, tx_bytedata, flags,
+                transaction_rows.append(TransactionRow1(tx_hash, tx_metadata, tx_bytedata, flags,
                     description, -1, -1))
 
             # Index all the address usage via the ElectrumX server scripthash state.
@@ -976,14 +978,14 @@ class TextStore(AbstractStore):
                             "subpath": (type_idx, address_idx),
                         }
                         derivation_data = json.dumps(derivation_info).encode()
-                        keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                        keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                             masterkey_id, DerivationType.BIP32_SUBPATH, derivation_data,
                             ScriptType.NONE, flags, description))
                         next_keyinstance_id += 1
 
             def process_transactions(*script_classes: Tuple[Any]) -> None:
                 nonlocal _receiving_address_strings, _change_address_strings
-                nonlocal keyinstance_rows, txoutput_rows, txdelta_rows
+                nonlocal keyinstance_rows, txoutput_rows
                 nonlocal address_states, tx_states
 
                 key_deltas: Dict[int, int] = {}
@@ -1013,7 +1015,7 @@ class TextStore(AbstractStore):
                             is_frozen = (address_string in frozen_addresses or
                                 (tx_id, n) in txouts_frozen)
                             flags = (FROZEN_FLAGS if is_frozen else TransactionOutputFlag.NONE)
-                            txoutput_rows.append(TransactionOutputRow(tx_state.tx_hash, n,
+                            txoutput_rows.append(TransactionOutputRow1(tx_state.tx_hash, n,
                                 tx_output.value, address_state.keyinstance_id, flags))
                             tx_state.encountered_addresses.add(address_string)
 
@@ -1049,15 +1051,10 @@ class TextStore(AbstractStore):
 
                             # Go back to the rows produced from outputs and adjust spent flag.
                             orow = txoutput_rows[txout_state.row_index]
-                            txoutput_rows[txout_state.row_index] = TransactionOutputRow(
+                            txoutput_rows[txout_state.row_index] = TransactionOutputRow1(
                                 orow.tx_hash, orow.tx_index, orow.value, orow.keyinstance_id,
                                 TransactionOutputFlag.IS_SPENT)
                             tx_state.encountered_addresses.add(address_string)
-
-                # Record all the balance deltas.
-                for (tx_hash, keyinstance_id), delta_value in tx_deltas.items():
-                    txdelta_rows.append(TransactionDeltaRow(tx_hash, keyinstance_id,
-                        delta_value))
 
             multsig_mn = multisig_type(wallet_type)
             if multsig_mn is not None:
@@ -1079,9 +1076,9 @@ class TextStore(AbstractStore):
                 }
 
                 derivation_data = json.dumps(mk_data).encode()
-                masterkey_rows.append(MasterKeyRow(masterkey_id, None,
+                masterkey_rows.append(MasterKeyRow1(masterkey_id, None,
                     DerivationType.ELECTRUM_MULTISIG, derivation_data))
-                account_rows.append(AccountRow(account_id, masterkey_id, ScriptType.MULTISIG_BARE,
+                account_rows.append(AccountRow1(account_id, masterkey_id, ScriptType.MULTISIG_BARE,
                     "Multisig account"))
                 process_keyinstances_receiving_change(ScriptType.MULTISIG_P2SH)
                 process_transactions(P2SH_Address)
@@ -1094,20 +1091,20 @@ class TextStore(AbstractStore):
                     if isinstance(address, P2PKH_Address):
                         address_states[address_string] = _AddressState(next_keyinstance_id,
                             len(keyinstance_rows), ScriptType.P2PKH)
-                        keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                        keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                             None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
                             ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, description))
                     elif isinstance(address, P2SH_Address):
                         address_states[address_string] = _AddressState(next_keyinstance_id,
                             len(keyinstance_rows), ScriptType.MULTISIG_P2SH)
-                        keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                        keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                             None, DerivationType.SCRIPT_HASH, derivation_data,
                             ScriptType.MULTISIG_P2SH, KeyInstanceFlag.IS_ACTIVE, description))
                     else:
                         raise IncompatibleWalletError("imported address wallet has non-address")
                     next_keyinstance_id += 1
 
-                account_rows.append(AccountRow(account_id, None, ScriptType.NONE,
+                account_rows.append(AccountRow1(account_id, None, ScriptType.NONE,
                     "Imported addresses"))
                 process_transactions(P2PKH_Address, P2SH_Address)
             elif wallet_type == "imported_privkey":
@@ -1126,12 +1123,12 @@ class TextStore(AbstractStore):
                         "prv": update_private_data(enc_prvkey),
                     }
                     derivation_data = json.dumps(ik_data).encode()
-                    keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                    keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                         None, DerivationType.PRIVATE_KEY, derivation_data,
                         ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, description))
                     next_keyinstance_id += 1
 
-                account_rows.append(AccountRow(account_id, None, ScriptType.P2PKH,
+                account_rows.append(AccountRow1(account_id, None, ScriptType.P2PKH,
                     "Imported private keys"))
                 process_transactions(P2PKH_Address)
             elif wallet_type in ("standard", "old"):
@@ -1140,10 +1137,10 @@ class TextStore(AbstractStore):
                     (CHANGE_SUBPATH, len(_change_address_strings)),
                 ]
                 keystore = self.get("keystore")
-                masterkey_row = MasterKeyRow(*(masterkey_id, None),
+                masterkey_row = MasterKeyRow1(*(masterkey_id, None),
                     *convert_keystore(keystore, subpaths))
                 masterkey_rows.append(masterkey_row)
-                account_rows.append(AccountRow(account_id, masterkey_id, ScriptType.P2PKH,
+                account_rows.append(AccountRow1(account_id, masterkey_id, ScriptType.P2PKH,
                     "Standard account"))
                 process_keyinstances_receiving_change(ScriptType.P2PKH)
                 process_transactions(P2PKH_Address)
@@ -1156,7 +1153,7 @@ class TextStore(AbstractStore):
                     continue
 
                 address_state = address_states[address_string]
-                paymentrequest_rows.append(PaymentRequestRow(next_paymentrequest_id,
+                paymentrequest_rows.append(PaymentRequestRow1(next_paymentrequest_id,
                     address_state.keyinstance_id,
                     request_data.get('status', 2), # PaymentFlag.UNKNOWN = 2
                     request_data.get('amount', None), request_data.get('exp', None),
@@ -1176,29 +1173,19 @@ class TextStore(AbstractStore):
                         extra_addresses)
 
             # Commit all the changes to the database. This is ordered to respect FK constraints.
-            # TODO(rt12) BACKLOG Shouldn't this use explicit creation calls for the first
-            # migration so that subsequent migrations can be applied?
             if len(transaction_rows):
-                with TransactionTable(db_context) as table:
-                    table.create(transaction_rows)
+                create_transactions1(db_context, transaction_rows)
             if len(masterkey_rows):
-                with MasterKeyTable(db_context) as table:
-                    table.create(masterkey_rows)
+                create_master_keys1(db_context, masterkey_rows)
             if len(account_rows):
-                with AccountTable(db_context) as table:
-                    table.create(account_rows)
+                print("adding accounts", account_rows)
+                create_accounts1(db_context, account_rows)
             if len(keyinstance_rows):
-                with KeyInstanceTable(db_context) as table:
-                    table.create(keyinstance_rows)
-            if len(txdelta_rows):
-                with TransactionDeltaTable(db_context) as table:
-                    table.create(txdelta_rows)
+                create_keys1(db_context, keyinstance_rows)
             if len(txoutput_rows):
-                with TransactionOutputTable(db_context) as table:
-                    table.create(txoutput_rows)
+                create_transaction_outputs1(db_context, txoutput_rows)
             if len(paymentrequest_rows):
-                with PaymentRequestTable(db_context) as table:
-                    table.create(paymentrequest_rows)
+                create_payment_requests1(db_context, paymentrequest_rows)
 
             # The database creation should create these rows.
             creation_rows = []
@@ -1215,14 +1202,19 @@ class TextStore(AbstractStore):
                 value = self.get(key)
                 if value is not None:
                     creation_rows.append(WalletDataRow(key, value))
+
             walletdata_table.create(creation_rows)
 
-            walletdata_table.update([
-                WalletDataRow("next_masterkey_id", next_masterkey_id),
-                WalletDataRow("next_account_id", next_account_id),
-                WalletDataRow("next_keyinstance_id", next_keyinstance_id),
-                WalletDataRow("next_paymentrequest_id", next_paymentrequest_id),
-            ])
+            # Database write calls are done sequentially. By waiting for one of the final one to
+            # complete we know the others have already completed.
+            with SynchronousWriter() as writer:
+                walletdata_table.update([
+                    WalletDataRow("next_masterkey_id", next_masterkey_id),
+                    WalletDataRow("next_account_id", next_account_id),
+                    WalletDataRow("next_keyinstance_id", next_keyinstance_id),
+                    WalletDataRow("next_paymentrequest_id", next_paymentrequest_id),
+                ], completion_callback=writer.get_callback())
+                assert writer.succeeded()
             walletdata_table.close()
             walletdata_table = None
         finally:

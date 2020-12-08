@@ -1,3 +1,4 @@
+from collections import defaultdict
 from io import BytesIO
 import json
 try:
@@ -8,22 +9,27 @@ except ModuleNotFoundError:
     # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
     import sqlite3 # type: ignore
 import time
-from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple, Type, TypeVar
+from typing import Any, Dict, Iterable, NamedTuple, Optional, List, Sequence, Tuple
 
 import bitcoinx
 from bitcoinx import hash_to_hex_str
 
-from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, TransactionOutputFlag,
-    PaymentFlag, ScriptType, TxFlags, WalletEventFlag, WalletEventType)
+from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag,
+    TransactionOutputFlag, PaymentFlag, ScriptType, TxFlags, WalletEventFlag,
+    WalletEventType)
 from ..logs import logs
-from .sqlite_support import SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS, DatabaseContext, \
-    CompletionCallbackType
 from ..types import TxoKeyType
+
+from .sqlite_support import (SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS, DatabaseContext,
+    CompletionCallbackType)
+from .types import (AccountRow, KeyInstanceRow, MasterKeyRow, PaymentRequestRow,
+    TransactionOutputRow, TxData, TxProof)
+from .util import collect_results, flag_clause, update_rows_by_id
 
 
 __all__ = [
     "MissingRowError", "DataPackingError", "TransactionTable", "TransactionOutputTable",
-    "TransactionDeltaTable", "MasterKeyTable", "KeyInstanceTable", "WalletDataTable",
+    "MasterKeyTable", "KeyInstanceTable", "WalletDataTable",
     "AccountTable",
 ]
 
@@ -53,40 +59,6 @@ def byte_repr(value):
     return f"ByteData(length={len(value)})"
 
 
-T = TypeVar('T')
-
-def flag_clause(column: str, flags: Optional[T], mask: Optional[T]) -> Tuple[str, List[T]]:
-    if flags is None:
-        if mask is None:
-            return "", []
-        return f"({column} & ?) != 0", [mask]
-
-    if mask is None:
-        return f"({column} & ?) != 0", [flags]
-
-    return f"({column} & ?) == ?", [mask, flags]
-
-def collect_results(result_type: Type[T], cursor: sqlite3.Cursor, results: List[T]) -> None:
-    rows = cursor.fetchall()
-    cursor.close()
-    results.extend(result_type(*row) for row in rows)
-
-
-def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, params: List[Any], \
-        ids: Sequence[int]) -> List[T]:
-    results = []
-    batch_size = SQLITE_MAX_VARS - len(params)
-    while len(ids):
-        batch_ids = ids[:batch_size]
-        query = sql.format(",".join("?" for k in batch_ids))
-        cursor = db.execute(query, params + batch_ids) # type: ignore
-        rows = cursor.fetchall()
-        cursor.close()
-        results.extend(rows)
-        ids = ids[batch_size:]
-    return [ return_type(*t) for t in results ]
-
-
 class BaseDatabaseAPI:
     LOGGER_NAME: str
 
@@ -103,13 +75,6 @@ class BaseDatabaseAPI:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-
-    def _get_column_types(self, db: sqlite3.Connection, table_name: str) -> Dict[str, Any]:
-        column_types = {}
-        for row in db.execute(f"PRAGMA table_info({table_name});"):
-            _discard, column_name, column_type, _discard, _discard, _discard = row
-            column_types[column_name] = column_type
-        return column_types
 
     def _get_current_timestamp(self) -> int:
         "Get the current timestamp in a form suitable for database column storage."
@@ -143,6 +108,7 @@ class WalletDataTable(BaseDatabaseAPI):
             datas.append([ entry.key, data, timestamp, timestamp])
 
         def _write(db: sqlite3.Connection) -> None:
+            print(2)
             self._logger.debug("create '%s'", [t.key for t in entries])
             db.executemany(self.CREATE_SQL, datas)
 
@@ -221,45 +187,9 @@ class WalletDataTable(BaseDatabaseAPI):
         self._db_context.queue_write(_write, completion_callback)
 
 
-class TxData(NamedTuple):
-    height: Optional[int] = None
-    position: Optional[int] = None
-    fee: Optional[int] = None
-    date_added: Optional[int] = None
-    date_updated: Optional[int] = None
-
-    def __repr__(self):
-        return (f"TxData(height={self.height},position={self.position},fee={self.fee},"
-            f"date_added={self.date_added},date_updated={self.date_updated})")
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, TxData):
-            return NotImplemented
-        return (self.height == other.height and self.position == other.position
-            and self.fee == other.fee)
-
-
-class TxProof(NamedTuple):
-    position: int
-    branch: Sequence[bytes]
-
-class TransactionRow(NamedTuple):
-    tx_hash: bytes
-    tx_data: TxData
-    tx_bytes: Optional[bytes]
-    flags: TxFlags
-    description: Optional[str]
-    version: Optional[int]
-    locktime: Optional[int]
-
-
 class TransactionTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-tx"
 
-    CREATE_SQL = ("INSERT INTO Transactions (tx_hash, tx_data, flags, "
-        "block_height, block_position, fee_value, description, version, locktime, "
-        "date_created, date_updated) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)")
     READ_DESCRIPTION_SQL = ("SELECT tx_hash, T.description FROM Transactions T "
         "WHERE description IS NOT NULL")
     READ_MANY_BASE_SQL = ("SELECT tx_hash, tx_data, T.flags, block_height, block_position, "
@@ -278,17 +208,6 @@ class TransactionTable(BaseDatabaseAPI):
     UPDATE_PROOF_SQL = ("UPDATE Transactions SET proof_data=?,date_updated=?,flags=(flags|?) "
         "WHERE tx_hash=?")
     DELETE_SQL = "DELETE FROM Transactions WHERE tx_hash=?"
-
-    @staticmethod
-    def _apply_flags(data: TxData, flags: TxFlags) -> TxFlags:
-        flags &= ~TxFlags.METADATA_FIELD_MASK
-        if data.height is not None:
-            flags |= TxFlags.HasHeight
-        if data.fee is not None:
-            flags |= TxFlags.HasFee
-        if data.position is not None:
-            flags |= TxFlags.HasPosition
-        return flags
 
     @staticmethod
     def _pack_proof(proof: TxProof) -> bytes:
@@ -349,23 +268,6 @@ class TransactionTable(BaseDatabaseAPI):
             tx_hashes = tx_hashes[batch_size:]
         return results
 
-    def create(self, entries: List[TransactionRow], completion_callback: Optional[
-            CompletionCallbackType]=None) -> None:
-        datas = []
-        for tx_hash, metadata, bytedata, flags, description, version, locktime in entries:
-            assert type(tx_hash) is bytes and bytedata is not None
-            assert (flags & TxFlags.HasByteData) == 0, "this flag is not applicable"
-            flags = self._apply_flags(metadata, flags)
-            assert metadata.date_added is not None and metadata.date_updated is not None
-            datas.append((tx_hash, bytedata, flags, metadata.height, metadata.position,
-                metadata.fee, description, version, locktime, metadata.date_added,
-                metadata.date_updated))
-
-        def _write(db: sqlite3.Connection) -> None:
-            self._logger.debug("add %d transactions", len(datas))
-            db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
-
     def read(self, flags: Optional[TxFlags]=None, mask: Optional[TxFlags]=None,
             tx_hashes: Optional[Sequence[bytes]]=None, account_id: Optional[int]=None) \
             -> List[Tuple[bytes, bytes, TxFlags, TxData]]:
@@ -399,7 +301,13 @@ class TransactionTable(BaseDatabaseAPI):
         for tx_hash, metadata, bytedata, flags in entries:
             assert type(tx_hash) is bytes
             assert type(bytedata) is bytes or bytedata is None
-            flags = self._apply_flags(metadata, flags)
+            flags &= ~TxFlags.METADATA_FIELD_MASK
+            if metadata.height is not None:
+                flags |= TxFlags.HasHeight
+            if metadata.fee is not None:
+                flags |= TxFlags.HasFee
+            if metadata.position is not None:
+                flags |= TxFlags.HasPosition
             if bytedata is None:
                 # This is where we are updating a row which has existing bytedata that is not
                 # changing, but we don't want to still have to  pass it into the update call to
@@ -429,7 +337,14 @@ class TransactionTable(BaseDatabaseAPI):
         datas = []
         for tx_hash, metadata, flags in entries:
             assert type(tx_hash) is bytes
-            datas.append((self._apply_flags(metadata, flags), metadata.height, metadata.position,
+            flags &= ~TxFlags.METADATA_FIELD_MASK
+            if metadata.height is not None:
+                flags |= TxFlags.HasHeight
+            if metadata.fee is not None:
+                flags |= TxFlags.HasFee
+            if metadata.position is not None:
+                flags |= TxFlags.HasPosition
+            datas.append((flags, metadata.height, metadata.position,
                 metadata.fee, metadata.date_updated, tx_hash))
         def _write(db: sqlite3.Connection) -> None:
             self._logger.debug("update %d tx metadatas: %s", len(entries),
@@ -474,36 +389,18 @@ class TransactionTable(BaseDatabaseAPI):
         datas = [(tx_hash,) for tx_hash in tx_hashes]
         def _write(db: sqlite3.Connection):
             self._logger.debug("deleting transactions %s", [hash_to_hex_str(b[0]) for b in datas])
-            db.executemany(TransactionDeltaTable.DELETE_TRANSACTION_SQL, datas)
             db.executemany(TransactionOutputTable.DELETE_TRANSACTION_SQL, datas)
             db.executemany(self.DELETE_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)
 
 
-class MasterKeyRow(NamedTuple):
-    masterkey_id: int
-    parent_masterkey_id: Optional[int]
-    derivation_type: DerivationType
-    derivation_data: bytes
-
-
 class MasterKeyTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-masterkey"
 
-    CREATE_SQL = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
-        "derivation_data, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
     READ_SQL = ("SELECT masterkey_id, parent_masterkey_id, derivation_type, derivation_data "
         "FROM MasterKeys")
     UPDATE_SQL = "UPDATE MasterKeys SET derivation_data=?, date_updated=? WHERE masterkey_id=?"
     DELETE_SQL = "DELETE FROM MasterKeys WHERE masterkey_id=?"
-
-    def create(self, entries: Iterable[MasterKeyRow],
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        timestamp = self._get_current_timestamp()
-        datas = [ (*t, timestamp, timestamp) for t in entries ]
-        def _write(db: sqlite3.Connection):
-            db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
 
     def read(self) -> List[MasterKeyRow]:
         cursor = self._db.execute(self.READ_SQL)
@@ -529,13 +426,6 @@ class MasterKeyTable(BaseDatabaseAPI):
         def _write(db: sqlite3.Connection):
             db.executemany(self.DELETE_SQL, manyparams)
         self._db_context.queue_write(_write, completion_callback)
-
-
-class AccountRow(NamedTuple):
-    account_id: int
-    default_masterkey_id: Optional[int]
-    default_script_type: ScriptType
-    account_name: str
 
 
 class AccountTable(BaseDatabaseAPI):
@@ -608,44 +498,22 @@ class AccountTable(BaseDatabaseAPI):
         self._db_context.queue_write(_write, completion_callback)
 
 
-class KeyInstanceRow(NamedTuple):
-    keyinstance_id: int
-    account_id: int
-    masterkey_id: Optional[int]
-    derivation_type: DerivationType
-    derivation_data: bytes
-    script_type: ScriptType
-    flags: KeyInstanceFlag
-    description: Optional[str]
-
-
 class KeyInstanceTable(BaseDatabaseAPI):
+    """
+    `script_type` is deprecated and was moved to the `TransactionOutputs` table.
+    """
+
     LOGGER_NAME = "db-table-keyinstance"
 
-    CREATE_SQL = ("INSERT INTO KeyInstances "
-        "(keyinstance_id, account_id, masterkey_id, derivation_type, derivation_data, "
-        "script_type, flags, description, date_created, date_updated) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     READ_SQL = ("SELECT keyinstance_id, account_id, masterkey_id, derivation_type, "
-        "derivation_data, script_type, flags, description FROM KeyInstances")
+        "derivation_data, derivation_data2, flags, description FROM KeyInstances")
     UPDATE_DERIVATION_DATA_SQL = ("UPDATE KeyInstances SET date_updated=?, derivation_data=? "
         "WHERE keyinstance_id=?")
     UPDATE_DESCRIPTION_SQL = ("UPDATE KeyInstances SET date_updated=?, description=? "
         "WHERE keyinstance_id=?")
     UPDATE_FLAGS_SQL = ("UPDATE KeyInstances SET date_updated=?, flags=? "
         "WHERE keyinstance_id=?")
-    UPDATE_SCRIPT_TYPE_SQL = ("UPDATE KeyInstances SET date_updated=?, script_type=? "
-        "WHERE keyinstance_id=?")
-
     DELETE_SQL = "DELETE FROM KeyInstances WHERE keyinstance_id=?"
-
-    def create(self, entries: Iterable[KeyInstanceRow],
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        timestamp = self._get_current_timestamp()
-        datas = [ (*t, timestamp, timestamp) for t in entries]
-        def _write(db: sqlite3.Connection):
-            db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
 
     # We cannot take Sequence in place of List, because Sequences are not addable.
     def read(self, mask: Optional[KeyInstanceFlag]=None, key_ids: Optional[List[int]]=None) \
@@ -656,7 +524,7 @@ class KeyInstanceTable(BaseDatabaseAPI):
             cursor.close()
             for row in rows:
                 results.append(KeyInstanceRow(row[0], row[1], row[2], DerivationType(row[3]),
-                    row[4], ScriptType(row[5]), KeyInstanceFlag(row[6]), row[7]))
+                    row[4], row[5], KeyInstanceFlag(row[6]), row[7]))
 
         query = self.READ_SQL
         params: List[int] = []
@@ -709,16 +577,6 @@ class KeyInstanceTable(BaseDatabaseAPI):
             db.executemany(self.UPDATE_FLAGS_SQL, datas)
         self._db_context.queue_write(_write, completion_callback)
 
-    def update_script_types(self, entries: Iterable[Tuple[ScriptType, int]],
-            date_updated: Optional[int]=None,
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        if date_updated is None:
-            date_updated = self._get_current_timestamp()
-        datas = [(date_updated,) + entry for entry in entries]
-        def _write(db: sqlite3.Connection):
-            db.executemany(self.UPDATE_SCRIPT_TYPE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
-
     def delete(self, key_ids: Iterable[int],
             completion_callback: Optional[CompletionCallbackType]=None) -> None:
         datas = [ (key_id,) for key_id in key_ids ]
@@ -727,32 +585,16 @@ class KeyInstanceTable(BaseDatabaseAPI):
         self._db_context.queue_write(_write, completion_callback)
 
 
-class TransactionOutputRow(NamedTuple):
-    tx_hash: bytes
-    tx_index: int
-    value: int
-    keyinstance_id: int
-    flags: TransactionOutputFlag
-
 
 class TransactionOutputTable(BaseDatabaseAPI):
     LOGGER_NAME = "db-table-txoutput"
 
-    CREATE_SQL = ("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, keyinstance_id, "
-        "flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    READ_SQL = "SELECT tx_hash, tx_index, value, keyinstance_id, flags FROM TransactionOutputs"
+    READ_SQL = ("SELECT tx_hash, tx_index, value, keyinstance_id, script_type, script_hash, flags "
+        "FROM TransactionOutputs")
     UPDATE_FLAGS_SQL = ("UPDATE TransactionOutputs SET date_updated=?, flags=? "
         "WHERE tx_hash=? AND tx_index=?")
     DELETE_SQL = "DELETE FROM TransactionOutputs WHERE tx_hash=? AND tx_index=?"
     DELETE_TRANSACTION_SQL = "DELETE FROM TransactionOutputs WHERE tx_hash=?"
-
-    def create(self, entries: Iterable[TransactionOutputRow],
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        timestamp = self._get_current_timestamp()
-        datas = [ (*t, timestamp, timestamp) for t in entries ]
-        def _write(db: sqlite3.Connection):
-            db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
 
     # We cannot take Sequence in place of List, because Sequences are not addable.
     def read(self, mask: Optional[TransactionOutputFlag]=None,
@@ -816,315 +658,6 @@ class TransactionOutputTable(BaseDatabaseAPI):
         def _write(db: sqlite3.Connection):
             db.executemany(self.DELETE_SQL, entries)
         self._db_context.queue_write(_write, completion_callback)
-
-
-class TransactionDeltaSumRow(NamedTuple):
-    account_id: int
-    total: int
-    match_count: int
-
-class TransactionDeltaRow(NamedTuple):
-    tx_hash: bytes
-    keyinstance_id: int
-    value_delta: int
-
-class TransactionKeyHistoryRow(NamedTuple):
-    tx_hash: bytes
-    keyinstance_id: int
-
-class TransactionDeltaHistoryRow(NamedTuple):
-    tx_hash: bytes
-    tx_flags: TxFlags
-    value_delta: int
-
-class TransactionDeltaKeySummaryRow(NamedTuple):
-    keyinstance_id: int
-    masterkey_id: Optional[int]
-    derivation_type: DerivationType
-    derivation_data: bytes
-    script_type: ScriptType
-    flags: KeyInstanceFlag
-    date_updated: int
-    total_value: int
-    match_count: int
-
-
-class TransactionDeltaTable(BaseDatabaseAPI):
-    LOGGER_NAME = "db-table-txdelta"
-
-    CREATE_SQL_BASE = ("INTO TransactionDeltas "
-        "(tx_hash, keyinstance_id, value_delta, date_created, date_updated) "
-        "VALUES (?, ?, ?, ?, ?)")
-    CREATE_SQL = "INSERT "+ CREATE_SQL_BASE
-    CREATE_OR_IGNORE_SQL = "INSERT OR IGNORE "+ CREATE_SQL_BASE
-    READ_SQL = ("SELECT KI.account_id, TOTAL(TD.value_delta), COUNT(TD.value_delta) "
-        "FROM TransactionDeltas AS TD "
-        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "TD.tx_hash = ? "
-        "GROUP BY KI.account_id")
-    READ_ACCOUNT_SQL = ("SELECT KI.account_id, TOTAL(TD.value_delta), COUNT(TD.value_delta) "
-        "FROM TransactionDeltas AS TD "
-        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ? AND TD.tx_hash = ? "
-        "GROUP BY KI.account_id")
-    READ_ACCOUNT_TXFILTERING_SQL_1 = ("SELECT KI.account_id, TOTAL(TD.value_delta), "
-            "COUNT(DISTINCT TD.tx_hash) "
-        "FROM Transactions AS T "
-        "INNER JOIN TransactionDeltas AS TD ON TD.tx_hash = T.tx_hash "
-        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ? ")
-    READ_ACCOUNT_TXFILTERING_SQL_2 = "GROUP BY KI.account_id"
-    READ_DESCRIPTIONS_SQL = ("SELECT T.tx_hash, T.description  "
-        "FROM TransactionDeltas AS TD "
-        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ?"
-        "INNER JOIN Transactions AS T ON TD.tx_hash = T.tx_hash "
-        "WHERE T.description IS NOT NULL "
-        "GROUP BY T.tx_hash")
-    READ_HISTORY_SQL = ("SELECT T.tx_hash, T.flags, TOTAL(TD.value_delta) "
-        "FROM Transactions T "
-        "INNER JOIN TransactionDeltas AS TD ON T.tx_hash = TD.tx_hash "
-        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ? "
-        "GROUP BY T.tx_hash")
-    READ_HISTORY_DOMAIN_SQL = ("SELECT T.tx_hash, T.flags, TOTAL(TD.value_delta) "
-        "FROM Transactions T "
-        "INNER JOIN TransactionDeltas AS TD ON T.tx_hash = TD.tx_hash "
-        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ? AND TD.keyinstance_id IN ({}) "
-        "GROUP BY T.tx_hash")
-    READ_KEY_SUMMARY_SQL = ("SELECT KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
-            "KI.derivation_data, KI.script_type, KI.flags, KI.date_updated, "
-            "TOTAL(TD.value_delta), COUNT(TD.value_delta) "
-        "FROM KeyInstances AS KI "
-        "LEFT JOIN TransactionDeltas TD ON TD.keyinstance_id = KI.keyinstance_id "
-        "WHERE KI.account_id = ? "
-        "GROUP BY KI.keyinstance_id")
-    READ_KEY_SUMMARY_DOMAIN_SQL = ("SELECT KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
-            "KI.derivation_data, KI.script_type, KI.flags, KI.date_updated, "
-            "TOTAL(TD.value_delta), COUNT(TD.value_delta) "
-        "FROM KeyInstances AS KI "
-        "LEFT JOIN TransactionDeltas TD ON TD.keyinstance_id = KI.keyinstance_id "
-        "WHERE KI.account_id = ? AND KI.keyinstance_id IN ({}) "
-        "GROUP BY KI.keyinstance_id")
-    READ_PAID_KEYS_SQL = ("SELECT TD.keyinstance_id "
-        "FROM TransactionDeltas TD "
-        "INNER JOIN PaymentRequests AS PR ON TD.keyinstance_id = PR.keyinstance_id "
-        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ? AND TD.keyinstance_id IN ({}) AND "
-            f"(PR.state & {PaymentFlag.UNPAID}) != 0 "
-        "GROUP BY TD.keyinstance_id "
-        "HAVING PR.value IS NULL OR PR.value <= TOTAL(TD.value_delta)")
-    READ_KEY_HISTORY_SQL = ("SELECT TD.tx_hash, TD.keyinstance_id "
-        "FROM TransactionDeltas AS TD "
-        "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
-            "KI.account_id = ?"
-        "GROUP BY TD.tx_hash, TD.keyinstance_id")
-    READ_CANDIDATE_USED_KEYS = (f"""
-        WITH active_keys AS (
-                SELECT keyinstance_id
-                FROM KeyInstances
-                WHERE flags & {KeyInstanceFlag.ACTIVE_MASK} = {KeyInstanceFlag.IS_ACTIVE}
-                  AND account_id = ?
-            ),
-            tx_history_table AS (
-                SELECT TD.keyinstance_id, tx_hash, value_delta
-                FROM TransactionDeltas AS TD
-                JOIN active_keys ON TD.keyinstance_id = active_keys.keyinstance_id
-            ),
-            settled_history AS (
-                SELECT tx_history_table.keyinstance_id, tx_history_table.value_delta
-                FROM Transactions AS TX
-                JOIN tx_history_table ON TX.tx_hash = tx_history_table.tx_hash
-                WHERE TX.flags & {TxFlags.StateSettled} = {TxFlags.StateSettled})
-
-            SELECT keyinstance_id
-            FROM settled_history
-            GROUP BY keyinstance_id HAVING SUM(value_delta) == 0;""")
-    DEACTIVATE_KEYINSTANCE_FLAGS = (f"""
-        UPDATE KeyInstances
-        SET date_updated=?, flags=flags&{KeyInstanceFlag.INACTIVE_MASK}
-        """ + "WHERE keyinstance_id IN ({0})")
-    READ_ALL_SQL = "SELECT tx_hash, keyinstance_id, value_delta FROM TransactionDeltas"
-    UPDATE_SQL = ("UPDATE TransactionDeltas SET date_updated=?, value_delta=? "
-        "WHERE tx_hash=? AND keyinstance_id=?")
-    UPDATE_RELATIVE_SQL = ("UPDATE TransactionDeltas SET date_updated=?, value_delta=value_delta+? "
-        "WHERE tx_hash=? AND keyinstance_id=?")
-    # self._UPSERT_SQL = (self._CREATE_SQL +" ON CONFLICT(keyinstance_id, tx_hash) DO UPDATE "+
-    #     "SET value_delta=excluded.value_delta, date_updated=excluded.date_updated")
-    DELETE_SQL = "DELETE FROM TransactionDeltas WHERE tx_hash=? AND keyinstance_id=?"
-    DELETE_TRANSACTION_SQL = "DELETE FROM TransactionDeltas WHERE tx_hash=?"
-
-    def _get_many_common(self, query: str, base_params: Optional[List[Any]]=None,
-            tx_hashes: Optional[Sequence[bytes]]=None) -> List[Any]:
-        params = base_params[:] if base_params is not None else []
-
-        if tx_hashes is None or not len(tx_hashes):
-            cursor = self._db.execute(query, params)
-            rows = cursor.fetchall()
-            cursor.close()
-            return rows
-
-        conjunction = "WHERE"
-        if " WHERE " in query:
-            conjunction = "AND"
-
-        results = []
-        batch_size = SQLITE_MAX_VARS - len(params)
-        while len(tx_hashes):
-            batch_tx_hashes = tx_hashes[:batch_size]
-            batch_query = (query +" "+ conjunction +" "+
-                "tx_hash IN ({0})".format(",".join("?" for k in batch_tx_hashes)))
-            cursor = self._db.execute(batch_query, params + batch_tx_hashes) # type: ignore
-            rows = cursor.fetchall()
-            cursor.close()
-            results.extend(rows)
-            tx_hashes = tx_hashes[batch_size:]
-        return results
-
-    def update_used_keys(self, account_id: int,
-            completion_callback: Optional[CompletionCallbackType]=None) -> Sequence[Tuple[int]]:
-        params = [account_id]
-        cursor = self._db.execute(self.READ_CANDIDATE_USED_KEYS, params)  # type: ignore
-        key_id_rows = cursor.fetchall()
-        cursor.close()
-
-        key_ids = [key_id[0] for key_id in key_id_rows]
-        keys = key_ids.copy()
-
-        def _write(db: sqlite3.Connection):
-            nonlocal keys
-            timestamp = self._get_current_timestamp()
-            params = [timestamp]
-            batch_size = SQLITE_MAX_VARS - len(params)
-            while len(keys):
-                batch_keys = keys[:batch_size]
-                batch_query = (
-                    self.DEACTIVATE_KEYINSTANCE_FLAGS.format(",".join("?" for k in batch_keys)))
-                db.execute(batch_query, params + batch_keys) # type: ignore
-                keys = keys[batch_size:]
-        self._db_context.queue_write(_write, completion_callback)
-
-        return key_ids
-
-    def create(self, entries: Iterable[TransactionDeltaRow],
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        timestamp = self._get_current_timestamp()
-        datas = [ (*t, timestamp, timestamp) for t in entries ]
-        def _write(db: sqlite3.Connection):
-            db.executemany(self.CREATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
-
-    def create_or_update_relative_values(self, entries: Iterable[TransactionDeltaRow],
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        timestamp = self._get_current_timestamp()
-        update_datas = [ (timestamp, r.value_delta, r.tx_hash, r.keyinstance_id) for r in entries ]
-        insert_datas = [ (*t, timestamp, timestamp) for t in entries ]
-        def _write(db: sqlite3.Connection):
-            db.executemany(self.UPDATE_RELATIVE_SQL, update_datas)
-            db.executemany(self.CREATE_OR_IGNORE_SQL, insert_datas)
-        self._db_context.queue_write(_write, completion_callback)
-
-    def read(self) -> List[TransactionDeltaRow]:
-        cursor = self._db.execute(self.READ_ALL_SQL)
-        rows = cursor.fetchall()
-        cursor.close()
-        return [ TransactionDeltaRow(*t) for t in rows ]
-
-    def read_key_history(self, account_id: int) -> List[TransactionKeyHistoryRow]:
-        results: List[TransactionKeyHistoryRow] = []
-        for row in self._get_many_common(self.READ_KEY_HISTORY_SQL, [ account_id ]):
-            results.append(TransactionKeyHistoryRow(*row))
-        return results
-
-    def read_key_summary(self, account_id: int,
-            keyinstance_ids: Optional[Sequence[int]]=None) -> List[TransactionDeltaKeySummaryRow]:
-        params = [ account_id ]
-        if keyinstance_ids is not None:
-            return read_rows_by_id(TransactionDeltaKeySummaryRow, self._db,
-                self.READ_KEY_SUMMARY_DOMAIN_SQL, [ account_id ], keyinstance_ids)
-
-        query = self.READ_KEY_SUMMARY_SQL
-        cursor = self._db.execute(query, [account_id])
-        rows = cursor.fetchall()
-        cursor.close()
-        return [ TransactionDeltaKeySummaryRow(*t) for t in rows ]
-
-    def read_history(self, account_id: int,
-            keyinstance_ids: Optional[Sequence[int]]=None) -> List[TransactionDeltaHistoryRow]:
-        params = [ account_id ]
-        if keyinstance_ids:
-            return read_rows_by_id(TransactionDeltaHistoryRow, self._db,
-                self.READ_HISTORY_DOMAIN_SQL, [ account_id ], keyinstance_ids)
-
-        query = self.READ_HISTORY_SQL
-        cursor = self._db.execute(query, [account_id])
-        rows = cursor.fetchall()
-        cursor.close()
-        return [ TransactionDeltaHistoryRow(*t) for t in rows ]
-
-    def read_paid_requests(self, account_id: int, keyinstance_ids: Sequence[int]) \
-            -> List[int]:
-        return read_rows_by_id(int, self._db, self.READ_PAID_KEYS_SQL,
-            [ account_id ], keyinstance_ids)
-
-    def read_descriptions(self, account_id: int) -> List[Tuple[bytes, str]]:
-        return self._get_many_common(self.READ_DESCRIPTIONS_SQL, [ account_id ])
-
-    def read_balance(self, account_id: int, flags: Optional[int]=None,
-            mask: Optional[int]=None) -> TransactionDeltaSumRow:
-        query = self.READ_ACCOUNT_TXFILTERING_SQL_1
-        params: List[Any] = [ account_id ]
-        clause, extra_params = flag_clause("T.flags", flags, mask)
-        if clause:
-            query += f" WHERE {clause} "
-            params.extend(extra_params)
-        query += self.READ_ACCOUNT_TXFILTERING_SQL_2
-        cursor = self._db.execute(query, params)
-        row = cursor.fetchone()
-        cursor.close()
-        if row is None:
-            return TransactionDeltaSumRow(account_id, 0, 0)
-        return TransactionDeltaSumRow(*row)
-
-    def read_transaction_value(self, tx_hash: bytes, account_id: Optional[int]=None) \
-            -> List[TransactionDeltaSumRow]:
-        if account_id is None:
-            cursor = self._db.execute(self.READ_SQL, [tx_hash])
-        else:
-            cursor = self._db.execute(self.READ_ACCOUNT_SQL, [account_id, tx_hash])
-        rows = cursor.fetchall()
-        cursor.close()
-        return [ TransactionDeltaSumRow(*row) for row in rows ]
-
-    def update(self, entries: Iterable[Tuple[int, bytes, int]],
-            date_updated: Optional[int]=None,
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        if date_updated is None:
-            date_updated = self._get_current_timestamp()
-        datas = [ (date_updated,) + entry for entry in entries ]
-        def _write(db: sqlite3.Connection):
-            db.executemany(self.UPDATE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
-
-    def delete(self, entries: Iterable[Tuple[bytes, int]],
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        datas = []
-        for key_id, tx_hash in entries:
-            datas.append((key_id, tx_hash))
-        def _write(db: sqlite3.Connection):
-            db.executemany(self.DELETE_SQL, datas)
-        self._db_context.queue_write(_write, completion_callback)
-
-
-class PaymentRequestRow(NamedTuple):
-    paymentrequest_id: int
-    keyinstance_id: int
-    state: PaymentFlag
-    value: Optional[int]
-    expiration: Optional[int]
-    description: Optional[str]
-    date_created: int
 
 
 class PaymentRequestTable(BaseDatabaseAPI):
@@ -1541,14 +1074,254 @@ class AccountTransactionTable(BaseDatabaseAPI):
         self._db_context.queue_write(_write, completion_callback)
 
 
-# TODO: Write some async database functions.
-class AsyncFunctions(BaseDatabaseAPI):
-    def _test(self, db: sqlite3.Connection) -> Any:
-        return 1
+class AddTransactionRow(NamedTuple):
+    tx_hash: bytes
+    version: Optional[int]
+    locktime: Optional[int]
+    tx_bytes: Optional[bytes]
+    flags: TxFlags
+    block_height: Optional[int]
+    block_position: Optional[int]
+    description: Optional[str]
+    fee: Optional[int]
+    date_created: int
+    date_updated: int
 
-    async def test(self) -> Any:
-        return await self._db_context.run_in_thread(self._test)
 
-    # async def add_transaction(self) -> None:
-    #     pass
+class AddTransactionInputRow(NamedTuple):
+    tx_hash: bytes
+    txi_index: int
+    spent_tx_hash: bytes
+    spent_txo_index: int
+    sequence: int
+    flags: int
+    script_offset: int
+    script_length: int
+    date_created: int
+    date_updated: int
 
+
+class AddTransactionOutputRow(NamedTuple):
+    tx_hash: bytes
+    tx_index: int
+    value: int
+    keyinstance_id: Optional[int]
+    script_type: ScriptType
+    flags: TransactionOutputFlag
+    script_hash: bytes
+    script_offset: int
+    script_length: int
+    date_created: int
+    date_updated: int
+
+
+SpendConflictType = Tuple[bytes, int]
+
+
+class AsynchronousFunctions(BaseDatabaseAPI):
+    LOGGER_NAME: str = "async-functions"
+
+    def _insert_transaction(self, db: sqlite3.Connection, tx_row: AddTransactionRow,
+            txi_rows: List[AddTransactionInputRow], txo_rows: List[TransactionOutputRow]) -> Any:
+        """
+        Insert the base data for a parsed transaction into the database.
+
+        Raises an `IntegrityError` if any constraint checks fail. This should be executed in a
+        database transaction, which the SQLite writer thread currently takes care of. The exception
+        should raise back out to the caller and all changes discarded through the rolling back
+        of the transaction.
+        """
+        # Rationale: We used to allow transactions we knew about but did not yet have to be added
+        # to the database, this had `tx_data=None`. Now all transactions inserted must be parsed
+        # with inputs and outputs.
+        assert tx_row.tx_bytes is not None
+        assert (tx_row.flags & TxFlags.HasByteData) == 0, "this flag is not applicable"
+
+        # Constraint: tx_hash should be unique.
+        db.execute("INSERT INTO Transactions (tx_hash, tx_data, flags, "
+            "block_height, block_position, fee_value, version, locktime, description, "
+            "date_created, date_updated) VALUES (?,?,?,?,?,?,?,?,?,?,?)", tx_row)
+
+        # Constraint: (tx_hash, tx_index) should be unique.
+        db.executemany("INSERT INTO TransactionInputs (tx_hash, txi_index, spent_tx_hash, "
+            "spent_txo_index, sequence, flags, script_offset, script_length, date_created, "
+            "date_updated) VALUES (?,?,?,?,?,?,?,?,?,?)", txi_rows)
+
+        # Constraint: (tx_hash, tx_index) should be unique.
+        db.executemany("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, keyinstance_id, "
+            "script_type, flags, script_hash, script_offset, script_length, date_created, "
+            "date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)", txo_rows)
+
+        return True
+
+    def _link_transaction_key_usage(self, db: sqlite3.Connection,
+            txo_rows: List[TransactionOutputRow]) -> int:
+        timestamp = self._get_current_timestamp()
+
+        # Link the transaction outputs to key usage.
+        rowcount = update_rows_by_id(bytes, db, "UPDATE TransactionOutputs TXO "
+            "SET TXO.keyinstance_id=KIS.keyinstance_id, TXO.script_type=KIS.script_type, "
+                "TXO.date_updated=? "
+            "FROM KeyInstanceScripts KIS "
+            "WHERE TXO.script_hash = KIS.script_hash AND KIS.script_hash IN ({})", [timestamp],
+            tuple(t.script_hash for t in txo_rows))
+        return rowcount
+
+    def _create_account_transaction_mappings(self, db: sqlite3.Connection, tx_hash: bytes) -> int:
+        timestamp = self._get_current_timestamp()
+
+        # Assuming transactions are mapped to key usage, we can insert transaction mappings to
+        # accounts they are associated with. The reason we do this is that we want per-account
+        # transaction state.
+        cursor = db.execute("INSERT INTO AccountTransactions "
+            "(tx_hash, account_id, date_created, date_updated) "
+            "WITH transaction_accounts(tx_hash, account_id) AS ("
+                "SELECT DISTINCT KI.account_id "
+                "FROM TransactionOutputs TXO "
+                "INNER JOIN KeyInstances KI ON KI.keyinstance_id = TXO.keyinstance_id "
+                "WHERE TXO.tx_hash=? "
+                "UNION "
+                "SELECT DISTINCT KI.account_id "
+                "FROM TransactionInputs TXI "
+                "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash = TXI.spent_tx_hash "
+                "INNER JOIN KeyInstances KI ON KI.keyinstance_id = TXO.keyinstance_id "
+                "WHERE TXI.spent_tx_hash=? "
+            ")"
+            "SELECT ?, TA.account_id, ?, ? "
+            "FROM transaction_accounts TA",
+            (tx_hash, tx_hash, tx_hash, timestamp, timestamp))
+        return cursor.rowcount
+
+    def _spend_parent_transaction_outputs(self, db: sqlite3.Connection, tx_hash: bytes,
+            tx_deltas: Dict[Tuple[bytes, int], int]) -> List[SpendConflictType]:
+        """
+        Spend all parent transaction outputs.
+
+        This can be considered ordered spending, where a new transaction spends coins from
+        parent transactions the wallet should already have. It is expected that any conflicts
+        in the form of this transaction spending coins already spent by other transactions should
+        be identified.
+        """
+        timestamp = self._get_current_timestamp()
+        cursor = db.execute(
+            "SELECT TXO.tx_hash, TXO.tx_index, TXO.flags, TXO.keyinstance_id, TXO.value "
+            "FROM TransactionInputs TXI "
+            "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash = TXI.spent_tx_hash AND "
+                "TXO.tx_index = TXI.spent_txo_index "
+            "INNER JOIN KeyInstances KI ON KI.keyinstance_id = TXO.keyinstance_id "
+            "WHERE TXI.tx_hash=?", (tx_hash,))
+
+        spend_conflicts: List[SpendConflictType] = []
+        spent_rows: List[Tuple[int, bytes, int]] = []
+        for spent_tx_hash, spent_tx_index, raw_txo_flags, txo_keyinstance_id, txo_value \
+                in cursor.fetchall():
+            if raw_txo_flags & TransactionOutputFlag.IS_SPENT:
+                # TODO(nocheckin) . . .
+                spend_conflicts.append((spent_tx_hash, spent_tx_index))
+            else:
+                spent_rows.append((timestamp, spent_tx_hash, spent_tx_index))
+                tx_deltas[(tx_hash, txo_keyinstance_id)] -= txo_value
+
+        # If there were no spend conflicts, we can consider ourselves to be valid and can mark
+        # the spent coins as spent.
+        if not spend_conflicts:
+            clear_bits = TransactionOutputFlag.IS_ALLOCATED
+            set_bits = TransactionOutputFlag.IS_SPENT
+            cursor = db.executemany("UPDATE TransactionOutputs "
+                f"SET date_updated=?, flags=(flags&{~clear_bits})|{set_bits}"
+                f"WHERE (flags&{set_bits})=0 AND tx_hash=? AND TXO.tx_index=?", spent_rows)
+            # Detect if we did not update the rows we expected to update.
+            if cursor.rowcount != len(spent_rows):
+                self._logger.error("Failed marking parent outputs as spent, expected to update "
+                    "%d outputs, actually updated %d outputs", len(spent_rows), cursor.rowcount)
+
+        return spend_conflicts
+
+    def _spend_child_transaction_outputs(self, db: sqlite3.Connection, tx_hash: bytes,
+            tx_deltas: Dict[Tuple[bytes, int], int]) -> Any:
+        """
+        Spend all child transaction outputs.
+
+        This can be considered unordered spending, where the child transactions arrived before
+        this transaction which is their parent transaction.
+        """
+        cursor = db.execute("SELECT TXI.tx_hash, TXI.txi_index, TXI.flags, TXO.keyinstance_id, "
+                "TXO.value "
+            "FROM TransactionOutputs TXO "
+            "INNER JOIN TransactionInputs TXI ON TXI.spent_tx_hash = TXO.tx_hash "
+                "AND TXO.tx_hash = ?", (tx_hash,))
+        for spending_tx_hash, txi_index, raw_txi_flags, txo_keyinstance_id, txo_value \
+                in cursor.fetchall():
+            tx_deltas[(spending_tx_hash, txo_keyinstance_id)] -= txo_value
+
+    def _link_transaction(self, db: sqlite3.Connection, tx_row: AddTransactionRow,
+            txi_rows: List[AddTransactionInputRow], txo_rows: List[TransactionOutputRow]) -> Any:
+        """
+        Given this happens in a sequential writer thread we know that there cannot be
+        race conditions in the database where transactions being added in parallel might miss
+        spends. However, in real world usage that should only ever be ordered spends. Unordered
+        spends should only occur in synchronisation, and we can special case that at a higher
+        level.
+        """
+        timestamp = self._get_current_timestamp()
+
+        # Fill in `keyinstance_id` and `script_type` for the outputs.
+        _key_usage_count = self._link_transaction_key_usage(db, txo_rows)
+
+        # Ensure there are per-account rows for this transaction.
+        _account_count = self._create_account_transaction_mappings(db, tx_row.tx_hash)
+
+        db.execute("SAVEPOINT spends")
+
+        tx_deltas: Dict[Tuple[bytes, int], int] = defaultdict(int)
+        spend_conflicts = self._spend_parent_transaction_outputs(db, tx_row.tx_hash, tx_deltas)
+        if not spend_conflicts:
+            self._spend_child_transaction_outputs(db, tx_row.tx_hash, tx_deltas)
+
+        if spend_conflicts:
+            db.execute("ROLLBACK TO SAVEPOINT spends")
+
+            # TODO(nocheckin) need to work out the correct and complete model for conflicting
+            # transactions. An example is that conflicting transactions should not be considered
+            # or affected in queries.
+            db.execute("UPDATE Transactions "
+                f"SET flags=flags|{TxFlags.Conflicting}"
+                "WHERE tx_hash=?", (tx_row.tx_hash,))
+
+        pass
+        # List what needs to be changed:
+        # - TransactionInputs
+        #   - detect spends of parent transactions that are already present
+        # - TransactionOutputs
+        #   - DONE update column: keyinstance_id
+        #   - DONE update column: script_type
+        #   - detect spends by child transactions that are already present
+        # - AccountTransactions
+        #   - DONE insert mapping for detected key usage
+        # - TransactionDeltas
+        #   - insert receipts from this transaction.
+        #   - insert spends of any parent transactions.
+        #   - insert spends by any child transactions.
+        pass
+
+        # Also needs to detect conflicts and rollback any linkage.
+
+    def _import_transaction(self, db: sqlite3.Connection, tx_row: AddTransactionRow,
+            txi_rows: List[AddTransactionInputRow], txo_rows: List[TransactionOutputRow]) -> Any:
+        """
+        If any constraints are violated, an exception will be raised out of this function
+        and should be caught and rollback this transaction.
+        """
+        self._insert_transaction(db, tx_row, txi_rows, txo_rows)
+        self._link_transaction(db, tx_row, txi_rows, txo_rows)
+        # Returning commits the transaction non-rolled back parts of the transaction.
+
+    async def import_transaction(self, tx_row: AddTransactionRow,
+            txi_rows: List[AddTransactionInputRow], txo_rows: List[AddTransactionOutputRow]) -> Any:
+        """
+        Wrap the database operations required to import a transaction so the processing is
+        offloaded to the SQLite writer thread while this task is blocked.
+        """
+        # TODO(nocheckin) work out what we are returning and update the return type.
+        return await self._db_context.run_in_thread(self._import_transaction, tx_row, txi_rows,
+            txo_rows)

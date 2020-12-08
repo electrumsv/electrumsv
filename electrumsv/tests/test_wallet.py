@@ -21,7 +21,7 @@ from electrumsv.storage import get_categorised_files, WalletStorage, WalletStora
 from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount, MultisigAccount,
     Wallet, StandardAccount, AbstractAccount)
 from electrumsv.wallet_database import DatabaseContext
-from electrumsv.wallet_database.tables import AccountRow, KeyInstanceRow, TransactionDeltaTable
+from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow
 
 from .util import setup_async, tear_down_async, TEST_WALLET_PATH
 
@@ -235,15 +235,14 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
             assert isinstance(row.keyinstance_id, int)
             assert account.get_id() == row.account_id
             assert 1 == row.masterkey_id
-            assert script_type == row.script_type
             assert DerivationType.BIP32_SUBPATH == row.derivation_type
             assert None is row.description
 
     accounts = wallet.get_accounts()
     assert len(accounts) == 1
     account = accounts[0]
-    assert [] == account.get_existing_fresh_keys(RECEIVING_SUBPATH)
-    assert [] == account.get_existing_fresh_keys(CHANGE_SUBPATH)
+    assert [] == account.get_existing_fresh_keys(RECEIVING_SUBPATH, 1000)
+    assert [] == account.get_existing_fresh_keys(CHANGE_SUBPATH, 1000)
     assert account_script_type == account.get_default_script_type()
 
     keyinstances: List[KeyInstanceRow] = []
@@ -256,34 +255,37 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
         keyinstance_ids |= set(keyinstance.keyinstance_id for keyinstance in new_keyinstances)
         keyinstances.extend(new_keyinstances)
         assert len(keyinstance_ids) == len(keyinstances)
-        assert [] == account.get_existing_fresh_keys(RECEIVING_SUBPATH)
+        # Both the local list and the database result should be in the order they were created.
+        assert keyinstances == \
+            account.get_existing_fresh_keys(RECEIVING_SUBPATH, 1000), f"failed for {count}"
 
     for count in (0, 1, 5):
-        last_row = keyinstances[-1]
-        last_index = account.get_derivation_path(last_row.keyinstance_id)[-1]
+        local_last_row = keyinstances[-1]
+        local_last_index = account.get_derivation_path(local_last_row.keyinstance_id)[-1]
         next_index = account.get_next_derivation_index(RECEIVING_SUBPATH)
-        assert next_index == last_index  + 1
+        assert next_index == local_last_index  + 1
 
-        try:
-            new_keyinstances = account.create_keys_until(
-                RECEIVING_SUBPATH + (next_index + count - 1,))
-        except AssertionError:
-            assert 0 == count
+        last_allocation_index = next_index + count - 1
+        if count == 0:
+            with pytest.raises(AssertionError):
+                new_keyinstances = account.create_keys_until(
+                    RECEIVING_SUBPATH + (last_allocation_index,))
             continue
-        assert 0 != count
+
+        new_keyinstances = account.create_keys_until(RECEIVING_SUBPATH + (last_allocation_index,))
         assert count == len(new_keyinstances)
         check_rows(new_keyinstances, account_script_type)
 
         keyinstance_ids |= set(keyinstance.keyinstance_id for keyinstance in new_keyinstances)
         keyinstances.extend(new_keyinstances)
         assert len(keyinstance_ids) == len(keyinstances)
-        assert [] == account.get_existing_fresh_keys(RECEIVING_SUBPATH)
+        assert keyinstances == account.get_existing_fresh_keys(RECEIVING_SUBPATH, 1000)
 
     keyinstance_batches: List[List[KeyInstanceRow]] = []
     for count in (0, 1, 5):
         new_keyinstances = account.get_fresh_keys(RECEIVING_SUBPATH, count)
         assert count == len(new_keyinstances)
-        assert new_keyinstances == account.get_existing_fresh_keys(RECEIVING_SUBPATH)
+        assert new_keyinstances == account.get_existing_fresh_keys(RECEIVING_SUBPATH, count)
         check_rows(new_keyinstances, ScriptType.NONE)
         # Verify each batch includes the last batch and the extra created keys.
         if len(keyinstance_batches) > 0:
@@ -306,7 +308,8 @@ class TestLegacyWalletCreation:
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
         wallet.update_password(password)
 
-        account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+        raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+        account_row = wallet.add_accounts([ raw_account_row ])[0]
         account = StandardAccount(wallet, account_row, [], [], [])
         wallet.register_account(account.get_id(), account)
 
@@ -321,7 +324,8 @@ class TestLegacyWalletCreation:
 
         wallet = Wallet(tmp_storage)
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
-        account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+        account_row = wallet.add_accounts([ account_row ])[0]
         account = StandardAccount(wallet, account_row, [], [], [])
         wallet.register_account(account.get_id(), account)
 
@@ -388,7 +392,8 @@ class TestLegacyWalletCreation:
 
         masterkey_row = wallet.create_masterkey_from_keystore(keystore)
 
-        account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.MULTISIG_BARE, 'text')
+        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_BARE, 'text')
+        account_row = wallet.add_accounts([ account_row ])[0]
         account = MultisigAccount(wallet, account_row, [], [], [])
         wallet.register_account(account.get_id(), account)
 
@@ -482,49 +487,50 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
         Net.set_to(SVMainnet)
 
 
-def test_detect_used_keys(mocker):
-    class MockDatabaseContext:
-        def acquire_connection(self):
-            return
-        def release_connection(self, connection):
-            return
+# TODO(nocheckin) need to remove when we deal with a new deactivated key system
+# def test_detect_used_keys(mocker):
+#     class MockDatabaseContext:
+#         def acquire_connection(self):
+#             return
+#         def release_connection(self, connection):
+#             return
 
-    class MockWallet:
-        def __init__(self):
-            self._db_context = MockDatabaseContext()
-            self._storage = {'deactivate_used_keys':True}
+#     class MockWallet:
+#         def __init__(self):
+#             self._db_context = MockDatabaseContext()
+#             self._storage = {'deactivate_used_keys':True}
 
-    class MockAccount(AbstractAccount):
-        def __init__(self):
-            self._id = 1
-            self._wallet = MockWallet()
-            self._deactivated_keys_lock = threading.Lock()
-            self._deactivated_keys = []
-            self._keyinstances = {
-                1: KeyInstanceRow(1, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 1]}),
-                    ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, ""),
-                2: KeyInstanceRow(2, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 2]}),
-                    ScriptType.P2PKH, KeyInstanceFlag.USER_SET_ACTIVE, ""),
-                3: KeyInstanceRow(3, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 3]}),
-                    ScriptType.P2PKH,
-                    (KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE), "")}
-            self._deactivated_keys_event = asyncio.Event()
-            self._logger = logging.getLogger("MockAccount")
+#     class MockAccount(AbstractAccount):
+#         def __init__(self):
+#             self._id = 1
+#             self._wallet = MockWallet()
+#             self._deactivated_keys_lock = threading.Lock()
+#             self._deactivated_keys = []
+#             self._keyinstances = {
+#                 1: KeyInstanceRow(1, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 1]}),
+#                     ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, ""),
+#                 2: KeyInstanceRow(2, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 2]}),
+#                     ScriptType.P2PKH, KeyInstanceFlag.USER_SET_ACTIVE, ""),
+#                 3: KeyInstanceRow(3, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 3]}),
+#                     ScriptType.P2PKH,
+#                     (KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE), "")}
+#             self._deactivated_keys_event = asyncio.Event()
+#             self._logger = logging.getLogger("MockAccount")
 
-    def mock_update_used_keys(self, account_id):
-        """test coverage of this in 'test_wallet_database_tables.test_update_used_keys'"""
-        return [1,2,3]  # keyinstance_ids
+#     def mock_update_used_keys(self, account_id):
+#         """test coverage of this in 'test_wallet_database_tables.test_update_used_keys'"""
+#         return [1,2,3]  # keyinstance_ids
 
-    mocker.patch.object(TransactionDeltaTable, 'update_used_keys', mock_update_used_keys)
-    account = MockAccount()
-    assert account._keyinstances[1].flags == KeyInstanceFlag.IS_ACTIVE
-    assert account._keyinstances[2].flags == KeyInstanceFlag.USER_SET_ACTIVE
-    assert account._keyinstances[3].flags == KeyInstanceFlag.IS_ACTIVE | \
-           KeyInstanceFlag.USER_SET_ACTIVE
-    account.detect_used_keys()
-    assert account._keyinstances[1].flags == KeyInstanceFlag.NONE
-    assert account._keyinstances[2].flags == KeyInstanceFlag.USER_SET_ACTIVE
-    assert account._keyinstances[3].flags == KeyInstanceFlag.USER_SET_ACTIVE
+#     mocker.patch.object(TransactionDeltaTable, 'update_used_keys', mock_update_used_keys)
+#     account = MockAccount()
+#     assert account._keyinstances[1].flags == KeyInstanceFlag.IS_ACTIVE
+#     assert account._keyinstances[2].flags == KeyInstanceFlag.USER_SET_ACTIVE
+#     assert account._keyinstances[3].flags == KeyInstanceFlag.IS_ACTIVE | \
+#            KeyInstanceFlag.USER_SET_ACTIVE
+#     account.detect_used_keys()
+#     assert account._keyinstances[1].flags == KeyInstanceFlag.NONE
+#     assert account._keyinstances[2].flags == KeyInstanceFlag.USER_SET_ACTIVE
+#     assert account._keyinstances[3].flags == KeyInstanceFlag.USER_SET_ACTIVE
 
 
 # class TestImportedPrivkeyAccount:

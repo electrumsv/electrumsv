@@ -38,6 +38,8 @@ class TxFlags(IntFlag):
     HasHeight = 1 << 5
     HasPosition = 1 << 6
 
+    Conflicting = 1 << 7
+
     # Complete transactions must always be added with bytedata. We no longer use this flag.
     # There will be incomplete transactions which may allow b'' perhaps, and which should be
     # updateable, but we're not there yet.
@@ -167,10 +169,13 @@ class KeyInstanceFlag(IntFlag):
 
     # This key should be loaded and managed appropriately.
     IS_ACTIVE = 1 << 0
+    # This key has been assigned for some use and should not be reassigned ever.
+    IS_ASSIGNED = 1 << 1
 
     # The user explicitly set this key to be active. It is not intended that the management
     # mark it inactive without good reason.
     USER_SET_ACTIVE = 1 << 8
+
     IS_PAYMENT_REQUEST = 1 << 9
     IS_INVOICE = 1 << 10
 
@@ -178,7 +183,7 @@ class KeyInstanceFlag(IntFlag):
     CACHE_MASK = IS_ACTIVE
     ACTIVE_MASK = IS_ACTIVE | USER_SET_ACTIVE
     INACTIVE_MASK = ~IS_ACTIVE
-    ALLOCATED_MASK = IS_PAYMENT_REQUEST | IS_INVOICE
+    ALLOCATED_MASK = IS_PAYMENT_REQUEST | IS_INVOICE | IS_ASSIGNED
 
 
 class TransactionInputFlag(IntFlag):
@@ -293,3 +298,7 @@ ACCOUNT_SCRIPT_TYPES = {
         ScriptType.P2PKH,
     ]),
 }
+
+
+class DatabaseWriteErrorCodes(IntEnum):
+    TX_ADD_MISSING_KEYS = 1

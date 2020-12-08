@@ -10,7 +10,7 @@ except ModuleNotFoundError:
 import time
 from typing import Any, cast, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
-from bitcoinx import Address, hash_to_hex_str
+from bitcoinx import Address, hash_to_hex_str, pack_be_uint32
 
 from electrumsv.bitcoin import scripthash_bytes
 from electrumsv.constants import (ACCOUNT_SCRIPT_TYPES, AccountTxFlags, AccountType,
@@ -28,6 +28,7 @@ from electrumsv.transaction import Transaction
 from electrumsv.types import TxoKeyType
 from electrumsv.util.misc import ProgressCallbacks
 
+from ..storage_migration import AccountRow1, KeyInstanceRow1, MasterKeyRow1
 
 logger = logs.get_logger("migration-0027")
 
@@ -44,30 +45,10 @@ logger = logs.get_logger("migration-0027")
 # NOTE(rt12) one exception to this is the reliance on `instantiate_keystore`
 #
 
-class MasterKeyRow(NamedTuple):
-    masterkey_id: int
-    parent_masterkey_id: Optional[int]
-    derivation_type: DerivationType
-    derivation_data: bytes
-
-class KeyInstanceRow(NamedTuple):
-    keyinstance_id: int
-    account_id: int
-    masterkey_id: Optional[int]
-    derivation_type: DerivationType
-    derivation_data: bytes
-    script_type: ScriptType
-    flags: KeyInstanceFlag
-
-class AccountRow(NamedTuple):
-    account_id: int
-    default_masterkey_id: Optional[int]
-    default_script_type: ScriptType
-
 class PossibleScript(NamedTuple):
     account_id: int
     masterkey_id: Optional[int]
-    keyinstance: KeyInstanceRow
+    keyinstance: KeyInstanceRow1
     derivation_path: Sequence[int]
     script_type: ScriptType
     script_hash: bytes
@@ -97,16 +78,19 @@ class TXOInsertRow(NamedTuple):
     value: int
     keyinstance_id: Optional[int]
     flags: TransactionOutputFlag
+    script_hash: bytes
+    script_type: ScriptType
     script_offset: int
     script_length: int
-    script_hash: bytes
     date_created: int
     date_updated: int
 
 class TXOUpdateRow(NamedTuple):
     # These are ordered and aligned with the SQL statement.
-    script_hash: bytes
+    keyinstance_id: Optional[int]
     flags: TransactionOutputFlag
+    script_hash: bytes
+    script_type: ScriptType
     script_offset: int
     script_length: int
     date_updated: int
@@ -115,6 +99,7 @@ class TXOUpdateRow(NamedTuple):
 
 class TXOExistingEntry(NamedTuple):
     flags: TransactionOutputFlag
+    keyinstance_id: int
 
 
 MULTISIG_SCRIPT_TYPES = (ScriptType.MULTISIG_BARE, ScriptType.MULTISIG_P2SH)
@@ -140,44 +125,49 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         wallet_settings[row[0]] = json.loads(row[1])
 
     # Cache account data.
-    accounts: Dict[int, AccountRow] = {}
-    cursor = conn.execute("SELECT account_id, default_masterkey_id, default_script_type "
-        "FROM Accounts")
+    accounts: Dict[int, AccountRow1] = {}
+    cursor = conn.execute("SELECT account_id, default_masterkey_id, default_script_type, "
+        "account_name FROM Accounts")
     rows = cursor.fetchall()
     cursor.close()
     for row in rows:
-        accounts[row[0]] = AccountRow(row[0], row[1], ScriptType(row[2]))
+        accounts[row[0]] = AccountRow1(row[0], row[1], ScriptType(row[2]), row[3])
 
     # Cache masterkey data.
-    masterkeys: Dict[int, MasterKeyRow] = {}
+    masterkeys: Dict[int, MasterKeyRow1] = {}
     cursor = conn.execute("SELECT masterkey_id, parent_masterkey_id, derivation_type, "
         "derivation_data FROM MasterKeys")
     rows = cursor.fetchall()
     cursor.close()
     for row in rows:
-        masterkeys[row[0]] = MasterKeyRow(*row)
+        masterkeys[row[0]] = MasterKeyRow1(*row)
 
     # Cache keyinstance data. These are only going to cover all existing detected key usage and the
     # gap limit beyond that. Because the creation and detection of the use of these is driven by
     # the indexer/electrumx telling us they have been used, it is not guaranteed that we will have
     # them all.
-    keyinstances: Dict[int, KeyInstanceRow] = {}
+    keyinstances: Dict[int, KeyInstanceRow1] = {}
     # For accounts with masterkeys. {(account_id, masterkey_id): { derivation_path: keyinstance }}
-    mk_keyinstance_data: Dict[Tuple[int, int], Dict[Sequence[int], KeyInstanceRow]] = \
+    mk_keyinstance_data: Dict[Tuple[int, int], Dict[Sequence[int], KeyInstanceRow1]] = \
         defaultdict(dict)
     # For other account types. {account_id: [keyinstance,..]}
-    other_keyinstance_data: Dict[int, List[KeyInstanceRow]] = defaultdict(list)
+    other_keyinstance_data: Dict[int, List[KeyInstanceRow1]] = defaultdict(list)
     cursor = conn.execute("SELECT keyinstance_id, account_id, masterkey_id, derivation_type, "
-        "derivation_data, script_type, flags FROM KeyInstances")
+        "derivation_data, script_type, flags, description FROM KeyInstances")
     rows = cursor.fetchall()
     cursor.close()
+    keyinstance_updates: List[Tuple[bytes, int, int]] = []
     for row in rows:
-        krow = keyinstances[row[0]] = KeyInstanceRow(row[0], row[1], row[2],
-            DerivationType(row[3]), row[4], ScriptType(row[5]), KeyInstanceFlag(row[6]))
+        krow = keyinstances[row[0]] = KeyInstanceRow1(row[0], row[1], row[2],
+            DerivationType(row[3]), row[4], ScriptType(row[5]), KeyInstanceFlag(row[6]),
+            row[7])
         if krow.masterkey_id is not None:
             derivation_data = json.loads(krow.derivation_data)
             derivation_path = tuple(derivation_data["subpath"])
             mk_keyinstance_data[(krow.account_id, krow.masterkey_id)][derivation_path] = krow
+
+            derivation_path_bytes = b''.join(pack_be_uint32(v) for v in derivation_path)
+            keyinstance_updates.append((derivation_path_bytes, date_updated, row[0]))
         else:
             other_keyinstance_data[krow.account_id].append(krow)
 
@@ -185,9 +175,9 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # network/electrumx has told us are related to the keys that exist at this point in time, and
     # even then only if we have online and have received up to date network state at the point the
     # account was last unloaded.
-    cursor = conn.execute("SELECT tx_hash, tx_index, flags from TransactionOutputs")
+    cursor = conn.execute("SELECT tx_hash, tx_index, flags, keyinstance_id from TransactionOutputs")
     txo_existing_entries: Dict[Tuple[bytes, int], TXOExistingEntry] = {
-        (row[0], row[1]): TXOExistingEntry(row[2]) for row in cursor.fetchall() }
+        (row[0], row[1]): TXOExistingEntry(row[2], row[3]) for row in cursor.fetchall() }
 
     cursor = conn.execute("SELECT COUNT(*) FROM Transactions")
     tx_count: int = cursor.fetchone()[0]
@@ -240,14 +230,14 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             txo_flags: TransactionOutputFlag
             if txo_entry is not None:
                 txo_flags = txo_entry.flags
-                txo_updates[TxoKeyType(tx_hash, txo_index)] = TXOUpdateRow(script_hash,
-                    txo_flags, txo.script_offset, txo.script_length, date_updated,
-                    tx_hash, txo_index)
+                txo_updates[TxoKeyType(tx_hash, txo_index)] = TXOUpdateRow(txo_entry.keyinstance_id,
+                    txo_flags, script_hash, ScriptType.NONE, txo.script_offset, txo.script_length,
+                    date_updated, tx_hash, txo_index)
             else:
                 txo_flags = base_txo_flags
                 txo_inserts[TxoKeyType(tx_hash, txo_index)] = TXOInsertRow(tx_hash, txo_index,
-                    txo.value, None, txo_flags, txo.script_offset, txo.script_length, script_hash,
-                    date_updated, date_updated)
+                    txo.value, None, txo_flags, script_hash, ScriptType.NONE, txo.script_offset,
+                    txo.script_length, date_updated, date_updated)
 
             # Remember the same locking script can be used in multiple transactions.
             shl = txo_script_hashes.setdefault(script_hash, [])
@@ -299,7 +289,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                     script_template = Address.from_string(hash, Net.COIN)
                     script_hash = scripthash_bytes(script_template.to_script_bytes())
                     key_script_hashes[script_hash] = PossibleScript(account_id,
-                        None, keyinstance, (), script_type,
+                        None, keyinstance, (), ScriptType.P2PKH,
                         script_hash)
             else:
                 raise DatabaseMigrationError(_("Account corrupt, types: {}").format(found_types))
@@ -343,7 +333,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
 
     callbacks.progress(50, _("Populating additional data"))
 
-    tx_deltas: Dict[Tuple[bytes, int], int] = defaultdict(int)
+    # tx_deltas: Dict[Tuple[bytes, int], int] = defaultdict(int)
     for script_hash, txo_datas in txo_script_hashes.items():
         for txo_data in txo_datas:
             # We are mapping in TXO usage of keys, so if the script is unknown skip it.
@@ -353,48 +343,56 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                     f"{script_hash.hex()} in txo {txo_data.key}")
                 continue
 
+            keyinstance_id = kscript.keyinstance.keyinstance_id
             # All the inputs are inserts, so a single lookup here should prove existence of a spend.
             txi_spend = txi_inserts.get(txo_data.key)
             txo_update = txo_updates.get(txo_data.key)
+            txo_flags = txo_data.flags
             if txo_update:
                 # The output already exists. So there should already be a positive tx delta also.
                 if txi_spend:
                     if txo_data.flags & TransactionOutputFlag.IS_SPENT:
-                        # TODO: Is there anything we can validate here?
-                        pass
+                        # TODO: Is there anything else we can validate here?
+                        assert txo_update.keyinstance_id == keyinstance_id, \
+                            "Transaction output spending key does not match"
                     else:
                         # EFFECT: Account for a previously unrecognised spend.
-                        tx_deltas[(txi_spend.tx_hash, kscript.keyinstance.keyinstance_id)]\
-                            -= txo_data.value
-                        txo_updates[txo_data.key] = txo_update._replace(
-                            flags=txo_data.flags|TransactionOutputFlag.IS_SPENT)
+                        # tx_deltas[(txi_spend.tx_hash, keyinstance_id)] -= txo_data.value
+                        txo_flags |= TransactionOutputFlag.IS_SPENT
                 else:
                     if txo_data.flags & TransactionOutputFlag.IS_SPENT:
                         raise DatabaseMigrationError(_("txo update spent with no txi"))
                     # EFFECT: Account for a previously unrecognised receipt.
-                    tx_deltas[(txo_update.tx_hash, kscript.keyinstance.keyinstance_id)]\
-                        += txo_data.value
+                    # tx_deltas[(txo_update.tx_hash, keyinstance_id)] += txo_data.value
+                txo_updates[txo_data.key] = txo_update._replace(
+                    flags=txo_data.flags,
+                    keyinstance_id=txo_update.keyinstance_id,
+                    script_type=kscript.script_type)
             else:
                 txo_insert = txo_inserts[txo_data.key]
                 # EFFECT: Account for a newly recognised receipt.
-                tx_deltas[(txo_insert.tx_hash, kscript.keyinstance.keyinstance_id)]\
-                    -= txo_data.value
+                # tx_deltas[(txo_insert.tx_hash, keyinstance_id)] -= txo_data.value
+                txo_flags = txo_data.flags
                 if txi_spend:
                     # EFFECT: Account for a newly recognised spend.
-                    tx_deltas[(txi_spend.tx_hash, kscript.keyinstance.keyinstance_id)]\
-                        -= txo_data.value
-                    txo_inserts[txo_data.key] = txo_insert._replace(
-                        flags=txo_data.flags|TransactionOutputFlag.IS_SPENT)
+                    # tx_deltas[(txi_spend.tx_hash, keyinstance_id)] -= txo_data.value
+                    txo_flags |= TransactionOutputFlag.IS_SPENT
+                txo_inserts[txo_data.key] = txo_insert._replace(
+                    flags=txo_flags,
+                    keyinstance_id=keyinstance_id,
+                    script_type=kscript.script_type)
 
     # ------------------------------------------------------------------------
     # Update the database.
 
     progress_text = _("Writing data: {}")
 
-    # Account transaction updates.
+    # VIEW->TABLE: AccountTransactions
     callbacks.progress(60, progress_text.format(_("account transactions")))
+
     # Delete the `AccountTransactions` view and replace it with an `AccountTransactions` table
     # which allows per-account transaction state.
+    logger.debug("start the replacement of view AccountTransactions by creating secondary table")
     conn.execute("CREATE TABLE AccountTransactions2 ("
         "tx_hash BLOB NOT NULL,"
         "account_id INTEGER NOT NULL,"
@@ -406,6 +404,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         "FOREIGN KEY (tx_hash) REFERENCES Transactions (tx_hash)"
     ")")
     # We transfer the "pays invoice" flag for a transaction to be per-account not per-tx.
+    logger.debug("copying the AccountTransactions view contents to secondary table")
     conn.execute("INSERT INTO AccountTransactions2 (tx_hash, account_id, description, "
         "flags, date_created, date_updated) SELECT AT.tx_hash, AT.account_id, T.description, "
         f"T.flags & {AccountTxFlags.PAYS_INVOICE}, T.date_created, T.date_updated "
@@ -418,18 +417,31 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         # This will cause the context manager to rollback its transaction.
         raise DatabaseMigrationError("Failed to copy account transaction data")
 
+    logger.debug("dropping view AccountTransactions")
     conn.execute("DROP VIEW AccountTransactions")
+
+    logger.debug("replacing view AccountTransactions with secondary table")
     conn.execute("ALTER TABLE AccountTransactions2 RENAME TO AccountTransactions")
 
-    # Transaction output updates.
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
+        "idx_AccountTransactions_unique ON AccountTransactions(tx_hash, account_id)")
+
+    # TABLE: TransactionOutputs
+    #
+    # SQLite does not have `ALTER TABLE DROP COLUMN` and other similar operations. This means that
+    # if you want to replace a column or change it's constraints, you need to replace the table.
+    # In fact this is their recommended approach.
     callbacks.progress(62, progress_text.format(_("transaction outputs")))
-    # Adjust the constraint on the `TransactionOutputs.keyinstance_id` field only way possible.
+
+    logger.debug("fix table TransactionOutputs by creating secondary table")
     conn.execute("CREATE TABLE IF NOT EXISTS TransactionOutputs2 ("
         "tx_hash BLOB NOT NULL,"
         "tx_index INTEGER NOT NULL,"
         "value INTEGER NOT NULL,"
         "keyinstance_id INTEGER DEFAULT NULL,"
         "flags INTEGER NOT NULL,"
+        f"script_type INTEGER DEFAULT {ScriptType.NONE},"
+        "script_hash BLOB NOT NULL DEFAULT x'',"
         "script_offset INTEGER DEFAULT 0,"
         "script_length INTEGER DEFAULT 0,"
         "date_created INTEGER NOT NULL,"
@@ -437,33 +449,41 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         "FOREIGN KEY (tx_hash) REFERENCES Transactions (tx_hash),"
         "FOREIGN KEY (keyinstance_id) REFERENCES KeyInstances (keyinstance_id)"
     ")")
-    conn.execute("INSERT INTO TransactionOutputs2 (tx_hash, tx_index, value, keyinstance_id, "
-        "flags, date_created, date_updated) SELECT tx_hash, tx_index, value, keyinstance_id, "
-        "flags, date_created, date_updated FROM TransactionOutputs")
-    conn.execute("DROP TABLE TransactionOutputs")
-    conn.execute("ALTER TABLE TransactionOutputs2 RENAME TO TransactionOutputs")
 
-    # This will add the `script_hash` column to the `TransactionOutputs` table, but set all
-    # existing rows to the empty blob (we will correct this to give them their correct hash below).
-    conn.execute("ALTER TABLE TransactionOutputs ADD COLUMN script_hash BLOB NOT NULL DEFAULT x''")
+    logger.debug("copying the TransactionOutputs table to secondary table")
+    conn.execute("INSERT INTO TransactionOutputs2 (tx_hash, tx_index, value, keyinstance_id, "
+        "flags, date_created, date_updated) "
+        "SELECT tx_hash, tx_index, value, keyinstance_id, flags, date_created, date_updated "
+        "FROM TransactionOutputs")
+
+    logger.debug("dropping table TransactionOutputs")
+    conn.execute("DROP TABLE TransactionOutputs")
+
+    logger.debug("replacing table TransactionOutputs with secondary table")
+    conn.execute("ALTER TABLE TransactionOutputs2 RENAME TO TransactionOutputs")
 
     # If we do not recreate this it gets lost (presumably with the old table).
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
         "idx_TransactionOutputs_unique ON TransactionOutputs(tx_hash, tx_index)")
 
+    logger.debug("inserting %d TransactionOutputs rows", len(txo_inserts))
     conn.executemany("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, "
-        "keyinstance_id, flags, script_offset, script_length, script_hash, date_created, "
-        "date_updated) VALUES (?,?,?,?,?,?,?,?,?,?)", txo_inserts.values())
-    cursor = conn.executemany("UPDATE TransactionOutputs SET script_hash=?, flags=?, "
-        "script_offset=?, script_length=?, date_updated=? WHERE tx_hash=? AND tx_index=?",
+        "keyinstance_id, flags, script_type, script_offset, script_length, script_hash, "
+        "date_created, date_updated) VALUES (?,?,?,?,?,?,?,?,?,?,?)", txo_inserts.values())
+
+    logger.debug("updating %d TransactionOutputs rows", len(txo_updates))
+    cursor = conn.executemany("UPDATE TransactionOutputs SET script_type=?, script_hash=?, "
+        "flags=?, script_offset=?, script_length=?, date_updated=? WHERE tx_hash=? AND tx_index=?",
         txo_updates.values())
+    logger.debug("updated %d TransactionOutputs rows", cursor.rowcount)
     if cursor.rowcount != len(txo_updates):
         raise DatabaseMigrationError(f"Made {cursor.rowcount} txo changes, "
             f"not the expected {len(txo_updates)}")
 
-    # Transaction input updates.
+    # TABLE: Transaction inputs.
     callbacks.progress(64, progress_text.format(_("transaction inputs")))
-    # Create the new `TransactionInputs` table.
+
+    logger.debug("creating table TransactionInputs")
     conn.execute("CREATE TABLE IF NOT EXISTS TransactionInputs ("
         "tx_hash BLOB NOT NULL,"
         "txi_index INTEGER NOT NULL,"
@@ -478,23 +498,35 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         "date_updated INTEGER NOT NULL,"
         "FOREIGN KEY (tx_hash) REFERENCES Transactions (tx_hash)"
     ")")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
+        "idx_TransactionInputs_unique ON TransactionInputs(tx_hash, txi_index)")
+
+    logger.debug("inserting %d initial TransactionInputs rows", len(txi_inserts))
     conn.executemany("INSERT INTO TransactionInputs (tx_hash, txi_index, spent_tx_hash, "
         "spent_txo_index, sequence, flags, script_offset, script_length, date_created, "
         "date_updated) VALUES (?,?,?,?,?,?,?,?,?,?)", txi_inserts.values())
 
-    # Transaction updates.
+    # TABLE: Transactions.
     callbacks.progress(66, progress_text.format(_("transactions")))
-    # This will add the `lock_time` column to the `Transactions` table.
+
+    logger.debug("adding column Transactions.locktime")
     conn.execute("ALTER TABLE Transactions ADD COLUMN locktime int DEFAULT NULL")
+
+    logger.debug("adding column Transactions.version")
     conn.execute("ALTER TABLE Transactions ADD COLUMN version int DEFAULT NULL")
+
+    logger.debug("setting Transactions.version/locktime values for %d affected rows",
+        len(tx_updates))
     cursor = conn.executemany("UPDATE Transactions SET version=?, locktime=?, date_updated=? "
         "WHERE tx_hash=?", tx_updates)
+    logger.debug("set Transactions.version/locktime values for %d updated rows",
+        cursor.rowcount)
     if cursor.rowcount != len(tx_updates):
         raise DatabaseMigrationError(f"Made {cursor.rowcount} tx changes, "
             f"not the expected {len(tx_updates)}")
-    # These should be pulled back in by the syncing process.
+
     cursor = conn.execute("UPDATE Transactions SET flags=(flags&?)", (~TxFlags.HasByteData,))
-    logger.debug("Cleared bytedata flag from %d transactions", cursor.rowcount)
+    logger.debug("cleared bytedata flag from %d transactions", cursor.rowcount)
 
     cursor = conn.execute("SELECT COUNT(*) FROM Transactions WHERE flags=(flags&?)!=0",
         (TxFlags.HasByteData,))
@@ -503,27 +535,57 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         raise DatabaseMigrationError("Failed to clear HasByteData for "
             f"{remaining_hasbytedata_count} transactions")
 
+    # These should be pulled back in by the syncing process.
+    logger.debug("deleting Transactions records without bytedata")
     cursor = conn.execute("DELETE FROM Transactions WHERE tx_data IS NULL")
-    logger.debug("Deleted %d transactions that had no data", cursor.rowcount)
+    logger.debug("deleted %d Transactions records without bytedata", cursor.rowcount)
 
-    # Transaction delta updates.
-    tx_delta_update_rows: List[Tuple[int, int, bytes, int]] = [ (date_updated, value, tx_hash,
-        keyinstance_id) for ((tx_hash, keyinstance_id), value) in tx_deltas.items() ]
-    tx_delta_insert_rows: List[Tuple[bytes, int, int, int, int]] = [ (tx_hash, keyinstance_id,
-        value, date_updated, date_updated)
-        for ((tx_hash, keyinstance_id), value) in tx_deltas.items() ]
-    cursor = conn.executemany("UPDATE TransactionDeltas "
-        "SET date_updated=?, value_delta=value_delta+? WHERE tx_hash=? AND keyinstance_id=?",
-        tx_delta_update_rows)
-    tx_delta_change_count = cursor.rowcount
-    cursor = conn.executemany("INSERT OR IGNORE INTO TransactionDeltas "
-        "(tx_hash, keyinstance_id, value_delta, date_created, date_updated) "
-        "VALUES (?, ?, ?, ?, ?)", tx_delta_insert_rows)
-    tx_delta_change_count += cursor.rowcount
-    if tx_delta_change_count != len(tx_deltas):
-        raise DatabaseMigrationError(f"Made {tx_delta_change_count} tx delta changes, "
-            f"not the expected {len(tx_deltas)}")
+    # TABLE: TransactionDeltas
+    logger.debug("dropping table TransactionDeltas")
+    conn.execute("DROP TABLE TransactionDeltas")
 
+    # TABLE: KeyInstances
+    conn.execute(f"UPDATE KeyInstances SET flags=flags|{KeyInstanceFlag.IS_ASSIGNED} "
+        "WHERE script_type IS NOT NULL")
+
+    logger.debug("fix table KeyInstances by creating secondary table")
+    conn.execute("CREATE TABLE IF NOT EXISTS KeyInstances2 ("
+        "keyinstance_id INTEGER PRIMARY KEY,"
+        "account_id INTEGER NOT NULL,"
+        "masterkey_id INTEGER DEFAULT NULL,"
+        "derivation_type INTEGER NOT NULL,"
+        "derivation_data BLOB NOT NULL,"
+        "derivation_data2 BLOB DEFAULT NULL,"
+        "flags INTEGER NOT NULL,"
+        "description TEXT DEFAULT NULL,"
+        "date_created INTEGER NOT NULL,"
+        "date_updated INTEGER NOT NULL,"
+        "FOREIGN KEY(account_id) REFERENCES Accounts (account_id)"+
+        "FOREIGN KEY(masterkey_id) REFERENCES MasterKeys (masterkey_id)"+
+    ")")
+
+    logger.debug("copying the KeyInstances table to secondary table")
+    cursor = conn.execute("INSERT INTO KeyInstances2 (keyinstance_id, account_id, masterkey_id, "
+        "derivation_type, derivation_data, flags, description, date_created, date_updated) "
+        "SELECT keyinstance_id, account_id, masterkey_id, derivation_type, derivation_data, "
+        "flags, description, date_created, date_updated FROM KeyInstances")
+    logger.debug("copied %d KeyInstances rows", cursor.rowcount)
+
+    logger.debug("dropping table KeyInstances")
+    conn.execute("DROP TABLE KeyInstances")
+
+    logger.debug("replacing table KeyInstances with secondary table")
+    conn.execute("ALTER TABLE KeyInstances2 RENAME TO KeyInstances")
+
+    logger.debug("setting KeyInstances.derivation_data2 values for %d affected rows",
+        len(keyinstance_updates))
+    cursor = conn.executemany("UPDATE KeyInstances SET derivation_data2=?, date_updated=? "
+        "WHERE keyinstance_id=?",
+        keyinstance_updates)
+    assert cursor.rowcount == len(keyinstance_updates), "we read the database, writes should match"
+
+    # TABLE: KeyInstanceScripts
+    logger.debug("creating table KeyInstanceScripts")
     conn.execute("CREATE TABLE IF NOT EXISTS KeyInstanceScripts ("
         "keyinstance_id INTEGER NOT NULL,"
         "script_type INTEGER NOT NULL,"
@@ -537,9 +599,45 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     key_scripts_rows: List[Tuple[int, int, bytes, int, int]] = []
     for possible_script in key_script_hashes.values():
         rows.append((possible_script.keyinstance.keyinstance_id, possible_script.script_type,
-        possible_script.script_hash, date_created, date_created))
+        possible_script.script_hash, date_updated, date_updated))
+    logger.debug("inserting %d initial KeyInstanceScripts rows", len(key_scripts_rows))
     conn.executemany("INSERT INTO KeyInstanceScripts (keyinstance_id, script_type, script_hash, "
         "date_created, date_updated) VALUES (?,?,?,?,?)", key_scripts_rows)
+
+    # VIEWS
+    #
+    # TransactionReceivedValues, TransactionSpentValues and TransactionValues replace the old
+    # TransactionDeltas table. The idea is that TransactionValues can be used as a drop in
+    # replacement for it, and if at a later stage we need to optimise things we can.
+    #
+
+    logger.debug("creating view TransactionReceivedValues")
+    conn.execute(
+        "CREATE VIEW TransactionReceivedValues (account_id, tx_hash, keyinstance_id, value_delta) "
+        "AS "
+            "SELECT ATX.account_id, ATX.tx_hash, TXO.keyinstance_id, TXO.value "
+            "FROM AccountTransactions ATX "
+            "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash "
+            "WHERE TXO.keyinstance_id IS NOT NULL"
+    )
+
+    logger.debug("creating view TransactionSpentValues")
+    conn.execute(
+        "CREATE VIEW TransactionSpentValues (account_id, tx_hash, keyinstance_id, value) AS "
+            "SELECT ATX.account_id, ATX.tx_hash, PTXO.keyinstance_id, PTXO.value "
+            "FROM AccountTransactions ATX "
+            "INNER JOIN TransactionInputs TXI ON TXI.tx_hash=ATX.tx_hash "
+            "INNER JOIN TransactionOutputs PTXO ON PTXO.tx_hash=TXI.spent_tx_hash "
+            "WHERE PTXO.keyinstance_id IS NOT NULL"
+    )
+
+    logger.debug("creating view TransactionValues")
+    conn.execute(
+        "CREATE VIEW TransactionValues (account_id, tx_hash, keyinstance_id, value) AS "
+            "SELECT account_id, tx_hash, keyinstance_id, value FROM TransactionReceivedValues "
+            "UNION ALL "
+            "SELECT account_id, tx_hash, keyinstance_id, -value FROM TransactionSpentValues"
+    )
 
     # ------------------------------------------------------------------------
     # Validation on completion of this migration step.
@@ -549,11 +647,18 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     row = conn.execute("SELECT COUNT(*) FROM TransactionOutputs WHERE script_hash=x''").fetchone()
     if row[0] > 0:
         raise DatabaseMigrationError(f"Found {row[0]} outputs with bad script hashes")
+
     # Check that we set all the Transaction locktimes and versions.
     row = conn.execute("SELECT COUNT(*) FROM Transactions WHERE version=-1 OR locktime=-1"
         ).fetchone()
     if row[0] > 0:
         raise DatabaseMigrationError(f"Found {row[0]} transactions with bad versions or locktimes")
+
+    # Check that we set all the Transaction locktimes and versions.
+    row = conn.execute("SELECT COUNT(*) FROM KeyInstances WHERE masterkey_id IS NOT NULL AND "
+        "derivation_data2 IS NULL").fetchone()
+    if row[0] > 0:
+        raise DatabaseMigrationError(f"Found {row[0]} keys with bad derivation paths")
 
     callbacks.progress(100, _("Rechecking work done"))
 

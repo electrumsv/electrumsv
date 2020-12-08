@@ -35,7 +35,7 @@ from .cmdline import CmdLineHandler
 
 if TYPE_CHECKING:
     from electrumsv.keystore import KeyStore
-    from electrumsv.wallet_database.tables import MasterKeyRow
+    from electrumsv.wallet_database.types import MasterKeyRow
 
 class HW_PluginBase(object):
     keystore_class: Any

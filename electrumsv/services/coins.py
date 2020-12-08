@@ -2,7 +2,7 @@ from typing import List, TYPE_CHECKING
 import weakref
 
 from electrumsv.types import TxoKeyType
-from electrumsv.wallet_database.tables import TransactionOutputRow
+from electrumsv.wallet_database.types import TransactionOutputRow
 
 if TYPE_CHECKING:
     from electrumsv.wallet import Wallet
