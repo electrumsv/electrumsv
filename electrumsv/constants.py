@@ -63,6 +63,8 @@ class TxFlags(IntFlag):
     # The transaction spends conflict with other transactions and it is not linked to any account.
     CONFLICTING = 1 << 7
 
+    Conflicting = 1 << 7
+
     # Complete transactions must always be added with bytedata. We no longer use this flag.
     # There will be incomplete transactions which may allow b'' perhaps, and which should be
     # updateable, but we're not there yet.
