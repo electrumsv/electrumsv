@@ -252,7 +252,7 @@ Pagination is not yet implemented.
 
 **Request**
 
-:Method: POST
+:Method: GET
 :Content-Type: application/json
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/history``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/history``
@@ -291,7 +291,7 @@ fetch_transaction
 ***************************
 Get the raw transaction for a given hex txid (as a hex string) - must be a transaction in the wallet's history.
 
-:Method: POST
+:Method: GET
 :Content-Type: application/json
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/fetch``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/fetch``

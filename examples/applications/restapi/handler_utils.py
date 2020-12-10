@@ -1,10 +1,9 @@
-import asyncio
 import json
 import os
 import logging
 from concurrent.futures.thread import ThreadPoolExecutor
 from json import JSONDecodeError
-from typing import Optional, Union, List, Dict, Any, Iterable, Tuple
+from typing import Optional, Union, List, Dict, Any, Tuple
 
 import bitcoinx
 from bitcoinx import TxOutput, hash_to_hex_str, hex_str_to_hash
@@ -12,7 +11,8 @@ from aiohttp import web
 
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.coinchooser import PRNG
-from electrumsv.constants import TxFlags, RECEIVING_SUBPATH, DATABASE_EXT
+from electrumsv.constants import TxFlags, RECEIVING_SUBPATH, DATABASE_EXT, WalletSettings, \
+    CHANGE_SUBPATH
 from electrumsv.exceptions import NotEnoughFunds
 from electrumsv.networks import Net
 from electrumsv.restapi_endpoints import HandlerUtils, VARNAMES, ARGTYPES
@@ -23,6 +23,7 @@ from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, get_network_type, decode_request_body
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.wallet_database.tables import MissingRowError
+from .constants import WalletEventNames, GAP_LIMIT_RECEIVING, GAP_LIMIT_CHANGE
 from .errors import Errors
 
 logger = logging.getLogger("blockchain-support")
@@ -127,6 +128,9 @@ class ExtendedHandlerUtils(HandlerUtils):
     def raise_for_type_okay(self, vars):
         for vname in vars:
             if vars.get(vname, None):
+                if not ARGTYPES.get(vname):
+                    message = f"'{vname}' is not a supported type"
+                    raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
                 if not isinstance(vars.get(vname), ARGTYPES.get(vname)):
                     message = f"{vars.get(vname)} must be of type: '{ARGTYPES.get(vname)}'"
                     raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
@@ -289,7 +293,18 @@ class ExtendedHandlerUtils(HandlerUtils):
             wallet_name += ".sqlite"
 
         path_result = self._get_wallet_path(wallet_name)
-        parent_wallet = self.app_state.daemon.load_wallet(path_result)
+        parent_wallet = self.app_state.daemon.get_wallet(path_result)
+        if parent_wallet is None:
+            self.network = self.app_state.daemon.network
+            parent_wallet = self.app_state.daemon.load_wallet(path_result)
+            parent_wallet.register_callback(app_state.app.on_triggered_event,
+                [WalletEventNames.TRANSACTION_STATE_CHANGE, WalletEventNames.VERIFIED])
+            for account in parent_wallet.get_accounts():
+                account.set_gap_limit_for_path(RECEIVING_SUBPATH, GAP_LIMIT_RECEIVING)
+                account.set_gap_limit_for_path(CHANGE_SUBPATH, GAP_LIMIT_CHANGE)
+            parent_wallet.set_boolean_setting(WalletSettings.USE_CHANGE, True)
+            parent_wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True)
+
         if parent_wallet is None:
             raise Fault(Errors.WALLET_NOT_LOADED_CODE,
                          Errors.WALLET_NOT_LOADED_MESSAGE)

@@ -15,8 +15,10 @@ from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, good_response, fault_to_http_response
 from electrumsv.regtest_support import regtest_generate_nblocks, regtest_topup_account
+
 from .errors import Errors
 from .handler_utils import ExtendedHandlerUtils, VNAME, InsufficientCoinsError
+from .txstatewebsocket import TxStateWebSocket
 
 
 class ExtensionEndpoints(ExtendedHandlerUtils):
@@ -56,6 +58,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.post(self.ACCOUNT_TXS + "/create_and_broadcast", self.create_and_broadcast),
             web.post(self.ACCOUNT_TXS + "/broadcast", self.broadcast),
             web.post(self.ACCOUNT_TXS + "/split_utxos", self.split_utxos),
+            web.view(self.ACCOUNT_TXS + "/ws", TxStateWebSocket),
         ]
 
         if app_state.config.get('regtest'):
