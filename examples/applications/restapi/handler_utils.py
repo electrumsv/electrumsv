@@ -1,28 +1,30 @@
-import asyncio
 import json
 import os
 import logging
 from concurrent.futures.thread import ThreadPoolExecutor
 from json import JSONDecodeError
-from typing import Optional, Union, List, Dict, Any, Iterable, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import bitcoinx
-from bitcoinx import TxOutput, hash_to_hex_str, hex_str_to_hash
+from bitcoinx import hash_to_hex_str, hex_str_to_hash, TxOutput
 from aiohttp import web
 
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.coinchooser import PRNG
-from electrumsv.constants import TxFlags, RECEIVING_SUBPATH, DATABASE_EXT
+from electrumsv.constants import (
+    TxFlags, RECEIVING_SUBPATH, DATABASE_EXT, WalletSettings, CHANGE_SUBPATH
+)
 from electrumsv.exceptions import NotEnoughFunds
 from electrumsv.networks import Net
-from electrumsv.restapi_endpoints import HandlerUtils, VARNAMES, ARGTYPES
+from electrumsv.restapi_endpoints import ARGTYPES, HandlerUtils, VARNAMES
 from electrumsv.transaction import Transaction
-from electrumsv.wallet import AbstractAccount, Wallet, UTXO
+from electrumsv.wallet import AbstractAccount, UTXO, Wallet
 from electrumsv.logs import logs
 from electrumsv.app_state import app_state
-from electrumsv.restapi import Fault, get_network_type, decode_request_body
+from electrumsv.restapi import decode_request_body, Fault, get_network_type
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.wallet_database.tables import MissingRowError
+from .constants import GAP_LIMIT_RECEIVING, GAP_LIMIT_CHANGE, WalletEventNames
 from .errors import Errors
 
 logger = logging.getLogger("blockchain-support")
@@ -127,6 +129,9 @@ class ExtendedHandlerUtils(HandlerUtils):
     def raise_for_type_okay(self, vars):
         for vname in vars:
             if vars.get(vname, None):
+                if not ARGTYPES.get(vname):
+                    message = f"'{vname}' is not a supported type"
+                    raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
                 if not isinstance(vars.get(vname), ARGTYPES.get(vname)):
                     message = f"{vars.get(vname)} must be of type: '{ARGTYPES.get(vname)}'"
                     raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
@@ -289,7 +294,23 @@ class ExtendedHandlerUtils(HandlerUtils):
             wallet_name += ".sqlite"
 
         path_result = self._get_wallet_path(wallet_name)
-        parent_wallet = self.app_state.daemon.load_wallet(path_result)
+        parent_wallet = self.app_state.daemon.get_wallet(path_result)
+        # If wallet is not already loaded - register for websocket events and allow gap limit
+        # adjustments for faster synchronization with high tx throughput. However, gap limit
+        # scanning should become less relevant as wallet matures to 'true SPV' and merchant API use.
+        # multiple change addresses is preferred for privacy and keeping utxo set granular
+        if parent_wallet is None:
+            self.network = self.app_state.daemon.network
+            parent_wallet = self.app_state.daemon.load_wallet(path_result)
+            parent_wallet.register_callback(app_state.app.on_triggered_event,
+                [WalletEventNames.TRANSACTION_STATE_CHANGE, WalletEventNames.TRANSACTION_ADDED,
+                    WalletEventNames.VERIFIED])
+            for account in parent_wallet.get_accounts():
+                account.set_gap_limit_for_path(RECEIVING_SUBPATH, GAP_LIMIT_RECEIVING)
+                account.set_gap_limit_for_path(CHANGE_SUBPATH, GAP_LIMIT_CHANGE)
+            parent_wallet.set_boolean_setting(WalletSettings.USE_CHANGE, True)
+            parent_wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True)
+
         if parent_wallet is None:
             raise Fault(Errors.WALLET_NOT_LOADED_CODE,
                          Errors.WALLET_NOT_LOADED_MESSAGE)
@@ -298,9 +319,11 @@ class ExtendedHandlerUtils(HandlerUtils):
     def _fetch_transaction_dto(self, account: AbstractAccount, tx_id) -> Optional[Dict]:
         tx_hash = hex_str_to_hash(tx_id)
         tx = account.get_transaction(tx_hash)
+        tx_flags = account._wallet._transaction_cache.get_flags(tx_hash)
         if not tx:
             raise Fault(Errors.TRANSACTION_NOT_FOUND_CODE, Errors.TRANSACTION_NOT_FOUND_MESSAGE)
-        return {"tx_hex": tx.to_hex()}
+        return {"tx_hex": tx.to_hex(),
+                "tx_flags": int(tx_flags)}
 
     def _wallet_name_available(self, wallet_name) -> bool:
         available_wallet_names = self._get_all_wallets(self.wallets_path)
