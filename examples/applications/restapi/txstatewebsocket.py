@@ -42,6 +42,7 @@ class TxStateWebSocket(web.View):
             wallet_name = vars[VNAME.WALLET_NAME]
             index = vars[VNAME.ACCOUNT_ID]
 
+            await self.restapi._load_wallet(wallet_name)
             self.account = self.restapi._get_account(wallet_name, index)
 
             ws_id = str(uuid.uuid4())

@@ -54,8 +54,11 @@ class RESTAPIApplication:
         self.app_state.daemon.rest_server.register_routes(self.restapi)
 
     def _teardown_app(self) -> None:
-        for client in self.aiohttp_web_app['ws_clients'].values():
-            asyncio.run_coroutine_threadsafe(client.websocket.close(), asyncio.get_event_loop())
+        try:
+            for client in self.aiohttp_web_app['ws_clients'].values():
+                asyncio.run_coroutine_threadsafe(client.websocket.close(), app_state.async_.loop)
+        except Exception:
+            self.logger.exception("closing websocket connections failed")
 
     def get_and_set_frozen_utxos_for_tx(self, tx: Transaction, child_wallet: AbstractAccount,
                                         freeze: bool=True) -> List[UTXO]:
@@ -71,7 +74,8 @@ class RESTAPIApplication:
         pass
 
     def on_triggered_event(self, *event_data: Iterable[Any]):
-        _fut = self.app_state.async_.spawn(self.async_on_triggered_event, *event_data)
+        asyncio.run_coroutine_threadsafe(self.async_on_triggered_event(*event_data),
+            app_state.async_.loop)
 
     async def async_on_triggered_event(self, *event_data: Any) -> None:
         event_name = event_data[0]
