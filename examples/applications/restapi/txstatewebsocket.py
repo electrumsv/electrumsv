@@ -10,7 +10,9 @@ from bitcoinx import hex_str_to_hash
 from electrumsv.logs import logs
 from electrumsv.restapi import Fault
 from electrumsv.wallet import AbstractAccount
+
 from examples.applications.restapi.handler_utils import VNAME
+from examples.applications.restapi.errors import Errors
 
 
 class WSClient(object):
@@ -76,7 +78,16 @@ class TxStateWebSocket(web.View):
                 else:
                     self.logger.debug('%s sent: %s' % (client.ws_id, msg.data))
                     try:
-                        txids = json.loads(msg.data)
+                        request_json = json.loads(msg.data)
+                        txids = request_json.get("txids")
+                        if not txids:
+                            message = "no txids field provided in json request"
+                            await client.websocket.send_str(json.dumps({
+                                'code': Errors.GENERIC_BAD_REQUEST_CODE,
+                                'message': message
+                            }))
+                            continue
+
                         for txid in txids:
                             # 1) register new txid
                             tx_hash = hex_str_to_hash(txid)
@@ -86,11 +97,20 @@ class TxStateWebSocket(web.View):
 
                             # 2) give back initial current state of txid
                             tx_hash = hex_str_to_hash(txid)
-                            response_json = json.dumps({
-                                "txid": txid,
-                                "tx_flags": int(client.account.get_transaction_entry(tx_hash).flags)
-                            })
-                            await client.websocket.send_str(response_json)
+                            tx_entry = client.account.get_transaction_entry(tx_hash)
+                            if tx_entry:
+                                response_json = json.dumps({
+                                    "txid": txid,
+                                    "tx_flags": int(tx_entry.flags)
+                                })
+                                await client.websocket.send_str(response_json)
+                            else:
+                                message = f"txid not found :{txid}"
+                                await client.websocket.send_str(json.dumps({
+                                    'code': Errors.TRANSACTION_NOT_FOUND_CODE,
+                                    'message': message
+                                }))
+                                continue
                         await asyncio.sleep(0)
                     except:
                         self.logger.error(client.websocket.exception())

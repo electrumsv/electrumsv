@@ -14,11 +14,14 @@ async def main():
     session = aiohttp.ClientSession()
     try:
         async with session.ws_connect(URL) as ws:
-            initial_txids = json.dumps(["0c98872cb9fe74c0693af023310644954ba1e0815d64edc9719adec51e840c79"])
-            await ws.send_str(initial_txids)
+            initial_mock_txids = json.dumps({
+                "txids": ["0c98872cb9fe74c0693af023310644954ba1f0815d64edc9719adec51e840c79"]
+            })
+            await ws.send_str(initial_mock_txids)
             async for msg in ws:
                 if json.loads(msg.data).get('code'):
                     print('Error message received from server:', msg.data)
+                    continue
                 print('Message received from server:', msg.data)
                 if msg.type in (aiohttp.WSMsgType.CLOSED,
                                 aiohttp.WSMsgType.ERROR):

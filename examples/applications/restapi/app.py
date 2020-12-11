@@ -81,13 +81,7 @@ class RESTAPIApplication:
         event_name = event_data[0]
         if event_name == "transaction_state_change":
             _event_name, _acc_id, tx_hash, existing_flags, updated_flags = event_data
-            old_state = existing_flags & TxFlags.STATE_MASK
-            new_state = updated_flags & TxFlags.STATE_MASK
-
-            old_state_dispatched = old_state & TxFlags.StateDispatched != 0
-            new_state_cleared = new_state & TxFlags.StateCleared != 0
-            if old_state_dispatched and new_state_cleared:
-                await self._tx_state_push_notification(tx_hash)
+            await self._tx_state_push_notification(tx_hash)
         elif event_name == "verified":
             _event_name, tx_hash, height, conf, timestamp = event_data
             await self._tx_state_push_notification(tx_hash)
