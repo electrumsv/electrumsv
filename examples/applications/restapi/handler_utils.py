@@ -298,7 +298,8 @@ class ExtendedHandlerUtils(HandlerUtils):
             self.network = self.app_state.daemon.network
             parent_wallet = self.app_state.daemon.load_wallet(path_result)
             parent_wallet.register_callback(app_state.app.on_triggered_event,
-                [WalletEventNames.TRANSACTION_STATE_CHANGE, WalletEventNames.VERIFIED])
+                [WalletEventNames.TRANSACTION_STATE_CHANGE, WalletEventNames.TRANSACTION_ADDED,
+                    WalletEventNames.VERIFIED])
             for account in parent_wallet.get_accounts():
                 account.set_gap_limit_for_path(RECEIVING_SUBPATH, GAP_LIMIT_RECEIVING)
                 account.set_gap_limit_for_path(CHANGE_SUBPATH, GAP_LIMIT_CHANGE)

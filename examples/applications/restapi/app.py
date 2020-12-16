@@ -13,6 +13,7 @@ from electrumsv.app_state import app_state
 from electrumsv.constants import TxFlags
 from electrumsv.transaction import Transaction
 from electrumsv.wallet import UTXO, AbstractAccount
+from .constants import WalletEventNames
 from .errors import Errors
 from .handlers import ExtensionEndpoints
 
@@ -79,10 +80,13 @@ class RESTAPIApplication:
 
     async def async_on_triggered_event(self, *event_data: Any) -> None:
         event_name = event_data[0]
-        if event_name == "transaction_state_change":
+        if event_name == WalletEventNames.TRANSACTION_STATE_CHANGE:
             _event_name, _acc_id, tx_hash, existing_flags, updated_flags = event_data
             await self._tx_state_push_notification(tx_hash)
-        elif event_name == "verified":
+        elif event_name == WalletEventNames.TRANSACTION_ADDED:
+            tx_hash, _tx, _involved_account_ids, _external = event_data
+            await self._tx_state_push_notification(tx_hash)
+        elif event_name == WalletEventNames.VERIFIED:
             _event_name, tx_hash, height, conf, timestamp = event_data
             await self._tx_state_push_notification(tx_hash)
 
@@ -92,8 +96,8 @@ class RESTAPIApplication:
         if websocket_ids:
             for ws_id in websocket_ids:
                 client = self.aiohttp_web_app['ws_clients'][ws_id]
-                tx_entry = client.account.get_transaction_entry(tx_hash)
-                if not tx_entry:
+                tx_flags = client.account._transaction_cache.get_flags(tx_hash)
+                if not tx_flags:
                     response_json = json.dumps({
                         "code": Errors.GENERIC_BAD_REQUEST_CODE,
                         "message": f"this txid: {hash_to_hex_str(tx_hash)} does not belong to "
@@ -103,6 +107,6 @@ class RESTAPIApplication:
                     continue
                 response_json = json.dumps({
                     "txid": hash_to_hex_str(tx_hash),
-                    "tx_flags": int(client.account.get_transaction_entry(tx_hash).flags)
+                    "tx_flags": int(tx_flags)
                 })
                 await client.websocket.send_str(response_json)
