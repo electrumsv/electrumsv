@@ -3,16 +3,16 @@ import concurrent
 import json
 import logging
 import time
-from typing import List, Optional, Callable, Iterable, Any
+from typing import Any, Callable, Iterable, List, Optional
 
 import bitcoinx
 from aiorpcx import run_in_thread
 from bitcoinx import hash_to_hex_str
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import TxFlags
 from electrumsv.transaction import Transaction
-from electrumsv.wallet import UTXO, AbstractAccount
+from electrumsv.wallet import AbstractAccount, UTXO
+
 from .constants import WalletEventNames
 from .errors import Errors
 from .handlers import ExtensionEndpoints
@@ -50,16 +50,13 @@ class RESTAPIApplication:
         # access from TxStateWebSocket View via self.request.app['ws_clients'] and
         self.aiohttp_web_app = self.app_state.daemon.rest_server.app
         self.aiohttp_web_app['ws_clients'] = {}  # uuid: WSClient
-        self.aiohttp_web_app['tx_registrations_map'] = {}  # tx_hash: {set of websocket uuids}
+        self.aiohttp_web_app['tx_registrations_map'] = {}  # uuid: set of tx_hashes
         self.aiohttp_web_app['restapi'] = self.restapi
         self.app_state.daemon.rest_server.register_routes(self.restapi)
 
     def _teardown_app(self) -> None:
-        try:
-            for client in self.aiohttp_web_app['ws_clients'].values():
-                asyncio.run_coroutine_threadsafe(client.websocket.close(), app_state.async_.loop)
-        except Exception:
-            self.logger.exception("closing websocket connections failed")
+        for client in self.aiohttp_web_app['ws_clients'].values():
+            app_state.async_.spawn(client.websocket.close())
 
     def get_and_set_frozen_utxos_for_tx(self, tx: Transaction, child_wallet: AbstractAccount,
                                         freeze: bool=True) -> List[UTXO]:
@@ -75,38 +72,44 @@ class RESTAPIApplication:
         pass
 
     def on_triggered_event(self, *event_data: Iterable[Any]):
-        asyncio.run_coroutine_threadsafe(self.async_on_triggered_event(*event_data),
-            app_state.async_.loop)
+        self.app_state.async_.spawn(self.async_on_triggered_event(*event_data))
 
     async def async_on_triggered_event(self, *event_data: Any) -> None:
-        event_name = event_data[0]
-        if event_name == WalletEventNames.TRANSACTION_STATE_CHANGE:
-            _event_name, _acc_id, tx_hash, existing_flags, updated_flags = event_data
-            await self._tx_state_push_notification(tx_hash)
-        elif event_name == WalletEventNames.TRANSACTION_ADDED:
-            tx_hash, _tx, _involved_account_ids, _external = event_data
-            await self._tx_state_push_notification(tx_hash)
-        elif event_name == WalletEventNames.VERIFIED:
-            _event_name, tx_hash, height, conf, timestamp = event_data
-            await self._tx_state_push_notification(tx_hash)
+        try:
+            event_name = event_data[0]
+            if event_name == WalletEventNames.TRANSACTION_STATE_CHANGE:
+                _event_name, _acc_id, tx_hash, existing_flags, updated_flags = event_data
+                await self._tx_state_push_notification(tx_hash)
+            elif event_name == WalletEventNames.TRANSACTION_ADDED:
+                _event_name, tx_hash, _tx, _involved_account_ids, _external = event_data
+                await self._tx_state_push_notification(tx_hash)
+            elif event_name == WalletEventNames.VERIFIED:
+                _event_name, tx_hash, height, conf, timestamp = event_data
+                await self._tx_state_push_notification(tx_hash)
+        except KeyError as e:
+            self.logger.exception("push notification key error")
+            raise
 
     async def _tx_state_push_notification(self, tx_hash):
         """send push notification to all relevant websockets for the tx_hash"""
-        websocket_ids = self.aiohttp_web_app['tx_registrations_map'].get(tx_hash)
-        if websocket_ids:
-            for ws_id in websocket_ids:
+        websocket_ids = self.aiohttp_web_app['tx_registrations_map'].keys()
+        for ws_id in websocket_ids:
+            # only notify relevant websockets
+            if tx_hash in self.aiohttp_web_app['tx_registrations_map'][ws_id]:
                 client = self.aiohttp_web_app['ws_clients'][ws_id]
-                tx_flags = client.account._transaction_cache.get_flags(tx_hash)
+                tx_flags = client.account._wallet._transaction_cache.get_flags(tx_hash)
                 if not tx_flags:
                     response_json = json.dumps({
                         "code": Errors.GENERIC_BAD_REQUEST_CODE,
                         "message": f"this txid: {hash_to_hex_str(tx_hash)} does not belong to "
                                    f"this account_id: {client.account._id}"
                     })
+                    self.logger.debug(f"push notification to websocket={ws_id}: {response_json}")
                     await client.websocket.send_str(response_json)
                     continue
                 response_json = json.dumps({
                     "txid": hash_to_hex_str(tx_hash),
                     "tx_flags": int(tx_flags)
                 })
+                self.logger.debug(f"push notification to websocket {ws_id}: {response_json}")
                 await client.websocket.send_str(response_json)

@@ -314,9 +314,11 @@ class ExtendedHandlerUtils(HandlerUtils):
     def _fetch_transaction_dto(self, account: AbstractAccount, tx_id) -> Optional[Dict]:
         tx_hash = hex_str_to_hash(tx_id)
         tx = account.get_transaction(tx_hash)
+        tx_flags = account._wallet._transaction_cache.get_flags(tx_hash)
         if not tx:
             raise Fault(Errors.TRANSACTION_NOT_FOUND_CODE, Errors.TRANSACTION_NOT_FOUND_MESSAGE)
-        return {"tx_hex": tx.to_hex()}
+        return {"tx_hex": tx.to_hex(),
+                "tx_flags": int(tx_flags)}
 
     def _wallet_name_available(self, wallet_name) -> bool:
         available_wallet_names = self._get_all_wallets(self.wallets_path)

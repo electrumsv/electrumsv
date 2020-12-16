@@ -2,7 +2,6 @@
 # while looking at ways to handle the issue of when the client exits uncleanly
 import json
 import uuid
-import asyncio
 import aiohttp
 from aiohttp import web
 from bitcoinx import hex_str_to_hash
@@ -35,6 +34,7 @@ class TxStateWebSocket(web.View):
     async def get(self):
         ws = web.WebSocketResponse()
         await ws.prepare(self.request)
+        ws_id = str(uuid.uuid4())
 
         try:
             self.restapi = self.request.app['restapi']
@@ -43,25 +43,21 @@ class TxStateWebSocket(web.View):
             vars = await self.argparser(self.request, required_vars=required_vars)
             wallet_name = vars[VNAME.WALLET_NAME]
             index = vars[VNAME.ACCOUNT_ID]
-
             await self.restapi._load_wallet(wallet_name)
             self.account = self.restapi._get_account(wallet_name, index)
 
-            ws_id = str(uuid.uuid4())
             client = WSClient(ws_id=ws_id, websocket=ws, account=self.account)
             self.request.app['ws_clients'][client.ws_id] = client
-            self.logger.debug('%s connected. host=%s.' % (client.ws_id, self.request.host))
-            try:
-                await self._handle_new_txid_registration(client)
-            finally:
-                await ws.close()
-                del self.request.app['ws_clients'][client.ws_id]
-                self.logger.debug('%s disconnected' % client.ws_id)
+            self.logger.debug(f'%s connected. host=%s.', client.ws_id, self.request.host)
+            await self._handle_new_txid_registration(client)
             return ws
         except Fault as e:
             await ws.send_str(json.dumps({'code': e.code, 'message': e.message}))
         finally:
             await ws.close()
+            self.logger.debug(f"deleting {ws_id} registration")
+            del self.request.app['tx_registrations_map'][ws_id]
+            del self.request.app['ws_clients'][ws_id]
 
     async def _handle_new_txid_registration(self, client):
         """
@@ -73,48 +69,49 @@ class TxStateWebSocket(web.View):
 
         async for msg in client.websocket:
             if msg.type == aiohttp.WSMsgType.text:
-                if msg.data == 'close':
-                    await client.websocket.close()
-                else:
-                    self.logger.debug('%s sent: %s' % (client.ws_id, msg.data))
-                    try:
-                        request_json = json.loads(msg.data)
-                        txids = request_json.get("txids")
-                        if not txids:
-                            message = "no txids field provided in json request"
-                            await client.websocket.send_str(json.dumps({
-                                'code': Errors.GENERIC_BAD_REQUEST_CODE,
+                self.logger.debug('%s client sent: %s', client.ws_id, msg.data)
+                try:
+                    request_json = json.loads(msg.data)
+                    txids = request_json.get("txids")
+                    if not txids:
+                        message = "no txids field provided in json request"
+                        await client.websocket.send_str(json.dumps({
+                            'code': Errors.GENERIC_BAD_REQUEST_CODE,
+                            'message': message
+                        }))
+                        continue
+
+                    for txid in txids:
+                        # 1) register new txid
+                        tx_hash = hex_str_to_hash(txid)
+                        if not self.tx_registrations_map.get(client.ws_id):
+                            self.tx_registrations_map[client.ws_id] = set()
+                        self.tx_registrations_map[client.ws_id].add(tx_hash)
+
+                        # 2) give back initial current state of txid
+                        tx_hash = hex_str_to_hash(txid)
+                        tx_entry = client.account.get_transaction_entry(tx_hash)
+                        if tx_entry:
+                            response_json = json.dumps({
+                                "txid": txid,
+                                "tx_flags": int(tx_entry.flags)
+                            })
+                            self.logger.debug('%s response: %s', client.ws_id, response_json)
+                            await client.websocket.send_str(response_json)
+                        else:
+                            message = f"txid not found: {txid}"
+                            response_json = json.dumps({
+                                'code': Errors.TRANSACTION_NOT_FOUND_CODE,
                                 'message': message
-                            }))
+                            })
+                            self.logger.debug('%s response: %s', client.ws_id, response_json)
+                            await client.websocket.send_str(response_json)
                             continue
-
-                        for txid in txids:
-                            # 1) register new txid
-                            tx_hash = hex_str_to_hash(txid)
-                            if not self.tx_registrations_map.get(tx_hash):
-                                self.tx_registrations_map[tx_hash] = set()
-                            self.tx_registrations_map[tx_hash].add(client.ws_id)
-
-                            # 2) give back initial current state of txid
-                            tx_hash = hex_str_to_hash(txid)
-                            tx_entry = client.account.get_transaction_entry(tx_hash)
-                            if tx_entry:
-                                response_json = json.dumps({
-                                    "txid": txid,
-                                    "tx_flags": int(tx_entry.flags)
-                                })
-                                await client.websocket.send_str(response_json)
-                            else:
-                                message = f"txid not found :{txid}"
-                                await client.websocket.send_str(json.dumps({
-                                    'code': Errors.TRANSACTION_NOT_FOUND_CODE,
-                                    'message': message
-                                }))
-                                continue
-                        await asyncio.sleep(0)
-                    except:
-                        self.logger.error(client.websocket.exception())
+                except Exception:
+                    # avoid any silently swallowed exceptions
+                    self.logger.exception(client.websocket.exception())
+                    raise
 
             elif msg.type == aiohttp.WSMsgType.error:
-                self.logger.error('ws connection closed with exception %s' %
-                              client.websocket.exception())
+                self.logger.error('ws connection closed with exception %s',
+                    client.websocket.exception())
