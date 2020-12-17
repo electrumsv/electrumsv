@@ -86,7 +86,6 @@ class TxStateWSClient:
             msg = await self.msg_queue.get()
             if not msg:  # poison pill
                 break
-            self.logger.debug(msg)
             msg = json.loads(msg)
             txid = msg.get("txid")
             if not txid:
