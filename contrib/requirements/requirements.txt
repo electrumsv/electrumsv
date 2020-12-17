@@ -1,4 +1,4 @@
-aiohttp==3.6.2
+aiohttp>=3.6.2
 aiorpcX>=0.18.0,<0.19
 certifi
 dnspython<2.0
@@ -9,4 +9,4 @@ pyaes>=0.1a1
 requests>=2.22.0
 python-dateutil>=2.8.0
 qrcode
-yarl==1.5.1
+yarl>=1.5.1
