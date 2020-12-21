@@ -15,7 +15,7 @@ class TxStateWSClient:
     def __init__(self, host="127.0.0.1", port=9999, wallet_name="worker1.sqlite", account=1):
         self.host = host
         self.port = port
-        self.url = f'http://{self.host}:{self.port}/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/ws'
+        self.url = f'http://{self.host}:{self.port}/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/websocket/text-events'
         self.wallet_name = wallet_name
         self.account = account
         self.session = aiohttp.ClientSession()
@@ -42,7 +42,6 @@ class TxStateWSClient:
                     continue
                 self.logger.debug(f'Message received from server: {msg.data}')
                 self.msg_queue.put_nowait(msg.data)
-                await asyncio.sleep(0)
                 if msg.type in (aiohttp.WSMsgType.CLOSED,
                 aiohttp.WSMsgType.ERROR):
                     break

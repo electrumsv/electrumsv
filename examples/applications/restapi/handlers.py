@@ -58,7 +58,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.post(self.ACCOUNT_TXS + "/create_and_broadcast", self.create_and_broadcast),
             web.post(self.ACCOUNT_TXS + "/broadcast", self.broadcast),
             web.post(self.ACCOUNT_TXS + "/split_utxos", self.split_utxos),
-            web.view(self.ACCOUNT_TXS + "/ws", TxStateWebSocket),
+            web.view(self.ACCOUNT_TXS + "/websocket/text-events", TxStateWebSocket),
         ]
 
         if app_state.config.get('regtest'):

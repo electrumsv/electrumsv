@@ -545,8 +545,8 @@ May be supported later:
 
 :Method: GET
 :Content-Type: application/json
-:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/ws``
-:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/ws``
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/websocket/text-events``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/websocket/text-events``
 
 
 **Sample Websocket message**
