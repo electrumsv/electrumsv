@@ -8,7 +8,6 @@ electrumsv-sdk start --new electrumsv
 """
 import asyncio
 import json
-import time
 
 import aiohttp
 import pytest
@@ -18,7 +17,7 @@ import pytest_asyncio
 from electrumsv.constants import TxFlags
 from electrumsv.networks import SVRegTestnet, Net
 from electrumsv.restapi import Fault
-from .websocket_client import TxStateWSClient
+from ..websocket_client import TxStateWSClient
 
 
 async def wait_for_mempool(txids):

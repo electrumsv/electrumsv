@@ -20,5 +20,5 @@ steps:
     electrumsv-sdk start --background electrumx
     electrumsv-sdk start --background --repo=$PWD electrumsv
     sleep 5
-    python3 -m pytest -v -v -v contrib/functional_tests/
+    python3 -m pytest -v -v -v contrib/functional_tests/functional
   displayName: 'Functional tests (via SDK & REST API)'

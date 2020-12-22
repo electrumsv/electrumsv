@@ -467,11 +467,14 @@ class ExtendedHandlerUtils(HandlerUtils):
             child_wallet = self._get_account(wallet_name, index)
 
             if not utxos:
-                exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, True)
+                exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, False)
                 confirmed_only = vars.get(VNAME.CONFIRMED_ONLY, False)
                 mature = vars.get(VNAME.MATURE, True)
-                utxos = child_wallet.get_utxos(exclude_frozen=exclude_frozen,
-                                               confirmed_only=confirmed_only, mature=mature)
+                if not exclude_frozen and not mature and not confirmed_only:
+                     utxos = child_wallet._utxos.values()  # skip iterating over all utxos...
+                else:
+                    utxos = child_wallet.get_utxos(exclude_frozen=exclude_frozen,
+                                                   confirmed_only=confirmed_only, mature=mature)
 
             if utxo_preselection:  # Defaults to True
                 utxos = self.preselect_utxos(utxos, outputs)
