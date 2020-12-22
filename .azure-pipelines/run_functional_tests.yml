@@ -1,0 +1,19 @@
+steps:
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: ${{ parameters.pythonVersion }}
+    addToPath: true
+    architecture: x64
+- script: |
+    git clone https://github.com/electrumsv/electrumsv-sdk.git
+    cd electrumsv-sdk/electrumsv-sdk
+    python3 -m pip install -e .
+    cd ../..
+
+    python3 -m pip install pytest pytest-cov pytest_asyncio
+    electrumsv-sdk start --background node
+    electrumsv-sdk start --background electrumx
+    electrumsv-sdk start --background --repo=$PWD electrumsv
+    sleep 5
+    python3 -m pytest -v -v -v contrib/functional_tests/
+  displayName: 'Functional tests (via SDK & REST API)'

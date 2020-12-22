@@ -1,0 +1,10 @@
+steps:
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: ${{ parameters.pythonVersion }}
+    addToPath: true
+    architecture: x64
+- script: |
+    python3 -m pip install pytest pytest-cov pytest-asyncio pytest-aiohttp
+    python3 -m pytest -v -v -v --doctest-modules --junitxml=junit/test-results.xml --cov=electrumsv --cov-report=xml --cov-report=html examples/applications/restapi/tests
+  displayName: 'REST API unittests'
