@@ -85,6 +85,7 @@ class TxStateWSClient:
             msg = await self.msg_queue.get()
             if not msg:  # poison pill
                 break
+
             msg = json.loads(msg)
             txid = msg.get("txid")
             if not txid:
@@ -93,6 +94,7 @@ class TxStateWSClient:
             if msg.get("txid") in txids_set and (tx_flags & TxFlags.StateSettled == TxFlags.StateSettled):
                 txids_set.remove(txid)
 
+            self.logger.debug(f"count txid_set = {len(txids_set)}")
             if len(txids_set) == 0:
                 break
 
