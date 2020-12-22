@@ -8,20 +8,23 @@ electrumsv-sdk start --new electrumsv
 """
 import asyncio
 import json
+import os
 import time
+from pathlib import Path
 
 import aiohttp
 import pytest
 import requests
-import pytest_asyncio
 
-from electrumsv_node import electrumsv_node
-from electrumsv_sdk import commands, utils
+from electrumsv_sdk import commands
 
 from electrumsv.constants import TxFlags
 from electrumsv.networks import SVRegTestnet, Net
 from electrumsv.restapi import Fault
-from .websocket_client import TxStateWSClient
+from ..websocket_client import TxStateWSClient
+
+MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+ELECTRUMSV_TOP_LEVEL_DIRECTORY = Path(MODULE_DIR).parent.parent.parent
 
 
 async def wait_for_mempool(txids):
@@ -38,15 +41,11 @@ class TestRestAPI:
 
     def setup_class(cls):
         cls.TEST_WALLET_NAME = "worker1.sqlite"
-        commands.stop()
-        commands.reset('node')
-        commands.reset('electrumx')
-        commands.reset('electrumsv', deterministic_seed=True)
-
-        # Start components
-        commands.start("node", component_id='node1')
-        commands.start("electrumx", component_id='electrumx1')
-        commands.start("electrumsv", component_id='electrumsv1')
+        commands.stop('electrumsv')
+        commands.reset('electrumsv')
+        commands.start("electrumsv", component_id='electrumsv1',
+            repo=ELECTRUMSV_TOP_LEVEL_DIRECTORY, mode='background')
+        time.sleep(5)
 
     def _load_wallet(self):
         _result1 = requests.post(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'

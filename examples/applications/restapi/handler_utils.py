@@ -453,7 +453,7 @@ class ExtendedHandlerUtils(HandlerUtils):
             account = self._get_account(wallet_name, index)
 
             if not utxos:
-                exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, True)
+                exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, False)
                 confirmed_only = vars.get(VNAME.CONFIRMED_ONLY, False)
                 mature = vars.get(VNAME.MATURE, True)
                 utxos = account.get_spendable_transaction_outputs(exclude_frozen=exclude_frozen,

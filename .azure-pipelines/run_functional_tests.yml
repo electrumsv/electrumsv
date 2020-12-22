@@ -10,11 +10,15 @@ steps:
     python3 -m pip install -e .
     cd ..
 
-    python3 -m pip install pytest pytest-cov pytest_asyncio pytest-timeout electrumsv_node
+    python3 -m pip install pytest pytest-cov pytest-asyncio pytest-timeout electrumsv_node
 
     electrumsv-sdk install node
     electrumsv-sdk install electrumx
     electrumsv-sdk install --repo=$PWD electrumsv
 
-    python3 -m pytest -v -v -v contrib/functional_tests/
+    electrumsv-sdk start --background node
+    electrumsv-sdk start --background electrumx
+    electrumsv-sdk start --background --repo=$PWD electrumsv
+    sleep 5
+    python3 -m pytest -v -v -v contrib/functional_tests/functional
   displayName: 'Functional tests (via SDK & REST API)'
