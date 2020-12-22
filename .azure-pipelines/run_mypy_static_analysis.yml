@@ -1,0 +1,10 @@
+steps:
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: ${{ parameters.pythonVersion }}
+    addToPath: true
+    architecture: x64
+- script: |
+    python3 -m pip install mypy
+    python3 -m mypy --config-file mypy.ini --python-version ${{ parameters.pythonVersion }}
+  displayName: 'Mypy static analysis'
