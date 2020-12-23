@@ -32,10 +32,10 @@ stages:
     steps:
     - template: prepare-general-environment.yml
       parameters:
-        pythonVersion: '3.7'
+        pythonVersion: '3.9'
     - template: run_pylint_static_analysis.yml
       parameters:
-        pythonVersion: '3.7'
+        pythonVersion: '3.9'
         onlyPullRequests: true
 
   - job: Mypy
@@ -45,46 +45,46 @@ stages:
     steps:
       - template: prepare-general-environment.yml
         parameters:
-          pythonVersion: '3.7'
+          pythonVersion: '3.9'
       - template: run_mypy_static_analysis.yml
         parameters:
-          pythonVersion: '3.7'
+          pythonVersion: '3.9'
 
-  - job: MainUnittestsPy37
-    displayName: Main Unittests (Python 3.7)
+  - job: MainUnittestsPy39
+    displayName: Main Unittests (Python 3.9)
     pool:
       vmImage: 'ubuntu-16.04'
     steps:
       - template: prepare-general-environment.yml
         parameters:
-          pythonVersion: '3.7'
+          pythonVersion: '3.9'
       - template: run_main_unittests.yml
         parameters:
-          pythonVersion: '3.7'
+          pythonVersion: '3.9'
 
-  - job: RESTAPIUnittestsPy37
-    displayName: REST API tests (Python 3.7)
+  - job: RESTAPIUnittestsPy39
+    displayName: REST API tests (Python 3.9)
     pool:
       vmImage: 'ubuntu-16.04'
     steps:
       - template: prepare-general-environment.yml
         parameters:
-          pythonVersion: '3.7'
+          pythonVersion: '3.9'
       - template: run_restapi_unittests.yml
         parameters:
-          pythonVersion: '3.7'
+          pythonVersion: '3.9'
 
-  - job: TestFunctionalPy37
-    displayName: Functional tests (Python 3.7)
+  - job: TestFunctionalPy39
+    displayName: Functional tests (Python 3.9)
     pool:
       vmImage: 'ubuntu-16.04'
     steps:
       - template: prepare-general-environment.yml
         parameters:
-          pythonVersion: '3.7'
+          pythonVersion: '3.9'
       - template: run_functional_tests.yml
         parameters:
-          pythonVersion: '3.7'
+          pythonVersion: '3.9'
 
   - job: MainUnittestsPy38
     displayName: Main Unittests (Python 3.8)
