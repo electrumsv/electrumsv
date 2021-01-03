@@ -455,7 +455,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         tx_data = self.tx.to_format(format)
         if not isinstance(tx_data, dict):
             # This is not ideal, but it covers both bases.
-            completion_signal.emit(format, tx_data)
+            if completion_signal is not None:
+                completion_signal.emit(format, tx_data)
             done_signal.emit(format, tx_data)
             return
 

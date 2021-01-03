@@ -391,7 +391,7 @@ class WaitingDialog(WindowModalDialog):
             # This explicitly needs to be done for the progress bar else it has some RHS space.
             progress_bar.setAlignment(Qt.AlignCenter)
 
-            self.advance_progress_signal.connect(self._advance_progress)
+        self.advance_progress_signal.connect(self._advance_progress)
 
         self._dismiss_button = QPushButton(_("Dismiss"))
         self._dismiss_button.clicked.connect(self.accept)
@@ -408,8 +408,7 @@ class WaitingDialog(WindowModalDialog):
         button_box_1.addWidget(self._dismiss_button, False, Qt.AlignHCenter)
         vbox.addLayout(button_box_1)
 
-        if self._progress_bar is not None:
-            args = (*args, self._step_progress)
+        args = (*args, self._step_progress)
         # NOTE: The `on_done` callback runs in the GUI thread.
         self._on_done_callback = on_done
         self._future = app_state.app.run_in_thread(func, *args, on_done=self._on_run_done)
@@ -479,7 +478,7 @@ class WaitingDialog(WindowModalDialog):
         self._secondary_label.setText(extra_message or ' ')
 
     def _advance_progress(self, advance: bool, message: Optional[str]=None) -> None:
-        if advance:
+        if advance and self._progress_bar is not None:
             self._progress_bar.setValue(self._progress_bar.value()+1)
         if message is not None:
             self.update_message(message)
