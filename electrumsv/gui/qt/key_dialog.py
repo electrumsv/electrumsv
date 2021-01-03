@@ -65,7 +65,6 @@ class KeyDialog(WindowModalDialog):
         self._app = main_window.app
         self._saved = True
 
-
         self.setMinimumWidth(700)
         vbox = QVBoxLayout()
         self.setLayout(vbox)
