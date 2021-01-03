@@ -67,4 +67,5 @@ class TxoKeyType(NamedTuple):
     def __repr__(self) -> str:
         return f'TxoKeyType("{hash_to_hex_str(self.tx_hash)}",{self.tx_index})'
 
+
 WaitingUpdateCallback = Callable[[Arg(bool, "advance"), DefaultArg(Optional[str], "message")], None]

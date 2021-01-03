@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.app_state import AppStateProxy

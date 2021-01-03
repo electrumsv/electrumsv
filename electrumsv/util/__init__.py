@@ -372,9 +372,11 @@ def text_resource_path(*parts: Sequence[str]) -> str:
     return resource_path("text", *parts)
 
 
+
 def read_resource_text(*parts: Sequence[str]) -> str:
     # NOTE(typing) Does not recognize the sequence of strings as strings, waste of time.
     return read_resource_file(os.path.join("text", *parts)) # type:ignore
+
 
 
 def get_update_check_dates(new_date):

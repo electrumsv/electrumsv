@@ -185,7 +185,8 @@ class TransactionOutputAddRow(NamedTuple):
     tx_hash: bytes
     txo_index: int
     value: int
-    keyinstance_id: Optional[int]
+    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    flags: TransactionOutputFlag
     script_type: ScriptType
     flags: TransactionOutputFlag
     script_hash: bytes
