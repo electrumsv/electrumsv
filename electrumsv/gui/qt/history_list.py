@@ -198,7 +198,8 @@ class HistoryList(MyTreeWidget):
                     else:
                         logger.debug("Unable to backfill header at %d (> %d)",
                             line.height, server_height)
-            status = get_tx_status(self._account, line.tx_hash, line.height, conf, timestamp)
+            status = get_tx_status(self._account, line.block_height, line.block_position, conf,
+                timestamp)
             status_str = get_tx_desc(status, timestamp)
             v_str = app_state.format_amount(line.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(balance, whitespaces=True)
@@ -214,7 +215,7 @@ class HistoryList(MyTreeWidget):
             # If there is no text,
             item.setIcon(Columns.STATUS, get_tx_icon(status))
             item.setToolTip(Columns.STATUS, get_tx_tooltip(status, conf))
-            if line.tx_flags & TxFlags.PaysInvoice:
+            if line.tx_flags & TxFlags.PAYS_INVOICE:
                 item.setIcon(Columns.DESCRIPTION, self.invoiceIcon)
             for i in range(len(entry)):
                 if i > Columns.DESCRIPTION:
@@ -250,7 +251,7 @@ class HistoryList(MyTreeWidget):
             tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
 
             account = self._wallet.get_account(account_id)
-            tx = account.get_transaction(tx_hash)
+            tx = self._wallet.get_transaction(tx_hash)
             if tx is not None:
                 self._main_window.show_transaction(account, tx)
             else:
@@ -269,12 +270,13 @@ class HistoryList(MyTreeWidget):
             item.setText(Columns.DESCRIPTION, label)
 
     # From the wallet 'verified' event.
-    def update_tx_item(self, tx_hash: bytes, height: int, conf: int, timestamp: int) -> None:
+    def update_tx_item(self, tx_hash: bytes, height: int, position: int, conf: int,
+            timestamp: int) -> None:
         # External event may be called before the UI element has an account.
         if self._account is None:
             return
 
-        status = get_tx_status(self._account, tx_hash, height, conf, timestamp)
+        status = get_tx_status(self._account, height, position, conf, timestamp)
         tx_id = hash_to_hex_str(tx_hash)
         items = self.findItems(tx_id, self.TX_ROLE | Qt.MatchContains | Qt.MatchRecursive,
             column=Columns.TX_ID)
@@ -326,7 +328,7 @@ class HistoryList(MyTreeWidget):
 
         tx_id = hash_to_hex_str(tx_hash)
         tx_URL = web.BE_URL(self.config, 'tx', tx_id)
-        height, _conf, _timestamp = self._wallet.get_tx_height(tx_hash)
+        height, _position, _conf, _timestamp = self._wallet.get_tx_height(tx_hash)
         tx = account.get_transaction(tx_hash)
         if not tx: return # this happens sometimes on account synch when first starting up.
         is_unconfirmed = height <= 0
@@ -345,8 +347,8 @@ class HistoryList(MyTreeWidget):
             if child_tx:
                 menu.addAction(_("Child pays for parent"),
                     lambda: self._main_window.cpfp(account, tx, child_tx))
-        entry = self._account.get_transaction_entry(tx_hash)
-        if entry.flags & TxFlags.PaysInvoice:
+        flags = self._wallet.get_transaction_flags(tx_hash)
+        if flags is not None and flags & TxFlags.PAYS_INVOICE:
             invoice_row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
             invoice_id = invoice_row.invoice_id if invoice_row is not None else None
             action = menu.addAction(read_QIcon(ICON_NAME_INVOICE_PAYMENT), _("View invoice"),
@@ -365,13 +367,9 @@ class HistoryList(MyTreeWidget):
         self._main_window.show_invoice(self._account, row)
 
 
-def get_tx_status(account: AbstractAccount, tx_hash: bytes, height: int, conf: int,
-        timestamp: Union[bool, int]) -> TxStatus:
-    # if not account.have_transaction(tx_hash):
-    #     return TxStatus.MISSING
-
-    metadata = account.get_transaction_metadata(tx_hash)
-    if metadata.position == 0:
+def get_tx_status(account: AbstractAccount, height: Optional[int], position: Optional[int],
+        conf: int, timestamp: Union[bool, int]) -> TxStatus:
+    if position == 0:
         if height + COINBASE_MATURITY > account._wallet.get_local_height():
             return TxStatus.UNMATURED
     elif conf == 0:
@@ -381,10 +379,12 @@ def get_tx_status(account: AbstractAccount, tx_hash: bytes, height: int, conf: i
 
     return TxStatus.FINAL
 
+
 def get_tx_desc(status: TxStatus, timestamp: Union[bool, int]) -> str:
     if status in [ TxStatus.UNCONFIRMED, TxStatus.MISSING ]:
         return TX_STATUS[status]
     return format_time(timestamp, _("unknown")) if timestamp else _("unknown")
+
 
 def get_tx_tooltip(status: TxStatus, conf: int) -> str:
     text = str(conf) + " confirmation" + ("s" if conf != 1 else "")
@@ -455,7 +455,7 @@ class HistoryView(QWidget):
         local_value = 0
 
         if self._account_id is not None:
-            _account_id, local_value, local_count = self._account.get_balance2(
+            _account_id, local_value, local_count = self._account.get_raw_balance(
                 mask=TxFlags.STATE_UNCLEARED_MASK)
 
         if local_count == 0:
@@ -480,8 +480,9 @@ class HistoryView(QWidget):
         self.list.update_tx_headers()
 
     # From the wallet 'verified' event.
-    def update_tx_item(self, tx_hash: bytes, height: int, conf: int, timestamp: int) -> None:
-        self.list.update_tx_item(tx_hash, height, conf, timestamp)
+    def update_tx_item(self, tx_hash: bytes, height: int, position: int, conf: int,
+            timestamp: int) -> None:
+        self.list.update_tx_item(tx_hash, height, position, conf, timestamp)
 
     def update_tx_list(self) -> None:
         self.list.update()

@@ -90,7 +90,7 @@ class PaymentDestinationsDialog(QDialog):
         self._entries = [ "" ] * new_value
         keyinstances = self._account.get_fresh_keys(RECEIVING_SUBPATH, new_value)
         for i, keyinstance in enumerate(keyinstances):
-            text = self._account.get_script_template_for_id(keyinstance.keyinstance_id,
+            text = self._account.get_script_template_for_key_data(keyinstance,
                 self._account.get_default_script_type()).to_string()
             self._entries[i] = text
             self._table.setCellWidget(i, 0, QLabel(text))

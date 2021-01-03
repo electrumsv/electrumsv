@@ -1,20 +1,11 @@
 import os
-import pytest
-from typing import Tuple, Optional
 
-import bitcoinx
-
-from electrumsv.constants import TxFlags, TRANSACTION_FLAGS
-from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv import wallet_database
-from electrumsv.wallet_database import (DatabaseContext, SynchronousWriter, TxData, TxProof,
-    TransactionCache, TransactionCacheEntry)
-from electrumsv.wallet_database import functions as db_functions
+from electrumsv.wallet_database import DatabaseContext, SynchronousWriter, TxProof
 from electrumsv.wallet_database.migration import create_database, update_database
 from electrumsv.wallet_database.sqlite_support import WriteEntryType
 from electrumsv.wallet_database.tables import WalletDataRow
-from electrumsv.wallet_database.types import TransactionRow
 
 logs.set_level("debug")
 
@@ -78,7 +69,6 @@ class TestWalletDataTable:
     def _get_timestamp(self) -> int:
         return self._timestamp
 
-    @pytest.mark.timeout(5)
     def test_add(self):
         k = os.urandom(10).hex()
         v = [os.urandom(10).hex()]
@@ -94,7 +84,6 @@ class TestWalletDataTable:
         assert row.key == k # key
         assert row.value == v # ByteData
 
-    @pytest.mark.timeout(5)
     def test_create(self):
         kvs = [ WalletDataRow(os.urandom(10).hex(), [os.urandom(10).hex()]) for i in range(10) ]
 
@@ -108,7 +97,6 @@ class TestWalletDataTable:
         for t in kvs:
             assert t in kvs2
 
-    @pytest.mark.timeout(5)
     def test_update(self) -> None:
         original_values = {}
         for i in range(10):
@@ -136,7 +124,6 @@ class TestWalletDataTable:
     def test_get_value_nonexistent(self) -> None:
         assert self.store.get_value("nonexistent") is None
 
-    @pytest.mark.timeout(5)
     def test_upsert(self) -> None:
         with SynchronousWriter() as writer:
             self.store.upsert([ WalletDataRow("A", "B") ],
@@ -153,7 +140,6 @@ class TestWalletDataTable:
         values = self.store.read([ "A" ])
         assert len(values) == 1
 
-    @pytest.mark.timeout(5)
     def test_get(self):
         k = os.urandom(10).hex()
         v = os.urandom(10).hex()
@@ -164,7 +150,6 @@ class TestWalletDataTable:
         assert byte_data is not None
         assert byte_data == v
 
-    @pytest.mark.timeout(5)
     def test_delete(self):
         k = os.urandom(10).hex()
         v = [ os.urandom(10).hex() ]
@@ -187,464 +172,120 @@ class MockTransactionStore:
     def update_proof(self, tx_hash: bytes, proof: TxProof) -> None:
         raise NotImplementedError
 
-
-class TestTransactionCache:
-    @classmethod
-    def setup_class(cls):
-        unique_name = os.urandom(8).hex()
-        cls.db_filename = DatabaseContext.shared_memory_uri(unique_name)
-        cls.db_context = DatabaseContext(cls.db_filename)
-        # We hold onto an open connection to ensure that the database persists for the
-        # lifetime of the tests.
-        cls.db = cls.db_context.acquire_connection()
-        create_database(cls.db)
-        update_database(cls.db)
-        cls.store = wallet_database.TransactionTable(cls.db_context)
-
-    @classmethod
-    def teardown_class(cls):
-        cls.store.close()
-        cls.db_context.release_connection(cls.db)
-        cls.db_context.close()
-
-    def setup_method(self):
-        db = self.store._db
-        db.execute(f"DELETE FROM Transactions")
-        db.commit()
-
-    def test_entry_visible(self):
-        cache = TransactionCache(self.db_context, self.store)
-
-        combos = [
-            (TxFlags.Unset, None, None, True),
-            (TxFlags.Unset, None, TxFlags.HasHeight, False),
-            (TxFlags.HasHeight, None, TxFlags.HasHeight, True),
-            (TxFlags.HasHeight, TxFlags.HasHeight, None, True),
-            (TxFlags.HasHeight, TxFlags.HasHeight, TxFlags.HasFee, False),
-            (TxFlags.HasHeight, TxFlags.HasHeight, TxFlags.HasHeight, True),
-            (TxFlags.HasFee, TxFlags.HasHeight, TxFlags.HasHeight, False),
-        ]
-        for i, (flag_bits, flags, mask, result) in enumerate(combos):
-            actual_result = cache._entry_visible(flag_bits, flags, mask)
-            assert result == actual_result, str(combos[i])
-
-    @pytest.mark.timeout(5)
-    def test_add_transaction(self):
-        cache = TransactionCache(self.db_context, self.store)
-
-        tx = Transaction.from_hex(tx_hex_1)
-        tx_hash = tx.hash()
-        with SynchronousWriter() as writer:
-            cache.add_transaction(tx_hash, tx, completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        assert cache.is_cached(tx_hash)
-        cache.get_entry(tx_hash)
-        assert cache.have_transaction_data_cached(tx_hash)
-
-    @pytest.mark.timeout(5)
-    def test_add_then_update(self):
-        cache = TransactionCache(self.db_context, self.store)
-
-        tx_1 = Transaction.from_hex(tx_hex_1)
-        tx_hash_1 = tx_1.hash()
-        metadata_1 = TxData(position=11)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, metadata_1, tx_1, TxFlags.StateDispatched, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        assert cache.is_cached(tx_hash_1)
-        entry = cache.get_entry(tx_hash_1)
-        assert TxFlags.HasPosition | TxFlags.StateDispatched == entry.flags
-        assert cache.have_transaction_data_cached(tx_hash_1)
-
-        # NOTE: We are not updating bytedata, and it should remain the same. The flags we pass
-        # into update are treated specially to achieve this.
-        metadata_2 = TxData(fee=10, height=88)
-        propagate_flags = TxFlags.HasFee | TxFlags.HasHeight
-        with SynchronousWriter() as writer:
-            cache.update([ (tx_hash_1, metadata_2, None, propagate_flags | TxFlags.HasPosition) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        # Check the cache to see that the flags are correct and that bytedata is cached.
-        entry = cache.get_entry(tx_hash_1)
-        expected_flags = propagate_flags | TxFlags.StateDispatched
-        assert expected_flags == entry.flags, \
-            f"{TxFlags.to_repr(expected_flags)} !=  {TxFlags.to_repr(entry.flags)}"
-        assert cache.have_transaction_data_cached(tx_hash_1)
-
-        # Check the store to see that the flags are correct and the bytedata is retained.
-        rows = self.store.read(tx_hashes=[tx_hash_1])
-        assert 1 == len(rows)
-        get_tx_hash, bytedata_get, flags_get, metadata_get = rows[0]
-        assert tx_1.to_bytes() == bytedata_get
-
-    @pytest.mark.timeout(5)
-    def test_delete(self):
-        cache = TransactionCache(self.db_context, self.store)
-
-        tx_1 = Transaction.from_hex(tx_hex_1)
-        tx_hash_1 = tx_1.hash()
-        data = TxData(position=11)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateDispatched, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        assert len(self.store.read_metadata(tx_hashes=[ tx_hash_1 ]))
-        assert cache.is_cached(tx_hash_1)
-
-        with SynchronousWriter() as writer:
-            cache.delete(tx_hash_1, completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        assert not len(self.store.read_metadata(tx_hashes=[ tx_hash_1 ]))
-        assert not cache.is_cached(tx_hash_1)
-
-    @pytest.mark.timeout(5)
-    def test_bytedata_required(self) -> None:
-        cache = TransactionCache(self.db_context, self.store)
-
-        tx_1 = Transaction.from_hex(tx_hex_1)
-        tx_hash_1 = tx_1.hash()
-        data = TxData(position=11)
-        for state_flag in TRANSACTION_FLAGS+(TxFlags.Unset,):
-            with pytest.raises(AssertionError):
-                cache.add([ (tx_hash_1, data, None, state_flag, None) ])
-
-    @pytest.mark.timeout(5)
-    def test_get_flags(self):
-        cache = TransactionCache(self.db_context, self.store)
-
-        assert cache.get_flags(os.urandom(10).hex()) is None
-
-        tx_1 = Transaction.from_hex(tx_hex_1)
-        tx_hash_1 = tx_1.hash()
-        data = TxData(position=11)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateDispatched, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        assert cache.is_cached(tx_hash_1)
-        assert TxFlags.StateDispatched | TxFlags.HasPosition == cache.get_flags(tx_hash_1)
-
-    @pytest.mark.timeout(5)
-    def test_get_metadata(self):
-        # Full entry caching for non-settled transactions, otherwise only metadata.
-        bytedata_set_1 = bytes.fromhex(tx_hex_1)
-        tx_hash_1 = bitcoinx.double_sha256(bytedata_set_1)
-        metadata_set_1 = TxData(height=None, fee=2, position=None, date_added=1, date_updated=1)
-        tx_row_1 = TransactionRow(tx_hash=tx_hash_1, tx_bytes=bytedata_set_1, flags=TxFlags.Unset,
-            block_height=None, block_position=None, fee_value=2, locktime=None, version=None,
-            description=None, date_created=1, date_updated=1)
-
-        bytedata_set_2 = bytes.fromhex(tx_hex_2)
-        tx_hash_2 = bitcoinx.double_sha256(bytedata_set_2)
-        metadata_set_2 = TxData(height=1, fee=2, position=10, date_added=1, date_updated=1)
-        tx_row_2 = TransactionRow(tx_hash=tx_hash_2, tx_bytes=bytedata_set_2,
-            flags=TxFlags.StateSettled, block_height=1, block_position=10, fee_value=2,
-            locktime=None, version=None, description=None,
-            date_created=1, date_updated=1)
-        with SynchronousWriter() as writer:
-            db_functions.create_transactions(self.db_context, [ tx_row_1, tx_row_2 ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        cache = TransactionCache(self.db_context, self.store)
-        metadata_get = cache.get_metadata(tx_hash_1)
-        assert tx_row_1.block_height == metadata_get.height
-        assert tx_row_1.block_position == metadata_get.position
-        assert tx_row_1.fee_value == metadata_get.fee
-
-        metadata_get = cache.get_metadata(tx_hash_2)
-        assert tx_row_2.block_height == metadata_get.height
-        assert tx_row_2.block_position == metadata_get.position
-        assert tx_row_2.fee_value == metadata_get.fee
-
-        entry = cache._cache[tx_hash_1]
-        assert cache.have_transaction_data_cached(tx_hash_1)
-
-        entry = cache._cache[tx_hash_2]
-        assert not cache.have_transaction_data_cached(tx_hash_2)
-
-    @pytest.mark.timeout(5)
-    def test_get_transaction_after_metadata(self):
-        # Getting an entry for a settled transaction should update from metadata-only to full.
-        bytedata_set = bytes.fromhex(tx_hex_1)
-        tx_hash = bitcoinx.double_sha256(bytedata_set)
-        with SynchronousWriter() as writer:
-            db_functions.create_transactions(self.db_context,
-                [ TransactionRow(tx_hash=tx_hash, tx_bytes=bytedata_set,
-                    flags=TxFlags.StateSettled,
-                    block_height=1, block_position=None, fee_value=2,
-                    locktime=None, version=None, description=None,
-                    date_created=1, date_updated=1) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        cache = TransactionCache(self.db_context, self.store)
-        metadata_get = cache.get_metadata(tx_hash)
-        assert metadata_get is not None
-
-        # Initial priming of cache will be only metadata.
-        cached_entry_1 = cache._cache[tx_hash]
-        assert not cache.have_transaction_data_cached(tx_hash)
-
-        # Entry request will hit the database.
-        entry = cache.get_entry(tx_hash)
-        assert cache.have_transaction_data_cached(tx_hash)
-
-        cached_entry_2 = cache._cache[tx_hash]
-        assert entry.metadata == cached_entry_2.metadata
-        assert entry.flags == cached_entry_2.flags
-
-    @pytest.mark.timeout(5)
-    def test_get_transaction(self):
-        bytedata = bytes.fromhex(tx_hex_1)
-        tx_hash = bitcoinx.double_sha256(bytedata)
-        with SynchronousWriter() as writer:
-            db_functions.create_transactions(self.db_context,
-                [ TransactionRow(tx_hash=tx_hash, tx_bytes=bytedata, flags=TxFlags.Unset,
-                    block_height=1, block_position=None, fee_value=2,
-                    locktime=None, version=None, description=None,
-                    date_created=1, date_updated=1) ], completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        cache = TransactionCache(self.db_context, self.store)
-        tx = cache.get_transaction(tx_hash)
-        assert tx is not None
-        assert tx_hash == tx.hash()
-
-    @pytest.mark.timeout(5)
-    def test_get_transactions(self):
-        tx_hashes = []
-        for tx_hex in (tx_hex_1, tx_hex_2):
-            tx_bytes = bytes.fromhex(tx_hex)
-            tx_hash = bitcoinx.double_sha256(tx_bytes)
-            with SynchronousWriter() as writer:
-                db_functions.create_transactions(self.db_context, [
-                    TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.Unset,
-                        block_height=1, block_position=None, fee_value=2,
-                        locktime=None, version=None, description=None,
-                        date_created=1, date_updated=1) ],
-                        completion_callback=writer.get_callback())
-                assert writer.succeeded()
-            tx_hashes.append(tx_hash)
-
-        cache = TransactionCache(self.db_context, self.store)
-        for (tx_hash, tx) in cache.get_transactions(tx_hashes=tx_hashes):
-            assert tx is not None
-            assert tx_hash in  tx_hashes
-
-    @pytest.mark.timeout(5)
-    def test_get_entry(self):
-        cache = TransactionCache(self.db_context, self.store)
-
-        tx_1 = Transaction.from_hex(tx_hex_1)
-        tx_hash_1 = tx_1.hash()
-        data = TxData(position=11)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSettled, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        entry = cache.get_entry(tx_hash_1, TxFlags.StateDispatched)
-        assert entry is None
-
-        entry = cache.get_entry(tx_hash_1, TxFlags.StateSettled)
-        assert entry is not None
-
-    # No complete cache of metadata, tx_hash in cache, store not hit.
-    def test_get_entry_cached_already(self) -> None:
-        metadata = TxData(position=11, date_added=1, date_updated=1)
-        flags = TxFlags.HasPosition
-        def _read(*args, **kwargs) -> Tuple[bytes, Optional[bytes], TxFlags, TxData]:
-            nonlocal metadata, flags
-            return [ (b"tx_hash", None, flags, metadata) ]
-        def _read_metadata(*args, **kwargs) -> Tuple[bytes, TxFlags, TxData]:
-            nonlocal metadata, flags
-            return [ (b"tx_hash", flags, metadata) ]
-
-        mock_store = MockTransactionStore()
-        mock_store.read = _read
-        mock_store.read_metadata = _read_metadata
-
-        def _transaction_from_bytes(bytedata: bytes) -> Transaction:
-            return Transaction(2, [], [], 0)
-
-        cache = TransactionCache(self.db_context, mock_store, 0)
-        cache.transaction_from_bytes = _transaction_from_bytes
-
-        # Verify that we do not hit the store for our cached entry.
-        our_entry = TransactionCacheEntry(metadata, TxFlags.HasPosition)
-        cache._cache[b"tx_hash"] = our_entry
-
-        their_entry = cache.get_entry(b"tx_hash")
-        assert our_entry.metadata == their_entry.metadata
-        assert our_entry.flags == their_entry.flags
-
-    # No complete cache of metadata, tx_hash not in cache, store hit.
-    def test_get_entry_cached_on_demand(self) -> None:
-        metadata = TxData(position=11, date_added=1, date_updated=1)
-        flags = TxFlags.HasPosition
-        def _read(*args, **kwargs) -> Tuple[bytes, Optional[bytes], TxFlags, TxData]:
-            nonlocal metadata, flags
-            return [ (b"tx_hash", None, flags, metadata) ]
-        def _read_metadata(*args, **kwargs) -> Tuple[bytes, TxFlags, TxData]:
-            nonlocal metadata, flags
-            return [ (b"tx_hash", flags, metadata) ]
-
-        mock_store = MockTransactionStore()
-        mock_store.read = _read
-        mock_store.read_metadata = _read_metadata
-
-        def _transaction_from_bytes(bytedata: bytes) -> Transaction:
-            return Transaction(2, [], [], 0)
-
-        cache = TransactionCache(self.db_context, mock_store, 0)
-        cache.transaction_from_bytes = _transaction_from_bytes
-
-        their_entry = cache.get_entry(b"tx_hash")
-        assert their_entry.metadata == metadata
-        assert their_entry.flags == flags
-
-    @pytest.mark.timeout(5)
-    def test_get_height(self):
-        cache = TransactionCache(self.db_context, self.store)
-
-        tx_1 = Transaction.from_hex(tx_hex_1)
-        tx_hash_1 = tx_1.hash()
-        metadata_1 = TxData(height=11)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, metadata_1, tx_1, TxFlags.StateSettled, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        assert 11 == cache.get_height(tx_hash_1)
-
-        cache.update_flags(tx_hash_1, TxFlags.StateCleared)
-        assert 11 == cache.get_height(tx_hash_1)
-
-        cache.update_flags(tx_hash_1, TxFlags.StateReceived)
-        assert None is cache.get_height(tx_hash_1)
-
-    def test_get_unverified_entries_too_high(self):
-        cache = TransactionCache(self.db_context, self.store)
-
-        tx_1 = Transaction.from_hex(tx_hex_1)
-        tx_hash_1 = tx_1.hash()
-        data = TxData(height=11, position=22, date_added=1, date_updated=1)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSettled, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        results = cache.get_unverified_entries(100)
-        assert 0 == len(results)
-
-    def test_get_unverified_entries(self) -> None:
-        cache = TransactionCache(self.db_context, self.store)
-
-        tx_1 = Transaction.from_hex(tx_hex_1)
-        tx_hash_1 = tx_1.hash()
-
-        data = TxData(height=11, date_added=1, date_updated=1)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSettled, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        results = cache.get_unverified_entries(10)
-        assert 0 == len(results)
-
-        results = cache.get_unverified_entries(11)
-        assert 1 == len(results)
-
-    @pytest.mark.timeout(5)
-    def test_apply_reorg(self) -> None:
-        common_height = 5
-        cache = TransactionCache(self.db_context, self.store)
-
-        # Add the transaction that should be reset back to settled, with data fields cleared.
-        tx_y1 = Transaction.from_hex(tx_hex_1)
-        tx_hash_y1 = tx_y1.hash()
-
-        data_y1 = TxData(height=common_height+1, position=33, fee=44, date_added=1, date_updated=1)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_y1, data_y1, tx_y1, TxFlags.StateSettled, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        # Add the transaction that would be reset but is below the common height.
-        tx_n1 = Transaction.from_hex(tx_hex_2)
-        tx_hash_n1 = tx_n1.hash()
-
-        data_n1 = TxData(height=common_height-1, position=33, fee=44, date_added=1, date_updated=1)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_n1, data_n1, tx_n1, TxFlags.StateSettled, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        # Add the transaction that would be reset but is the common height.
-        tx_n2 = Transaction.from_hex(tx_hex_3)
-        tx_hash_n2 = tx_n2.hash()
-
-        data_n2 = TxData(height=common_height, position=33, fee=44, date_added=1, date_updated=1)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_n2, data_n2, tx_n2, TxFlags.StateSettled, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        # Add a canary transaction that should remain untouched due to non-cleared state.
-        tx_n3 = Transaction.from_hex(tx_hex_4)
-        tx_hash_n3 = tx_n3.hash()
-
-        data_n3 = TxData(height=111, position=333, fee=444, date_added=1, date_updated=1)
-        with SynchronousWriter() as writer:
-            cache.add([ (tx_hash_n3, data_n3, tx_n3, TxFlags.StateDispatched, None) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        # Delete as if a reorg happened above the suitable but excluded canary transaction.
-        with SynchronousWriter() as writer:
-            cache.apply_reorg(5, completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        metadata_entries = cache.get_entries()
-        assert 4 == len(metadata_entries)
-
-        # Affected, canary above common height.
-        y1 = [ m[1] for m in metadata_entries if m[0] == tx_hash_y1 ][0]
-        assert 0 == y1.metadata.height
-        assert None is y1.metadata.position
-        assert data_y1.fee == y1.metadata.fee
-        assert TxFlags.StateCleared | TxFlags.HasFee == y1.flags, TxFlags.to_repr(y1.flags)
-
-        expected_flags = TxFlags.HasFee | TxFlags.HasHeight | TxFlags.HasPosition
-
-        # Skipped, old enough to survive.
-        n1 = [ m[1] for m in metadata_entries if m[0] == tx_hash_n1 ][0]
-        assert data_n1.height == n1.metadata.height
-        assert data_n1.position == n1.metadata.position
-        assert data_n1.fee == n1.metadata.fee
-        assert TxFlags.StateSettled | expected_flags == n1.flags, TxFlags.to_repr(n1.flags)
-
-        # Skipped, canary common height.
-        n2 = [ m[1] for m in metadata_entries if m[0] == tx_hash_n2 ][0]
-        assert data_n2.height == n2.metadata.height
-        assert data_n2.position == n2.metadata.position
-        assert data_n2.fee == n2.metadata.fee
-        assert TxFlags.StateSettled | expected_flags == n2.flags, TxFlags.to_repr(n2.flags)
-
-        # Skipped, canary non-cleared.
-        n3 = [ m[1] for m in metadata_entries if m[0] == tx_hash_n3 ][0]
-        assert data_n3.height == n3.metadata.height
-        assert data_n3.position == n3.metadata.position
-        assert data_n3.fee == n3.metadata.fee
-        assert TxFlags.StateDispatched | expected_flags == n3.flags, TxFlags.to_repr(n3.flags)
+    # TODO(nocheckin) need replacement tests
+    # def test_get_unverified_entries_too_high(self):
+    #     cache = TransactionCache(self.db_context, self.store)
+
+    #     tx_1 = Transaction.from_hex(tx_hex_1)
+    #     tx_hash_1 = tx_1.hash()
+    #     data = TxData(height=11, position=22, date_added=1, date_updated=1)
+    #     with SynchronousWriter() as writer:
+    #         cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSettled, None) ],
+    #             completion_callback=writer.get_callback())
+    #         assert writer.succeeded()
+
+    #     results = cache.get_unverified_entries(100)
+    #     assert 0 == len(results)
+
+    # def test_get_unverified_entries(self) -> None:
+    #     cache = TransactionCache(self.db_context, self.store)
+
+    #     tx_1 = Transaction.from_hex(tx_hex_1)
+    #     tx_hash_1 = tx_1.hash()
+
+    #     data = TxData(height=11, date_added=1, date_updated=1)
+    #     with SynchronousWriter() as writer:
+    #         cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSettled, None) ],
+    #             completion_callback=writer.get_callback())
+    #         assert writer.succeeded()
+
+    #     results = cache.get_unverified_entries(10)
+    #     assert 0 == len(results)
+
+    #     results = cache.get_unverified_entries(11)
+    #     assert 1 == len(results)
+
+    # def test_apply_reorg(self) -> None:
+    #     common_height = 5
+    #     cache = TransactionCache(self.db_context, self.store)
+
+    #     # Add the transaction that should be reset back to settled, with data fields cleared.
+    #     tx_y1 = Transaction.from_hex(tx_hex_1)
+    #     tx_hash_y1 = tx_y1.hash()
+
+    #     data_y1 = TxData(height=common_height+1, position=33, fee=44, date_added=1, date_updated=1)
+    #     with SynchronousWriter() as writer:
+    #         cache.add([ (tx_hash_y1, data_y1, tx_y1, TxFlags.StateSettled, None) ],
+    #             completion_callback=writer.get_callback())
+    #         assert writer.succeeded()
+
+    #     # Add the transaction that would be reset but is below the common height.
+    #     tx_n1 = Transaction.from_hex(tx_hex_2)
+    #     tx_hash_n1 = tx_n1.hash()
+
+    #     data_n1 = TxData(height=common_height-1, position=33, fee=44, date_added=1, date_updated=1)
+    #     with SynchronousWriter() as writer:
+    #         cache.add([ (tx_hash_n1, data_n1, tx_n1, TxFlags.StateSettled, None) ],
+    #             completion_callback=writer.get_callback())
+    #         assert writer.succeeded()
+
+    #     # Add the transaction that would be reset but is the common height.
+    #     tx_n2 = Transaction.from_hex(tx_hex_3)
+    #     tx_hash_n2 = tx_n2.hash()
+
+    #     data_n2 = TxData(height=common_height, position=33, fee=44, date_added=1, date_updated=1)
+    #     with SynchronousWriter() as writer:
+    #         cache.add([ (tx_hash_n2, data_n2, tx_n2, TxFlags.StateSettled, None) ],
+    #             completion_callback=writer.get_callback())
+    #         assert writer.succeeded()
+
+    #     # Add a canary transaction that should remain untouched due to non-cleared state.
+    #     tx_n3 = Transaction.from_hex(tx_hex_4)
+    #     tx_hash_n3 = tx_n3.hash()
+
+    #     data_n3 = TxData(height=111, position=333, fee=444, date_added=1, date_updated=1)
+    #     with SynchronousWriter() as writer:
+    #         cache.add([ (tx_hash_n3, data_n3, tx_n3, TxFlags.StateDispatched, None) ],
+    #             completion_callback=writer.get_callback())
+    #         assert writer.succeeded()
+
+    #     # Delete as if a reorg happened above the suitable but excluded canary transaction.
+    #     with SynchronousWriter() as writer:
+    #         cache.apply_reorg(5, completion_callback=writer.get_callback())
+    #         assert writer.succeeded()
+
+    #     metadata_entries = cache.get_entries()
+    #     assert 4 == len(metadata_entries)
+
+    #     # Affected, canary above common height.
+    #     y1 = [ m[1] for m in metadata_entries if m[0] == tx_hash_y1 ][0]
+    #     assert 0 == y1.metadata.height
+    #     assert None is y1.metadata.position
+    #     assert data_y1.fee == y1.metadata.fee
+    #     assert TxFlags.StateCleared | TxFlags.HasFee == y1.flags, TxFlags.to_repr(y1.flags)
+
+    #     expected_flags = TxFlags.HasFee | TxFlags.HasHeight | TxFlags.HasPosition
+
+    #     # Skipped, old enough to survive.
+    #     n1 = [ m[1] for m in metadata_entries if m[0] == tx_hash_n1 ][0]
+    #     assert data_n1.height == n1.metadata.height
+    #     assert data_n1.position == n1.metadata.position
+    #     assert data_n1.fee == n1.metadata.fee
+    #     assert TxFlags.StateSettled | expected_flags == n1.flags, TxFlags.to_repr(n1.flags)
+
+    #     # Skipped, canary common height.
+    #     n2 = [ m[1] for m in metadata_entries if m[0] == tx_hash_n2 ][0]
+    #     assert data_n2.height == n2.metadata.height
+    #     assert data_n2.position == n2.metadata.position
+    #     assert data_n2.fee == n2.metadata.fee
+    #     assert TxFlags.StateSettled | expected_flags == n2.flags, TxFlags.to_repr(n2.flags)
+
+    #     # Skipped, canary non-cleared.
+    #     n3 = [ m[1] for m in metadata_entries if m[0] == tx_hash_n3 ][0]
+    #     assert data_n3.height == n3.metadata.height
+    #     assert data_n3.position == n3.metadata.position
+    #     assert data_n3.fee == n3.metadata.fee
+    #     assert TxFlags.StateDispatched | expected_flags == n3.flags, TxFlags.to_repr(n3.flags)
 
 
 class TestSqliteWriteDispatcher:
@@ -673,7 +314,6 @@ class TestSqliteWriteDispatcher:
 
     # As we use threading pytest can deadlock if something errors. This will break the deadlock
     # and display stacktraces.
-    @pytest.mark.timeout(5)
     def test_write_dispatcher_to_completion(self) -> None:
         self.dispatcher = wallet_database.SqliteWriteDispatcher(self.db_context)
         self.dispatcher._writer_loop_event.wait()
@@ -696,7 +336,6 @@ class TestSqliteWriteDispatcher:
 
     # As we use threading pytest can deadlock if something errors. This will break the deadlock
     # and display stacktraces.
-    @pytest.mark.timeout(5)
     def test_write_dispatcher_write_only(self) -> None:
         self.dispatcher = wallet_database.SqliteWriteDispatcher(self.db_context)
         self.dispatcher._writer_loop_event.wait()

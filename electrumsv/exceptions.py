@@ -66,6 +66,9 @@ class Bip270Exception(Exception):
 class OverloadedMultisigKeystore(Exception):
     pass
 
+class InvalidTransactionError(Exception):
+    pass
+
 class UnknownTransactionException(Exception):
     pass
 

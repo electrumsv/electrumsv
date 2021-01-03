@@ -3,11 +3,11 @@ import concurrent.futures
 from enum import Enum
 import queue
 try:
-    # Linux expects the latest package version of 3.31.1 (as of p)
+    # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
     import pysqlite3 as sqlite3
 except ModuleNotFoundError:
-    # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
-    # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
+    # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
+    # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
     import sqlite3 # type: ignore
 import threading
 import time
@@ -133,31 +133,34 @@ class SqliteWriteDispatcher:
 
             # Using the connection as a context manager, apply the batch as a transaction.
             time_start = time.time()
-            is_synchronous = not isinstance(write_entry.write_callback, ExecutorItem)
-            self._db.execute("BEGIN")
-            try:
-                # `isolation_level=None` means we opt to explicitly start transactions.
+            if isinstance(write_entry.write_callback, ExecutorItem):
                 write_entry.write_callback(self._db)
-                self._db.execute("COMMIT")
-            except Exception as e:
-                self._db.execute("ROLLBACK")
-                # The transaction was rolled back.
-                # Exception: This is caught because we need to relay any exception to the
-                # calling context's completion notification callback.
-                self._logger.exception("Database write failure", exc_info=e)
-                # If there was an error with this action then we've logged it, so we can discard
-                # it for lack of any other option.
-                if write_entry.completion_callback is not None:
-                    self._callback_thread_pool.submit(self._dispatch_callback,
-                        write_entry.completion_callback, e)
             else:
-                # The transaction was successfully committed.
-                if write_entry.completion_callback is not None:
-                    _future = self._callback_thread_pool.submit(self._dispatch_callback,
-                        write_entry.completion_callback, None)
+                # TODO(nocheckin) remove WriteCompletion stuff.
+                self._db.execute("BEGIN")
+                try:
+                    # `isolation_level=None` means we opt to explicitly start transactions.
+                    write_entry.write_callback(self._db)
+                    self._db.execute("COMMIT")
+                except Exception as e:
+                    self._db.execute("ROLLBACK")
+                    # The transaction was rolled back.
+                    # Exception: This is caught because we need to relay any exception to the
+                    # calling context's completion notification callback.
+                    self._logger.exception("Database write failure", exc_info=e)
+                    # If there was an error with this action then we've logged it, so we can discard
+                    # it for lack of any other option.
+                    if write_entry.completion_callback is not None:
+                        self._callback_thread_pool.submit(self._dispatch_callback,
+                            write_entry.completion_callback, e)
+                else:
+                    # The transaction was successfully committed.
+                    if write_entry.completion_callback is not None:
+                        _future = self._callback_thread_pool.submit(self._dispatch_callback,
+                            write_entry.completion_callback, None)
 
-                time_ms = int((time.time() - time_start) * 1000)
-                self._logger.debug("Invoked write callback in %d ms", time_ms)
+                    time_ms = int((time.time() - time_start) * 1000)
+                    self._logger.debug("Invoked write callback in %d ms", time_ms)
 
     def _dispatch_callback(self, callback: CompletionCallbackType,
             exc_value: Optional[Exception]) -> None:
@@ -332,7 +335,14 @@ class DatabaseContext:
             return True
         return False
 
-    async def run_in_thread(self, func, *args) -> Any:
+    def post_to_thread(self, func, *args, **kwargs) -> concurrent.futures.Future:
+        return self._executor.submit(func, *args, **kwargs)
+
+    def run_in_thread(self, func, *args, **kwargs) -> Any:
+        future = self._executor.submit(func, *args, **kwargs)
+        return future.result()
+
+    async def run_in_thread_async(self, func, *args) -> Any:
         """
         Yield the current task until the function has executed in the SQLite write thread.
 
@@ -351,7 +361,7 @@ class DatabaseContext:
                cursor = db.execute("DELETE FROM Transactions WHERE tx_data IS NULL")
                return cursor.rowcount
 
-           db_context.run_in_thread(_writer)
+           db_context.run_in_thread_async(_writer)
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._executor, func, *args)
@@ -414,13 +424,16 @@ class ExecutorItem(object):
         if not self._future.set_running_or_notify_cancel():
             return
 
+        db.execute("BEGIN")
         try:
             result = self._fn(db, *self._args, **self._kwargs)
         except BaseException as exc:
+            db.execute("ROLLBACK")
             self._future.set_exception(exc)
             # Break a reference cycle with the exception 'exc'
             self = None # type: ignore
         else:
+            db.execute("COMMIT")
             self._future.set_result(result)
 
 

@@ -1,7 +1,9 @@
 from typing import cast
 
-from electrumsv.keystore import Hardware_KeyStore
-from electrumsv.wallet import AbstractAccount
+from ...constants import unpack_derivation_path
+from ...keystore import Hardware_KeyStore
+from ...wallet import AbstractAccount
+from ...wallet_database.types import KeyListRow
 
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase, HandlerWindow
 from .digitalbitbox import DigitalBitboxPlugin
@@ -14,12 +16,13 @@ class Plugin(DigitalBitboxPlugin, QtPluginBase):
     def create_handler(self, window: HandlerWindow) -> QtHandlerBase:
         return DigitalBitbox_Handler(window)
 
-    def show_key(self, account: AbstractAccount, keyinstance_id: int) -> None:
+    def show_key(self, account: AbstractAccount, keydata: KeyListRow) -> None:
         if not self.is_mobile_paired():
             return
 
         keystore = cast(Hardware_KeyStore, account.get_keystore())
-        derivation_path = account.get_derivation_path(keyinstance_id)
+        assert keydata.derivation_data2 is not None
+        derivation_path = unpack_derivation_path(keydata.derivation_data2)
         assert derivation_path is not None
         subpath = '/'.join(str(x) for x in derivation_path)
         keypath = f"{keystore.derivation}/{subpath}"

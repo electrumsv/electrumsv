@@ -1,4 +1,3 @@
-from collections import namedtuple
 import enum
 from functools import partial
 import threading
@@ -23,7 +22,7 @@ from electrumsv.platform import platform
 from electrumsv.transaction import Transaction
 from electrumsv.util import profiler, format_time
 from electrumsv.wallet import AbstractAccount
-from electrumsv.wallet_database import TxData
+from electrumsv.wallet_database.types import TransactionValueRow
 import electrumsv.web as web
 
 from .constants import ICON_NAME_INVOICE_PAYMENT
@@ -66,19 +65,16 @@ class TxEntryFlags(IntFlag):
 
 
 LI_HASH = 0
-LI_DATE_ADDED = 1
-LI_DATE_UPDATED = 2
-LI_FLAGS = 3
-LI_VALUE = 4
+LI_FLAGS = 1
+LI_VALUE = 2
+LI_DATE_ADDED = 3
+LI_DATE_UPDATED = 4
 
 
-class TxLine(namedtuple("TxLine", "hash, date_added, date_updated, flags, value")):
-    pass
-
-def get_sort_key(line: TxLine) -> Any:
+def get_sort_key(line: TransactionValueRow) -> Any:
     # This is the sorting used for insertion of new lines, or updating lines where the line
     # needs to be removed from it's current row and inserted into the new row position.
-    return line.date_added
+    return line.date_created
 
 
 class _ItemModel(QAbstractItemModel):
@@ -98,7 +94,7 @@ class _ItemModel(QAbstractItemModel):
     def set_column_name(self, column_index: int, column_name: str) -> None:
         self._column_names[column_index] = column_name
 
-    def set_data(self, data: List[TxLine]) -> None:
+    def set_data(self, data: List[TransactionValueRow]) -> None:
         self.beginResetModel()
         self._data = data
         self.endResetModel()
@@ -106,11 +102,11 @@ class _ItemModel(QAbstractItemModel):
     def _get_row(self, tx_hash: bytes) -> Optional[int]:
         # Get the offset of the line with the given transaction hash.
         for i, line in enumerate(self._data):
-            if line.hash == tx_hash:
+            if line.tx_hash == tx_hash:
                 return i
         return None
 
-    def _get_match_row(self, line: TxLine) -> int:
+    def _get_match_row(self, line: TransactionValueRow) -> int:
         # Get the existing line that precedes where the given line would go.
         new_key = get_sort_key(line)
         for i in range(len(self._data)-1, -1, -1):
@@ -119,7 +115,7 @@ class _ItemModel(QAbstractItemModel):
                 return i
         return -1
 
-    def _add_line(self, line: TxLine) -> int:
+    def _add_line(self, line: TransactionValueRow) -> int:
         match_row = self._get_match_row(line)
         insert_row = match_row + 1
 
@@ -135,7 +131,7 @@ class _ItemModel(QAbstractItemModel):
 
         return insert_row
 
-    def remove_row(self, row: int) -> TxLine:
+    def remove_row(self, row: int) -> TransactionValueRow:
         line = self._data[row]
 
         self.beginRemoveRows(QModelIndex(), row, row)
@@ -144,7 +140,7 @@ class _ItemModel(QAbstractItemModel):
 
         return line
 
-    def add_line(self, line: TxLine) -> None:
+    def add_line(self, line: TransactionValueRow) -> None:
         # The `_add_line` will signal it's line insertion.
         insert_row = self._add_line(line)
 
@@ -153,14 +149,14 @@ class _ItemModel(QAbstractItemModel):
 
     def update_row(self, row: int, values: Dict[int, Any]) -> bool:
         old_line = self._data[row]
-        tx_id = hash_to_hex_str(old_line.hash)
+        tx_id = hash_to_hex_str(old_line.tx_hash)
         self._logger.debug("update_line tx=%s idx=%d", tx_id, row)
 
         if len(values):
             l = list(old_line)
             for value_index, value in values.items():
                 l[value_index] = value
-            new_line = self._data[row] = TxLine(*l)
+            new_line = self._data[row] = TransactionValueRow(*l)
 
             old_key = get_sort_key(old_line)
             new_key = get_sort_key(new_line)
@@ -221,7 +217,7 @@ class _ItemModel(QAbstractItemModel):
             # First check the custom sort role.
             if role == QT_SORT_ROLE:
                 if column == DATE_ADDED_COLUMN:
-                    return line.date_added
+                    return line.date_created
                 elif column == DATE_UPDATED_COLUMN:
                     return line.date_updated
                 elif column == STATE_COLUMN:
@@ -234,18 +230,18 @@ class _ItemModel(QAbstractItemModel):
                     else:
                         return 3
                 elif column == LABEL_COLUMN:
-                    return self._view._account.get_transaction_label(line.hash)
+                    return self._view._account.get_transaction_label(line.tx_hash)
                 elif column in (VALUE_COLUMN, FIAT_VALUE_COLUMN):
                     return line.value
 
             elif role == Qt.DecorationRole:
-                if column == LABEL_COLUMN and line.flags & TxFlags.PaysInvoice:
+                if column == LABEL_COLUMN and line.flags & TxFlags.PAYS_INVOICE:
                     return self._view._invoice_icon
 
             elif role == Qt.DisplayRole:
                 if column == DATE_ADDED_COLUMN:
-                    return (format_time(line.date_added, _("unknown"))
-                        if line.date_added else _("unknown"))
+                    return (format_time(line.date_created, _("unknown"))
+                        if line.date_created else _("unknown"))
                 elif column == DATE_UPDATED_COLUMN:
                     return (format_time(line.date_updated, _("unknown"))
                         if line.date_updated else _("unknown"))
@@ -259,7 +255,7 @@ class _ItemModel(QAbstractItemModel):
                         return _("Signed")
                     return line.flags
                 elif column == LABEL_COLUMN:
-                    return self._view._account.get_transaction_label(line.hash)
+                    return self._view._account.get_transaction_label(line.tx_hash)
                 elif column == VALUE_COLUMN:
                     return app_state.format_amount(line.value, whitespaces=True)
                 elif column == FIAT_VALUE_COLUMN:
@@ -278,7 +274,7 @@ class _ItemModel(QAbstractItemModel):
 
             elif role == Qt.ToolTipRole:
                 if column == LABEL_COLUMN:
-                    if line.flags & TxFlags.PaysInvoice:
+                    if line.flags & TxFlags.PAYS_INVOICE:
                         return _("This transaction is associated with an invoice.")
                 elif column == STATE_COLUMN:
                     if line.flags & TxFlags.StateDispatched:
@@ -293,7 +289,7 @@ class _ItemModel(QAbstractItemModel):
 
             elif role == Qt.EditRole:
                 if column == LABEL_COLUMN:
-                    return self._view._account.get_transaction_label(line.hash)
+                    return self._view._account.get_transaction_label(line.tx_hash)
 
     def flags(self, model_index: QModelIndex) -> int:
         if model_index.isValid():
@@ -327,7 +323,7 @@ class _ItemModel(QAbstractItemModel):
             if model_index.column() == LABEL_COLUMN:
                 if value.strip() == "":
                     value = None
-                self._view._account.set_transaction_label(line.hash, value)
+                self._view._account.set_transaction_label(line.tx_hash, value)
             self.dataChanged.emit(model_index, model_index)
             return True
         return False
@@ -465,7 +461,7 @@ class TransactionView(QTableView):
                         selected[row] = self._data[row]
 
                 # The imported address account splits on any type of whitespace and strips excess.
-                text = "\n".join(hash_to_hex_str(line.hash) for line in selected.values())
+                text = "\n".join(hash_to_hex_str(line.tx_hash) for line in selected.values())
                 self._main_window.app.clipboard().setText(text)
         else:
             super().keyPressEvent(event)
@@ -540,13 +536,13 @@ class TransactionView(QTableView):
             return self._validate_account_event({ account_id })
         return False
 
-    def _on_transaction_state_change(self, account_id: int, tx_hash: bytes, old_state: TxFlags,
+    def _on_transaction_state_change(self, account_id: int, tx_hash: bytes,
             new_state: TxFlags) -> None:
         if not self._validate_account_event({ account_id }):
             return
 
-        self._logger.debug("_on_transaction_state_change %s old=%s new=%s",
-            hash_to_hex_str(tx_hash), TxFlags.to_repr(old_state), TxFlags.to_repr(new_state))
+        self._logger.debug("_on_transaction_state_change %s new=%s",
+            hash_to_hex_str(tx_hash), TxFlags.to_repr(new_state))
 
         if new_state & TxFlags.STATE_BROADCAST_MASK:
             self._mark_transactions_removed([ tx_hash ])
@@ -575,11 +571,9 @@ class TransactionView(QTableView):
 
         # We will ignore those that have arrived in the cleared state from the server.
         add_count = 0
-        for tx_hash, tx_flags, tx_data in self._wallet.read_transaction_metadatas(
-                tx_hashes=tx_hashes, mask=TxFlags.STATE_UNCLEARED_MASK,
-                account_id=self._account_id):
-            assert tx_hash in tx_hashes, f"got bad result {hash_to_hex_str(tx_hash)}"
-            self._base_model.add_line(self._create_transaction_entry(tx_hash, tx_data))
+        for row in self._account.get_local_transaction_entries(tx_hashes=tx_hashes):
+            assert row.tx_hash in tx_hashes, f"got bad result {hash_to_hex_str(row.tx_hash)}"
+            self._base_model.add_line(row)
             add_count += 1
 
         if add_count:
@@ -594,7 +588,7 @@ class TransactionView(QTableView):
 
         matches = self._match_transactions(tx_hashes)
         if len(matches) != len(tx_hashes):
-            matched_tx_hashes = [ line.hash for (row, line) in matches ]
+            matched_tx_hashes = [ line.tx_hash for (row, line) in matches ]
             # The add database write has not completed yet.
             self._logger.debug("_update_transactions missing entries %s",
                 [ hash_to_hex_str(a) for a in tx_hashes if a not in matched_tx_hashes ])
@@ -602,14 +596,12 @@ class TransactionView(QTableView):
         if not len(matches):
             return
 
-        matches_by_hash = dict((t[1].hash, t) for t in matches)
+        matches_by_hash = dict((t[1].tx_hash, t) for t in matches)
         matched_tx_hashes = list(matches_by_hash.keys())
-        for tx_hash, tx_flags, tx_data in self._wallet.read_transaction_metadatas(
-                tx_hashes=matched_tx_hashes, account_id=self._account_id):
-            row, line = matches_by_hash[tx_hash]
-            new_line = self._create_transaction_entry(tx_hash, tx_data)
-            self._data[row] = new_line
-            self._base_model.invalidate_row(row)
+        for row in self._account.get_local_transaction_entries(matched_tx_hashes):
+            row_idx, old_row = matches_by_hash[row.tx_hash]
+            self._data[row_idx] = row
+            self._base_model.invalidate_row(row_idx)
 
         self.changed_signal.emit(self._account_id)
 
@@ -617,7 +609,7 @@ class TransactionView(QTableView):
         self._logger.debug("_remove_transactions %d", len(tx_hashes))
         matches = self._match_transactions(tx_hashes)
         if len(tx_hashes) != len(tx_hashes):
-            matched_tx_hashes = [ line.hash for (row, line) in matches ]
+            matched_tx_hashes = [ line.tx_hash for (row, line) in matches ]
             self._logger.debug("_remove_transactions missing entries %s",
                 [ hash_to_hex_str(a) for a in tx_hashes if a not in matched_tx_hashes ])
 
@@ -660,18 +652,18 @@ class TransactionView(QTableView):
 
             tx_hashes = []
             for label_key in updates.keys():
-                metadata = self._account.get_transaction_metadata(label_key)
+                metadata = self._wallet.get_transaction_metadata(label_key)
                 if metadata is None:
                     continue
 
                 flags = self._pending_state.get(label_key, EventFlags.UNSET)
                 self._pending_state[label_key] = flags | new_flags
 
-    def _match_transactions(self, tx_hashes: List[bytes]) -> List[Tuple[int, TxLine]]:
+    def _match_transactions(self, tx_hashes: List[bytes]) -> List[Tuple[int, TransactionValueRow]]:
         matches = []
         _tx_hashes = set(tx_hashes)
         for row, line in enumerate(self._data):
-            if line.hash in _tx_hashes:
+            if line.tx_hash in _tx_hashes:
                 matches.append((row, line))
                 if len(matches) == len(tx_hashes):
                     break
@@ -693,12 +685,8 @@ class TransactionView(QTableView):
     #     return ret
 
     def _create_data_snapshot(self) -> None:
-        lines = []
-        rows = self._wallet.read_transaction_metadatas(
-                mask=TxFlags.STATE_UNCLEARED_MASK, account_id=self._account_id)
-        for tx_hash, tx_flags, tx_data in rows:
-            lines.append(self._create_transaction_entry(tx_hash, tx_data))
-        return sorted(lines, key=get_sort_key)
+        rows = self._account.get_local_transaction_entries()
+        return sorted(rows, key=get_sort_key)
 
     def _set_fiat_columns_enabled(self, flag: bool) -> None:
         self._fiat_history_enabled = flag
@@ -709,15 +697,6 @@ class TransactionView(QTableView):
 
         self.setColumnHidden(FIAT_VALUE_COLUMN, not flag)
 
-    def _create_transaction_entry(self, tx_hash: bytes, tx_data: TxData) -> None:
-        assert tx_data.date_added is not None, \
-            f"{hash_to_hex_str(tx_hash)} has no valid date_added"
-        tx_entry = self._account.get_transaction_entry(tx_hash)
-        results = self._wallet.get_transaction_deltas(tx_hash, self._account_id)
-        total_value  = results[0].total if len(results) else 0
-        return TxLine(tx_hash, tx_data.date_added, tx_data.date_updated, tx_entry.flags,
-            total_value)
-
     def _event_double_clicked(self, model_index: QModelIndex) -> None:
         base_index = get_source_index(model_index, _ItemModel)
         column = base_index.column()
@@ -725,7 +704,7 @@ class TransactionView(QTableView):
             self.edit(model_index)
         else:
             line = self._data[base_index.row()]
-            tx = self._account.get_transaction(line.hash)
+            tx = self._wallet.get_transaction(line.tx_hash)
             self._main_window.show_transaction(self._account, tx)
 
     def _event_create_menu(self, position):
@@ -740,7 +719,7 @@ class TransactionView(QTableView):
             menu_column = menu_source_index.column()
             column_title = self._headers[menu_column]
             if menu_column == 0:
-                copy_text = hash_to_hex_str(menu_line.hash)
+                copy_text = hash_to_hex_str(menu_line.tx_hash)
             else:
                 copy_text = str(
                     menu_source_index.model().data(menu_source_index, Qt.DisplayRole)).strip()
@@ -766,13 +745,15 @@ class TransactionView(QTableView):
             if not multi_select:
                 row, column, line, selected_index, base_index = selected[0]
                 menu.addAction(_('Details'), lambda: self._main_window.show_transaction(
-                    self._account, self._account.get_transaction(line.hash)))
+                    self._account, self._wallet.get_transaction(line.tx_hash)))
 
-                entry = self._account.get_transaction_entry(line.hash)
-                if entry.flags & TxFlags.PaysInvoice:
+                flags = self._wallet.get_transaction_flags(line.tx_hash)
+                if flags is not None:
+                    return
+                if flags & TxFlags.PAYS_INVOICE:
                     menu.addAction(self._invoice_icon, _("View invoice"),
-                        partial(self._show_invoice_window, line.hash))
-                line_URL = web.BE_URL(self._main_window.config, 'tx', hash_to_hex_str(line.hash))
+                        partial(self._show_invoice_window, line.tx_hash))
+                line_URL = web.BE_URL(self._main_window.config, 'tx', hash_to_hex_str(line.tx_hash))
                 if line_URL:
                     menu.addAction(_("View on block explorer"), lambda: webbrowser.open(line_URL))
 
@@ -781,12 +762,13 @@ class TransactionView(QTableView):
                     menu.addAction(_("Edit {}").format(column_title),
                         lambda: self.edit(selected_index))
 
-                if entry.flags & TxFlags.STATE_UNCLEARED_MASK != 0:
-                    if entry.flags & TxFlags.PaysInvoice:
+                # TODO these are all that the list query returns, uncleared transactions.
+                if flags & TxFlags.STATE_UNCLEARED_MASK != 0:
+                    if flags & TxFlags.PAYS_INVOICE:
                         broadcast_action = menu.addAction(self._invoice_icon, _("Pay invoice"),
-                            lambda: self._pay_invoice(line.hash))
+                            lambda: self._pay_invoice(line.tx_hash))
 
-                        row = self._account.invoices.get_invoice_for_tx_hash(line.hash)
+                        row = self._account.invoices.get_invoice_for_tx_hash(line.tx_hash)
                         if row is None:
                             # The associated invoice has been deleted.
                             broadcast_action.setEnabled(False)
@@ -798,11 +780,11 @@ class TransactionView(QTableView):
                             broadcast_action.setEnabled(False)
                     else:
                         menu.addAction(_("Broadcast"),
-                            lambda: self._broadcast_transaction(line.hash))
+                            lambda: self._broadcast_transaction(line.tx_hash))
 
                     menu.addSeparator()
                     menu.addAction(_("Remove from account"),
-                        partial(self._delete_transaction, line.hash))
+                        partial(self._delete_transaction, line.tx_hash))
 
         menu.exec_(self.viewport().mapToGlobal(position))
 
@@ -818,14 +800,14 @@ class TransactionView(QTableView):
         self._main_window.show_invoice(self._account, row)
 
     def _broadcast_transaction(self, tx_hash: bytes) -> None:
-        tx = self._account.get_transaction(tx_hash)
+        tx = self._wallet.get_transaction(tx_hash)
         self._main_window.broadcast_transaction(self._account, tx,
             window=self._main_window.reference())
 
     def _delete_transaction(self, tx_hash: bytes) -> None:
         if self._main_window.question(_("Are you sure you want to remove this transaction?") +
                 "<br/><br/>" +
-                _("This removes the transaction from this account and frees up any coins "
-                "that are allocated for it."), title=_("Remove transaction"),
+                _("This removes the transaction from all associated accounts and frees up any "
+                "coins that are allocated for it."), title=_("Remove transaction"),
                 icon=QMessageBox.Warning):
-            self._account.delete_transaction(tx_hash)
+            self._wallet.remove_transaction(tx_hash)

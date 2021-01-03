@@ -30,7 +30,6 @@
 
 import enum
 from functools import partial
-import json
 import threading
 import time
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
@@ -48,11 +47,12 @@ from electrumsv.i18n import _
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import compose_chain_string, scripthash_hex
 from electrumsv.constants import (ACCOUNT_SCRIPT_TYPES, DerivationType, IntFlag, KeyInstanceFlag,
-    ScriptType)
+    ScriptType, unpack_derivation_path)
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.platform import platform
+from electrumsv.types import TxoKeyType
 from electrumsv.util import profiler
 from electrumsv.wallet import MultisigAccount, AbstractAccount, StandardAccount
 from electrumsv.wallet_database.types import KeyInstanceRow, KeyListRow
@@ -104,12 +104,15 @@ KeyLine = KeyListRow
 
 def get_key_text(line: KeyLine) -> str:
     text = f"{line.keyinstance_id}:{line.masterkey_id}"
-    derivation_text = "None"
+    derivation_text = ""
     if line.derivation_type == DerivationType.BIP32_SUBPATH:
-        derivation_data = json.loads(line.derivation_data)
-        derivation_path = tuple(derivation_data["subpath"])
+        derivation_path = unpack_derivation_path(line.derivation_data2)
         derivation_text = compose_chain_string(derivation_path)
     return text +":"+ derivation_text
+
+
+def data_row_key(row: KeyListRow) -> Tuple[int, bytes, int]:
+    return row.keyinstance_id, row.tx_hash, row.txo_index
 
 
 class _ItemModel(QAbstractItemModel):
@@ -241,6 +244,7 @@ class _ItemModel(QAbstractItemModel):
                 elif column == SCRIPT_COLUMN:
                     return ScriptType(line.txo_script_type).name
                 elif column == LABEL_COLUMN:
+                    # TODO(nocheckin) This is a database call better cached.
                     return self._view._account.get_keyinstance_label(line.keyinstance_id)
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     if line.txo_value is not None:
@@ -278,6 +282,7 @@ class _ItemModel(QAbstractItemModel):
                 elif column == SCRIPT_COLUMN:
                     return ScriptType(line.txo_script_type).name
                 elif column == LABEL_COLUMN:
+                    # TODO(nocheckin) This is a database call better cached.
                     return self._view._account.get_keyinstance_label(line.keyinstance_id)
                 elif column == BALANCE_COLUMN:
                     return app_state.format_amount(line.total_value, whitespaces=True)
@@ -308,17 +313,19 @@ class _ItemModel(QAbstractItemModel):
                     elif not line.flags & KeyInstanceFlag.IS_ACTIVE:
                         return _("This is an inactive address")
                 elif column == KEY_COLUMN:
-                    key_id = line.keyinstance_id
-                    masterkey_id = line.masterkey_id
-                    derivation_text = self._view._account.get_derivation_path_text(key_id)
+                    derivation_path_text: str = ""
+                    if line.derivation_type == DerivationType.BIP32_SUBPATH:
+                        derivation_path = unpack_derivation_path(line.derivation_data2)
+                        derivation_path_text = compose_chain_string(derivation_path)
                     return "\n".join([
-                        f"Key instance id: {key_id}",
-                        f"Master key id: {masterkey_id}",
-                        f"Derivation path {derivation_text}",
+                        f"Key instance id: {line.keyinstance_id}",
+                        f"Master key id: {line.masterkey_id}",
+                        f"Derivation path {derivation_path_text}",
                     ])
 
             elif role == Qt.EditRole:
                 if column == LABEL_COLUMN:
+                    # TODO(nocheckin) This is a database call better cached.
                     return self._view._account.get_keyinstance_label(line.keyinstance_id)
 
     def flags(self, model_index: QModelIndex) -> int:
@@ -411,7 +418,7 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
             line: KeyLine = source_model.data(column_index, QT_FILTER_ROLE)
             account = self._account
             for script_type in ACCOUNT_SCRIPT_TYPES[account.type()]:
-                template = account.get_script_template_for_id(line.keyinstance_id, script_type)
+                template = account.get_script_template_for_key_data(line, script_type)
                 if match == template:
                     return True
         return False
@@ -598,6 +605,8 @@ class KeyView(QTableView):
         if ListActions.RESET in pending_actions:
             self._logger.debug("_on_update_check reset")
 
+# TODO(nocheckin) This is not actually valid. WE need to OUTER JOIN on the transaction outputs
+# and may get multiple keyinstance rows for multiply used keys. #key-list-problem
             self._data = account.get_key_list()
             self._base_model.set_data(account_id, self._data)
             return
@@ -616,6 +625,8 @@ class KeyView(QTableView):
         # self._logger.debug("_on_update_check actions=%s adds=%d updates=%d removals=%d",
         #     pending_actions, len(additions), len(updates), len(removals))
 
+        # We should process removals and additions before updates, as updates can happen to key
+        # usages that are updated.
         self._remove_keys(removals)
         self._add_keys(account, additions, pending_state)
         self._update_keys(account, updates, pending_state)
@@ -641,65 +652,73 @@ class KeyView(QTableView):
             return self._validate_account_event(account_id)
         return False
 
-    def _on_keys_created(self, account_id: int, keys: Iterable[KeyInstanceRow]) -> None:
+    def _on_keys_created(self, account_id: int, keyinstance_ids: Iterable[int]) -> None:
         if not self._validate_account_event(account_id):
             return
 
         flags = EventFlags.KEY_ADDED
-        for key in keys:
-            self._pending_state[key.keyinstance_id] = flags
+        for keyinstance_id in keyinstance_ids:
+            self._pending_state[keyinstance_id] = flags
 
-    def _on_keys_updated(self, account_id: int, keys: Iterable[KeyInstanceRow]) -> None:
+    def _on_keys_updated(self, account_id: int, keyinstance_ids: Iterable[int]) -> None:
         if not self._validate_account_event(account_id):
             return
 
         new_flags = EventFlags.KEY_UPDATED
-        for key in keys:
-            flags = self._pending_state.get(key.keyinstance_id, EventFlags.UNSET)
-            self._pending_state[key.keyinstance_id] = flags | new_flags
+        for keyinstance_id in keyinstance_ids:
+            flags = self._pending_state.get(keyinstance_id, EventFlags.UNSET)
+            self._pending_state[keyinstance_id] = flags | new_flags
 
     def _add_keys(self, account: AbstractAccount, key_ids: List[int],
             state: Dict[int, EventFlags]) -> None:
         self._logger.debug("_add_keys %r", key_ids)
         if not len(key_ids):
             return
+# TODO(nocheckin) This is not actually valid. WE need to OUTER JOIN on the transaction outputs
+# and may get multiple keyinstance rows for multiply used keys. #key-list-problem
         for line in account.get_key_list(key_ids):
             self._base_model.add_line(line)
 
-    def _update_keys(self, account: AbstractAccount, key_ids: List[int],
-            state: Dict[int, EventFlags]) -> None:
-        self._logger.debug("_update_keys %r", key_ids)
+    def _update_keys(self, account: AbstractAccount, update_key_ids: List[int],
+            _state: Dict[int, EventFlags]) -> None:
+        self._logger.debug("_update_keys %r", update_key_ids)
 
-        covered_key_ids = set(key_ids)
         matched_key_ids = set()
-        new_line_map = { line.keyinstance_id: line
-            for line in account.get_key_list(key_ids) }
-        for row_index, line in enumerate(self._data):
-            if line.keyinstance_id in covered_key_ids:
-                matched_key_ids.add(line.keyinstance_id)
-                if line.keyinstance_id not in new_line_map:
-                    self._logger.error("_update_keys premature for %d", line.keyinstance_id)
-                    continue
-                self._data[row_index] = new_line_map[line.keyinstance_id]
-                self._base_model.invalidate_row(row_index)
+        new_line_map = {
+            data_row_key(line): line for line in account.get_key_list(update_key_ids)
+        }
 
-        unmatched_key_ids = covered_key_ids - matched_key_ids
+        for row_index, line in enumerate(self._data):
+            line_key = data_row_key(line)
+            if line.keyinstance_id not in update_key_ids:
+                continue
+            matched_key_ids.add(line.keyinstance_id)
+            new_line = new_line_map.get(line_key)
+            if new_line is None:
+                # This version of the key no longer exists.
+                self._base_model.remove_row(row_index)
+                self._logger.debug("_update_keys found stale entry for %r", line_key)
+                continue
+            self._data[row_index] = new_line
+            self._base_model.invalidate_row(row_index)
+
+        unmatched_key_ids = update_key_ids - matched_key_ids
         if unmatched_key_ids:
             self._logger.debug("_update_keys missing entries %r", unmatched_key_ids)
 
-    def _remove_keys(self, key_ids: List[int]) -> None:
-        self._logger.debug("_remove_keys %r", key_ids)
+    def _remove_keys(self, remove_key_ids: Set[int]) -> None:
+        self._logger.debug("_remove_keys %r", remove_key_ids)
 
-        covered_key_ids = set(key_ids)
         matched_key_ids = set()
         # Make sure that we will be removing rows from the last to the first, to preserve offsets.
         for data_index in range(len(self._data)-1, -1, -1):
             line = self._data[data_index]
-            if line.keyinstance_id in covered_key_ids:
-                matched_key_ids.add(line.keyinstance_id)
-                self._base_model.remove_row(data_index)
+            if line.keyinstance_id not in remove_key_ids:
+                continue
+            matched_key_ids.add(line.keyinstance_id)
+            self._base_model.remove_row(data_index)
 
-        unmatched_key_ids = covered_key_ids - matched_key_ids
+        unmatched_key_ids = remove_key_ids - matched_key_ids
         if unmatched_key_ids:
             self._logger.debug("_remove_keys missing entries %r", unmatched_key_ids)
 
@@ -718,12 +737,17 @@ class KeyView(QTableView):
                 self._pending_state[key.keyinstance_id] = flags | EventFlags.KEY_REMOVED
 
    # Called by the wallet window.
-    def update_frozen_keys(self, keys: List[KeyInstanceRow], freeze: bool) -> None:
+    def update_frozen_transaction_outputs(self, txo_keys: List[TxoKeyType], freeze: bool) -> None:
+        # NOTE We get the full row, but only use one column.
+        keyinstance_ids = [
+            txo.keyinstance_id
+            for txo in self._main_window._wallet.get_transaction_outputs_short(txo_keys)
+        ]
         with self._update_lock:
             new_flags = EventFlags.KEY_UPDATED | EventFlags.FREEZE_UPDATE
-            for key in keys:
-                flags = self._pending_state.get(key.keyinstance_id, EventFlags.UNSET)
-                self._pending_state[key.keyinstance_id] = new_flags
+            for keyinstance_id in keyinstance_ids:
+                flags = self._pending_state.get(keyinstance_id, EventFlags.UNSET)
+                self._pending_state[keyinstance_id] = new_flags
 
     # The user has toggled the preferences setting.
     def _on_balance_display_change(self) -> None:
@@ -772,8 +796,10 @@ class KeyView(QTableView):
         if column == LABEL_COLUMN:
             self.edit(model_index)
         else:
-            line = self._data[base_index.row()]
-            self._main_window.show_key(self._account, line.keyinstance_id, line.txo_script_type)
+            line: KeyListRow = self._data[base_index.row()]
+            script_type = line.txo_script_type if line.txo_script_type is not None \
+                else ScriptType.NONE
+            self._main_window.show_key(self._account, line, script_type)
 
     def _event_create_menu(self, position):
         account_id = self._account_id
@@ -817,29 +843,30 @@ class KeyView(QTableView):
             if not multi_select:
                 row, column, line, selected_index, base_index = selected[0]
                 key_id = line.keyinstance_id
+                script_type = line.txo_script_type if line.txo_script_type is not None \
+                    else ScriptType.NONE
                 menu.addAction(_('Details'),
-                    lambda: self._main_window.show_key(self._account, key_id, line.txo_script_type))
+                    lambda: self._main_window.show_key(self._account, line, script_type))
                 if column == LABEL_COLUMN:
                     menu.addAction(_("Edit {}").format(column_title),
                         lambda: self.edit(selected_index))
                 menu.addAction(_("Request payment"),
-                    lambda: self._main_window._receive_view.receive_at_id(key_id))
+                    lambda: self._main_window._receive_view.receive_at_key(line))
                 if self._account.can_export():
                     menu.addAction(_("Private key"),
-                        lambda: self._main_window.show_private_key(self._account, key_id,
+                        lambda: self._main_window.show_private_key(self._account, line,
                             line.txo_script_type))
                 if not is_multisig and not self._account.is_watching_only():
                     menu.addAction(_("Sign/verify message"),
-                        lambda: self._main_window.sign_verify_message(self._account, key_id))
+                        lambda: self._main_window.sign_verify_message(self._account, line))
                     menu.addAction(_("Encrypt/decrypt message"),
-                                lambda: self._main_window.encrypt_message(self._account, key_id))
+                                lambda: self._main_window.encrypt_message(self._account, line))
 
                 explore_menu = menu.addMenu(_("View on block explorer"))
 
-                keyinstance = self._account.get_keyinstance(key_id)
                 addr_URL = script_URL = None
                 if line.txo_script_type != ScriptType.NONE:
-                    script_template = self._account.get_script_template_for_id(key_id,
+                    script_template = self._account.get_script_template_for_key_data(line,
                         line.txo_script_type)
                     if isinstance(script_template, Address):
                         addr_URL = web.BE_URL(self._main_window.config, 'addr', script_template)
@@ -856,7 +883,7 @@ class KeyView(QTableView):
                 if not script_URL:
                     script_action.setEnabled(False)
 
-                for script_type, script in self._account.get_possible_scripts_for_id(key_id):
+                for script_type, script in self._account.get_possible_scripts_for_key_data(line):
                     scripthash = scripthash_hex(bytes(script))
                     script_URL = web.BE_URL(self._main_window.config, 'script', scripthash)
                     if script_URL:
@@ -869,18 +896,22 @@ class KeyView(QTableView):
                     if isinstance(keystore, Hardware_KeyStore):
                         def show_key():
                             self._main_window.run_in_thread(
-                                keystore.plugin.show_key, self._account, key_id)
+                                keystore.plugin.show_key, self._account, line)
                         menu.addAction(_("Show on {}").format(keystore.plugin.device), show_key)
 
+            # These are KeyData-based rows, that may contain some limited output data.
+            # We need spendable transaction output rows to give to the send tab.
+            keyinstance_ids = [ line.keyinstance_id
+                for (_row, _column, line, _selected_index, _base_index) in selected ]
+
             # freeze = self._main_window.set_frozen_state
-            key_ids = [ line.keyinstance_id
-                for (row, column, line, selected_index, base_index) in selected ]
             # if any(self._account.is_frozen_address(addr) for addr in addrs):
             #     menu.addAction(_("Unfreeze"), partial(freeze, self._account, addrs, False))
             # if not all(self._account.is_frozen_address(addr) for addr in addrs):
             #     menu.addAction(_("Freeze"), partial(freeze, self._account, addrs, True))
 
-            coins = self._account.get_spendable_coins(domain=key_ids,
+            coins = self._account.get_spendable_transaction_outputs(
+                keyinstance_ids=keyinstance_ids,
                 config=self._main_window.config)
             if coins:
                 menu.addAction(_("Spend from"), partial(self._main_window.spend_coins, coins))

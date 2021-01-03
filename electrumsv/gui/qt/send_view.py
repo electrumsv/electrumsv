@@ -37,16 +37,17 @@ from PyQt5.QtCore import pyqtSignal, Qt, QStringListModel
 from PyQt5.QtWidgets import (QCheckBox, QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
     QLabel, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from electrumsv.app_state import app_state
-from electrumsv.constants import PaymentFlag, WalletSettings
-from electrumsv.exceptions import ExcessiveFee, NotEnoughFunds
-from electrumsv.i18n import _
-from electrumsv.logs import logs
-from electrumsv.paymentrequest import has_expired, PaymentRequest
-from electrumsv.transaction import Transaction, XTxOutput
-from electrumsv.util import format_satoshis_plain
-from electrumsv.wallet import AbstractAccount, UTXO
-from electrumsv.wallet_database.tables import InvoiceRow
+from ...app_state import app_state
+from ...constants import PaymentFlag, WalletSettings
+from ...exceptions import ExcessiveFee, NotEnoughFunds
+from ...i18n import _
+from ...logs import logs
+from ...paymentrequest import has_expired, PaymentRequest
+from ...transaction import Transaction, XTxOutput
+from ...util import format_satoshis_plain
+from ...wallet import AbstractAccount
+from ...wallet_database.tables import InvoiceRow
+from ...wallet_database.types import TransactionOutputSpendableTypes
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from . import dialogs
@@ -331,7 +332,7 @@ class SendView(QWidget):
     def update_fee(self) -> None:
         self._require_fee_update = time.monotonic()
 
-    def set_pay_from(self, coins: List[UTXO]) -> None:
+    def set_pay_from(self, coins: List[TransactionOutputSpendableTypes]) -> None:
         self.pay_from = list(coins)
         self.redraw_from_list()
 
@@ -352,9 +353,10 @@ class SendView(QWidget):
         self._from_label.setHidden(len(self.pay_from) == 0)
         self._from_list.setHidden(len(self.pay_from) == 0)
 
-        def format_utxo(utxo: UTXO) -> str:
+        def format_utxo(utxo: TransactionOutputSpendableTypes) -> str:
             h = hash_to_hex_str(utxo.tx_hash)
-            return '{}...{}:{:d}\t{}'.format(h[0:10], h[-10:], utxo.out_index, utxo.address)
+            # TODO(nocheckin) do not have a .address attribute to use here.
+            return '{}...{}:{:d}\t{}'.format(h[0:10], h[-10:], utxo.txo_index, utxo.address)
 
         for utxo in self.pay_from:
             self._from_list.addTopLevelItem(QTreeWidgetItem(
@@ -392,8 +394,7 @@ class SendView(QWidget):
             coins = self._get_coins()
             outputs.extend(self._account.create_extra_outputs(coins, outputs))
             try:
-                tx = self._account.make_unsigned_transaction(self._get_coins(), outputs,
-                    self._main_window.config, fee)
+                tx = self._account.make_unsigned_transaction(coins, outputs, fee)
                 self._not_enough_funds = False
             except NotEnoughFunds:
                 self._logger.debug("Not enough funds")
@@ -432,8 +433,7 @@ class SendView(QWidget):
         outputs, fee, tx_desc, coins = r
         outputs.extend(self._account.create_extra_outputs(coins, outputs))
         try:
-            tx = self._account.make_unsigned_transaction(coins, outputs, self._main_window.config,
-                fee)
+            tx = self._account.make_unsigned_transaction(coins, outputs, fee)
         except NotEnoughFunds:
             self._main_window.show_message(_("Insufficient funds"))
             return
@@ -452,7 +452,8 @@ class SendView(QWidget):
             amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
             self._sign_tx_and_broadcast_if_complete(amount, tx)
 
-    def _read(self) -> Tuple[List[XTxOutput], Optional[int], str, List[UTXO]]:
+    def _read(self) \
+            -> Tuple[List[XTxOutput], Optional[int], str, List[TransactionOutputSpendableTypes]]:
         if self._payment_request and self._payment_request.has_expired():
             self._main_window.show_error(_('Payment request has expired'))
             return
@@ -483,10 +484,10 @@ class SendView(QWidget):
         coins = self._get_coins()
         return outputs, fee, label, coins
 
-    def _get_coins(self) -> List[UTXO]:
+    def _get_coins(self) -> List[TransactionOutputSpendableTypes]:
         if self.pay_from:
             return self.pay_from
-        return self._account.get_spendable_coins(None, self._main_window.config)
+        return self._account.get_spendable_transaction_outputs()
 
     def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction) -> None:
         # confirmation dialog
@@ -523,7 +524,7 @@ class SendView(QWidget):
     def get_transaction_for_invoice(self) -> Optional[Transaction]:
         invoice_row = self._account.invoices.get_invoice_for_id(self._payment_request.get_id())
         if invoice_row.tx_hash is not None:
-            return self._account.get_transaction(invoice_row.tx_hash)
+            return self._main_window._wallet.get_transaction(invoice_row.tx_hash)
         return None
 
     def maybe_send_invoice_payment(self, tx: Transaction) -> bool:

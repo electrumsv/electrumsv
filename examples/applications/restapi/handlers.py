@@ -155,7 +155,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account = self._get_account(wallet_name, account_id)
 
             receive_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-            receive_address = account.get_script_template_for_id(receive_key.keyinstance_id,
+            receive_address = account.get_script_template_for_key_data(receive_key,
                 account.get_default_script_type())
             txid = regtest_topup_account(receive_address, amount)
             response = {"txid": txid}
@@ -200,7 +200,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             mature = vars.get(VNAME.MATURE, True)
 
             account = self._get_account(wallet_name, account_id)
-            utxos = account.get_utxos(exclude_frozen=exclude_frozen,
+            utxos = account.get_spendable_transaction_outputs(exclude_frozen=exclude_frozen,
                                       confirmed_only=confirmed_only, mature=mature)
             result = self._utxo_dto(utxos)
             response = {"utxos": result}
@@ -385,7 +385,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             if not attempted_split:
                 fault = Fault(Errors.SPLIT_FAILED_CODE, Errors.SPLIT_FAILED_MESSAGE)
                 return fault_to_http_response(fault)
-            tx = account.make_unsigned_transaction(utxos, outputs, self.app_state.config)
+            tx = account.make_unsigned_transaction(utxos, outputs)
             account.sign_transaction(tx, password)
             self.raise_for_duplicate_tx(tx)
 
@@ -400,7 +400,6 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             return fault_to_http_response(e)
         except InsufficientCoinsError as e:
             self.logger.debug(Errors.INSUFFICIENT_COINS_MESSAGE)
-            self.logger.debug("utxos remaining: %s", account.get_utxos())
             return fault_to_http_response(
                 Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE))
         except Exception as e:

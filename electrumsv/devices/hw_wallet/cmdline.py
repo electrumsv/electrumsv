@@ -1,7 +1,7 @@
 from electrumsv.logs import logs
-from electrumsv.util import raw_input
 
 
+# NOTE(rt12) Not supported in any way shape or form. Remove if you have the time.
 class CmdLineHandler:
 
     def get_passphrase(self, msg, _confirm):
@@ -13,7 +13,7 @@ class CmdLineHandler:
         t = { 'a':'7', 'b':'8', 'c':'9', 'd':'4', 'e':'5', 'f':'6', 'g':'1', 'h':'2', 'i':'3'}
         print(msg)
         print("a b c\nd e f\ng h i\n-----")
-        o = raw_input()
+        o = input()
         return ''.join(t[x] for x in o)
 
     def prompt_auth(self, msg):
@@ -26,7 +26,7 @@ class CmdLineHandler:
 
     def yes_no_question(self, msg):
         print(msg)
-        return raw_input() in 'yY'
+        return input() in 'yY'
 
     def stop(self):
         pass

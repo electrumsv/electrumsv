@@ -1146,7 +1146,7 @@ class Network(TriggeredCallbacks):
                 else:
                     # TODO(nocheckin) needs to pass in the latest block_height and block_position
                     # and fee_hint if the network has some cached values for it.
-                    await wallet.import_transaction(tx_hash, tx, TxFlags.StateCleared,
+                    await wallet.import_transaction_async(tx_hash, tx, TxFlags.StateCleared,
                         external=True)
         return had_timeout
 
@@ -1196,8 +1196,8 @@ class Network(TriggeredCallbacks):
                 else:
                     if header.merkle_root == proven_root:
                         logger.debug(f'received valid proof for {tx_id}')
-                        wallet.add_transaction_proof(tx_hash, tx_height, header.timestamp, tx_pos,
-                            tx_pos, branch)
+                        await wallet.add_transaction_proof(tx_hash, tx_height, header.timestamp,
+                            tx_pos, tx_pos, branch)
                     else:
                         hhts = hash_to_hex_str
                         logger.error(f'invalid proof for tx {tx_id} in block '

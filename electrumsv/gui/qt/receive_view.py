@@ -5,13 +5,14 @@ from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QVBoxLayout, QWidget)
 
-from electrumsv.app_state import app_state
-from electrumsv.bitcoin import script_template_to_string
-from electrumsv.constants import PaymentFlag, RECEIVING_SUBPATH
-from electrumsv.i18n import _
-from electrumsv.logs import logs
-from electrumsv.wallet_database.tables import KeyInstanceRow
-from electrumsv import web
+from ...app_state import app_state
+from ...bitcoin import script_template_to_string
+from ...constants import PaymentFlag, RECEIVING_SUBPATH
+from ...i18n import _
+from ...logs import logs
+from ...wallet_database.tables import KeyInstanceRow
+from ... import web
+from ...wallet_database.types import KeyDataTypes
 
 from .amountedit import AmountEdit, BTCAmountEdit
 from .constants import expiration_values
@@ -35,7 +36,7 @@ class ReceiveView(QWidget):
         self._account = main_window._wallet.get_account(account_id)
         self._logger = logs.get_logger(f"receive-view[{self._account_id}]")
 
-        self._receive_key_id: Optional[int] = None
+        self._receive_key_data: Optional[KeyDataTypes] = None
 
         self._request_list_toolbar_layout = TableTopButtonLayout()
         self._request_list_toolbar_layout.refresh_signal.connect(
@@ -155,8 +156,8 @@ class ReceiveView(QWidget):
 
     def update_destination(self) -> None:
         text = ""
-        if self._receive_key_id is not None:
-            script_template = self._account.get_script_template_for_id(self._receive_key_id,
+        if self._receive_key_data is not None:
+            script_template = self._account.get_script_template_for_key_data(self._receive_key_data,
                 self._account.get_default_script_type())
             if script_template is not None:
                 text = script_template_to_string(script_template)
@@ -177,14 +178,14 @@ class ReceiveView(QWidget):
 
     # Bound to text fields in `_create_receive_form_layout`.
     def _update_receive_qr(self) -> None:
-        if self._receive_key_id is None:
+        if self._receive_key_data is None:
             return
 
         amount = self._receive_amount_e.get_amount()
         message = self._receive_message_e.text()
         self._save_request_button.setEnabled((amount is not None) or (message != ""))
 
-        script_template = self._account.get_script_template_for_id(self._receive_key_id,
+        script_template = self._account.get_script_template_for_key_data(self._receive_key_data,
             self._account.get_default_script_type())
         address_text = script_template_to_string(script_template)
 
@@ -195,7 +196,7 @@ class ReceiveView(QWidget):
                                        message, uri)
 
     def _toggle_qr_window(self, event: QEvent) -> None:
-        if self._receive_key_id is None:
+        if self._receive_key_data is None:
             self._main_window.show_message(_("No available receiving destination."))
             return
 
@@ -220,7 +221,7 @@ class ReceiveView(QWidget):
         return [ self._receive_amount_e ]
 
     def _save_form_as_request(self) -> None:
-        if not self._receive_key_id:
+        if not self._receive_key_data:
             self._main_window.show_error(_('No receiving payment destination'))
             return
 
@@ -237,9 +238,9 @@ class ReceiveView(QWidget):
 
         i = self._expires_combo.currentIndex()
         expiration = [x[1] for x in expiration_values][i]
-        row = self._account.requests.get_request_for_key_id(self._receive_key_id)
+        row = self._account.requests.get_request_for_key_id(self._receive_key_data.keyinstance_id)
         if row is None:
-            row = self._account.requests.create_request(self._receive_key_id,
+            row = self._account.requests.create_request(self._receive_key_data.keyinstance_id,
                 PaymentFlag.UNPAID, amount, expiration, message, callback)
         else:
             # Expiration is just a label, so we don't use the value.
@@ -270,22 +271,22 @@ class ReceiveView(QWidget):
         self._new_request_button.setEnabled(False)
         self._receive_message_e.setFocus(1)
 
-    def get_receive_key_id(self) -> Optional[int]:
-        return self._receive_key_id
+    def get_receive_key_data(self) -> Optional[int]:
+        return self._receive_key_data
 
     # Only called from key list menu.
-    def receive_at_id(self, key_id: int) -> None:
-        self._receive_key_id = key_id
+    def receive_at_key(self, key_data: KeyDataTypes) -> None:
+        self._receive_key_data = key_data
         self._new_request_button.setEnabled(True)
         self.update_destination()
 
         self._main_window.show_receive_tab()
 
-    def set_receive_key_id(self, key_id: int) -> None:
-        self._receive_key_id = key_id
+    def set_receive_key_data(self, key_data: KeyDataTypes) -> None:
+        self._receive_key_data = key_data
 
     def set_receive_key(self, keyinstance: KeyInstanceRow) -> None:
-        self._receive_key_id = keyinstance.keyinstance_id
+        self._receive_key_data = keyinstance
         self._receive_message_e.setText("")
         self._receive_amount_e.setAmount(None)
         self.update_destination()

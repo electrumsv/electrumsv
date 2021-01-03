@@ -2,13 +2,14 @@ import time
 from typing import List, Optional, Sequence, Tuple, TYPE_CHECKING
 import weakref
 
-from electrumsv.constants import KeyInstanceFlag, PaymentFlag
-from electrumsv.logs import logs
-from electrumsv.wallet_database.sqlite_support import CompletionCallbackType
-from electrumsv.wallet_database.types import PaymentRequestRow
+from ..constants import KeyInstanceFlag, PaymentFlag
+from ..logs import logs
+from ..wallet_database.sqlite_support import CompletionCallbackType
+from ..wallet_database.types import PaymentRequestRow
+from ..wallet_database import functions as db_functions
 
 if TYPE_CHECKING:
-    from electrumsv.wallet import AbstractAccount
+    from ..wallet import AbstractAccount
 
 class RequestService:
     def __init__(self, account: "AbstractAccount") -> None:
@@ -26,24 +27,18 @@ class RequestService:
             return table.read_one(keyinstance_id=key_id)
 
     def create_request(self, keyinstance_id: int, flags: PaymentFlag=PaymentFlag.UNPAID,
-                amount: Optional[int]=None, expiration: Optional[int]=None,
-                message: Optional[str]=None,
+            amount: Optional[int]=None, expiration: Optional[int]=None,
+            message: Optional[str]=None,
             cb: Optional[CompletionCallbackType]=None) -> PaymentRequestRow:
         wallet = self._account.get_wallet()
-        account_id = self._account.get_id()
-
-        # Update the key instance flags, both in acccount cache and the database.
-        key = self._account.get_keyinstance(keyinstance_id)
-        flags = key.flags | KeyInstanceFlag.IS_PAYMENT_REQUEST
-        new_key = key._replace(flags=flags)
-        self._account.set_keyinstance(keyinstance_id, new_key)
-        wallet.update_keyinstance_flags([ (flags, keyinstance_id) ])
+        wallet.set_keyinstance_flags([ keyinstance_id ], KeyInstanceFlag.IS_PAYMENT_REQUEST)
 
         # Update the payment request next.
+        account_id = self._account.get_id()
         row = PaymentRequestRow(-1, keyinstance_id, flags, amount, expiration, message,
             int(time.time()))
         row = wallet.create_payment_requests([ row ], completion_callback=cb)[0]
-        wallet.trigger_callback('on_keys_updated', account_id, [ new_key ])
+        wallet.trigger_callback('on_keys_updated', account_id, [ keyinstance_id ])
         return row
 
     def update_request(self, paymentrequest_id: int, flags: PaymentFlag,
@@ -70,18 +65,11 @@ class RequestService:
         wallet = self._account.get_wallet()
         account_id = self._account.get_id()
 
-        # Update the key instance flags, both in acccount cache and the database.
-        key = self._account.get_keyinstance(row.keyinstance_id)
-        flags = key.flags & ~KeyInstanceFlag.IS_PAYMENT_REQUEST
-        new_key = key._replace(flags=flags)
-        self._account.set_keyinstance(row.keyinstance_id, new_key)
-        wallet.update_keyinstance_flags([ (new_key.flags, row.keyinstance_id) ])
+        future = db_functions.delete_payment_request(wallet.get_db_context(), paymentrequest_id,
+            row.keyinstance_id)
+        future.result()
 
-        with wallet.get_payment_request_table() as table:
-            table.delete([ (paymentrequest_id,) ], cb)
-
-        # TODO: Too soon, the delete event is non-blocking.
-        wallet.trigger_callback('on_keys_updated', account_id, [ new_key ])
+        wallet.trigger_callback('on_keys_updated', account_id, [ row.keyinstance_id ])
         return True
 
     def check_paid_requests(self, checkable_key_ids: Sequence[int],

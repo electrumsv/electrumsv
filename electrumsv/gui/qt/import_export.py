@@ -163,15 +163,20 @@ class LabelImporter(QDialog):
 
         self._path = import_path
 
+        # Start the importing logic in a worker thread. This does not block and the user can
+        # in theory cancel it by dismissing this dialog.
         app_state.app.run_in_thread(self._threaded_import_thread, matched_format, text,
             on_done=self._threaded_import_complete)
 
         result = self.exec()
         if result == QDialog.Accepted:
-            self._apply_import()
+            self._on_import_button_clicked()
         return result
 
-    def _apply_import(self) -> None:
+    def _on_import_button_clicked(self) -> None:
+        """
+        Handle the 'Import' button being clicked and apply the imports.
+        """
         account = self._wallet.get_account(self._account_id)
         account.set_transaction_labels(self._import_result.transaction_labels.items())
 
@@ -182,12 +187,18 @@ class LabelImporter(QDialog):
             set(self._import_result.transaction_labels))
 
     def _threaded_import_thread(self, matched_format: LabelImportFormat, text: str) -> None:
+        """
+        The worker thread that does the import processing.
+        """
         try:
             self._threaded_import(matched_format, text)
         except Exception:
             logger.exception("unexpected exception in processing thread")
 
     def _threaded_import(self, matched_format: LabelImportFormat, text: str) -> None:
+        """
+        The worker logic that does the import processing.
+        """
         account = self._wallet.get_account(self._account_id)
 
         if matched_format == LabelImportFormat.ACCOUNT:
@@ -213,6 +224,7 @@ class LabelImporter(QDialog):
                     self._tx_state[tx_hash] = LabelState.REPLACE
 
         for keyinstance_id, key_description in result.key_labels.items():
+            # TODO(nocheckin) this account call is a database call better combined
             existing_description = account.get_keyinstance_label(keyinstance_id)
             if existing_description == "":
                 self._key_state[keyinstance_id] = LabelState.ADD
@@ -224,6 +236,9 @@ class LabelImporter(QDialog):
         self._import_result = result
 
     def _threaded_import_complete(self, future: concurrent.futures.Future) -> None:
+        """
+        GUI thread callback indicating the import logic completed.
+        """
         if self._import_result is None:
             MessageBox.show_error(_("The selected file is unrecognised."))
             self.reject()

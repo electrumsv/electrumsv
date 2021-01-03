@@ -1,12 +1,25 @@
-# ...
 from enum import Enum, IntEnum
 from enum import IntFlag as _IntFlag
-from typing import Optional
+from typing import Optional, Sequence
 
+from bitcoinx import pack_be_uint32, unpack_be_uint32_from
+
+
+## Hacks to deal with standard library bugs.
 # https://bugs.python.org/issue41907
 class IntFlag(_IntFlag):
     def __format__(self, spec):
         return format(self.value, spec)
+
+## Local functions to avoid circular dependencies. This file should be independent
+
+# Also available as `electrumsv.bitcoin.pack_derivation_path`.
+def pack_derivation_path(derivation_path: Sequence[int]) -> bytes:
+    return b''.join(pack_be_uint32(v) for v in derivation_path)
+
+# Also available as `electrumsv.bitcoin.unpack_derivation_path`.
+def unpack_derivation_path(data: bytes) -> Sequence[int]:
+    return tuple(unpack_be_uint32_from(data, i)[0] for i in range(0, len(data), 4))
 
 ## Wallet
 
@@ -30,23 +43,22 @@ DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
 MIGRATION_CURRENT = 27
 
+# TODO(ConsistentStyle) Members should be upper-cased like all constant collections.
 class TxFlags(IntFlag):
-    Unset = 0
+    UNSET = 0
 
-    # TxData() packed into Transactions.MetaData:
-    HasFee = 1 << 4
-    HasHeight = 1 << 5
-    HasPosition = 1 << 6
-
-    Conflicting = 1 << 7
+    # The transaction has been "removed" and is no longer linked to any account.
+    REMOVED = 1 << 0
+    # The transaction spends conflict with other transactions and it is not linked to any account.
+    CONFLICTING = 1 << 7
 
     # Complete transactions must always be added with bytedata. We no longer use this flag.
     # There will be incomplete transactions which may allow b'' perhaps, and which should be
     # updateable, but we're not there yet.
-    HasByteData = 1 << 12
-    HasProofData = 1 << 13
+    HAS_BYTEDATA = 1 << 12
+    # HasProofData = 1 << 13 # Deprecated.
     # Not currently used.
-    IsIncomplete = 1 << 14
+    INCOMPLETE = 1 << 14
 
     # A transaction received over the p2p network which is unconfirmed and in the mempool.
     StateCleared = 1 << 20
@@ -61,12 +73,13 @@ class TxFlags(IntFlag):
     # allocated.
     StateDispatched = 1 << 24
 
-    PaysInvoice = 1 << 30
+    PAYS_INVOICE = 1 << 30
 
-    METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition)
     STATE_MASK = (StateSettled | StateDispatched | StateReceived | StateCleared | StateSigned)
     STATE_UNCLEARED_MASK = (StateDispatched | StateReceived | StateSigned)
     STATE_BROADCAST_MASK = (StateSettled | StateCleared)
+    # The transaction is present but not linked to any accounts for these known reasons.
+    MASK_UNLINKED = (REMOVED | CONFLICTING)
     MASK = 0xFFFFFFFF
 
     def __repr__(self):
@@ -84,7 +97,7 @@ class TxFlags(IntFlag):
             return f"TxFlags({entry.name})"
 
         # Handle bit flags.
-        mask = int(TxFlags.PaysInvoice)
+        mask = int(TxFlags.PAYS_INVOICE)
         names = []
         while mask > 0:
             value = bitmask & mask
@@ -148,7 +161,9 @@ class DerivationType(IntEnum):
 
 
 RECEIVING_SUBPATH = (0,)
+RECEIVING_SUBPATH_BYTES = pack_derivation_path(RECEIVING_SUBPATH)
 CHANGE_SUBPATH = (1,)
+CHANGE_SUBPATH_BYTES = pack_derivation_path(CHANGE_SUBPATH)
 
 DEFAULT_FEE = 500
 
@@ -179,10 +194,11 @@ class KeyInstanceFlag(IntFlag):
     IS_PAYMENT_REQUEST = 1 << 9
     IS_INVOICE = 1 << 10
 
-    # The mask used to load the subset of keys that are actively cached by accounts.
-    CACHE_MASK = IS_ACTIVE
+    # The coins that are being monitored on the indexer.
     ACTIVE_MASK = IS_ACTIVE | USER_SET_ACTIVE
+    # The coins that are not being monitored on the indexer.
     INACTIVE_MASK = ~IS_ACTIVE
+    # The coins that are not available for use.
     ALLOCATED_MASK = IS_PAYMENT_REQUEST | IS_INVOICE | IS_ASSIGNED
 
 
@@ -202,9 +218,9 @@ class TransactionOutputFlag(IntFlag):
     IS_FROZEN = 1 << 3
     IS_COINBASE = 1 << 4
 
-    USER_SET_FROZEN = 1 << 8
-
-    FROZEN_MASK = IS_FROZEN | USER_SET_FROZEN
+    RESERVED_MASK = IS_FROZEN | IS_ALLOCATED
+    # When IS_SPENT is set, these flags are preserved and not cleared.
+    SPEND_PRESERVE_MASK = IS_COINBASE
 
 
 class PaymentFlag(IntFlag):

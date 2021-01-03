@@ -29,15 +29,17 @@ from bitcoinx import (
     BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, Address,
 )
 
-from electrumsv.app_state import app_state
-from electrumsv.device import Device
-from electrumsv.exceptions import UserCancelled
-from electrumsv.i18n import _
-from electrumsv.keystore import Hardware_KeyStore
-from electrumsv.logs import logs
-from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output, Transaction, TransactionContext
-from electrumsv.wallet import AbstractAccount
+from ...app_state import app_state
+from ...constants import unpack_derivation_path
+from ...device import Device
+from ...exceptions import UserCancelled
+from ...i18n import _
+from ...keystore import Hardware_KeyStore
+from ...logs import logs
+from ...networks import Net
+from ...transaction import classify_tx_output, Transaction, TransactionContext
+from ...wallet import AbstractAccount
+from ...wallet_database.types import KeyListRow
 
 logger = logs.get_logger("plugin.keepkey")
 
@@ -326,10 +328,11 @@ class KeepKeyPlugin(HW_PluginBase):
                                     lock_time=tx.locktime)[0]
         tx.update_signatures(signatures)
 
-    def show_key(self, account: AbstractAccount, keyinstance_id: int) -> None:
+    def show_key(self, account: AbstractAccount, keydata: KeyListRow) -> None:
         keystore = cast(KeepKey_KeyStore, account.get_keystore())
         client = self.get_client(keystore)
-        derivation_path = account.get_derivation_path(keyinstance_id)
+        assert keydata.derivation_data2 is not None
+        derivation_path = unpack_derivation_path(keydata.derivation_data2)
         assert derivation_path is not None
         subpath = '/'.join(str(x) for x in derivation_path)
         address_path = f"{keystore.derivation}/{subpath}"

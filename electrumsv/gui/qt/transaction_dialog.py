@@ -31,7 +31,7 @@ from functools import partial
 import gzip
 import json
 import math
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, NamedTuple, Optional, Set
 import weakref
 import webbrowser
 
@@ -42,21 +42,19 @@ from PyQt5.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
 
 from bitcoinx import hash_to_hex_str, MissingHeader, Unknown_Output
 
-from electrumsv.app_state import app_state
-from electrumsv.bitcoin import base_encode, script_bytes_to_asm
-from electrumsv.constants import CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, TxFlags, \
-    TransactionOutputFlag
-from electrumsv.i18n import _
-from electrumsv.logs import logs
-from electrumsv.paymentrequest import PaymentRequest
-from electrumsv.platform import platform
-from electrumsv.services.coins import CoinService
-from electrumsv.transaction import (Transaction, TxFileExtensions, TxSerialisationFormat,
-    tx_output_to_display_text, XTxOutput)
-from electrumsv.types import TxoKeyType, WaitingUpdateCallback
-from electrumsv.wallet import AbstractAccount
-from electrumsv.wallet_database.tables import MissingRowError
-import electrumsv.web as web
+from ...app_state import app_state
+from ...bitcoin import base_encode, script_bytes_to_asm
+from ...constants import (CHANGE_SUBPATH_BYTES, DerivationType, RECEIVING_SUBPATH_BYTES,
+    ScriptType, TransactionOutputFlag, TxFlags)
+from ...i18n import _
+from ...logs import logs
+from ...paymentrequest import PaymentRequest
+from ...platform import platform
+from ...transaction import (Transaction, TxFileExtensions, TxSerialisationFormat,
+    tx_output_to_display_text)
+from ...types import TxoKeyType, WaitingUpdateCallback
+from ...wallet import AbstractAccount
+from ... import web
 
 from .constants import UIBroadcastSource
 from .util import (Buttons, ButtonsLineEdit, ColorScheme, FormSectionWidget, MessageBox,
@@ -106,6 +104,23 @@ class InvalidAction(Exception):
 
 
 class TxDialog(QDialog, MessageBoxMixin):
+    """
+    Display a breakdown of a transaction.
+
+    This will display both complete transactions and incomplete transactions. A complete
+    transaction is one that is fully signed, and has a final hash being its id when canonically
+    represented in hexadecimal. An incomplete one is not fully signed, and lacks some or all of
+    the required signatures.
+
+    At this time an incomplete transaction is received from co-signers, and is expected to have
+    identifying information present for each input that has not yet been signed. This is one or
+    more XPublicKeys, which represents a master key and the derivation required for the keys that
+    should sign the given input. Not all co-signers specified in this way need to sign, the amount
+    that are required is declared as the threshold.
+
+    . . .
+    """
+
     copy_data_ready_signal = pyqtSignal(object, object)
     save_data_ready_signal = pyqtSignal(object, object)
     dummy_signal = pyqtSignal(object, object)
@@ -134,7 +149,6 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._account = account
         self._account_id = account.get_id() if account is not None else None
         self._payment_request = payment_request
-        self._coin_service = CoinService(self._wallet)
         self._prompt_if_unsaved = prompt_if_unsaved
         self._saved = False
 
@@ -230,7 +244,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         return self._account_id in account_ids
 
     def _validate_application_event(self, wallet_path: str, account_id: int) -> bool:
-        if wallet_path == self._main_window._wallet.get_storage_path():
+        if wallet_path == self._wallet.get_storage_path():
             return self._validate_account_event({ account_id })
         return False
 
@@ -258,8 +272,10 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.update()
 
     def update_tx_if_in_wallet(self) -> None:
-        if self._tx_hash and self._account.has_received_transaction(self._tx_hash):
-            self.update()
+        if self._tx_hash is not None:
+            flags = self._wallet.get_transaction_flags(self._tx_hash)
+            if flags is not None and flags & (TxFlags.StateCleared | TxFlags.StateSettled):
+                self.update()
 
     def do_broadcast(self) -> None:
         if not self._main_window.confirm_broadcast_transaction(self._tx_hash,
@@ -564,78 +580,68 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._update_io(self._i_table, self._o_table)
 
     def _update_io(self, i_table: MyTreeWidget, o_table: MyTreeWidget) -> None:
-        def get_xtxoutput_account(output: XTxOutput) -> Tuple[Optional[AbstractAccount], int]:
-            if output.x_pubkeys:
-                for x_pubkey in output.x_pubkeys:
-                    result = self._main_window._wallet.resolve_xpubkey(x_pubkey)
-                    if result is not None:
-                        account, keyinstance_id = result
-                        script_type = account.get_default_script_type()
-                        if account.get_script_for_id(keyinstance_id, script_type) \
-                                == output.script_pubkey:
-                            return account, keyinstance_id
-                        # TODO: Document when this happens
-                        break
-            return None, -1
-
-        def get_keyinstance_id(account: AbstractAccount, txo_key: TxoKeyType) -> Optional[int]:
-            utxo = account._utxos.get(txo_key)
-            if utxo is not None:
-                return utxo.keyinstance_id
-            stxo_keyinstance_id = account._stxos.get(txo_key)
-            if stxo_keyinstance_id is not None:
-                return stxo_keyinstance_id
-            return None
-
-        def compare_key_path(account: AbstractAccount, keyinstance_id: int,
-                leading_path: Sequence[int]) -> bool:
-            key_path = account.get_derivation_path(keyinstance_id)
-            return key_path is not None and key_path[:len(leading_path)] == leading_path
-
         def name_for_account(account: AbstractAccount) -> str:
             name = account.display_name()
             return f"{account.get_id()}: {name}"
 
         is_tx_complete = self.tx.is_complete()
-        is_tx_known = self._account and self._account.have_transaction(self._tx_hash)
+        is_tx_known = self._account and self._wallet.have_transaction(self._tx_hash)
 
-        prev_txos = self._coin_service.get_outputs(
+        # TODO(nocheckin) we also have local parent transactions in the transaction context that
+        # we should consider using/combining with the database state. Need to reconcile what would
+        # be in the context, and what would be in the database, and how to correctly mix the two.
+        prev_txos = self._wallet.get_transaction_outputs_spendable_explicit(
             [ TxoKeyType(txin.prev_hash, txin.prev_idx) for txin in self.tx.inputs ])
         prev_txo_dict = { TxoKeyType(r.tx_hash, r.tx_index): r for r in prev_txos }
         self._spent_value_label.setText(_("Spent input value") +": "+
             app_state.format_amount(sum(r.value for r in prev_txos)))
 
         for tx_index, txin in enumerate(self.tx.inputs):
+            account: Optional[AbstractAccount] = None
             account_name = ""
             source_text = ""
             amount_text = ""
             is_receiving = is_change = is_broken = False
-            txo_key = TxoKeyType(txin.prev_hash, txin.prev_idx)
+            broken_text = ""
 
             if txin.is_coinbase():
                 source_text = "<coinbase>"
             else:
-                prev_hash_hex = hash_to_hex_str(txin.prev_hash)
-                source_text = f"{prev_hash_hex}:{txin.prev_idx}"
+                source_text = f"{hash_to_hex_str(txin.prev_hash)}:{txin.prev_idx}"
                 # There are only certain kinds of transactions that have values on the inputs,
                 # likely deserialised incomplete transactions from cosigners. Others?
                 value = txin.value
-                if self._account is not None:
-                    keyinstance_id = get_keyinstance_id(self._account, txo_key)
-                    is_receiving = compare_key_path(self._account, keyinstance_id,
-                        RECEIVING_SUBPATH)
-                    is_change = compare_key_path(self._account, keyinstance_id, CHANGE_SUBPATH)
-                    account_name = name_for_account(self._account)
-                    prev_txo = prev_txo_dict.get(txo_key, None)
-                    if prev_txo is not None and is_tx_complete:
-                        value = prev_txo.value
-                        if is_tx_known:
-                            # The transaction has been added to the account.
-                            is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) == 0
-                        else:
-                            # The transaction was most likely loaded from external source and is
-                            # being viewed but has not been added to the account.
-                            is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) != 0
+                prev_txo = prev_txo_dict.get(TxoKeyType(txin.prev_hash, txin.prev_idx))
+                if prev_txo:
+                    value = prev_txo.value
+                    if prev_txo.derivation_data2:
+                        is_receiving = prev_txo.derivation_data2.startswith(RECEIVING_SUBPATH_BYTES)
+                        is_change = prev_txo.derivation_data2.startswith(CHANGE_SUBPATH_BYTES)
+                    if prev_txo.account_id:
+                        account = self._wallet.get_account(prev_txo.account_id)
+                    # Identify inconsistent state.
+                    # TODO()
+                    if is_tx_known:
+                        # The viewed transaction is in the database and should be associated with
+                        # all the wallet's accounts. This means that if the spent output has a
+                        # key associated with it, it should already be recorded as spent.
+                        is_broken = (prev_txo.keyinstance_id is not None and
+                            prev_txo.txo_flags & TransactionOutputFlag.IS_SPENT) == 0
+                        broken_text = _("The viewed transaction is in the database. It is "
+                            "expected that the spent output should be considered spent by the "
+                            "database, but it is not.")
+                    else:
+                        # The transaction is not in the database, any outputs it spends should
+                        # indicate as broken. This does
+                        is_broken = (prev_txo.txo_flags & TransactionOutputFlag.IS_SPENT) != 0
+                        broken_text = _("The viewed transaction is not in the database. The "
+                           "output spent by this input is known to the database and is considered "
+                           "to be spent by another transaction.")
+                        # TODO what might be useful to help the user introspect this is the
+                        # ability to browse back to the spent transaction to see what spends it. Or
+                        # something better than that..
+                if account is not None:
+                    account_name = name_for_account(account)
                 amount_text = app_state.format_amount(value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, source_text, amount_text ])
@@ -647,15 +653,17 @@ class TxDialog(QDialog, MessageBoxMixin):
                 item.setBackground(InputColumns.SOURCE, self._change_brush)
             if is_broken:
                 item.setBackground(InputColumns.SOURCE, self._broken_brush)
+                if broken_text:
+                    item.setToolTip(InputColumns.SOURCE, broken_text)
             item.setTextAlignment(InputColumns.AMOUNT, Qt.AlignRight | Qt.AlignVCenter)
             item.setFont(InputColumns.AMOUNT, self._monospace_font)
             i_table.addTopLevelItem(item)
 
-        # TODO: Rewrite this to be lot simpler when we have better TXO management. At this time
-        # we do not track UTXOs except when a transaction is known to the network as we rely on
-        # the server state to map key usage to transactions or something. We need to completely
-        # rewrite that and then rewrite this. Anyway, that is why signed tx outputs do not get
-        # identified and colourised.
+        # Each output has a script within it.
+        # Each output can have one or more xpubkey which indicates what is being signed.
+        #   But the output xpubkeys do not necessarily have signing metadata, change outputs will
+        #   but other outputs won't. It is not our place to add that metadata, as it should be
+        #   done elsewhere, like in the send view or on import processing.
 
         received_value = 0
         for tx_index, tx_output in enumerate(self.tx.outputs):
@@ -663,41 +671,25 @@ class TxDialog(QDialog, MessageBoxMixin):
             if isinstance(_kind, Unknown_Output):
                 text = script_bytes_to_asm(tx_output.script_pubkey)
 
-            # In the longer run we will have some form of abstraction for incomplete transactions
-            # that maps where the keys come from, but for now we manually map them to the limited
-            # key hierarchy that currently exists.
-            xtxo_account, xtxo_keyinstance_id = get_xtxoutput_account(tx_output)
-            accounts: List[AbstractAccount] = []
-            if xtxo_account is not None:
-                accounts.append(xtxo_account)
-            if self._account is not None and xtxo_account is not self._account:
-                accounts.append(self._account)
-
-            account_id: Optional[int] = None
             account_name = ""
-            keyinstance_id: Optional[int] = None
             is_receiving = is_change = False
-            txo_key = TxoKeyType(self._tx_hash, tx_index)
-            for account in accounts:
-                if is_tx_complete:
-                    keyinstance_id = get_keyinstance_id(account, txo_key)
-                elif account is xtxo_account and xtxo_keyinstance_id != -1:
-                    keyinstance_id = xtxo_keyinstance_id
-
-                if keyinstance_id is not None:
-                    account_id = account.get_id()
-                    is_receiving = compare_key_path(account, keyinstance_id, RECEIVING_SUBPATH)
-                    is_change = compare_key_path(account, keyinstance_id, CHANGE_SUBPATH)
-                    account_name = name_for_account(account)
-                    received_value += tx_output.value
-                    break
+            if tx_output.keyinstance_id:
+                if tx_output.derivation_type == DerivationType.BIP32_SUBPATH:
+                    is_receiving = tx_output.derivation_data2.startswith(RECEIVING_SUBPATH_BYTES)
+                    is_change = tx_output.derivation_data2.startswith(CHANGE_SUBPATH_BYTES)
+                else:
+                    # Imported private key or watched public key.
+                    is_receiving = True
+                account = self._wallet.get_account(tx_output.account_id)
+                account_name = name_for_account(account)
+                received_value += tx_output.value
 
             amount_text = app_state.format_amount(tx_output.value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, text, amount_text ])
             item.setData(OutputColumns.INDEX, Roles.IS_MINE, is_change or is_receiving)
-            item.setData(OutputColumns.INDEX, Roles.ACCOUNT_ID, account_id)
-            item.setData(OutputColumns.INDEX, Roles.KEY_ID, keyinstance_id)
+            item.setData(OutputColumns.INDEX, Roles.ACCOUNT_ID, tx_output.account_id)
+            item.setData(OutputColumns.INDEX, Roles.KEY_ID, tx_output.keyinstance_id)
             if is_receiving:
                 item.setBackground(OutputColumns.DESTINATION, self._receiving_brush)
             if is_change:
@@ -715,40 +707,40 @@ class TxDialog(QDialog, MessageBoxMixin):
         can_broadcast = False
         label = ''
         fee = height = conf = date_created = date_mined = None
-        state = TxFlags.Unset
+        state = TxFlags.UNSET
 
         wallet = self._wallet
         if tx.is_complete():
-            metadata = wallet._transaction_cache.get_metadata(self._tx_hash)
+            metadata = wallet.get_transaction_metadata(self._tx_hash)
             if metadata is None:
                 # The transaction is not known to the wallet.
                 status = _("External signed transaction")
                 state = TxFlags.StateReceived | TxFlags.StateSigned
                 can_broadcast = wallet._network is not None
             else:
-                date_created = metadata.date_added
+                date_created = metadata.date_created
 
                 # It is possible the wallet has the transaction but it is not associated with
                 # any accounts. We still need to factor that in.
-                fee = metadata.fee
+                fee = metadata.fee_value
 
-                if metadata.height is not None and metadata.height > 0:
+                if metadata.block_height is not None and metadata.block_height > 0:
                     chain = app_state.headers.longest_chain()
                     try:
-                        header = app_state.headers.header_at_height(chain, metadata.height)
+                        header = app_state.headers.header_at_height(chain, metadata.block_height)
                         date_mined = header.timestamp
                     except MissingHeader:
                         pass
 
                 label = self._account.get_transaction_label(self._tx_hash)
 
-                state = wallet._transaction_cache.get_flags(self._tx_hash) & TxFlags.STATE_MASK
+                state = wallet.get_transaction_flags(self._tx_hash) & TxFlags.STATE_MASK
                 if state & TxFlags.StateSettled:
-                    height = metadata.height
+                    height = metadata.block_height
                     conf = max(wallet.get_local_height() - height + 1, 0)
                     status = _("{:,d} confirmations (in block {:,d})").format(conf, height)
                 elif state & TxFlags.StateCleared:
-                    if metadata.height > 0:
+                    if metadata.block_height > 0:
                         status = _('Not verified')
                     else:
                         status = _('Unconfirmed')
@@ -822,7 +814,7 @@ class InputTreeWidget(MyTreeWidget):
         column_data = item.text(column).strip()
 
         tx_hash = item.data(InputColumns.INDEX, Roles.TX_HASH)
-        have_tx = self.parent()._account.have_transaction(tx_hash)
+        have_tx = self.parent()._wallet.have_transaction(tx_hash)
 
         tx_id = hash_to_hex_str(tx_hash)
         tx_URL = web.BE_URL(self._main_window.config, 'tx', tx_id)
@@ -839,18 +831,12 @@ class InputTreeWidget(MyTreeWidget):
 
     def _show_other_transaction(self, tx_hash: bytes) -> None:
         dialog = self.parent()
-        account = dialog._account
-        try:
-            tx = account.get_transaction(tx_hash)
-        except MissingRowError:
-            MessageBox.show_error(_("This transaction is unrelated to your wallet."
-                " For now use a blockchain explorer."))
+        tx = self._wallet.get_transaction(tx_hash)
+        if tx is not None:
+            self._main_window.show_transaction(dialog._account, tx)
         else:
-            if tx is not None:
-                self._main_window.show_transaction(account, tx)
-            else:
-                MessageBox.show_error(_("The data for this  transaction is not yet present in "
-                    "your wallet. Please try again when it has been obtained from the network."))
+            MessageBox.show_error(_("The data for this  transaction is not yet present in "
+                "your wallet. Please try again when it has been obtained from the network."))
 
 
 class OutputTreeWidget(MyTreeWidget):
@@ -883,10 +869,9 @@ class OutputTreeWidget(MyTreeWidget):
 
     def _show_other_transaction(self, tx_hash: bytes) -> None:
         dialog = self.parent()
-        account = dialog._account
-        tx = account.get_transaction(tx_hash)
+        tx = self._wallet.get_transaction(tx_hash)
         if tx is not None:
-            self._main_window.show_transaction(account, tx)
+            self._main_window.show_transaction(dialog._account, tx)
         else:
             MessageBox.show_error(_("The full transaction is not yet present in your wallet."+
                 " Please try again when it has been obtained from the network."))

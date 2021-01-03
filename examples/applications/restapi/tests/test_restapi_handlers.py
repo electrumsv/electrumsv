@@ -7,14 +7,15 @@ import pytest
 import bitcoinx
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
-from bitcoinx import Address, Script, BitcoinTestnet, hex_str_to_hash
+from bitcoinx import BitcoinTestnet, hex_str_to_hash
 from typing import List, Union, Dict, Any, Optional, Tuple
 from concurrent.futures.thread import ThreadPoolExecutor
 
-from electrumsv.constants import TransactionOutputFlag, ScriptType
-from electrumsv.restapi import good_response, Fault
-from electrumsv.wallet import UTXO, Wallet, AbstractAccount
+from electrumsv.constants import ScriptType, TransactionOutputFlag
+from electrumsv.restapi import Fault, good_response
+from electrumsv.wallet import AbstractAccount, Wallet
 from electrumsv.transaction import Transaction
+from electrumsv.wallet_database.types import TransactionOutputSpendableRow
 from ..errors import Errors
 
 from ..handlers import ExtensionEndpoints
@@ -43,30 +44,30 @@ class Net(metaclass=_CurrentNetMeta):
 
 
 SPENDABLE_UTXOS = [
-    UTXO(address=Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmou',
-                                              Net.COIN),
-         is_coinbase=False,
-         out_index=0,
-         script_pubkey=Script(b'v\xa9\x14&\x0c\x95\x8e\x81\xc8o\xe3.\xc3\xd4\x1d7\x1cy'
-                             b'\x0e\xed\x9a\xb4\xf3\x88\xac'),
-         tx_hash=hex_str_to_hash(
+    TransactionOutputSpendableRow(
+        tx_hash=hex_str_to_hash(
+            '76d5bfabe40ca6cbd315b04aa24b68fdd8179869fd1c3501d5a88a980c61c1bf'),
+        txo_index = 0,
+        value=100000,
+        keyinstance_id=0,
+        script_type=ScriptType.P2PKH,
+        flags=TransactionOutputFlag.NONE,
+        account_id=None,
+        masterkey_id=None,
+        derivation_type=None,
+        derivation_data2=None),
+    TransactionOutputSpendableRow(
+        tx_hash=hex_str_to_hash(
              '76d5bfabe40ca6cbd315b04aa24b68fdd8179869fd1c3501d5a88a980c61c1bf'),
-         value=100000,
-         script_type=ScriptType.P2PKH,
-         keyinstance_id=0,
-         flags=TransactionOutputFlag.NONE),
-    UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr',
-                                              Net.COIN),
-         is_coinbase=False,
-         out_index=0,
-         script_pubkey=Script(b'v\xa9\x14\x84\xb3[1i\xe4+"}+\x9d\x85s!\t\xa1y\xab\xff'
-                              b'\x12\x88\xac'),
-         tx_hash=hex_str_to_hash(
-             '76d5bfabe40ca6cbd315b04aa24b68fdd8179869fd1c3501d5a88a980c61c1bf'),
-         value=100000,
-         script_type=ScriptType.P2PKH,
-         keyinstance_id=0,
-         flags=TransactionOutputFlag.NONE)
+        txo_index=0,
+        value=100000,
+        keyinstance_id=0,
+        script_type=ScriptType.P2PKH,
+        flags=TransactionOutputFlag.NONE,
+        account_id=None,
+        masterkey_id=None,
+        derivation_type=None,
+        derivation_data2=None)
     ]
 
 p2pkh_object = bitcoinx.P2PKH_Address.from_string("muV4JqcF3V3Vi7J2hGucQJzSLcsUAaJwLA", Net.COIN)
@@ -145,10 +146,6 @@ def _fake_create_transaction_succeeded(file_id, message_bytes, child_wallet, pas
 async def _fake_broadcast_tx(rawtx: str, tx_hash: bytes, account: AbstractAccount) -> str:
     return "6797415e3b4a9fbb61b209302374853bdefeb4567ad0ed76ade055e94b9b66a2"
 
-def _fake_get_frozen_utxos_for_tx(tx: Transaction, child_wallet: AbstractAccount) \
-        -> List[UTXO]:
-    """can get away with this for the 'happy path' but not if errors an unfreezing occurs"""
-    pass
 
 
 def _fake_spawn(fn, *args):
@@ -158,7 +155,6 @@ class MockAccount(AbstractAccount):
 
     def __init__(self, wallet=None):
         self._id = 1
-        self._frozen_coins = set([])
         self._subpath_gap_limits = {(0,): 20,
                                     (1,): 20}
         self._wallet = wallet
@@ -169,14 +165,12 @@ class MockAccount(AbstractAccount):
     def dumps(self):
         return None
 
-    def get_spendable_coins(self, domain=None, config={}) -> List[UTXO]:
+    def get_spendable_transaction_outputs(self, exclude_frozen: bool=True, mature: bool=True,
+            confirmed_only: Optional[bool]=None, keyinstance_ids: Optional[List[int]]=None) \
+                -> List[TransactionOutputSpendableRow]:
         return SPENDABLE_UTXOS
 
-    def get_utxos(self, domain=None, exclude_frozen=False, mature=False, confirmed_only=False) \
-            -> List[UTXO]:
-        return SPENDABLE_UTXOS
-
-    def make_unsigned_transaction(self, utxos=None, outputs=None, config=None):
+    def make_unsigned_transaction(self, utxos=None, outputs=None):
         return Transaction.from_hex(rawtx)
 
     def sign_transaction(self, tx=None, password=None):
@@ -187,7 +181,6 @@ class MockWallet(Wallet):
 
     def __init__(self):
         self._accounts: Dict[int, AbstractAccount] = {1: MockAccount(self)}
-        self._frozen_coins = set([])
 
     def set_boolean_setting(self, setting_name: str, enabled: bool) -> None:
         return
@@ -207,9 +200,6 @@ class MockApp:
         pass
 
     def broadcast_file(*args):
-        pass
-
-    def get_and_set_frozen_utxos_for_tx(self):
         pass
 
     def _create_tx_helper(self):
@@ -290,9 +280,6 @@ class MockDefaultEndpoints(ExtensionEndpoints):
         return {wallet._id: {"wallet_type": "StandardWallet",
                              "is_wallet_ready": True}}
 
-    def _fake_get_and_set_frozen_utxos_for_tx(self, tx, child_wallet):
-        return
-
     def _fake_create_tx_helper_raise_exception(self, request) -> Tuple[Any, set]:
         raise Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE)
 
@@ -302,7 +289,7 @@ class MockDefaultEndpoints(ExtensionEndpoints):
 
 
 def _fake_get_account_succeeded(wallet_name, index) -> Union[Fault, AbstractAccount]:
-    return MockAccount()  # which in-turn patches get_spendable_coins()
+    return MockAccount()  # which in-turn patches get_spendable_transaction_outputs()
 
 
 class TestDefaultEndpoints:
@@ -590,8 +577,6 @@ class TestDefaultEndpoints:
         monkeypatch.setattr(self.rest_server.app_state.app, '_create_transaction',
                             _fake_create_transaction_succeeded)
         monkeypatch.setattr(asyncio, 'get_event_loop', _fake_get_event_loop)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
-                            self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
 
         # mock request
         network = "test"
@@ -625,8 +610,6 @@ class TestDefaultEndpoints:
         monkeypatch.setattr(self.rest_server, '_create_tx_helper',
                             self.rest_server._fake_create_tx_helper_raise_exception)
         monkeypatch.setattr(asyncio, 'get_event_loop', _fake_get_event_loop)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
-                            self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
 
         # mock request
         network = "test"
@@ -656,8 +639,6 @@ class TestDefaultEndpoints:
                             _fake_spawn)
         monkeypatch.setattr(self.rest_server.app_state.async_, 'spawn',
                             _fake_spawn)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
-                            self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
         monkeypatch.setattr(self.rest_server, 'send_request',
                             self.rest_server._fake_send_request)
 
@@ -685,8 +666,6 @@ class TestDefaultEndpoints:
                             _fake_create_transaction_succeeded)
         monkeypatch.setattr(self.rest_server, '_broadcast_transaction',
                             _fake_broadcast_tx)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
-                            self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
         monkeypatch.setattr(self.rest_server, 'send_request',
                             self.rest_server._fake_send_request)
 
@@ -709,8 +688,6 @@ class TestDefaultEndpoints:
     async def test_split_utxos_good_response(self, monkeypatch, cli, spendable_utxos):
         monkeypatch.setattr(self.rest_server, '_get_account',
                             _fake_get_account_succeeded)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
-                            _fake_get_frozen_utxos_for_tx)
 
         # mock request
         network = "test"

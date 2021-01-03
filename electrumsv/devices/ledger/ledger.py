@@ -6,16 +6,17 @@ from bitcoinx import (
     BIP32Derivation, BIP32PublicKey, PublicKey, pack_be_uint32, pack_list, pack_le_int64
 )
 
-from electrumsv.app_state import app_state
-from electrumsv.bitcoin import compose_chain_string, int_to_hex, ScriptTemplate
-from electrumsv.constants import ScriptType
-from electrumsv.i18n import _
-from electrumsv.keystore import Hardware_KeyStore
-from electrumsv.logs import logs
-from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output, Transaction, TransactionContext, XTxOutput
-from electrumsv.util import versiontuple
-from electrumsv.wallet import AbstractAccount
+from ...app_state import app_state
+from ...bitcoin import compose_chain_string, int_to_hex, ScriptTemplate
+from ...constants import ScriptType, unpack_derivation_path
+from ...i18n import _
+from ...keystore import Hardware_KeyStore
+from ...logs import logs
+from ...networks import Net
+from ...transaction import classify_tx_output, Transaction, TransactionContext, XTxOutput
+from ...util import versiontuple
+from ...wallet import AbstractAccount
+from ...wallet_database.types import KeyListRow
 
 from ..hw_wallet import HW_PluginBase
 
@@ -525,8 +526,9 @@ class LedgerPlugin(HW_PluginBase):
             client.checkDevice()
         return client
 
-    def show_key(self, account: AbstractAccount, keyinstance_id: int) -> None:
-        derivation_path = account.get_derivation_path(keyinstance_id)
+    def show_key(self, account: AbstractAccount, keydata: KeyListRow) -> None:
+        assert keydata.derivation_data2 is not None
+        derivation_path = unpack_derivation_path(keydata.derivation_data2)
         assert derivation_path is not None
         subpath = '/'.join(str(x) for x in derivation_path)
         keystore = cast(Ledger_KeyStore, account.get_keystore())

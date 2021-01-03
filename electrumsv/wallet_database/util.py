@@ -1,29 +1,46 @@
+from io import BytesIO
 try:
-    # Linux expects the latest package version of 3.31.1 (as of p)
+    # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
     import pysqlite3 as sqlite3
 except ModuleNotFoundError:
-    # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
-    # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
+    # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
+    # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
     import sqlite3 # type: ignore
 import time
-from typing import Any, List, Optional, Sequence, Tuple, Type, TypeVar
+from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple, Type, TypeVar
 
-from .sqlite_support import SQLITE_MAX_VARS
+import bitcoinx
+from bitcoinx import base58_decode_check, PublicKey
 
+from .exceptions import DataPackingError
+from .sqlite_support import SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS
+from .types import TxProof
+
+from ..constants import DerivationType, pack_derivation_path
 
 T = TypeVar('T')
+T2 = TypeVar('T2')
 
 
-# TODO(nocheckin) this should go away as the TxData structure goes away
-# def apply_flags(data: TxData, flags: TxFlags) -> TxFlags:
-#     flags &= ~TxFlags.METADATA_FIELD_MASK
-#     if data.height is not None:
-#         flags |= TxFlags.HasHeight
-#     if data.fee is not None:
-#         flags |= TxFlags.HasFee
-#     if data.position is not None:
-#         flags |= TxFlags.HasPosition
-#     return flags
+def create_derivation_data2(derivation_type: DerivationType, derivation_data: Dict[str, Any]) \
+            -> bytes:
+    if derivation_type == DerivationType.BIP32_SUBPATH:
+        derivation_path = tuple(derivation_data["subpath"])
+        return pack_derivation_path(derivation_path)
+    elif derivation_type == DerivationType.PRIVATE_KEY:
+        public_key_bytes = bytes.fromhex(derivation_data['pub'])
+        # Ensure all public keys are canonically encoded in the compressed form.
+        if len(public_key_bytes) != 33:
+            public_key_bytes = PublicKey.from_bytes(public_key_bytes).to_bytes(compressed=True)
+        return public_key_bytes
+    elif derivation_type in (DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH):
+        # We manually extract this rather than using the `bitcoinx.Address` class as we do
+        # not care about the coin as that is implicit in the wallet.
+        raw = base58_decode_check(derivation_data['hash'])
+        if len(raw) != 21:
+            raise ValueError(f'invalid address: {derivation_data["hash"]}')
+        return raw[1:]
+    raise NotImplementedError()
 
 
 def collect_results(result_type: Type[T], cursor: sqlite3.Cursor, results: List[T]) -> None:
@@ -51,37 +68,110 @@ def get_timestamp() -> int:
     return int(time.time())
 
 
-def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, params: List[Any], \
-        ids: Sequence[int]) -> List[T]:
+def pack_proof(proof: TxProof) -> bytes:
+    raw = bitcoinx.pack_varint(1)
+    raw += bitcoinx.pack_varint(proof.position)
+    raw += bitcoinx.pack_varint(len(proof.branch))
+    for hash in proof.branch:
+        raw += bitcoinx.pack_varbytes(hash)
+    return raw
+
+
+def unpack_proof(raw: bytes) -> TxProof:
+    io = BytesIO(raw)
+    pack_version = bitcoinx.read_varint(io.read)
+    if pack_version == 1:
+        position = bitcoinx.read_varint(io.read)
+        branch_count = bitcoinx.read_varint(io.read)
+        merkle_branch = [ bitcoinx.read_varbytes(io.read) for i in range(branch_count) ]
+        return TxProof(position, merkle_branch)
+    raise DataPackingError(f"Unhandled packing format {pack_version}")
+
+
+def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, params: Sequence[Any],
+        ids: Sequence[T2]) -> List[T]:
     """
     Batch read rows as constrained by database limitations.
     """
-    results = []
+    results: List[T] = []
     batch_size = SQLITE_MAX_VARS - len(params)
-    while len(ids):
-        batch_ids = ids[:batch_size]
-        query = sql.format(",".join("?" for k in batch_ids))
-        cursor = db.execute(query, params + batch_ids) # type: ignore
+    remaining_ids = ids
+    while len(remaining_ids):
+        batch_ids = remaining_ids[:batch_size]
+        sql = sql.format(",".join("?" for k in batch_ids))
+        # NOTE(rt12) the sequence type does not provide an addition operator hence typing ignored.
+        cursor = db.execute(sql, params + batch_ids) # type: ignore
         rows = cursor.fetchall()
         cursor.close()
-        results.extend(rows)
-        ids = ids[batch_size:]
-    return [ return_type(*t) for t in results ]
+        results.extend(return_type(*row) for row in rows)
+        remaining_ids = remaining_ids[batch_size:]
+    return results
 
 
-def update_rows_by_id(id_type: Type[T], db: sqlite3.Connection, sql: str, params: List[Any], \
+def read_rows_by_ids(return_type: Type[T], db: sqlite3.Connection, sql: str, sql_condition: str,
+        sql_values: List[Any], ids: Sequence[Collection[T2]]) -> List[T]:
+    """
+    Read rows in batches as constrained by database limitations.
+    """
+    batch_size = min(SQLITE_MAX_VARS, SQLITE_EXPR_TREE_DEPTH) // 2 - len(sql_values)
+    results: List[T] = []
+    remaining_ids = ids
+    while len(remaining_ids):
+        batch = remaining_ids[:batch_size]
+        batch_values: List[Any] = list(sql_values)
+        for batch_entry in batch:
+            batch_values.extend(batch_entry)
+        conditions = [ sql_condition ] * len(batch)
+        batch_query = (sql +" WHERE "+ " OR ".join(conditions))
+        cursor = db.execute(batch_query, batch_values)
+        results.extend(return_type(*row) for row in cursor.fetchall())
+        cursor.close()
+        remaining_ids = remaining_ids[batch_size:]
+    return results
+
+
+def update_rows_by_id(db: sqlite3.Connection, sql: str, sql_values: List[Any], \
         ids: Sequence[T]) -> int:
     """
-    Batch update rows as constrained by database limitations.
+    Update rows in batches as constrained by database limitations.
     """
-    batch_size = SQLITE_MAX_VARS - len(params)
+    batch_size = SQLITE_MAX_VARS - len(sql_values)
     rows_updated = 0
-    while len(ids):
-        batch_ids = ids[:batch_size]
-        query = sql.format(",".join("?" for k in batch_ids))
-        cursor = db.execute(query, params + batch_ids) # type: ignore
+    remaining_ids = ids
+    while len(remaining_ids):
+        batch_ids = remaining_ids[:batch_size]
+        sql = sql.format(",".join("?" for k in batch_ids))
+        # NOTE(typing) Cannot add a sequence to a list.
+        cursor = db.execute(sql, sql_values + batch_ids) # type: ignore
         rows_updated += cursor.rowcount
         cursor.close()
-        ids = ids[batch_size:]
+        remaining_ids = remaining_ids[batch_size:]
     return rows_updated
 
+
+def update_rows_by_ids(db: sqlite3.Connection, sql: str, sql_id_expression: str,
+        sql_values: List[Any], ids: Sequence[Collection[T]],
+        sql_where_expression: Optional[str]=None) -> int:
+    """
+    Update rows in batches as constrained by database limitations.
+    """
+    batch_size = min(SQLITE_MAX_VARS, SQLITE_EXPR_TREE_DEPTH) // 2 - len(sql_values)
+    rows_updated = 0
+    remaining_ids = ids
+    while len(remaining_ids):
+        batch_ids = remaining_ids[:batch_size]
+        batch_values: List[Any] = sql_values[:]
+        for batch_entry in batch_ids:
+            batch_values.extend(batch_entry)
+        id_sql_expressions = [ sql_id_expression ] * len(batch_ids)
+        sql_completed = sql +" WHERE "
+        sql_completed_id_expression = " OR ".join(id_sql_expressions)
+        if sql_where_expression:
+            sql_completed += f"{sql_where_expression} AND ({sql_completed_id_expression})"
+        else:
+            sql_completed += sql_completed_id_expression
+        cursor = db.execute(sql_completed, batch_values)
+        rows_updated += cursor.rowcount
+        cursor.close()
+        remaining_ids = remaining_ids[batch_size:]
+    return rows_updated

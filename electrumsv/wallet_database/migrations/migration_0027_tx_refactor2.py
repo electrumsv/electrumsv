@@ -1,34 +1,36 @@
 from collections import defaultdict
 import json
 try:
-    # Linux expects the latest package version of 3.31.1 (as of p)
+    # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
     import pysqlite3 as sqlite3
 except ModuleNotFoundError:
-    # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
-    # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
+    # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
+    # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
     import sqlite3 # type: ignore
 import time
 from typing import Any, cast, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
-from bitcoinx import Address, hash_to_hex_str, pack_be_uint32
+from bitcoinx import Address, hash_to_hex_str, PublicKey
 
-from electrumsv.bitcoin import scripthash_bytes
-from electrumsv.constants import (ACCOUNT_SCRIPT_TYPES, AccountTxFlags, AccountType,
-    CHANGE_SUBPATH, DerivationType, KeyInstanceFlag, KeystoreType, RECEIVING_SUBPATH, ScriptType,
-    TransactionInputFlag, TransactionOutputFlag, TxFlags)
-from electrumsv.exceptions import DatabaseMigrationError
-from electrumsv.i18n import _
-from electrumsv.keys import (extract_public_key_hash, get_multi_signer_script_template,
+from ...bitcoin import scripthash_bytes
+from ...constants import (ACCOUNT_SCRIPT_TYPES, AccountTxFlags, AccountType,
+    CHANGE_SUBPATH, DerivationType, KeyInstanceFlag, KeystoreType,
+    RECEIVING_SUBPATH, ScriptType, TransactionInputFlag, TransactionOutputFlag)
+from ...exceptions import DatabaseMigrationError
+from ...i18n import _
+from ...keys import (extract_public_key_hash, get_multi_signer_script_template,
     get_single_signer_script_template)
-from electrumsv.keystore import (Imported_KeyStore, instantiate_keystore, KeyStore,
+from ...keystore import (Imported_KeyStore, instantiate_keystore, KeyStore,
     Multisig_KeyStore, SinglesigKeyStoreTypes)
-from electrumsv.logs import logs
-from electrumsv.networks import Net
-from electrumsv.transaction import Transaction
-from electrumsv.types import TxoKeyType
-from electrumsv.util.misc import ProgressCallbacks
+from ...logs import logs
+from ...networks import Net
+from ...transaction import Transaction
+from ...types import TxoKeyType
+from ...util.misc import ProgressCallbacks
 
-from ..storage_migration import AccountRow1, KeyInstanceRow1, MasterKeyRow1
+from ..storage_migration import (AccountRow1, KeyInstanceRow1, MasterKeyRow1,
+    TransactionOutputFlag1, TxFlags1)
+from ..util import create_derivation_data2
 
 logger = logs.get_logger("migration-0027")
 
@@ -82,6 +84,8 @@ class TXOInsertRow(NamedTuple):
     script_type: ScriptType
     script_offset: int
     script_length: int
+    spending_tx_hash: Optional[bytes]
+    spending_txi_index: Optional[int]
     date_created: int
     date_updated: int
 
@@ -93,12 +97,14 @@ class TXOUpdateRow(NamedTuple):
     script_type: ScriptType
     script_offset: int
     script_length: int
+    spending_tx_hash: Optional[bytes]
+    spending_txi_index: Optional[int]
     date_updated: int
     tx_hash: bytes
     txo_index: int
 
 class TXOExistingEntry(NamedTuple):
-    flags: TransactionOutputFlag
+    flags: TransactionOutputFlag1
     keyinstance_id: int
 
 
@@ -151,7 +157,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     mk_keyinstance_data: Dict[Tuple[int, int], Dict[Sequence[int], KeyInstanceRow1]] = \
         defaultdict(dict)
     # For other account types. {account_id: [keyinstance,..]}
-    other_keyinstance_data: Dict[int, List[KeyInstanceRow1]] = defaultdict(list)
+    other_keyinstance_data: Dict[int, List[Tuple[KeyInstanceRow1, bytes]]] = defaultdict(list)
     cursor = conn.execute("SELECT keyinstance_id, account_id, masterkey_id, derivation_type, "
         "derivation_data, script_type, flags, description FROM KeyInstances")
     rows = cursor.fetchall()
@@ -161,15 +167,17 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         krow = keyinstances[row[0]] = KeyInstanceRow1(row[0], row[1], row[2],
             DerivationType(row[3]), row[4], ScriptType(row[5]), KeyInstanceFlag(row[6]),
             row[7])
+        derivation_data = json.loads(krow.derivation_data)
+        derivation_data2 = create_derivation_data2(krow.derivation_type, derivation_data)
         if krow.masterkey_id is not None:
-            derivation_data = json.loads(krow.derivation_data)
             derivation_path = tuple(derivation_data["subpath"])
             mk_keyinstance_data[(krow.account_id, krow.masterkey_id)][derivation_path] = krow
+            keyinstance_updates.append((derivation_data2, date_updated, row[0]))
+            continue
 
-            derivation_path_bytes = b''.join(pack_be_uint32(v) for v in derivation_path)
-            keyinstance_updates.append((derivation_path_bytes, date_updated, row[0]))
-        else:
-            other_keyinstance_data[krow.account_id].append(krow)
+        # Used to calculate script hashes.
+        other_keyinstance_data[krow.account_id].append((krow, derivation_data2))
+        keyinstance_updates.append((derivation_data2, date_updated, row[0]))
 
     # Cache the existing transaction output entries. They will only be present for transactions the
     # network/electrumx has told us are related to the keys that exist at this point in time, and
@@ -229,15 +237,17 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             txo_entry = txo_existing_entries.get((tx_hash, txo_index))
             txo_flags: TransactionOutputFlag
             if txo_entry is not None:
-                txo_flags = txo_entry.flags
+                # This flag has been removed.
+                txo_flags = TransactionOutputFlag(
+                    txo_entry.flags & ~TransactionOutputFlag1.USER_SET_FROZEN)
                 txo_updates[TxoKeyType(tx_hash, txo_index)] = TXOUpdateRow(txo_entry.keyinstance_id,
                     txo_flags, script_hash, ScriptType.NONE, txo.script_offset, txo.script_length,
-                    date_updated, tx_hash, txo_index)
+                    None, None, date_updated, tx_hash, txo_index)
             else:
                 txo_flags = base_txo_flags
                 txo_inserts[TxoKeyType(tx_hash, txo_index)] = TXOInsertRow(tx_hash, txo_index,
                     txo.value, None, txo_flags, script_hash, ScriptType.NONE, txo.script_offset,
-                    txo.script_length, date_updated, date_updated)
+                    txo.script_length, None, None, date_updated, date_updated)
 
             # Remember the same locking script can be used in multiple transactions.
             shl = txo_script_hashes.setdefault(script_hash, [])
@@ -267,14 +277,15 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         account_id = account.account_id
         masterkey_id = account.default_masterkey_id
         if masterkey_id is None:
-            account_keys = other_keyinstance_data.get(account_id, [])
-            found_types = set(key.derivation_type for key in account_keys)
+            account_keyinstance_data = other_keyinstance_data.get(account_id, [])
+            found_types = set(key.derivation_type
+                for (key, _derivation_data2) in account_keyinstance_data)
             if found_types & private_key_types:
                 ikeystore = account_keystores[account_id] = Imported_KeyStore()
-                ikeystore.load_state(account_keys) # type: ignore
+                ikeystore.load_state([ t[0] for t in account_keyinstance_data ]) # type: ignore
 
-                for keyinstance in account_keys:
-                    public_key = ikeystore.get_public_key_for_id(keyinstance.keyinstance_id)
+                for keyinstance, derivation_data2 in account_keyinstance_data:
+                    public_key = PublicKey.from_bytes(derivation_data2)
                     for script_type in SINGLESIG_SCRIPT_TYPES:
                         script_template = get_single_signer_script_template(public_key,
                             script_type)
@@ -284,7 +295,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                             script_hash)
             elif found_types & address_types:
                 script_types = ACCOUNT_SCRIPT_TYPES[AccountType.IMPORTED_ADDRESS]
-                for keyinstance in account_keys:
+                for keyinstance, _derivation_data2 in account_keyinstance_data:
                     hash = extract_public_key_hash(keyinstance) # type: ignore
                     script_template = Address.from_string(hash, Net.COIN)
                     script_hash = scripthash_bytes(script_template.to_script_bytes())
@@ -347,6 +358,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             # All the inputs are inserts, so a single lookup here should prove existence of a spend.
             txi_spend = txi_inserts.get(txo_data.key)
             txo_update = txo_updates.get(txo_data.key)
+            spending_tx_hash: Optional[bytes] = None
+            spending_txi_index: Optional[int] = None
             txo_flags = txo_data.flags
             if txo_update:
                 # The output already exists. So there should already be a positive tx delta also.
@@ -359,6 +372,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                         # EFFECT: Account for a previously unrecognised spend.
                         # tx_deltas[(txi_spend.tx_hash, keyinstance_id)] -= txo_data.value
                         txo_flags |= TransactionOutputFlag.IS_SPENT
+                    spending_tx_hash = txi_spend.tx_hash
+                    spending_txi_index = txi_spend.txi_index
                 else:
                     if txo_data.flags & TransactionOutputFlag.IS_SPENT:
                         raise DatabaseMigrationError(_("txo update spent with no txi"))
@@ -367,7 +382,9 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                 txo_updates[txo_data.key] = txo_update._replace(
                     flags=txo_data.flags,
                     keyinstance_id=txo_update.keyinstance_id,
-                    script_type=kscript.script_type)
+                    script_type=kscript.script_type,
+                    spending_tx_hash=spending_tx_hash,
+                    spending_txi_index=spending_txi_index)
             else:
                 txo_insert = txo_inserts[txo_data.key]
                 # EFFECT: Account for a newly recognised receipt.
@@ -377,10 +394,14 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                     # EFFECT: Account for a newly recognised spend.
                     # tx_deltas[(txi_spend.tx_hash, keyinstance_id)] -= txo_data.value
                     txo_flags |= TransactionOutputFlag.IS_SPENT
+                    spending_tx_hash = txi_spend.tx_hash
+                    spending_txi_index = txi_spend.txi_index
                 txo_inserts[txo_data.key] = txo_insert._replace(
                     flags=txo_flags,
                     keyinstance_id=keyinstance_id,
-                    script_type=kscript.script_type)
+                    script_type=kscript.script_type,
+                    spending_tx_hash=spending_tx_hash,
+                    spending_txi_index=spending_txi_index)
 
     # ------------------------------------------------------------------------
     # Update the database.
@@ -436,6 +457,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     logger.debug("fix table TransactionOutputs by creating secondary table")
     conn.execute("CREATE TABLE IF NOT EXISTS TransactionOutputs2 ("
         "tx_hash BLOB NOT NULL,"
+        # TODO(nocheckin) rename txo_index
         "tx_index INTEGER NOT NULL,"
         "value INTEGER NOT NULL,"
         "keyinstance_id INTEGER DEFAULT NULL,"
@@ -444,6 +466,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         "script_hash BLOB NOT NULL DEFAULT x'',"
         "script_offset INTEGER DEFAULT 0,"
         "script_length INTEGER DEFAULT 0,"
+        "spending_tx_hash BLOB NULL,"
+        "spending_txi_index INTEGER NULL,"
         "date_created INTEGER NOT NULL,"
         "date_updated INTEGER NOT NULL,"
         "FOREIGN KEY (tx_hash) REFERENCES Transactions (tx_hash),"
@@ -469,12 +493,13 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     logger.debug("inserting %d TransactionOutputs rows", len(txo_inserts))
     conn.executemany("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, "
         "keyinstance_id, flags, script_type, script_offset, script_length, script_hash, "
-        "date_created, date_updated) VALUES (?,?,?,?,?,?,?,?,?,?,?)", txo_inserts.values())
+        "spending_tx_hash, spending_txi_index, date_created, date_updated) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", txo_inserts.values())
 
     logger.debug("updating %d TransactionOutputs rows", len(txo_updates))
     cursor = conn.executemany("UPDATE TransactionOutputs SET script_type=?, script_hash=?, "
-        "flags=?, script_offset=?, script_length=?, date_updated=? WHERE tx_hash=? AND tx_index=?",
-        txo_updates.values())
+        "flags=?, script_offset=?, script_length=?, spending_tx_hash=?, spending_txi_index=?, "
+        "date_updated=? WHERE tx_hash=? AND tx_index=?", txo_updates.values())
     logger.debug("updated %d TransactionOutputs rows", cursor.rowcount)
     if cursor.rowcount != len(txo_updates):
         raise DatabaseMigrationError(f"Made {cursor.rowcount} txo changes, "
@@ -525,11 +550,17 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         raise DatabaseMigrationError(f"Made {cursor.rowcount} tx changes, "
             f"not the expected {len(tx_updates)}")
 
-    cursor = conn.execute("UPDATE Transactions SET flags=(flags&?)", (~TxFlags.HasByteData,))
+    # These flags are no longer used. For context, when we received notification from the indexer
+    # that a transaction was in the mempool using one of our keys, we used to store a bytedata-less
+    # record until we fetched the bytedata (hence HasByteData). And when we were experimenting
+    # with encrypted databases, we used to store packed encrypted data and indicate the presence
+    # of fields with values (hence HasFee, HasHeight and HasPosition).
+    tx_clear_bits = ~(TxFlags1.HasByteData|TxFlags1.HasFee|TxFlags1.HasHeight|TxFlags1.HasPosition)
+    cursor = conn.execute("UPDATE Transactions SET flags=(flags&?)", (tx_clear_bits,))
     logger.debug("cleared bytedata flag from %d transactions", cursor.rowcount)
 
     cursor = conn.execute("SELECT COUNT(*) FROM Transactions WHERE flags=(flags&?)!=0",
-        (TxFlags.HasByteData,))
+        (TxFlags1.HasByteData,))
     remaining_hasbytedata_count = cursor.fetchone()[0]
     if remaining_hasbytedata_count != 0:
         raise DatabaseMigrationError("Failed to clear HasByteData for "
@@ -613,7 +644,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
 
     logger.debug("creating view TransactionReceivedValues")
     conn.execute(
-        "CREATE VIEW TransactionReceivedValues (account_id, tx_hash, keyinstance_id, value_delta) "
+        "CREATE VIEW TransactionReceivedValues (account_id, tx_hash, keyinstance_id, value) "
         "AS "
             "SELECT ATX.account_id, ATX.tx_hash, TXO.keyinstance_id, TXO.value "
             "FROM AccountTransactions ATX "

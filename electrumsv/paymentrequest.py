@@ -158,8 +158,10 @@ class PaymentRequest:
     @classmethod
     def from_wallet_entry(cls, account: 'DeterministicAccount',
             pr: PaymentRequestRow) -> 'PaymentRequest':
+        wallet = account.get_wallet()
+        keyinstance = wallet.get_keyinstance(pr.keyinstance_id)
         script_type = account.get_default_script_type()
-        script = account.get_script_for_id(pr.keyinstance_id, script_type)
+        script = account.get_script_for_key_data(keyinstance, script_type)
         date_expiry = None
         if pr.expiration is not None:
             date_expiry = pr.date_created + pr.expiration

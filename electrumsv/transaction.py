@@ -42,6 +42,7 @@ from .constants import ScriptType
 from .logs import logs
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
+from .wallet_database.types import KeyDataType
 
 NO_SIGNATURE = b'\xff'
 dummy_public_key = PublicKey.from_bytes(bytes(range(3, 36)))
@@ -263,6 +264,10 @@ class XPublicKey:
             return pubkey.add(delta)
         raise ValueError("invalid key data")
 
+    def to_public_key_bytes(self) -> bytes:
+        assert self._pubkey_bytes is not None
+        return self._pubkey_bytes
+
     def to_address(self) -> Address:
         return self.to_public_key().to_address(coin=Net.COIN)
 
@@ -290,7 +295,13 @@ class XTxInput(TxInput):
     threshold: int = attr.ib(default=0)
     signatures: List[bytes] = attr.ib(default=attr.Factory(list))
     script_type: ScriptType = attr.ib(default=ScriptType.NONE)
-    keyinstance_id: Optional[int] = attr.ib(default=None)
+
+    # Key data.
+    key_data: Optional[KeyDataType] = attr.ib(default=None)
+
+    # Parsing metadata that we store in the database for easy script access.
+    # TODO(nocheckin) work out if this can be obtained without storing it on the class. It does
+    # not really belong here.
     script_offset: int = attr.ib(default=0)
     script_length: int = attr.ib(default=0)
 
@@ -391,9 +402,24 @@ class XTxInput(TxInput):
 
 @attr.s(slots=True, repr=False)
 class XTxOutput(TxOutput):
-    '''An extended bitcoin transaction output.'''
+    """
+    An extended Bitcoin transaction output.
+
+    This primarily adds information required to construct the output script. But it also includes
+    spending key data if applicable, and the relevant transaction outputs are owned by a account
+    in the wallet.
+    """
+    # Used for constructing output scripts.
+    # Exchanged in incomplete transactions as useful metadata.
     script_type: ScriptType = attr.ib(default=ScriptType.NONE)
     x_pubkeys: List[XPublicKey] = attr.ib(default=attr.Factory(list))
+
+    # Key data.
+    key_data: Optional[KeyDataType] = attr.ib(default=None)
+
+    # Parsing metadata that we store in the database for easy script access.
+    # TODO(nocheckin) work out if this can be obtained without storing it on the class. It does
+    # not really belong here.
     script_offset: int = attr.ib(default=0)
     script_length: int = attr.ib(default=0)
 
@@ -412,7 +438,8 @@ class XTxOutput(TxOutput):
     def __repr__(self):
         return (
             f'XTxOutput(value={self.value}, script_pubkey="{self.script_pubkey}", '
-            f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys})'
+            f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys}, '
+            f'script_offset={self.script_offset}, script_length={self.script_length})'
         )
 
 
@@ -575,19 +602,27 @@ def parse_script_sig(script: bytes, kwargs: Dict[str, Any]) -> None:
     return
 
 
-def txdict_from_str(txt: str) -> Dict[str, Any]:
-    "Takes json or hexadecimal, returns a hexadecimal string."
+def tx_dict_from_text(text: str) -> Dict[str, Any]:
+    """
+    Takes json or hexadecimal, returns a dictionary.
+
+    Raises `ValueError` if the text is not valid.
+    """
     import json
-    txt = txt.strip()
-    if not txt:
+    text = text.strip()
+    if not text:
         raise ValueError("empty string")
+
     try:
-        bytes.fromhex(txt)
-        return { "hex": txt }
-    except Exception:
+        bytes.fromhex(text)
+    except ValueError:
         pass
-    tx_dict = json.loads(txt)
-    assert "hex" in tx_dict
+    else:
+        return { "hex": text }
+
+    tx_dict = json.loads(text)
+    if "hex" not in tx_dict:
+        raise ValueError("invalid transaction format")
     return tx_dict
 
 

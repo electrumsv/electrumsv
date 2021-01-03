@@ -2,7 +2,7 @@ from collections import deque
 from itertools import chain
 from sys import getsizeof
 
-import bitcoinx
+from bitcoinx import Script
 
 from electrumsv.constants import ScriptType
 from electrumsv.transaction import Transaction, XTxInput, XTxOutput, XPublicKey
@@ -19,11 +19,11 @@ def obj_size(o):
 
     Additionally calculates the size of:
     - electrumsv.transaction.Transaction
+    - electrumsv.transaction.XPublicKey - approximation based on their serialized bytes footprint
     - electrumsv.transaction.XTxInput
     - electrumsv.transaction.XTxOutput
     - electrumsv.constants.ScriptType
     - bitcoinx.Script
-    - bitcoinx.XPublicKey - approximation based on their serialized bytes footprint
     """
     dict_handler = lambda d: chain.from_iterable(d.items())
 
@@ -52,7 +52,7 @@ def obj_size(o):
         seen.add(id(o))
         s = getsizeof(o, default_size)
 
-        if isinstance(o, bitcoinx.Script):
+        if isinstance(o, Script):
             s = len(o)
 
         if isinstance(o, ScriptType):

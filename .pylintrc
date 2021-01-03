@@ -160,7 +160,9 @@ enable=abstract-class-instantiated,
        unnecessary-semicolon,
        unneeded-not,
        unreachable,
-       #unsubscriptable-object,
+       # Disabled due to pylint false positives with mypy
+       # "E1136: Value 'Optional' is unsubscriptable (unsubscriptable-object)"
+       # unsubscriptable-object,
        unsupported-assignment-operation,
        unsupported-binary-operation,
        unsupported-delete-operation,

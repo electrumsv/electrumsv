@@ -23,18 +23,21 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import List, Optional
+from typing import List, Optional, Set
 import weakref
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QAbstractItemView, QMenu, QWidget
 
-from electrumsv.app_state import app_state
-from electrumsv.i18n import _
-from electrumsv.platform import platform
-from electrumsv.util import profiler
-from electrumsv.wallet import AbstractAccount, UTXO
+from ...app_state import app_state
+from ...constants import TransactionOutputFlag
+from ...i18n import _
+from ...platform import platform
+from ...types import TxoKeyType
+from ...util import profiler
+from ...wallet import AbstractAccount
+from ...wallet_database.types import TransactionOutputSpendableRow2
 
 from .main_window import ElectrumWindow
 from .util import SortableTreeWidgetItem, MyTreeWidget, ColorScheme
@@ -80,27 +83,26 @@ class UTXOList(MyTreeWidget):
         prev_selection = self.get_selected() # cache previous selection, if any
         self.clear()
 
-        for utxo in self._account.get_utxos():
-            metadata = self._account.get_transaction_metadata(utxo.tx_hash)
+        for utxo in self._account.get_spendable_transaction_outputs_extended():
             prevout_str = utxo.key_str()
             prevout_str = prevout_str[0:10] + '...' + prevout_str[-2:]
             label = self._account.get_transaction_label(utxo.tx_hash)
             amount = app_state.format_amount(utxo.value, whitespaces=True)
             utxo_item = SortableTreeWidgetItem(
-                [ prevout_str, label, amount, str(metadata.height) ])
+                [ prevout_str, label, amount, str(utxo.block_height) ])
             # set this here to avoid sorting based on Qt.UserRole+1
             utxo_item.DataRole = Qt.UserRole+100
             for col in (0, 2):
                 utxo_item.setFont(col, self._monospace_font)
             utxo_item.setData(0, Qt.UserRole+2, utxo)
-            if self._account.is_frozen_utxo(utxo):
+            if utxo.flags & TransactionOutputFlag.IS_FROZEN:
                 utxo_item.setBackground(0, ColorScheme.BLUE.as_color(True))
             self.addChild(utxo_item)
             if utxo in prev_selection:
                 # NB: This needs to be here after the item is added to the widget. See #979.
                 utxo_item.setSelected(True) # restore previous selection
 
-    def get_selected(self):
+    def get_selected(self) -> Set[TransactionOutputSpendableRow2]:
         return {item.data(0, Qt.UserRole+2) for item in self.selectedItems()}
 
     def create_menu(self, position) -> None:
@@ -111,18 +113,18 @@ class UTXOList(MyTreeWidget):
         menu.addAction(_("Spend"), lambda: self._main_window.spend_coins(coins))
 
         def freeze_coins() -> None:
-            self.freeze_coins(coins, True)
+            self._freeze_coins(coins, True)
         def unfreeze_coins() -> None:
-            self.freeze_coins(coins, False)
+            self._freeze_coins(coins, False)
 
-        any_c_frozen = any(self._account.is_frozen_utxo(coin) for coin in coins)
-        all_c_frozen = all(self._account.is_frozen_utxo(coin) for coin in coins)
+        any_c_frozen = any(coin.flags & TransactionOutputFlag.IS_FROZEN for coin in coins)
+        all_c_frozen = all(coin.flags & TransactionOutputFlag.IS_FROZEN for coin in coins)
 
         if len(coins) == 1:
             # single selection, offer them the "Details" option and also coin
             # "freeze" status, if any
             coin = list(coins)[0]
-            tx = self._account.get_transaction(coin.tx_hash)
+            tx = self._wallet.get_transaction(coin.tx_hash)
             menu.addAction(_("Details"), lambda: self._main_window.show_transaction(
                 self._account, tx))
             needsep = True
@@ -148,5 +150,5 @@ class UTXOList(MyTreeWidget):
         # disable editing fields in this tab (labels)
         return False
 
-    def freeze_coins(self, coins: List[UTXO], freeze: bool) -> None:
-        self._main_window.set_frozen_coin_state(self._account, coins, freeze)
+    def _freeze_coins(self, txo_keys: List[TxoKeyType], freeze: bool) -> None:
+        self._main_window.set_frozen_coin_state(self._account, txo_keys, freeze)
