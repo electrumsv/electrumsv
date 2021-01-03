@@ -44,9 +44,6 @@ from ..startup import package_dir
 from ..version import PACKAGE_DATE
 
 
-def inv_dict(d):
-    return {v: k for k, v in d.items()}
-
 
 def protocol_tuple(s):
     '''Converts a protocol version number, such as "1.0" to a tuple (1, 0).
@@ -157,20 +154,6 @@ class DaemonThread(threading.Thread):
         self.logger.debug("stopped")
 
 
-# Method decorator.  To be used for calculations that will always
-# deliver the same result.  The method cannot take any arguments
-# and should be accessed as an attribute.
-class cachedproperty(object):
-
-    def __init__(self, f):
-        self.f = f
-
-    def __get__(self, obj, type):
-        obj = obj or type
-        value = self.f(obj)
-        setattr(obj, self.f.__name__, value)
-        return value
-
 def json_encode(obj):
     try:
         s = json.dumps(obj, sort_keys = True, indent = 4, cls=MyEncoder)
@@ -204,15 +187,6 @@ def profiler(func):
     return lambda *args, **kw_args: do_profile(func, args, kw_args)
 
 
-def android_ext_dir():
-    try:
-        import jnius
-        env = jnius.autoclass('android.os.Environment')
-    except ImportError:
-        from android.os import Environment as env  # Chaquopy import hook
-    return env.getExternalStorageDirectory().getPath()
-
-
 def assert_datadir_available(config_path):
     path = config_path
     if os.path.exists(path):
@@ -241,14 +215,6 @@ def assert_bytes(*args):
     except AssertionError:
         logs.root.error('assert bytes failed %s', [type(arg) for arg in args])
         raise
-
-
-def assert_str(*args):
-    """
-    porting helper, assert args type
-    """
-    for x in args:
-        assert isinstance(x, str)
 
 
 def random_integer(nbits):
@@ -293,22 +259,6 @@ def bh2u(x):
     :rtype: str
     """
     return x.hex()
-
-def get_electron_cash_user_dir(esv_user_dir):
-    """Convert the ESV user directory to what it would be in Electron Cash.
-    This should allow the Electron Cash directory for the platform to be
-    located.
-
-    Arguments:
-    esv_user_dir --- the ElectrumSV `user_dir` generated path.
-    """
-    from electrumsv.app_state import app_state
-    if app_state.config.cmdline_options['portable']:
-        esv_user_dir = esv_user_dir.replace("electrum_sv_data", "electron_cash_data")
-    else:
-        esv_user_dir = esv_user_dir.replace(".electrum-sv", ".electron-cash")
-        esv_user_dir = esv_user_dir.replace("ElectrumSV", "ElectronCash")
-    return esv_user_dir
 
 
 def make_dir(path):
@@ -416,96 +366,6 @@ def time_difference(distance_in_time, include_seconds):
     else:
         return "over %d years" % (round(distance_in_minutes / 525600))
 
-# Python bug (http://bugs.python.org/issue1927) causes raw_input
-# to be redirected improperly between stdin/stderr on Unix systems
-#TODO: py3
-def raw_input(prompt=None):
-    if prompt:
-        sys.stdout.write(prompt)
-    return builtin_raw_input()
-
-import builtins
-builtin_raw_input = builtins.input
-builtins.input = raw_input
-
-
-def parse_json(message):
-    # TODO: check \r\n pattern
-    n = message.find(b'\n')
-    if n==-1:
-        return None, message
-    try:
-        j = json.loads(message[0:n].decode('utf8'))
-    except Exception:
-        j = None
-    return j, message[n+1:]
-
-
-class timeout(Exception):
-    pass
-
-TimeoutException = timeout # Future compat. with Electrum codebase/cherrypicking
-
-
-class SocketPipe:
-    def __init__(self, socket):
-        self.socket = socket
-        self.message = b''
-        self.set_timeout(0.1)
-        self.recv_time = time.time()
-        self.logger = logs.get_logger('SocketPipe')
-
-    def set_timeout(self, t):
-        self.socket.settimeout(t)
-
-    def idle_time(self):
-        return time.time() - self.recv_time
-
-    def get(self):
-        while True:
-            response, self.message = parse_json(self.message)
-            if response is not None:
-                return response
-            try:
-                data = self.socket.recv(1024)
-            except socket.timeout:
-                raise timeout
-            except ssl.SSLError:
-                raise timeout
-            except socket.error as err:
-                if err.errno == 60:
-                    raise timeout
-                elif err.errno in [11, 35, 10035]:
-                    self.logger.info("socket errno %d (resource temporarily unavailable)",
-                                     err.errno)
-                    time.sleep(0.2)
-                    raise timeout
-                else:
-                    self.logger.exception(f"socket.recv unknown socket.error {err.errno}")
-                    data = b''
-            except Exception as e:
-                self.logger.exception("socket.recv unknown exception {e}")
-                data = b''
-
-            if not data:  # Connection closed remotely
-                return None
-            self.message += data
-            self.recv_time = time.time()
-
-    def send(self, request):
-        out = json.dumps(request) + '\n'
-        out = out.encode('utf8')
-        self._send(out)
-
-    def send_all(self, requests):
-        out = b''.join((json.dumps(request) + '\n').encode('utf8') for request in requests)
-        self._send(out)
-
-    def _send(self, out):
-        while out:
-            sent = self.socket.send(out)
-            out = out[sent:]
-
 
 def setup_thread_excepthook():
     """
@@ -536,22 +396,28 @@ def setup_thread_excepthook():
 def get_wallet_name_from_path(wallet_path: str) -> str:
     return os.path.splitext(os.path.basename(wallet_path))[0]
 
+
 def versiontuple(v: str) -> Sequence[int]:
     return tuple(int(x) for x in v.split("."))
 
+
 def resource_path(*parts: Sequence[str]) -> str:
     return os.path.join(package_dir, "data", *parts) # type: ignore
+
 
 def read_resource_file(filename: str) -> str:
     path = resource_path(filename)
     with open(path, 'r') as f:
         return f.read()
 
+
 def text_resource_path(*parts: Sequence[str]) -> str:
     return resource_path("text", *parts) # type: ignore
 
+
 def read_resource_text(*parts: Sequence[str]) -> str:
     return read_resource_file(os.path.join("text", *parts)) # type: ignore
+
 
 def get_update_check_dates(new_date):
     from dateutil.parser import isoparse
@@ -560,6 +426,7 @@ def get_update_check_dates(new_date):
     # This is the rough date of the current release (might be stable or unstable).
     current_date = isoparse(PACKAGE_DATE).astimezone()
     return release_date, current_date
+
 
 def get_identified_release_signers(entry):
     signature_addresses = [

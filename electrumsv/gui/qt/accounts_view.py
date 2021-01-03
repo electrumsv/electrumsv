@@ -341,21 +341,22 @@ class AccountsView(QSplitter):
         vbox.addLayout(Buttons(CancelButton(d), b))
 
         private_keys = {}
-        keyinstance_ids = account.get_keyinstance_ids()
+        keyinstances = account.get_keyinstances()
         # TODO(ScriptTypeAssumption) really what we would have is the used script type for
         # each key, rather than just using the redeem script based on the accounts default
-        # script type.
+        # script type. However, who really exports their private keys? It seems like a weird
+        # thing to do and has no definitive use case.
         script_type = account.get_default_script_type()
         done = False
         cancelled = False
         def privkeys_thread():
-            nonlocal done, cancelled, keyinstance_ids, password, private_keys, script_type
-            for keyinstance_id in keyinstance_ids:
+            nonlocal done, cancelled, keyinstances, password, private_keys, script_type
+            for keyinstance in keyinstances:
                 time.sleep(0.1)
                 if done or cancelled:
                     break
-                privkey = account.export_private_key(keyinstance_id, password)
-                script_template = account.get_script_template_for_id(keyinstance_id, script_type)
+                privkey = account.export_private_key(keyinstance, password)
+                script_template = account.get_script_template_for_key_data(keyinstance, script_type)
                 script_text = script_template_to_string(script_template)
                 private_keys[script_text] = privkey
                 self.computing_privkeys_signal.emit()
@@ -381,7 +382,7 @@ class AccountsView(QSplitter):
                 self.show_privkeys_signal.disconnect()
 
         self.computing_privkeys_signal.connect(lambda: e.setText(
-            "Please wait... %d/%d" % (len(private_keys),len(keyinstance_ids))))
+            "Please wait... %d/%d" % (len(private_keys),len(keyinstances))))
         self.show_privkeys_signal.connect(show_privkeys)
         d.finished.connect(on_dialog_closed)
         threading.Thread(target=privkeys_thread).start()

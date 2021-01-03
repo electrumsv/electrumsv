@@ -206,14 +206,14 @@ command_options = {
 
 
 # don't use floats because of rounding errors
-from .transaction import txdict_from_str
+from .transaction import tx_dict_from_text
 json_loads = lambda x: json.loads(x, parse_float=lambda x: str(Decimal(x)))
 arg_types = {
     'num': int,
     'nbits': int,
     'imax': int,
     'year': int,
-    'tx': txdict_from_str,
+    'tx': tx_dict_from_text,
     'pubkeys': json_loads,
     'jsontx': json_loads,
     'inputs': json_loads,

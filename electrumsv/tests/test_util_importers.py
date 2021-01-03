@@ -1,9 +1,10 @@
-from typing import Sequence
+from typing import List
 
 from bitcoinx import hex_str_to_hash
 import pytest
 
 from electrumsv.util.importers import identify_label_import_format, LabelImport, LabelImportFormat
+from electrumsv.wallet_database.types import KeyInstanceRow
 
 
 wallet_both_text = """{
@@ -151,7 +152,7 @@ def test_label_import_format_identification(sample: str, import_type: LabelImpor
     assert import_type == identify_label_import_format(sample)
 
 class MockAccount:
-    def get_keyinstance_ids(self) -> Sequence[int]:
+    def get_keyinstances(self) -> List[KeyInstanceRow]:
         return []
 
 

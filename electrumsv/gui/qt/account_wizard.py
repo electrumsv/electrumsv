@@ -660,15 +660,20 @@ class ImportWalletTextPage(QWizardPage):
 
                 try:
                     address = Address.from_string(word, Net.COIN)
-                    if isinstance(address, P2SH_Address):
-                        raise ValueError("P2SH not supported")
                 except (Base58Error, ValueError):
+                    # Base58Error: Invalid checksum.
+                    # ValueError: Invalid address (wrong sized data).
+                    # ValueError: Wrong version byte for given network.
                     pass
                 else:
-                    match_found = True
-                    if KeystoreTextType.ADDRESSES not in matches:
-                        matches[KeystoreTextType.ADDRESSES] = set()
-                    matches[KeystoreTextType.ADDRESSES].add(word)
+                    # NOTE(P2SHNotImportable) wallet import code does not need to handle P2SH.
+                    if isinstance(address, P2SH_Address):
+                        pass
+                    else:
+                        match_found = True
+                        if KeystoreTextType.ADDRESSES not in matches:
+                            matches[KeystoreTextType.ADDRESSES] = set()
+                        matches[KeystoreTextType.ADDRESSES].add(word)
 
                 if not match_found:
                     if KeystoreTextType.UNRECOGNIZED not in matches:

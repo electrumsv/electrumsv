@@ -132,7 +132,6 @@ class TestImported_KeyStore:
         public_key = PrivateKey.from_text(WIF).public_key
         d = Imported_KeyStore({})
         d.import_private_key(1, public_key, enc_prvkey_text)
-        assert d.get_public_key_for_id(1) == public_key
         assert WIF == d.export_private_key(public_key, "password")
 
     def test_sign_message(self):

@@ -1,10 +1,9 @@
-import asyncio
 import json
 import os
 import logging
 from concurrent.futures.thread import ThreadPoolExecutor
 from json import JSONDecodeError
-from typing import Optional, Union, List, Dict, Any, Iterable, Tuple
+from typing import Optional, Union, List, Dict, Any, Tuple
 
 import bitcoinx
 from bitcoinx import TxOutput, hash_to_hex_str, hex_str_to_hash
@@ -12,17 +11,21 @@ from aiohttp import web
 
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.coinchooser import PRNG
-from electrumsv.constants import TxFlags, RECEIVING_SUBPATH, DATABASE_EXT
+from electrumsv.constants import (CHANGE_SUBPATH, DATABASE_EXT, TransactionOutputFlag, TxFlags,
+    unpack_derivation_path)
 from electrumsv.exceptions import NotEnoughFunds
 from electrumsv.networks import Net
 from electrumsv.restapi_endpoints import HandlerUtils, VARNAMES, ARGTYPES
 from electrumsv.transaction import Transaction
-from electrumsv.wallet import AbstractAccount, Wallet, UTXO
+from electrumsv.wallet import AbstractAccount, Wallet
 from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, get_network_type, decode_request_body
 from electrumsv.simple_config import SimpleConfig
+from electrumsv.types import TxoKeyType
 from electrumsv.wallet_database.tables import MissingRowError
+from electrumsv.wallet_database.types import (TransactionOutputSpendableRow,
+    TransactionOutputSpendableRow2)
 from .errors import Errors
 
 logger = logging.getLogger("blockchain-support")
@@ -182,7 +185,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
         utxos = vars.get(VNAME.UTXOS)
         if utxos:
-            vars[VNAME.UTXOS] = self.utxos_from_dicts(utxos)
+            vars[VNAME.UTXOS] = self.utxokeys_from_list(utxos)
 
         if required_vars:
             self.raise_for_var_missing(vars, required_vars)
@@ -191,29 +194,16 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     # ----- Support functions ----- #
 
-    def utxo_as_dict(self, utxo):
+    def utxo_as_dict(self, utxo: TransactionOutputSpendableRow):
         return {"value": utxo.value,
-                "script_pubkey": utxo.script_pubkey.to_hex(),
+                # "script_pubkey": utxo.script_pubkey.to_hex(), # TODO(nocheckin) not in struct
                 "script_type": utxo.script_type,
                 "tx_hash": hash_to_hex_str(utxo.tx_hash),
-                "out_index": utxo.out_index,
+                "out_index": utxo.txo_index,
                 "keyinstance_id": utxo.keyinstance_id,
-                "address": utxo.address.to_string(),
-                "is_coinbase": utxo.is_coinbase,
+                # "address": utxo.address.to_string(), # TODO(nocheckin) not in struct
+                "is_coinbase": utxo.flags & TransactionOutputFlag.IS_COINBASE != 0,
                 "flags": utxo.flags}  # TransactionOutputFlag(s) only
-
-    def utxo_from_dict(self, d):
-        return UTXO(
-            value=d['value'],
-            script_pubkey=bitcoinx.Script.from_hex(d['script_pubkey']),
-            script_type=d['script_type'],
-            tx_hash=bitcoinx.hex_str_to_hash(d['tx_hash']),
-            out_index=d['out_index'],
-            keyinstance_id=d['keyinstance_id'],
-            address=bitcoinx.Address.from_string(d['address'], coin=Net.COIN),
-            is_coinbase=d['is_coinbase'],
-            flags=d['flags']
-        )
 
     def outputs_from_dicts(self, outputs: Optional[List[Dict[str, Any]]]) -> List[TxOutput]:
         outputs_from_dicts = []
@@ -223,11 +213,11 @@ class ExtendedHandlerUtils(HandlerUtils):
                                                         script_pubkey=spk))
         return outputs_from_dicts
 
-    def utxos_from_dicts(self, utxos: Optional[List[Dict[str, Any]]]) -> List[UTXO]:
-        utxos_from_dicts = []
-        for utxo in utxos:
-            utxos_from_dicts.append(self.utxo_from_dict(utxo))
-        return utxos_from_dicts
+    def utxokeys_from_list(self, entries: List[Tuple[str, int]]) -> List[TxoKeyType]:
+        return [
+            TxoKeyType(bitcoinx.hex_str_to_hash(tx_id), txo_index)
+            for (tx_id, txo_index) in entries
+        ]
 
     def raise_for_duplicate_tx(self, tx):
         """because the network can be very slow to give this important feedback and instead will
@@ -297,10 +287,10 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     def _fetch_transaction_dto(self, account: AbstractAccount, tx_id) -> Optional[Dict]:
         tx_hash = hex_str_to_hash(tx_id)
-        tx = account.get_transaction(tx_hash)
-        if not tx:
+        tx_bytes = account._wallet.get_transaction_bytes(tx_hash)
+        if tx_bytes is None:
             raise Fault(Errors.TRANSACTION_NOT_FOUND_CODE, Errors.TRANSACTION_NOT_FOUND_MESSAGE)
-        return {"tx_hex": tx.to_hex()}
+        return {"tx_hex": tx_bytes.hex()}
 
     def _wallet_name_available(self, wallet_name) -> bool:
         available_wallet_names = self._get_all_wallets(self.wallets_path)
@@ -373,7 +363,7 @@ class ExtendedHandlerUtils(HandlerUtils):
                 "unconfirmed_balance": unconfirmed_bal,
                 "unmatured_balance": unmatured_balance}
 
-    def _utxo_dto(self, utxos: List[UTXO]) -> List[Dict]:
+    def _utxo_dto(self, utxos: List[TransactionOutputSpendableRow]) -> List[Dict]:
         utxos_as_dicts = []
         for utxo in utxos:
             utxos_as_dicts.append(self.utxo_as_dict(utxo))
@@ -381,14 +371,12 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     def _history_dto(self, account: AbstractAccount, tx_flags: int=None) -> List[Dict[Any, Any]]:
         result = []
-        entries = account._wallet._transaction_cache.get_entries(mask=tx_flags)
-        for tx_hash, entry in entries:
-            tx_values = account._wallet.get_transaction_deltas(tx_hash, account.get_id())
-            assert len(tx_values) == 1
-            result.append({"txid": hash_to_hex_str(tx_hash),
-                           "height": entry.metadata.height,
+        entries = account._wallet.get_transaction_value_entries(mask=tx_flags)
+        for entry in entries:
+            result.append({"txid": hash_to_hex_str(entry.tx_hash),
+                           "height": entry.block_height,
                            "tx_flags": entry.flags,
-                           "value": int(tx_values[0].total)})
+                           "value": entry.value})
         return result
 
     def _account_dto(self, account) -> Dict[Any, Any]:
@@ -407,19 +395,20 @@ class ExtendedHandlerUtils(HandlerUtils):
         return accounts
 
     def _coin_state_dto(self, account) -> Union[Fault, Dict[str, Any]]:
-        all_coins = account.get_spendable_coins(None, {})
+        all_coins = account.get_spendable_transaction_outputs_extended(confirmed_only=False,
+            mature=False)
         unmatured_coins = []
         cleared_coins = []
         settled_coins = []
 
         for coin in all_coins:
-            metadata = account.get_transaction_metadata(coin.tx_hash)
-            if metadata.position == 0:
-                if metadata.height + COINBASE_MATURITY > account._wallet.get_local_height():
+            if coin.flags & TransactionOutputFlag.IS_COINBASE:
+                if coin.block_height + COINBASE_MATURITY > account._wallet.get_local_height():
                     unmatured_coins.append(coin)
-            elif metadata.height >= 1:
+                    continue
+            if coin.tx_flags & TxFlags.StateSettled:
                 settled_coins.append(coin)
-            elif metadata.height <= 1:
+            elif coin.tx_flags & TxFlags.StateCleared:
                 cleared_coins.append(coin)
 
         return {"cleared_coins": len(cleared_coins),
@@ -435,29 +424,31 @@ class ExtendedHandlerUtils(HandlerUtils):
                                                             VNAME.OUTPUTS, VNAME.PASSWORD])
             wallet_name = vars[VNAME.WALLET_NAME]
             index = vars[VNAME.ACCOUNT_ID]
+            # TODO(nocheckin) this should pass in ids and lookup values
             outputs = vars[VNAME.OUTPUTS]
 
+            # TODO(nocheckin) this should pass in ids and lookup values
             utxos = vars.get(VNAME.UTXOS, None)
             utxo_preselection = vars.get(VNAME.UTXO_PRESELECTION, True)
             password = vars.get(VNAME.PASSWORD, None)
 
-            child_wallet = self._get_account(wallet_name, index)
+            account = self._get_account(wallet_name, index)
 
             if not utxos:
                 exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, True)
                 confirmed_only = vars.get(VNAME.CONFIRMED_ONLY, False)
                 mature = vars.get(VNAME.MATURE, True)
-                utxos = child_wallet.get_utxos(exclude_frozen=exclude_frozen,
-                                               confirmed_only=confirmed_only, mature=mature)
+                utxos = account.get_spendable_transaction_outputs(exclude_frozen=exclude_frozen,
+                    confirmed_only=confirmed_only, mature=mature)
 
             if utxo_preselection:  # Defaults to True
                 utxos = self.preselect_utxos(utxos, outputs)
 
             # Todo - loop.run_in_executor
-            tx = child_wallet.make_unsigned_transaction(utxos, outputs, self.app_state.config)
+            tx = account.make_unsigned_transaction(utxos, outputs)
             self.raise_for_duplicate_tx(tx)
-            child_wallet.sign_transaction(tx, password)
-            return tx, child_wallet, password
+            account.sign_transaction(tx, password)
+            return tx, account, password
         except NotEnoughFunds:
             raise Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE)
 
@@ -467,92 +458,89 @@ class ExtendedHandlerUtils(HandlerUtils):
         self.logger.debug("successful broadcast for %s", result)
         return result
 
-    def remove_transaction(self, tx_hash: bytes, wallet: AbstractAccount):
+    def remove_transaction(self, tx_hash: bytes, account: AbstractAccount) -> None:
         # removal of txs that are not in the StateSigned tx state is disabled for now as it may
         # cause issues with expunging utxos inadvertently.
         try:
-            tx = wallet.get_transaction(tx_hash)
-            tx_flags = wallet._wallet._transaction_cache.get_flags(tx_hash)
+            tx_flags = account._wallet.get_transaction_flags(tx_hash)
             is_signed_state = (tx_flags & TxFlags.StateSigned) == TxFlags.StateSigned
             # Todo - perhaps remove restriction to StateSigned only later (if safe for utxos state)
-            if tx and is_signed_state:
-                wallet.delete_transaction(tx_hash)
-            if tx and not is_signed_state:
+            if not is_signed_state:
                 raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
+            account._wallet.remove_transaction(tx_hash)
         except MissingRowError:
             raise Fault(Errors.TRANSACTION_NOT_FOUND_CODE, Errors.TRANSACTION_NOT_FOUND_MESSAGE)
 
     def select_inputs_and_outputs(self, config: SimpleConfig,
-                                  wallet: AbstractAccount,
-                                  base_fee: int,
-                                  split_count: int = 50,
-                                  split_value: int = 10000,
-                                  desired_utxo_count: int = 2000,
-                                  max_utxo_margin: int = 200,
-                                  require_confirmed: bool = True,
-                                  ) -> Union[Tuple[List[UTXO], List[TxOutput], bool], Fault]:
+            account: AbstractAccount,
+            base_fee: int,
+            split_count: int = 50,
+            split_value: int = 10000,
+            desired_utxo_count: int = 2000,
+            max_utxo_margin: int = 200,
+            require_confirmed: bool = True,
+            ) -> Union[Tuple[List[TransactionOutputSpendableRow], List[TxOutput], bool], Fault]:
 
         INPUT_COST = config.estimate_fee(INPUT_SIZE)
         OUTPUT_COST = config.estimate_fee(OUTPUT_SIZE)
 
+        all_coins = account.get_spendable_transaction_outputs(TransactionOutputFlag.NONE,
+            TransactionOutputFlag.IS_SPENT | TransactionOutputFlag.RESERVED_MASK,
+            require_key_usage=True)
         # adds extra inputs as required to meet the desired utxo_count.
-        with wallet._utxos_lock:
-            # Todo - optional filtering for frozen/maturity state (expensive for many utxos)?
-            all_coins = wallet._utxos.values()  # no filtering for frozen or maturity state for speed.
+        # Ignore coins that are too expensive to send, or not confirmed.
+        # Todo - this is inefficient to iterate over all coins (need better handling of dust utxos)
+        if require_confirmed:
+            get_metadata = account.get_transaction_metadata
+            spendable_coins = [coin for coin in all_coins
+                if coin.value > (INPUT_COST + OUTPUT_COST)
+                and get_metadata(coin.tx_hash).height > 0]
+        else:
+            spendable_coins = [coin for coin in all_coins if
+                                coin.value > (INPUT_COST + OUTPUT_COST)]
 
-            # Ignore coins that are too expensive to send, or not confirmed.
-            # Todo - this is inefficient to iterate over all coins (need better handling of dust utxos)
-            if require_confirmed:
-                get_metadata = wallet.get_transaction_metadata
-                spendable_coins = [coin for coin in all_coins if coin.value > (INPUT_COST + OUTPUT_COST)
-                                   and get_metadata(coin.tx_hash).height > 0]
-            else:
-                spendable_coins = [coin for coin in all_coins if
-                                   coin.value > (INPUT_COST + OUTPUT_COST)]
+        inputs = []
+        outputs = []
+        selection_value = base_fee
+        attempted_split = False
+        if len(all_coins) < desired_utxo_count:
+            attempted_split = True
+            split_count = min(split_count,
+                                desired_utxo_count - len(all_coins) + max_utxo_margin)
 
-            inputs = []
-            outputs = []
-            selection_value = base_fee
-            attempted_split = False
-            if len(all_coins) < desired_utxo_count:
-                attempted_split = True
-                split_count = min(split_count,
-                                  desired_utxo_count - len(all_coins) + max_utxo_margin)
+            # Increase the transaction cost for the additional required outputs.
+            selection_value += split_count * OUTPUT_COST + split_count * split_value
 
-                # Increase the transaction cost for the additional required outputs.
-                selection_value += split_count * OUTPUT_COST + split_count * split_value
-
-                # Collect sufficient inputs to cover the output value.
-                # highest value coins first for splitting
-                ordered_coins = sorted(spendable_coins, key=lambda k: k.value, reverse=True)
-                for coin in ordered_coins:
-                    inputs.append(coin)
-                    if sum(input.value for input in inputs) >= selection_value:
-                        break
-                    # Increase the transaction cost for the additional required input.
-                    selection_value += INPUT_COST
-
-                if len(inputs):
-                    # We ensure that we do not use conflicting addresses for the split outputs by
-                    # explicitly generating the addresses we are splitting to.
-                    fresh_keys = wallet.get_fresh_keys(RECEIVING_SUBPATH, count=split_count)
-                    for key in fresh_keys:
-                        derivation_path = wallet.get_derivation_path(key.keyinstance_id)
-                        pubkey = wallet.derive_pubkeys(derivation_path)
-                        outputs.append(TxOutput(split_value, pubkey.P2PKH_script()))
-                    return inputs, outputs, attempted_split
-
-            for coin in spendable_coins:
+            # Collect sufficient inputs to cover the output value.
+            # highest value coins first for splitting
+            ordered_coins = sorted(spendable_coins, key=lambda k: k.value, reverse=True)
+            for coin in ordered_coins:
                 inputs.append(coin)
                 if sum(input.value for input in inputs) >= selection_value:
                     break
                 # Increase the transaction cost for the additional required input.
                 selection_value += INPUT_COST
-            else:
-                # We failed to collect enough inputs to cover the outputs.
-                raise InsufficientCoinsError
 
-            return inputs, outputs, attempted_split
+            if len(inputs):
+                # We ensure that we do not use conflicting addresses for the split outputs by
+                # explicitly generating the addresses we are splitting to.
+                for key in account.get_fresh_keys(CHANGE_SUBPATH, count=split_count):
+                    derivation_path = unpack_derivation_path(key.derivation_data2)
+                    pubkey = account.derive_pubkeys(derivation_path)
+                    outputs.append(TxOutput(split_value, pubkey.P2PKH_script()))
+                return inputs, outputs, attempted_split
+
+        for coin in spendable_coins:
+            inputs.append(coin)
+            if sum(input.value for input in inputs) >= selection_value:
+                break
+            # Increase the transaction cost for the additional required input.
+            selection_value += INPUT_COST
+        else:
+            # We failed to collect enough inputs to cover the outputs.
+            raise InsufficientCoinsError
+
+        return inputs, outputs, attempted_split
 
     def cleanup_tx(self, tx, account):
         """Use of the frozen utxo mechanic may be phased out because signing a tx allocates the

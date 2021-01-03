@@ -87,42 +87,6 @@ stages:
         parameters:
           pythonVersion: '3.9'
 
-  - job: MainUnittestsPy38
-    displayName: Main Unittests (Python 3.8)
-    pool:
-      vmImage: 'ubuntu-16.04'
-    steps:
-      - template: prepare-general-environment.yml
-        parameters:
-          pythonVersion: '3.8'
-      - template: run_main_unittests.yml
-        parameters:
-          pythonVersion: '3.8'
-
-  - job: RESTAPIUnittestsPy38
-    displayName: REST API tests (Python 3.8)
-    pool:
-      vmImage: 'ubuntu-16.04'
-    steps:
-      - template: prepare-general-environment.yml
-        parameters:
-          pythonVersion: '3.8'
-      - template: run_restapi_unittests.yml
-        parameters:
-          pythonVersion: '3.8'
-
-  - job: TestFunctionalPy38
-    displayName: Functional tests (Python 3.8)
-    pool:
-      vmImage: 'ubuntu-16.04'
-    steps:
-      - template: prepare-general-environment.yml
-        parameters:
-          pythonVersion: '3.8'
-      - template: run_functional_tests.yml
-        parameters:
-          pythonVersion: '3.8'
-
 
 - stage: 'Build'
   displayName: 'Build ElectrumSV'

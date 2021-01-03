@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import QVBoxLayout, QLabel
 from ...bitcoin import script_template_to_string
 from ...constants import ScriptType
 from ...i18n import _
+from ...wallet_database.types import KeyDataTypes
 
 from .main_window import ElectrumWindow
 from .util import WindowModalDialog, ButtonsLineEdit, ColorScheme, Buttons, CloseButton
@@ -38,18 +39,17 @@ from .qrtextedit import ShowQRTextEdit
 
 
 class KeyDialog(WindowModalDialog):
-    def __init__(self, main_window: ElectrumWindow, account_id: int, key_id: int,
+    def __init__(self, main_window: ElectrumWindow, account_id: int, key_data: KeyDataTypes,
             script_type: ScriptType) -> None:
         WindowModalDialog.__init__(self, main_window, _("Key"))
         self._account_id = account_id
-        self._key_id = key_id
+        self._key_data = key_data
         self._script_type = script_type
         self._main_window = main_window
         self._account = main_window._wallet.get_account(account_id)
         self._config = main_window.config
         self._app = main_window.app
         self._saved = True
-
 
         self.setMinimumWidth(700)
         vbox = QVBoxLayout()
@@ -64,7 +64,7 @@ class KeyDialog(WindowModalDialog):
         vbox.addWidget(self._key_edit)
         self.update_key()
 
-        pubkeys = self._account.get_public_keys_for_id(key_id)
+        pubkeys = self._account.get_public_keys_for_key_data(key_data)
         if pubkeys:
             vbox.addWidget(QLabel(_("Public keys") + ':'))
             for pubkey in pubkeys:
@@ -72,7 +72,8 @@ class KeyDialog(WindowModalDialog):
                 pubkey_e.addCopyButton(self._app)
                 vbox.addWidget(pubkey_e)
 
-        payment_template = self._account.get_script_template_for_id(key_id, self._script_type)
+        payment_template = self._account.get_script_template_for_key_data(key_data,
+            self._script_type)
         vbox.addWidget(QLabel(_("Payment script") + ':'))
         redeem_e = ShowQRTextEdit(text=payment_template.to_script_bytes().hex())
         redeem_e.addCopyButton(self._app)
@@ -96,7 +97,8 @@ class KeyDialog(WindowModalDialog):
             self._history_list.update_tx_item(*args)
 
     def update_key(self) -> None:
-        script_template = self._account.get_script_template_for_id(self._key_id, self._script_type)
+        script_template = self._account.get_script_template_for_key_data(self._key_data,
+            self._script_type)
         if script_template is not None:
             text = script_template_to_string(script_template)
             self._key_edit.setText(text)
@@ -105,7 +107,8 @@ class KeyDialog(WindowModalDialog):
         return [self._key_id]
 
     def show_qr(self) -> None:
-        script_template = self._account.get_script_template_for_id(self._key_id, self._script_type)
+        script_template = self._account.get_script_template_for_key_data(self._key_data,
+            self._script_type)
         if script_template is not None:
             text = script_template_to_string(script_template)
             try:

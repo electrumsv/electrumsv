@@ -89,9 +89,10 @@ class RequestList(MyTreeWidget):
             pr = table.read_one(pr_id)
         expires = age(pr.date_created + pr.expiration) if pr.expiration else _('Never')
 
-        self._receive_view.set_receive_key_id(pr.keyinstance_id)
+        keyinstance = self._account._wallet.get_keyinstance(pr.keyinstance_id)
+        self._receive_view.set_receive_key_data(keyinstance)
         # TODO(ScriptTypeAssumption) see above for context
-        script_template = self._account.get_script_template_for_id(pr.keyinstance_id,
+        script_template = self._account.get_script_template_for_key_data(keyinstance,
             self._account.get_default_script_type())
         address_text = script_template_to_string(script_template)
         self._receive_view.set_form_contents(address_text, pr.value, pr.description, expires)
@@ -106,8 +107,8 @@ class RequestList(MyTreeWidget):
                 mask=PaymentFlag.ARCHIVED)
 
         # update the receive address if necessary
-        current_key_id = self._receive_view.get_receive_key_id()
-        if current_key_id is None:
+        current_key_data = self._receive_view.get_receive_key_data()
+        if current_key_data is None:
             return
 
         keyinstance = None
@@ -115,7 +116,8 @@ class RequestList(MyTreeWidget):
             keyinstance = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
         if keyinstance is not None:
             self._receive_view.set_receive_key(keyinstance)
-            self._receive_view.set_new_button_enabled(current_key_id != keyinstance.keyinstance_id)
+            self._receive_view.set_new_button_enabled(
+                current_key_data.keyinstance_id != keyinstance.keyinstance_id)
 
         # clear the list and fill it again
         self.clear()
@@ -124,7 +126,9 @@ class RequestList(MyTreeWidget):
             amount_str = app_state.format_amount(row.value, whitespaces=True) if row.value else ""
 
             # TODO(ScriptTypeAssumption) see above for context
-            script_template = self._account.get_script_template_for_id(row.keyinstance_id,
+            # TODO: This is a per-row database lookup.
+            pr_keyinstance = wallet.get_keyinstance(row.keyinstance_id)
+            script_template = self._account.get_script_template_for_key_data(pr_keyinstance,
                 self._account.get_default_script_type())
             address_text = script_template_to_string(script_template)
 
@@ -161,11 +165,13 @@ class RequestList(MyTreeWidget):
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _get_request_URI(self, pr_id: int) -> str:
-        with self._account.get_wallet().get_payment_request_table() as table:
+        wallet = self._account.get_wallet()
+        with wallet.get_payment_request_table() as table:
             req = table.read_one(pr_id)
         message = self._account.get_keyinstance_label(req.keyinstance_id)
         # TODO(ScriptTypeAssumption) see above for context
-        script_template = self._account.get_script_template_for_id(req.keyinstance_id,
+        keyinstance = wallet.get_keyinstance(req.keyinstance_id)
+        script_template = self._account.get_script_template_for_key_data(keyinstance,
             self._account.get_default_script_type())
         address_text = script_template_to_string(script_template)
 

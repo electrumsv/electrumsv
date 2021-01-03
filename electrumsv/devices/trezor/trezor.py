@@ -4,15 +4,17 @@ from bitcoinx import (
     bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string, Address,
 )
 
-from electrumsv.app_state import app_state
-from electrumsv.device import Device
-from electrumsv.exceptions import UserCancelled
-from electrumsv.i18n import _
-from electrumsv.keystore import Hardware_KeyStore
-from electrumsv.logs import logs
-from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output, XTxOutput, Transaction, TransactionContext
-from electrumsv.wallet import MultisigAccount, StandardAccount
+from ...app_state import app_state
+from ...constants import unpack_derivation_path
+from ...device import Device
+from ...exceptions import UserCancelled
+from ...i18n import _
+from ...keystore import Hardware_KeyStore
+from ...logs import logs
+from ...networks import Net
+from ...transaction import classify_tx_output, XTxOutput, Transaction, TransactionContext
+from ...wallet import MultisigAccount, StandardAccount
+from ...wallet_database.types import KeyListRow
 
 from ..hw_wallet import HW_PluginBase
 from ..hw_wallet.plugin import LibraryFoundButUnusable
@@ -296,10 +298,11 @@ class TrezorPlugin(HW_PluginBase):
             prev_txes=prev_txtypes)
         tx.update_signatures(signatures)
 
-    def show_key(self, account: ValidWalletTypes, keyinstance_id: int) -> None:
+    def show_key(self, account: ValidWalletTypes, keydata: KeyListRow) -> None:
         keystore = cast(TrezorKeyStore, account.get_keystore())
         client = self.get_client(keystore)
-        derivation_path = account.get_derivation_path(keyinstance_id)
+        assert keydata.derivation_data2 is not None
+        derivation_path = unpack_derivation_path(keydata.derivation_data2)
         assert derivation_path is not None
         subpath = '/'.join(str(x) for x in derivation_path)
         derivation_text = f"{keystore.derivation}/{subpath}"
@@ -309,7 +312,7 @@ class TrezorPlugin(HW_PluginBase):
         if len(xpubs) > 1:
             account = cast(MultisigAccount, account)
             pubkeys = [pubkey.to_hex() for pubkey in
-                account.get_public_keys_for_id(keyinstance_id)]
+                account.get_public_keys_for_key_data(keydata)]
             # sort xpubs using the order of pubkeys
             sorted_pairs = sorted(zip(pubkeys, xpubs))
             multisig = self._make_multisig(

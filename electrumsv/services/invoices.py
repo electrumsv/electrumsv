@@ -75,13 +75,6 @@ class InvoiceService:
                     completion_callback=writer.get_callback())
                 assert writer.succeeded()
 
-    def clear_invoice_transaction(self, tx_hash: bytes) -> None:
-        with self._account.get_wallet().get_invoice_table() as table:
-            # Block waiting for the write to succeed here.
-            with SynchronousWriter() as writer:
-                table.clear_transaction([ (tx_hash,) ], completion_callback=writer.get_callback())
-                assert writer.succeeded()
-
     def set_invoice_description(self, invoice_id: int, description: str) -> None:
         wallet = self._account.get_wallet()
         with wallet.get_invoice_table() as table:

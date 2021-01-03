@@ -45,7 +45,7 @@ from bitcoinx.address import P2PKH_Address, P2SH_Address
 
 from .bitcoin import is_address_valid, address_from_string
 from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, MIGRATION_CURRENT,
-    MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind, TxFlags, TransactionOutputFlag,
+    MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind,
     KeyInstanceFlag)
 from .crypto import pw_encode, pw_decode
 from .exceptions import IncompatibleWalletError, InvalidPassword
@@ -55,11 +55,11 @@ from .logs import logs
 from .networks import Net
 from .transaction import Transaction, classify_tx_output, parse_script_sig
 from .util.misc import ProgressCallbacks
-from .wallet_database import TxData, DatabaseContext, migration, SynchronousWriter, WalletDataTable
+from .wallet_database import DatabaseContext, migration, SynchronousWriter, WalletDataTable
 from .wallet_database.storage_migration import (create_accounts1, create_keys1,
     create_master_keys1, create_payment_requests1, create_transaction_outputs1,
     create_transactions1, AccountRow1, KeyInstanceRow1, MasterKeyRow1, PaymentRequestRow1,
-    TransactionOutputRow1, TransactionRow1)
+    TransactionOutputFlag1, TransactionOutputRow1, TransactionRow1, TxData1, TxFlags1)
 from .wallet_database.tables import WalletDataRow
 
 
@@ -883,19 +883,19 @@ class TextStore(AbstractStore):
                 fee = tx_fees.get(tx_id)
                 description = labels.pop(tx_id, None)
                 if tx_id in tx_verified:
-                    flags = TxFlags.StateSettled
+                    flags = TxFlags1.StateSettled
                     height, _timestamp, position = tx_verified[tx_id]
                     tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
                         verified=True, height=height, known_addresses=set([]),
                         encountered_addresses=set([]))
                 else:
                     height = tx_heights.get(tx_id)
-                    flags = TxFlags.StateCleared
+                    flags = TxFlags1.StateCleared
                     position = None
                     tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
                         verified=False, height=height, known_addresses=set([]),
                         encountered_addresses=set([]))
-                tx_metadata = TxData(height=height, fee=fee, position=position,
+                tx_metadata = TxData1(height=height, fee=fee, position=position,
                     date_added=date_added, date_updated=date_added)
                 # TODO(rt12) BACKLOG what if this code is later reused and the operation is an
                 # import and the rows already exist?
@@ -993,8 +993,6 @@ class TextStore(AbstractStore):
                 txout_states: Dict[Tuple[bytes, int], _TxOutputState] = {}
 
                 # Locate all the outputs.
-                FROZEN_FLAGS = (TransactionOutputFlag.IS_FROZEN |
-                    TransactionOutputFlag.USER_SET_FROZEN)
                 for tx_id, tx_state in tx_states.items():
                     for n, tx_output in enumerate(tx_state.tx.outputs):
                         output = classify_tx_output(tx_output)
@@ -1012,11 +1010,12 @@ class TextStore(AbstractStore):
                             txout_states[(tx_state.tx_hash, n)] = _TxOutputState(tx_output.value,
                                 len(txoutput_rows))
                             # Handled later: flags are changed if spent.
-                            is_frozen = (address_string in frozen_addresses or
-                                (tx_id, n) in txouts_frozen)
-                            flags = (FROZEN_FLAGS if is_frozen else TransactionOutputFlag.NONE)
+                            txo_flags = (TransactionOutputFlag1.IS_FROZEN
+                                if (address_string in frozen_addresses or
+                                    (tx_id, n) in txouts_frozen)
+                                else TransactionOutputFlag1.NONE)
                             txoutput_rows.append(TransactionOutputRow1(tx_state.tx_hash, n,
-                                tx_output.value, address_state.keyinstance_id, flags))
+                                tx_output.value, address_state.keyinstance_id, txo_flags))
                             tx_state.encountered_addresses.add(address_string)
 
                             # We now update the key to reflect the existence of the output.
@@ -1053,7 +1052,7 @@ class TextStore(AbstractStore):
                             orow = txoutput_rows[txout_state.row_index]
                             txoutput_rows[txout_state.row_index] = TransactionOutputRow1(
                                 orow.tx_hash, orow.tx_index, orow.value, orow.keyinstance_id,
-                                TransactionOutputFlag.IS_SPENT)
+                                TransactionOutputFlag1.IS_SPENT)
                             tx_state.encountered_addresses.add(address_string)
 
             multsig_mn = multisig_type(wallet_type)
@@ -1178,7 +1177,6 @@ class TextStore(AbstractStore):
             if len(masterkey_rows):
                 create_master_keys1(db_context, masterkey_rows)
             if len(account_rows):
-                print("adding accounts", account_rows)
                 create_accounts1(db_context, account_rows)
             if len(keyinstance_rows):
                 create_keys1(db_context, keyinstance_rows)

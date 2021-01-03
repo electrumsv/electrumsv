@@ -1,5 +1,5 @@
 import threading
-from typing import Optional
+from typing import NamedTuple, Optional
 import weakref
 
 from PyQt5.QtCore import Qt, pyqtSignal, QUrl
@@ -7,14 +7,15 @@ from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import QFrame, QGridLayout, QLabel, QHBoxLayout, QVBoxLayout, \
     QProgressDialog, QSizePolicy, QWidget
 
-from electrumsv.app_state import app_state
-from electrumsv.constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType
-from electrumsv.exceptions import NotEnoughFunds
-from electrumsv.i18n import _
-from electrumsv.logs import logs
-from electrumsv.networks import Net
-from electrumsv.transaction import Transaction, XTxOutput
-from electrumsv.wallet import AbstractAccount
+from ...app_state import app_state
+from ...bitcoin import ScriptTemplate
+from ...constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType
+from ...exceptions import NotEnoughFunds
+from ...i18n import _
+from ...logs import logs
+from ...networks import Net
+from ...transaction import Transaction, XTxOutput
+from ...wallet import AbstractAccount
 
 from .main_window import ElectrumWindow
 from .util import EnterButton, HelpDialogButton
@@ -39,8 +40,14 @@ STAGE_NAMES = {
     STAGE_SPLITTING: _("Splitting coins") +"..",
 }
 
+class AllocatedKeyState(NamedTuple):
+    script_template: ScriptTemplate
+    keyinstance_id: int
+    script_type: ScriptType
+
+
 class CoinSplittingTab(QWidget):
-    receiving_script_template = None
+    _allocated_key_state = None
     unfrozen_balance = None
     frozen_balance = None
     split_stage = STAGE_INACTIVE
@@ -94,12 +101,12 @@ class CoinSplittingTab(QWidget):
 
         unused_key = self._account.get_fresh_keys(CHANGE_SUBPATH, 1)[0]
         script_type = self._account.get_default_script_type()
-        script = self._account.get_script_for_id(unused_key.keyinstance_id, script_type)
-        coins = self._account.get_utxos(exclude_frozen=True, mature=True)
+        script = self._account.get_script_for_key_data(unused_key, script_type)
+        coins = self._account.get_spendable_transaction_outputs(exclude_frozen=True, mature=True)
         outputs = [ XTxOutput(all, script) ]
         outputs.extend(self._account.create_extra_outputs(coins, outputs, force=True))
         try:
-            tx = self._account.make_unsigned_transaction(coins, outputs, self._main_window.config)
+            tx = self._account.make_unsigned_transaction(coins, outputs)
         except NotEnoughFunds:
             self._cleanup_tx_final()
             self._main_window.show_message(_("Insufficient funds"))
@@ -146,8 +153,11 @@ class CoinSplittingTab(QWidget):
 
         # At this point we know we should get a key that is addressable.
         unused_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-        self.receiving_script_template = self._account.get_script_template_for_id(
-            unused_key.keyinstance_id, self._account.get_default_script_type())
+        script_type = self._account.get_default_script_type()
+        script_template = self._account.get_script_template_for_key_data(unused_key, script_type)
+        self._allocated_key_state = AllocatedKeyState(script_template, unused_key.keyinstance_id,
+            script_type)
+
         self.split_stage = STAGE_PREPARING
         self.new_transaction_cv = threading.Condition()
 
@@ -159,7 +169,7 @@ class CoinSplittingTab(QWidget):
     def _split_prepare_task(self, our_dialog: 'SplitWaitingDialog'):
         self.split_stage = STAGE_OBTAINING_DUST
 
-        address_text = self.receiving_script_template.to_string()
+        address_text = self._allocated_key_state.script_template.to_string()
         QDesktopServices.openUrl(QUrl("{}/?addr={}".format(Net.FAUCET_URL, address_text)))
 
         # Wait for the transaction to arrive.  How long it takes before the progress bar
@@ -180,8 +190,6 @@ class CoinSplittingTab(QWidget):
                 time_passed += 0.1
 
         # The user needs to sign the transaction.  It can't be done in this thread.
-        # TODO(rt12) no longer viable, needs to be replaced
-        # self._account.set_frozen_state([ self.receiving_script_template ], False)
         self.split_stage = STAGE_SPLITTING
         return RESULT_READY_FOR_SPLIT
 
@@ -212,11 +220,12 @@ class CoinSplittingTab(QWidget):
             self._cleanup_tx_created()
 
     def _ask_send_split_transaction(self) -> None:
-        coins = self._account.get_utxos(exclude_frozen=True, mature=True)
+        coins = self._account.get_spendable_transaction_outputs()
         # Verify that our dust receiving address is in the available UTXOs, if it isn't, the
         # process has failed in some unexpected way.
         for coin in coins:
-            if coin.script_pubkey == self.receiving_script_template.to_script():
+            if (coin.keyinstance_id == self._allocated_key_state.keyinstance_id and
+                    coin.script_type == self._allocated_key_state.script_type):
                 break
         else:
             self._main_window.show_error(_("Error accessing dust coins for correct splitting."))
@@ -225,9 +234,9 @@ class CoinSplittingTab(QWidget):
 
         unused_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
         script_type = self._account.get_default_script_type()
-        script = self._account.get_script_for_id(unused_key.keyinstance_id, script_type)
+        script = self._account.get_script_for_key_data(unused_key, script_type)
         outputs = [ XTxOutput(all, script) ]
-        tx = self._account.make_unsigned_transaction(coins, outputs, self._main_window.config)
+        tx = self._account.make_unsigned_transaction(coins, outputs)
 
         amount = tx.output_value()
         fee = tx.get_fee()
@@ -257,12 +266,7 @@ class CoinSplittingTab(QWidget):
     def _cleanup_tx_created(self):
         self._main_window._wallet.unregister_callback(self._on_wallet_event)
 
-        # This may have already been done, given that we want our split to consider the dust
-        # usabel.
-        # TODO(rt12) replace with viable unfreezing
-        # self._account.set_frozen_state([ self.receiving_script_template ], False)
-
-        self.receiving_script_template = None
+        self._allocated_key_state = None
         self.waiting_dialog = None
         self.faucet_status_code = None
         self.split_stage = STAGE_INACTIVE
@@ -280,13 +284,13 @@ class CoinSplittingTab(QWidget):
 
     def _on_wallet_event(self, event, *args) -> None:
         if event == 'transaction_added':
-            if self.receiving_script_template is None:
+            if self._allocated_key_state is None:
                 return
 
-            if self._account_id not in args[2]:
+            if self._account_id not in args[2].account_ids:
                 return
 
-            our_script = self.receiving_script_template.to_script_bytes()
+            our_script = self._allocated_key_state.script_template.to_script_bytes()
             # args = (tx_hash, tx, involved_account_ids, external)
             tx: Transaction = args[1]
             for tx_output in tx.outputs:

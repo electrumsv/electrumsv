@@ -1,59 +1,32 @@
-import asyncio
-import json
-import logging
 import os
 import shutil
 import sys
 import tempfile
-import threading
 from typing import Dict, Optional, List, Set
 import unittest
 
 import pytest
 
-from electrumsv.constants import (DATABASE_EXT, DerivationType, KeystoreTextType, ScriptType,
-    StorageKind, CHANGE_SUBPATH, RECEIVING_SUBPATH, KeyInstanceFlag)
+from electrumsv.constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, KeystoreTextType,
+    RECEIVING_SUBPATH, ScriptType, StorageKind, TxFlags, unpack_derivation_path)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (from_seed, from_xpub, Old_KeyStore, Multisig_KeyStore)
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
+from electrumsv.transaction import Transaction
+from electrumsv.types import TxoKeyType
 from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount, MultisigAccount,
-    Wallet, StandardAccount, AbstractAccount)
-from electrumsv.wallet_database import DatabaseContext
+    Wallet, StandardAccount)
+from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow
 
-from .util import setup_async, tear_down_async, TEST_WALLET_PATH
+from .util import setup_async, MockStorage, tear_down_async, TEST_WALLET_PATH
 
 
 class _TestableWallet(Wallet):
     def name(self):
         return self.__class__.__name__
-
-class MockStorage:
-    def __init__(self) -> None:
-        self.path = tempfile.mktemp()
-
-        from electrumsv.wallet_database.migration import create_database_file, update_database_file
-        create_database_file(self.path)
-        update_database_file(self.path)
-
-        self._data = {}
-
-    def get(self, attr_name, default=None):
-        return self._data.get(attr_name, default)
-
-    def put(self, attr_name, value):
-        self._data[attr_name] = value
-
-    def set_password(self, new_password: str) -> None:
-        pass
-
-    def get_path(self) -> str:
-        return self.path
-
-    def get_db_context(self):
-        return DatabaseContext(self.path)
 
 
 def setUpModule():
@@ -68,7 +41,6 @@ def get_categorised_files2(wallet_path: str) -> List[WalletStorageInfo]:
     matches = get_categorised_files(wallet_path)
     # In order to ensure ordering consistency, we sort the files.
     return sorted(matches, key=lambda v: v.filename)
-
 
 @pytest.fixture()
 def tmp_storage(tmpdir):
@@ -249,7 +221,7 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
     keyinstance_ids: Set[int] = set()
 
     for count in (0, 1, 5):
-        new_keyinstances = account.create_keys(count, RECEIVING_SUBPATH)
+        new_keyinstances = account.create_keys(RECEIVING_SUBPATH, count)
         assert count == len(new_keyinstances)
         check_rows(new_keyinstances, account_script_type)
         keyinstance_ids |= set(keyinstance.keyinstance_id for keyinstance in new_keyinstances)
@@ -261,18 +233,18 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
 
     for count in (0, 1, 5):
         local_last_row = keyinstances[-1]
-        local_last_index = account.get_derivation_path(local_last_row.keyinstance_id)[-1]
+        local_last_index = unpack_derivation_path(local_last_row.derivation_data2)[-1]
         next_index = account.get_next_derivation_index(RECEIVING_SUBPATH)
         assert next_index == local_last_index  + 1
 
         last_allocation_index = next_index + count - 1
         if count == 0:
             with pytest.raises(AssertionError):
-                new_keyinstances = account.create_keys_until(
+                new_keyinstances = account.derive_new_keys_until(
                     RECEIVING_SUBPATH + (last_allocation_index,))
             continue
 
-        new_keyinstances = account.create_keys_until(RECEIVING_SUBPATH + (last_allocation_index,))
+        new_keyinstances = account.derive_new_keys_until(RECEIVING_SUBPATH + (last_allocation_index,))
         assert count == len(new_keyinstances)
         check_rows(new_keyinstances, account_script_type)
 
@@ -310,7 +282,7 @@ class TestLegacyWalletCreation:
 
         raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
         account_row = wallet.add_accounts([ raw_account_row ])[0]
-        account = StandardAccount(wallet, account_row, [], [], [])
+        account = StandardAccount(wallet, account_row, [], [])
         wallet.register_account(account.get_id(), account)
 
         check_legacy_parent_of_standard_wallet(wallet, password=password)
@@ -326,7 +298,7 @@ class TestLegacyWalletCreation:
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
         account_row = wallet.add_accounts([ account_row ])[0]
-        account = StandardAccount(wallet, account_row, [], [], [])
+        account = StandardAccount(wallet, account_row, [], [])
         wallet.register_account(account.get_id(), account)
 
         parent_keystores = wallet.get_keystores()
@@ -394,7 +366,7 @@ class TestLegacyWalletCreation:
 
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_BARE, 'text')
         account_row = wallet.add_accounts([ account_row ])[0]
-        account = MultisigAccount(wallet, account_row, [], [], [])
+        account = MultisigAccount(wallet, account_row, [], [])
         wallet.register_account(account.get_id(), account)
 
         check_legacy_parent_of_multisig_wallet(wallet)
@@ -544,3 +516,113 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
 #         public_key = privkey.public_key
 #         address = public_key.to_address(coin=coin).to_string()
 #         assert account.pubkeys_to_a_ddress(public_key) == address_from_string(address)
+
+
+@pytest.mark.asyncio
+async def test_transaction_import_removal(tmp_storage) -> None:
+    # Boilerplate setting up of a deterministic account. This is copied from above.
+    password = 'password'
+    seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
+    child_keystore = from_seed(seed_words, '')
+
+    wallet = Wallet(tmp_storage)
+    masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
+    wallet.update_password(password)
+
+    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    account = StandardAccount(wallet, account_row, [], [])
+    wallet.register_account(account.get_id(), account)
+
+    # Ensure that the keys used by the transaction are present to be linked to.
+    account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+
+    # The funding transaction.
+    tx_hex_1 = \
+        "01000000014e1653d27b6a00c174cb0e79b327cb2ac2268201533de8f5666e63101a6be46601000000" \
+        "6a473044022072c3ca2a6ab271142a70e109474108b11800818acecb192325465e970ad0cccb022011" \
+        "6c8c05fad2d5ab2be33ae3fc5362b7137db26d0b7ddd009ee8692daacd57914121037f37bb0d14dc72" \
+        "d67f0cfb49f6472163924ba86382fd2490d5c04261386b70b0ffffffff0291ee0f00000000001976a9" \
+        "14ea7804a2c266063572cc009a63dc25dcc0e9d9b588ac5883e516000000001976a914ad27edee3653" \
+        "50b63b5024a8f8168e7297bdd70b88ac216e1500"
+
+    # The spending/depletion transaction.
+    tx_hex_2 = \
+        "01000000019960eee94aa89f4db93a4bc720dc9b7004127df7c115f121fee5ec7eea1e4ce200000000" \
+        "6b483045022100870754d5caf0483501f9ef6b886d42add34a693808310a1199c998e827dca7520220" \
+        "31d8a58435ac51fbdc94222d2781c08b2af779925f80ac5e05ed5953ae7d07a24121030b482838721a" \
+        "38d94847699fed8818b5c5f56500ef72f13489e365b65e5749cfffffffff01d1ed0f00000000001976" \
+        "a914ddec06c1086c07c4b1ddc4299730dacb3b25b24088ac536e1500"
+
+    db_context = tmp_storage.get_db_context()
+    db = db_context.acquire_connection()
+    try:
+        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_hash_1 = tx_1.hash()
+        # Add the funding transaction to the database and link it to key usage.
+        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.StateSigned)
+
+        # Verify the received funds are present.
+        tv_rows1 = db_functions.read_transaction_values(db_context, tx_hash_1)
+        assert len(tv_rows1) == 1
+        assert tv_rows1[0].account_id == account.get_id()
+        assert tv_rows1[0].total == 1044113
+
+        tx_2 = Transaction.from_hex(tx_hex_2)
+        tx_hash_2 = tx_2.hash()
+        # Add the spending transaction to the database and link it to key usage.
+        await wallet.import_transaction_async(tx_hash_2, tx_2, TxFlags.StateSigned)
+
+        # Verify both the received funds are present.
+        tv_rows2 = db_functions.read_transaction_values(db_context, tx_hash_2)
+        assert len(tv_rows2) == 1
+        assert tv_rows2[0].account_id == account.get_id()
+        assert tv_rows2[0].total == -1044113
+
+        # Verify all the transaction outputs are present and are linked to spending inputs.
+        txof_rows = db_functions.read_transaction_outputs_full(db_context)
+        assert len(txof_rows) == 3
+        # tx_1.output0 is linked to the first key.
+        assert txof_rows[0].tx_hash == tx_hash_1 and txof_rows[0].tx_index == 0 and \
+            txof_rows[0].keyinstance_id == 1 and txof_rows[0].spending_tx_hash == tx_hash_2 and \
+            txof_rows[0].spending_txi_index == 0
+        # tx_1.output1 is to the payer's change and not linked.
+        assert txof_rows[1].tx_hash == tx_hash_1 and txof_rows[1].tx_index == 1 and \
+            txof_rows[1].keyinstance_id is None
+        # tx_2.output2 is to some other payee.
+        assert txof_rows[2].tx_hash == tx_hash_2 and txof_rows[2].tx_index == 0 and \
+            txof_rows[2].keyinstance_id is None
+
+        # Verify all the transactions are linked to the account.
+        rows = db_functions.read_transaction_hashes(db_context, account.get_id())
+        assert len(rows) == 2
+        assert set(rows) == set([ tx_hash_1, tx_hash_2 ])
+
+        # Remove both transactions (does not delete).
+        future_1 = wallet.remove_transaction(tx_hash_1)
+        future_2 = wallet.remove_transaction(tx_hash_2)
+        future_1.result()
+        future_2.result()
+
+        # Verify that the transaction outputs are still linked to key usage (harmless).
+        txo_rows = db_functions.read_transaction_outputs_explicit(db_context,
+            [ TxoKeyType(tx_hash_1, 0) ])
+        assert len(txo_rows) == 1
+        # This value is not cleared. It's not a link to anything that can clash.
+        assert txo_rows[0].keyinstance_id == 1
+
+        # Verify that the account transaction link entries have been deleted.
+        rows = db_functions.read_transaction_hashes(db_context, account.get_id())
+        # Any rows have been deleted.
+        assert len(rows) == 0
+
+        # Verify that both transactions have been flagged as removed.
+        row1 = db_functions.read_transaction_flags(db_context, tx_hash_1)
+        assert row1 is not None
+        assert TxFlags(row1) == TxFlags.StateSigned | TxFlags.REMOVED
+
+        row2 = db_functions.read_transaction_flags(db_context, tx_hash_2)
+        assert row2 is not None
+        assert TxFlags(row2) == TxFlags.StateSigned | TxFlags.REMOVED
+    finally:
+        db_context.release_connection(db)

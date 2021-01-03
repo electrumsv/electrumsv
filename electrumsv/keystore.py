@@ -81,6 +81,11 @@ class KeyStore:
         return name
 
     def get_id(self) -> int:
+        """
+        Get the database id for the masterkey record for this keystore.
+
+        Will raise an AssertionError for imported keystores, as they do not have masterkeys.
+        """
         assert self._row is not None
         return self._row.masterkey_id
 
@@ -106,6 +111,9 @@ class KeyStore:
         raise NotImplementedError
 
     def to_masterkey_row(self) -> MasterKeyRow:
+        """
+        The initial database row (with placeholder id) for this new keystore.
+        """
         raise NotImplementedError
 
     def is_watching_only(self) -> bool:
@@ -227,15 +235,6 @@ class Imported_KeyStore(Software_KeyStore):
     def can_import(self) -> bool:
         return True
 
-    def get_public_key_for_id(self, keyinstance_id: int) -> PublicKey:
-        return self._public_keys[keyinstance_id]
-
-    def get_keyinstance_id_for_public_key(self, pubkey: PublicKey) -> Optional[int]:
-        for keyinstance_id, keypubkey in self._public_keys.items():
-            if pubkey == keypubkey:
-                return keyinstance_id
-        return None
-
     def remove_key(self, keyinstance_id: int) -> None:
         pubkey = self._public_keys[keyinstance_id]
         self._keypairs.pop(pubkey)
@@ -261,20 +260,20 @@ class Imported_KeyStore(Software_KeyStore):
     def can_export(self) -> bool:
         return True
 
-    def get_private_key(self, pubkey: PublicKey, password: str) -> Tuple[bytes, bool]:
+    def get_private_key(self, public_key: PublicKey, password: str) -> Tuple[bytes, bool]:
         '''Returns a (32 byte privkey, is_compressed) pair.'''
-        privkey_text = self.export_private_key(pubkey, password)
-        privkey = PrivateKey.from_text(privkey_text)
-        return privkey.to_bytes(), privkey.is_compressed()
+        private_key_text = self.export_private_key(public_key, password)
+        private_key = PrivateKey.from_text(private_key_text)
+        return private_key.to_bytes(), private_key.is_compressed()
 
-    def get_private_key_from_xpubkey(self, x_pubkey: XPublicKey,
+    def get_private_key_from_xpubkey(self, x_public_key: XPublicKey,
             password: str) -> Tuple[bytes, bool]:
-        pubkey = x_pubkey.to_public_key()
-        return self.get_private_key(pubkey, password)
+        public_key = x_public_key.to_public_key()
+        return self.get_private_key(public_key, password)
 
-    def is_signature_candidate(self, x_pubkey: XPublicKey) -> bool:
-        if x_pubkey.kind() == XPublicKeyType.PRIVATE_KEY:
-            return x_pubkey.to_public_key() in self._keypairs
+    def is_signature_candidate(self, x_public_key: XPublicKey) -> bool:
+        if x_public_key.kind() == XPublicKeyType.PRIVATE_KEY:
+            return x_public_key.to_public_key() in self._keypairs
         return False
 
     def update_password(self, new_password: str, old_password: Optional[str]=None) -> None:
@@ -352,7 +351,9 @@ class DerivablePaths:
                 sequence_watermarks[tuple(derivation_path)] = next_index
             self._sequence_watermarks.update(sequence_watermarks)
 
-    def allocate_indexes(self, derivation_path: Sequence[int], count: int) -> int:
+    # TODO(nocheckin) the new derivation_path2 field likely makes this whole class unnecessary
+    # or replaced with something that uses the derivation_path.
+    def extend_path_usage(self, derivation_path: Sequence[int], count: int) -> int:
         next_index = self._sequence_watermarks.get(derivation_path, 0)
         self._sequence_watermarks[derivation_path] = next_index + count
         return next_index
@@ -643,6 +644,9 @@ class Old_KeyStore(DerivablePaths, Deterministic_KeyStore):
         return XPublicKey(old_mpk=bytes.fromhex(self.mpk), derivation_path=derivation_path)
 
     def is_signature_candidate(self, x_pubkey: XPublicKey) -> bool:
+        """
+        Check whether this keystore can sign for the given extended public key.
+        """
         if x_pubkey.kind() == XPublicKeyType.OLD:
             mpk, path = x_pubkey.old_keystore_mpk_and_path()
             return self.mpk == mpk.hex()

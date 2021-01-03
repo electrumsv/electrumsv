@@ -1,22 +1,59 @@
 """
 Keeps backwards compatible logic for storage migration.
 """
-# TODO(nocheckin) write a decision document for why we have this.
+# TODO(nocheckin) write a decision document for why we have this file.
+from enum import IntFlag as _IntFlag
 try:
-    # Linux expects the latest package version of 3.31.1 (as of p)
+    # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
     import pysqlite3 as sqlite3
 except ModuleNotFoundError:
-    # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
-    # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
+    # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
+    # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
     import sqlite3 # type: ignore
 import time
 from typing import Iterable, NamedTuple, Optional, Sequence
 
-from ..constants import (DerivationType, KeyInstanceFlag, PaymentFlag, ScriptType,
-    TransactionOutputFlag, TxFlags)
+from ..constants import DerivationType, KeyInstanceFlag, PaymentFlag, ScriptType
+
 from .sqlite_support import CompletionCallbackType, DatabaseContext
-from .types import TxData
 from .util import get_timestamp
+
+
+# https://bugs.python.org/issue41907
+class IntFlag(_IntFlag):
+    def __format__(self, spec):
+        return format(self.value, spec)
+
+
+class TransactionOutputFlag1(IntFlag):
+    NONE = 0
+
+    # If the UTXO is in a local or otherwise unconfirmed transaction.
+    IS_ALLOCATED = 1 << 1
+    # If the UTXO is in a confirmed transaction.
+    IS_SPENT = 1 << 2
+    # If the UTXO is marked as not to be used. It should not be allocated if unallocated, and
+    # if allocated then ideally we might extend this to prevent further dispatch in any form.
+    IS_FROZEN = 1 << 3
+    IS_COINBASE = 1 << 4
+
+    USER_SET_FROZEN = 1 << 8
+
+    FROZEN_MASK = IS_FROZEN | USER_SET_FROZEN
+
+
+class TxFlags1(IntFlag):
+    HasFee = 1 << 4
+    HasHeight = 1 << 5
+    HasPosition = 1 << 6
+    HasByteData = 1 << 12
+
+    # A transaction received over the p2p network which is unconfirmed and in the mempool.
+    StateCleared = 1 << 20
+    # A transaction received over the p2p network which is confirmed and known to be in a block.
+    StateSettled = 1 << 21
+
+    METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition)
 
 
 class AccountRow1(NamedTuple):
@@ -59,7 +96,25 @@ class TransactionOutputRow1(NamedTuple):
     tx_index: int
     value: int
     keyinstance_id: Optional[int]
-    flags: TransactionOutputFlag
+    flags: TransactionOutputFlag1
+
+
+class TxData1(NamedTuple):
+    height: Optional[int] = None
+    position: Optional[int] = None
+    fee: Optional[int] = None
+    date_added: Optional[int] = None
+    date_updated: Optional[int] = None
+
+    def __repr__(self):
+        return (f"TxData1(height={self.height},position={self.position},fee={self.fee},"
+            f"date_added={self.date_added},date_updated={self.date_updated})")
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TxData1):
+            return NotImplemented
+        return (self.height == other.height and self.position == other.position
+            and self.fee == other.fee)
 
 
 class TxProof1(NamedTuple):
@@ -69,9 +124,9 @@ class TxProof1(NamedTuple):
 
 class TransactionRow1(NamedTuple):
     tx_hash: bytes
-    tx_data: TxData
+    tx_data: TxData1
     tx_bytes: Optional[bytes]
-    flags: TxFlags
+    flags: TxFlags1
     description: Optional[str]
     version: Optional[int]
     locktime: Optional[int]
@@ -150,14 +205,14 @@ def create_transactions1(db_context: DatabaseContext, entries: Iterable[Transact
     datas = []
     for tx_hash, metadata, bytedata, flags, description, version, locktime in entries:
         assert type(tx_hash) is bytes and bytedata is not None
-        assert (flags & TxFlags.HasByteData) == 0, "this flag is not applicable"
-        flags &= ~TxFlags.METADATA_FIELD_MASK
+        assert (flags & TxFlags1.HasByteData) == 0, "this flag is not applicable"
+        flags &= ~TxFlags1.METADATA_FIELD_MASK
         if metadata.height is not None:
-            flags |= TxFlags.HasHeight
+            flags |= TxFlags1.HasHeight
         if metadata.fee is not None:
-            flags |= TxFlags.HasFee
+            flags |= TxFlags1.HasFee
         if metadata.position is not None:
-            flags |= TxFlags.HasPosition
+            flags |= TxFlags1.HasPosition
         assert metadata.date_added is not None and metadata.date_updated is not None
         datas.append((tx_hash, bytedata, flags, metadata.height, metadata.position,
             metadata.fee, description, version, locktime, metadata.date_added,
