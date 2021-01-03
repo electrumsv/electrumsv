@@ -609,6 +609,8 @@ class KeyView(QTableView):
         if ListActions.RESET in pending_actions:
             self._logger.debug("_on_update_check reset")
 
+# TODO(nocheckin) This is not actually valid. WE need to OUTER JOIN on the transaction outputs
+# and may get multiple keyinstance rows for multiply used keys. #key-list-problem
             self._data = account.get_key_list()
             self._base_model.set_data(account_id, self._data)
             return
