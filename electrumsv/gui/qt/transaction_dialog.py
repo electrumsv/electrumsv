@@ -55,6 +55,7 @@ from electrumsv.transaction import (Transaction, TxFileExtensions, TxSerialisati
     tx_output_to_display_text, XTxOutput)
 from electrumsv.types import TxoKeyType, WaitingUpdateCallback
 from electrumsv.wallet import AbstractAccount
+from electrumsv.wallet_database.tables import MissingRowError
 import electrumsv.web as web
 
 from .constants import UIBroadcastSource
@@ -837,12 +838,17 @@ class InputTreeWidget(MyTreeWidget):
     def _show_other_transaction(self, tx_hash: bytes) -> None:
         dialog = self.parent()
         account = dialog._account
-        tx = account.get_transaction(tx_hash)
-        if tx is not None:
-            self._main_window.show_transaction(account, tx)
+        try:
+            tx = account.get_transaction(tx_hash)
+        except MissingRowError:
+            MessageBox.show_error(_("This transaction is unrelated to your wallet."
+                " For now use a blockchain explorer."))
         else:
-            MessageBox.show_error(_("The full transaction is not yet present in your wallet."+
-                " Please try again when it has been obtained from the network."))
+            if tx is not None:
+                self._main_window.show_transaction(account, tx)
+            else:
+                MessageBox.show_error(_("The data for this  transaction is not yet present in "
+                    "your wallet. Please try again when it has been obtained from the network."))
 
 
 class OutputTreeWidget(MyTreeWidget):
