@@ -20,284 +20,344 @@ pr:
   - releases/*
   - features/*
 
-jobs:
-- job: ValidateCommit
-  pool:
-    vmImage: 'ubuntu-16.04'
-  steps:
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: 3.7
-      addToPath: true
-      architecture: x64
-    condition: |
-      and(
-        succeeded(),
-        eq(variables['Build.Reason'], 'PullRequest')
-      )
-  - template: prepare-general-environment.yml
-    parameters:
-      onlyPullRequests: true
-  - script: |
-      python3 -m pip install -U pylint
-      python3 -m pylint --rcfile .pylintrc electrum-sv electrumsv
-      if [ $? -gt 0 ]
-      then
-        # https://docs.pylint.org/en/1.6.0/run.html#exit-codes
-        echo "##vso[task.complete result=Failed;]DONE"
-      fi
-    condition: |
-      and(
-        succeeded(),
-        eq(variables['Build.Reason'], 'PullRequest')
-      )
-    displayName: Run pylint
-    enabled: true
-    continueOnError: false
-    failOnStderr: false
-- job: Preparation
-  pool:
-    vmImage: 'ubuntu-16.04'
-  dependsOn:
-  - ValidateCommit
-  steps:
-  - script: |
-      COMMIT_REVISION=$(Build.SourceVersion)
-      COMMIT_KEY=${COMMIT_REVISION:0:8}
-      MOST_RECENT_TAG=`git describe --tags --abbrev=0 --match sv-*`
-      RX_VERSION='^[0-9]+\.[0-9]+\.[0-9]+[ab]{1}[0-9]+$'
-      if [[ ${MOST_RECENT_TAG:3} =~ $RX_VERSION ]]
-      then
-        # This causes errors in pull requests.
-        if [ "$(Build.Reason)" != "PullRequest" ]
-        then
-          echo "##vso[build.addbuildtag]UNSTABLE_BUILD"
-        fi
-        echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]yes"
-        echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]yes"
-      else
-        # This causes errors in pull requests.
-        if [ "$(Build.Reason)" != "PullRequest" ]
-        then
-          echo "##vso[build.addbuildtag]STABLE_BUILD"
-        fi
-        echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
-        echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
-      fi
+stages:
+- stage: 'Test'
+  displayName: 'Test ElectrumSV'
+  jobs:
 
-      TAGGED_COMMIT=`git rev-list -n 1 ${MOST_RECENT_TAG}`
-      # Only set this flag if the commit is on the tag.
-      if [ "$(Build.SourceVersion)" == "$TAGGED_COMMIT" ]
-      then
-        if [ "$(Build.Reason)" != "PullRequest" ]
+  - job: Pylint
+    displayName: Pylint Static Analysis
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+    - template: prepare-general-environment.yml
+      parameters:
+        pythonVersion: '3.9'
+    - template: run_pylint_static_analysis.yml
+      parameters:
+        pythonVersion: '3.9'
+        onlyPullRequests: true
+
+  - job: Mypy
+    displayName: Mypy Static Analysis
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.9'
+      - template: run_mypy_static_analysis.yml
+        parameters:
+          pythonVersion: '3.9'
+
+  - job: MainUnittestsPy39
+    displayName: Main Unittests (Python 3.9)
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.9'
+      - template: run_main_unittests.yml
+        parameters:
+          pythonVersion: '3.9'
+
+  - job: RESTAPIUnittestsPy39
+    displayName: REST API tests (Python 3.9)
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.9'
+      - template: run_restapi_unittests.yml
+        parameters:
+          pythonVersion: '3.9'
+
+  - job: TestFunctionalPy39
+    displayName: Functional tests (Python 3.9)
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.9'
+      - template: run_functional_tests.yml
+        parameters:
+          pythonVersion: '3.9'
+
+  - job: MainUnittestsPy38
+    displayName: Main Unittests (Python 3.8)
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.8'
+      - template: run_main_unittests.yml
+        parameters:
+          pythonVersion: '3.8'
+
+  - job: RESTAPIUnittestsPy38
+    displayName: REST API tests (Python 3.8)
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.8'
+      - template: run_restapi_unittests.yml
+        parameters:
+          pythonVersion: '3.8'
+
+  - job: TestFunctionalPy38
+    displayName: Functional tests (Python 3.8)
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.8'
+      - template: run_functional_tests.yml
+        parameters:
+          pythonVersion: '3.8'
+
+
+- stage: 'Build'
+  displayName: 'Build ElectrumSV'
+  dependsOn: []  # removes implicit dependency on previous stage and causes this to run in parallel
+  jobs:
+  - job: Preparation
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+    - script: |
+        COMMIT_REVISION=$(Build.SourceVersion)
+        COMMIT_KEY=${COMMIT_REVISION:0:8}
+        MOST_RECENT_TAG=`git describe --tags --abbrev=0 --match sv-*`
+        RX_VERSION='^[0-9]+\.[0-9]+\.[0-9]+[ab]{1}[0-9]+$'
+        if [[ ${MOST_RECENT_TAG:3} =~ $RX_VERSION ]]
         then
-          echo "##vso[build.addbuildtag]TAGGED_BUILD"
+          # This causes errors in pull requests.
+          if [ "$(Build.Reason)" != "PullRequest" ]
+          then
+            echo "##vso[build.addbuildtag]UNSTABLE_BUILD"
+          fi
+          echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]yes"
+          echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]yes"
+        else
+          # This causes errors in pull requests.
+          if [ "$(Build.Reason)" != "PullRequest" ]
+          then
+            echo "##vso[build.addbuildtag]STABLE_BUILD"
+          fi
+          echo "vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
+          echo "##vso[task.setvariable variable=TAG_UNSTABLE;isOutput=true]no"
         fi
 
-        RELEASE_KEY=${MOST_RECENT_TAG:3}
-        echo "vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]yes"
-        echo "##vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]yes"
-        echo "vso[task.setvariable variable=COMMIT_TAG;isOutput=true]${MOST_RECENT_TAG}"
-        echo "##vso[task.setvariable variable=COMMIT_TAG;isOutput=true]${MOST_RECENT_TAG}"
-      else
-        if [ "$(Build.Reason)" != "PullRequest" ]
+        TAGGED_COMMIT=`git rev-list -n 1 ${MOST_RECENT_TAG}`
+        # Only set this flag if the commit is on the tag.
+        if [ "$(Build.SourceVersion)" == "$TAGGED_COMMIT" ]
         then
-          echo "##vso[build.addbuildtag]UNTAGGED_BUILD"
+          if [ "$(Build.Reason)" != "PullRequest" ]
+          then
+            echo "##vso[build.addbuildtag]TAGGED_BUILD"
+          fi
+
+          RELEASE_KEY=${MOST_RECENT_TAG:3}
+          echo "vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]yes"
+          echo "##vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]yes"
+          echo "vso[task.setvariable variable=COMMIT_TAG;isOutput=true]${MOST_RECENT_TAG}"
+          echo "##vso[task.setvariable variable=COMMIT_TAG;isOutput=true]${MOST_RECENT_TAG}"
+        else
+          if [ "$(Build.Reason)" != "PullRequest" ]
+          then
+            echo "##vso[build.addbuildtag]UNTAGGED_BUILD"
+          fi
+
+          RELEASE_KEY=${MOST_RECENT_TAG:3}-${COMMIT_KEY}
+          echo "vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]no"
+          echo "##vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]no"
+          echo "vso[task.setvariable variable=COMMIT_TAG;isOutput=true]"
+          echo "##vso[task.setvariable variable=COMMIT_TAG;isOutput=true]"
         fi
+        echo "vso[task.setvariable variable=RELEASE_KEY;isOutput=true]${RELEASE_KEY}"
+        echo "##vso[task.setvariable variable=RELEASE_KEY;isOutput=true]${RELEASE_KEY}"
 
-        RELEASE_KEY=${MOST_RECENT_TAG:3}-${COMMIT_KEY}
-        echo "vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]no"
-        echo "##vso[task.setvariable variable=COMMIT_TAGGED;isOutput=true]no"
-        echo "vso[task.setvariable variable=COMMIT_TAG;isOutput=true]"
-        echo "##vso[task.setvariable variable=COMMIT_TAG;isOutput=true]"
-      fi
-      echo "vso[task.setvariable variable=RELEASE_KEY;isOutput=true]${RELEASE_KEY}"
-      echo "##vso[task.setvariable variable=RELEASE_KEY;isOutput=true]${RELEASE_KEY}"
-
-      echo "RELEASE_KEY = $RELEASE_KEY"
-      echo "Commit description = $TAGGED_COMMIT"
-      echo "Commit closest tag = $MOST_RECENT_TAG"
-      echo "Commit source version = $(Build.SourceVersion)"
-      echo "Commit source branch = $(Build.SourceBranch)"
-      echo "Commit build reason = $(Build.Reason)"
-    name: exportVars
-    displayName: Export commit tag for dependent tasks
-    enabled: true
-    continueOnError: false
-    failOnStderr: true
-- job: BuildLinuxBasedWindows
-  dependsOn:
-  - Preparation
-  pool:
-    vmImage: 'ubuntu-16.04'
-  steps:
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: 3.7
-      addToPath: true
-      architecture: x64
-  - script: |
-      sudo docker pull $(imageName)
-      sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum -e PYI_SKIP_TAG="$PYI_SKIP_TAG" --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
-    displayName: 'Windows build'
-    enabled: true
-    continueOnError: false
-    failOnStderr: false
-  - task: CopyFiles@2
-    inputs:
-      contents: contrib/build-wine/dist/?(*.exe|*.txt)
-      targetFolder: $(Build.ArtifactStagingDirectory)
-      flattenFolders: true
-      OverWrite: true
-  - task: PublishPipelineArtifact@0
-    inputs:
-      artifactName: 'build-windows'
-      targetPath: $(Build.ArtifactStagingDirectory)
-  variables:
-    imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img@sha256:8274d555237fc569f032006eccb7d76c1e2e4c9d9ca420d98a00efb527cce46e'
-- job: BuildSourceArchive
-  dependsOn:
-  - Preparation
-  pool:
-    vmImage: 'ubuntu-16.04'
-  steps:
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: 3.7
-      addToPath: true
-      architecture: x64
-  - script: |
-      export PYTHONPATH=.
-      python3 contrib/make_source_archives.py
-    displayName: 'Build source archives'
-    enabled: true
-    continueOnError: false
-    failOnStderr: false
-  - task: CopyFiles@2
-    inputs:
-      contents: dist/?(*.zip|*.gz)
-      targetFolder: $(Build.ArtifactStagingDirectory)
-      flattenFolders: true
-      OverWrite: true
-  - task: PublishPipelineArtifact@0
-    inputs:
-      artifactName: 'build-source'
-      targetPath: $(Build.ArtifactStagingDirectory)
-- job: BuildDocumentationArchive
-  dependsOn:
-  - Preparation
-  pool:
-    vmImage: 'ubuntu-16.04'
-  variables:
-    RELEASE_KEY: $[dependencies.Preparation.outputs['exportVars.RELEASE_KEY']]
-  steps:
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: 3.7
-      addToPath: true
-      architecture: x64
-  - script: |
-      pushd docs/standalone
-      python3 -m pip install -r requirements.txt
-      make html
-      popd
-    displayName: 'Build documentation archives'
-    enabled: true
-    continueOnError: false
-    failOnStderr: false
-  - task: ArchiveFiles@2
-    inputs:
-      rootFolderOrFile: 'docs/standalone/_build/html'
-      includeRootFolder: true
-      archiveType: 'zip'
-      archiveFile: '$(Build.ArtifactStagingDirectory)/ElectrumSV-$(RELEASE_KEY)-docs.zip'
-      replaceExistingArchive: true
-  - task: PublishPipelineArtifact@0
-    inputs:
-      artifactName: 'build-documentation'
-      targetPath: $(Build.ArtifactStagingDirectory)
-- job: BuildMacOS10_14
-  dependsOn:
-  - Preparation
-  pool:
-    vmImage: 'macOS-10.14'
-  steps:
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: 3.7
-      addToPath: true
-      architecture: x64
-  - script: |
-      sudo pip3 install --upgrade pip setuptools wheel
-      # Calin's QR reader requires SDK 10.14, which is not available in the default Xcode version.
-      /bin/bash -c "sudo xcode-select -s /Applications/Xcode_10.3.app/Contents/Developer"
-      brew install gettext && brew link gettext --force
-      ./contrib/osx/make_osx
-    enabled: true
-    continueOnError: false
-    failOnStderr: false
-    displayName: 'Build MacOS binaries'
-  - task: CopyFiles@2
-    inputs:
-      contents: dist/?(*.dmg|*.txt)
-      targetFolder: $(Build.ArtifactStagingDirectory)
-      flattenFolders: true
-      OverWrite: true
-  - task: PublishPipelineArtifact@0
-    inputs:
-      artifactName: 'build-macos'
-      targetPath: $(Build.ArtifactStagingDirectory)
-- job: ProcessArtifacts
-  pool:
-    vmImage: 'ubuntu-16.04'
-  dependsOn:
-    - BuildLinuxBasedWindows
-    - BuildSourceArchive
-    - BuildMacOS10_14
+        echo "RELEASE_KEY = $RELEASE_KEY"
+        echo "Commit description = $TAGGED_COMMIT"
+        echo "Commit closest tag = $MOST_RECENT_TAG"
+        echo "Commit source version = $(Build.SourceVersion)"
+        echo "Commit source branch = $(Build.SourceBranch)"
+        echo "Commit build reason = $(Build.Reason)"
+      name: exportVars
+      displayName: Export commit tag for dependent tasks
+      enabled: true
+      continueOnError: false
+      failOnStderr: true
+  - job: BuildLinuxBasedWindows
+    dependsOn:
     - Preparation
-  variables:
-    COMMIT_TAG: $[dependencies.Preparation.outputs['exportVars.COMMIT_TAG']]
-    COMMIT_TAGGED: $[dependencies.Preparation.outputs['exportVars.COMMIT_TAGGED']]
-    TAG_UNSTABLE: $[dependencies.Preparation.outputs['exportVars.TAG_UNSTABLE']]
-  steps:
-  - checkout: none
-  - script: |
-      echo "Commit COMMIT_TAG = $(COMMIT_TAG)"
-      echo "Commit COMMIT_TAGGED = $(COMMIT_TAGGED)"
-      echo "Commit TAG_UNSTABLE = $(TAG_UNSTABLE)"
-  - task: DownloadPipelineArtifact@0
-    inputs:
-      artifactName: 'build-windows'
-      targetPath: $(Build.ArtifactStagingDirectory)
-  - task: DownloadPipelineArtifact@0
-    inputs:
-      artifactName: 'build-source'
-      targetPath: $(Build.ArtifactStagingDirectory)
-  - task: DownloadPipelineArtifact@0
-    inputs:
-      artifactName: 'build-macos'
-      targetPath: $(Build.ArtifactStagingDirectory)
-  - script: |
-      cd $(Build.ArtifactStagingDirectory)
-      sha256sum * > build-hashes.txt
-    enabled: true
-    continueOnError: false
-    failOnStderr: false
-    displayName: 'Collect build artifacts'
-  - task: PublishPipelineArtifact@0
-    inputs:
-      artifactName: 'all-build-files'
-      targetPath: $(Build.ArtifactStagingDirectory)
-- template: jobs-run-python-tests.yml
-  parameters:
-    name: TestPythonPackages37
-    vmImage: 'ubuntu-16.04'
-    pythonVersion: '3.7'
-- template: jobs-run-python-tests.yml
-  parameters:
-    name: TestPythonPackages38
-    vmImage: 'ubuntu-16.04'
-    pythonVersion: '3.8'
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: 3.9
+        addToPath: true
+        architecture: x64
+    - script: |
+        sudo docker pull $(imageName)
+        sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum -e PYI_SKIP_TAG="$PYI_SKIP_TAG" --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
+      displayName: 'Windows build'
+      enabled: true
+      continueOnError: false
+      failOnStderr: false
+    - task: CopyFiles@2
+      inputs:
+        contents: contrib/build-wine/dist/?(*.exe|*.txt)
+        targetFolder: $(Build.ArtifactStagingDirectory)
+        flattenFolders: true
+        OverWrite: true
+    - task: PublishPipelineArtifact@0
+      inputs:
+        artifactName: 'build-windows'
+        targetPath: $(Build.ArtifactStagingDirectory)
+    variables:
+      imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img@sha256:8274d555237fc569f032006eccb7d76c1e2e4c9d9ca420d98a00efb527cce46e'
+  - job: BuildSourceArchive
+    dependsOn:
+    - Preparation
+    pool:
+      vmImage: 'ubuntu-16.04'
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: 3.9
+        addToPath: true
+        architecture: x64
+    - script: |
+        export PYTHONPATH=.
+        python3 contrib/make_source_archives.py
+      displayName: 'Build source archives'
+      enabled: true
+      continueOnError: false
+      failOnStderr: false
+    - task: CopyFiles@2
+      inputs:
+        contents: dist/?(*.zip|*.gz)
+        targetFolder: $(Build.ArtifactStagingDirectory)
+        flattenFolders: true
+        OverWrite: true
+    - task: PublishPipelineArtifact@0
+      inputs:
+        artifactName: 'build-source'
+        targetPath: $(Build.ArtifactStagingDirectory)
+  - job: BuildDocumentationArchive
+    dependsOn:
+    - Preparation
+    pool:
+      vmImage: 'ubuntu-16.04'
+    variables:
+      RELEASE_KEY: $[dependencies.Preparation.outputs['exportVars.RELEASE_KEY']]
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: 3.9
+        addToPath: true
+        architecture: x64
+    - script: |
+        pushd docs/standalone
+        python3 -m pip install -r requirements.txt
+        make html
+        popd
+      displayName: 'Build documentation archives'
+      enabled: true
+      continueOnError: false
+      failOnStderr: false
+    - task: ArchiveFiles@2
+      inputs:
+        rootFolderOrFile: 'docs/standalone/_build/html'
+        includeRootFolder: true
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/ElectrumSV-$(RELEASE_KEY)-docs.zip'
+        replaceExistingArchive: true
+    - task: PublishPipelineArtifact@0
+      inputs:
+        artifactName: 'build-documentation'
+        targetPath: $(Build.ArtifactStagingDirectory)
+  - job: BuildMacOS10_14
+    dependsOn:
+    - Preparation
+    pool:
+      vmImage: 'macOS-10.14'
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: 3.9
+        addToPath: true
+        architecture: x64
+    - script: |
+        sudo pip3 install --upgrade pip setuptools wheel
+        # Calin's QR reader requires SDK 10.14, which is not available in the default Xcode version.
+        /bin/bash -c "sudo xcode-select -s /Applications/Xcode_10.3.app/Contents/Developer"
+        brew install gettext && brew link gettext --force
+        ./contrib/osx/make_osx
+      enabled: true
+      continueOnError: false
+      failOnStderr: false
+      displayName: 'Build MacOS binaries'
+    - task: CopyFiles@2
+      inputs:
+        contents: dist/?(*.dmg|*.txt)
+        targetFolder: $(Build.ArtifactStagingDirectory)
+        flattenFolders: true
+        OverWrite: true
+    - task: PublishPipelineArtifact@0
+      inputs:
+        artifactName: 'build-macos'
+        targetPath: $(Build.ArtifactStagingDirectory)
+  - job: ProcessArtifacts
+    pool:
+      vmImage: 'ubuntu-16.04'
+    dependsOn:
+      - BuildLinuxBasedWindows
+      - BuildSourceArchive
+      - BuildMacOS10_14
+      - Preparation
+    variables:
+      COMMIT_TAG: $[dependencies.Preparation.outputs['exportVars.COMMIT_TAG']]
+      COMMIT_TAGGED: $[dependencies.Preparation.outputs['exportVars.COMMIT_TAGGED']]
+      TAG_UNSTABLE: $[dependencies.Preparation.outputs['exportVars.TAG_UNSTABLE']]
+    steps:
+    - checkout: none
+    - script: |
+        echo "Commit COMMIT_TAG = $(COMMIT_TAG)"
+        echo "Commit COMMIT_TAGGED = $(COMMIT_TAGGED)"
+        echo "Commit TAG_UNSTABLE = $(TAG_UNSTABLE)"
+    - task: DownloadPipelineArtifact@0
+      inputs:
+        artifactName: 'build-windows'
+        targetPath: $(Build.ArtifactStagingDirectory)
+    - task: DownloadPipelineArtifact@0
+      inputs:
+        artifactName: 'build-source'
+        targetPath: $(Build.ArtifactStagingDirectory)
+    - task: DownloadPipelineArtifact@0
+      inputs:
+        artifactName: 'build-macos'
+        targetPath: $(Build.ArtifactStagingDirectory)
+    - script: |
+        cd $(Build.ArtifactStagingDirectory)
+        sha256sum * > build-hashes.txt
+      enabled: true
+      continueOnError: false
+      failOnStderr: false
+      displayName: 'Collect build artifacts'
+    - task: PublishPipelineArtifact@0
+      inputs:
+        artifactName: 'all-build-files'
+        targetPath: $(Build.ArtifactStagingDirectory)
 
   # This requires an extra github access token added. It's a lot of hassle and it's likely better
   # to just use the API and do it externally and manually.

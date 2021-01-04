@@ -1,7 +1,17 @@
 parameters:
-  onlyPullRequests: false
+  - name: 'onlyPullRequests'
+    default: false
+    type: boolean
+  - name: 'pythonVersion'
+    default: 3.9
+    type: string
 
 steps:
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: ${{ parameters.pythonVersion }}
+    addToPath: true
+    architecture: x64
 - script: |
     sudo apt-get update
     sudo apt-get install libusb-1.0-0-dev libudev-dev
