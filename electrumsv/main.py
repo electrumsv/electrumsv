@@ -26,7 +26,7 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import asyncio
 import os
 import sys
 import time
@@ -48,6 +48,10 @@ from electrumsv import startup
 from electrumsv.storage import WalletStorage
 from electrumsv.util import json_encode, json_decode, setup_thread_excepthook
 from electrumsv.wallet import Wallet
+
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 # get password routine
