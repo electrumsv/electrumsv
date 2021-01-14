@@ -65,6 +65,7 @@ from electrumsv.network import broadcast_failure_reason
 from electrumsv.networks import Net
 from electrumsv.storage import WalletStorage
 from electrumsv.transaction import Transaction, TransactionContext, txdict_from_str
+from electrumsv.types import WaitingUpdateCallback
 from electrumsv.util import (
     bh2u, format_fee_satoshis, get_update_check_dates, get_identified_release_signers, profiler,
     get_wallet_name_from_path
@@ -1303,9 +1304,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 callback(True)
 
-        def sign_tx() -> None:
+        def sign_tx(update_cb: WaitingUpdateCallback) -> None:
             nonlocal tx, password, tx_context
             self._account.sign_transaction(tx, password, tx_context=tx_context)
+            update_cb(False, _("Done."))
 
         window = window or self
         WaitingDialog(window, _('Signing transaction...'), sign_tx, on_done=on_done,
@@ -1317,7 +1319,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             success_text = _('Payment sent.')
         window = window or self
 
-        def broadcast_tx() -> None:
+        def broadcast_tx(update_cb: WaitingUpdateCallback) -> None:
             nonlocal tx, account
             # non-GUI thread
             if account and not self._send_view.maybe_send_invoice_payment(tx):
@@ -1338,6 +1340,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # broadcast is supported.
             if result == tx.txid() and account and account.have_transaction(tx_hash):
                 account.maybe_set_transaction_dispatched(tx_hash)
+            update_cb(False, _("Done."))
             return result
 
         def on_done(future: concurrent.futures.Future) -> None:

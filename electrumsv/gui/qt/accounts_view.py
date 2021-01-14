@@ -93,6 +93,9 @@ class AccountsView(QSplitter):
             row = self._account_ids.index(new_account_id)
             self._selection_list.setCurrentRow(row)
 
+        if self._import_invoices_action is not None:
+            self._import_invoices_action.setEnabled(self._main_window.is_send_view_active())
+
     def _on_current_item_changed(self, item: QListWidgetItem, last_item: QListWidgetItem) -> None:
         account_id = item.data(Qt.UserRole)
         # This should update the internal tracking, and also the active wallet account.
@@ -214,7 +217,9 @@ class AccountsView(QSplitter):
         labels_menu.addAction(_("&Export"), partial(self._on_menu_export_labels, account_id))
 
         invoices_menu = menu.addMenu(_("Invoices"))
-        invoices_menu.addAction(_("Import"), partial(self._on_menu_import_invoices, account_id))
+        self._import_invoices_action = invoices_menu.addAction(_("Import"),
+            partial(self._on_menu_import_invoices, account_id))
+        self._import_invoices_action.setEnabled(main_window.is_send_view_active())
 
         payments_menu = menu.addMenu(_("Payments"))
         ed_action = payments_menu.addAction(_("Export destinations"),
