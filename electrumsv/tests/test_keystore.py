@@ -72,7 +72,7 @@ class TestOld_KeyStore:
         keystore = from_master_key(mpk_hex)
         assert isinstance(keystore, Old_KeyStore)
         assert keystore.get_master_public_key() == mpk_hex
-        assert keystore.to_derivation_data() == {'mpk': mpk_hex, 'subpaths':[]}
+        assert keystore.to_derivation_data() == {'mpk': mpk_hex}
         assert keystore.is_watching_only()
         assert keystore.get_xpubkey((0, 4)) == XPublicKey.from_hex(
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68'

@@ -51,8 +51,6 @@ class MockStorage:
 
 
 class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
-    gap_limit = 1  # make tests run faster
-
     def setUp(self) -> None:
         Net.set_to(SVMainnet)
 

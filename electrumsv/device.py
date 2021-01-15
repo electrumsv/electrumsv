@@ -34,7 +34,7 @@ from .logs import logs
 
 if TYPE_CHECKING:
     from electrumsv.keystore import KeyStore
-    from electrumsv.wallet_database.tables import KeyInstanceRow
+    from electrumsv.wallet_database.types import KeyInstanceRow
 
 
 logger = logs.get_logger("devices")

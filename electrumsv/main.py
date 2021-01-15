@@ -36,7 +36,7 @@ from os import urandom
 
 from electrumsv import daemon, web
 from electrumsv.app_state import app_state, AppStateProxy, DefaultApp
-from electrumsv.commands import get_parser, known_commands, Commands, config_variables
+from electrumsv.commands import Commands, config_variables, get_parser, known_commands
 from electrumsv.constants import KeystoreTextType
 from electrumsv.exceptions import IncompatibleWalletError, InvalidPassword
 from electrumsv.keystore import instantiate_keystore_from_text

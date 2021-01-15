@@ -155,8 +155,6 @@ class MockAccount(AbstractAccount):
 
     def __init__(self, wallet=None):
         self._id = 1
-        self._subpath_gap_limits = {(0,): 20,
-                                    (1,): 20}
         self._wallet = wallet
 
     def maybe_set_transaction_dispatched(self, tx_hash):

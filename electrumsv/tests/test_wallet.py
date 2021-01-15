@@ -79,27 +79,27 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
     assert len(wallet.get_accounts()) == 1
     account: StandardAccount = wallet.get_accounts()[0]
 
-    parent_keystores = wallet.get_keystores()
-    assert len(parent_keystores) == 1
-    child_keystores = account.get_keystores()
-    assert len(child_keystores) == 1
-    assert parent_keystores[0] is child_keystores[0]
+    wallet_keystores = wallet.get_keystores()
+    assert len(wallet_keystores) == 1
+    account_keystores = account.get_keystores()
+    assert len(account_keystores) == 1
+    assert wallet_keystores[0] is account_keystores[0]
 
     assert password is not None
-    assert not child_keystores[0].has_seed() or child_keystores[0].get_seed(password)
-    assert type(child_keystores[0].get_passphrase(password)) is str
-    assert child_keystores[0].get_master_private_key(password)
+    assert not account_keystores[0].has_seed() or account_keystores[0].get_seed(password)
+    assert type(account_keystores[0].get_passphrase(password)) is str
+    assert account_keystores[0].get_master_private_key(password)
 
-    keystore_data = parent_keystores[0].to_derivation_data()
-    entry_count = 4
+    keystore_data = wallet_keystores[0].to_derivation_data()
+    entry_count = 3
     if is_bip39:
-        entry_count = 3
-    assert len(keystore_data) == entry_count, keystore_data
+        entry_count = 2
+    assert len(keystore_data) == entry_count
     assert 'xpub' in keystore_data
     assert 'xprv' in keystore_data
     keystore_encrypted = False
     try:
-        parent_keystores[0].check_password(None)
+        wallet_keystores[0].check_password(None)
     except InvalidPassword:
         keystore_encrypted = True
     assert "encrypted" not in wallet.name() or keystore_encrypted
@@ -189,16 +189,15 @@ def check_legacy_parent_of_hardware_wallet(wallet: Wallet) -> None:
     assert masterkey_row.derivation_type == DerivationType.HARDWARE
     keystore_data = parent_keystores[0].to_derivation_data()
     # General hardware wallet.
-    entry_count = 5
+    entry_count = 4
     if keystore_data['hw_type'] == "ledger":
         # Ledger wallets extend the keystore.
         assert "cfg" in keystore_data
-        entry_count = 6
+        entry_count = 5
     assert len(keystore_data) == entry_count
     assert 'hw_type' in keystore_data
     assert 'label' in keystore_data
     assert "derivation" in keystore_data
-    assert "subpaths" in keystore_data
 
 
 def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
@@ -221,12 +220,18 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
     keyinstance_ids: Set[int] = set()
 
     for count in (0, 1, 5):
-        new_keyinstances = account.create_keys(RECEIVING_SUBPATH, count)
+        future, new_keyinstances = account.create_keys(RECEIVING_SUBPATH, count)
         assert count == len(new_keyinstances)
         check_rows(new_keyinstances, account_script_type)
         keyinstance_ids |= set(keyinstance.keyinstance_id for keyinstance in new_keyinstances)
         keyinstances.extend(new_keyinstances)
         assert len(keyinstance_ids) == len(keyinstances)
+        # Wait for the creation to complete before we look.
+        if count > 0:
+            assert future is not None
+            future.result()
+        else:
+            assert future is None
         # Both the local list and the database result should be in the order they were created.
         assert keyinstances == \
             account.get_existing_fresh_keys(RECEIVING_SUBPATH, 1000), f"failed for {count}"
@@ -310,10 +315,9 @@ class TestLegacyWalletCreation:
         masterkey_row = parent_keystores[0].to_masterkey_row()
         assert masterkey_row.derivation_type == DerivationType.ELECTRUM_OLD
         keystore_data = parent_keystores[0].to_derivation_data()
-        assert len(keystore_data) == 3
+        assert len(keystore_data) == 2
         assert 'mpk' in keystore_data
         assert 'seed' in keystore_data
-        assert 'subpaths' in keystore_data
 
         check_create_keys(wallet, account_row.default_script_type)
 
@@ -560,7 +564,7 @@ async def test_transaction_import_removal(tmp_storage) -> None:
         tx_1 = Transaction.from_hex(tx_hex_1)
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
-        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.StateSigned)
+        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED)
 
         # Verify the received funds are present.
         tv_rows1 = db_functions.read_transaction_values(db_context, tx_hash_1)
@@ -571,7 +575,7 @@ async def test_transaction_import_removal(tmp_storage) -> None:
         tx_2 = Transaction.from_hex(tx_hex_2)
         tx_hash_2 = tx_2.hash()
         # Add the spending transaction to the database and link it to key usage.
-        await wallet.import_transaction_async(tx_hash_2, tx_2, TxFlags.StateSigned)
+        await wallet.import_transaction_async(tx_hash_2, tx_2, TxFlags.STATE_SIGNED)
 
         # Verify both the received funds are present.
         tv_rows2 = db_functions.read_transaction_values(db_context, tx_hash_2)
@@ -619,10 +623,10 @@ async def test_transaction_import_removal(tmp_storage) -> None:
         # Verify that both transactions have been flagged as removed.
         row1 = db_functions.read_transaction_flags(db_context, tx_hash_1)
         assert row1 is not None
-        assert TxFlags(row1) == TxFlags.StateSigned | TxFlags.REMOVED
+        assert TxFlags(row1) == TxFlags.STATE_SIGNED | TxFlags.REMOVED
 
         row2 = db_functions.read_transaction_flags(db_context, tx_hash_2)
         assert row2 is not None
-        assert TxFlags(row2) == TxFlags.StateSigned | TxFlags.REMOVED
+        assert TxFlags(row2) == TxFlags.STATE_SIGNED | TxFlags.REMOVED
     finally:
         db_context.release_connection(db)

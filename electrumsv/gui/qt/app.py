@@ -43,7 +43,7 @@ from electrumsv.contacts import ContactEntry, ContactIdentity
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount, Wallet
-from electrumsv.wallet_database.tables import WalletEventRow
+from electrumsv.wallet_database.types import WalletEventRow
 
 from . import dialogs
 from .cosigner_pool import CosignerPool

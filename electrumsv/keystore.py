@@ -21,7 +21,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from collections import defaultdict
 import hashlib
 import json
 from typing import Any, cast, Dict, List, Optional, Sequence, Tuple, Union
@@ -209,7 +208,6 @@ class Imported_KeyStore(Software_KeyStore):
 
         for row in keyinstance_rows:
             data = json.loads(row.derivation_data)
-            # TODO(rt12): No way to set coin in the 'PublicKey.from_' call.
             public_key = PublicKey.from_hex(data['pub'])
             self._public_keys[row.keyinstance_id] = public_key
             self._keypairs[public_key] = cast(str, data['prv'])
@@ -335,34 +333,7 @@ class Deterministic_KeyStore(Software_KeyStore):
         raise NotImplementedError
 
 
-class DerivablePaths:
-    def to_derivation_data(self) -> Dict[str, Any]:
-        return {
-            "subpaths": list(self._sequence_watermarks.items()),
-        }
-
-    def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
-        self._sequence_watermarks: Dict[Sequence[int], int] = {}
-
-        if row is not None:
-            sequence_watermarks: Dict[Sequence[int], int] = defaultdict(int)
-            data = json.loads(row.derivation_data)
-            for derivation_path, next_index in data["subpaths"]:
-                sequence_watermarks[tuple(derivation_path)] = next_index
-            self._sequence_watermarks.update(sequence_watermarks)
-
-    # TODO(nocheckin) the new derivation_path2 field likely makes this whole class unnecessary
-    # or replaced with something that uses the derivation_path.
-    def extend_path_usage(self, derivation_path: Sequence[int], count: int) -> int:
-        next_index = self._sequence_watermarks.get(derivation_path, 0)
-        self._sequence_watermarks[derivation_path] = next_index + count
-        return next_index
-
-    def get_next_index(self, derivation_path: Sequence[int]) -> int:
-        return self._sequence_watermarks.get(derivation_path, 0)
-
-
-class Xpub(DerivablePaths):
+class Xpub:
     def __init__(self) -> None:
         self.xpub: Optional[str] = None
         self._child_xpubs: Dict[Sequence[int], str] = {}
@@ -416,7 +387,6 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         return KeystoreType.BIP32
 
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
-        Xpub.set_row(self, row)
         Deterministic_KeyStore.set_row(self, row)
 
     def get_fingerprint(self) -> bytes:
@@ -427,7 +397,6 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
 
     def to_derivation_data(self) -> Dict[str, Any]:
         d = Deterministic_KeyStore.to_derivation_data(self)
-        d.update(Xpub.to_derivation_data(self))
         d['xpub'] = self.xpub
         d['xprv'] = self.xprv
         return d
@@ -495,7 +464,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         return Xpub.is_signature_candidate(self, x_pubkey)
 
 
-class Old_KeyStore(DerivablePaths, Deterministic_KeyStore):
+class Old_KeyStore(Deterministic_KeyStore):
     derivation_type = DerivationType.ELECTRUM_OLD
 
     def __init__(self, data: Dict[str, Any], row: Optional[MasterKeyRow]=None) -> None:
@@ -505,10 +474,6 @@ class Old_KeyStore(DerivablePaths, Deterministic_KeyStore):
 
     def type(self) -> KeystoreType:
         return KeystoreType.OLD
-
-    def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
-        DerivablePaths.set_row(self, row)
-        Deterministic_KeyStore.set_row(self, row)
 
     def _get_hex_seed_bytes(self, password) -> bytes:
         return pw_decode(self.seed, password).encode('utf8')
@@ -559,7 +524,6 @@ class Old_KeyStore(DerivablePaths, Deterministic_KeyStore):
 
     def to_derivation_data(self) -> Dict[str, Any]:
         d = Deterministic_KeyStore.to_derivation_data(self)
-        d.update(DerivablePaths.to_derivation_data(self))
         d['mpk'] = self.mpk
         return d
 
@@ -701,7 +665,6 @@ class Hardware_KeyStore(Xpub, KeyStore):
         return self.hw_type
 
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
-        Xpub.set_row(self, row)
         KeyStore.set_row(self, row)
 
     def is_deterministic(self) -> bool:
@@ -714,7 +677,6 @@ class Hardware_KeyStore(Xpub, KeyStore):
             'derivation':self.derivation,
             'label':self.label,
         }
-        data.update(Xpub.to_derivation_data(self))
         return data
 
     def to_masterkey_row(self) -> MasterKeyRow:
@@ -752,7 +714,7 @@ class Hardware_KeyStore(Xpub, KeyStore):
 
 SinglesigKeyStoreTypes = Union[BIP32_KeyStore, Hardware_KeyStore, Old_KeyStore]
 
-class Multisig_KeyStore(DerivablePaths, KeyStore):
+class Multisig_KeyStore(KeyStore):
     # This isn't used, it's mostly included for consistency. Generally this attribute is used
     # only by this class, to classify derivation data of cosigner information.
     derivation_type = DerivationType.ELECTRUM_MULTISIG
@@ -780,21 +742,18 @@ class Multisig_KeyStore(DerivablePaths, KeyStore):
         return True
 
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
-        DerivablePaths.set_row(self, row)
         self._row = row
 
     def to_derivation_data(self) -> Dict[str, Any]:
-        cosigner_keys = [ (k.derivation_type, k.to_derivation_data())
-            for k in self._cosigner_keystores ]
-        for cosigner_type, cosigner_data in cosigner_keys:
-            del cosigner_data["subpaths"]
-
+        cosigner_keys = [
+            (k.derivation_type, k.to_derivation_data())
+            for k in self._cosigner_keystores
+        ]
         data = {
             'm': self.m,
             'n': self.n,
             'cosigner-keys': cosigner_keys,
         }
-        data.update(DerivablePaths.to_derivation_data(self))
         return data
 
     def to_masterkey_row(self) -> MasterKeyRow:

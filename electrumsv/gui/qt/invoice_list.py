@@ -21,6 +21,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import concurrent
 from functools import partial
 import math
 import time
@@ -41,7 +42,7 @@ from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.platform import platform
 from electrumsv.util import format_time
 from electrumsv.wallet import AbstractAccount
-from electrumsv.wallet_database.tables import InvoiceRow
+from electrumsv.wallet_database.types import InvoiceRow
 
 from .constants import pr_icons, pr_tooltips
 from .util import MyTreeWidget, read_QIcon
@@ -122,8 +123,14 @@ class InvoiceList(MyTreeWidget):
         current_time = time.time()
         nearest_expiry_time = float("inf")
 
-        for row in self._send_view._account.invoices.get_invoices():
-            flags = row.flags & PaymentFlag.STATE_MASK
+        # DEFERRED: Ability to change the invoice list to specify what invoices are shown.
+        #   This would for instance allow viewing of archived invoices.
+        wallet = self._send_view._account.get_wallet()
+        invoice_rows = wallet.read_invoices_for_account(self._send_view._account.get_id(),
+            PaymentFlag.NONE, PaymentFlag.ARCHIVED)
+
+        for row in invoice_rows:
+            flags = row.flags & PaymentFlag.MASK_STATE
             if flags & PaymentFlag.UNPAID and row.date_expires:
                 if row.date_expires <= current_time + 5:
                     flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
@@ -161,7 +168,9 @@ class InvoiceList(MyTreeWidget):
         if text == "":
             text = None
         invoice_id = item.data(COL_RECEIVED, Qt.UserRole)
-        self._send_view._account.invoices.set_invoice_description(invoice_id, text)
+        future = self._send_view._account._wallet.update_invoice_descriptions(
+            [ (text, invoice_id) ])
+        future.result()
 
     def import_invoices(self, account: AbstractAccount) -> None:
         try:
@@ -191,10 +200,10 @@ class InvoiceList(MyTreeWidget):
         column_data = item.text(column).strip()
 
         invoice_id: int = item.data(COL_RECEIVED, Qt.UserRole)
-        row = self._send_view._account.invoices.get_invoice_for_id(invoice_id)
+        row = self._send_view._account._wallet.read_invoice(invoice_id=invoice_id)
         assert row is not None, f"invoice {invoice_id} not found"
 
-        flags = row.flags & PaymentFlag.STATE_MASK
+        flags = row.flags & PaymentFlag.MASK_STATE
         if flags & PaymentFlag.UNPAID and row.date_expires:
             if row.date_expires <= time.time() + 4:
                 flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
@@ -212,7 +221,7 @@ class InvoiceList(MyTreeWidget):
         self._main_window.show_invoice(self._send_view._account, row)
 
     def _pay_invoice(self, invoice_id: int) -> None:
-        row = self._send_view._account.invoices.get_invoice_for_id(invoice_id)
+        row = self._send_view._account._wallet.read_invoice(invoice_id=invoice_id)
         if row is None:
             return
 
@@ -229,10 +238,14 @@ class InvoiceList(MyTreeWidget):
         if not self._main_window.question(_('Delete invoice?')):
             return
 
-        def callback(exc_value: Optional[Exception]=None) -> None:
+        def callback(future: concurrent.futures.Future) -> None:
             nonlocal invoice_id
-            if exc_value is not None:
-                raise exc_value # pylint: disable=raising-bad-type
+            # Skip if the operation was cancelled.
+            if future.cancelled():
+                return
+            # Raise any exception if it errored or get the result if completed successfully.
+            future.result()
             self._send_view.payment_request_deleted_signal.emit(invoice_id)
 
-        self._send_view._account.invoices.delete_invoice(invoice_id, callback)
+        future = self._send_view._account._wallet.delete_invoices([ (invoice_id,) ])
+        future.add_done_callback(callback)

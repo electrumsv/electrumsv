@@ -259,6 +259,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # Cache all script hashes. This needs to be done for all keys based on the account type and the
     # masterkey used by it. All script types for the given account type should be looked for.
     mk_keystores: Dict[int, KeyStore] = {}
+    mk_rows: Dict[int, MasterKeyRow1] = {}
     account_keystores: Dict[int, KeyStore] = {}
     for mkrow in sorted(masterkeys.values(), key=lambda t: 0 if t.masterkey_id is None
             else t.masterkey_id):
@@ -269,6 +270,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             parent_keystore = mk_keystores[mkrow.parent_masterkey_id]
         mk_keystores[mkrow.masterkey_id] = instantiate_keystore(mkrow.derivation_type, data,
             parent_keystore, mkrow) # type: ignore
+        mk_rows[mkrow.masterkey_id] = mkrow
 
     private_key_types = set([ DerivationType.PRIVATE_KEY ])
     address_types = set([ DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH ])
@@ -306,6 +308,13 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                 raise DatabaseMigrationError(_("Account corrupt, types: {}").format(found_types))
         else:
             keystore = account_keystores[account_id] = mk_keystores[masterkey_id]
+            # Extract the derivation subpath watermarks.
+            mk_row = mk_rows[masterkey_id]
+            mk_derivation_data = json.loads(mk_row.derivation_data)
+            mk_watermarks: Dict[Sequence[int], int] = defaultdict(int)
+            for derivation_path, next_index in mk_derivation_data["subpaths"]:
+                mk_watermarks[tuple(derivation_path)] = next_index
+            # Loop.
             mk_keyinstances = mk_keyinstance_data.get((account_id, masterkey_id), {})
             if keystore.type() == KeystoreType.MULTISIG:
                 ms_keystore = cast(Multisig_KeyStore, keystore)
@@ -314,7 +323,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                     # We only look at the keys the account already has enumerated from the
                     # derivation path. The assumption is that if further keys are enumerated by the
                     # account later, they will get mapped and matched then.
-                    for i in range(ms_keystore.get_next_index(subpath)):
+                    for i in range(mk_watermarks[subpath]):
                         derivation_path = subpath + (i,)
                         public_keys_hex = [ k.derive_pubkey(derivation_path).to_hex()
                             for k in child_ms_keystores ]
@@ -328,7 +337,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             else:
                 ss_keystore = cast(SinglesigKeyStoreTypes, keystore)
                 for subpath in (CHANGE_SUBPATH, RECEIVING_SUBPATH):
-                    for i in range(ss_keystore.get_next_index(subpath)):
+                    for i in range(mk_watermarks[subpath]):
                         derivation_path = subpath + (i,)
                         public_key = ss_keystore.derive_pubkey(derivation_path)
                         for script_type in SINGLESIG_SCRIPT_TYPES:
@@ -426,10 +435,13 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     ")")
     # We transfer the "pays invoice" flag for a transaction to be per-account not per-tx.
     logger.debug("copying the AccountTransactions view contents to secondary table")
-    conn.execute("INSERT INTO AccountTransactions2 (tx_hash, account_id, description, "
-        "flags, date_created, date_updated) SELECT AT.tx_hash, AT.account_id, T.description, "
-        f"T.flags & {AccountTxFlags.PAYS_INVOICE}, T.date_created, T.date_updated "
-        "FROM AccountTransactions AS AT INNER JOIN Transactions AS T ON AT.tx_hash = T.tx_hash")
+    conn.execute(
+        "INSERT INTO AccountTransactions2 (tx_hash, account_id, description, flags, "
+            "date_created, date_updated) "
+        "SELECT AT.tx_hash, AT.account_id, T.description, "
+            f"T.flags & {AccountTxFlags.PAYS_INVOICE}, T.date_created, T.date_updated "
+        "FROM AccountTransactions AS AT "
+        "INNER JOIN Transactions AS T ON AT.tx_hash = T.tx_hash")
 
     # Sanity check: There should be the same number of entries in both objects.
     rows = conn.execute("SELECT COUNT(*) FROM AccountTransactions2 UNION ALL "

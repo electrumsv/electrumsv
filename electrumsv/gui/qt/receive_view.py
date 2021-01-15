@@ -1,3 +1,4 @@
+import concurrent
 from typing import List, Optional, TYPE_CHECKING
 import weakref
 
@@ -7,12 +8,12 @@ from PyQt5.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLa
 
 from ...app_state import app_state
 from ...bitcoin import script_template_to_string
-from ...constants import PaymentFlag, RECEIVING_SUBPATH
+from ...constants import KeyInstanceFlag, PaymentFlag, RECEIVING_SUBPATH
 from ...i18n import _
 from ...logs import logs
-from ...wallet_database.tables import KeyInstanceRow
 from ... import web
-from ...wallet_database.types import KeyDataTypes
+from ...wallet_database.types import (KeyDataTypes, KeyInstanceRow, PaymentRequestRow,
+    PaymentRequestUpdateRow)
 
 from .amountedit import AmountEdit, BTCAmountEdit
 from .constants import expiration_values
@@ -231,21 +232,34 @@ class ReceiveView(QWidget):
             self._main_window.show_error(_('No message or amount'))
             return
 
-        def callback(exc_value: Optional[Exception]=None) -> None:
-            if exc_value is not None:
-                raise exc_value # pylint: disable=raising-bad-type
+        def callback(future: concurrent.futures.Future) -> None:
+            # Skip if the operation was cancelled.
+            if future.cancelled():
+                return
+            # Raise any exception if it errored or get the result if completed successfully.
+            future.result()
             self._request_list.update_signal.emit()
 
+        wallet = self._account.get_wallet()
         i = self._expires_combo.currentIndex()
         expiration = [x[1] for x in expiration_values][i]
-        row = self._account.requests.get_request_for_key_id(self._receive_key_data.keyinstance_id)
+        row = wallet.read_payment_request(keyinstance_id=self._receive_key_data.keyinstance_id)
         if row is None:
-            row = self._account.requests.create_request(self._receive_key_data.keyinstance_id,
-                PaymentFlag.UNPAID, amount, expiration, message, callback)
+            wallet.set_keyinstance_flags([ self._receive_key_data.keyinstance_id ],
+                KeyInstanceFlag.IS_PAYMENT_REQUEST)
+
+            # Update the payment request next.
+            row = PaymentRequestRow(-1, self._receive_key_data.keyinstance_id, PaymentFlag.UNPAID,
+                amount, expiration, message)
+            future = wallet.create_payment_requests(self._account.get_id(), [ row ])
+            future.add_done_callback(callback)
         else:
             # Expiration is just a label, so we don't use the value.
-            self._account.requests.update_request(row.paymentrequest_id, row.state, amount,
-                row.expiration, message, callback)
+            entries = [ PaymentRequestUpdateRow(row.state, amount, row.expiration, message,
+                row.paymentrequest_id) ]
+            future = wallet.update_payment_requests(entries)
+            future.add_done_callback(callback)
+
         self._save_request_button.setEnabled(False)
 
     def _new_payment_request(self) -> None:

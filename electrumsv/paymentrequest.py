@@ -70,13 +70,9 @@ def has_expired(expiration_timestamp: Optional[int]=None) -> bool:
 
 
 class Output:
-    # FIXME: this should either be removed in favour of TxOutput, or be a lighter wrapper
-    # around it.
-
     def __init__(self, script: Script, amount: Optional[int]=None,
                  description: Optional[str]=None):
         self.script = script
-        # TODO: Must not have a JSON string length of 100 bytes.
         if description is not None:
             description_json = json.dumps(description)
             if len(description_json) > 100:

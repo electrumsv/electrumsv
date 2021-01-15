@@ -26,6 +26,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import concurrent
 import textwrap
 import time
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
@@ -46,8 +47,7 @@ from ...paymentrequest import has_expired, PaymentRequest
 from ...transaction import Transaction, XTxOutput
 from ...util import format_satoshis_plain
 from ...wallet import AbstractAccount
-from ...wallet_database.tables import InvoiceRow
-from ...wallet_database.types import TransactionOutputSpendableTypes
+from ...wallet_database.types import InvoiceRow, TransactionOutputSpendableTypes
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from . import dialogs
@@ -522,7 +522,8 @@ class SendView(QWidget):
         self._main_window.sign_tx_with_password(tx, sign_done, password, tx_context=tx.context)
 
     def get_transaction_for_invoice(self) -> Optional[Transaction]:
-        invoice_row = self._account.invoices.get_invoice_for_id(self._payment_request.get_id())
+        invoice_row = self._send_view._account._wallet.read_invoice(
+            invoice_id=self._payment_request.get_id())
         if invoice_row.tx_hash is not None:
             return self._main_window._wallet.get_transaction(invoice_row.tx_hash)
         return None
@@ -538,7 +539,7 @@ class SendView(QWidget):
             # transaction that is not related to the active invoice and it's repercussions, has
             # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
             # in the main window logic.
-            invoice_row = self._account.invoices.get_invoice_for_id(invoice_id)
+            invoice_row =self._account._wallet.read_invoice(invoice_id=invoice_id)
             if tx_hash != invoice_row.tx_hash:
                 # Calling logic should have detected this and warned/confirmed with the user.
                 return True
@@ -553,6 +554,9 @@ class SendView(QWidget):
                 return False
 
             self._account.invoices.set_invoice_paid(invoice_id)
+            future = self._account._wallet.update_invoice_flags(
+                [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
+            future.result()
 
             self._payment_request = None
             # On success we broadcast as well, but it is assumed that the merchant also
@@ -608,23 +612,34 @@ class SendView(QWidget):
 
     def payment_request_ok(self) -> None:
         pr = self._payment_request
+        account = self._account
+        wallet = self._account._wallet
 
-        service = self._account.invoices
         if pr.get_id() is None:
-            def callback(exc_value: Optional[Exception]=None) -> None:
-                nonlocal service
-                if exc_value is not None:
-                    raise exc_value # pylint: disable=raising-bad-type
-                row = service.get_invoice_for_payment_uri(pr.get_payment_uri())
+            def callback(future: concurrent.futures.Future) -> None:
+                nonlocal wallet, pr
+                # Skip if the action was cancelled.
+                if future.cancelled():
+                    return
+                # Raise any exception encountered.
+                future.result()
+
+                row = wallet.read_invoice(payment_uri=pr.get_payment_uri())
                 pr.set_id(row.invoice_id)
                 self.payment_request_imported_signal.emit(row)
 
-            row = service.import_payment_request(pr, callback)
-            if row.invoice_id is None:
+            # TODO Is this the best algorithm for detecting a duplicate? No idea.
+            row = wallet.read_invoice_duplicate(pr.get_amount(), pr.get_payment_uri())
+            if row is None:
+                row = InvoiceRow(0, account.get_id(), None, pr.get_payment_uri(), pr.get_memo(),
+                    PaymentFlag.UNPAID, pr.get_amount(), pr.to_json().encode(),
+                    pr.get_expiration_date())
+                future = wallet.create_invoices([ row ])
+                future.add_done_callback(callback)
                 # We're waiting for the callback.
                 return
         else:
-            row = service.get_invoice_for_id(pr.get_id())
+            row = self._account._wallet.read_invoice(invoice_id=pr.get_id())
 
         # The invoice is already present. Populate it unless it's paid.
         if row.flags & PaymentFlag.PAID:

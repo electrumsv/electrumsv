@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QLayout, QWidget,
 from electrumsv.constants import WalletEventFlag, WalletEventType
 from electrumsv.i18n import _
 from electrumsv.util import format_time
-from electrumsv.wallet_database.tables import WalletEventRow
+from electrumsv.wallet_database.types import WalletEventRow
 
 from .util import ClickableLabel, icon_path, read_QIcon
 from .wallet_api import WalletAPI

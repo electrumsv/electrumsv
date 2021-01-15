@@ -2,10 +2,10 @@ import os
 
 from electrumsv.logs import logs
 from electrumsv import wallet_database
-from electrumsv.wallet_database import DatabaseContext, SynchronousWriter, TxProof
+from electrumsv.wallet_database import DatabaseContext 
+from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.migration import create_database, update_database
-from electrumsv.wallet_database.sqlite_support import WriteEntryType
-from electrumsv.wallet_database.tables import WalletDataRow
+from electrumsv.wallet_database.types import TxProof, WalletDataRow
 
 logs.set_level("debug")
 
@@ -50,122 +50,61 @@ class TestWalletDataTable:
         cls.db = cls.db_context.acquire_connection()
         create_database(cls.db)
         update_database(cls.db)
-        cls.store = wallet_database.WalletDataTable(cls.db_context)
 
     @classmethod
     def teardown_class(cls):
-        del cls.store._get_current_timestamp
-        cls.store.close()
         cls.db_context.release_connection(cls.db)
         cls.db_context.close()
 
     def setup_method(self):
-        self.store._get_current_timestamp = self._get_timestamp
-        self._timestamp = 1
-        db = self.store._db
-        db.execute(f"DELETE FROM WalletData")
-        db.commit()
+        self.db.execute(f"DELETE FROM WalletData")
+        self.db.commit()
 
-    def _get_timestamp(self) -> int:
-        return self._timestamp
-
-    def test_add(self):
+    def test_create_and_read(self):
         k = os.urandom(10).hex()
         v = [os.urandom(10).hex()]
 
-        self.store.timestamp = 1
-        with SynchronousWriter() as writer:
-            self.store.create([ WalletDataRow(k, v) ], completion_callback=writer.get_callback())
-            assert writer.succeeded()
+        future = db_functions.create_wallet_datas(self.db_context, [ WalletDataRow(k, v) ])
+        future.result()
 
-        row = self.store.get_row(k)
-        assert row is not None
-        assert isinstance(row, WalletDataRow)
-        assert row.key == k # key
-        assert row.value == v # ByteData
-
-    def test_create(self):
-        kvs = [ WalletDataRow(os.urandom(10).hex(), [os.urandom(10).hex()]) for i in range(10) ]
-
-        self.store.timestamp = 1
-        with SynchronousWriter() as writer:
-            self.store.create(kvs, completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        kvs2 = self.store.read([ k for (k, v) in kvs ])
-        assert len(kvs) == len(kvs2)
-        for t in kvs:
-            assert t in kvs2
-
-    def test_update(self) -> None:
-        original_values = {}
-        for i in range(10):
-            k = os.urandom(10).hex()
-            v1 = { "value": os.urandom(10).hex() }
-            original_values[k] = v1
-        entries = [ WalletDataRow(*t) for t in original_values.items() ]
-        with SynchronousWriter() as writer:
-            self.store.create(entries, completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        new_values = original_values.copy()
-        for k in original_values.keys():
-            new_values[k] = { "value": os.urandom(10).hex() }
-        entries = [ WalletDataRow(*t) for t in new_values.items() ]
-        with SynchronousWriter() as writer:
-            self.store.update(entries, completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        rows = self.store.read()
-        assert len(rows) == len(new_values)
-        for row in rows:
-            assert row in entries
-
-    def test_get_value_nonexistent(self) -> None:
-        assert self.store.get_value("nonexistent") is None
-
-    def test_upsert(self) -> None:
-        with SynchronousWriter() as writer:
-            self.store.upsert([ WalletDataRow("A", "B") ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-        assert self.store.get_value("A") == "B"
-
-        with SynchronousWriter() as writer:
-            self.store.upsert([ WalletDataRow("A", "C") ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        assert self.store.get_value("A") == "C"
-        values = self.store.read([ "A" ])
+        values = dict(db_functions.read_wallet_datas(self.db_context))
         assert len(values) == 1
+        assert values[k] == v
 
-    def test_get(self):
-        k = os.urandom(10).hex()
-        v = os.urandom(10).hex()
-        with SynchronousWriter() as writer:
-            self.store.create([ WalletDataRow(k, v) ], completion_callback=writer.get_callback())
-            assert writer.succeeded()
-        byte_data = self.store.get_value(k)
-        assert byte_data is not None
-        assert byte_data == v
+    def test_set(self) -> None:
+        values = dict(db_functions.read_wallet_datas(self.db_context))
+        assert len(values) == 0
+
+        future = db_functions.set_wallet_datas(self.db_context, [ WalletDataRow("A", "B") ])
+        future.result()
+
+        values = dict(db_functions.read_wallet_datas(self.db_context))
+        assert len(values) == 1
+        assert values["A"] == "B"
+
+        future = db_functions.set_wallet_datas(self.db_context, [ WalletDataRow("A", "C") ])
+        future.result()
+
+        values = dict(db_functions.read_wallet_datas(self.db_context))
+        assert len(values) == 1
+        assert values["A"] == "C"
 
     def test_delete(self):
         k = os.urandom(10).hex()
         v = [ os.urandom(10).hex() ]
 
-        self.store.timestamp = 1
-        with SynchronousWriter() as writer:
-            self.store.create([ WalletDataRow(k, v) ], completion_callback=writer.get_callback())
-            assert writer.succeeded()
+        future = db_functions.set_wallet_datas(self.db_context, [ WalletDataRow(k, v) ])
+        future.result()
 
-        self.store.timestamp = 2
-        with SynchronousWriter() as writer:
-            self.store.delete(k, completion_callback=writer.get_callback())
-            assert writer.succeeded()
+        values = dict(db_functions.read_wallet_datas(self.db_context))
+        assert len(values) == 1
+        assert values[k] == v
 
-        row = self.store.get_row(k)
-        assert row is None
+        future = db_functions.delete_wallet_data(self.db_context, k)
+        future.result()
+
+        values = dict(db_functions.read_wallet_datas(self.db_context))
+        assert len(values) == 0
 
 
 class MockTransactionStore:
@@ -180,7 +119,7 @@ class MockTransactionStore:
     #     tx_hash_1 = tx_1.hash()
     #     data = TxData(height=11, position=22, date_added=1, date_updated=1)
     #     with SynchronousWriter() as writer:
-    #         cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSettled, None) ],
+    #         cache.add([ (tx_hash_1, data, tx_1, TxFlags.STATE_SETTLED, None) ],
     #             completion_callback=writer.get_callback())
     #         assert writer.succeeded()
 
@@ -195,7 +134,7 @@ class MockTransactionStore:
 
     #     data = TxData(height=11, date_added=1, date_updated=1)
     #     with SynchronousWriter() as writer:
-    #         cache.add([ (tx_hash_1, data, tx_1, TxFlags.StateSettled, None) ],
+    #         cache.add([ (tx_hash_1, data, tx_1, TxFlags.STATE_SETTLED, None) ],
     #             completion_callback=writer.get_callback())
     #         assert writer.succeeded()
 
@@ -215,7 +154,7 @@ class MockTransactionStore:
 
     #     data_y1 = TxData(height=common_height+1, position=33, fee=44, date_added=1, date_updated=1)
     #     with SynchronousWriter() as writer:
-    #         cache.add([ (tx_hash_y1, data_y1, tx_y1, TxFlags.StateSettled, None) ],
+    #         cache.add([ (tx_hash_y1, data_y1, tx_y1, TxFlags.STATE_SETTLED, None) ],
     #             completion_callback=writer.get_callback())
     #         assert writer.succeeded()
 
@@ -225,7 +164,7 @@ class MockTransactionStore:
 
     #     data_n1 = TxData(height=common_height-1, position=33, fee=44, date_added=1, date_updated=1)
     #     with SynchronousWriter() as writer:
-    #         cache.add([ (tx_hash_n1, data_n1, tx_n1, TxFlags.StateSettled, None) ],
+    #         cache.add([ (tx_hash_n1, data_n1, tx_n1, TxFlags.STATE_SETTLED, None) ],
     #             completion_callback=writer.get_callback())
     #         assert writer.succeeded()
 
@@ -235,7 +174,7 @@ class MockTransactionStore:
 
     #     data_n2 = TxData(height=common_height, position=33, fee=44, date_added=1, date_updated=1)
     #     with SynchronousWriter() as writer:
-    #         cache.add([ (tx_hash_n2, data_n2, tx_n2, TxFlags.StateSettled, None) ],
+    #         cache.add([ (tx_hash_n2, data_n2, tx_n2, TxFlags.STATE_SETTLED, None) ],
     #             completion_callback=writer.get_callback())
     #         assert writer.succeeded()
 
@@ -245,7 +184,7 @@ class MockTransactionStore:
 
     #     data_n3 = TxData(height=111, position=333, fee=444, date_added=1, date_updated=1)
     #     with SynchronousWriter() as writer:
-    #         cache.add([ (tx_hash_n3, data_n3, tx_n3, TxFlags.StateDispatched, None) ],
+    #         cache.add([ (tx_hash_n3, data_n3, tx_n3, TxFlags.STATE_DISPATCHED, None) ],
     #             completion_callback=writer.get_callback())
     #         assert writer.succeeded()
 
@@ -262,7 +201,7 @@ class MockTransactionStore:
     #     assert 0 == y1.metadata.height
     #     assert None is y1.metadata.position
     #     assert data_y1.fee == y1.metadata.fee
-    #     assert TxFlags.StateCleared | TxFlags.HasFee == y1.flags, TxFlags.to_repr(y1.flags)
+    #     assert TxFlags.STATE_CLEARED | TxFlags.HasFee == y1.flags, TxFlags.to_repr(y1.flags)
 
     #     expected_flags = TxFlags.HasFee | TxFlags.HasHeight | TxFlags.HasPosition
 
@@ -271,82 +210,62 @@ class MockTransactionStore:
     #     assert data_n1.height == n1.metadata.height
     #     assert data_n1.position == n1.metadata.position
     #     assert data_n1.fee == n1.metadata.fee
-    #     assert TxFlags.StateSettled | expected_flags == n1.flags, TxFlags.to_repr(n1.flags)
+    #     assert TxFlags.STATE_SETTLED | expected_flags == n1.flags, TxFlags.to_repr(n1.flags)
 
     #     # Skipped, canary common height.
     #     n2 = [ m[1] for m in metadata_entries if m[0] == tx_hash_n2 ][0]
     #     assert data_n2.height == n2.metadata.height
     #     assert data_n2.position == n2.metadata.position
     #     assert data_n2.fee == n2.metadata.fee
-    #     assert TxFlags.StateSettled | expected_flags == n2.flags, TxFlags.to_repr(n2.flags)
+    #     assert TxFlags.STATE_SETTLED | expected_flags == n2.flags, TxFlags.to_repr(n2.flags)
 
     #     # Skipped, canary non-cleared.
     #     n3 = [ m[1] for m in metadata_entries if m[0] == tx_hash_n3 ][0]
     #     assert data_n3.height == n3.metadata.height
     #     assert data_n3.position == n3.metadata.position
     #     assert data_n3.fee == n3.metadata.fee
-    #     assert TxFlags.StateDispatched | expected_flags == n3.flags, TxFlags.to_repr(n3.flags)
+    #     assert TxFlags.STATE_DISPATCHED | expected_flags == n3.flags, TxFlags.to_repr(n3.flags)
 
 
-class TestSqliteWriteDispatcher:
-    @classmethod
-    def setup_method(self):
-        self.dispatcher = None
-        self._logger = logs.get_logger("...")
-        class MockSqlite3Connection:
-            def __enter__(self, *args, **kwargs):
-                pass
-            def __exit__(self, *args, **kwargs):
-                pass
-            def execute(self, query: str) -> None:
-                pass
-        class DbContext:
-            def acquire_connection(self):
-                return MockSqlite3Connection()
-            def release_connection(self, connection):
-                pass
-        self.db_context = DbContext()
+# TODO(nocheckin) This is no longer valid, but we should really have some tests for it.
+# class TestSqliteWriteDispatcher:
+#     @classmethod
+#     def setup_method(self):
+#         self.dispatcher = None
+#         self._logger = logs.get_logger("...")
+#         class MockSqlite3Connection:
+#             def __enter__(self, *args, **kwargs):
+#                 pass
+#             def __exit__(self, *args, **kwargs):
+#                 pass
+#             def execute(self, query: str) -> None:
+#                 pass
+#         class DbContext:
+#             def acquire_connection(self):
+#                 return MockSqlite3Connection()
+#             def release_connection(self, connection):
+#                 pass
+#         self.db_context = DbContext()
 
-    @classmethod
-    def teardown_method(self):
-        if self.dispatcher is not None:
-            self.dispatcher.stop()
+#     @classmethod
+#     def teardown_method(self):
+#         if self.dispatcher is not None:
+#             self.dispatcher.stop()
 
-    # As we use threading pytest can deadlock if something errors. This will break the deadlock
-    # and display stacktraces.
-    def test_write_dispatcher_to_completion(self) -> None:
-        self.dispatcher = wallet_database.SqliteWriteDispatcher(self.db_context)
-        self.dispatcher._writer_loop_event.wait()
+#     # As we use threading pytest can deadlock if something errors. This will break the deadlock
+#     # and display stacktraces.
+#     def test_write_dispatcher(self) -> None:
+#         self.dispatcher = wallet_database.SqliteWriteDispatcher(self.db_context)
+#         self.dispatcher._writer_loop_event.wait()
 
-        _completion_callback_called = False
-        def _completion_callback(success: bool):
-            nonlocal _completion_callback_called
-            _completion_callback_called = True
+#         _write_callback_called = False
+#         def _write_callback(conn):
+#             nonlocal _write_callback_called
+#             _write_callback_called = True
 
-        _write_callback_called = False
-        def _write_callback(conn):
-            nonlocal _write_callback_called
-            _write_callback_called = True
+#         # NOTE DUD call
+#         self.db_context.post_to_thread(_write_callback)
+#         self.dispatcher.stop()
 
-        self.dispatcher.put(WriteEntryType(_write_callback, _completion_callback))
-        self.dispatcher.stop()
-
-        assert _write_callback_called
-        assert _completion_callback_called
-
-    # As we use threading pytest can deadlock if something errors. This will break the deadlock
-    # and display stacktraces.
-    def test_write_dispatcher_write_only(self) -> None:
-        self.dispatcher = wallet_database.SqliteWriteDispatcher(self.db_context)
-        self.dispatcher._writer_loop_event.wait()
-
-        _write_callback_called = False
-        def _write_callback(conn):
-            nonlocal _write_callback_called
-            _write_callback_called = True
-
-        self.dispatcher.put(WriteEntryType(_write_callback))
-        self.dispatcher.stop()
-
-        assert _write_callback_called
+#         assert _write_callback_called
 

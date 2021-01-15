@@ -208,8 +208,8 @@ class LabelImporter(QDialog):
         else:
             return
 
-        with self._wallet.get_account_transaction_table() as table:
-            account_tx_hashes = { r.tx_hash for r in table.read_basic(self._account_id) }
+        account_tx_hashes = { r.tx_hash for r
+            in self.read_account_transaction_descriptions(self._account_id) }
 
         for tx_hash, tx_description in result.transaction_labels.items():
             if tx_hash not in account_tx_hashes:

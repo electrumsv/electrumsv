@@ -23,7 +23,6 @@ from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, get_network_type, decode_request_body
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.types import TxoKeyType
-from electrumsv.wallet_database.tables import MissingRowError
 from electrumsv.wallet_database.types import (TransactionOutputSpendableRow,
     TransactionOutputSpendableRow2)
 from .errors import Errors
@@ -406,9 +405,9 @@ class ExtendedHandlerUtils(HandlerUtils):
                 if coin.block_height + COINBASE_MATURITY > account._wallet.get_local_height():
                     unmatured_coins.append(coin)
                     continue
-            if coin.tx_flags & TxFlags.StateSettled:
+            if coin.tx_flags & TxFlags.STATE_SETTLED:
                 settled_coins.append(coin)
-            elif coin.tx_flags & TxFlags.StateCleared:
+            elif coin.tx_flags & TxFlags.STATE_CLEARED:
                 cleared_coins.append(coin)
 
         return {"cleared_coins": len(cleared_coins),
@@ -459,17 +458,14 @@ class ExtendedHandlerUtils(HandlerUtils):
         return result
 
     def remove_transaction(self, tx_hash: bytes, account: AbstractAccount) -> None:
-        # removal of txs that are not in the StateSigned tx state is disabled for now as it may
+        # removal of txs that are not in the STATE_SIGNED tx state is disabled for now as it may
         # cause issues with expunging utxos inadvertently.
-        try:
-            tx_flags = account._wallet.get_transaction_flags(tx_hash)
-            is_signed_state = (tx_flags & TxFlags.StateSigned) == TxFlags.StateSigned
-            # Todo - perhaps remove restriction to StateSigned only later (if safe for utxos state)
-            if not is_signed_state:
-                raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
-            account._wallet.remove_transaction(tx_hash)
-        except MissingRowError:
-            raise Fault(Errors.TRANSACTION_NOT_FOUND_CODE, Errors.TRANSACTION_NOT_FOUND_MESSAGE)
+        tx_flags = account._wallet.get_transaction_flags(tx_hash)
+        is_signed_state = (tx_flags & TxFlags.STATE_SIGNED) == TxFlags.STATE_SIGNED
+        # Todo - perhaps remove restriction to STATE_SIGNED only later (if safe for utxos state)
+        if not is_signed_state:
+            raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
+        account._wallet.remove_transaction(tx_hash)
 
     def select_inputs_and_outputs(self, config: SimpleConfig,
             account: AbstractAccount,

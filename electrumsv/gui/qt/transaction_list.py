@@ -221,11 +221,11 @@ class _ItemModel(QAbstractItemModel):
                 elif column == DATE_UPDATED_COLUMN:
                     return line.date_updated
                 elif column == STATE_COLUMN:
-                    if line.flags & TxFlags.StateDispatched:
+                    if line.flags & TxFlags.STATE_DISPATCHED:
                         return 0
-                    elif line.flags & TxFlags.StateReceived:
+                    elif line.flags & TxFlags.STATE_RECEIVED:
                         return 2
-                    elif line.flags & TxFlags.StateSigned:
+                    elif line.flags & TxFlags.STATE_SIGNED:
                         return 1
                     else:
                         return 3
@@ -247,11 +247,11 @@ class _ItemModel(QAbstractItemModel):
                         if line.date_updated else _("unknown"))
 
                 elif column == STATE_COLUMN:
-                    if line.flags & TxFlags.StateDispatched:
+                    if line.flags & TxFlags.STATE_DISPATCHED:
                         return _("Dispatched")
-                    elif line.flags & TxFlags.StateReceived:
+                    elif line.flags & TxFlags.STATE_RECEIVED:
                         return _("Received")
-                    elif line.flags & TxFlags.StateSigned:
+                    elif line.flags & TxFlags.STATE_SIGNED:
                         return _("Signed")
                     return line.flags
                 elif column == LABEL_COLUMN:
@@ -277,13 +277,13 @@ class _ItemModel(QAbstractItemModel):
                     if line.flags & TxFlags.PAYS_INVOICE:
                         return _("This transaction is associated with an invoice.")
                 elif column == STATE_COLUMN:
-                    if line.flags & TxFlags.StateDispatched:
+                    if line.flags & TxFlags.STATE_DISPATCHED:
                         return _("This transaction has been sent to the network, but has not "
                             "cleared yet.")
-                    elif line.flags & TxFlags.StateReceived:
+                    elif line.flags & TxFlags.STATE_RECEIVED:
                         return _("This transaction has been received from another party, but "
                             "has not been broadcast yet.")
-                    elif line.flags & TxFlags.StateSigned:
+                    elif line.flags & TxFlags.STATE_SIGNED:
                         return _("This transaction has been signed, but has not been broadcast "
                             "yet.")
 
@@ -544,7 +544,7 @@ class TransactionView(QTableView):
         self._logger.debug("_on_transaction_state_change %s new=%s",
             hash_to_hex_str(tx_hash), TxFlags.to_repr(new_state))
 
-        if new_state & TxFlags.STATE_BROADCAST_MASK:
+        if new_state & TxFlags.MASK_STATE_BROADCAST:
             self._mark_transactions_removed([ tx_hash ])
         else:
             self._mark_transactions_updated([ tx_hash ])
@@ -763,12 +763,12 @@ class TransactionView(QTableView):
                         lambda: self.edit(selected_index))
 
                 # TODO these are all that the list query returns, uncleared transactions.
-                if flags & TxFlags.STATE_UNCLEARED_MASK != 0:
+                if flags & TxFlags.MASK_STATE_UNCLEARED != 0:
                     if flags & TxFlags.PAYS_INVOICE:
                         broadcast_action = menu.addAction(self._invoice_icon, _("Pay invoice"),
                             lambda: self._pay_invoice(line.tx_hash))
 
-                        row = self._account.invoices.get_invoice_for_tx_hash(line.tx_hash)
+                        row = self._account._wallet.read_invoice(tx_hash=line.tx_hash)
                         if row is None:
                             # The associated invoice has been deleted.
                             broadcast_action.setEnabled(False)
@@ -789,11 +789,11 @@ class TransactionView(QTableView):
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _pay_invoice(self, tx_hash: bytes) -> None:
-        row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
+        row = self._account._wallet.read_invoice(tx_hash=tx_hash)
         self._main_window._send_view._invoice_list._pay_invoice(row.invoice_id)
 
     def _show_invoice_window(self, tx_hash: bytes) -> None:
-        row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
+        row = self._account._wallet.read_invoice(tx_hash=tx_hash)
         if row is None:
             self._main_window.show_error(_("The invoice for the transaction has been deleted."))
             return

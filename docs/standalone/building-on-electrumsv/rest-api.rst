@@ -182,7 +182,7 @@ Get account balance (confirmed, unconfirmed, unmatured) in satoshis.
 
 remove
 **********
-Removes transactions (currently restricted to 'StateSigned' transactions.)
+Removes transactions (currently restricted to 'STATE_SIGNED' transactions.)
 
 Deleting transactions in the 'Dispatched', 'Cleared', 'Settled' states
 could cause issues with the utxo set and so is not supported at this
@@ -236,16 +236,16 @@ a bitmask for filtering transactions.
 
 **The main `TxFlags` are:**
 
-:StateCleared: 1 << 20  (received over p2p network and is unconfirmed and in the mempool)
-:StateSettled: 1 << 21 (received over the p2p network and is confirmed in a block)
-:StateReceived: 1 << 22 (received from another party and is unknown to the p2p network)
-:StateSigned: 1 << 23 (not sent or given to anyone else, but are with-holding and consider the inputs it uses allocated)
-:StateDispatched: 1 << 24 (a transaction you have given to someone else, and are considering the inputs it uses allocated)
+:STATE_CLEARED: 1 << 20  (received over p2p network and is unconfirmed and in the mempool)
+:STATE_SETTLED: 1 << 21 (received over the p2p network and is confirmed in a block)
+:STATE_RECEIVED: 1 << 22 (received from another party and is unknown to the p2p network)
+:STATE_SIGNED: 1 << 23 (not sent or given to anyone else, but are with-holding and consider the inputs it uses allocated)
+:STATE_DISPATCHED: 1 << 24 (a transaction you have given to someone else, and are considering the inputs it uses allocated)
 
 However, there are other flags that can be set. See ``electrumsv/constants.py:TxFlags`` for details.
 
 In the example below, (1 << 23 | 1 << 21) yields 9437184
-(to filter for only StateSigned and StateCleared transactions)
+(to filter for only STATE_SIGNED and STATE_CLEARED transactions)
 
 An empty request body will return all transaction history for this account.
 Pagination is not yet implemented.

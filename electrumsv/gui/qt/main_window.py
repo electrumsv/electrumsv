@@ -72,8 +72,7 @@ from ...util import (bh2u, format_fee_satoshis, get_update_check_dates,
     get_identified_release_signers, get_wallet_name_from_path, profiler)
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, Wallet
-from ...wallet_database.tables import InvoiceRow
-from ...wallet_database.types import (KeyDataTypes, TransactionLinkState,
+from ...wallet_database.types import (InvoiceRow, KeyDataTypes, TransactionLinkState,
     TransactionOutputSpendableTypes)
 from ... import web
 
@@ -1267,7 +1266,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 "<br/><br/>" +
                 _("Do you still wish to broadcast this transaction?"))
 
-            invoice_row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
+            invoice_row = self._account._wallet.read_invoice(tx_hash=tx_hash)
             if invoice_row is None:
                 if not self.question(_("This transaction is associated with a deleted invoice.") +
                         "<br/><br/>" + body_text,
@@ -1412,7 +1411,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         in a callback from whatever does the work.
         """
         # Attempt to make the change.
-        future = account.set_transaction_output_flags(txo_keys, TransactionOutputFlag.IS_FROZEN)
+        future = account.get_wallet().update_transaction_output_flags(
+            txo_keys, TransactionOutputFlag.IS_FROZEN)
         future.result()
 
         # Apply the visual effects of coins being frozen or unfrozen.

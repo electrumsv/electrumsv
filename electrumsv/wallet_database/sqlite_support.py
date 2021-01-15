@@ -11,8 +11,7 @@ except ModuleNotFoundError:
     import sqlite3 # type: ignore
 import threading
 import time
-import traceback
-from typing import Any, Callable, NamedTuple, Optional, Set, Tuple, Union
+from typing import Any, Set
 
 from ..constants import DATABASE_EXT
 from ..logs import logs
@@ -80,15 +79,6 @@ class WriteDisabledError(Exception):
     pass
 
 
-WriteCallbackType = Union[Callable[[sqlite3.Connection], None], 'ExecutorItem']
-CompletionCallbackType = Callable[[Optional[Exception]], None]
-CompletionEntryType = Tuple[CompletionCallbackType, Optional[Exception]]
-
-class WriteEntryType(NamedTuple):
-    write_callback: WriteCallbackType
-    completion_callback: Optional[CompletionCallbackType] = None
-
-
 class SqliteWriteDispatcher:
     """
     This is a relatively simple write dispatcher for Sqlite that keeps all the writes on one thread,
@@ -103,11 +93,9 @@ class SqliteWriteDispatcher:
         self._db_context = db_context
         self._logger = logs.get_logger("sqlite-writer")
 
-        self._writer_queue: "queue.Queue[WriteEntryType]" = queue.Queue()
+        self._writer_queue: "queue.Queue[ExecutorItem]" = queue.Queue()
         self._writer_thread = threading.Thread(target=self._writer_thread_main, daemon=True)
         self._writer_loop_event = threading.Event()
-
-        self._callback_thread_pool = concurrent.futures.ThreadPoolExecutor()
 
         self._allow_puts = True
         self._is_alive = True
@@ -125,52 +113,18 @@ class SqliteWriteDispatcher:
             # actions at this point, it is because we need to retry after a transaction
             # was rolled back.
             try:
-                write_entry: WriteEntryType = self._writer_queue.get(timeout=0.1)
+                write_entry: ExecutorItem = self._writer_queue.get(timeout=0.1)
             except queue.Empty:
                 if self._exit_when_empty:
                     return
                 continue
 
-            # Using the connection as a context manager, apply the batch as a transaction.
             time_start = time.time()
-            if isinstance(write_entry.write_callback, ExecutorItem):
-                write_entry.write_callback(self._db)
-            else:
-                # TODO(nocheckin) remove WriteCompletion stuff.
-                self._db.execute("BEGIN")
-                try:
-                    # `isolation_level=None` means we opt to explicitly start transactions.
-                    write_entry.write_callback(self._db)
-                    self._db.execute("COMMIT")
-                except Exception as e:
-                    self._db.execute("ROLLBACK")
-                    # The transaction was rolled back.
-                    # Exception: This is caught because we need to relay any exception to the
-                    # calling context's completion notification callback.
-                    self._logger.exception("Database write failure", exc_info=e)
-                    # If there was an error with this action then we've logged it, so we can discard
-                    # it for lack of any other option.
-                    if write_entry.completion_callback is not None:
-                        self._callback_thread_pool.submit(self._dispatch_callback,
-                            write_entry.completion_callback, e)
-                else:
-                    # The transaction was successfully committed.
-                    if write_entry.completion_callback is not None:
-                        _future = self._callback_thread_pool.submit(self._dispatch_callback,
-                            write_entry.completion_callback, None)
+            write_entry(self._db)
+            time_ms = int((time.time() - time_start) * 1000)
+            self._logger.debug("Invoked write callback in %d ms", time_ms)
 
-                    time_ms = int((time.time() - time_start) * 1000)
-                    self._logger.debug("Invoked write callback in %d ms", time_ms)
-
-    def _dispatch_callback(self, callback: CompletionCallbackType,
-            exc_value: Optional[Exception]) -> None:
-        try:
-            callback(exc_value)
-        except Exception as e:
-            traceback.print_exc()
-            self._logger.exception("Exception within completion callback", exc_info=e)
-
-    def put(self, write_entry: WriteEntryType) -> None:
+    def put(self, write_entry: 'ExecutorItem') -> None:
         # If the writer is closed, then it is expected the caller should have made sure that
         # no more puts will be made, and the error will only be raised if something puts to
         # flag that it is wrong.
@@ -190,7 +144,6 @@ class SqliteWriteDispatcher:
         self._writer_loop_event.wait()
         self._writer_thread.join()
         self._db_context.release_connection(self._db)
-        self._callback_thread_pool.shutdown(wait=True)
         self._is_alive = False
 
     def is_stopped(self) -> bool:
@@ -301,10 +254,6 @@ class DatabaseContext:
     def get_path(self) -> str:
         return self._db_path
 
-    def queue_write(self, write_callback: WriteCallbackType,
-            completion_callback: Optional[CompletionCallbackType]=None) -> None:
-        self._write_dispatcher.put(WriteEntryType(write_callback, completion_callback))
-
     def close(self) -> None:
         self._write_dispatcher.stop()
 
@@ -371,46 +320,6 @@ class DatabaseContext:
         return f"file:{unique_name}?mode=memory&cache=shared"
 
 
-class _QueryCompleter:
-    def __init__(self):
-        self._event = threading.Event()
-
-        self._gave_callback = False
-        self._have_result = False
-        self._result: Any = None
-
-    def get_callback(self) -> CompletionCallbackType:
-        assert not self._gave_callback, "Query completer cannot be reused"
-        def callback(exc_value: Optional[Exception]) -> None:
-            self._have_result = True
-            self._result = exc_value
-            self._event.set()
-        self._gave_callback = True
-        return callback
-
-    def succeeded(self) -> bool:
-        assert self._gave_callback, "Query completer not active, no callback given out"
-        if not self._have_result:
-            self._event.wait()
-        if self._result is None:
-            return True
-        exc_value = self._result
-        self._result = None
-        assert exc_value is not None
-        raise exc_value # pylint: disable=raising-bad-type
-
-
-class SynchronousWriter:
-    def __init__(self):
-        self._completer = _QueryCompleter()
-
-    def __enter__(self):
-        return self._completer
-
-    def __exit__(self, _type, _value, _traceback):
-        pass
-
-
 # Based on `concurrent.futures.thread._ExecutorItem`.
 # Relabels `run` to `__call__` and
 class ExecutorItem(object):
@@ -459,9 +368,7 @@ class SqliteExecutor(concurrent.futures.Executor):
             future: concurrent.futures.Future = concurrent.futures.Future()
             # Used to implement the wait on shutdown.
             future.add_done_callback(self._on_future_done)
-            work_item = ExecutorItem(future, fn, args, kwargs)
-            self._dispatcher.put(WriteEntryType(work_item))
-            # Post the work item somewhere.
+            self._dispatcher.put(ExecutorItem(future, fn, args, kwargs))
             return future
 
     def shutdown(self, wait: bool=True) -> None:

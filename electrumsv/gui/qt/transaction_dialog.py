@@ -274,7 +274,7 @@ class TxDialog(QDialog, MessageBoxMixin):
     def update_tx_if_in_wallet(self) -> None:
         if self._tx_hash is not None:
             flags = self._wallet.get_transaction_flags(self._tx_hash)
-            if flags is not None and flags & (TxFlags.StateCleared | TxFlags.StateSettled):
+            if flags is not None and flags & (TxFlags.STATE_CLEARED | TxFlags.STATE_SETTLED):
                 self.update()
 
     def do_broadcast(self) -> None:
@@ -715,7 +715,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             if metadata is None:
                 # The transaction is not known to the wallet.
                 status = _("External signed transaction")
-                state = TxFlags.StateReceived | TxFlags.StateSigned
+                state = TxFlags.STATE_RECEIVED | TxFlags.STATE_SIGNED
                 can_broadcast = wallet._network is not None
             else:
                 date_created = metadata.date_created
@@ -734,22 +734,22 @@ class TxDialog(QDialog, MessageBoxMixin):
 
                 label = self._account.get_transaction_label(self._tx_hash)
 
-                state = wallet.get_transaction_flags(self._tx_hash) & TxFlags.STATE_MASK
-                if state & TxFlags.StateSettled:
+                state = wallet.get_transaction_flags(self._tx_hash) & TxFlags.MASK_STATE
+                if state & TxFlags.STATE_SETTLED:
                     height = metadata.block_height
                     conf = max(wallet.get_local_height() - height + 1, 0)
                     status = _("{:,d} confirmations (in block {:,d})").format(conf, height)
-                elif state & TxFlags.StateCleared:
+                elif state & TxFlags.STATE_CLEARED:
                     if metadata.block_height > 0:
                         status = _('Not verified')
                     else:
                         status = _('Unconfirmed')
-                elif state & TxFlags.StateReceived:
+                elif state & TxFlags.STATE_RECEIVED:
                     status = _("Received")
                     can_broadcast = wallet._network is not None
-                elif state & TxFlags.StateDispatched:
+                elif state & TxFlags.STATE_DISPATCHED:
                     status = _("Dispatched")
-                elif state & TxFlags.StateSigned:
+                elif state & TxFlags.STATE_SIGNED:
                     status = _("Signed")
                     can_broadcast = wallet._network is not None
                 else:
@@ -763,7 +763,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             # else:
             #     value_delta += delta_result.total
         else:
-            state = TxFlags.StateReceived
+            state = TxFlags.STATE_RECEIVED
 
             # For now all inputs must come from the same account.
             for input in tx.inputs:
