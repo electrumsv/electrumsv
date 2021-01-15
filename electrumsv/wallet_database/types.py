@@ -56,6 +56,29 @@ class InvoiceRow(NamedTuple):
     date_created: int = -1
 
 
+class InvoiceAccountRow(NamedTuple):
+    invoice_id: int
+    payment_uri: str
+    description: Optional[str]
+    flags: PaymentFlag
+    value: int
+    date_expires: Optional[int]
+    date_created: int
+
+
+class InvoiceRow(NamedTuple):
+    invoice_id: int
+    account_id: int
+    tx_hash: Optional[bytes]
+    payment_uri: str
+    description: Optional[str]
+    flags: PaymentFlag
+    value: int
+    invoice_data: bytes
+    date_expires: Optional[int]
+    date_created: int = -1
+
+
 class KeyDataType(NamedTuple):
     """
     At the time of writing, no database operation uses this. It is a helper abstraction that
@@ -136,6 +159,17 @@ class TransactionBlockRow(NamedTuple):
     tx_hash: bytes
 
 
+class PaymentRequestUpdateRow(NamedTuple):
+    state: PaymentFlag
+    value: Optional[int]
+    expiration: Optional[int]
+    description: Optional[str]
+    paymentrequest_id: int
+
+
+SpendConflictType = Tuple[bytes, int, bytes, int]
+
+
 class TransactionDeltaSumRow(NamedTuple):
     account_id: int
     total: int
@@ -151,6 +185,24 @@ class TransactionExistsRow(NamedTuple):
     tx_hash: bytes
     flags: TxFlags
     account_id: Optional[int]
+
+
+class TransactionInputAddRow(NamedTuple):
+    tx_hash: bytes
+    txi_index: int
+    spent_tx_hash: bytes
+    spent_txo_index: int
+    sequence: int
+    flags: int
+    script_offset: int
+    script_length: int
+    date_created: int
+    date_updated: int
+
+
+class TransactionDescriptionResult(NamedTuple):
+    tx_hash: bytes
+    description: str
 
 
 class TransactionInputAddRow(NamedTuple):

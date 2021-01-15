@@ -1371,7 +1371,8 @@ class ImportedAddressAccount(ImportedAccountBase):
             derivation_data2, KeyInstanceFlag.IS_ACTIVE, None)
         _keyinstance_future, _rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
 
-        self._add_activated_keys([ keyinstance ])
+        # TODO(nocheckin) The concept of activated keys is going to change to a different model.
+        self._add_activated_keys(rows)
         return True
 
     def get_public_keys_for_key_data(self, _keydata: KeyDataTypes) -> List[PublicKey]:
