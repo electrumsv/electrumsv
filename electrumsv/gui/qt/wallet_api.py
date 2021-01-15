@@ -8,7 +8,7 @@ from PyQt5.QtCore import pyqtSignal, QObject
 from electrumsv.app_state import app_state
 from electrumsv.constants import WalletEventFlag
 from electrumsv.contacts import ContactEntry, ContactIdentity, IdentitySystem, IdentityCheckResult
-from electrumsv.wallet_database.tables import WalletEventRow
+from electrumsv.wallet_database.types import WalletEventRow
 
 
 class WalletAPI(QObject):

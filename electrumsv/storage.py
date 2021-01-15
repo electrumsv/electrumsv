@@ -55,12 +55,14 @@ from .logs import logs
 from .networks import Net
 from .transaction import Transaction, classify_tx_output, parse_script_sig
 from .util.misc import ProgressCallbacks
-from .wallet_database import DatabaseContext, migration, SynchronousWriter, WalletDataTable
+from .wallet_database import DatabaseContext, migration
+from .wallet_database import functions as db_functions
 from .wallet_database.storage_migration import (create_accounts1, create_keys1,
     create_master_keys1, create_payment_requests1, create_transaction_outputs1,
-    create_transactions1, AccountRow1, KeyInstanceRow1, MasterKeyRow1, PaymentRequestRow1,
-    TransactionOutputFlag1, TransactionOutputRow1, TransactionRow1, TxData1, TxFlags1)
-from .wallet_database.tables import WalletDataRow
+    create_transactions1, create_wallet_datas1, AccountRow1, KeyInstanceRow1, MasterKeyRow1,
+    PaymentRequestRow1, TransactionOutputFlag1, TransactionOutputRow1, TransactionRow1, TxData1,
+    TxFlags1, read_wallet_data1, update_wallet_datas1, WalletDataRow1)
+from .wallet_database.types import WalletDataRow
 
 
 logger = logs.get_logger("storage")
@@ -220,14 +222,13 @@ class AbstractStore:
         with self._lock:
             if value is not None:
                 if self._data.get(key) != value:
-                    is_update = key in self._data
                     self._data[key] = copy.deepcopy(value)
-                    self._on_value_modified(key, self._data[key], is_update)
+                    self._on_value_modified(key, self._data[key])
             elif key in self._data:
                 self._data.pop(key)
                 self._on_value_deleted(key)
 
-    def _on_value_modified(self, key: str, value: Any, is_update: bool) -> None:
+    def _on_value_modified(self, key: str, value: Any) -> None:
         raise NotImplementedError
 
     def _on_value_deleted(self, key: str) -> None:
@@ -265,7 +266,6 @@ class AbstractStore:
 
 class DatabaseStore(AbstractStore):
     _db_context: DatabaseContext
-    _table: WalletDataTable
 
     def __init__(self, path: str) -> None:
         super().__init__(path)
@@ -292,11 +292,8 @@ class DatabaseStore(AbstractStore):
         # This table is unencrypted. If anything is to be encrypted in it, it is encrypted
         # manually before storage.
         self._db_context = DatabaseContext(self._path)
-        self._table = WalletDataTable(self._db_context)
 
     def close_database(self) -> None:
-        self._table.close()
-
         # Wait for the database to finish writing, and verify that the context has been fully
         # released by all stores that make use of it.
         self._db_context.close()
@@ -318,20 +315,17 @@ class DatabaseStore(AbstractStore):
 
     def attempt_load_data(self) -> bool:
         self._data = {}
-        for row in self._table.read():
+        for row in db_functions.read_wallet_datas(self._db_context):
             self._data[row[0]] = row[1]
         return True
 
-    def _on_value_modified(self, key: str, value: Any, is_update: bool) -> None:
+    def _on_value_modified(self, key: str, value: Any) -> None:
         # Queued write, we do not wait for it to complete. Closing the DB context will wait.
-        if is_update:
-            self._table.update([ WalletDataRow(key, value) ])
-        else:
-            self._table.create([ WalletDataRow(key, value) ])
+        db_functions.set_wallet_datas(self._db_context, [ WalletDataRow(key, value) ])
 
     def _on_value_deleted(self, key: str) -> None:
         # Queued write, we do not wait for it to complete. Closing the DB context will wait.
-        self._table.delete(key)
+        db_functions.delete_wallet_data(self._db_context, key)
 
     def _write(self) -> None:
         pass
@@ -438,7 +432,7 @@ class TextStore(AbstractStore):
                     continue
                 self._data[key] = value
 
-    def _on_value_modified(self, key: str, value: Any, is_update: bool) -> None:
+    def _on_value_modified(self, key: str, value: Any) -> None:
         self._modified = True
 
     def _on_value_deleted(self, key: str) -> None:
@@ -812,14 +806,12 @@ class TextStore(AbstractStore):
         # This code should be updated as the structure and wallet workings changes to ensure
         # older wallets can always be migrated as long as we support them.
         db_context = DatabaseContext(self._path)
-        walletdata_table: Optional[WalletDataTable] = None
         try:
-            walletdata_table = WalletDataTable(db_context)
-
-            next_masterkey_id = cast(int, walletdata_table.get_value("next_masterkey_id"))
-            next_account_id = cast(int, walletdata_table.get_value("next_account_id"))
-            next_keyinstance_id = cast(int, walletdata_table.get_value("next_keyinstance_id"))
-            next_paymentrequest_id = cast(int, walletdata_table.get_value("next_paymentrequest_id"))
+            next_masterkey_id = cast(int, read_wallet_data1(db_context, "next_masterkey_id"))
+            next_account_id = cast(int, read_wallet_data1(db_context, "next_account_id"))
+            next_keyinstance_id = cast(int, read_wallet_data1(db_context, "next_keyinstance_id"))
+            next_paymentrequest_id = cast(int, read_wallet_data1(db_context,
+                "next_paymentrequest_id"))
 
             masterkey_id = next_masterkey_id
             next_masterkey_id += 1
@@ -883,22 +875,20 @@ class TextStore(AbstractStore):
                 fee = tx_fees.get(tx_id)
                 description = labels.pop(tx_id, None)
                 if tx_id in tx_verified:
-                    flags = TxFlags1.StateSettled
+                    flags = TxFlags1.STATE_SETTLED
                     height, _timestamp, position = tx_verified[tx_id]
                     tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
                         verified=True, height=height, known_addresses=set([]),
                         encountered_addresses=set([]))
                 else:
                     height = tx_heights.get(tx_id)
-                    flags = TxFlags1.StateCleared
+                    flags = TxFlags1.STATE_CLEARED
                     position = None
                     tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
                         verified=False, height=height, known_addresses=set([]),
                         encountered_addresses=set([]))
                 tx_metadata = TxData1(height=height, fee=fee, position=position,
                     date_added=date_added, date_updated=date_added)
-                # TODO(rt12) BACKLOG what if this code is later reused and the operation is an
-                # import and the rows already exist?
                 transaction_rows.append(TransactionRow1(tx_hash, tx_metadata, tx_bytedata, flags,
                     description, -1, -1))
 
@@ -1172,6 +1162,8 @@ class TextStore(AbstractStore):
                         extra_addresses)
 
             # Commit all the changes to the database. This is ordered to respect FK constraints.
+            # Note that database write calls are done sequentially. By waiting for the final one
+            # to complete we know the others have already completed.
             if len(transaction_rows):
                 create_transactions1(db_context, transaction_rows)
             if len(masterkey_rows):
@@ -1187,10 +1179,10 @@ class TextStore(AbstractStore):
 
             # The database creation should create these rows.
             creation_rows = []
-            creation_rows.append(WalletDataRow("password-token",
+            creation_rows.append(WalletDataRow1("password-token",
                 pw_encode(os.urandom(32).hex(), new_password)))
             if len(labels):
-                creation_rows.append(WalletDataRow("lost-labels", labels))
+                creation_rows.append(WalletDataRow1("lost-labels", labels))
             for key in [
                     "contacts2", # contacts.py
                     "wallet_nonce", "labels", # labels.py (A, B), wallet.py (B)
@@ -1199,26 +1191,20 @@ class TextStore(AbstractStore):
                     "invoices", "stored_height", "gap_limit" ]: # wallet.py
                 value = self.get(key)
                 if value is not None:
-                    creation_rows.append(WalletDataRow(key, value))
+                    creation_rows.append(WalletDataRow1(key, value))
+            create_wallet_datas1(db_context, creation_rows)
 
-            walletdata_table.create(creation_rows)
-
-            # Database write calls are done sequentially. By waiting for one of the final one to
-            # complete we know the others have already completed.
-            with SynchronousWriter() as writer:
-                walletdata_table.update([
-                    WalletDataRow("next_masterkey_id", next_masterkey_id),
-                    WalletDataRow("next_account_id", next_account_id),
-                    WalletDataRow("next_keyinstance_id", next_keyinstance_id),
-                    WalletDataRow("next_paymentrequest_id", next_paymentrequest_id),
-                ], completion_callback=writer.get_callback())
-                assert writer.succeeded()
-            walletdata_table.close()
-            walletdata_table = None
+            # These are inserted when the table is created, so we know the update will have an
+            # existing row to effect and won't be a NOP.
+            update_rows = [
+                WalletDataRow1("next_masterkey_id", next_masterkey_id),
+                WalletDataRow1("next_account_id", next_account_id),
+                WalletDataRow1("next_keyinstance_id", next_keyinstance_id),
+                WalletDataRow1("next_paymentrequest_id", next_paymentrequest_id),
+            ]
+            future = update_wallet_datas1(db_context, update_rows)
+            future.result()
         finally:
-            # We need to close this one explicitly if it opened successfully.
-            if walletdata_table is not None:
-                walletdata_table.close()
             db_context.close()
 
         # We hand across the data to the database store, so correct it.

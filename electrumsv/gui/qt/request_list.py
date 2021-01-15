@@ -85,8 +85,7 @@ class RequestList(MyTreeWidget):
         if not item.isSelected():
             return
         pr_id = item.data(0, Qt.UserRole)
-        with self._account._wallet.get_payment_request_table() as table:
-            pr = table.read_one(pr_id)
+        pr = self._account._wallet.read_payment_request(pr_id)
         expires = age(pr.date_created + pr.expiration) if pr.expiration else _('Never')
 
         keyinstance = self._account._wallet.get_keyinstance(pr.keyinstance_id)
@@ -102,9 +101,8 @@ class RequestList(MyTreeWidget):
             return
 
         wallet = self._account._wallet
-        with wallet.get_payment_request_table() as table:
-            rows = table.read(self._account_id, flags=PaymentFlag.NONE,
-                mask=PaymentFlag.ARCHIVED)
+        rows = wallet.read_payment_requests(self._account_id, flags=PaymentFlag.NONE,
+            mask=PaymentFlag.ARCHIVED)
 
         # update the receive address if necessary
         current_key_data = self._receive_view.get_receive_key_data()
@@ -166,8 +164,7 @@ class RequestList(MyTreeWidget):
 
     def _get_request_URI(self, pr_id: int) -> str:
         wallet = self._account.get_wallet()
-        with wallet.get_payment_request_table() as table:
-            req = table.read_one(pr_id)
+        req = self._account._wallet.read_payment_request(pr_id)
         message = self._account.get_keyinstance_label(req.keyinstance_id)
         # TODO(ScriptTypeAssumption) see above for context
         keyinstance = wallet.get_keyinstance(req.keyinstance_id)
@@ -182,8 +179,7 @@ class RequestList(MyTreeWidget):
         return str(URI)
 
     def _export_payment_request(self, pr_id: int) -> None:
-        with self._account.get_wallet().get_payment_request_table() as table:
-            pr = table.read_one(pr_id)
+        pr = self._account._wallet.read_payment_request(pr_id)
         pr_data = paymentrequest.PaymentRequest.from_wallet_entry(self._account, pr).to_json()
         name = f'{pr.paymentrequest_id}.bip270.json'
         fileName = self._main_window.getSaveFileName(
@@ -194,14 +190,18 @@ class RequestList(MyTreeWidget):
             self.show_message(_("Request saved successfully"))
 
     def _delete_payment_request(self, request_id: int) -> None:
-        def callback(exc_value: Optional[Exception]=None) -> None:
-            if exc_value is not None:
-                raise exc_value # pylint: disable=raising-bad-type
-            self.update_signal.emit()
+        # Blocking deletion call.
+        wallet = self._account.get_wallet()
+        row = wallet.read_payment_request(request_id=request_id)
+        if row is None:
+            return
 
-        self._account.requests.delete_request(request_id, callback)
+        future = wallet.delete_payment_request(request_id, row.keyinstance_id)
+        future.result()
 
+        self.update_signal.emit()
         # The key may have been freed up and should be used first.
+        # NOTE(rt12) WTF does this even mean?
         self._receive_view.update_contents()
 
     def _view_and_paste(self, title: str, msg: str, data: str) -> None:

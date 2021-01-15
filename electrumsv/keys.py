@@ -7,7 +7,7 @@ from .bitcoin import ScriptTemplate
 from .constants import DerivationType, ScriptType
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
-from .wallet_database.tables import KeyInstanceRow
+from .wallet_database.types import KeyInstanceRow
 
 
 def extract_public_key_hash(row: KeyInstanceRow) -> str:

@@ -1,7 +1,7 @@
-from typing import NamedTuple, Optional, Sequence, Set, Union
+from typing import Any, NamedTuple, Optional, Sequence, Set, Tuple, Union
 
 from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, PaymentFlag, ScriptType,
-    TransactionOutputFlag, TxFlags)
+    TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 
 
 class AccountRow(NamedTuple):
@@ -9,6 +9,12 @@ class AccountRow(NamedTuple):
     default_masterkey_id: Optional[int]
     default_script_type: ScriptType
     account_name: str
+
+
+class AccountTransactionDescriptionRow(NamedTuple):
+    account_id: int
+    tx_hash: bytes
+    description: Optional[str]
 
 
 class AccountTransactionRow(NamedTuple):
@@ -24,6 +30,29 @@ class HistoryListRow(NamedTuple):
     block_height: Optional[int]
     block_position: Optional[int]
     value_delta: int
+
+
+class InvoiceAccountRow(NamedTuple):
+    invoice_id: int
+    payment_uri: str
+    description: Optional[str]
+    flags: PaymentFlag
+    value: int
+    date_expires: Optional[int]
+    date_created: int
+
+
+class InvoiceRow(NamedTuple):
+    invoice_id: int
+    account_id: int
+    tx_hash: Optional[bytes]
+    payment_uri: str
+    description: Optional[str]
+    flags: PaymentFlag
+    value: int
+    invoice_data: bytes
+    date_expires: Optional[int]
+    date_created: int = -1
 
 
 class KeyDataType(NamedTuple):
@@ -87,9 +116,38 @@ class PaymentRequestRow(NamedTuple):
     date_created: int
 
 
+class PaymentRequestUpdateRow(NamedTuple):
+    state: PaymentFlag
+    value: Optional[int]
+    expiration: Optional[int]
+    description: Optional[str]
+    paymentrequest_id: int
+
+
+SpendConflictType = Tuple[bytes, int, bytes, int]
+
+
 class TransactionDeltaSumRow(NamedTuple):
     account_id: int
     total: int
+
+
+class TransactionDescriptionResult(NamedTuple):
+    tx_hash: bytes
+    description: str
+
+
+class TransactionInputAddRow(NamedTuple):
+    tx_hash: bytes
+    txi_index: int
+    spent_tx_hash: bytes
+    spent_txo_index: int
+    sequence: int
+    flags: int
+    script_offset: int
+    script_length: int
+    date_created: int
+    date_updated: int
 
 
 class TransactionLinkState:
@@ -106,6 +164,20 @@ class TransactionMetadata(NamedTuple):
     block_position: Optional[int]
     fee_value: Optional[int]
     date_created: int
+
+
+class TransactionOutputAddRow(NamedTuple):
+    tx_hash: bytes
+    tx_index: int
+    value: int
+    keyinstance_id: Optional[int]
+    script_type: ScriptType
+    flags: TransactionOutputFlag
+    script_hash: bytes
+    script_offset: int
+    script_length: int
+    date_created: int
+    date_updated: int
 
 
 class TransactionOutputShortRow(NamedTuple):
@@ -230,7 +302,31 @@ class TxProof(NamedTuple):
     branch: Sequence[bytes]
 
 
+class TxProofResult(NamedTuple):
+    tx_hash: bytes
+    proof: Optional[bytes]
+
+    def unpack_proof(self) -> TxProof:
+        assert self.proof is not None
+        from .util import unpack_proof
+        return unpack_proof(self.proof)
+
+
 class WalletBalance(NamedTuple):
     confirmed: int
     unconfirmed: int
     unmatured: int
+
+
+class WalletDataRow(NamedTuple):
+    key: str
+    value: Any
+
+
+class WalletEventRow(NamedTuple):
+    event_id: int
+    event_type: WalletEventType
+    account_id: Optional[int]
+    # NOTE(rt12): sqlite3 python module only allows custom typing if the column name is unique.
+    event_flags: WalletEventFlag
+    date_created: int

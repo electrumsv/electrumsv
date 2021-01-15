@@ -349,7 +349,7 @@ class HistoryList(MyTreeWidget):
                     lambda: self._main_window.cpfp(account, tx, child_tx))
         flags = self._wallet.get_transaction_flags(tx_hash)
         if flags is not None and flags & TxFlags.PAYS_INVOICE:
-            invoice_row = self._account.invoices.get_invoice_for_tx_hash(tx_hash)
+            invoice_row = self._account._wallet.read_invoice(tx_hash=tx_hash)
             invoice_id = invoice_row.invoice_id if invoice_row is not None else None
             action = menu.addAction(read_QIcon(ICON_NAME_INVOICE_PAYMENT), _("View invoice"),
                     partial(self._show_invoice_window, invoice_id))
@@ -360,7 +360,7 @@ class HistoryList(MyTreeWidget):
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _show_invoice_window(self, invoice_id: int) -> None:
-        row = self._account.invoices.get_invoice_for_id(invoice_id)
+        row = self._wallet.read_invoice(invoice_id=invoice_id)
         if row is None:
             self._main_window.show_error(_("The invoice for the transaction has been deleted."))
             return
@@ -456,7 +456,7 @@ class HistoryView(QWidget):
 
         if self._account_id is not None:
             _account_id, local_value, local_count = self._account.get_raw_balance(
-                mask=TxFlags.STATE_UNCLEARED_MASK)
+                mask=TxFlags.MASK_STATE_UNCLEARED)
 
         if local_count == 0:
             self._local_summary_label.setVisible(False)

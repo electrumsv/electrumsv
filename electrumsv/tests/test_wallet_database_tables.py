@@ -15,15 +15,12 @@ from electrumsv.constants import (AccountTxFlags, DerivationType, KeyInstanceFla
     PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
 from electrumsv.types import TxoKeyType
-from electrumsv.wallet_database import (AccountTable, DatabaseContext, KeyInstanceTable,
-    MasterKeyTable, migration, PaymentRequestTable, SynchronousWriter,
-    TransactionTable, TxProof)
+from electrumsv.wallet_database import DatabaseContext, migration
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.sqlite_support import LeakedSQLiteConnectionError
-from electrumsv.wallet_database.tables import (InvoiceAccountRow, InvoiceRow, InvoiceTable,
-    WalletEventTable, WalletEventRow)
-from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, KeyInstanceRow,
-    MasterKeyRow, PaymentRequestRow, TransactionRow, TransactionOutputShortRow)
+from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
+    InvoiceRow, KeyInstanceRow, MasterKeyRow, PaymentRequestRow, PaymentRequestUpdateRow,
+    TransactionRow, TransactionOutputShortRow, TxProof, WalletEventRow)
 from electrumsv.wallet_database.util import pack_proof, unpack_proof
 
 logs.set_level("debug")
@@ -64,7 +61,7 @@ def test_migrations() -> None:
     migration.create_database_file(wallet_path)
 
 
-@pytest.mark.timeout(8)
+
 def test_database_context() -> None:
     db_context = _db_context()
     # Wait for writer thread to start and acquire 1st connection
@@ -97,12 +94,10 @@ def test_database_context() -> None:
         conn.commit()
 
 
-@pytest.mark.timeout(8)
-def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
-    table = MasterKeyTable(db_context)
-    assert [] == table.read()
 
-    table._get_current_timestamp = lambda: 10
+def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
+    masterkey_rows = db_functions.read_masterkeys(db_context)
+    assert len(masterkey_rows) == 0
 
     line1 = MasterKeyRow(1, None, 2, b'111')
     line2 = MasterKeyRow(2, None, 4, b'222')
@@ -118,41 +113,24 @@ def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
         future = db_functions.create_master_keys(db_context, [ line1 ])
         future.result(timeout=5)
 
-    lines = table.read()
+    lines = db_functions.read_masterkeys(db_context)
     assert 2 == len(lines)
-
     line1_db = [ line for line in lines if line[0] == 1 ][0]
-    assert line1 == line1_db
-
     line2_db = [ line for line in lines if line[0] == 2 ][0]
+    assert line1 == line1_db
     assert line2 == line2_db
 
-    date_updated = 20
+    future = db_functions.update_masterkey_derivation_datas(db_context, [ (b'234', 1) ])
+    future.result()
 
-    with SynchronousWriter() as writer:
-        table.update_derivation_data([ (b'234', 1) ],
-            date_updated,
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    with SynchronousWriter() as writer:
-        table.delete([ 2 ], completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    lines = table.read()
-    assert 1 == len(lines)
-    assert lines[0].masterkey_id == 1
-    assert lines[0].derivation_data == b'234'
-
-    table.close()
+    masterkey_rows = db_functions.read_masterkeys(db_context)
+    masterkey_row1 = [ row for row in masterkey_rows if row.masterkey_id == 1 ][0]
+    assert masterkey_row1.derivation_data == b'234'
 
 
-@pytest.mark.timeout(8)
 def test_table_accounts_crud(db_context: DatabaseContext) -> None:
-    table = AccountTable(db_context)
-    assert [] == table.read()
-
-    table._get_current_timestamp = lambda: 10
+    rows = db_functions.read_accounts(db_context)
+    assert len(rows) == 0
 
     ACCOUNT_ID = 10
     MASTERKEY_ID = 20
@@ -182,46 +160,29 @@ def test_table_accounts_crud(db_context: DatabaseContext) -> None:
         future = db_functions.create_accounts(db_context, [ line1 ])
         future.result()
 
-    db_lines = table.read()
+    db_lines = db_functions.read_accounts(db_context)
     assert 2 == len(db_lines)
     db_line1 = [ db_line for db_line in db_lines if db_line[0] == line1[0] ][0]
     assert line1 == db_line1
     db_line2 = [ db_line for db_line in db_lines if db_line[0] == line2[0] ][0]
     assert line2 == db_line2
 
-    date_updated = 20
+    future1 = db_functions.update_account_names(db_context, [ ('new_name', line2[0]) ])
+    future2 = db_functions.update_account_script_types(db_context,
+        [ (ScriptType.MULTISIG_BARE, line2[0]) ])
+    future1.result()
+    future2.result()
 
-    with SynchronousWriter() as writer:
-        table.update_masterkey([ (MASTERKEY_ID+1, ScriptType.MULTISIG_BARE, line1[0]) ],
-            date_updated,
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    with SynchronousWriter() as writer:
-        table.update_name([ (line2[0], 'new_name') ],
-            date_updated,
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    db_lines = table.read()
+    db_lines = db_functions.read_accounts(db_context)
     assert 2 == len(db_lines)
-    db_line1 = [ db_line for db_line in db_lines if db_line[0] == line1[0] ][0]
-    assert ScriptType.MULTISIG_BARE == db_line1[2]
-    db_line2 = [ db_line for db_line in db_lines if db_line[0] == line2[0] ][0]
+    db_line1 = [ db_line for db_line in db_lines if db_line[0] == line1.account_id ][0]
+    assert ScriptType.P2PKH == db_line1.default_script_type
+    db_line2 = [ db_line for db_line in db_lines if db_line[0] == line2.account_id ][0]
+    assert ScriptType.MULTISIG_BARE == db_line2.default_script_type
     assert 'new_name' == db_line2[3]
 
-    with SynchronousWriter() as writer:
-        table.delete([ line2[0] ], completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    db_lines = table.read()
-    assert 1 == len(db_lines)
-    assert db_lines[0][0] == line1[0]
-
-    table.close()
 
 
-@pytest.mark.timeout(8)
 def test_account_transactions(db_context: DatabaseContext) -> None:
     ACCOUNT_ID_1 = 10
     ACCOUNT_ID_2 = 11
@@ -251,7 +212,7 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     key2 = KeyInstanceRow(KEYINSTANCE_ID_2, ACCOUNT_ID_2, MASTERKEY_ID_2, DerivationType.BIP32,
         b'444', None, KeyInstanceFlag.NONE, None)
 
-    future = db_functions.create_keys(db_context, [ key1, key2 ])
+    future = db_functions.create_keyinstances(db_context, [ key1, key2 ])
     future.result(timeout=5)
 
     # Create the transaction.
@@ -260,7 +221,7 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     tx1 = TransactionRow(
         tx_hash=TX_HASH_1,
         tx_bytes=TX_BYTES_1,
-        flags=TxFlags.StateSettled,
+        flags=TxFlags.STATE_SETTLED,
         block_height=1, block_position=1, fee_value=250,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
     TX_BYTES_2 = os.urandom(10)
@@ -268,7 +229,7 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     tx2 = TransactionRow(
         tx_hash=TX_HASH_2,
         tx_bytes=TX_BYTES_2,
-        flags=TxFlags.StateSettled,
+        flags=TxFlags.STATE_SETTLED,
         block_height=1, block_position=1, fee_value=250,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
     future = db_functions.create_transactions(db_context, [ tx1, tx2 ])
@@ -302,12 +263,10 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     assert 0 == len(tx_hashes_3)
 
 
-@pytest.mark.timeout(8)
-def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
-    table = KeyInstanceTable(db_context)
-    assert [] == table.read()
 
-    table._get_current_timestamp = lambda: 10
+def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
+    rows = db_functions.read_keyinstances(db_context)
+    assert len(rows) == 0
 
     KEYINSTANCE_ID = 0
     ACCOUNT_ID = 10
@@ -322,7 +281,7 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
 
     # No effect: The masterkey foreign key constraint will fail as the masterkey does not exist.
     with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.create_keys(db_context, [ line1 ])
+        future = db_functions.create_keyinstances(db_context, [ line1 ])
         future.result(timeout=5)
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
@@ -332,7 +291,7 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
 
     # No effect: The account foreign key constraint will fail as the account does not exist.
     with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.create_keys(db_context, [ line1 ])
+        future = db_functions.create_keyinstances(db_context, [ line1 ])
         future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
@@ -341,86 +300,63 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
     future.result()
 
     # Create the first and second row.
-    future = db_functions.create_keys(db_context, [ line1, line2 ])
+    future = db_functions.create_keyinstances(db_context, [ line1, line2 ])
     future.result(timeout=5)
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.create_keys(db_context, [ line1 ])
+        future = db_functions.create_keyinstances(db_context, [ line1 ])
         future.result(timeout=5)
 
-    db_lines = table.read()
+    db_lines = db_functions.read_keyinstances(db_context)
     assert 2 == len(db_lines)
     db_line1 = [ db_line for db_line in db_lines if db_line[0] == line1[0] ][0]
     assert line1 == db_line1
     db_line2 = [ db_line for db_line in db_lines if db_line[0] == line2[0] ][0]
     assert line2 == db_line2
 
-    date_updated = 20
+    future = db_functions.update_keyinstance_derivation_datas(db_context, [ (b'234', line1[0]) ])
+    future.result()
 
-    with SynchronousWriter() as writer:
-        table.update_derivation_data([ (b'234', line1[0]) ],
-            date_updated,
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    with SynchronousWriter() as writer:
-        table.update_flags([ (False, line2[0]) ],
-            date_updated,
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    db_lines = table.read()
+    db_lines = db_functions.read_keyinstances(db_context)
     assert 2 == len(db_lines)
     db_line1 = [ db_line for db_line in db_lines if db_line[0] == line1[0] ][0]
-    assert b'234' == db_line1[4]
+    assert b'234' == db_line1.derivation_data
     db_line2 = [ db_line for db_line in db_lines if db_line[0] == line2[0] ][0]
     assert not db_line2[6]
 
     # Selective reading of only one record based on it's id.
-    db_lines = table.read(key_ids=[KEYINSTANCE_ID+1])
+    db_lines = db_functions.read_keyinstances(db_context, keyinstance_ids=[KEYINSTANCE_ID+1])
     assert 1 == len(db_lines)
     assert KEYINSTANCE_ID+1 == db_lines[0].keyinstance_id
 
-    with SynchronousWriter() as writer:
-        table.delete([ line2[0] ], completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    db_lines = table.read()
-    assert 1 == len(db_lines)
-    assert db_lines[0].keyinstance_id == line1.keyinstance_id
-    assert db_lines[0].description is None
-    assert db_lines[0].derivation_data == b'234'
-
     # Now try out the labels.
-    with SynchronousWriter() as writer:
-        table.update_descriptions([ ("line1", line1.keyinstance_id) ],
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    future = db_functions.update_keyinstance_descriptions(db_context,
+        [ ("line1", line1.keyinstance_id) ])
+    future.result()
 
-    rows = table.read()
+    rows = db_functions.read_keyinstances(db_context, keyinstance_ids=[line1.keyinstance_id])
     assert len(rows) == 1
-    assert rows[0].keyinstance_id == line1[0]
+    assert rows[0].keyinstance_id == line1.keyinstance_id
     assert rows[0].description == "line1"
-
-    table.close()
 
 
 class TestTransactionTable:
     @classmethod
     def setup_class(cls):
         cls.db_context = _db_context()
-        cls.store = TransactionTable(cls.db_context)
-
+        cls.db = cls.db_context.acquire_connection()
         cls.tx_hash = os.urandom(32)
 
     @classmethod
     def teardown_class(cls):
-        cls.store.close()
+        cls.db_context.release_connection(cls.db)
+        cls.db = None
         cls.db_context.close()
+        cls.db_context = None
 
     def setup_method(self):
-        db = self.store._db
+        db = self.db
         db.execute(f"DELETE FROM Transactions")
         db.commit()
 
@@ -434,11 +370,11 @@ class TestTransactionTable:
         assert proof1.position == proof2.position
         assert proof1.branch == proof2.branch
 
-    @pytest.mark.timeout(8)
+    
     def test_create_read_various(self):
         tx_bytes_1 = os.urandom(10)
         tx_hash = bitcoinx.double_sha256(tx_bytes_1)
-        tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes_1, flags=TxFlags.StateDispatched,
+        tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes_1, flags=TxFlags.STATE_DISPATCHED,
             block_height=None, block_position=None, fee_value=None, description=None,
             version=None, locktime=None, date_created=1, date_updated=1)
         future = db_functions.create_transactions(self.db_context, [ tx_row ])
@@ -447,7 +383,7 @@ class TestTransactionTable:
         # Check the state is correct, all states should be the same code path.
         flags = db_functions.read_transaction_flags(self.db_context, tx_hash)
         assert flags is not None
-        assert TxFlags.StateDispatched == flags & TxFlags.STATE_MASK
+        assert TxFlags.STATE_DISPATCHED == flags & TxFlags.MASK_STATE
 
         block_height, block_position, fee_value, date_created = \
             db_functions.read_transaction_metadata(self.db_context, tx_hash)
@@ -459,7 +395,7 @@ class TestTransactionTable:
         tx_bytes = db_functions.read_transaction_bytes(self.db_context, tx_hash)
         assert tx_bytes_1 == tx_bytes
 
-    @pytest.mark.timeout(8)
+    
     def test_create_multiple(self) -> None:
         to_add = []
         for i in range(10):
@@ -477,7 +413,7 @@ class TestTransactionTable:
         assert added_tx_hashes == existing_tx_hashes
 
     # TODO(nocheckin) no TxData any more
-    # @pytest.mark.timeout(8)
+    # 
     # def test_update(self):
     #     to_add = []
     #     for i in range(10):
@@ -507,7 +443,7 @@ class TestTransactionTable:
     #                 assert bytedata_get == update_tx_bytes
     #                 continue
 
-    # @pytest.mark.timeout(8)
+    # 
     # def test_update_flags(self):
     #     bytedata = os.urandom(10)
     #     tx_hash = bitcoinx.double_sha256(bytedata)
@@ -524,7 +460,7 @@ class TestTransactionTable:
     #     _tx_hash, flags, _metadata = self.store.read_metadata(tx_hashes=[tx_hash])[0]
     #     assert expected_flags == flags, f"expected {expected_flags!r}, got {TxFlags.to_repr(flags)}"
 
-    #     flags = TxFlags.StateReceived
+    #     flags = TxFlags.STATE_RECEIVED
     #     mask = TxFlags.METADATA_FIELD_MASK
     #     date_updated = 1
     #     with SynchronousWriter() as writer:
@@ -534,11 +470,11 @@ class TestTransactionTable:
 
     #     # Verify the state flag is correctly added via the mask.
     #     _tx_hash, flags_get, _metadata = self.store.read_metadata(tx_hashes=[tx_hash])[0]
-    #     expected_flags |= TxFlags.StateReceived
+    #     expected_flags |= TxFlags.STATE_RECEIVED
     #     assert expected_flags == flags_get, \
     #         f"{TxFlags.to_repr(expected_flags)} != {TxFlags.to_repr(flags_get)}"
 
-    #     flags = TxFlags.StateReceived
+    #     flags = TxFlags.STATE_RECEIVED
     #     mask = TxFlags.UNSET
     #     date_updated = 1
     #     with SynchronousWriter() as writer:
@@ -548,32 +484,9 @@ class TestTransactionTable:
 
     #     # Verify the state flag is correctly set via the mask.
     #     _tx_hash, flags, _metadata = self.store.read_metadata(tx_hashes=[tx_hash])[0]
-    #     assert TxFlags.StateReceived == flags
+    #     assert TxFlags.STATE_RECEIVED == flags
 
-    @pytest.mark.timeout(8)
-    def test_delete(self) -> None:
-        to_add = []
-        for i in range(10):
-            bytedata = os.urandom(10)
-            tx_hash = bitcoinx.double_sha256(bytedata)
-            tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=bytedata, flags=TxFlags.UNSET,
-                block_height=1, block_position=None, fee_value=2, description=None,
-                version=None, locktime=None, date_created=1, date_updated=1)
-            to_add.append(tx_row)
-        future = db_functions.create_transactions(self.db_context, to_add)
-        future.result(timeout=5)
-
-        add_hashes = set(t[0] for t in to_add)
-        get_hashes = set(self._get_store_hashes())
-        assert add_hashes == get_hashes
-        with SynchronousWriter() as writer:
-            self.store.delete(add_hashes, completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        get_hashes = self._get_store_hashes()
-        assert 0 == len(get_hashes)
-
-    @pytest.mark.timeout(8)
+    
     def test_get_all_pending(self):
         get_tx_hashes = set([])
         for tx_hex in (tx_hex_1, tx_hex_2):
@@ -589,7 +502,7 @@ class TestTransactionTable:
         result_tx_hashes = set(self._get_store_hashes())
         assert get_tx_hashes == result_tx_hashes
 
-    # @pytest.mark.timeout(8)
+    # 
     # def test_read(self):
     #     to_add = []
     #     for i in range(10):
@@ -627,7 +540,7 @@ class TestTransactionTable:
     #     matches = self.store.read(flags=TxFlags.UNSET, mask=TxFlags.HasFee)
     #     assert 0 == len(matches)
 
-    # @pytest.mark.timeout(8)
+    # 
     # def test_read_metadata(self) -> None:
     #     # We're going to add five matches and look for two of them, checking that we do not match
     #     # unwanted rows.
@@ -660,7 +573,7 @@ class TestTransactionTable:
     #         assert metadata.fee == rowidx * 1000
     #         assert metadata.position is None
 
-    # @pytest.mark.timeout(8)
+    # 
     # def test_update_metadata(self) -> None:
     #     # We're going to add five matches and look for two of them, checking that we do not match
     #     # unwanted rows.
@@ -702,7 +615,6 @@ class TestTransactionTable:
     #         assert metadata.fee == rowidx * 2000
     #         assert metadata.position is None
 
-    @pytest.mark.timeout(8)
     def test_proof(self):
         tx_bytes = os.urandom(10)
         tx_hash = bitcoinx.double_sha256(tx_bytes)
@@ -715,55 +627,56 @@ class TestTransactionTable:
         position1 = 10
         merkle_branch1 = [ os.urandom(32) for i in range(10) ]
         proof = TxProof(position1, merkle_branch1)
-        future = db_functions.set_transaction_proof(self.db_context, tx_hash, 1, 10, proof)
+        future = db_functions.update_transaction_proof(self.db_context, tx_hash, 1, 10, proof)
         future.result()
 
-        rows = self.store.read_proof([ self.tx_hash ])
+        rows = db_functions.read_transaction_proof(self.db_context, [ self.tx_hash ])
         assert len(rows) == 0
 
-        db_tx_hash, (tx_position2, merkle_branch2) = self.store.read_proof([ tx_hash ])[0]
-        assert db_tx_hash == tx_hash
-        assert position1 == tx_position2
-        assert merkle_branch1 == merkle_branch2
-
-    @pytest.mark.timeout(8)
-    def test_labels(self):
-        bytedata_1 = os.urandom(10)
-        tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
-        tx_row_1 = TransactionRow(tx_hash=tx_hash_1, tx_bytes=bytedata_1, flags=TxFlags.UNSET,
-            block_height=1, block_position=None, fee_value=2, description=None,
-            version=None, locktime=None, date_created=1, date_updated=1)
-
-        bytedata_2 = os.urandom(10)
-        tx_hash_2 = bitcoinx.double_sha256(bytedata_2)
-        tx_row_2 = TransactionRow(tx_hash=tx_hash_2, tx_bytes=bytedata_2, flags=TxFlags.UNSET,
-            block_height=1, block_position=None, fee_value=2, description=None,
-            version=None, locktime=None, date_created=1, date_updated=1)
-
-        future = db_functions.create_transactions(self.db_context, [ tx_row_1, tx_row_2 ])
-        future.result(timeout=5)
-
-        with SynchronousWriter() as writer:
-            self.store.update_descriptions([ ("tx 1", tx_hash_1) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
-
-        rows = self.store.read_descriptions()
+        rows = db_functions.read_transaction_proof(self.db_context, [ tx_hash ])        
         assert len(rows) == 1
-        assert len([r[1] == "tx 1" for r in rows if r[0] == tx_hash_1]) == 1
+        assert rows[0].tx_hash == tx_hash
+        proof = rows[0].unpack_proof()
+        assert proof.position == position1
+        assert proof.branch == merkle_branch1
 
-        with SynchronousWriter() as writer:
-            self.store.update_descriptions([ (None, tx_hash_1), ("tx 2", tx_hash_2) ],
-                completion_callback=writer.get_callback())
-            assert writer.succeeded()
+    
+    # TODO(nocheckin) descriptions have moved to AccountTransactions
+    # def test_labels(self):
+    #     bytedata_1 = os.urandom(10)
+    #     tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
+    #     tx_row_1 = TransactionRow(tx_hash=tx_hash_1, tx_bytes=bytedata_1, flags=TxFlags.UNSET,
+    #         block_height=1, block_position=None, fee_value=2, description=None,
+    #         version=None, locktime=None, date_created=1, date_updated=1)
 
-        rows = self.store.read_descriptions([ tx_hash_2 ])
-        assert len(rows) == 1
-        assert rows[0][0] == tx_hash_2 and rows[0][1] == "tx 2"
+    #     bytedata_2 = os.urandom(10)
+    #     tx_hash_2 = bitcoinx.double_sha256(bytedata_2)
+    #     tx_row_2 = TransactionRow(tx_hash=tx_hash_2, tx_bytes=bytedata_2, flags=TxFlags.UNSET,
+    #         block_height=1, block_position=None, fee_value=2, description=None,
+    #         version=None, locktime=None, date_created=1, date_updated=1)
 
-        # Reading entries for a non-existent ...
-        rows = self.store.read_descriptions([ self.tx_hash ])
-        assert len(rows) == 0
+    #     future = db_functions.create_transactions(self.db_context, [ tx_row_1, tx_row_2 ])
+    #     future.result(timeout=5)
+
+    #     future = db_functions.update_transaction_descriptions(self.db_context,
+    #         [ ("tx 1", tx_hash_1) ])
+    #     future.result()
+
+    #     rows = self.store.read_descriptions()
+    #     assert len(rows) == 1
+    #     assert len([r[1] == "tx 1" for r in rows if r[0] == tx_hash_1]) == 1
+
+    #     future = db_functions.update_transaction_descriptions(self.db_context,
+    #         [ (None, tx_hash_1), ("tx 2", tx_hash_2) ])
+    #     future.result()
+
+    #     rows = self.store.read_descriptions([ tx_hash_2 ])
+    #     assert len(rows) == 1
+    #     assert rows[0][0] == tx_hash_2 and rows[0][1] == "tx 2"
+
+    #     # Reading entries for a non-existent ...
+    #     rows = self.store.read_descriptions([ self.tx_hash ])
+    #     assert len(rows) == 0
 
 
 def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
@@ -811,7 +724,7 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
         KeyInstanceRow(KEYINSTANCE_ID_2, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
             DERIVATION_DATA2, None, KeyInstanceFlag.NONE, None),
     ]
-    future = db_functions.create_keys(db_context, key_rows)
+    future = db_functions.create_keyinstances(db_context, key_rows)
     future.result(timeout=5)
 
     # Create the first and second row.
@@ -839,7 +752,7 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     date_updated = 20
 
     txo_keys = [ TxoKeyType(row2.tx_hash, row2.tx_index) ]
-    future = db_functions.set_transaction_output_flags(db_context, txo_keys,
+    future = db_functions.update_transaction_output_flags(db_context, txo_keys,
         TransactionOutputFlag.IS_SPENT)
     future.result()
 
@@ -848,12 +761,9 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert db_rows[0].flags == TransactionOutputFlag.IS_SPENT
 
 
-@pytest.mark.timeout(8)
 def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
-    table = PaymentRequestTable(db_context)
-    assert [] == table.read()
-
-    table._get_current_timestamp = lambda: 10
+    rows = db_functions.read_payment_requests(db_context)
+    assert len(rows) == 0
 
     TX_BYTES = os.urandom(10)
     TX_HASH = bitcoinx.double_sha256(TX_BYTES)
@@ -868,17 +778,14 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     TX_HASH2 = bitcoinx.double_sha256(TX_BYTES2)
 
     LINE_COUNT = 3
-    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, "desc",
-        table._get_current_timestamp())
-    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100, 60*60, None,
-        table._get_current_timestamp())
+    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, "desc", 1)
+    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100, 60*60, None, 1)
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.
     with pytest.raises(sqlite3.IntegrityError):
-        with SynchronousWriter() as writer:
-            table.create([ line1 ], completion_callback=writer.get_callback())
-            assert not writer.succeeded()
+        future = db_functions.create_payment_requests(db_context, [ line1 ])
+        future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context, [ (MASTERKEY_ID, None, 2, b'111') ])
@@ -892,21 +799,19 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
     entries = [ (KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
         DERIVATION_DATA, ScriptType.P2PKH, True, None) for i in range(LINE_COUNT) ]
-    future = db_functions.create_keys(db_context, entries)
+    future = db_functions.create_keyinstances(db_context, entries)
     future.result(timeout=5)
 
-    with SynchronousWriter() as writer:
-        table.create([ line1, line2 ], completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    future = db_functions.create_payment_requests(db_context, [ line1, line2 ])
+    future.result()
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
-        with SynchronousWriter() as writer:
-            table.create([ line1 ], completion_callback=writer.get_callback())
-            assert not writer.succeeded()
+        future = db_functions.create_payment_requests(db_context, [ line1 ])
+        future.result()
 
     # Read all rows in the table.
-    db_lines = table.read()
+    db_lines = db_functions.read_payment_requests(db_context)
     assert 2 == len(db_lines)
     db_line1 = [ db_line for db_line in db_lines if db_line == line1 ][0]
     assert line1 == db_line1
@@ -914,42 +819,38 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     assert line2 == db_line2
 
     # Read all PAID rows in the table.
-    db_lines = table.read(mask=PaymentFlag.PAID)
+    db_lines = db_functions.read_payment_requests(db_context, mask=PaymentFlag.PAID)
     assert 1 == len(db_lines)
     assert 1 == db_lines[0].paymentrequest_id
     assert KEYINSTANCE_ID == db_lines[0].keyinstance_id
 
     # Read all UNPAID rows in the table.
-    db_lines = table.read(mask=PaymentFlag.UNPAID)
+    db_lines = db_functions.read_payment_requests(db_context, mask=PaymentFlag.UNPAID)
     assert 1 == len(db_lines)
     assert 2 == db_lines[0].paymentrequest_id
     assert KEYINSTANCE_ID+1 == db_lines[0].keyinstance_id
 
     # Require ARCHIVED flag.
-    db_lines = table.read(mask=PaymentFlag.ARCHIVED)
+    db_lines = db_functions.read_payment_requests(db_context, mask=PaymentFlag.ARCHIVED)
     assert 0 == len(db_lines)
 
     # Require no ARCHIVED flag.
-    db_lines = table.read(flags=PaymentFlag.NONE, mask=PaymentFlag.ARCHIVED)
+    db_lines = db_functions.read_payment_requests(db_context, flags=PaymentFlag.NONE,
+        mask=PaymentFlag.ARCHIVED)
     assert 2 == len(db_lines)
 
-    row = table.read_one(1)
+    row = db_functions.read_payment_request(db_context, request_id=1)
     assert row is not None
     assert 1 == row.paymentrequest_id
 
-    row = table.read_one(100101)
+    row = db_functions.read_payment_request(db_context, request_id=100101)
     assert row is None
 
-    date_updated = 20
+    future = db_functions.update_payment_requests(db_context, [ PaymentRequestUpdateRow(
+        PaymentFlag.UNKNOWN, 20, 999, "newdesc", line2.paymentrequest_id) ])
+    future.result()
 
-    with SynchronousWriter() as writer:
-        table.update([ (PaymentFlag.UNKNOWN, 20, 999, "newdesc",
-            line2.paymentrequest_id) ],
-            date_updated,
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    db_lines = table.read()
+    db_lines = db_functions.read_payment_requests(db_context)
     assert 2 == len(db_lines)
     db_line2 = [ db_line for db_line in db_lines
         if db_line.paymentrequest_id == line2.paymentrequest_id ][0]
@@ -959,44 +860,36 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     assert db_line2.expiration == 999
 
     # Account does not exist.
-    db_lines = table.read(1000)
+    db_lines = db_functions.read_payment_requests(db_context, account_id=1000)
     assert 0 == len(db_lines)
 
     # This account is matched.
-    db_lines = table.read(ACCOUNT_ID)
+    db_lines = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
     assert 2 == len(db_lines)
 
-    with SynchronousWriter() as writer:
-        table.delete([ (line2.paymentrequest_id,) ], completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    future = db_functions.delete_payment_request(db_context, line2.paymentrequest_id,
+        line2.keyinstance_id)
+    future.result()
 
-    db_lines = table.read()
+    db_lines = db_functions.read_payment_requests(db_context)
     assert 1 == len(db_lines)
     assert db_lines[0].paymentrequest_id == line1.paymentrequest_id
 
-    table.close()
 
-
-@pytest.mark.timeout(8)
 def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
-    table = WalletEventTable(db_context)
-
-    table._get_current_timestamp = lambda: 10
-
     MASTERKEY_ID = 1
     ACCOUNT_ID = 1
 
     line1 = WalletEventRow(1, WalletEventType.SEED_BACKUP_REMINDER, ACCOUNT_ID,
-        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, table._get_current_timestamp())
+        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, 1)
     line2 = WalletEventRow(2, WalletEventType.SEED_BACKUP_REMINDER, None,
-        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, table._get_current_timestamp())
+        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, 1)
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.
     with pytest.raises(sqlite3.IntegrityError):
-        with SynchronousWriter() as writer:
-            table.create([ line1 ], completion_callback=writer.get_callback())
-            assert not writer.succeeded()
+        future = db_functions.create_wallet_events(db_context, [ line1 ])
+        future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context, [ (MASTERKEY_ID, None, 2, b'111') ])
@@ -1007,17 +900,15 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
-    with SynchronousWriter() as writer:
-        table.create([ line1, line2 ], completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    future = db_functions.create_wallet_events(db_context, [ line1, line2 ])
+    future.result()
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
-        with SynchronousWriter() as writer:
-            table.create([ line1 ], completion_callback=writer.get_callback())
-            assert not writer.succeeded()
+        future = db_functions.create_wallet_events(db_context, [ line1 ])
+        future.result()
 
-    db_lines = table.read()
+    db_lines = db_functions.read_wallet_events(db_context)
     assert 2 == len(db_lines)
     db_line1 = [ db_line for db_line in db_lines if db_line == line1 ][0]
     assert line1 == db_line1
@@ -1026,35 +917,23 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
 
     date_updated = 20
 
-    with SynchronousWriter() as writer:
-        table.update_flags([ (WalletEventFlag.UNREAD, line2.event_id) ],
-            date_updated,
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    future = db_functions.update_wallet_event_flags(db_context,
+        [ (WalletEventFlag.UNREAD, line2.event_id) ])
+    future.result()
 
-    db_lines = table.read()
+    db_lines = db_functions.read_wallet_events(db_context)
     assert 2 == len(db_lines)
     db_line2 = [ db_line for db_line in db_lines
         if db_line.event_id == line2.event_id ][0]
     assert db_line2.event_flags == WalletEventFlag.UNREAD
 
     # Account does not exist.
-    db_lines = table.read(1000)
+    db_lines = db_functions.read_wallet_events(db_context, 1000)
     assert 0 == len(db_lines)
 
     # This account is matched.
-    db_lines = table.read(ACCOUNT_ID)
+    db_lines = db_functions.read_wallet_events(db_context, ACCOUNT_ID)
     assert 1 == len(db_lines)
-
-    with SynchronousWriter() as writer:
-        table.delete([ (line2.event_id,) ], completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    db_lines = table.read()
-    assert 1 == len(db_lines)
-    assert db_lines[0].event_id == line1.event_id
-
-    table.close()
 
 
 # TODO(nocheckin) need to remove when we deal with a new deactivated key system
@@ -1076,34 +955,34 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
 #         TransactionRow(
 #             tx_hash=b'1', tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
 #                 date_updated=timestamp), tx_bytes=b'tx_bytes1',
-#             flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+#             flags=TxFlags(TxFlags.STATE_SETTLED | TxFlags.HasHeight),
 #             description=None, version=None, locktime=None),
 #         TransactionRow(tx_hash=b'2',
 #             tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
 #                 date_updated=timestamp), tx_bytes=b'tx_bytes1',
-#             flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+#             flags=TxFlags(TxFlags.STATE_SETTLED | TxFlags.HasHeight),
 #             description=None, version=None, locktime=None),
 #         # 2 x Unsettled txs -> Not yet "Used" until settled (key_id = 2)
 #         TransactionRow(tx_hash=b'3',
 #             tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
 #                 date_updated=timestamp), tx_bytes=b'tx_bytes3',
-#             flags=TxFlags(TxFlags.StateCleared | TxFlags.HasHeight),
+#             flags=TxFlags(TxFlags.STATE_CLEARED | TxFlags.HasHeight),
 #             description=None, version=None, locktime=None),
 #         TransactionRow(tx_hash=b'4',
 #             tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
 #                 date_updated=timestamp), tx_bytes=b'tx_bytes4',
-#             flags=TxFlags(TxFlags.StateCleared | TxFlags.HasHeight),
+#             flags=TxFlags(TxFlags.STATE_CLEARED | TxFlags.HasHeight),
 #             description=None, version=None, locktime=None),
 #         # 2 x Settled txs BUT keyinstance has flag: USER_SET_ACTIVE manually so not deactivated.
 #         TransactionRow(tx_hash=b'5',
 #             tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
 #                 date_updated=timestamp), tx_bytes=b'tx_bytes5',
-#             flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+#             flags=TxFlags(TxFlags.STATE_SETTLED | TxFlags.HasHeight),
 #             description=None, version=None, locktime=None),
 #         TransactionRow(tx_hash=b'6',
 #             tx_data=TxData(height=1, position=1, fee=250, date_added=timestamp,
 #                 date_updated=timestamp), tx_bytes=b'tx_bytes6',
-#             flags=TxFlags(TxFlags.StateSettled | TxFlags.HasHeight),
+#             flags=TxFlags(TxFlags.STATE_SETTLED | TxFlags.HasHeight),
 #             description=None, version=None, locktime=None),
 #     ]
 #     tx_delta_entries = [
@@ -1176,12 +1055,10 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
 #     tx_table.close()
 
 
-@pytest.mark.timeout(8)
-def test_table_invoice_crud(db_context: DatabaseContext) -> None:
-    table = InvoiceTable(db_context)
-    assert [] == table.read_account(1)
 
-    table._get_current_timestamp = lambda: 10
+def test_table_invoice_crud(db_context: DatabaseContext) -> None:
+    db_lines = db_functions.read_invoices_for_account(db_context, 1)
+    assert len(db_lines) == 0
 
     TX_BYTES_1 = os.urandom(10)
     TX_HASH_1 = bitcoinx.double_sha256(TX_BYTES_1)
@@ -1201,18 +1078,17 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
 
     # LINE_COUNT = 3
     line1_1 = InvoiceRow(1, ACCOUNT_ID_1, None, "payment_uri1", "desc", PaymentFlag.UNPAID,
-        1, b'{}', None, table._get_current_timestamp())
+        1, b'{}', None, 111)
     line2_1 = InvoiceRow(2, ACCOUNT_ID_1, TX_HASH_1, "payment_uri2", "desc", PaymentFlag.PAID,
-        2, b'{}', table._get_current_timestamp() + 10, table._get_current_timestamp())
+        2, b'{}', 10, 111)
     line3_2 = InvoiceRow(3, ACCOUNT_ID_2, None, "payment_uri3", "desc", PaymentFlag.UNPAID,
-        3, b'{}', None, table._get_current_timestamp())
+        3, b'{}', None, 111)
 
     # No effect: The transactionoutput foreign key constraint will fail as the account
     # does not exist.
     with pytest.raises(sqlite3.IntegrityError):
-        with SynchronousWriter() as writer:
-            table.create([ line1_1 ], completion_callback=writer.get_callback())
-            assert not writer.succeeded()
+        future = db_functions.create_invoices(db_context, [ line1_1 ])
+        future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context, [ (MASTERKEY_ID, None, 2, b'111') ])
@@ -1226,22 +1102,20 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
 
     txs = []
     for txh, txb in ((TX_HASH_1, TX_BYTES_1), (TX_HASH_2, TX_BYTES_2), (TX_HASH_3, TX_BYTES_3)):
-        tx = TransactionRow(tx_hash=txh, tx_bytes=txb, flags=TxFlags.StateSettled,
+        tx = TransactionRow(tx_hash=txh, tx_bytes=txb, flags=TxFlags.STATE_SETTLED,
             block_height=1, block_position=1, fee_value=250,
             description=None, version=None, locktime=None, date_created=1, date_updated=2)
         txs.append(tx)
     future = db_functions.create_transactions(db_context, txs)
     future.result(timeout=5)
 
-    with SynchronousWriter() as writer:
-        table.create([ line1_1, line2_1, line3_2 ], completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    future = db_functions.create_invoices(db_context, [ line1_1, line2_1, line3_2 ])
+    future.result()
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
-        with SynchronousWriter() as writer:
-            table.create([ line1_1 ], completion_callback=writer.get_callback())
-            assert not writer.succeeded()
+        future = db_functions.create_invoices(db_context, [ line1_1 ])
+        future.result()
 
     def compare_row_to_account_row(src: InvoiceRow, dst: InvoiceAccountRow) -> None:
         assert src.description == dst.description
@@ -1250,9 +1124,8 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
         assert src.date_expires == dst.date_expires
         assert src.date_created == dst.date_created
 
-    ## InvoiceTable.read
     # Read all rows in the table for account 1.
-    db_lines = table.read_account(ACCOUNT_ID_1)
+    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1)
     assert 2 == len(db_lines)
     db_line1 = [ db_line for db_line in db_lines if db_line.invoice_id == line1_1.invoice_id ][0]
     compare_row_to_account_row(line1_1, db_line1)
@@ -1260,101 +1133,88 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
     compare_row_to_account_row(line2_1, db_line2)
 
     # Read all rows in the table for account 2.
-    db_lines = table.read_account(ACCOUNT_ID_2)
+    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_2)
     assert 1 == len(db_lines)
     db_line3 = [ db_line for db_line in db_lines if db_line.invoice_id == line3_2.invoice_id ][0]
     compare_row_to_account_row(line3_2, db_line3)
 
     # Read all PAID rows in the table for the first account.
-    db_lines = table.read_account(ACCOUNT_ID_1, mask=PaymentFlag.PAID)
+    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
+        mask=PaymentFlag.PAID)
     assert 1 == len(db_lines)
     assert 2 == db_lines[0].invoice_id
 
     # Read all UNPAID rows in the table for the first account.
-    db_lines = table.read_account(ACCOUNT_ID_1, mask=PaymentFlag.UNPAID)
+    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
+        mask=PaymentFlag.UNPAID)
     assert 1 == len(db_lines)
     assert 1 == db_lines[0].invoice_id
 
     # Require ARCHIVED flag.
-    db_lines = table.read_account(ACCOUNT_ID_1, mask=PaymentFlag.ARCHIVED)
+    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
+        mask=PaymentFlag.ARCHIVED)
     assert 0 == len(db_lines)
 
     # Require no ARCHIVED flag.
-    db_lines = table.read_account(ACCOUNT_ID_1, flags=PaymentFlag.NONE, mask=PaymentFlag.ARCHIVED)
+    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
+        flags=PaymentFlag.NONE, mask=PaymentFlag.ARCHIVED)
     assert 2 == len(db_lines)
 
     # Non-existent account.
-    db_lines = table.read_account(1010101)
+    db_lines = db_functions.read_invoices_for_account(db_context, 1010101)
     assert 0 == len(db_lines)
 
-    ## InvoiceTable.read_one
-    row = table.read_one(line1_1.invoice_id)
+    row = db_functions.read_invoice(db_context, invoice_id=line1_1.invoice_id)
     assert row is not None
     assert 1 == row.invoice_id
 
-    row = table.read_one(100101)
+    row = db_functions.read_invoice(db_context, invoice_id=100101)
     assert row is None
 
-    row = table.read_one(tx_hash=TX_HASH_1)
+    row = db_functions.read_invoice(db_context, tx_hash=TX_HASH_1)
     assert row is not None
     assert 2 == row.invoice_id
 
-    ## InvoiceTable.update_transaction
-    date_updated = 20
-    with SynchronousWriter() as writer:
-        table.update_transaction([ (TX_HASH_3, line3_2.invoice_id), ],
-            date_updated,
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
-
-    # Verify the invoice is now marked with no associated tx.
-    row = table.read_one(line3_2.invoice_id)
-    assert row is not None
-    assert row.tx_hash == TX_HASH_3
-
-    future = db_functions.set_invoice_transaction(db_context, line3_2.invoice_id, None)
+    future = db_functions.update_invoice_transactions(db_context,
+        [ (TX_HASH_3, line3_2.invoice_id) ])
     future.result()
 
     # Verify the invoice is now marked with no associated tx.
-    row = table.read_one(line3_2.invoice_id)
+    row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
+    assert row is not None
+    assert row.tx_hash == TX_HASH_3
+
+    future = db_functions.update_invoice_transactions(db_context, [ (None, line3_2.invoice_id) ])
+    future.result()
+
+    # Verify the invoice is now marked with no associated tx.
+    row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
     assert row.tx_hash is None
 
-    ## InvoiceTable.update_description
-    date_updated += 1
-    with SynchronousWriter() as writer:
-        table.update_description([ ("newdesc3.2", line3_2.invoice_id), ],
-            date_updated,
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    future = db_functions.update_invoice_descriptions(db_context,
+        [ ("newdesc3.2", line3_2.invoice_id) ])
+    future.result()
 
     # Verify the invoice now has the new description.
-    row = table.read_one(line3_2.invoice_id)
+    row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
     assert row.description == "newdesc3.2"
 
-    ## InvoiceTable.update_flags
-    date_updated += 1
-    with SynchronousWriter() as writer:
-        table.update_flags([ (~PaymentFlag.ARCHIVED, PaymentFlag.ARCHIVED, line3_2.invoice_id), ],
-            date_updated,
-            completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    future = db_functions.update_invoice_flags(db_context,
+        [ (~PaymentFlag.ARCHIVED, PaymentFlag.ARCHIVED, line3_2.invoice_id), ])
+    future.result()
 
     # Verify the invoice now has the new description.
-    row = table.read_one(line3_2.invoice_id)
+    row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
     assert row.flags == PaymentFlag.ARCHIVED | PaymentFlag.UNPAID
 
-    ## InvoiceTable.read_duplicate
-    duplicate_row1 = table.read_duplicate(111, "ddd")
+    duplicate_row1 = db_functions.read_invoice_duplicate(db_context, 111, "ddd")
     assert duplicate_row1 is None
-    duplicate_row2 = table.read_duplicate(row.value, row.payment_uri)
+    duplicate_row2 = db_functions.read_invoice_duplicate(db_context, row.value, row.payment_uri)
     assert duplicate_row2 == row
 
-    with SynchronousWriter() as writer:
-        table.delete([ (line2_1.invoice_id,) ], completion_callback=writer.get_callback())
-        assert writer.succeeded()
+    future = db_functions.delete_invoices(db_context, [ (line2_1.invoice_id,) ])
+    future.result()
 
-    db_lines = table.read_account(ACCOUNT_ID_1)
+    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1)
     assert 1 == len(db_lines)
     assert db_lines[0].invoice_id == line1_1.invoice_id
-
-    table.close()

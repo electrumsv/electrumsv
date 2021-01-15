@@ -13,7 +13,7 @@ from electrumsv.networks import Net
 from electrumsv.paymentrequest import has_expired, PaymentRequest
 from electrumsv.transaction import script_to_display_text
 from electrumsv.util import format_time
-from electrumsv.wallet_database.tables import InvoiceRow
+from electrumsv.wallet_database.types import InvoiceRow
 
 from .constants import pr_tooltips
 from .util import (Buttons, ButtonsTableWidget, CloseButton, EnterButton, FormSectionWidget,
@@ -35,7 +35,7 @@ class InvoiceDialog(WindowModalDialog):
 
         self._pr = pr = PaymentRequest.from_json(row.invoice_data)
 
-        state = row.flags & PaymentFlag.STATE_MASK
+        state = row.flags & PaymentFlag.MASK_STATE
         if state & PaymentFlag.UNPAID and has_expired(row.date_expires):
             state = PaymentFlag.EXPIRED
 

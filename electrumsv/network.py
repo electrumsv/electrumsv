@@ -1146,7 +1146,7 @@ class Network(TriggeredCallbacks):
                 else:
                     # TODO(nocheckin) needs to pass in the latest block_height and block_position
                     # and fee_hint if the network has some cached values for it.
-                    await wallet.import_transaction_async(tx_hash, tx, TxFlags.StateCleared,
+                    await wallet.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
                         external=True)
         return had_timeout
 
@@ -1232,10 +1232,6 @@ class Network(TriggeredCallbacks):
             if wanted_proof_map:
                 coros.append(self._request_proofs(wallet, wanted_proof_map))
             if not coros:
-                # TODO(nocheckin) need to remove when we deal with a new deactivated key system
-                # for account in wallet.get_accounts():
-                #     account.poll_used_key_detection(every_n_seconds=20)
-
                 await wallet.txs_changed_event.wait()
                 wallet.txs_changed_event.clear()
 

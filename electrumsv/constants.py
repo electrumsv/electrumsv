@@ -43,7 +43,7 @@ DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
 MIGRATION_CURRENT = 27
 
-# TODO(ConsistentStyle) Members should be upper-cased like all constant collections.
+
 class TxFlags(IntFlag):
     UNSET = 0
 
@@ -61,23 +61,23 @@ class TxFlags(IntFlag):
     INCOMPLETE = 1 << 14
 
     # A transaction received over the p2p network which is unconfirmed and in the mempool.
-    StateCleared = 1 << 20
+    STATE_CLEARED = 1 << 20
     # A transaction received over the p2p network which is confirmed and known to be in a block.
-    StateSettled = 1 << 21
+    STATE_SETTLED = 1 << 21
     # A transaction received from another party which is unknown to the p2p network.
-    StateReceived = 1 << 22
+    STATE_RECEIVED = 1 << 22
     # A transaction you have not sent or given to anyone else, but are with-holding and are
     # considering the inputs it uses allocated. """
-    StateSigned = 1 << 23
+    STATE_SIGNED = 1 << 23
     # A transaction you have given to someone else, and are considering the inputs it uses
     # allocated.
-    StateDispatched = 1 << 24
+    STATE_DISPATCHED = 1 << 24
 
     PAYS_INVOICE = 1 << 30
 
-    STATE_MASK = (StateSettled | StateDispatched | StateReceived | StateCleared | StateSigned)
-    STATE_UNCLEARED_MASK = (StateDispatched | StateReceived | StateSigned)
-    STATE_BROADCAST_MASK = (StateSettled | StateCleared)
+    MASK_STATE = (STATE_SETTLED | STATE_DISPATCHED | STATE_RECEIVED | STATE_CLEARED | STATE_SIGNED)
+    MASK_STATE_UNCLEARED = (STATE_DISPATCHED | STATE_RECEIVED | STATE_SIGNED)
+    MASK_STATE_BROADCAST = (STATE_SETTLED | STATE_CLEARED)
     # The transaction is present but not linked to any accounts for these known reasons.
     MASK_UNLINKED = (REMOVED | CONFLICTING)
     MASK = 0xFFFFFFFF
@@ -113,8 +113,8 @@ class TxFlags(IntFlag):
 
 
 # All these states can only be set if there is transaction data present.
-TRANSACTION_FLAGS = (TxFlags.StateSettled, TxFlags.StateDispatched, TxFlags.StateReceived,
-    TxFlags.StateCleared, TxFlags.StateSigned)
+TRANSACTION_FLAGS = (TxFlags.STATE_SETTLED, TxFlags.STATE_DISPATCHED, TxFlags.STATE_RECEIVED,
+    TxFlags.STATE_CLEARED, TxFlags.STATE_SIGNED)
 
 
 class AccountTxFlags(IntFlag):
@@ -231,10 +231,10 @@ class PaymentFlag(IntFlag):
     PAID    =  1 << 3     # send and propagated
     ARCHIVED = 1 << 4     # unused until we have ui support for filtering
 
-    STATE_MASK = (UNPAID | EXPIRED | PAID | ARCHIVED)
+    MASK_STATE = (UNPAID | EXPIRED | PAID | ARCHIVED)
     UNPAID_MASK = ~(PAID | ARCHIVED)
 
-    CLEARED_STATE_MASK = ~STATE_MASK
+    CLEARED_MASK_STATE = ~MASK_STATE
     ALL_SET_MASK = ~NONE
 
 
