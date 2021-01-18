@@ -106,10 +106,14 @@ def run_non_RPC(config):
 
             # create an account for the Wallet (only random new seeds supported - no importing)
             text_type = KeystoreTextType.EXTENDED_PRIVATE_KEY
-            data = urandom(64)
-            coin = bitcoinx.BitcoinRegtest
-            xprv = bitcoinx.BIP32PrivateKey._from_parts(data[:32], data[32:], coin)
-            text_match = xprv.to_extended_key_string()
+
+            text_match = os.getenv("ELECTRUMSV_ACCOUNT_XPRV")
+            if not text_match:  # generate a random account seed
+                data = urandom(64)
+                coin = bitcoinx.BitcoinRegtest
+                xprv = bitcoinx.BIP32PrivateKey._from_parts(data[:32], data[32:], coin)
+                text_match = xprv.to_extended_key_string()
+
             keystore = instantiate_keystore_from_text(text_type, text_match, password,
                 derivation_text=None, passphrase=None, watch_only=False)
             parent_wallet.create_account_from_keystore(keystore)
