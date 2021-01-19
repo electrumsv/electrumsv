@@ -149,6 +149,7 @@ class TestRestAPI:
         assert result1.json()['accounts']['1']['default_script_type'] == 'P2PKH'
         assert result1.json()['accounts']['1']['wallet_type'] == 'Standard account'
 
+    @pytest.mark.timeout(20)
     def test_websocket_wait_for_mempool(self, event_loop):
         self._load_wallet()
         result = self._topup_account()
@@ -159,6 +160,7 @@ class TestRestAPI:
             result2 = self._fetch_transaction(txid)
             assert result2.json()['tx_flags'] & TxFlags.StateCleared == TxFlags.StateCleared
 
+    @pytest.mark.timeout(20)
     def test_websocket_wait_for_confirmation(self, event_loop):
         self._load_wallet()
         result = self._topup_account()
