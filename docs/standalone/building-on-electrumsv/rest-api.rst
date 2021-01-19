@@ -180,6 +180,25 @@ Get account balance (confirmed, unconfirmed, unmatured) in satoshis.
         "unmatured_balance": 0
     }
 
+
+get_receive_address
+**********************
+Get a P2PKH receive address.
+
+:Method: GET
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/receive_address``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/receive_address``
+
+**Sample Response**
+
+.. code-block::
+
+    {
+        "address": "mwv1WZTsrtKf3S9mRQABEeMaNefLbQbKpg"
+    }
+
+
 remove
 **********
 Removes transactions (currently restricted to 'StateSigned' transactions.)

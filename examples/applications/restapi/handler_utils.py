@@ -391,6 +391,9 @@ class ExtendedHandlerUtils(HandlerUtils):
                            "value": int(tx_values[0].total)})
         return result
 
+    def _address_dto(self, address: str) -> Dict:
+        return {"address": address}
+
     def _account_dto(self, account) -> Dict[Any, Any]:
         """child wallet data transfer object"""
         script_type = account._row.default_script_type
@@ -483,7 +486,7 @@ class ExtendedHandlerUtils(HandlerUtils):
             raise Fault(Errors.TRANSACTION_NOT_FOUND_CODE, Errors.TRANSACTION_NOT_FOUND_MESSAGE)
 
     def select_inputs_and_outputs(self, config: SimpleConfig,
-                                  wallet: AbstractAccount,
+                                  account: AbstractAccount,
                                   base_fee: int,
                                   split_count: int = 50,
                                   split_value: int = 10000,
@@ -496,14 +499,14 @@ class ExtendedHandlerUtils(HandlerUtils):
         OUTPUT_COST = config.estimate_fee(OUTPUT_SIZE)
 
         # adds extra inputs as required to meet the desired utxo_count.
-        with wallet._utxos_lock:
+        with account._utxos_lock:
             # Todo - optional filtering for frozen/maturity state (expensive for many utxos)?
-            all_coins = wallet._utxos.values()  # no filtering for frozen or maturity state for speed.
+            all_coins = account._utxos.values()  # no filtering for frozen or maturity state for speed.
 
             # Ignore coins that are too expensive to send, or not confirmed.
             # Todo - this is inefficient to iterate over all coins (need better handling of dust utxos)
             if require_confirmed:
-                get_metadata = wallet.get_transaction_metadata
+                get_metadata = account.get_transaction_metadata
                 spendable_coins = [coin for coin in all_coins if coin.value > (INPUT_COST + OUTPUT_COST)
                                    and get_metadata(coin.tx_hash).height > 0]
             else:
@@ -535,10 +538,10 @@ class ExtendedHandlerUtils(HandlerUtils):
                 if len(inputs):
                     # We ensure that we do not use conflicting addresses for the split outputs by
                     # explicitly generating the addresses we are splitting to.
-                    fresh_keys = wallet.get_fresh_keys(RECEIVING_SUBPATH, count=split_count)
+                    fresh_keys = account.get_fresh_keys(RECEIVING_SUBPATH, count=split_count)
                     for key in fresh_keys:
-                        derivation_path = wallet.get_derivation_path(key.keyinstance_id)
-                        pubkey = wallet.derive_pubkeys(derivation_path)
+                        derivation_path = account.get_derivation_path(key.keyinstance_id)
+                        pubkey = account.derive_pubkeys(derivation_path)
                         outputs.append(TxOutput(split_value, pubkey.P2PKH_script()))
                     return inputs, outputs, attempted_split
 

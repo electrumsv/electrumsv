@@ -6,7 +6,7 @@ from typing import Union, Any
 import aiorpcx
 import bitcoinx
 from aiohttp import web
-from electrumsv.constants import RECEIVING_SUBPATH, KeystoreTextType
+from electrumsv.constants import RECEIVING_SUBPATH, KeystoreTextType, ScriptType
 from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.storage import WalletStorage
 from electrumsv.networks import Net
@@ -49,6 +49,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             web.get(self.ACCOUNT_UTXOS + "/coin_state", self.get_coin_state),
             web.get(self.ACCOUNT_UTXOS, self.get_utxos),
             web.get(self.ACCOUNT_UTXOS + "/balance", self.get_balance),
+            web.get(self.ACCOUNT_TXS + "/receive_address", self.get_receive_address),
             web.delete(self.ACCOUNT_TXS, self.remove_txs),
             web.get(self.ACCOUNT_TXS + "/history", self.get_transaction_history),
             web.post(self.ACCOUNT_TXS + "/fetch", self.fetch_transaction),
@@ -261,6 +262,28 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account = self._get_account(wallet_name, account_id)
             response = self._history_dto(account, tx_flags)
             return good_response({"history": response})
+        except Fault as e:
+            return fault_to_http_response(e)
+
+    async def get_receive_address(self, request):
+        """gets a P2PKH receive address for payment"""
+        try:
+            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                                VNAME.ACCOUNT_ID])
+            wallet_name = vars[VNAME.WALLET_NAME]
+            account_id = vars[VNAME.ACCOUNT_ID]
+
+            account = self._get_account(wallet_name, account_id)
+            if account.get_default_script_type() != ScriptType.P2PKH:
+                raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, f"Only P2PKH type accounts are"
+                    f"supported at this time")
+            fresh_keys = account.get_fresh_keys(RECEIVING_SUBPATH, count=1)
+            key = fresh_keys[0]
+            derivation_path = account.get_derivation_path(key.keyinstance_id)
+            pubkey: bitcoinx.PublicKey = account.derive_pubkeys(derivation_path)
+            pkh_address = pubkey.to_address().to_string()
+            response = self._address_dto(pkh_address)
+            return good_response(response)
         except Fault as e:
             return fault_to_http_response(e)
 
