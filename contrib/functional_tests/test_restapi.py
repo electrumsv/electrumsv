@@ -15,6 +15,9 @@ import pytest
 import requests
 import pytest_asyncio
 
+from electrumsv_node import electrumsv_node
+from electrumsv_sdk import commands, utils
+
 from electrumsv.constants import TxFlags
 from electrumsv.networks import SVRegTestnet, Net
 from electrumsv.restapi import Fault
@@ -33,8 +36,17 @@ async def wait_for_confirmation(txids):
 
 class TestRestAPI:
 
-    def setup_class(self):
-        self.TEST_WALLET_NAME = "worker1.sqlite"
+    def setup_class(cls):
+        cls.TEST_WALLET_NAME = "worker1.sqlite"
+        commands.stop()
+        commands.reset('node')
+        commands.reset('electrumx')
+        commands.reset('electrumsv', deterministic_seed=True)
+
+        # Start components
+        commands.start("node", component_id='node1')
+        commands.start("electrumx", component_id='electrumx1')
+        commands.start("electrumsv", component_id='electrumsv1')
 
     def _load_wallet(self):
         _result1 = requests.post(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'
