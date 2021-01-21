@@ -139,6 +139,47 @@ class TxStateWSClient:
             if len(txids_set) == 0:
                 break
 
+    async def block_until_confirmed_and_height_updated(self, reorg_txids: List[str],
+            reorg_height: int):
+        """For waiting on a reorged transaction to have its height updated"""
+        self._receive_msg_task = asyncio.create_task(self._receive_msgs())
+        subs = json.dumps({
+            "txids": list(reorg_txids)
+        })
+        txids_set = set(reorg_txids)
+        await self.send_str(subs)
+
+        while True:
+            msg = await self.msg_queue.get()
+            if not msg:  # poison pill
+                break
+            msg = json.loads(msg)
+            txid = msg.get("txid")
+            if not txid:
+                continue
+            tx_flags = msg.get("tx_flags")
+            if msg.get("txid") in txids_set and \
+                    (tx_flags & TxFlags.StateSettled == TxFlags.StateSettled):
+                url = "http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/history"
+                payload = {"tx_flags": 2097152}
+                result = requests.get(url, data=json.dumps(payload))
+                result.raise_for_status()
+                for tx in result.json()['history']:
+                    if tx['txid'] in txids_set:
+                        reorg_tx = tx
+                        break
+                else:
+                    continue  # to wait on queue ^^
+
+                if reorg_tx['height'] == reorg_height:
+                    txids_set.remove(txid)
+                else:  # keep waiting for the reorg notification...
+                    self.logger.info(f"got notification for the stale tx: {tx['txid']} at height: "
+                        f"{reorg_tx['height']}")
+
+            if len(txids_set) == 0:
+                break
+
 
 if __name__ == "__main__":
 
