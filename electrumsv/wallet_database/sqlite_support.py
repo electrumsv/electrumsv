@@ -360,7 +360,8 @@ class SqliteExecutor(concurrent.futures.Executor):
         self._shutdown_event = threading.Event()
         self._active_items = 0
 
-    def submit(self, fn, *args, **kwargs) -> concurrent.futures.Future:
+    # NOTE(typing) mypy wants a perfect function signature match with Executor parent class
+    def submit(self, fn, *args, **kwargs) -> concurrent.futures.Future:  # type: ignore
         with self._shutdown_lock:
             if self._shutdown:
                 raise RuntimeError('cannot schedule new futures after shutdown')
@@ -371,7 +372,8 @@ class SqliteExecutor(concurrent.futures.Executor):
             self._dispatcher.put(ExecutorItem(future, fn, args, kwargs))
             return future
 
-    def shutdown(self, wait: bool=True) -> None:
+    # NOTE(typing) mypy wants a perfect function signature match with Executor parent class
+    def shutdown(self, wait: bool=True) -> None:  # type: ignore
         with self._shutdown_lock:
             self._shutdown = True
         if wait:
