@@ -966,7 +966,7 @@ def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
             "TX.date_created, TX.date_updated "
         "FROM TransactionValues TXV "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXV.tx_hash "
-        "WHERE account_id=? AND tx_hash IN ({}) ")
+        "WHERE account_id=? AND TX.tx_hash IN ({}) ")
     if mask is not None:
         sql += f"AND TX.flags&{mask}!=0 "
     sql += "GROUP BY TXV.tx_hash"
