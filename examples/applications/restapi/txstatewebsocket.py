@@ -106,8 +106,10 @@ class TxStateWebSocket(web.View):
                     tx_hash = hex_str_to_hash(txid)
 
                     # todo - this will raise ReferenceError if wallet has been stopped
-                    tx_entry = client.account.get_transaction_entry(tx_hash)
-                    if tx_entry:
+                    client.account: AbstractAccount
+                    tx_entries = client.account.get_local_transaction_entries([tx_hash])
+                    if tx_entries:
+                        tx_entry = tx_entries[0]
                         response_json = json.dumps({
                             "txid": txid,
                             "tx_flags": int(tx_entry.flags)

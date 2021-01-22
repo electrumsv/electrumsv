@@ -12,9 +12,8 @@ from aiohttp import web
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.coinchooser import PRNG
 from electrumsv.constants import (CHANGE_SUBPATH, DATABASE_EXT, TransactionOutputFlag, TxFlags,
-    unpack_derivation_path)
+    unpack_derivation_path, WalletSettings)
 from electrumsv.exceptions import NotEnoughFunds
-from electrumsv.networks import Net
 from electrumsv.restapi_endpoints import ARGTYPES, HandlerUtils, VARNAMES
 from electrumsv.transaction import Transaction
 from electrumsv.wallet import AbstractAccount, Wallet
@@ -23,8 +22,9 @@ from electrumsv.app_state import app_state
 from electrumsv.restapi import decode_request_body, Fault, get_network_type
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.types import TxoKeyType
-from electrumsv.wallet_database.types import (TransactionOutputSpendableRow,
-    TransactionOutputSpendableRow2)
+from electrumsv.wallet_database.types import (TransactionOutputSpendableRow)
+from examples.applications.restapi.constants import WalletEventNames
+
 from .errors import Errors
 
 logger = logging.getLogger("blockchain-support")
@@ -292,9 +292,6 @@ class ExtendedHandlerUtils(HandlerUtils):
             parent_wallet.register_callback(app_state.app.on_triggered_event,
                 [WalletEventNames.TRANSACTION_STATE_CHANGE, WalletEventNames.TRANSACTION_ADDED,
                     WalletEventNames.VERIFIED])
-            for account in parent_wallet.get_accounts():
-                account.set_gap_limit_for_path(RECEIVING_SUBPATH, GAP_LIMIT_RECEIVING)
-                account.set_gap_limit_for_path(CHANGE_SUBPATH, GAP_LIMIT_CHANGE)
             parent_wallet.set_boolean_setting(WalletSettings.USE_CHANGE, True)
             parent_wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True)
 
