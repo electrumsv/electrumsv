@@ -269,7 +269,7 @@ class _ItemModel(QAbstractItemModel):
                     return None
                 elif column == STATE_COLUMN:
                     state_text = ""
-                    if line.flags & KeyInstanceFlag.ALLOCATED_MASK:
+                    if line.flags & KeyInstanceFlag.MASK_ALLOCATED:
                         state_text += "A"
                     if line.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
                         state_text += "R"
@@ -308,7 +308,7 @@ class _ItemModel(QAbstractItemModel):
                 if column == TYPE_COLUMN:
                     return _("Key")
                 elif column == STATE_COLUMN:
-                    if line.flags & KeyInstanceFlag.ALLOCATED_MASK:
+                    if line.flags & KeyInstanceFlag.MASK_ALLOCATED:
                         return _("This is an allocated address")
                     elif not line.flags & KeyInstanceFlag.IS_ACTIVE:
                         return _("This is an inactive address")

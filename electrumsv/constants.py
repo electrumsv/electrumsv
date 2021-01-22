@@ -194,12 +194,24 @@ class KeyInstanceFlag(IntFlag):
     IS_PAYMENT_REQUEST = 1 << 9
     IS_INVOICE = 1 << 10
 
-    # The coins that are being monitored on the indexer.
-    ACTIVE_MASK = IS_ACTIVE | USER_SET_ACTIVE
-    # The coins that are not being monitored on the indexer.
-    INACTIVE_MASK = ~IS_ACTIVE
-    # The coins that are not available for use.
-    ALLOCATED_MASK = IS_PAYMENT_REQUEST | IS_INVOICE | IS_ASSIGNED
+    # The keys that are being monitored on the indexer.
+    MASK_ACTIVE = IS_ACTIVE | USER_SET_ACTIVE
+    # The keys that are not being monitored on the indexer.
+    MASK_INACTIVE = ~IS_ACTIVE
+    # The keys that are not available for use.
+    MASK_ALLOCATED = IS_PAYMENT_REQUEST | IS_INVOICE | IS_ASSIGNED
+
+
+class SubscriptionType(IntEnum):
+    NONE = 0
+    SCRIPT_HASH = 1
+
+
+class SubscriptionOwnerPurpose(IntEnum):
+    NONE = 0
+    SCANNER = 1
+    GAP_LIMIT_OBSERVER = 2
+    ACTIVE_KEYS = 3
 
 
 class TransactionInputFlag(IntFlag):

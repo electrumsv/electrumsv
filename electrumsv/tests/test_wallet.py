@@ -19,7 +19,7 @@ from electrumsv.types import TxoKeyType
 from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount, MultisigAccount,
     Wallet, StandardAccount)
 from electrumsv.wallet_database import functions as db_functions
-from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow
+from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, WalletBalance
 
 from .util import setup_async, MockStorage, tear_down_async, TEST_WALLET_PATH
 
@@ -572,6 +572,12 @@ async def test_transaction_import_removal(tmp_storage) -> None:
         assert tv_rows1[0].account_id == account.get_id()
         assert tv_rows1[0].total == 1044113
 
+        balance = db_functions.read_account_balance(db_context, account.get_id(), 100)
+        assert balance == WalletBalance(0, 1044113, 0)
+
+        balance = db_functions.read_wallet_balance(db_context, 100)
+        assert balance == WalletBalance(0, 1044113, 0)
+
         tx_2 = Transaction.from_hex(tx_hex_2)
         tx_hash_2 = tx_2.hash()
         # Add the spending transaction to the database and link it to key usage.
@@ -582,6 +588,13 @@ async def test_transaction_import_removal(tmp_storage) -> None:
         assert len(tv_rows2) == 1
         assert tv_rows2[0].account_id == account.get_id()
         assert tv_rows2[0].total == -1044113
+
+        # Check the transaction balance.
+        balance = db_functions.read_account_balance(db_context, account.get_id(), 100)
+        assert balance == WalletBalance(0, 0, 0)
+
+        balance = db_functions.read_wallet_balance(db_context, 100)
+        assert balance == WalletBalance(0, 0, 0)
 
         # Verify all the transaction outputs are present and are linked to spending inputs.
         txof_rows = db_functions.read_transaction_outputs_full(db_context)

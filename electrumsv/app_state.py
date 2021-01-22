@@ -43,6 +43,7 @@ from .constants import MAX_INCOMING_ELECTRUMX_MESSAGE_MB
 from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
+from .subscription import SubscriptionManager
 from .regtest_support import HeadersRegTestMod, setup_regtest
 from .util import format_satoshis
 
@@ -81,6 +82,7 @@ class AppStateProxy(object):
         # Call this now so any code, such as DeviceMgr's constructor, can use us
         AppState.set_proxy(self)
         self.device_manager = DeviceMgr()
+        self.subscriptions = SubscriptionManager()
         self.fx = None
         self.headers: Optional[Union[Headers, HeadersRegTestMod]] = None
         # Not entirely sure these are worth caching, but preserving existing method for now

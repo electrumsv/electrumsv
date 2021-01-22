@@ -30,6 +30,7 @@ class HistoryListRow(NamedTuple):
     block_height: Optional[int]
     block_position: Optional[int]
     value_delta: int
+    date_created: int
 
 
 class InvoiceAccountRow(NamedTuple):
@@ -130,6 +131,7 @@ SpendConflictType = Tuple[bytes, int, bytes, int]
 class TransactionDeltaSumRow(NamedTuple):
     account_id: int
     total: int
+    match_count: int
 
 
 class TransactionDescriptionResult(NamedTuple):

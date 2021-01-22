@@ -185,55 +185,56 @@ class HistoryList(MyTreeWidget):
         chain = app_state.headers.longest_chain()
         missing_header_heights = []
         items = []
-        for line, balance in self._account.get_history(self.get_domain()):
-            tx_id = hash_to_hex_str(line.tx_hash)
-            conf = 0 if line.height <= 0 else max(local_height - line.height + 1, 0)
+        for entry in self._account.get_history(self.get_domain()):
+            row = entry.row
+            tx_id = hash_to_hex_str(row.tx_hash)
+            conf = 0 if row.block_height <= 0 else max(local_height - row.block_height + 1, 0)
             timestamp = False
-            if line.height > 0:
+            if row.block_height > 0:
                 try:
-                    timestamp = header_at_height(chain, line.height).timestamp
+                    timestamp = header_at_height(chain, row.block_height).timestamp
                 except MissingHeader:
-                    if line.height <= server_height:
-                        missing_header_heights.append(line.height)
+                    if row.block_height <= server_height:
+                        missing_header_heights.append(row.block_height)
                     else:
                         logger.debug("Unable to backfill header at %d (> %d)",
-                            line.height, server_height)
-            status = get_tx_status(self._account, line.block_height, line.block_position, conf,
+                            row.block_height, server_height)
+            status = get_tx_status(self._account, row.block_height, row.block_position, conf,
                 timestamp)
             status_str = get_tx_desc(status, timestamp)
-            v_str = app_state.format_amount(line.value_delta, True, whitespaces=True)
-            balance_str = app_state.format_amount(balance, whitespaces=True)
-            label = self._account.get_transaction_label(line.tx_hash)
-            entry = [None, tx_id, status_str, label, v_str, balance_str]
+            v_str = app_state.format_amount(row.value_delta, True, whitespaces=True)
+            balance_str = app_state.format_amount(entry.balance, whitespaces=True)
+            label = self._account.get_transaction_label(row.tx_hash)
+            line = [None, tx_id, status_str, label, v_str, balance_str]
             if fx and fx.show_history():
                 date = timestamp_to_datetime(time.time() if conf <= 0 else timestamp)
-                for amount in [line.value_delta, balance]:
+                for amount in [row.value_delta, entry.balance]:
                     text = fx.historical_value_str(amount, date)
-                    entry.append(text)
+                    line.append(text)
 
-            item = SortableTreeWidgetItem(entry)
+            item = SortableTreeWidgetItem(line)
             # If there is no text,
             item.setIcon(Columns.STATUS, get_tx_icon(status))
             item.setToolTip(Columns.STATUS, get_tx_tooltip(status, conf))
-            if line.tx_flags & TxFlags.PAYS_INVOICE:
+            if row.tx_flags & TxFlags.PAYS_INVOICE:
                 item.setIcon(Columns.DESCRIPTION, self.invoiceIcon)
-            for i in range(len(entry)):
+            for i in range(len(line)):
                 if i > Columns.DESCRIPTION:
                     item.setTextAlignment(i, Qt.AlignRight | Qt.AlignVCenter)
                 else:
                     item.setTextAlignment(i, Qt.AlignLeft | Qt.AlignVCenter)
                 if i != Columns.DATE:
                     item.setFont(i, self.monospace_font)
-            if line.value_delta and line.value_delta < 0:
+            if row.value_delta and row.value_delta < 0:
                 item.setForeground(Columns.DESCRIPTION, self.withdrawalBrush)
                 item.setForeground(Columns.AMOUNT, self.withdrawalBrush)
-            item.setData(Columns.STATUS, SortableTreeWidgetItem.DataRole, line.sort_key)
-            item.setData(Columns.DATE, SortableTreeWidgetItem.DataRole, line.sort_key)
+            item.setData(Columns.STATUS, SortableTreeWidgetItem.DataRole, entry.sort_key)
+            item.setData(Columns.DATE, SortableTreeWidgetItem.DataRole, entry.sort_key)
             item.setData(Columns.STATUS, self.ACCOUNT_ROLE, self._account_id)
-            item.setData(Columns.STATUS, self.TX_ROLE, line.tx_hash)
+            item.setData(Columns.STATUS, self.TX_ROLE, row.tx_hash)
 
             # self.insertTopLevelItem(0, item)
-            if current_tx_hash == line.tx_hash:
+            if current_tx_hash == row.tx_hash:
                 self.setCurrentItem(item)
 
             items.append(item)

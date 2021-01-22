@@ -27,6 +27,9 @@ from .util import ButtonsLineEdit, EnterButton, HelpLabel
 
 
 class ReceiveView(QWidget):
+    """
+    This is what is seen in the receive tab for an account.
+    """
     _qr_window: Optional[QR_Window] = None
 
     def __init__(self, main_window: 'ElectrumWindow', account_id: int) -> None:

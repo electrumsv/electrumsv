@@ -74,7 +74,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
         account_row = self.wallet.add_accounts([ account_row ])[0]
         account = StandardAccount(self.wallet, account_row, [], [])
-        account.synchronize()
+        # account.synchronize()
         return account
 
     def _create_multisig_wallet(self, ks1, ks2):
@@ -86,7 +86,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         account_row = self.wallet.add_accounts([ account_row ])[0]
         account = MultisigAccount(self.wallet, account_row, [], [])
         self.wallet.register_account(account.get_id(), account)
-        account.synchronize()
+        # account.synchronize()
         return account
 
     def test_electrum_seed_standard(self):
