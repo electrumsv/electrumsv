@@ -29,6 +29,7 @@
 
 from collections import defaultdict
 import concurrent
+from dataclasses import dataclass
 from datetime import datetime
 import json
 import os
@@ -40,7 +41,6 @@ from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Seque
 import weakref
 
 import aiorpcx
-import attr
 from bitcoinx import (double_sha256, hash_to_hex_str, hex_str_to_hash, P2PKH_Address,
     P2SH_Address, PrivateKey, PublicKey, MissingHeader, Ops, pack_byte, push_item, Script)
 
@@ -50,8 +50,9 @@ from .bitcoin import scripthash_bytes, ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
     DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, KeyInstanceFlag, KeystoreTextType,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, pack_derivation_path, PaymentFlag,
-    RECEIVING_SUBPATH, ScriptType, TransactionInputFlag, TransactionOutputFlag, TxFlags,
-    unpack_derivation_path, WalletEventFlag, WalletEventType, WalletSettings)
+    SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionInputFlag,
+    TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag, WalletEventType,
+    WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
@@ -66,7 +67,8 @@ from .networks import Net
 from .storage import WalletStorage
 from .transaction import (Transaction, TransactionContext, TxSerialisationFormat, NO_SIGNATURE,
     tx_dict_from_text, XPublicKey, XPublicKeyType, XTxInput, XTxOutput)
-from .types import TxoKeyType, WaitingUpdateCallback
+from .types import (SubscriptionEntry, SubscriptionKey, SubscriptionOwner,
+    SubscriptionScriptHashOwnerContext, TxoKeyType, WaitingUpdateCallback)
 from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime,
     TriggeredCallbacks)
 from .util.cache import LRUCache
@@ -91,70 +93,17 @@ if TYPE_CHECKING:
 logger = logs.get_logger("wallet")
 
 
-@attr.s(auto_attribs=True)
-class DeterministicKeyAllocation:
+class DeterministicKeyAllocation(NamedTuple):
     masterkey_id: int
     derivation_type: DerivationType
     derivation_path: Sequence[int]
 
-@attr.s(auto_attribs=True)
-class BIP32KeyData:
-    masterkey_id: int
-    derivation_path: Sequence[int]
-    script_type: ScriptType
-    script_pubkey: bytes
 
-
-class HistoryLine(NamedTuple):
+@dataclass
+class HistoryListEntry:
     sort_key: Tuple[int, int]
-    tx_hash: bytes
-    tx_flags: TxFlags
-    height: Optional[int]
-    position: Optional[int]
-    value_delta: int
-
-
-# @attr.s(slots=True, hash=False)
-# class UTXO:
-#     value = attr.ib()
-#     script_pubkey = attr.ib()
-#     script_type: ScriptType = attr.ib()
-#     tx_hash: bytes = attr.ib()
-#     out_index: int = attr.ib()
-#     keyinstance_id: int = attr.ib()
-#     address = attr.ib()
-#     # To determine if matured and spendable
-#     is_coinbase = attr.ib()
-#     flags: TransactionOutputFlag = attr.ib()
-
-#     def __eq__(self, other):
-#         return isinstance(other, UTXO) and self.key() == other.key()
-
-#     def __hash__(self):
-#         return hash(self.key())
-
-#     def key(self) -> TxoKeyType:
-#         return TxoKeyType(self.tx_hash, self.out_index)
-
-#     def key_str(self) -> str:
-#         return f"{hash_to_hex_str(self.tx_hash)}:{self.out_index}"
-
-#     def to_tx_input(self, account: 'AbstractAccount') -> XTxInput:
-#         threshold = account.get_threshold(self.script_type)
-#         # NOTE(rt12) The typing of attrs subclasses is not detected, so have to ignore.
-#         x_pubkeys = account.get_xpubkeys_for_id(self.keyinstance_id)
-#         return XTxInput( # type: ignore
-#             prev_hash=self.tx_hash,
-#             prev_idx=self.out_index,
-#             script_sig=Script(),
-#             sequence=0xffffffff,
-#             threshold=threshold,
-#             script_type=self.script_type,
-#             signatures=[NO_SIGNATURE] * len(x_pubkeys),
-#             x_pubkeys=x_pubkeys,
-#             value=self.value,
-#             keyinstance_id=self.keyinstance_id
-#         )
+    row: HistoryListRow
+    balance: int
 
 
 def dust_threshold(network):
@@ -179,19 +128,11 @@ class AbstractAccount:
         self._wallet = weakref.proxy(wallet)
         self._row = row
         self._id = row.account_id
+        self._subscription_owner_keys = SubscriptionOwner(self._wallet._id, self._id,
+            SubscriptionOwnerPurpose.ACTIVE_KEYS)
 
         self._logger = logs.get_logger("account[{}]".format(self.name()))
         self._network = None
-
-        # For synchronization.
-        self._activated_keys: List[int] = []
-        self._activated_keys_lock = threading.Lock()
-        self._activated_keys_event = app_state.async_.event()
-        self._deactivated_keys: List[int] = []
-        self._deactivated_keys_lock = threading.Lock()
-        self._deactivated_keys_event = app_state.async_.event()
-        self._synchronize_event = app_state.async_.event()
-        self._synchronized_event = app_state.async_.event()
 
         self.request_count = 0
         self.response_count = 0
@@ -278,9 +219,9 @@ class AbstractAccount:
                 script_hash = scripthash_bytes(script.to_bytes())
                 keyinstance_scripthashes.append(KeyInstanceScriptHashRow(row.keyinstance_id,
                     script_type, script_hash))
-        future_ = self._wallet.create_keyinstance_scripthashes(keyinstance_scripthashes)
+        future_ = self._wallet.create_keyinstance_scripts(keyinstance_scripthashes)
         # TODO(nocheckin) The concept of activated keys will change with the new model.
-        self._add_activated_keys(rows)
+        # self._add_activated_keys(rows)
         return keyinstance_future, rows
 
     def create_derivation_data_dict(self, key_allocation: DeterministicKeyAllocation) \
@@ -288,13 +229,52 @@ class AbstractAccount:
         assert key_allocation.derivation_type == DerivationType.BIP32_SUBPATH
         return { "subpath": key_allocation.derivation_path }
 
-    def archive_keys(self, key_ids: List[int]) -> None:
-        assert len(key_ids), "should never be called with no keys to deactivate"
-        self._wallet.set_keyinstance_flags(key_ids, KeyInstanceFlag.NONE,
-            ~KeyInstanceFlag.ACTIVE_MASK)
+    def _get_subscription_entries_for_keyinstance_ids(self, keyinstance_ids: List[int]) \
+            -> List[SubscriptionEntry]:
+        entries: List[SubscriptionEntry] = []
+        for row in self._wallet.read_keyinstance_scripts(keyinstance_ids):
+            entries.append(
+                SubscriptionEntry(
+                    SubscriptionKey(SubscriptionType.SCRIPT_HASH, row.script_hash),
+                    SubscriptionScriptHashOwnerContext(row.keyinstance_id, row.script_type)))
+        return entries
 
-    def unarchive_keys(self, key_ids: List[int]) -> None:
-        self._wallet.set_keyinstance_flags(key_ids, KeyInstanceFlag.IS_ACTIVE)
+    def set_keyinstance_flags(self, keyinstance_ids: List[int], flags: KeyInstanceFlag,
+            mask: Optional[KeyInstanceFlag]=None) -> concurrent.futures.Future:
+        """
+        Encapsulate updating the flags for keyinstances belonging to this account.
+
+        This will subscribe or unsubscribe from script hash notifications from any indexer
+        automatically as any flags relating to activeness of the key are set or unset.
+        """
+        # We need the current flags in order to reconcile keys becoming/losing active status.
+        keyinstances = self._wallet.read_keyinstances(account_id=self._id,
+            keyinstance_ids=keyinstance_ids)
+        assert len(keyinstances) == len(keyinstance_ids)
+
+        subscription_keyinstance_ids: List[int] = []
+        unsubscription_keyinstance_ids: List[int] = []
+        for keyinstance in keyinstances:
+            if flags & KeyInstanceFlag.MASK_ACTIVE:
+                if not keyinstance.flags & KeyInstanceFlag.MASK_ACTIVE:
+                    # Inactive -> active.
+                    subscription_keyinstance_ids.append(keyinstance.keyinstance_id)
+            else:
+                if keyinstance.flags & KeyInstanceFlag.MASK_ACTIVE:
+                    # Active -> inactive.
+                    unsubscription_keyinstance_ids.append(keyinstance.keyinstance_id)
+
+        if len(subscription_keyinstance_ids):
+            app_state.subscriptions.create(
+                self._get_subscription_entries_for_keyinstance_ids(subscription_keyinstance_ids),
+                self._subscription_owner_keys)
+
+        if len(unsubscription_keyinstance_ids):
+            app_state.subscriptions.delete(
+                self._get_subscription_entries_for_keyinstance_ids(unsubscription_keyinstance_ids),
+                self._subscription_owner_keys)
+
+        return self._wallet.set_keyinstance_flags(keyinstance_ids, flags, mask)
 
     def get_script_template_for_key_data(self, keydata: KeyDataTypes,
             script_type: ScriptType) -> ScriptTemplate:
@@ -316,39 +296,9 @@ class AbstractAccount:
         script_template = self.get_script_template_for_key_data(keydata, script_type)
         return script_template.to_script()
 
-    # This is started by the network `maintain_account` loop.
-    async def synchronize_loop(self) -> None:
-        while True:
-            await self._synchronize()
-            await self._synchronize_event.wait()
-
-    async def _synchronize_account(self) -> None:
-        '''Class-specific synchronization (generation of missing addresses).'''
-        pass
-
-    async def _synchronize(self) -> None:
-        self._logger.debug('synchronizing...')
-        self._synchronize_event.clear()
-        self._synchronized_event.clear()
-        await self._synchronize_account()
-        self._synchronized_event.set()
-        self._logger.debug('synchronized.')
-        if self._network:
-            self._network.trigger_callback('updated')
-
-    def synchronize(self) -> None:
-        app_state.async_.spawn_and_wait(self._trigger_synchronization)
-        app_state.async_.spawn_and_wait(self._synchronized_event.wait)
-
-    async def _trigger_synchronization(self) -> None:
-        if self._network:
-            self._synchronize_event.set()
-        else:
-            await self._synchronize()
-
     def is_synchronized(self) -> bool:
-        return (self._synchronized_event.is_set() and
-                not (self._network and self._wallet.missing_transactions()))
+        # TODO(nocheckin) Need to reimplement to deal with scanning/pending state?
+        return True
 
     def get_keystore(self) -> Optional[KeyStore]:
         if self._row.default_masterkey_id is not None:
@@ -601,7 +551,7 @@ class AbstractAccount:
                                     row.derivation_type, row.derivation_data2)
         )
 
-    def get_history(self, domain: Optional[Set[int]]=None) -> List[Tuple[HistoryLine, int]]:
+    def get_history(self, domain: Optional[Set[int]]=None) -> List[HistoryListEntry]:
         """
         Return the list of transactions in the account kind of sorted from newest to oldest.
 
@@ -614,27 +564,23 @@ class AbstractAccount:
         - The transaction list in the key usage window.
         - Exporting the account history.
         """
-        history_raw: List[HistoryLine] = []
+        history_raw: List[HistoryListEntry] = []
 
         for row in self._wallet.read_history_list(self._id, domain):
             if row.block_position is not None:
                 sort_key = row.block_height, row.block_position
             else:
-                sort_key = (1e9, row.date_added)
-            history_raw.append(HistoryLine(sort_key, row.tx_hash, row.tx_flags, row.block_height,
-                row.block_position, row.value_delta))
+                sort_key = (1e9, row.date_created)
+            history_raw.append(HistoryListEntry(sort_key, row, 0))
 
-        history_raw.sort(key = lambda v: v.sort_key)
+        history_raw.sort(key=lambda t: t.sort_key)
 
-        history: List[Tuple[HistoryLine, int]] = []
         balance = 0
-        for history_line in history_raw:
-            balance += history_line.value_delta
-            history.append((history_line, balance))
-
-        history.reverse()
-
-        return history
+        for entry in history_raw:
+            balance += entry.row.value_delta
+            entry.balance = balance
+        history_raw.reverse()
+        return history_raw
 
     def export_history(self, from_timestamp=None, to_timestamp=None,
                        show_addresses=False):
@@ -787,16 +733,28 @@ class AbstractAccount:
     def start(self, network) -> None:
         self._network = network
         if network:
-            network.add_account(self)
+            app_state.subscriptions.set_owner_callback(self._subscription_owner_keys,
+                self._on_network_key_script_hash_result)
+            # TODO(nocheckin). Register the owners for this account.
 
     def stop(self) -> None:
         assert not self._stopped
         self._stopped = True
 
-        self._logger.debug(f'stopping account %s', self)
+        self._logger.debug("stopping account %s", self)
         if self._network:
-            self._network.remove_account(self)
+            # Unsubscribe from the account's existing subscriptions.
+            app_state.subscriptions.remove_owner(self._subscription_owner_keys)
             self._network = None
+
+    def _on_network_key_script_hash_result(self, subscription_type: SubscriptionType,
+            script_hash: bytes, history: Dict[str, Any]) -> None:
+        """
+        Receive an event related to this account and it's active keys.
+        """
+        pass
+        # TODO(nocheckin) There is a problem here in that we have no context for the script
+        # hash. Can we add user data/a context to the subscription?
 
     def can_export(self) -> bool:
         if self.is_watching_only():
@@ -1041,27 +999,9 @@ class AbstractAccount:
         return False
 
     # TODO(nocheckin) This whole concept needs to be rewritten
-    def _add_activated_keys(self, keys: Sequence[KeyInstanceRow]) -> None:
-        if not len(keys):
-            return
-
-        keyinstance_ids = [ k.keyinstance_id for k in keys ]
-
-        # self._logger.debug("_add_activated_keys: %s", keys)
-        with self._activated_keys_lock:
-            self._activated_keys.extend(keyinstance_ids)
-        self._activated_keys_event.set()
-
-        # There is no unique id for the account, so we just pass the wallet for now.
-        self._wallet.trigger_callback('on_keys_created', self._id, keyinstance_ids)
-
-    async def new_activated_keys(self) -> List[int]:
-        await self._activated_keys_event.wait()
-        self._activated_keys_event.clear()
-        with self._activated_keys_lock:
-            result = self._activated_keys
-            self._activated_keys = []
-        return result
+    # def _add_activated_keys(self, keys: Sequence[KeyInstanceRow]) -> None:
+    #     # There is no unique id for the account, so we just pass the wallet for now.
+    #     self._wallet.trigger_callback('on_keys_created', self._id, keyinstance_ids)
 
     # TODO(nocheckin) need to remove when we deal with a new deactivated key system
     # def poll_used_key_detection(self, every_n_seconds: int) -> None:
@@ -1113,7 +1053,7 @@ class AbstractAccount:
     #             new_flags = old_flags | KeyInstanceFlag.IS_ACTIVE
     #         else:
     #             # if USER_SET_ACTIVE flag is set - this flag will remain
-    #             new_flags = old_flags & (KeyInstanceFlag.INACTIVE_MASK |
+    #             new_flags = old_flags & (KeyInstanceFlag.MASK_INACTIVE |
     #                 KeyInstanceFlag.USER_SET_ACTIVE)
     #         self._keyinstances[key.keyinstance_id] = key._replace(flags=new_flags)
     #         db_updates.append((new_flags, key.keyinstance_id))
@@ -1122,22 +1062,15 @@ class AbstractAccount:
     def reactivate_reorged_keys(self, reorged_tx_hashes: List[bytes]) -> None:
         """re-activate all of the reorged keys and allow deactivation to occur via the usual
         mechanisms."""
-        with self.lock:
-            key_ids: List[int] = []
+        pass
+        # with self.lock:
+        #     key_ids: List[int] = []
             # TODO(nocheckin) needs to be unatchive keys for the reorged transactions?
             # Need to work out the larger model.
             # for tx_hash in reorged_tx_hashes:
             #     tx_key_ids.append((tx_hash, self._sync_state.get_transaction_key_ids(
             #         hash_to_hex_str(tx_hash))))
-            self.unarchive_keys(key_ids)
-
-    async def new_deactivated_keys(self) -> List[int]:
-        await self._deactivated_keys_event.wait()
-        self._deactivated_keys_event.clear()
-        with self._deactivated_keys_lock:
-            result = self._deactivated_keys
-            self._deactivated_keys = []
-        return result
+            # self.unarchive_keys(key_ids)
 
     def sign_message(self, key_data: KeyDataTypes, message, password: str):
         assert key_data.derivation_data2 is not None
@@ -1233,7 +1166,7 @@ class ImportedAddressAccount(ImportedAccountBase):
         keyinstance_future, rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
 
         # TODO(nocheckin) The concept of activated keys is going to change to a different model.
-        self._add_activated_keys(rows)
+        # self._add_activated_keys(rows)
         return True
 
     def get_public_keys_for_key_data(self, keydata: KeyDataTypes) -> List[PublicKey]:
@@ -1307,7 +1240,7 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         # TODO(nocheckin) imported private keystores need the key instances.
         keystore.import_private_key(rows[0].keyinstance_id, public_key, enc_private_key_text)
         # TODO(nocheckin) The concept of activated keys is going away as we change models.
-        self._add_activated_keys(rows)
+        # self._add_activated_keys(rows)
         return private_key_text
 
     def export_private_key(self, keydata: KeyDataTypes, password: str) -> str:
@@ -1388,7 +1321,7 @@ class DeterministicAccount(AbstractAccount):
             limit)
         # def _is_fresh_key(keyinstance: KeyInstanceRow) -> bool:
         #     return (keyinstance.script_type == ScriptType.NONE and
-        #         (keyinstance.flags & KeyInstanceFlag.ALLOCATED_MASK) == 0)
+        #         (keyinstance.flags & KeyInstanceFlag.MASK_ALLOCATED) == 0)
         # parent_depth = len(derivation_parent)
         # candidates = [ key for key in self._keyinstances.values()
         #     if len(self._keypath[key.keyinstance_id]) == parent_depth+1
@@ -1403,19 +1336,6 @@ class DeterministicAccount(AbstractAccount):
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
         return self._wallet.count_unused_bip32_keys(self._id, masterkey_id, derivation_parent)
-
-    async def _synchronize_chain(self, derivation_parent: Sequence[int], wanted: int) -> None:
-        # TODO(nocheckin) This is obsolete. The scanning is a manual process.
-        existing_count = self.get_next_derivation_index(derivation_parent)
-        fresh_count = self._count_unused_keys(derivation_parent)
-        self.get_fresh_keys(derivation_parent, wanted)
-        self._logger.info(
-            f'derivation {derivation_parent} has {existing_count:,d} keys, {fresh_count:,d} fresh')
-
-    async def _synchronize_account(self) -> None:
-        '''Class-specific synchronization (generation of missing addresses).'''
-        await self._synchronize_chain(RECEIVING_SUBPATH, 20)
-        await self._synchronize_chain(CHANGE_SUBPATH, 20)
 
     def get_master_public_keys(self) -> List[str]:
         return [self.get_master_public_key()]
@@ -1584,6 +1504,9 @@ class Wallet(TriggeredCallbacks):
 
         self._storage = storage
         self._logger = logs.get_logger(f"wallet[{self.name()}]")
+
+        # NOTE The wallet abstracts all database access. The database context should not be
+        # used outside of the `Wallet` object.
         self._db_context = storage.get_db_context()
         assert self._db_context is not None
 
@@ -1922,7 +1845,8 @@ class Wallet(TriggeredCallbacks):
 
     def read_invoices_for_account(self, account_id: int, flags: Optional[int]=None,
             mask: Optional[int]=None) -> List[InvoiceAccountRow]:
-        return db_functions.read_invoices_for_account(account_id, flags, mask)
+        return db_functions.read_invoices_for_account(self.get_db_context(), account_id, flags,
+            mask)
 
     def update_invoice_transactions(self, entries: Iterable[Tuple[Optional[bytes], int]]) \
             -> concurrent.futures.Future:
@@ -1939,7 +1863,7 @@ class Wallet(TriggeredCallbacks):
     def delete_invoices(self, entries: Iterable[Tuple[int]]) -> concurrent.futures.Future:
         return db_functions.delete_invoices(self.get_db_context(), entries)
 
-    # Keyinstances.
+    # Key instances.
 
     def create_keyinstances(self, account_id: int, entries: List[KeyInstanceRow]) \
             -> Tuple[concurrent.futures.Future, List[KeyInstanceRow]]:
@@ -1951,11 +1875,6 @@ class Wallet(TriggeredCallbacks):
         self._storage.put("next_keyinstance_id", keyinstance_id)
         future = db_functions.create_keyinstances(self.get_db_context(), rows)
         return future, rows
-
-    def create_keyinstance_scripthashes(self, entries: Iterable[KeyInstanceScriptHashRow]) \
-            -> concurrent.futures.Future:
-        return db_functions.create_keyinstance_scripthashes(self.get_db_context(),
-            entries)
 
     def read_key_list(self, account_id, keyinstance_ids: Optional[List[int]]=None) \
             -> List[KeyListRow]:
@@ -1992,7 +1911,7 @@ class Wallet(TriggeredCallbacks):
             -> concurrent.futures.Future:
         return db_functions.update_keyinstance_descriptions(self.get_db_context(), entries)
 
-    # Masterkeys.
+    # Master keys.
 
     def add_masterkeys(self, entries: List[MasterKeyRow]) -> List[MasterKeyRow]:
         masterkey_id = self._storage.get("next_masterkey_id", 1)
@@ -2077,6 +1996,16 @@ class Wallet(TriggeredCallbacks):
             keyinstance_id)
         future.add_done_callback(callback)
         return future
+
+    # Script hashes.
+
+    def create_keyinstance_scripts(self, entries: Iterable[KeyInstanceScriptHashRow]) \
+            -> concurrent.futures.Future:
+        return db_functions.create_keyinstance_scripts(self.get_db_context(), entries)
+
+    def read_keyinstance_scripts(self, keyinstance_ids: List[int]) \
+            -> List[KeyInstanceScriptHashRow]:
+        return db_functions.read_keyinstance_scripts(self.get_db_context(), keyinstance_ids)
 
     # Transaction outputs.
 

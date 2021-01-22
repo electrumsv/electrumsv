@@ -417,6 +417,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
 
     progress_text = _("Writing data: {}")
 
+    conn.execute("PRAGMA foreign_keys=OFF;")
+
     # VIEW->TABLE: AccountTransactions
     callbacks.progress(60, progress_text.format(_("account transactions")))
 
@@ -504,14 +506,14 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
 
     logger.debug("inserting %d TransactionOutputs rows", len(txo_inserts))
     conn.executemany("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, "
-        "keyinstance_id, flags, script_type, script_offset, script_length, script_hash, "
+        "keyinstance_id, flags, script_hash, script_type, script_offset, script_length, "
         "spending_tx_hash, spending_txi_index, date_created, date_updated) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", txo_inserts.values())
 
     logger.debug("updating %d TransactionOutputs rows", len(txo_updates))
-    cursor = conn.executemany("UPDATE TransactionOutputs SET script_type=?, script_hash=?, "
-        "flags=?, script_offset=?, script_length=?, spending_tx_hash=?, spending_txi_index=?, "
-        "date_updated=? WHERE tx_hash=? AND tx_index=?", txo_updates.values())
+    cursor = conn.executemany("UPDATE TransactionOutputs SET keyinstance_id=?, flags=?, "
+        "script_hash=?, script_type=?, script_offset=?, script_length=?, spending_tx_hash=?, "
+        "spending_txi_index=?, date_updated=? WHERE tx_hash=? AND tx_index=?", txo_updates.values())
     logger.debug("updated %d TransactionOutputs rows", cursor.rowcount)
     if cursor.rowcount != len(txo_updates):
         raise DatabaseMigrationError(f"Made {cursor.rowcount} txo changes, "
@@ -681,6 +683,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             "UNION ALL "
             "SELECT account_id, tx_hash, keyinstance_id, -value FROM TransactionSpentValues"
     )
+
+    conn.execute("PRAGMA foreign_keys=ON;")
 
     # ------------------------------------------------------------------------
     # Validation on completion of this migration step.

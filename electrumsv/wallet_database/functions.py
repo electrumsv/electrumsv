@@ -45,7 +45,7 @@ def count_unused_bip32_keys(db: sqlite3.Connection, account_id: int, masterkey_i
     # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
     sql = ("SELECT COUNT(*) FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&{KeyInstanceFlag.ALLOCATED_MASK})=0 "
+            f"AND (flags&{KeyInstanceFlag.MASK_ALLOCATED})=0 "
             "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id")
     cursor = db.execute(sql, (account_id, masterkey_id,
@@ -112,7 +112,7 @@ def create_keyinstances(db_context: DatabaseContext, entries: Iterable[KeyInstan
     return db_context.post_to_thread(_write)
 
 
-def create_keyinstance_scripthashes(db_context: DatabaseContext,
+def create_keyinstance_scripts(db_context: DatabaseContext,
         entries: Iterable[KeyInstanceScriptHashRow]) -> concurrent.futures.Future:
     sql = ("INSERT INTO KeyInstanceScripts "
         "(keyinstance_id, script_type, script_hash, date_created, date_updated) "
@@ -256,6 +256,7 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
         filter_bits: Optional[TransactionOutputFlag]=None,
         filter_mask: Optional[TransactionOutputFlag]=None) -> WalletBalance:
     coinbase_mask = TransactionOutputFlag.IS_COINBASE
+    # This defaults to . . .
     if filter_bits is None:
         filter_bits = TransactionOutputFlag.NONE
     if filter_mask is None:
@@ -264,20 +265,23 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
     sql = (
         "SELECT "
             # Confirmed.
-            "TOTAL(CASE WHEN block_height > 0 "
-                f"AND (flags&{coinbase_mask}=0 OR block_height+{COINBASE_MATURITY}<=?) "
-                "THEN value ELSE 0 END), "
+            "CAST(TOTAL(CASE WHEN TX.block_height > 0 "
+                f"AND (TX.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?) "
+                "THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "TOTAL(CASE WHEN block_height IS NULL OR block_height < 1 THEN value ELSE 0 END), "
+            "CAST(TOTAL(CASE WHEN TX.block_height IS NULL OR TX.block_height < 1 "
+                "THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
-            f"TOTAL(CASE WHEN block_height > 0 AND flags&{coinbase_mask} "
-                f"AND block_height+{COINBASE_MATURITY}>? THEN value ELSE 0 END) "
+            f"CAST(TOTAL(CASE WHEN TX.block_height > 0 AND TX.flags&{coinbase_mask} "
+                f"AND TX.block_height+{COINBASE_MATURITY}>? THEN TXO.value ELSE 0 END) AS INT) "
         "FROM AccountTransactions ATX "
-        "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash"
-        f"WHERE ATX.account_id=? AND (TXO.flags&{filter_bits})=0")
-    cursor = db.execute(sql, (account_id, local_height))
-    row = cursor.fetchone()
-    cursor.close()
+        "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash "
+        "INNER JOIN Transactions TX ON TX.tx_hash=ATX.tx_hash "
+        "WHERE ATX.account_id=? AND TXO.keyinstance_id IS NOT NULL AND "
+            f"(TXO.flags&{filter_mask})={filter_bits}")
+    row = db.execute(sql, (local_height, local_height, account_id)).fetchone()
+    if row is None:
+        return WalletBalance(0, 0, 0)
     return WalletBalance(*row)
 
 
@@ -302,7 +306,7 @@ def read_account_balance_raw(db: sqlite3.Connection, account_id: int, flags: Opt
     row = cursor.fetchone()
     cursor.close()
     if row is None:
-        return TransactionDeltaSumRow(account_id, 0)
+        return TransactionDeltaSumRow(account_id, 0, 0)
     return TransactionDeltaSumRow(*row)
 
 
@@ -463,22 +467,22 @@ def read_history_list(db: sqlite3.Connection, account_id: int,
     if keyinstance_ids:
         # Used for the address dialog.
         sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_height, TX.block_position, "
-                "TOTAL(TD.value), TX.date_created "
+                "TOTAL(TXV.value), TX.date_created "
             "FROM TransactionValues TXV "
             "INNER JOIN Transactions AS TX ON TX.tx_hash=TXV.tx_hash "
             "WHERE TXV.account_id=? AND TD.keyinstance_id IN ({}) AND "
-                f"(T.flags & {TxFlags.MASK_STATE})!=0"
+                f"(TX.flags & {TxFlags.MASK_STATE})!=0 "
             "GROUP BY TXV.tx_hash")
         return read_rows_by_id(HistoryListRow, db, sql, [ account_id ], keyinstance_ids)
 
     # Used for the history list and export.
     sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_height, TX.block_position, "
-            "TOTAL(TD.value), TX.date_created "
+            "TOTAL(TXV.value), TX.date_created "
         "FROM TransactionValues TXV "
         "INNER JOIN Transactions AS TX ON TX.tx_hash=TXV.tx_hash "
-        f"WHERE TXV.account_id=? AND (T.flags & {TxFlags.MASK_STATE})!=0"
+        f"WHERE TXV.account_id=? AND (TX.flags & {TxFlags.MASK_STATE})!=0 "
         "GROUP BY TXV.tx_hash")
-    cursor = db.execute(sql, [account_id])
+    cursor = db.execute(sql, (account_id,))
     rows = cursor.fetchall()
     cursor.close()
     return [ HistoryListRow(*t) for t in rows ]
@@ -571,6 +575,16 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
 
 
 @replace_db_context_with_connection
+def read_keyinstance_scripts(db: sqlite3.Connection, keyinstance_ids: Sequence[int]) \
+        -> List[KeyInstanceScriptHashRow]:
+    sql = (
+        "SELECT keyinstance_id, script_type, script_hash "
+        "FROM KeyInstanceScripts "
+        "WHERE keyinstance_id IN ({})")
+    return read_rows_by_id(KeyInstanceScriptHashRow, db, sql, [], keyinstance_ids)
+
+
+@replace_db_context_with_connection
 def read_keyinstances(db: sqlite3.Connection, *, account_id: Optional[int]=None,
         keyinstance_ids: Optional[Sequence[int]]=None) -> List[KeyInstanceRow]:
     """
@@ -603,7 +617,7 @@ def read_keyinstance_derivation_index_last(db: sqlite3.Connection, account_id: i
     # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
     sql = ("SELECT derivation_data2 FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&{KeyInstanceFlag.ALLOCATED_MASK})=0 "
+            f"AND (flags&{KeyInstanceFlag.MASK_ALLOCATED})=0 "
             "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id DESC "
         "LIMIT 1")
@@ -942,7 +956,7 @@ def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
             f"WHERE account_id=? ")
         if mask is not None:
             sql += f"AND TX.flags&{mask}!=0 "
-        sql += "GROUP BY tx_hash"
+        sql += "GROUP BY TXV.tx_hash"
         cursor = db.execute(sql, (account_id,))
         rows = cursor.fetchall()
         cursor.close()
@@ -955,7 +969,7 @@ def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
         "WHERE account_id=? AND tx_hash IN ({}) ")
     if mask is not None:
         sql += f"AND TX.flags&{mask}!=0 "
-    sql += "GROUP BY tx_hash"
+    sql += "GROUP BY TXV.tx_hash"
     return read_rows_by_id(TransactionValueRow, db, sql, [ account_id ], tx_hashes)
 
 
@@ -963,13 +977,13 @@ def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
 def read_transaction_values(db: sqlite3.Connection, tx_hash: bytes,
         account_id: Optional[int]=None) -> List[TransactionDeltaSumRow]:
     if account_id is None:
-        sql = ("SELECT account_id, TOTAL(value) "
+        sql = ("SELECT account_id, TOTAL(value), COUNT(value) "
             "FROM TransactionValues "
             "WHERE tx_hash=? "
             "GROUP BY account_id")
         cursor = db.execute(sql, [tx_hash])
     else:
-        sql = ("SELECT account_id, TOTAL(value) "
+        sql = ("SELECT account_id, TOTAL(value), COUNT(value) "
             "FROM TransactionValues "
             "WHERE account_id=? AND tx_hash=? "
             "GROUP BY account_id")
@@ -989,7 +1003,7 @@ def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id
     sql = ("SELECT keyinstance_id, account_id, masterkey_id, derivation_type, "
         "derivation_data, derivation_data2, flags, description FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&{KeyInstanceFlag.ALLOCATED_MASK})=0 "
+            f"AND (flags&{KeyInstanceFlag.MASK_ALLOCATED})=0 "
             "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id "
         f"LIMIT {limit}")
@@ -1023,7 +1037,7 @@ def read_unverified_transactions(db: sqlite3.Connection, local_height: int) \
         "FROM Transactions "
         f"WHERE flags={TxFlags.STATE_CLEARED} AND block_height>0 "
             "AND block_height<? AND proof_data IS NONE "
-        "ORDER BY date_added "
+        "ORDER BY date_created "
         "LIMIT 200"
     )
     cursor = db.execute(sql, (local_height,))
@@ -1045,17 +1059,19 @@ def read_wallet_balance(db: sqlite3.Connection, local_height: int,
     sql = (
         "SELECT "
             # Confirmed.
-            "TOTAL(CASE WHEN block_height > 0 "
-                f"AND (flags&{coinbase_mask}=0 OR block_height+{COINBASE_MATURITY}<=?) "
-                "THEN value ELSE 0 END), "
+            "CAST(TOTAL(CASE WHEN TX.block_height > 0 "
+                f"AND (TX.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?) "
+                "THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "TOTAL(CASE WHEN block_height IS NULL OR block_height < 1 THEN value ELSE 0 END), "
+            "CAST(TOTAL(CASE WHEN TX.block_height IS NULL OR TX.block_height < 1 "
+                "THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
-            f"TOTAL(CASE WHEN block_height > 0 AND flags&{coinbase_mask} "
-                f"AND block_height+{COINBASE_MATURITY}>? THEN value ELSE 0 END) "
+            f"CAST(TOTAL(CASE WHEN TX.block_height > 0 AND TX.flags&{coinbase_mask} "
+                f"AND TX.block_height+{COINBASE_MATURITY}>? THEN TXO.value ELSE 0 END) AS INT) "
         "FROM TransactionOutputs TXO "
-        f"WHERE (TXO.flags&{filter_bits})=0")
-    cursor = db.execute(sql, (local_height,))
+        "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
+        f"WHERE TXO.keyinstance_id IS NOT NULL AND (TXO.flags&{filter_mask})={filter_bits}")
+    cursor = db.execute(sql, (local_height, local_height))
     return WalletBalance(*cursor.fetchone())
 
 

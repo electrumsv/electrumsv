@@ -46,11 +46,11 @@ from bitcoinx import (
 )
 
 from .app_state import app_state
-from .bitcoin import scripthash_hex
-from .constants import ScriptType, TxFlags
+from .constants import TxFlags
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
+from .types import ScriptHashSubscriptionEntry
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
 from .networks import Net
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
@@ -339,10 +339,8 @@ class SVSession(RPCSession):
     ca_path = certifi.where()
     _connecting_tips: Dict[bytes, asyncio.Event] = {}
     _need_checkpoint_headers = True
-    # account -> list of script hashes.  Also acts as a list of registered accounts
-    _subs_by_account: Dict['AbstractAccount', List[str]] = {}
-    # script_hash -> (keyinstance_id, script_type)
-    _keyinstance_map: Dict[str, Tuple[int, ScriptType]] = {}
+    _script_hash_ids: Dict[bytes, int] = {}
+    _have_made_initial_script_hash_subscriptions = False
 
     def __init__(self, network, server, logger, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -599,36 +597,43 @@ class SVSession(RPCSession):
         while height < tip.height:
             height = await self._request_chunk(height + 1, 2016)
 
-    async def _subscribe_to_script_hash(self, script_hash: str) -> None:
-        '''Raises: RPCError, TaskTimeout'''
-        status = await self.send_request(SCRIPTHASH_SUBSCRIBE, [script_hash])
-        await self._on_queue_status_changed(script_hash, status)
+    async def _subscribe_to_script_hash(self, script_hash_hex: str) -> None:
+        """
+        Subscribe for status change events for the given script hash.
+
+        This call will either return a status hash or `None`. `None` indicates that the indexing
+        server considers the script hash to not have any use.
+
+        Raises: RPCError, TaskTimeout
+        """
+        status = await self.send_request(SCRIPTHASH_SUBSCRIBE, [script_hash_hex])
+        await self._on_queue_status_changed(script_hash_hex, status)
 
     async def _unsubscribe_from_script_hash(self, script_hash: str) -> bool:
         return await self.send_request(SCRIPTHASH_UNSUBSCRIBE, [script_hash])
 
-    async def _on_status_changed(self, script_hash: str, status: str) -> None:
-        keydata = self._keyinstance_map.get(script_hash)
-        if keydata is None:
+    async def _on_script_hash_status_changed(self, script_hash: str, status: Optional[str]) -> None:
+        script_hash_bytes = hex_str_to_hash(script_hash)
+        subscription_id = self._script_hash_ids.get(script_hash_bytes)
+        if subscription_id is None:
             self.logger.error(f'received status notification for unsubscribed {script_hash}')
             return
-        keyinstance_id, script_type = keydata
 
-        # TODO(nocheckin) rewrite this, relates to the active/inactive key model.
+        result: Optional[Dict[str, Any]] = None
+        if status is not None:
+            # This returns a list of first the confirmed transactions in blockchain order followed
+            # by the mempool transactions. Only the mempool transactions have a fee value, and they
+            # are in arbitrary order.
+            result = await self.request_history(script_hash)
 
-        # # Accounts needing a notification.
-        # accounts = [account for account, subs in self._subs_by_account.items()
-        #     if script_hash in subs and
-        #     _history_status(account.get_key_history(keyinstance_id, script_type)) != status]
-        # if not accounts:
-        #     return
+        if result is not None:
+            self.logger.debug(f"received history for {subscription_id} length {len(result)}")
+        else:
+            self.logger.debug(f"received empty history for {subscription_id}")
 
-        # # Status has changed; get history
-        # # This returns a list of first the confirmed transactions in blockchain order followed by
-        # # the mempool transactions. Only the mempool transactions have a fee value, and they are
-        # # in arbitrary order. This means that the account cannot guarantee to have matching
-        # # script hash as it either needs to store the order, or guess.
-        # result = await self.request_history(script_hash)
+        await app_state.subscriptions.on_script_hash_history(subscription_id, script_hash_bytes,
+            result)
+
         # self.logger.debug(f'received history of {keyinstance_id} length {len(result)}')
         # try:
         #     history = [(item['tx_hash'], item['height']) for item in result]
@@ -639,20 +644,6 @@ class SVSession(RPCSession):
         # except (AssertionError, KeyError) as e:
         #     self._network._on_status_queue.put_nowait((script_hash, status))  # re-queue
         #     raise DisconnectSessionError(f'bad history returned: {e}')
-
-        # # Check the status; it can change legitimately between initial notification and
-        # # history request
-        # hstatus = _history_status(history)
-        # if hstatus != status:
-        #     self.logger.warning(
-        #         f'history status mismatch {hstatus} vs {status} for {keyinstance_id}')
-
-        # for account in accounts:
-        #     if history != account.get_key_history(keyinstance_id, script_type):
-        #         self.logger.debug("_on_status_changed new=%s old=%s", history,
-        #             account.get_key_history(keyinstance_id, script_type))
-
-        #     await account.set_key_history(keyinstance_id, script_type, history, tx_fees)
 
     async def _main_server_batch(self):
         '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
@@ -808,91 +799,51 @@ class SVSession(RPCSession):
         '''Raises: RPCError, TaskTimeout'''
         return await self.send_request(REQUEST_MERKLE_PROOF, args)
 
-    async def request_history(self, script_hash):
+    async def request_history(self, script_hash_hex: str) -> Dict[str, Any]:
         '''Raises: RPCError, TaskTimeout'''
-        return await self.send_request(SCRIPTHASH_HISTORY, [script_hash])
+        return await self.send_request(SCRIPTHASH_HISTORY, [script_hash_hex])
 
-    async def _on_queue_status_changed(self, script_hash: str, status: str) -> None:
-        item = (script_hash, status)
+    async def _on_queue_status_changed(self, script_hash_hex: str, status: str) -> None:
+        item = (script_hash_hex, status)
         self._network._on_status_queue.put_nowait(item)
 
-    async def subscribe_to_triples(self, account: 'AbstractAccount', triples) -> None:
-        '''triples is an iterable of (keyinstance_id, script_type, script_hash) triples.
+    async def subscribe_to_script_hashes(self, entries: List[ScriptHashSubscriptionEntry],
+            initial_subscription: bool=False) -> None:
+        '''Raises: RPCError, TaskTimeout'''
+        # Ensure that we ignore the subscription requests that happen before we get the initial
+        # subscription, otherwise we would subscribe to those script hashes twice.
+        if initial_subscription:
+            self._have_made_initial_script_hash_subscriptions = True
+            self.logger.debug("Initial script hash subscriptions (%d)", len(entries))
+        elif not self._have_made_initial_script_hash_subscriptions:
+            self.logger.debug("Ignored script hash subscriptions (%d too early)", len(entries))
+            return
 
-        Raises: RPCError, TaskTimeout'''
-        # Set notification handler
         self._handlers[SCRIPTHASH_SUBSCRIBE] = self._on_queue_status_changed
-        if account not in self._subs_by_account:
-            self._subs_by_account[account] = []
-        # Take reference so account can be unsubscribed asynchronously without conflict
-        subs = self._subs_by_account[account]
+
         async with TaskGroup() as group:
-            for keyinstance_id, script_type, script_hash in triples:
-                subs.append(script_hash)
-                # Send request even if already subscribed, as our user expects a response
-                # to trigger other actions and won't get one if we swallow it.
-                self._keyinstance_map[script_hash] = keyinstance_id, script_type
-                await group.spawn(self._subscribe_to_script_hash(script_hash))
+            for entry in entries:
+                script_hash_hex = hash_to_hex_str(entry.script_hash)
+                await group.spawn(self._subscribe_to_script_hash(script_hash_hex))
 
-            # ensure GUI doesn't keep showing synchronizing...(100/101) when there are only 100 subs
-            account.request_count += len(set(triples) - set(subs))
-            account._wallet.progress_event.set()
+    async def unsubscribe_from_script_hashes(self, entries: List[ScriptHashSubscriptionEntry]) \
+            -> None:
+        """
+        Unsubscribe from the given script hashes.
 
-            while await group.next_done():
-                account.response_count += 1
-                account._wallet.progress_event.set()
+        It is a given that there is nothing else wanting status changes for these script hashes
+        because we are getting events through the global subscription object.
 
-        assert len(set(subs)) == len(subs), "account subscribed to the same keys twice"
+        Raises: RPCError, TaskTimeout
+        """
+        if self.ptuple < (1, 4, 2):
+            self.logger.debug("negotiated protocol does not support unsubscribing")
+            return
 
-    async def unsubscribe_from_pairs(self, account: 'AbstractAccount', pairs) -> None:
-        '''pairs is an iterable of (keyinstance_id, script_hash) pairs.
-
-        Raises: RPCError, TaskTimeout'''
-        subs = self._subs_by_account[account]
-        exclusive_subs = self._get_exclusive_set(account, subs)
         async with TaskGroup() as group:
-            for keyinstance_id, script_type, script_hash in pairs:
-                if script_hash not in exclusive_subs:
-                    continue
-                # Blocking on each removal allows for race conditions.
-                if script_hash not in subs:
-                    continue
-                subs.remove(script_hash)
-                del self._keyinstance_map[script_hash]
-                await group.spawn(self._unsubscribe_from_script_hash(script_hash))
-
-    @classmethod
-    def _get_exclusive_set(cls, account: 'AbstractAccount', subs: List[str]) -> set:
-        # This returns the script hashes the given account is subscribed to, that no other
-        # account is also subscribed to. This ensures that when we unsubscribe script hashes for
-        # the given account, as the server subscription is shared between wallets, we only
-        # unsubscribe if the script hash will no longer be needed for any account.
-        subs_set = set(subs)
-        for other_account, other_subs in cls._subs_by_account.items():
-            if other_account == account:
-                continue
-            subs_set -= set(other_subs)
-        return subs_set
-
-    @classmethod
-    async def unsubscribe_account(cls, account: 'AbstractAccount', session):
-        subs = cls._subs_by_account.pop(account, None)
-        if subs is None:
-            return
-        if not session:
-            return
-        exclusive_subs = cls._get_exclusive_set(account, subs)
-        if not exclusive_subs:
-            return
-
-        if session.ptuple < (1, 4, 2):
-            logger.debug("negotiated protocol does not support unsubscribing")
-            return
-        logger.debug(f"unsubscribing {len(exclusive_subs)} subscriptions for {account}")
-        async with TaskGroup() as group:
-            for script_hash in exclusive_subs:
-                await group.spawn(session._unsubscribe_from_script_hash(script_hash))
-        logger.debug(f"unsubscribed {len(exclusive_subs)} subscriptions for {account}")
+            for entry in entries:
+                script_hash_hex = hash_to_hex_str(entry.script_hash)
+                await group.spawn(self._unsubscribe_from_script_hash(script_hash_hex))
 
 
 class Network(TriggeredCallbacks):
@@ -917,8 +868,6 @@ class Network(TriggeredCallbacks):
         self.stop_network_event = app_state.async_.event()
         self.shutdown_complete_event = app_state.async_.event()
 
-        # Add an account, remove an account, or redo all account verifications
-        self.account_jobs = app_state.async_.queue()
         # Add an wallet, remove an wallet, or redo all wallet verifications
         self._wallet_jobs = app_state.async_.queue()
 
@@ -932,13 +881,17 @@ class Network(TriggeredCallbacks):
 
         self.future = app_state.async_.spawn(self._main_task)
 
+        app_state.subscriptions.set_script_hash_callbacks(
+            self._on_subscribe_script_hashes, self._on_unsubscribe_script_hashes)
+
     async def _main_task(self):
         try:
             async with TaskGroup() as group:
                 await group.spawn(self._start_network, group)
                 await group.spawn(self._monitor_lagging_sessions)
                 await group.spawn(self._monitor_main_chain)
-                await group.spawn(self._monitor_accounts, group)
+                await group.spawn(self._initial_script_hash_status_subscriptions, group)
+                await group.spawn(self._monitor_script_hash_status_subscriptions, group)
                 await group.spawn(self._monitor_wallets, group)
         finally:
             self.shutdown_complete_event.set()
@@ -1019,16 +972,35 @@ class Network(TriggeredCallbacks):
                 await self.sessions_changed_event.wait()
             await self._maybe_switch_main_server(SwitchReason.lagging)
 
+    async def _on_subscribe_script_hashes(self, entries: List[ScriptHashSubscriptionEntry]) -> None:
+        """
+        Process wallet script hash subscription requests.
+        """
+        session = await self._main_session()
+        session.logger.info(f'subscribing to {len(entries):,d} script hashes')
+        await session.subscribe_to_script_hashes(entries)
+
+    async def _on_unsubscribe_script_hashes(self, entries: List[ScriptHashSubscriptionEntry]) \
+            -> None:
+        """
+        Process wallet script hash unsubscription requests.
+        """
+        session = await self._main_session()
+        session.logger.info(f"Unsubscribing from {len(entries):,d} script hashes")
+        await session.unsubscribe_from_script_hashes(entries)
+
     async def _monitor_wallets(self, group):
         tasks = {}
         while True:
             job, wallet = await self._wallet_jobs.get()
             if job == 'add':
-                if wallet not in tasks:
-                    tasks[wallet] = await group.spawn(self._maintain_wallet(wallet))
+                pass
+                # if wallet not in tasks:
+                #     tasks[wallet] = await group.spawn(self._maintain_wallet(wallet))
             elif job == 'remove':
-                if wallet in tasks:
-                    tasks.pop(wallet).cancel()
+                pass
+                # if wallet in tasks:
+                #     tasks.pop(wallet).cancel()
             elif job == 'undo_verifications':
                 above_height = wallet
                 for wallet in tasks:
@@ -1038,19 +1010,6 @@ class Network(TriggeredCallbacks):
                     wallet.txs_changed_event.set()
             else:
                 logger.error(f'unknown wallet job {job}')
-
-    async def _monitor_accounts(self, group):
-        account_tasks = {}
-        while True:
-            job, account = await self.account_jobs.get()
-            if job == 'add':
-                if account not in account_tasks:
-                    account_tasks[account] = await group.spawn(self._maintain_account(account))
-            elif job == 'remove':
-                if account in account_tasks:
-                    account_tasks.pop(account).cancel()
-            else:
-                logger.error(f'unknown account job {job}')
 
     async def _monitor_main_chain(self):
         main_chain = None
@@ -1144,8 +1103,6 @@ class Network(TriggeredCallbacks):
                 except Exception:
                     logger.exception(f'fetching transaction {tx_id}')
                 else:
-                    # TODO(nocheckin) needs to pass in the latest block_height and block_position
-                    # and fee_hint if the network has some cached values for it.
                     await wallet.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
                         external=True)
         return had_timeout
@@ -1205,114 +1162,77 @@ class Network(TriggeredCallbacks):
                                      f'{hhts(header.merkle_root)}')
         return had_timeout
 
-    async def _monitor_on_status(self, group):
-        """worker task to process new aiorpcx 'Notifications' from queue"""
+    async def _initial_script_hash_status_subscriptions(self, group) -> None:
+        """
+        Ensure that all existing script hashes are registered with the main server.
+
+        Raises: RPCError, TaskTimeout
+        """
+        while True:
+            logger.info(f"Renewing subscription to script hashes")
+            session = await self._main_session()
+            entries = app_state.subscriptions.read_script_hashes()
+            session.logger.info(f"Subscribing to {len(entries):,d} script hashes")
+            await session.subscribe_to_script_hashes(entries, initial_subscription=True)
+            # TODO(nocheckin) Verify that this loop works.
+            await session._closed_event.wait()
+
+    async def _monitor_script_hash_status_subscriptions(self, group) -> None:
+        """
+        Process all incoming script hash status events and queue for processing.
+
+        The sole reason this function exists is to ensure that events do not sit in the aiorpcx
+        queue for too long. If that happens then they get discarded, or some error happens. So
+        instead we promptly take them from the queue and dispatch them for processing in a
+        task per item.
+        """
         while True:
             session = await self._main_session()
             script_hash, status = await self._on_status_queue.get()
-            await group.spawn(session._on_status_changed, script_hash, status)
+            await group.spawn(session._on_script_hash_status_changed, script_hash, status)
 
-    async def _monitor_txs(self, wallet: 'Wallet') -> None:
-        '''Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError'''
-        # When the wallet receives notification of new transactions, it signals that this
-        # monitoring loop should awaken. The loop retrieves all outstanding transaction data and
-        # proofs in parallel. However, the prerequisite for needing a proof for a transaction is
-        # first having it's data. So after fetching transactions, it becomes necessary to fetch
-        # proofs again, and loop at least twice. So this loop only blocks if it knows for sure
-        # there are no outstanding needs for either transaction data or proof.
-        while True:
-            # The set of transactions we know about, but lack the actual transaction data for.
-            wanted_tx_map = wallet.missing_transactions()
-            # The set of transactions we have data for, but not proof for.
-            wanted_proof_map = wallet.unverified_transactions()
+    # async def _monitor_txs(self, wallet: 'Wallet') -> None:
+    #     '''Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError'''
+    #     # When the wallet receives notification of new transactions, it signals that this
+    #     # monitoring loop should awaken. The loop retrieves all outstanding transaction data and
+    #     # proofs in parallel. However, the prerequisite for needing a proof for a transaction is
+    #     # first having it's data. So after fetching transactions, it becomes necessary to fetch
+    #     # proofs again, and loop at least twice. So this loop only blocks if it knows for sure
+    #     # there are no outstanding needs for either transaction data or proof.
+    #     while True:
+    #         # The set of transactions we know about, but lack the actual transaction data for.
+    #         wanted_tx_map = wallet.missing_transactions()
+    #         # The set of transactions we have data for, but not proof for.
+    #         wanted_proof_map = wallet.unverified_transactions()
 
-            coros = []
-            if wanted_tx_map:
-                coros.append(self._request_transactions(wallet, wanted_tx_map))
-            if wanted_proof_map:
-                coros.append(self._request_proofs(wallet, wanted_proof_map))
-            if not coros:
-                await wallet.txs_changed_event.wait()
-                wallet.txs_changed_event.clear()
+    #         coros = []
+    #         if wanted_tx_map:
+    #             coros.append(self._request_transactions(wallet, wanted_tx_map))
+    #         if wanted_proof_map:
+    #             coros.append(self._request_proofs(wallet, wanted_proof_map))
+    #         if not coros:
+    #             await wallet.txs_changed_event.wait()
+    #             wallet.txs_changed_event.clear()
 
-            async with TaskGroup() as group:
-                for coro in coros:
-                    await group.spawn(coro)
+    #         async with TaskGroup() as group:
+    #             for coro in coros:
+    #                 await group.spawn(coro)
 
-    async def _monitor_active_keys(self, account) -> None:
-        '''Raises: RPCError, TaskTimeout'''
-        session = await self._main_session()
-        additional_keys = set(account.existing_active_keys())
-        while True:
-            session.logger.info(f'subscribing to {len(additional_keys):,d} new keys for {account}')
-            # Do in reverse to require fewer account re-sync loops
-            pairs = [ (k, script_type, scripthash_hex(script)) for k in additional_keys
-                for script_type, script in account.get_possible_scripts_for_id(k) ]
-            pairs.reverse()
-            await session.subscribe_to_triples(account, pairs)
-            additional_keys = await account.new_activated_keys()
-            session = await self._main_session()
-
-    async def _monitor_inactive_keys(self, account) -> None:
-        '''Raises: RPCError, TaskTimeout'''
-        while True:
-            keys = await account.new_deactivated_keys()
-            session = await self._main_session()
-            session.logger.info(f'unsubscribing from {len(keys):,d} '+
-                f'deactivated keys for {account}')
-            pairs = [ (k, script_type, scripthash_hex(script)) for k in keys
-                for script_type, script in account.get_possible_scripts_for_id(k) ]
-            await session.unsubscribe_from_pairs(account, pairs)
-
-    async def _maintain_wallet(self, wallet: 'Wallet') -> None:
-        '''Put all tasks for a single wallet in a group so they can be cancelled together.'''
-        logger.info('maintaining wallet %s', wallet)
-        try:
-            while True:
-                try:
-                    async with TaskGroup() as group:
-                        await group.spawn(self._monitor_txs, wallet)
-                except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
-                    blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
-                    session = self.main_session()
-                    if session:
-                        await session.disconnect(str(error), blacklist=blacklist)
-        finally:
-            logger.info('stopped maintaining %s', wallet)
-
-    async def _maintain_account(self, account):
-        '''Put all tasks for a single account in a group so they can be cancelled together.'''
-        logger.info(f'maintaining account {account}')
-        try:
-            while True:
-                logger.info(f'renewing maintaining account {account}')
-                try:
-                    async with TaskGroup() as group:
-                        await group.spawn(self._monitor_active_keys, account)
-                        await group.spawn(self._monitor_inactive_keys, account)
-                        await group.spawn(account.synchronize_loop)
-                        await group.spawn(self._monitor_on_status, group)
-
-                        # None of the above bvlock on things that necessarily are network events.
-                        # So we explicitly detect that and handle it.
-                        session = await self._main_session()
-                        await session._closed_event.wait()
-                        await group.cancel_remaining()
-                except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
-                    blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
-                    session = self.main_session()
-                    if session:
-                        await session.disconnect(str(error), blacklist=blacklist)
-                if account in SVSession._subs_by_account:
-                    del SVSession._subs_by_account[account]
-                    account.request_count = 0
-                    account.response_count = 0
-                    wallet = account.get_wallet()
-                    wallet.request_count = 0
-                    wallet.response_count = 0
-        finally:
-            await SVSession.unsubscribe_account(account, self.main_session())
-            logger.info(f'stopped maintaining account {account}')
+    # async def _maintain_wallet(self, wallet: 'Wallet') -> None:
+    #     '''Put all tasks for a single wallet in a group so they can be cancelled together.'''
+    #     logger.info('maintaining wallet %s', wallet)
+    #     try:
+    #         while True:
+    #             try:
+    #                 async with TaskGroup() as group:
+    #                     await group.spawn(self._monitor_txs, wallet)
+    #             except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
+    #                 blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
+    #                 session = self.main_session()
+    #                 if session:
+    #                     await session.disconnect(str(error), blacklist=blacklist)
+    #     finally:
+    #         logger.info('stopped maintaining %s', wallet)
 
     async def _main_session(self):
         while True:
@@ -1380,12 +1300,6 @@ class Network(TriggeredCallbacks):
 
     def remove_wallet(self, wallet: 'Wallet') -> None:
         app_state.async_.spawn(self._wallet_jobs.put, ('remove', wallet))
-
-    def add_account(self, account):
-        app_state.async_.spawn(self.account_jobs.put, ('add', account))
-
-    def remove_account(self, account):
-        app_state.async_.spawn(self.account_jobs.put, ('remove', account))
 
     def chain(self):
         main_session = self.main_session()

@@ -103,6 +103,7 @@ def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, para
         cursor = db.execute(sql, params + batch_ids) # type: ignore
         rows = cursor.fetchall()
         cursor.close()
+        # Skip copying/conversion for standard types.
         results.extend(return_type(*row) for row in rows)
         remaining_ids = remaining_ids[batch_size:]
     return results
