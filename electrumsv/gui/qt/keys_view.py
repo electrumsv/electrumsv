@@ -72,8 +72,8 @@ STATE_COLUMN = 1
 KEY_COLUMN = 2
 SCRIPT_COLUMN = 3
 LABEL_COLUMN = 4
-BALANCE_COLUMN = 6
-FIAT_BALANCE_COLUMN = 7
+BALANCE_COLUMN = 5
+FIAT_BALANCE_COLUMN = 6
 
 
 class EventFlags(IntFlag):
@@ -682,11 +682,11 @@ class KeyView(QTableView):
             self._data[row_index] = new_line
             self._base_model.invalidate_row(row_index)
 
-        unmatched_key_ids = update_key_ids - matched_key_ids
+        unmatched_key_ids = set(update_key_ids) - matched_key_ids
         if unmatched_key_ids:
             self._logger.debug("_update_keys missing entries %r", unmatched_key_ids)
 
-    def _remove_keys(self, remove_key_ids: Set[int]) -> None:
+    def _remove_keys(self, remove_key_ids: List[int]) -> None:
         self._logger.debug("_remove_keys %r", remove_key_ids)
 
         matched_key_ids = set()
@@ -698,7 +698,7 @@ class KeyView(QTableView):
             matched_key_ids.add(line.keyinstance_id)
             self._base_model.remove_row(data_index)
 
-        unmatched_key_ids = remove_key_ids - matched_key_ids
+        unmatched_key_ids = set(remove_key_ids) - matched_key_ids
         if unmatched_key_ids:
             self._logger.debug("_remove_keys missing entries %r", unmatched_key_ids)
 
