@@ -99,7 +99,7 @@ def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, para
     while len(remaining_ids):
         batch_ids = remaining_ids[:batch_size]
         sql = sql.format(",".join("?" for k in batch_ids))
-        # NOTE(rt12) the sequence type does not provide an addition operator hence typing ignored.
+        # NOTE(typing) the sequence type does not provide an addition operator hence typing ignored.
         cursor = db.execute(sql, params + batch_ids) # type: ignore
         rows = cursor.fetchall()
         cursor.close()

@@ -386,8 +386,6 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                 else:
                     if txo_data.flags & TransactionOutputFlag.IS_SPENT:
                         raise DatabaseMigrationError(_("txo update spent with no txi"))
-                    # EFFECT: Account for a previously unrecognised receipt.
-                    # tx_deltas[(txo_update.tx_hash, keyinstance_id)] += txo_data.value
                 txo_updates[txo_data.key] = txo_update._replace(
                     flags=txo_data.flags,
                     keyinstance_id=txo_update.keyinstance_id,
@@ -396,12 +394,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                     spending_txi_index=spending_txi_index)
             else:
                 txo_insert = txo_inserts[txo_data.key]
-                # EFFECT: Account for a newly recognised receipt.
-                # tx_deltas[(txo_insert.tx_hash, keyinstance_id)] -= txo_data.value
                 txo_flags = txo_data.flags
                 if txi_spend:
-                    # EFFECT: Account for a newly recognised spend.
-                    # tx_deltas[(txi_spend.tx_hash, keyinstance_id)] -= txo_data.value
                     txo_flags |= TransactionOutputFlag.IS_SPENT
                     spending_tx_hash = txi_spend.tx_hash
                     spending_txi_index = txi_spend.txi_index
@@ -590,8 +584,13 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     conn.execute("DROP TABLE TransactionDeltas")
 
     # TABLE: KeyInstances
+    # Mark any keyinstance as reserved that has a script type (is in use in an output).
     conn.execute(f"UPDATE KeyInstances SET flags=flags|{KeyInstanceFlag.IS_ASSIGNED} "
-        "WHERE script_type IS NOT NULL")
+        f"WHERE script_type!={ScriptType.NONE}")
+    # Mark any keyinstance as inactive that has no script and is only active (anything that has
+    # the invoice or payment request flag is in use).
+    conn.execute(f"UPDATE KeyInstances SET flags=flags&{~KeyInstanceFlag.IS_ACTIVE} "
+        f"WHERE script_type={ScriptType.NONE} AND flags={KeyInstanceFlag.IS_ACTIVE}")
 
     logger.debug("fix table KeyInstances by creating secondary table")
     conn.execute("CREATE TABLE IF NOT EXISTS KeyInstances2 ("

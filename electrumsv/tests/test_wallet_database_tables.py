@@ -370,7 +370,7 @@ class TestTransactionTable:
         assert proof1.position == proof2.position
         assert proof1.branch == proof2.branch
 
-    
+
     def test_create_read_various(self):
         tx_bytes_1 = os.urandom(10)
         tx_hash = bitcoinx.double_sha256(tx_bytes_1)
@@ -395,7 +395,7 @@ class TestTransactionTable:
         tx_bytes = db_functions.read_transaction_bytes(self.db_context, tx_hash)
         assert tx_bytes_1 == tx_bytes
 
-    
+
     def test_create_multiple(self) -> None:
         to_add = []
         for i in range(10):
@@ -413,7 +413,7 @@ class TestTransactionTable:
         assert added_tx_hashes == existing_tx_hashes
 
     # TODO(nocheckin) no TxData any more
-    # 
+    #
     # def test_update(self):
     #     to_add = []
     #     for i in range(10):
@@ -443,7 +443,7 @@ class TestTransactionTable:
     #                 assert bytedata_get == update_tx_bytes
     #                 continue
 
-    # 
+    #
     # def test_update_flags(self):
     #     bytedata = os.urandom(10)
     #     tx_hash = bitcoinx.double_sha256(bytedata)
@@ -486,7 +486,7 @@ class TestTransactionTable:
     #     _tx_hash, flags, _metadata = self.store.read_metadata(tx_hashes=[tx_hash])[0]
     #     assert TxFlags.STATE_RECEIVED == flags
 
-    
+
     def test_get_all_pending(self):
         get_tx_hashes = set([])
         for tx_hex in (tx_hex_1, tx_hex_2):
@@ -502,7 +502,7 @@ class TestTransactionTable:
         result_tx_hashes = set(self._get_store_hashes())
         assert get_tx_hashes == result_tx_hashes
 
-    # 
+    #
     # def test_read(self):
     #     to_add = []
     #     for i in range(10):
@@ -540,7 +540,7 @@ class TestTransactionTable:
     #     matches = self.store.read(flags=TxFlags.UNSET, mask=TxFlags.HasFee)
     #     assert 0 == len(matches)
 
-    # 
+    #
     # def test_read_metadata(self) -> None:
     #     # We're going to add five matches and look for two of them, checking that we do not match
     #     # unwanted rows.
@@ -573,7 +573,7 @@ class TestTransactionTable:
     #         assert metadata.fee == rowidx * 1000
     #         assert metadata.position is None
 
-    # 
+    #
     # def test_update_metadata(self) -> None:
     #     # We're going to add five matches and look for two of them, checking that we do not match
     #     # unwanted rows.
@@ -633,14 +633,14 @@ class TestTransactionTable:
         rows = db_functions.read_transaction_proof(self.db_context, [ self.tx_hash ])
         assert len(rows) == 0
 
-        rows = db_functions.read_transaction_proof(self.db_context, [ tx_hash ])        
+        rows = db_functions.read_transaction_proof(self.db_context, [ tx_hash ])
         assert len(rows) == 1
         assert rows[0].tx_hash == tx_hash
         proof = rows[0].unpack_proof()
         assert proof.position == position1
         assert proof.branch == merkle_branch1
 
-    
+
     # TODO(nocheckin) descriptions have moved to AccountTransactions
     # def test_labels(self):
     #     bytedata_1 = os.urandom(10)
@@ -778,8 +778,8 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     TX_HASH2 = bitcoinx.double_sha256(TX_BYTES2)
 
     LINE_COUNT = 3
-    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, "desc", 1)
-    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100, 60*60, None, 1)
+    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, "desc")
+    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100, 60*60, None)
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.

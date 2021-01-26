@@ -16,7 +16,8 @@ from ..constants import (DerivationType, KeyInstanceFlag, pack_derivation_path,
 from ..logs import logs
 from ..types import TxoKeyType
 
-from .exceptions import DatabaseUpdateError, TransactionAlreadyExistsError, TransactionRemovalError
+from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
+    TransactionAlreadyExistsError, TransactionRemovalError)
 from .sqlite_support import DatabaseContext, replace_db_context_with_connection
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceRow,
@@ -139,14 +140,16 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
 
 def create_payment_requests(db_context: DatabaseContext,
         entries: Iterable[PaymentRequestRow]) -> concurrent.futures.Future:
-    sql = ("INSERT INTO PaymentRequests "
+    sql = (
+        "INSERT INTO PaymentRequests "
         "(paymentrequest_id, keyinstance_id, state, value, expiration, description, date_created, "
-        "date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+            "date_updated) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     timestamp = get_timestamp()
-    db_rows = [ (*t, t[-1]) for t in entries ]
-    def _write(db: sqlite3.Connection):
-        nonlocal sql, db_rows
-        db.executemany(sql, db_rows)
+    sql_values = [ (*t[:-1], timestamp, timestamp) for t in entries ]
+    def _write(db: sqlite3.Connection) -> None:
+        nonlocal sql, sql_values
+        db.executemany(sql, sql_values)
     return db_context.post_to_thread(_write)
 
 
@@ -157,7 +160,7 @@ def create_transaction_outputs(db_context: DatabaseContext,
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     timestamp = get_timestamp()
     db_rows = [ (*t, timestamp, timestamp) for t in entries ]
-    def _write(db: sqlite3.Connection):
+    def _write(db: sqlite3.Connection) -> None:
         nonlocal sql, db_rows
         db.executemany(sql, db_rows)
     return db_context.post_to_thread(_write)
@@ -470,7 +473,7 @@ def read_history_list(db: sqlite3.Connection, account_id: int,
                 "TOTAL(TXV.value), TX.date_created "
             "FROM TransactionValues TXV "
             "INNER JOIN Transactions AS TX ON TX.tx_hash=TXV.tx_hash "
-            "WHERE TXV.account_id=? AND TD.keyinstance_id IN ({}) AND "
+            "WHERE TXV.account_id=? AND TXV.keyinstance_id IN ({}) AND "
                 f"(TX.flags & {TxFlags.MASK_STATE})!=0 "
             "GROUP BY TXV.tx_hash")
         return read_rows_by_id(HistoryListRow, db, sql, [ account_id ], keyinstance_ids)
@@ -557,12 +560,13 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
     If a `keyinstance_ids` value is given, then the results will only reflect usage of those
     keys.
     """
-    sql_values = (account_id,)
-    sql = ("SELECT KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
-            "KI.derivation_data, KI.derivation_data2, KI.flags, KI.date_updated, TXO.tx_hash, "
-            "TXO.tx_index, TXO.script_type, TXO.value "
+    sql_values = [account_id]
+    sql = (
+        "SELECT KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
+            "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description, KI.date_updated, "
+            "TXO.tx_hash, TXO.tx_index, TXO.script_type, coalesce(TXO.value, 0) "
         "FROM KeyInstances AS KI "
-        "LEFT JOIN TransactionOutputs TXO ON TXO.keyinstance_id = TXO.keyinstance_id "
+        "LEFT JOIN TransactionOutputs TXO ON TXO.keyinstance_id = KI.keyinstance_id "
         "WHERE KI.account_id = ?")
     if keyinstance_ids is not None:
         sql += " AND KI.keyinstance_id IN ({})"
@@ -591,7 +595,8 @@ def read_keyinstances(db: sqlite3.Connection, *, account_id: Optional[int]=None,
     Read explicitly requested keyinstances.
     """
     sql_values = []
-    sql = ("SELECT KI.keyinstance_id, KI.account_id, KI.masterkey_id, KI.derivation_type, "
+    sql = (
+        "SELECT KI.keyinstance_id, KI.account_id, KI.masterkey_id, KI.derivation_type, "
             "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description "
         "FROM KeyInstances AS KI")
     if account_id is None:
@@ -721,7 +726,7 @@ def read_parent_transaction_outputs_spendable(db: sqlite3.Connection, tx_hash: b
 
 
 @replace_db_context_with_connection
-def read_payment_request(db: sqlite3.Connection, request_id: Optional[int]=None,
+def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=None,
         keyinstance_id: Optional[int]=None) -> Optional[PaymentRequestRow]:
     sql = (
         "SELECT paymentrequest_id, keyinstance_id, state, value, expiration, "
@@ -745,8 +750,9 @@ def read_payment_request(db: sqlite3.Connection, request_id: Optional[int]=None,
 @replace_db_context_with_connection
 def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None,
         flags: Optional[int]=None, mask: Optional[int]=None) -> List[PaymentRequestRow]:
-    sql = ("SELECT P.paymentrequest_id, P.keyinstance_id, P.state, P.value, P.expiration, "
-        "P.description, P.date_created FROM PaymentRequests P")
+    sql = (
+        "SELECT P.paymentrequest_id, P.keyinstance_id, P.state, P.value, P.expiration, "
+            "P.description, P.date_created FROM PaymentRequests P")
     sql_values: List[Any] = []
     conjunction = "WHERE"
     if account_id is not None:
@@ -1142,6 +1148,56 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) -> concurren
         cursor = db.execute(sql4, sql4_values)
         assert cursor.rowcount == 1
         return True
+    return db_context.post_to_thread(_write)
+
+
+def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_id: int,
+        derivation_path: Sequence[int], allocation_flags: Optional[KeyInstanceFlag]=None) \
+            -> concurrent.futures.Future:
+    """
+    Allocate one keyinstance for the caller's usage.
+
+    Returns the allocated `keyinstance_id` if successful.
+    Raises `KeyInstanceNotFoundError` if there are no available key instances.
+    Raises `DatabaseUpdateError` if something else allocated the selected keyinstance first.
+    """
+    # The derivation path is the relative parent path from the master key.
+    prefix_bytes = pack_derivation_path(derivation_path)
+    if allocation_flags is None:
+        allocation_flags = KeyInstanceFlag.NONE
+    allocation_flags |= KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_ASSIGNED
+    # We need to do this in two steps to get the id of the keyinstance we allocated.
+    sql_read = (
+        "SELECT keyinstance_id "
+        "FROM KeyInstances "
+        "WHERE account_id=? AND masterkey_id=? AND length(derivation_data2)=? AND "
+            f"(flags&{KeyInstanceFlag.IS_ASSIGNED})=0 AND substr(derivation_data2,1,?)=? "
+        "ORDER BY keyinstance_id ASC "
+        "LIMIT 1")
+    sql_read_values = [ account_id, masterkey_id,
+        len(prefix_bytes)+4,  # The length of the parent path and sequence index.
+        len(prefix_bytes),    # Just the length of the parent path.
+        prefix_bytes ]        # The packed parent path bytes.
+    sql_write = (
+        "UPDATE KeyInstances "
+        f"SET flags=flags|{allocation_flags} "
+        f"WHERE keyinstance_id=? AND flags&{KeyInstanceFlag.IS_ASSIGNED}=0")
+
+    def _write(db: sqlite3.Connection) -> int:
+        nonlocal sql_read, sql_read_values, sql_write
+
+        keyinstance_row = db.execute(sql_read, sql_read_values).fetchone()
+        if keyinstance_row is None:
+            raise KeyInstanceNotFoundError()
+
+        # The result of the read operation just happens to be the parameters we need for the write.
+        cursor = db.execute(sql_write, keyinstance_row)
+        if cursor.rowcount != 1:
+            # The key was allocated by something else between the read and the write.
+            raise DatabaseUpdateError()
+
+        return keyinstance_row[0]
+
     return db_context.post_to_thread(_write)
 
 

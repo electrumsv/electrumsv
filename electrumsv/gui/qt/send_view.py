@@ -103,6 +103,24 @@ class SendView(QWidget):
         self.payment_request_deleted_signal.connect(self._payment_request_deleted)
 
         self._main_window.wallet_setting_changed_signal.connect(self._on_wallet_setting_changed)
+        app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
+        self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
+
+    def clean_up(self) -> None:
+        self._main_window.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
+        app_state.app.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
+
+    def _on_wallet_setting_changed(self, setting_name: str, setting_value: Any) -> None:
+        if setting_name == WalletSettings.ADD_SV_OUTPUT:
+            self._coinsplitting_checkbox.setVisible(setting_value)
+
+    def _on_fiat_ccy_changed(self) -> None:
+        flag = bool(app_state.fx and app_state.fx.is_enabled())
+        self._fiat_send_e.setVisible(flag)
+
+    def _on_ui_exchange_rate_quotes(self) -> None:
+        edit = self._fiat_send_e if self._fiat_send_e.is_last_edited else self.amount_e
+        edit.textEdited.emit(edit.text())
 
     def create_send_layout(self) -> QVBoxLayout:
         """ Re-render the layout and it's child widgets of this view. """
@@ -150,7 +168,7 @@ class SendView(QWidget):
         grid.addWidget(self.amount_e, 3, 1)
 
         self._fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '', self)
-        self.set_fiat_ccy_enabled(bool(app_state.fx and app_state.fx.is_enabled()))
+        self._on_fiat_ccy_changed()
 
         grid.addWidget(self._fiat_send_e, 3, 2)
         self.amount_e.frozen.connect(
@@ -254,13 +272,6 @@ class SendView(QWidget):
         vbox.setStretchFactor(self._invoice_list, 1000)
 
         return vbox
-
-    def clean_up(self) -> None:
-        pass
-
-    def _on_wallet_setting_changed(self, setting_name: str, setting_value: Any) -> None:
-        if setting_name == WalletSettings.ADD_SV_OUTPUT:
-            self._coinsplitting_checkbox.setVisible(setting_value)
 
     def _show_splitting_option(self) -> bool:
         return self._account._wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT)
@@ -691,10 +702,6 @@ class SendView(QWidget):
         # Used to apply changes like base unit changes to all applicable edit fields.
         return [ self.amount_e ]
 
-    def update_for_fx_quotes(self) -> None:
-        edit = self._fiat_send_e if self._fiat_send_e.is_last_edited else self.amount_e
-        edit.textEdited.emit(edit.text())
-
     def paytomany(self) -> None:
         self._payto_e.paytomany()
         msg = '\n'.join([
@@ -710,6 +717,3 @@ class SendView(QWidget):
 
     def update_widgets(self) -> None:
         self._invoice_list.update()
-
-    def set_fiat_ccy_enabled(self, flag: bool) -> None:
-        self._fiat_send_e.setVisible(flag)

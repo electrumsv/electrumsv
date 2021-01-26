@@ -93,11 +93,12 @@ class KeyListRow(NamedTuple):
     derivation_data: bytes
     derivation_data2: Optional[bytes]   # Spendable type field.
     flags: KeyInstanceFlag
+    description: Optional[str]
     date_updated: int
     tx_hash: Optional[bytes]
-    txo_script_type: Optional[ScriptType]
     txo_index: Optional[int]
-    txo_value: Optional[int]
+    txo_script_type: Optional[ScriptType]
+    txo_value: int
 
 
 class MasterKeyRow(NamedTuple):
@@ -114,7 +115,7 @@ class PaymentRequestRow(NamedTuple):
     value: Optional[int]
     expiration: Optional[int]
     description: Optional[str]
-    date_created: int
+    date_created: int = -1
 
 
 class PaymentRequestUpdateRow(NamedTuple):

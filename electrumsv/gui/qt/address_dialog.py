@@ -104,7 +104,7 @@ class KeyDialog(WindowModalDialog):
             self._key_edit.setText(text)
 
     def get_domain(self) -> Optional[List[int]]:
-        return [self._key_id]
+        return [ self._key_data.keyinstance_id ]
 
     def show_qr(self) -> None:
         script_template = self._account.get_script_template_for_key_data(self._key_data,

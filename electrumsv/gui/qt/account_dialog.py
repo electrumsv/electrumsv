@@ -72,10 +72,7 @@ class AccountDialog(QDialog):
                 view = self._main_window.get_receive_view(account.get_id())
                 view.update_destination()
 
-        if account.is_watching_only():
-            script_type_combo.setEnabled(False)
-        else:
-            script_type_combo.currentIndexChanged.connect(on_script_type_change)
+        script_type_combo.currentIndexChanged.connect(on_script_type_change)
 
         update_script_types()
         # Prevent users from changing their script type.

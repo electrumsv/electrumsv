@@ -21,7 +21,7 @@ pr_tooltips = {
     PaymentFlag.ARCHIVED:_('Archived'),
 }
 
-expiration_values = [
+EXPIRATION_VALUES = [
     (_('1 hour'), 60*60),
     (_('1 day'), 24*60*60),
     (_('1 week'), 7*24*60*60),

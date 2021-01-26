@@ -398,15 +398,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_ui_exchange_rate_quotes(self) -> None:
         self.update_status_bar()
 
-        # Refresh edits with the new rate
-        for send_view in self._send_views.values():
-            if isinstance(send_view, SendView):
-                send_view.update_for_fx_quotes()
-
-        for receive_view in self._receive_views.values():
-            if isinstance(receive_view, ReceiveView):
-                receive_view.update_for_fx_quotes()
-
         # History tab needs updating if it used spot
         if app_state.fx.history_used_spot:
             self.update_history_view()
@@ -1465,15 +1456,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contact_list = l = ContactList(self._api, self)
         return self.create_list_tab(l)
 
+    # TODO(nocheckin) Several bugs in this given changes to the way things work. Not just marked.
     def remove_key(self, account_id: int, key_id: int) -> None:
         account = self._wallet.get_account(account_id)
 
         extra_text = ""
+        # TODO(nocheckin) Function does not exist.
         coin_count = len(account.get_key_utxos({ key_id }))
         if coin_count > 0:
             extra_text += " "+ _("It has {} known coins associated with it.").format(coin_count)
 
         if self.question(_("Do you want to archive this key?") + extra_text):
+            # TODO(nocheckin) Function does not exist.
             keyinstance = self._account.get_keyinstance(key_id)
             # This if successful will unload the key from the account (not delete).
             self._wallet.archive_keys([ key_id ])
@@ -2030,7 +2024,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 f.write(json.dumps(lines, indent=4))
 
-    def _do_import(self, title, msg, func):
+    def _do_import(self, title, msg, func) -> None:
         text = text_dialog(self, title, msg + ' :', _('Import'), allow_multi=True)
         if not text:
             return
@@ -2059,28 +2053,33 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     #
     # Preferences dialog and its signals.
     #
-    def on_num_zeros_changed(self):
+    def on_num_zeros_changed(self) -> None:
         self.update_history_view()
 
-    def on_fiat_ccy_changed(self):
+    def on_fiat_ccy_changed(self) -> None:
         '''Called when the user changes fiat currency in preferences.'''
         b = bool(app_state.fx and app_state.fx.is_enabled())
         if self._account_id is not None:
             for send_view in self._send_views.values():
                 if isinstance(send_view, SendView):
                     send_view.set_fiat_ccy_enabled(b)
-            for receive_view in self._receive_views.values():
-                if isinstance(receive_view, ReceiveView):
-                    receive_view.set_fiat_ccy_enabled(b)
+            # TODO(nocheckin) The receive views should be getting the event directly now.
+            # for receive_view in self._receive_views.values():
+            #     if isinstance(receive_view, ReceiveView):
+            #         receive_view.set_fiat_ccy_enabled(b)
         self.history_view.update_tx_headers()
         self.update_history_view()
         self.update_status_bar()
 
-    def on_base_unit_changed(self):
-        edits = list(itertools.chain.from_iterable(v.get_bsv_edits()
-            for v in self._send_views.values() if isinstance(v, SendView)))
+    def on_base_unit_changed(self) -> None:
+        edits = list(itertools.chain.from_iterable(
+            v.get_bsv_edits()
+            for v in self._send_views.values()
+            if isinstance(v, SendView)))
         edits.extend(
-            itertools.chain.from_iterable(v.get_bsv_edits() for v in self._receive_views.values()
+            itertools.chain.from_iterable(
+                v.get_bsv_edits()
+                for v in self._receive_views.values()
                 if isinstance(v, ReceiveView)))
         amounts = [edit.get_amount() for edit in edits]
         self.update_history_view()

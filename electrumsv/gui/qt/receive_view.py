@@ -2,37 +2,33 @@ import concurrent
 from typing import List, Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QVBoxLayout, QWidget)
 
 from ...app_state import app_state
-from ...bitcoin import script_template_to_string
 from ...constants import KeyInstanceFlag, PaymentFlag, RECEIVING_SUBPATH
 from ...i18n import _
 from ...logs import logs
-from ... import web
-from ...wallet_database.types import (KeyDataTypes, KeyInstanceRow, PaymentRequestRow,
-    PaymentRequestUpdateRow)
+from ...wallet_database.types import KeyDataTypes, PaymentRequestRow
+from ...wallet_database.util import get_timestamp
 
 from .amountedit import AmountEdit, BTCAmountEdit
-from .constants import expiration_values
+from .constants import EXPIRATION_VALUES
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
-from .qrcodewidget import QRCodeWidget
-from .qrwindow import QR_Window
+from .receive_dialog import ReceiveDialog
 from .request_list import RequestList
 from .table_widgets import TableTopButtonLayout
-from .util import ButtonsLineEdit, EnterButton, HelpLabel
+from .util import EnterButton, HelpDialogButton, HelpLabel
 
 
 class ReceiveView(QWidget):
     """
-    This is what is seen in the receive tab for an account.
+    Display a form for reservation of addresses for new expected payments, as well as a list of
+    the existing expected payments.
     """
-    _qr_window: Optional[QR_Window] = None
-
-    def __init__(self, main_window: 'ElectrumWindow', account_id: int) -> None:
+    def __init__(self, main_window: "ElectrumWindow", account_id: int) -> None:
         super().__init__(main_window)
 
         self._main_window = weakref.proxy(main_window)
@@ -40,14 +36,14 @@ class ReceiveView(QWidget):
         self._account = main_window._wallet.get_account(account_id)
         self._logger = logs.get_logger(f"receive-view[{self._account_id}]")
 
-        self._receive_key_data: Optional[KeyDataTypes] = None
+        self._dialogs: Dict[int, ReceiveDialog] = weakref.WeakValueDictionary()
 
         self._request_list_toolbar_layout = TableTopButtonLayout()
         self._request_list_toolbar_layout.refresh_signal.connect(
             self._main_window.refresh_wallet_display)
         self._request_list_toolbar_layout.filter_signal.connect(self._filter_request_list)
 
-        form_layout = self.create_form_layout()
+        form_layout = self._create_form_layout()
         self._request_list = RequestList(self, main_window)
         request_container = self.create_request_list_container()
 
@@ -57,40 +53,45 @@ class ReceiveView(QWidget):
         vbox.addWidget(request_container, 1)
         self.setLayout(vbox)
 
-    def clean_up(self) -> None:
-        # If there are no accounts there won't be a receive QR code object created yet.
-        if self._receive_qr is not None:
-            self._receive_qr.clean_up()
-        if self._qr_window is not None:
-            self._qr_window.close()
+        app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
+        self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
 
-    def create_form_layout(self) -> QHBoxLayout:
+    def clean_up(self) -> None:
+        """
+        Called by the main window when it is closed.
+        """
+        self._main_window.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
+        app_state.app.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
+
+    def _on_fiat_ccy_changed(self) -> None:
+        """
+        Application level event when the user changes a fiat related setting.
+        """
+        flag = bool(app_state.fx and app_state.fx.is_enabled())
+        self._fiat_receive_e.setVisible(flag)
+
+    def _on_ui_exchange_rate_quotes(self) -> None:
+        """
+        Window level event when there is a new known exchange rate for the current currency.
+        """
+        edit = (self._fiat_receive_e
+            if self._fiat_receive_e.is_last_edited else self._receive_amount_e)
+        edit.textEdited.emit(edit.text())
+
+    def _create_form_layout(self) -> QHBoxLayout:
         # A 4-column grid layout.  All the stretch is in the last column.
         # The exchange rate plugin adds a fiat widget in column 2
         grid = QGridLayout()
         grid.setSpacing(8)
         grid.setColumnStretch(3, 1)
 
-        self._receive_destination_e = ButtonsLineEdit()
-        self._receive_destination_e.addCopyButton(app_state.app)
-        self._receive_destination_e.setReadOnly(True)
-        msg = _('Bitcoin SV payment destination where the payment should be received. '
-                'Note that each payment request uses a different Bitcoin SV payment destination.')
-        receive_address_label = HelpLabel(_('Receiving destination'), msg)
-        self._receive_destination_e.textChanged.connect(self._update_receive_qr)
-        self._receive_destination_e.setFocusPolicy(Qt.NoFocus)
-        grid.addWidget(receive_address_label, 0, 0)
-        grid.addWidget(self._receive_destination_e, 0, 1, 1, -1)
-
         self._receive_message_e = QLineEdit()
         grid.addWidget(QLabel(_('Description')), 1, 0)
         grid.addWidget(self._receive_message_e, 1, 1, 1, -1)
-        self._receive_message_e.textChanged.connect(self._update_receive_qr)
 
         self._receive_amount_e = BTCAmountEdit()
         grid.addWidget(QLabel(_('Requested amount')), 2, 0)
         grid.addWidget(self._receive_amount_e, 2, 1)
-        self._receive_amount_e.textChanged.connect(self._update_receive_qr)
 
         self._fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
         if not app_state.fx or not app_state.fx.is_enabled():
@@ -99,19 +100,16 @@ class ReceiveView(QWidget):
         self._main_window.connect_fields(self._receive_amount_e, self._fiat_receive_e)
 
         self._expires_combo = QComboBox()
-        self._expires_combo.addItems([i[0] for i in expiration_values])
-        self._expires_combo.setCurrentIndex(3)
+        self._expires_combo.addItems([i[0] for i in EXPIRATION_VALUES])
+        self._expires_combo.setCurrentIndex(2)
         self._expires_combo.setFixedWidth(self._receive_amount_e.width())
         msg = ' '.join([
             _('Expiration date of your request.'),
             _('This information is seen by the recipient if you send them '
               'a signed payment request.'),
-            _('Expired requests have to be deleted manually from your list, '
-              'in order to free the corresponding Bitcoin SV addresses.'),
-            _('The Bitcoin SV address never expires and will always be part '
-              'of this ElectrumSV wallet.'),
         ])
         grid.addWidget(HelpLabel(_('Request expires'), msg), 3, 0)
+        # These two expiry date value related widgets overlap and only one shows at once.
         grid.addWidget(self._expires_combo, 3, 1)
         self._expires_label = QLineEdit('')
         self._expires_label.setReadOnly(1)
@@ -119,27 +117,20 @@ class ReceiveView(QWidget):
         self._expires_label.hide()
         grid.addWidget(self._expires_label, 3, 1)
 
-        self._save_request_button = EnterButton(_('Save request'), self._save_form_as_request)
-        self._new_request_button = EnterButton(_('New'), self._new_payment_request)
+        self._help_button = HelpDialogButton(self, "misc", "receive-tab", _("Help"))
+        self._create_button = EnterButton(_('Create'), self._on_create_button_clicked)
+        bhbox = QHBoxLayout()
+        bhbox.addStretch(1)
+        bhbox.addWidget(self._help_button)
+        bhbox.addWidget(self._create_button)
+        bhbox.addStretch(1)
+        grid.addLayout(bhbox, 4, 0, 1, -1, Qt.AlignHCenter)
 
-        self._receive_qr = QRCodeWidget(fixedSize=200)
-        self._receive_qr.link_to_window(self._toggle_qr_window)
+        vbox = QVBoxLayout()
+        vbox.addLayout(grid)
+        vbox.addStretch()
 
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        buttons.addWidget(self._save_request_button)
-        buttons.addWidget(self._new_request_button)
-        grid.addLayout(buttons, 4, 1, 1, 2)
-
-        vbox_g = QVBoxLayout()
-        vbox_g.addLayout(grid)
-        vbox_g.addStretch()
-
-        hbox = QHBoxLayout()
-        hbox.addLayout(vbox_g)
-        hbox.addWidget(self._receive_qr)
-
-        return hbox
+        return vbox
 
     def create_request_list_container(self) -> QGroupBox:
         layout = QVBoxLayout()
@@ -149,7 +140,7 @@ class ReceiveView(QWidget):
         layout.addWidget(self._request_list)
 
         request_box = QGroupBox()
-        request_box.setTitle(_('Requests'))
+        request_box.setTitle(_('Incoming payments'))
         request_box.setAlignment(Qt.AlignCenter)
         request_box.setContentsMargins(0, 0, 0, 0)
         request_box.setLayout(layout)
@@ -158,82 +149,33 @@ class ReceiveView(QWidget):
     def update_widgets(self) -> None:
         self._request_list.update()
 
-    def update_destination(self) -> None:
-        text = ""
-        if self._receive_key_data is not None:
-            script_template = self._account.get_script_template_for_key_data(self._receive_key_data,
-                self._account.get_default_script_type())
-            if script_template is not None:
-                text = script_template_to_string(script_template)
-        self._receive_destination_e.setText(text)
-
+    # TODO Test switching tabs with different content in each.
     def update_contents(self) -> None:
-        self._expires_label.hide()
-        self._expires_combo.show()
-        if self._account.is_deterministic():
-            fresh_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-            self.set_receive_key(fresh_key)
-
-    def update_for_fx_quotes(self) -> None:
-        if self._account_id is not None:
-            edit = (self._fiat_receive_e
-                if self._fiat_receive_e.is_last_edited else self._receive_amount_e)
-            edit.textEdited.emit(edit.text())
-
-    # Bound to text fields in `_create_receive_form_layout`.
-    def _update_receive_qr(self) -> None:
-        if self._receive_key_data is None:
-            return
-
-        amount = self._receive_amount_e.get_amount()
-        message = self._receive_message_e.text()
-        self._save_request_button.setEnabled((amount is not None) or (message != ""))
-
-        script_template = self._account.get_script_template_for_key_data(self._receive_key_data,
-            self._account.get_default_script_type())
-        address_text = script_template_to_string(script_template)
-
-        uri = web.create_URI(address_text, amount, message)
-        self._receive_qr.setData(uri)
-        if self._qr_window and self._qr_window.isVisible():
-            self._qr_window.set_content(self._receive_destination_e.text(), amount,
-                                       message, uri)
-
-    def _toggle_qr_window(self, event: QEvent) -> None:
-        if self._receive_key_data is None:
-            self._main_window.show_message(_("No available receiving destination."))
-            return
-
-        if not self._qr_window:
-            self._qr_window = QR_Window(self)
-            self._qr_window.setVisible(True)
-            self._qr_window_geometry = self._qr_window.geometry()
-        else:
-            if not self._qr_window.isVisible():
-                self._qr_window.setVisible(True)
-                self._qr_window.setGeometry(self._qr_window_geometry)
-            else:
-                self._qr_window_geometry = self._qr_window.geometry()
-                self._qr_window.setVisible(False)
-
-        self._update_receive_qr()
-
-    def set_fiat_ccy_enabled(self, flag: bool) -> None:
-        self._fiat_receive_e.setVisible(flag)
+        """
+        The main window is notifying us the active account has changed.
+        """
+        pass
 
     def get_bsv_edits(self) -> List[BTCAmountEdit]:
         return [ self._receive_amount_e ]
 
-    def _save_form_as_request(self) -> None:
-        if not self._receive_key_data:
-            self._main_window.show_error(_('No receiving payment destination'))
+    def _on_create_button_clicked(self) -> None:
+        """
+        The user clicked the "Create" button.
+        """
+        # These are the same constraints imposed in the receive view.
+        message = self._receive_message_e.text()
+        if not message:
+            self._main_window.show_error(_('A description is required'))
             return
 
         amount = self._receive_amount_e.get_amount()
-        message = self._receive_message_e.text()
-        if not message and not amount:
-            self._main_window.show_error(_('No message or amount'))
+        if not amount:
+            self._main_window.show_error(_('An amount is required'))
             return
+
+        i = self._expires_combo.currentIndex()
+        expiration = [ x[1] for x in EXPIRATION_VALUES ][i]
 
         def callback(future: concurrent.futures.Future) -> None:
             # Skip if the operation was cancelled.
@@ -243,83 +185,39 @@ class ReceiveView(QWidget):
             future.result()
             self._request_list.update_signal.emit()
 
+        key_future = self._account.reserve_unassigned_key(RECEIVING_SUBPATH,
+            KeyInstanceFlag.IS_PAYMENT_REQUEST)
+        keyinstance_id = key_future.result()
+
+        # Update the payment request next.
+        row = PaymentRequestRow(-1, keyinstance_id, PaymentFlag.UNPAID, amount, expiration, message,
+            get_timestamp())
         wallet = self._account.get_wallet()
-        i = self._expires_combo.currentIndex()
-        expiration = [x[1] for x in expiration_values][i]
-        row = wallet.read_payment_request(keyinstance_id=self._receive_key_data.keyinstance_id)
-        if row is None:
-            wallet.set_keyinstance_flags([ self._receive_key_data.keyinstance_id ],
-                KeyInstanceFlag.IS_PAYMENT_REQUEST)
+        future = wallet.create_payment_requests(self._account.get_id(), [ row ])
+        future.add_done_callback(callback)
 
-            # Update the payment request next.
-            row = PaymentRequestRow(-1, self._receive_key_data.keyinstance_id, PaymentFlag.UNPAID,
-                amount, expiration, message)
-            future = wallet.create_payment_requests(self._account.get_id(), [ row ])
-            future.add_done_callback(callback)
-        else:
-            # Expiration is just a label, so we don't use the value.
-            entries = [ PaymentRequestUpdateRow(row.state, amount, row.expiration, message,
-                row.paymentrequest_id) ]
-            future = wallet.update_payment_requests(entries)
-            future.add_done_callback(callback)
+        self._clear_form()
 
-        self._save_request_button.setEnabled(False)
-
-    def _new_payment_request(self) -> None:
-        keyinstances: List[KeyInstanceRow] = []
-        if self._account.is_deterministic():
-            keyinstances = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)
-        if not len(keyinstances):
-            if not self._account.is_deterministic():
-                msg = [
-                    _('No more payment destinations in your wallet.'),
-                    _('You are using a non-deterministic account, which '
-                      'cannot create new payment destinations.'),
-                    _('If you want to create new payment destinations, '
-                        'use a deterministic account instead.')
-                   ]
-                self._main_window.show_message(' '.join(msg))
-                return
-            self._main_window.show_message(
-                _('Your wallet is broken and could not allocate a new payment destination.'))
-
-        self.update_contents()
-
-        self._new_request_button.setEnabled(False)
-        self._receive_message_e.setFocus(1)
-
-    def get_receive_key_data(self) -> Optional[int]:
-        return self._receive_key_data
-
-    # Only called from key list menu.
-    def receive_at_key(self, key_data: KeyDataTypes) -> None:
-        self._receive_key_data = key_data
-        self._new_request_button.setEnabled(True)
-        self.update_destination()
-
-        self._main_window.show_receive_tab()
-
-    def set_receive_key_data(self, key_data: KeyDataTypes) -> None:
-        self._receive_key_data = key_data
-
-    def set_receive_key(self, keyinstance: KeyInstanceRow) -> None:
-        self._receive_key_data = keyinstance
+    def _clear_form(self) -> None:
         self._receive_message_e.setText("")
         self._receive_amount_e.setAmount(None)
-        self.update_destination()
+        self._expires_combo.setCurrentIndex(2)
 
-    def set_form_contents(self, address_text: str, value: int, description: Optional[str]=None,
-            expires_description: str="") -> None:
-        self._receive_destination_e.setText(address_text)
-        self._receive_message_e.setText(description or "")
-        self._receive_amount_e.setAmount(value)
-        self._expires_combo.hide()
-        self._expires_label.show()
-        self._expires_label.setText(expires_description)
-        self._new_request_button.setEnabled(True)
+    # Only called from key list menu.
+    # TODO(nocheckin) We should support receiving in designated keys and we need to flesh this out
+    # later and make sure it works right.
+    def receive_at_key(self, key_data: KeyDataTypes) -> None:
+        # TODO(nocheckin) Ensure we are not already receiving at the given key? Popup the dialog
+        # if we are?
+        self._main_window.show_receive_tab()
 
-    def set_new_button_enabled(self, flag: bool) -> None:
-        self._new_request_button.setEnabled(flag)
+    def get_dialog(self, request_id: int) -> Optional[ReceiveDialog]:
+        return self._dialogs.get(request_id)
+
+    def create_edit_dialog(self, request_id) -> ReceiveDialog:
+        dialog = ReceiveDialog(self._main_window.reference(), self._account_id, request_id)
+        self._dialogs[request_id] = dialog
+        return dialog
 
     def _filter_request_list(self, text: str) -> None:
         self._request_list.filter(text)
