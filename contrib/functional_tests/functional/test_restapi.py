@@ -43,17 +43,13 @@ def with_timeout(t):
 
 
 async def wait_for_mempool(txids):
-    MAX_WAIT_TIME = 10  # seconds
     async with TxStateWSClient() as ws_client:
-        await asyncio.wait_for(await ws_client.block_until_mempool(txids),
-            timeout=MAX_WAIT_TIME)
+        await ws_client.block_until_mempool(txids)
 
 
 async def wait_for_confirmation(txids):
-    MAX_WAIT_TIME = 10  # seconds
     async with TxStateWSClient() as ws_client:
-        await asyncio.wait_for(await ws_client.block_until_confirmed(txids),
-            timeout=MAX_WAIT_TIME)
+        await ws_client.block_until_confirmed(txids)
 
 
 class TestRestAPI:
@@ -312,6 +308,8 @@ class TestRestAPI:
         p2pkh_object = SVRegTestnet.REGTEST_FUNDS_PUBLIC_KEY.to_address()
 
         async with aiohttp.ClientSession() as session:
+            self._load_wallet()
+
             # get tx history before tests to compare later
             result1 = self._get_tx_history()
             len_tx_hist_before = len(result1.json()['history'])

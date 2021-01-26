@@ -24,14 +24,16 @@ def pytest_sessionstart(session):
         deterministic_seed=True)
 
     # Start components
-    commands.start("node", component_id='node1', mode='background')
-    commands.start("electrumx", component_id='electrumx1', mode='background')
-    commands.start("electrumsv", component_id='electrumsv1', repo=ELECTRUMSV_TOP_LEVEL_DIRECTORY,
-        mode='background')
-    # commands.start("node", component_id='node1', mode='new-terminal')
-    # commands.start("electrumx", component_id='electrumx1', mode='new-terminal')
-    # commands.start("electrumsv", component_id='electrumsv1', repo=ELECTRUMSV_TOP_LEVEL_DIRECTORY,
-    #     mode='new-terminal')
+    if os.getenv("LOCAL_DEV"):
+        commands.start("node", component_id='node1', mode='new-terminal')
+        commands.start("electrumx", component_id='electrumx1', mode='new-terminal')
+        commands.start("electrumsv", component_id='electrumsv1', repo=ELECTRUMSV_TOP_LEVEL_DIRECTORY,
+            mode='new-terminal')
+    else:
+        commands.start("node", component_id='node1', mode='background')
+        commands.start("electrumx", component_id='electrumx1', mode='background')
+        commands.start("electrumsv", component_id='electrumsv1', repo=ELECTRUMSV_TOP_LEVEL_DIRECTORY,
+            mode='background')
     time.sleep(8)
 
 
