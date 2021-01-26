@@ -497,9 +497,6 @@ class ExtendedHandlerUtils(HandlerUtils):
         OUTPUT_COST = config.estimate_fee(OUTPUT_SIZE)
         all_coins = account.get_spendable_transaction_outputs(exclude_frozen=True, mature=True)
 
-        all_coins = account.get_spendable_transaction_outputs(TransactionOutputFlag.NONE,
-            TransactionOutputFlag.IS_SPENT | TransactionOutputFlag.RESERVED_MASK,
-            require_key_usage=True)
         # adds extra inputs as required to meet the desired utxo_count.
         # Ignore coins that are too expensive to send, or not confirmed.
         # Todo - this is inefficient to iterate over all coins (need better handling of dust utxos)
