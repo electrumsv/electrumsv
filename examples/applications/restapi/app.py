@@ -11,6 +11,9 @@ from bitcoinx import hash_to_hex_str
 from electrumsv.app_state import app_state
 from electrumsv.transaction import Transaction
 from electrumsv.wallet import AbstractAccount
+
+from .errors import Errors
+from .constants import WalletEventNames
 from .handlers import ExtensionEndpoints
 
 

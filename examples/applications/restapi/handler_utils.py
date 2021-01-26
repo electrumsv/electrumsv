@@ -386,7 +386,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     def _history_dto(self, account: AbstractAccount, tx_flags: int=None) -> List[Dict[Any, Any]]:
         result = []
-        entries = account._wallet.get_transaction_value_entries(mask=tx_flags)
+        entries = account.get_transaction_value_entries(mask=tx_flags)
         for entry in entries:
             result.append({"txid": hash_to_hex_str(entry.tx_hash),
                            "height": entry.block_height,
@@ -495,10 +495,8 @@ class ExtendedHandlerUtils(HandlerUtils):
 
         INPUT_COST = config.estimate_fee(INPUT_SIZE)
         OUTPUT_COST = config.estimate_fee(OUTPUT_SIZE)
+        all_coins = account.get_spendable_transaction_outputs(exclude_frozen=True, mature=True)
 
-        all_coins = account.get_spendable_transaction_outputs(TransactionOutputFlag.NONE,
-            TransactionOutputFlag.IS_SPENT | TransactionOutputFlag.RESERVED_MASK,
-            require_key_usage=True)
         # adds extra inputs as required to meet the desired utxo_count.
         # Ignore coins that are too expensive to send, or not confirmed.
         # Todo - this is inefficient to iterate over all coins (need better handling of dust utxos)
