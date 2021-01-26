@@ -242,10 +242,11 @@ class _ItemModel(QAbstractItemModel):
                 elif column == KEY_COLUMN:
                     return get_key_text(line)
                 elif column == SCRIPT_COLUMN:
+                    if line.txo_script_type is None:
+                        return ""
                     return ScriptType(line.txo_script_type).name
                 elif column == LABEL_COLUMN:
-                    # TODO(nocheckin) This is a database call better cached.
-                    return self._view._account.get_keyinstance_label(line.keyinstance_id)
+                    return line.description
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     if line.txo_value is not None:
                         if column == BALANCE_COLUMN:
@@ -272,24 +273,27 @@ class _ItemModel(QAbstractItemModel):
                     if line.flags & KeyInstanceFlag.MASK_ALLOCATED:
                         state_text += "A"
                     if line.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
-                        state_text += "R"
+                        state_text += "P"
                     if line.flags & KeyInstanceFlag.IS_INVOICE:
                         state_text += "I"
+                    if not len(state_text) and line.flags:
+                        state_text = str(line.flags)
                     if state_text:
                         return state_text
                 elif column == KEY_COLUMN:
                     return get_key_text(line)
                 elif column == SCRIPT_COLUMN:
+                    if line.txo_script_type is None:
+                        return ""
                     return ScriptType(line.txo_script_type).name
                 elif column == LABEL_COLUMN:
-                    # TODO(nocheckin) This is a database call better cached.
-                    return self._view._account.get_keyinstance_label(line.keyinstance_id)
+                    return line.description
                 elif column == BALANCE_COLUMN:
-                    return app_state.format_amount(line.total_value, whitespaces=True)
+                    return app_state.format_amount(line.txo_value, whitespaces=True)
                 elif column == FIAT_BALANCE_COLUMN:
                     fx = app_state.fx
                     rate = fx.exchange_rate()
-                    return fx.value_str(line.total_value, rate)
+                    return fx.value_str(line.txo_value, rate)
             elif role == Qt.FontRole:
                 if column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     return self._view._monospace_font
@@ -325,8 +329,7 @@ class _ItemModel(QAbstractItemModel):
 
             elif role == Qt.EditRole:
                 if column == LABEL_COLUMN:
-                    # TODO(nocheckin) This is a database call better cached.
-                    return self._view._account.get_keyinstance_label(line.keyinstance_id)
+                    return line.description
 
     def flags(self, model_index: QModelIndex) -> int:
         if model_index.isValid():
@@ -911,8 +914,7 @@ class KeyView(QTableView):
             #     menu.addAction(_("Freeze"), partial(freeze, self._account, addrs, True))
 
             coins = self._account.get_spendable_transaction_outputs(
-                keyinstance_ids=keyinstance_ids,
-                config=self._main_window.config)
+                keyinstance_ids=keyinstance_ids)
             if coins:
                 menu.addAction(_("Spend from"), partial(self._main_window.spend_coins, coins))
 

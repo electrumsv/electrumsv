@@ -1,8 +1,10 @@
 import pytest
 
-from electrumsv.constants import CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType
+from electrumsv.constants import (CHANGE_SUBPATH, DerivationType, KeyInstanceFlag,
+    RECEIVING_SUBPATH, ScriptType)
 from electrumsv.keystore import from_seed
 from electrumsv.wallet import StandardAccount, Wallet
+from electrumsv.wallet_database.exceptions import KeyInstanceNotFoundError
 from electrumsv.wallet_database.types import AccountRow
 
 from .util import MockStorage, setup_async, tear_down_async
@@ -22,7 +24,7 @@ def tmp_storage(tmpdir):
 
 
 @pytest.mark.asyncio
-async def test_key_allocation(tmp_storage) -> None:
+async def test_key_creation(tmp_storage) -> None:
     # Boilerplate setting up of a deterministic account. This is copied from above.
     password = 'password'
     seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
@@ -70,3 +72,51 @@ async def test_key_allocation(tmp_storage) -> None:
     assert account.get_next_derivation_index(RECEIVING_SUBPATH) == 12
 
     assert account._count_unused_keys(RECEIVING_SUBPATH) == 12
+
+
+@pytest.mark.asyncio
+async def test_key_reservation(tmp_storage) -> None:
+    """
+    Verify that the allocate a key on demand database function works as expected for an account.
+    """
+    # Boilerplate setting up of a deterministic account. This is copied from above.
+    password = 'password'
+    seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
+    child_keystore = from_seed(seed_words, '')
+
+    wallet = Wallet(tmp_storage)
+    masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
+    wallet.update_password(password)
+
+    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    account = StandardAccount(wallet, account_row, [], [])
+    wallet.register_account(account.get_id(), account)
+
+    account.derive_new_keys_until(RECEIVING_SUBPATH + (0,))
+    account.derive_new_keys_until(CHANGE_SUBPATH + (9,))
+    assert account._count_unused_keys(RECEIVING_SUBPATH) == 1
+    assert account._count_unused_keys(CHANGE_SUBPATH) == 10
+
+    future = wallet.reserve_keyinstance(account.get_id(), masterkey_row.masterkey_id,
+        RECEIVING_SUBPATH)
+    keyinstance_id = future.result()
+    assert keyinstance_id == 1
+
+    future = wallet.reserve_keyinstance(account.get_id(), masterkey_row.masterkey_id,
+        RECEIVING_SUBPATH)
+    with pytest.raises(KeyInstanceNotFoundError):
+        keyinstance_id = future.result()
+
+    future = wallet.reserve_keyinstance(account.get_id(), masterkey_row.masterkey_id,
+        CHANGE_SUBPATH, KeyInstanceFlag.IS_PAYMENT_REQUEST)
+    keyinstance_id = future.result()
+    assert keyinstance_id == 2
+
+    keyinstances = wallet.read_keyinstances(account_id=account.get_id(), keyinstance_ids=[1, 2])
+    keyinstance1 = [ ki for ki in keyinstances if ki.keyinstance_id == 1 ][0]
+    keyinstance2 = [ ki for ki in keyinstances if ki.keyinstance_id == 2 ][0]
+
+    assert keyinstance1.flags == KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_ASSIGNED
+    assert keyinstance2.flags == (KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_ASSIGNED |
+        KeyInstanceFlag.IS_PAYMENT_REQUEST)

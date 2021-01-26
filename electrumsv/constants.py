@@ -130,6 +130,7 @@ class AccountTxFlags(IntFlag):
     # This transaction is part of paying an invoice.
     PAYS_INVOICE = 1 << 30
 
+    # TODO(nocheckin) Ensure this is observed where it should be.
     # This transaction should be ignored from being included in the account balance.
     IRRELEVANT_MASK = REPLACED | DELETED
 
@@ -187,8 +188,8 @@ class KeyInstanceFlag(IntFlag):
     # This key has been assigned for some use and should not be reassigned ever.
     IS_ASSIGNED = 1 << 1
 
-    # The user explicitly set this key to be active. It is not intended that the management
-    # mark it inactive without good reason.
+    # The user explicitly set this key to be active. It is not intended that the wallet go and
+    # mark it inactive without good reason. It is a supplementary flag to `IS_ACTIVE`.
     USER_SET_ACTIVE = 1 << 8
 
     IS_PAYMENT_REQUEST = 1 << 9

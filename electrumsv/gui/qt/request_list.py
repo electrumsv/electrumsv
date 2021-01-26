@@ -31,18 +31,20 @@ from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QLabel, QTreeWidgetItem, QMenu, QVBoxLayout
 
-from electrumsv.app_state import app_state
-from electrumsv.bitcoin import script_template_to_string
-from electrumsv.constants import RECEIVING_SUBPATH, PaymentFlag
-from electrumsv.i18n import _
-from electrumsv import paymentrequest
-from electrumsv.platform import platform
-from electrumsv.util import format_time, age
-from electrumsv.wallet import AbstractAccount
-from electrumsv import web
+from ...app_state import app_state
+from ...bitcoin import script_template_to_string
+from ...constants import PaymentFlag
+from ...i18n import _
+from ...logs import logs
+from ...paymentrequest import PaymentRequest
+from ...platform import platform
+from ...util import format_time
+from ...wallet import AbstractAccount
+from ...web import create_URI
 
 from .constants import pr_icons, pr_tooltips
 from .qrtextedit import ShowQRTextEdit
+from .receive_dialog import ReceiveDialog
 from .util import Buttons, CopyCloseButton, MyTreeWidget, read_QIcon, WindowModalDialog
 
 if TYPE_CHECKING:
@@ -67,55 +69,41 @@ class RequestList(MyTreeWidget):
         self._account_id: Optional[int] = main_window._account_id
 
         self._monospace_font = QFont(platform.monospace_font)
+        self._logger = logs.get_logger("request-list")
 
         MyTreeWidget.__init__(self, receive_view, main_window, self.create_menu, [
             _('Date'), _('Destination'), '', _('Description'), _('Amount'), _('Status')], 3, [])
 
-        self.currentItemChanged.connect(self._on_item_changed)
-        self.itemClicked.connect(self._on_item_changed)
+        self.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.setSortingEnabled(True)
         self.setColumnWidth(0, 180)
         self.hideColumn(1)
 
         self.update_signal.connect(self.update)
 
-    def _on_item_changed(self, item) -> None:
+    def _on_item_double_clicked(self, item) -> None:
+        self._logger.debug("request_list._on_item_double_clicked")
         if item is None:
             return
         if not item.isSelected():
             return
-        pr_id = item.data(0, Qt.UserRole)
-        pr = self._account._wallet.read_payment_request(pr_id)
-        expires = age(pr.date_created + pr.expiration) if pr.expiration else _('Never')
+        request_id = item.data(0, Qt.UserRole)
 
-        keyinstance = self._account._wallet.get_keyinstance(pr.keyinstance_id)
-        self._receive_view.set_receive_key_data(keyinstance)
-        # TODO(ScriptTypeAssumption) see above for context
-        script_template = self._account.get_script_template_for_key_data(keyinstance,
-            self._account.get_default_script_type())
-        address_text = script_template_to_string(script_template)
-        self._receive_view.set_form_contents(address_text, pr.value, pr.description, expires)
+        dialog = self._receive_view.get_dialog(request_id)
+        if dialog is None:
+            dialog = self._receive_view.create_edit_dialog(request_id)
+        dialog.show()
 
     def on_update(self) -> None:
         if self._account_id is None:
             return
 
+        # TODO(nocheckin) Check the account and only update if applicable?
+
         wallet = self._account._wallet
         rows = wallet.read_payment_requests(self._account_id, flags=PaymentFlag.NONE,
             mask=PaymentFlag.ARCHIVED)
 
-        # update the receive address if necessary
-        current_key_data = self._receive_view.get_receive_key_data()
-        if current_key_data is None:
-            return
-
-        keyinstance = None
-        if self._account.is_deterministic():
-            keyinstance = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-        if keyinstance is not None:
-            self._receive_view.set_receive_key(keyinstance)
-            self._receive_view.set_new_button_enabled(
-                current_key_data.keyinstance_id != keyinstance.keyinstance_id)
 
         # clear the list and fill it again
         self.clear()
@@ -164,7 +152,7 @@ class RequestList(MyTreeWidget):
 
     def _get_request_URI(self, pr_id: int) -> str:
         wallet = self._account.get_wallet()
-        req = self._account._wallet.read_payment_request(pr_id)
+        req = self._account._wallet.read_payment_request(request_id=pr_id)
         message = self._account.get_keyinstance_label(req.keyinstance_id)
         # TODO(ScriptTypeAssumption) see above for context
         keyinstance = wallet.get_keyinstance(req.keyinstance_id)
@@ -172,15 +160,15 @@ class RequestList(MyTreeWidget):
             self._account.get_default_script_type())
         address_text = script_template_to_string(script_template)
 
-        URI = web.create_URI(address_text, req.value, message)
+        URI = create_URI(address_text, req.value, message)
         URI += f"&time={req.date_created}"
         if req.expiration:
             URI += f"&exp={req.expiration}"
         return str(URI)
 
     def _export_payment_request(self, pr_id: int) -> None:
-        pr = self._account._wallet.read_payment_request(pr_id)
-        pr_data = paymentrequest.PaymentRequest.from_wallet_entry(self._account, pr).to_json()
+        pr = self._account._wallet.read_payment_request(request_id=pr_id)
+        pr_data = PaymentRequest.from_wallet_entry(self._account, pr).to_json()
         name = f'{pr.paymentrequest_id}.bip270.json'
         fileName = self._main_window.getSaveFileName(
             _("Select where to save your payment request"), name, "*.bip270.json")

@@ -72,8 +72,8 @@ from .types import (SubscriptionEntry, SubscriptionKey, SubscriptionOwner,
 from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime,
     TriggeredCallbacks)
 from .util.cache import LRUCache
+from .wallet_database.exceptions import KeyInstanceNotFoundError
 from .wallet_database import functions as db_functions
-from .wallet_database.util import create_derivation_data2, TxProof
 from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataType, KeyDataTypes,
@@ -84,6 +84,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     TransactionOutputSpendableTypes, TransactionValueRow,
     TransactionInputAddRow, TransactionOutputAddRow,
     TransactionRow, WalletBalance, WalletEventRow)
+from .wallet_database.util import create_derivation_data2, TxProof
 
 if TYPE_CHECKING:
     from .network import Network
@@ -176,6 +177,10 @@ class AbstractAccount:
     def get_fresh_keys(self, derivation_parent: Sequence[int], count: int) -> List[KeyInstanceRow]:
         raise NotImplementedError
 
+    def reserve_unassigned_key(self, derivation_parent: Sequence[int], flags: KeyInstanceFlag) \
+            -> int:
+        raise NotImplementedError
+
     def derive_new_keys_until(self, derivation_path: Sequence[int]) -> Sequence[KeyInstanceRow]:
         """
         Ensure that keys are created up to and including the given derivation path.
@@ -195,6 +200,12 @@ class AbstractAccount:
             if future is not None:
                 future.result()
             return rows
+
+    def bulk_create_keys(self, derivation_parent: Sequence[int]) -> None:
+        """
+        Ensure we have enough keys for future usage readily available.
+        """
+        self.create_keys(derivation_parent, 500)
 
     def create_keys(self, derivation_subpath: Sequence[int], count: int) \
             -> Tuple[Optional[concurrent.futures.Future], List[KeyInstanceRow]]:
@@ -550,7 +561,7 @@ class AbstractAccount:
                                     row.derivation_type, row.derivation_data2)
         )
 
-    def get_history(self, domain: Optional[Set[int]]=None) -> List[HistoryListEntry]:
+    def get_history(self, domain: Optional[List[int]]=None) -> List[HistoryListEntry]:
         """
         Return the list of transactions in the account kind of sorted from newest to oldest.
 
@@ -1275,10 +1286,10 @@ class DeterministicAccount(AbstractAccount):
     def get_seed(self, password: Optional[str]) -> str:
         return cast(Deterministic_KeyStore, self.get_keystore()).get_seed(password)
 
-    def get_next_derivation_index(self, derivation_path: Sequence[int]) -> int:
+    def get_next_derivation_index(self, derivation_parent: Sequence[int]) -> int:
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         return self._wallet.get_next_derivation_index(self._id, keystore.get_id(),
-            derivation_path)
+            derivation_parent)
 
     def allocate_keys(self, count: int,
             parent_derivation_path: Sequence[int]) -> Sequence[DeterministicKeyAllocation]:
@@ -1296,6 +1307,20 @@ class DeterministicAccount(AbstractAccount):
         next_index = self.get_next_derivation_index(parent_derivation_path)
         return tuple(DeterministicKeyAllocation(masterkey_id, DerivationType.BIP32_SUBPATH,
             tuple(parent_derivation_path) + (i,)) for i in range(next_index, next_index + count))
+
+    def reserve_unassigned_key(self, derivation_parent: Sequence[int], flags: KeyInstanceFlag) \
+            -> int:
+        keystore = cast(Deterministic_KeyStore, self.get_keystore())
+        masterkey_id = keystore.get_id()
+        try:
+            keyinstance_id = self._wallet.reserve_keyinstance(self._id, masterkey_id,
+                derivation_parent, flags)
+        except KeyInstanceNotFoundError:
+            # TODO(nocheckin) Need to revisit how we manage an outstanding pool of fresh keys.
+            self.bulk_create_keys(derivation_parent)
+            keyinstance_id = self._wallet.reserve_keyinstance(self._id, masterkey_id,
+                derivation_parent, flags)
+        return keyinstance_id
 
     # Returns ordered from use first to use last.
     def get_fresh_keys(self, derivation_parent: Sequence[int], count: int) -> List[KeyInstanceRow]:
@@ -1721,11 +1746,6 @@ class Wallet(TriggeredCallbacks):
         return db_functions.read_bip32_keys_unused(self.get_db_context(), account_id, masterkey_id,
             derivation_path, limit)
 
-    def count_unused_bip32_keys(self, account_id: int, masterkey_id: int,
-            derivation_path: Sequence[int]) -> int:
-        return db_functions.count_unused_bip32_keys(self.get_db_context(), account_id,
-            masterkey_id, derivation_path)
-
     # Accounts.
 
     def add_accounts(self, entries: List[AccountRow]) -> List[AccountRow]:
@@ -1864,6 +1884,11 @@ class Wallet(TriggeredCallbacks):
 
     # Key instances.
 
+    def count_unused_bip32_keys(self, account_id: int, masterkey_id: int,
+            derivation_path: Sequence[int]) -> int:
+        return db_functions.count_unused_bip32_keys(self.get_db_context(), account_id,
+            masterkey_id, derivation_path)
+
     def create_keyinstances(self, account_id: int, entries: List[KeyInstanceRow]) \
             -> Tuple[concurrent.futures.Future, List[KeyInstanceRow]]:
         keyinstance_id = self._storage.get("next_keyinstance_id", 1)
@@ -1875,7 +1900,7 @@ class Wallet(TriggeredCallbacks):
         future = db_functions.create_keyinstances(self.get_db_context(), rows)
         return future, rows
 
-    def read_key_list(self, account_id, keyinstance_ids: Optional[List[int]]=None) \
+    def read_key_list(self, account_id: int, keyinstance_ids: Optional[List[int]]=None) \
             -> List[KeyListRow]:
         return db_functions.read_key_list(self.get_db_context(), account_id, keyinstance_ids)
 
@@ -1890,13 +1915,30 @@ class Wallet(TriggeredCallbacks):
         return db_functions.read_keyinstances(self.get_db_context(), account_id=account_id,
             keyinstance_ids=keyinstance_ids)
 
+    def reserve_keyinstance(self, account_id: int, masterkey_id: int,
+            derivation_path: Sequence[int], allocation_flags: Optional[KeyInstanceFlag]=None) \
+                -> concurrent.futures.Future:
+        """
+        Allocate one keyinstance for the caller's usage.
+
+        Returns a future.
+        The result of the future is the allocated `keyinstance_id` if successful.
+        Raises `KeyInstanceNotFoundError` if there are no available key instances.
+        Raises `DatabaseUpdateError` if something else allocated the selected keyinstance first.
+        """
+        return db_functions.reserve_keyinstance(self.get_db_context(), account_id, masterkey_id,
+            derivation_path, allocation_flags)
+
     def set_keyinstance_flags(self, key_ids: List[int], flags: KeyInstanceFlag,
             mask: Optional[KeyInstanceFlag]=None) -> concurrent.futures.Future:
         return db_functions.set_keyinstance_flags(self.get_db_context(), key_ids, flags, mask)
 
     def get_keyinstance(self, keyinstance_id: int) -> KeyInstanceRow:
-        return db_functions.read_keyinstances(self.get_db_context(), account_id=self._id,
+        rows = db_functions.read_keyinstances(self.get_db_context(),
             keyinstance_ids=[ keyinstance_id ])
+        if len(rows):
+            return rows[0]
+        return None
 
     def get_next_derivation_index(self, account_id, masterkey_id: int,
             derivation_path: Sequence[int]) -> int:
@@ -1958,6 +2000,7 @@ class Wallet(TriggeredCallbacks):
             rows.append(request._replace(paymentrequest_id=request_id))
             request_id += 1
         self._storage.put("next_paymentrequest_id", request_id)
+        print(rows)
         future = db_functions.create_payment_requests(self.get_db_context(), rows)
         future.add_done_callback(callback)
         return future
@@ -1965,15 +2008,17 @@ class Wallet(TriggeredCallbacks):
     def read_paid_requests(self, account_id: int, keyinstance_ids: Sequence[int]) -> List[int]:
         return db_functions.read_paid_requests(self.get_db_context(), account_id, keyinstance_ids)
 
-    def read_payment_request(self, request_id: Optional[int]=None,
+    def read_payment_request(self, *, request_id: Optional[int]=None,
             keyinstance_id: Optional[int]=None) -> Optional[PaymentRequestRow]:
-        return db_functions.read_payment_request(self.get_db_context(), request_id, keyinstance_id)
+        return db_functions.read_payment_request(self.get_db_context(), request_id=request_id,
+            keyinstance_id=keyinstance_id)
 
     def read_payment_requests(self, account_id: Optional[int]=None, flags: Optional[int]=None,
             mask: Optional[int]=None) -> List[PaymentRequestRow]:
         return db_functions.read_payment_requests(self.get_db_context(), account_id, flags,
             mask)
 
+    # TODO(nocheckin) What called this? Nothing seems to now.
     def update_payment_request_states(self, entries: Iterable[Tuple[Optional[PaymentFlag], int]]) \
             -> concurrent.futures.Future:
         return db_functions.update_payment_request_states(self.get_db_context(), entries)
