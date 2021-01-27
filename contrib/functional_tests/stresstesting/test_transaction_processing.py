@@ -216,8 +216,8 @@ class TestRestAPI:
             if not os.path.exists(results_filepath):
                 wb = Workbook()
                 ws = wb.active
-                headers = ["desired_utxo_count", "outputs_per_splitting_tx", "n_txs", "total time",
-                    "av. txn/sec"]
+                headers = ["Desired UTXO Count", "Outputs per splitting transaction",
+                    "Number of transactions", "Total time", "Av. Transactions/sec"]
                 ws.append(headers)
                 wb.save(results_filepath)
 
