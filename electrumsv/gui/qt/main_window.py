@@ -1467,8 +1467,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             extra_text += " "+ _("It has {} known coins associated with it.").format(coin_count)
 
         if self.question(_("Do you want to archive this key?") + extra_text):
-            # TODO(nocheckin) Function does not exist.
-            keyinstance = self._account.get_keyinstance(key_id)
+            keyinstance = self._wallet.read_keyinstance(keyinstance_id=key_id)
             # This if successful will unload the key from the account (not delete).
             self._wallet.archive_keys([ key_id ])
             if self.key_view is not None:

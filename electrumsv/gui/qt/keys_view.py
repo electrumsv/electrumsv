@@ -47,7 +47,7 @@ from electrumsv.i18n import _
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import compose_chain_string, scripthash_hex
 from electrumsv.constants import (ACCOUNT_SCRIPT_TYPES, DerivationType, IntFlag, KeyInstanceFlag,
-    ScriptType, unpack_derivation_path)
+    ScriptType, TransactionOutputFlag, unpack_derivation_path)
 from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.networks import Net
@@ -98,7 +98,9 @@ class KeyFlags(IntFlag):
     FROZEN = 1 << 16
     INACTIVE = 1 << 17
 
-
+# TODO(nocheckin) This should allow multi-select
+# TODO(nocheckin) This should combine key uses instead of having one row per key/txout.
+# TODO(nocheckin) Add back in the Uses column.
 KeyLine = KeyListRow
 
 
@@ -249,12 +251,14 @@ class _ItemModel(QAbstractItemModel):
                     return line.description
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     if line.txo_value is not None:
+                        value = line.txo_value if line.txo_flags and \
+                            (line.txo_flags & TransactionOutputFlag.IS_SPENT) == 0 else 0
                         if column == BALANCE_COLUMN:
-                            return line.txo_value
+                            return value
                         elif column == FIAT_BALANCE_COLUMN:
                             fx = app_state.fx
                             rate = fx.exchange_rate()
-                            return fx.value_str(line.txo_value, rate)
+                            return fx.value_str(value, rate)
 
             elif role == QT_FILTER_ROLE:
                 if column == KEY_COLUMN:
@@ -270,12 +274,16 @@ class _ItemModel(QAbstractItemModel):
                     return None
                 elif column == STATE_COLUMN:
                     state_text = ""
-                    if line.flags & KeyInstanceFlag.MASK_ALLOCATED:
+                    if line.flags & KeyInstanceFlag.IS_ACTIVE:
                         state_text += "A"
-                    if line.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
-                        state_text += "P"
                     if line.flags & KeyInstanceFlag.IS_INVOICE:
                         state_text += "I"
+                    if line.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
+                        state_text += "P"
+                    if line.flags & KeyInstanceFlag.USER_SET_ACTIVE:
+                        state_text += "F"
+                    if line.flags & KeyInstanceFlag.IS_ASSIGNED:
+                        state_text += "X"
                     if not len(state_text) and line.flags:
                         state_text = str(line.flags)
                     if state_text:
@@ -288,12 +296,16 @@ class _ItemModel(QAbstractItemModel):
                     return ScriptType(line.txo_script_type).name
                 elif column == LABEL_COLUMN:
                     return line.description
-                elif column == BALANCE_COLUMN:
-                    return app_state.format_amount(line.txo_value, whitespaces=True)
-                elif column == FIAT_BALANCE_COLUMN:
-                    fx = app_state.fx
-                    rate = fx.exchange_rate()
-                    return fx.value_str(line.txo_value, rate)
+                elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
+                    if line.txo_flags is not None:
+                        value = 0 if line.txo_flags & TransactionOutputFlag.IS_SPENT \
+                            else line.txo_value
+                        if column == BALANCE_COLUMN:
+                            return app_state.format_amount(value, whitespaces=True)
+                        elif column == FIAT_BALANCE_COLUMN:
+                            fx = app_state.fx
+                            rate = fx.exchange_rate()
+                            return fx.value_str(value, rate)
             elif role == Qt.FontRole:
                 if column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     return self._view._monospace_font
@@ -312,10 +324,19 @@ class _ItemModel(QAbstractItemModel):
                 if column == TYPE_COLUMN:
                     return _("Key")
                 elif column == STATE_COLUMN:
-                    if line.flags & KeyInstanceFlag.MASK_ALLOCATED:
-                        return _("This is an allocated address")
-                    elif not line.flags & KeyInstanceFlag.IS_ACTIVE:
-                        return _("This is an inactive address")
+                    lines = []
+                    if line.flags & KeyInstanceFlag.IS_ACTIVE:
+                        lines.append(_("A: Activated by wallet"))
+                    if line.flags & KeyInstanceFlag.IS_INVOICE:
+                        lines.append(_("I: Invoice related"))
+                    if line.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
+                        lines.append(_("P: Payment request related"))
+                    if line.flags & KeyInstanceFlag.USER_SET_ACTIVE:
+                        lines.append(_("F: Forced active"))
+                    if line.flags & KeyInstanceFlag.IS_ASSIGNED:
+                        lines.append(_("X: Assigned"))
+                    if len(lines):
+                        return "\n".join(lines)
                 elif column == KEY_COLUMN:
                     derivation_path_text: str = ""
                     if line.derivation_type == DerivationType.BIP32_SUBPATH:
@@ -608,8 +629,6 @@ class KeyView(QTableView):
         if ListActions.RESET in pending_actions:
             self._logger.debug("_on_update_check reset")
 
-# TODO(nocheckin) This is not actually valid. WE need to OUTER JOIN on the transaction outputs
-# and may get multiple keyinstance rows for multiply used keys. #key-list-problem
             self._data = account.get_key_list()
             self._base_model.set_data(account_id, self._data)
             return
@@ -677,8 +696,7 @@ class KeyView(QTableView):
         self._logger.debug("_add_keys %r", key_ids)
         if not len(key_ids):
             return
-# TODO(nocheckin) This is not actually valid. WE need to OUTER JOIN on the transaction outputs
-# and may get multiple keyinstance rows for multiply used keys. #key-list-problem
+
         for line in account.get_key_list(key_ids):
             self._base_model.add_line(line)
 
@@ -793,6 +811,12 @@ class KeyView(QTableView):
 
         self.setColumnHidden(FIAT_BALANCE_COLUMN, not flag)
 
+    def _set_user_active(self, keyinstance_ids: Set[int], enable: bool) -> None:
+        self._logger.debug("_set_user_active %s %s", keyinstance_ids, enable)
+        flags = KeyInstanceFlag.USER_SET_ACTIVE if enable else KeyInstanceFlag.NONE
+        mask = ~KeyInstanceFlag.USER_SET_ACTIVE
+        self._account.set_keyinstance_flags(list(keyinstance_ids), flags, mask)
+
     def _event_double_clicked(self, model_index: QModelIndex) -> None:
         base_index = get_source_index(model_index, _ItemModel)
         column = base_index.column()
@@ -902,16 +926,33 @@ class KeyView(QTableView):
                                 keystore.plugin.show_key, self._account, line)
                         menu.addAction(_("Show on {}").format(keystore.plugin.device), show_key)
 
-            # These are KeyData-based rows, that may contain some limited output data.
-            # We need spendable transaction output rows to give to the send tab.
-            keyinstance_ids = [ line.keyinstance_id
-                for (_row, _column, line, _selected_index, _base_index) in selected ]
+            user_active_keyinstance_ids: Set[int] = set()
+            non_user_active_keyinstance_ids: Set[int] = set()
+            for _row, _column, line, _selected_index, _base_index in selected:
+                if (line.flags & KeyInstanceFlag.USER_SET_ACTIVE) == 0:
+                    non_user_active_keyinstance_ids.add(line.keyinstance_id)
+                else:
+                    user_active_keyinstance_ids.add(line.keyinstance_id)
+
+            if len(non_user_active_keyinstance_ids):
+                menu.addAction(_("Force activeness"),
+                    partial(self._set_user_active, non_user_active_keyinstance_ids, True))
+            if len(user_active_keyinstance_ids):
+                menu.addAction(_("Remove forced activeness"),
+                    partial(self._set_user_active, user_active_keyinstance_ids, False))
+
+            # TODO(nocheckin) Add option to set/unset frozen flag.
 
             # freeze = self._main_window.set_frozen_state
             # if any(self._account.is_frozen_address(addr) for addr in addrs):
             #     menu.addAction(_("Unfreeze"), partial(freeze, self._account, addrs, False))
             # if not all(self._account.is_frozen_address(addr) for addr in addrs):
             #     menu.addAction(_("Freeze"), partial(freeze, self._account, addrs, True))
+
+            # These are KeyData-based rows, that may contain some limited output data.
+            # We need spendable transaction output rows to give to the send tab.
+            keyinstance_ids = [ line.keyinstance_id
+                for (_row, _column, line, _selected_index, _base_index) in selected ]
 
             coins = self._account.get_spendable_transaction_outputs(
                 keyinstance_ids=keyinstance_ids)

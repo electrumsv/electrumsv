@@ -50,7 +50,7 @@ from .constants import TxFlags
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
-from .types import ScriptHashSubscriptionEntry
+from .types import ElectrumXHistoryList, ScriptHashSubscriptionEntry
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
 from .networks import Net
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
@@ -619,7 +619,7 @@ class SVSession(RPCSession):
             self.logger.error(f'received status notification for unsubscribed {script_hash}')
             return
 
-        result: Optional[Dict[str, Any]] = None
+        result: ElectrumXHistoryList = []
         if status is not None:
             # This returns a list of first the confirmed transactions in blockchain order followed
             # by the mempool transactions. Only the mempool transactions have a fee value, and they
@@ -633,17 +633,6 @@ class SVSession(RPCSession):
 
         await app_state.subscriptions.on_script_hash_history(subscription_id, script_hash_bytes,
             result)
-
-        # self.logger.debug(f'received history of {keyinstance_id} length {len(result)}')
-        # try:
-        #     history = [(item['tx_hash'], item['height']) for item in result]
-        #     tx_fees = {item['tx_hash']: item['fee'] for item in result if 'fee' in item}
-        #     # Check that txids are unique
-        #     assert len(set(tx_hash for tx_hash, tx_height in history)) == len(history), \
-        #         f'server history for {keyinstance_id} has duplicate transactions'
-        # except (AssertionError, KeyError) as e:
-        #     self._network._on_status_queue.put_nowait((script_hash, status))  # re-queue
-        #     raise DisconnectSessionError(f'bad history returned: {e}')
 
     async def _main_server_batch(self):
         '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
@@ -799,7 +788,7 @@ class SVSession(RPCSession):
         '''Raises: RPCError, TaskTimeout'''
         return await self.send_request(REQUEST_MERKLE_PROOF, args)
 
-    async def request_history(self, script_hash_hex: str) -> Dict[str, Any]:
+    async def request_history(self, script_hash_hex: str) -> ElectrumXHistoryList:
         '''Raises: RPCError, TaskTimeout'''
         return await self.send_request(SCRIPTHASH_HISTORY, [script_hash_hex])
 
@@ -823,6 +812,8 @@ class SVSession(RPCSession):
 
         async with TaskGroup() as group:
             for entry in entries:
+                self._script_hash_ids[entry.script_hash] = entry.entry_id
+
                 script_hash_hex = hash_to_hex_str(entry.script_hash)
                 await group.spawn(self._subscribe_to_script_hash(script_hash_hex))
 
@@ -842,6 +833,8 @@ class SVSession(RPCSession):
 
         async with TaskGroup() as group:
             for entry in entries:
+                del self._script_hash_ids[entry.script_hash]
+
                 script_hash_hex = hash_to_hex_str(entry.script_hash)
                 await group.spawn(self._unsubscribe_from_script_hash(script_hash_hex))
 
@@ -994,13 +987,11 @@ class Network(TriggeredCallbacks):
         while True:
             job, wallet = await self._wallet_jobs.get()
             if job == 'add':
-                pass
-                # if wallet not in tasks:
-                #     tasks[wallet] = await group.spawn(self._maintain_wallet(wallet))
+                if wallet not in tasks:
+                    tasks[wallet] = await group.spawn(self._maintain_wallet(wallet))
             elif job == 'remove':
-                pass
-                # if wallet in tasks:
-                #     tasks.pop(wallet).cancel()
+                if wallet in tasks:
+                    tasks.pop(wallet).cancel()
             elif job == 'undo_verifications':
                 above_height = wallet
                 for wallet in tasks:
@@ -1124,7 +1115,7 @@ class Network(TriggeredCallbacks):
                 return server
             await sleep(10)
 
-    async def _request_proofs(self, wallet: 'Wallet', wanted_map) -> bool:
+    async def _request_proofs(self, wallet: 'Wallet', wanted_map: Dict[bytes, int]) -> bool:
         had_timeout = False
         session = await self._main_session()
         session.logger.debug(f'requesting {len(wanted_map)} proofs')
@@ -1191,48 +1182,48 @@ class Network(TriggeredCallbacks):
             script_hash, status = await self._on_status_queue.get()
             await group.spawn(session._on_script_hash_status_changed, script_hash, status)
 
-    # async def _monitor_txs(self, wallet: 'Wallet') -> None:
-    #     '''Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError'''
-    #     # When the wallet receives notification of new transactions, it signals that this
-    #     # monitoring loop should awaken. The loop retrieves all outstanding transaction data and
-    #     # proofs in parallel. However, the prerequisite for needing a proof for a transaction is
-    #     # first having it's data. So after fetching transactions, it becomes necessary to fetch
-    #     # proofs again, and loop at least twice. So this loop only blocks if it knows for sure
-    #     # there are no outstanding needs for either transaction data or proof.
-    #     while True:
-    #         # The set of transactions we know about, but lack the actual transaction data for.
-    #         wanted_tx_map = wallet.missing_transactions()
-    #         # The set of transactions we have data for, but not proof for.
-    #         wanted_proof_map = wallet.unverified_transactions()
+    async def _monitor_txs(self, wallet: 'Wallet') -> None:
+        '''Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError'''
+        # When the wallet receives notification of new transactions, it signals that this
+        # monitoring loop should awaken. The loop retrieves all outstanding transaction data and
+        # proofs in parallel. However, the prerequisite for needing a proof for a transaction is
+        # first having it's data. So after fetching transactions, it becomes necessary to fetch
+        # proofs again, and loop at least twice. So this loop only blocks if it knows for sure
+        # there are no outstanding needs for either transaction data or proof.
+        while True:
+            # The set of transactions we know about, but lack the actual transaction data for.
+            wanted_tx_map = await wallet.get_missing_transactions_async()
+            # The set of transactions we have data for, but not proof for.
+            wanted_proof_map = await wallet.get_unverified_transactions_async()
 
-    #         coros = []
-    #         if wanted_tx_map:
-    #             coros.append(self._request_transactions(wallet, wanted_tx_map))
-    #         if wanted_proof_map:
-    #             coros.append(self._request_proofs(wallet, wanted_proof_map))
-    #         if not coros:
-    #             await wallet.txs_changed_event.wait()
-    #             wallet.txs_changed_event.clear()
+            coros = []
+            if wanted_tx_map:
+                coros.append(self._request_transactions(wallet, wanted_tx_map))
+            if wanted_proof_map:
+                coros.append(self._request_proofs(wallet, wanted_proof_map))
+            if not coros:
+                await wallet.txs_changed_event.wait()
+                wallet.txs_changed_event.clear()
 
-    #         async with TaskGroup() as group:
-    #             for coro in coros:
-    #                 await group.spawn(coro)
+            async with TaskGroup() as group:
+                for coro in coros:
+                    await group.spawn(coro)
 
-    # async def _maintain_wallet(self, wallet: 'Wallet') -> None:
-    #     '''Put all tasks for a single wallet in a group so they can be cancelled together.'''
-    #     logger.info('maintaining wallet %s', wallet)
-    #     try:
-    #         while True:
-    #             try:
-    #                 async with TaskGroup() as group:
-    #                     await group.spawn(self._monitor_txs, wallet)
-    #             except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
-    #                 blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
-    #                 session = self.main_session()
-    #                 if session:
-    #                     await session.disconnect(str(error), blacklist=blacklist)
-    #     finally:
-    #         logger.info('stopped maintaining %s', wallet)
+    async def _maintain_wallet(self, wallet: 'Wallet') -> None:
+        '''Put all tasks for a single wallet in a group so they can be cancelled together.'''
+        logger.info('maintaining wallet %s', wallet)
+        try:
+            while True:
+                try:
+                    async with TaskGroup() as group:
+                        await group.spawn(self._monitor_txs, wallet)
+                except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
+                    blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
+                    session = self.main_session()
+                    if session:
+                        await session.disconnect(str(error), blacklist=blacklist)
+        finally:
+            logger.info('stopped maintaining %s', wallet)
 
     async def _main_session(self):
         while True:

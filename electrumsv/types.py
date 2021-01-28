@@ -10,6 +10,10 @@ if TYPE_CHECKING:
     from .wallet import AbstractAccount
 
 
+ElectrumXHistoryEntry = Dict[str, Union[int, str]]
+ElectrumXHistoryList = List[ElectrumXHistoryEntry]
+
+
 class SubscriptionOwner(NamedTuple):
     wallet_id: int
     account_id: int
@@ -41,8 +45,8 @@ class ScriptHashSubscriptionEntry(NamedTuple):
 
 ScriptHashSubscriptionCallback = Callable[[List[ScriptHashSubscriptionEntry]],
     Awaitable[None]]
-ScriptHashResultCallback = Callable[[SubscriptionType, bytes, Optional[Dict[str, Any]]],
-    Awaitable[None]]
+ScriptHashResultCallback = Callable[[SubscriptionKey, SubscriptionScriptHashOwnerContext,
+    ElectrumXHistoryList], Awaitable[None]]
 
 
 class TxoKeyType(NamedTuple):
