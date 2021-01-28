@@ -1765,6 +1765,10 @@ class Wallet(TriggeredCallbacks):
         # Guards per-transaction locks to limit blocking to per-transaction activity.
         self._transaction_locks: Dict[bytes, Tuple[threading.RLock, int]] = {}
 
+        # Guards the obtaining and processing of missing transactions from race conditions.
+        self._obtain_transactions_async_lock = asyncio.Lock()
+        self._obtain_proofs_async_lock = asyncio.Lock()
+
         self.load_state()
 
         self.contacts = Contacts(self._storage)
@@ -2137,6 +2141,11 @@ class Wallet(TriggeredCallbacks):
             masterkey_id: Optional[int]=None) -> Optional[KeyInstanceRow]:
         return db_functions.read_keyinstance_for_derivation(self.get_db_context(), account_id,
             derivation_type, derivation_data2, masterkey_id)
+
+    def read_keyinstance(self, *, account_id: Optional[int]=None, keyinstance_id: int) \
+            -> Optional[KeyInstanceRow]:
+        return db_functions.read_keyinstance(self.get_db_context(), account_id=account_id,
+            keyinstance_id=keyinstance_id)
 
     def read_keyinstance(self, *, account_id: Optional[int]=None, keyinstance_id: int) \
             -> Optional[KeyInstanceRow]:
@@ -2802,14 +2811,13 @@ class Wallet(TriggeredCallbacks):
             block_height: int=-2, block_position: Optional[int]=None,
             fee_hint: Optional[int]=None, external: bool=False) -> None:
         link_state = TransactionLinkState()
-        link_state.acquire_related_account_ids = True
-        await self._import_transaction(tx_hash, tx, flags, link_state, block_height,
-            block_position, fee_hint, external)
+        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash, block_height,
+            fee_hint, external=external)
 
     async def _import_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
-            link_state: TransactionLinkState, block_height: Optional[int]=None,
-            block_position: Optional[int]=None, fee_hint: Optional[int]=None,
-            external: bool=False) -> None:
+            link_state: TransactionLinkState, block_hash: Optional[bytes]=None,
+            block_height: int=-2, block_position: Optional[int]=None,
+            fee_hint: Optional[int]=None, external: bool=False) -> None:
         """
         Add an external complete transaction to the database.
 

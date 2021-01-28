@@ -11,6 +11,10 @@ ElectrumXHistoryEntry = Dict[str, Union[int, str]]
 ElectrumXHistoryList = List[ElectrumXHistoryEntry]
 
 
+ElectrumXHistoryEntry = Dict[str, Union[int, str]]
+ElectrumXHistoryList = List[ElectrumXHistoryEntry]
+
+
 class SubscriptionOwner(NamedTuple):
     wallet_id: int
     account_id: int
