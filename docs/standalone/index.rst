@@ -109,6 +109,8 @@ Do I have to develop against the existing public blockchains?
    /building-on-electrumsv/rest-api
    /building-on-electrumsv/customised-wallet-servers
    /building-on-electrumsv/local-or-offline-development
+   /building-on-electrumsv/functional-tests
+   /building-on-electrumsv/benchmarks
 
 The ElectrumSV project
 ----------------------
