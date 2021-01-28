@@ -19,12 +19,14 @@ TestParams = namedtuple("TestParams", ["number_txs", "total_utxo_count", "max_sp
 test_parameters = []
 for number_txs in (2000, 5000):
     for total_utxo_count in (2000, 5000, 10000):
-        for max_split_tx_outputs in (500, 1000, 2000):
+        for max_split_tx_outputs in (500, 2000):
             test_parameters.append(TestParams(number_txs, total_utxo_count, max_split_tx_outputs))
 
 # test_parameters = [TestParams(2000, 10000, 5000)]
-print(test_parameters)
-
+print("============================== Test Params Matrix ============================== ")
+for test_params in test_parameters:
+    print(test_params)
+print("================================================================================ ")
 
 def reset_electrumsv():
     command = f"electrumsv-sdk reset electrumsv"
@@ -48,15 +50,6 @@ def run_stresstest_pytest(test_params):
     process = subprocess.Popen(command, env=os.environ.update(env_vars))
     process.wait()
     return process
-
-
-# def run_stresstest_without_pytest(test_params):
-#     """for debugging"""
-#     import asyncio
-#     from contrib.functional_tests.stresstesting.test_transaction_processing import TestRestAPI
-#     loop = asyncio.get_event_loop()
-#     stress_test_class = TestRestAPI()
-#     stress_test_class.test_concurrent_tx_creation_and_broadcast(loop)
 
 
 def stop_electrumsv():
