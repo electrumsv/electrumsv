@@ -9,16 +9,15 @@ subscription management from the global application to the per-wallet context.
 """
 
 import threading
-from typing import Any, Dict, List, Optional, Set, Tuple
-import weakref
+from typing import Dict, List, Optional, Set, Tuple
 
 from bitcoinx import hash_to_hex_str
 
 from .constants import SubscriptionType
 from .logs import logs
-from .types import (SubscriptionEntry, SubscriptionKey, ScriptHashSubscriptionCallback,
-    ScriptHashSubscriptionEntry, ScriptHashResultCallback, SubscriptionOwner,
-    SubscriptionOwnerContextType)
+from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey,
+    ScriptHashSubscriptionCallback, ScriptHashSubscriptionEntry, ScriptHashResultCallback,
+    SubscriptionOwner, SubscriptionOwnerContextType)
 
 
 logger = logs.get_logger("subscriptions")
@@ -45,8 +44,7 @@ class SubscriptionManager:
         self._owner_subscriptions: Dict[SubscriptionOwner, Set[SubscriptionKey]] = {}
         self._owner_subscription_context: Dict[Tuple[SubscriptionOwner, SubscriptionKey],
             SubscriptionOwnerContextType] = {}
-        self._owner_callbacks: weakref.WeakValueDictionary[SubscriptionOwner,
-            ScriptHashResultCallback] = weakref.WeakValueDictionary()
+        self._owner_callbacks: Dict[SubscriptionOwner, ScriptHashResultCallback] = {}
 
     def set_owner_callback(self, owner: SubscriptionOwner, callback: ScriptHashResultCallback) \
             -> None:
@@ -173,7 +171,7 @@ class SubscriptionManager:
                     script_hash_entries)
 
     async def on_script_hash_history(self, subscription_id: int, script_hash: bytes,
-            result: Optional[Dict[str, Any]]) -> None:
+            result: ElectrumXHistoryList) -> None:
         subscription_key = SubscriptionKey(SubscriptionType.SCRIPT_HASH, script_hash)
         existing_subscription_id = self._subscription_ids.get(subscription_key)
         if existing_subscription_id != subscription_id:
@@ -185,4 +183,9 @@ class SubscriptionManager:
         # like it.
         for owner, callback in list(self._owner_callbacks.items()):
             if owner in self._subscriptions[subscription_key]:
-                await callback(SubscriptionType.SCRIPT_HASH, script_hash, result)
+                context = self._owner_subscription_context[(owner, subscription_key)]
+                try:
+                    await callback(subscription_key, context, result)
+                except Exception:
+                    # Prevent exceptions raising up and killing the async.
+                    logger.exception("Failed dispatching subscription callback")

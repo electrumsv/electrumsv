@@ -30,6 +30,8 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QAbstractItemView, QMenu, QWidget
 
+from bitcoinx import hash_to_hex_str
+
 from ...app_state import app_state
 from ...constants import TransactionOutputFlag
 from ...i18n import _
@@ -84,7 +86,7 @@ class UTXOList(MyTreeWidget):
         self.clear()
 
         for utxo in self._account.get_spendable_transaction_outputs_extended():
-            prevout_str = utxo.key_str()
+            prevout_str = f"{hash_to_hex_str(utxo.tx_hash)}:{utxo.txo_index}"
             prevout_str = prevout_str[0:10] + '...' + prevout_str[-2:]
             label = self._account.get_transaction_label(utxo.tx_hash)
             amount = app_state.format_amount(utxo.value, whitespaces=True)

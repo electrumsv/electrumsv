@@ -48,7 +48,7 @@ class ReceiveDialog(QDialog):
 
         wallet = self._account.get_wallet()
         self._request_row = wallet.read_payment_request(request_id=self._request_id)
-        self._key_data = wallet.get_keyinstance(self._request_row.keyinstance_id)
+        self._key_data = wallet.read_keyinstance(keyinstance_id=self._request_row.keyinstance_id)
         self._receive_key_data: Optional[KeyDataTypes] = None
 
         self._layout_pending = True
@@ -251,8 +251,8 @@ class ReceiveDialog(QDialog):
         expiration = [x[1] for x in EXPIRATION_VALUES][i]
 
         # Expiration is just a label, so we don't use the value.
-        entries = [ PaymentRequestUpdateRow(self._request_row.state, amount, self._request_row.expiration,
-            message, self._request_row.paymentrequest_id) ]
+        entries = [ PaymentRequestUpdateRow(self._request_row.state, amount,
+            self._request_row.expiration, message, self._request_row.paymentrequest_id) ]
         future = wallet.update_payment_requests(entries)
         future.add_done_callback(callback)
 

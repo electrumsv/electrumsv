@@ -44,7 +44,6 @@ from ...web import create_URI
 
 from .constants import pr_icons, pr_tooltips
 from .qrtextedit import ShowQRTextEdit
-from .receive_dialog import ReceiveDialog
 from .util import Buttons, CopyCloseButton, MyTreeWidget, read_QIcon, WindowModalDialog
 
 if TYPE_CHECKING:
@@ -113,7 +112,7 @@ class RequestList(MyTreeWidget):
 
             # TODO(ScriptTypeAssumption) see above for context
             # TODO: This is a per-row database lookup.
-            pr_keyinstance = wallet.get_keyinstance(row.keyinstance_id)
+            pr_keyinstance = wallet.read_keyinstance(keyinstance_id=row.keyinstance_id)
             script_template = self._account.get_script_template_for_key_data(pr_keyinstance,
                 self._account.get_default_script_type())
             address_text = script_template_to_string(script_template)
@@ -155,7 +154,7 @@ class RequestList(MyTreeWidget):
         req = self._account._wallet.read_payment_request(request_id=pr_id)
         message = self._account.get_keyinstance_label(req.keyinstance_id)
         # TODO(ScriptTypeAssumption) see above for context
-        keyinstance = wallet.get_keyinstance(req.keyinstance_id)
+        keyinstance = wallet.read_keyinstance(keyinstance_id=req.keyinstance_id)
         script_template = self._account.get_script_template_for_key_data(keyinstance,
             self._account.get_default_script_type())
         address_text = script_template_to_string(script_template)

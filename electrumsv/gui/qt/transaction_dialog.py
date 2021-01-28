@@ -591,8 +591,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         # we should consider using/combining with the database state. Need to reconcile what would
         # be in the context, and what would be in the database, and how to correctly mix the two.
         prev_txos = self._wallet.get_transaction_outputs_spendable_explicit(
-            [ TxoKeyType(txin.prev_hash, txin.prev_idx) for txin in self.tx.inputs ])
-        prev_txo_dict = { TxoKeyType(r.tx_hash, r.tx_index): r for r in prev_txos }
+            txo_keys=[ TxoKeyType(txin.prev_hash, txin.prev_idx) for txin in self.tx.inputs ])
+        prev_txo_dict = { TxoKeyType(r.tx_hash, r.txo_index): r for r in prev_txos }
         self._spent_value_label.setText(_("Spent input value") +": "+
             app_state.format_amount(sum(r.value for r in prev_txos)))
 
@@ -626,14 +626,14 @@ class TxDialog(QDialog, MessageBoxMixin):
                         # all the wallet's accounts. This means that if the spent output has a
                         # key associated with it, it should already be recorded as spent.
                         is_broken = (prev_txo.keyinstance_id is not None and
-                            prev_txo.txo_flags & TransactionOutputFlag.IS_SPENT) == 0
+                            prev_txo.flags & TransactionOutputFlag.IS_SPENT) == 0
                         broken_text = _("The viewed transaction is in the database. It is "
                             "expected that the spent output should be considered spent by the "
                             "database, but it is not.")
                     else:
                         # The transaction is not in the database, any outputs it spends should
                         # indicate as broken. This does
-                        is_broken = (prev_txo.txo_flags & TransactionOutputFlag.IS_SPENT) != 0
+                        is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) != 0
                         broken_text = _("The viewed transaction is not in the database. The "
                            "output spent by this input is known to the database and is considered "
                            "to be spent by another transaction.")
@@ -673,14 +673,16 @@ class TxDialog(QDialog, MessageBoxMixin):
 
             account_name = ""
             is_receiving = is_change = False
-            if tx_output.keyinstance_id:
-                if tx_output.derivation_type == DerivationType.BIP32_SUBPATH:
-                    is_receiving = tx_output.derivation_data2.startswith(RECEIVING_SUBPATH_BYTES)
-                    is_change = tx_output.derivation_data2.startswith(CHANGE_SUBPATH_BYTES)
+            if tx_output.key_data is not None:
+                if tx_output.key_data.derivation_type == DerivationType.BIP32_SUBPATH:
+                    is_receiving = tx_output.key_data.derivation_data2.startswith(
+                        RECEIVING_SUBPATH_BYTES)
+                    is_change = tx_output.key_data.derivation_data2.startswith(
+                        CHANGE_SUBPATH_BYTES)
                 else:
                     # Imported private key or watched public key.
                     is_receiving = True
-                account = self._wallet.get_account(tx_output.account_id)
+                account = self._wallet.get_account(tx_output.key_data.account_id)
                 account_name = name_for_account(account)
                 received_value += tx_output.value
 
@@ -688,8 +690,9 @@ class TxDialog(QDialog, MessageBoxMixin):
 
             item = QTreeWidgetItem([ str(tx_index), account_name, text, amount_text ])
             item.setData(OutputColumns.INDEX, Roles.IS_MINE, is_change or is_receiving)
-            item.setData(OutputColumns.INDEX, Roles.ACCOUNT_ID, tx_output.account_id)
-            item.setData(OutputColumns.INDEX, Roles.KEY_ID, tx_output.keyinstance_id)
+            if tx_output.key_data is not None:
+                item.setData(OutputColumns.INDEX, Roles.ACCOUNT_ID, tx_output.key_data.account_id)
+                item.setData(OutputColumns.INDEX, Roles.KEY_ID, tx_output.key_data.keyinstance_id)
             if is_receiving:
                 item.setBackground(OutputColumns.DESTINATION, self._receiving_brush)
             if is_change:

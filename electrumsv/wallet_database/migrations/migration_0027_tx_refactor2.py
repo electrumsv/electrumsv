@@ -543,10 +543,15 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     callbacks.progress(66, progress_text.format(_("transactions")))
 
     logger.debug("adding column Transactions.locktime")
-    conn.execute("ALTER TABLE Transactions ADD COLUMN locktime int DEFAULT NULL")
+    conn.execute("ALTER TABLE Transactions ADD COLUMN locktime INTEGER DEFAULT NULL")
 
     logger.debug("adding column Transactions.version")
-    conn.execute("ALTER TABLE Transactions ADD COLUMN version int DEFAULT NULL")
+    conn.execute("ALTER TABLE Transactions ADD COLUMN version INTEGER DEFAULT NULL")
+
+    logger.debug("adding column Transactions.version")
+    conn.execute("ALTER TABLE Transactions ADD COLUMN block_hash BLOB DEFAULT NULL")
+
+    conn.execute("UPDATE Transactions SET block_height=-2 WHERE block_height IS NULL")
 
     logger.debug("setting Transactions.version/locktime values for %d affected rows",
         len(tx_updates))
@@ -642,8 +647,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # Add all the possible keyinstance script hashes.
     key_scripts_rows: List[Tuple[int, int, bytes, int, int]] = []
     for possible_script in key_script_hashes.values():
-        rows.append((possible_script.keyinstance.keyinstance_id, possible_script.script_type,
-        possible_script.script_hash, date_updated, date_updated))
+        key_scripts_rows.append((possible_script.keyinstance.keyinstance_id,
+        possible_script.script_type, possible_script.script_hash, date_updated, date_updated))
     logger.debug("inserting %d initial KeyInstanceScripts rows", len(key_scripts_rows))
     conn.executemany("INSERT INTO KeyInstanceScripts (keyinstance_id, script_type, script_hash, "
         "date_created, date_updated) VALUES (?,?,?,?,?)", key_scripts_rows)

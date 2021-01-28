@@ -245,10 +245,7 @@ class PaymentFlag(IntFlag):
     ARCHIVED = 1 << 4     # unused until we have ui support for filtering
 
     MASK_STATE = (UNPAID | EXPIRED | PAID | ARCHIVED)
-    UNPAID_MASK = ~(PAID | ARCHIVED)
-
     CLEARED_MASK_STATE = ~MASK_STATE
-    ALL_SET_MASK = ~NONE
 
 
 # Transaction limits

@@ -97,6 +97,7 @@ class KeyListRow(NamedTuple):
     date_updated: int
     tx_hash: Optional[bytes]
     txo_index: Optional[int]
+    txo_flags: Optional[TransactionOutputFlag]
     txo_script_type: Optional[ScriptType]
     txo_value: int
 
@@ -129,6 +130,12 @@ class PaymentRequestUpdateRow(NamedTuple):
 SpendConflictType = Tuple[bytes, int, bytes, int]
 
 
+class TransactionBlockRow(NamedTuple):
+    block_height: int
+    block_hash: Optional[bytes]
+    tx_hash: bytes
+
+
 class TransactionDeltaSumRow(NamedTuple):
     account_id: int
     total: int
@@ -155,7 +162,6 @@ class TransactionInputAddRow(NamedTuple):
 
 class TransactionLinkState:
     # Parameters.
-    acquire_related_account_ids: bool = False
     rollback_on_spend_conflict: bool = False
     # Results.
     has_spend_conflicts: bool = False
@@ -163,7 +169,7 @@ class TransactionLinkState:
 
 
 class TransactionMetadata(NamedTuple):
-    block_height: Optional[int]
+    block_height: int
     block_position: Optional[int]
     fee_value: Optional[int]
     date_created: int
@@ -281,7 +287,8 @@ class TransactionRow(NamedTuple):
     tx_hash: bytes
     tx_bytes: Optional[bytes]
     flags: TxFlags
-    block_height: Optional[int]
+    block_hash: Optional[bytes]
+    block_height: int
     block_position: Optional[int]
     fee_value: Optional[int]
     description: Optional[str]

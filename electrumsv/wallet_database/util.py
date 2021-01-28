@@ -104,7 +104,12 @@ def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, para
         rows = cursor.fetchall()
         cursor.close()
         # Skip copying/conversion for standard types.
-        results.extend(return_type(*row) for row in rows)
+        if len(rows):
+            if return_type is bytes:
+                assert len(rows[0]) == 1 and type(rows[0][0]) is return_type
+                results.extend(row[0] for row in rows)
+            else:
+                results.extend(return_type(*row) for row in rows)
         remaining_ids = remaining_ids[batch_size:]
     return results
 

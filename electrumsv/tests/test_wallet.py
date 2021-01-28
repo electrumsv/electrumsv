@@ -249,7 +249,8 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
                     RECEIVING_SUBPATH + (last_allocation_index,))
             continue
 
-        new_keyinstances = account.derive_new_keys_until(RECEIVING_SUBPATH + (last_allocation_index,))
+        new_keyinstances = account.derive_new_keys_until(
+            RECEIVING_SUBPATH + (last_allocation_index,))
         assert count == len(new_keyinstances)
         check_rows(new_keyinstances, account_script_type)
 

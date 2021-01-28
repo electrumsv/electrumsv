@@ -1,5 +1,5 @@
 import concurrent
-from typing import List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 import weakref
 
 from PyQt5.QtCore import Qt
