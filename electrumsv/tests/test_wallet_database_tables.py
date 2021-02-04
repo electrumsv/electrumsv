@@ -15,9 +15,9 @@ from electrumsv.constants import (AccountTxFlags, DerivationType, KeyInstanceFla
     PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
 from electrumsv.types import TxoKeyType
-from electrumsv.wallet_database import DatabaseContext, migration
 from electrumsv.wallet_database import functions as db_functions
-from electrumsv.wallet_database.sqlite_support import LeakedSQLiteConnectionError
+from electrumsv.wallet_database import migration
+from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQLiteConnectionError
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MasterKeyRow, PaymentRequestRow, PaymentRequestUpdateRow,
     TransactionRow, TransactionOutputShortRow, TxProof, WalletEventRow)
@@ -221,7 +221,7 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     tx1 = TransactionRow(
         tx_hash=TX_HASH_1,
         tx_bytes=TX_BYTES_1,
-        flags=TxFlags.STATE_SETTLED,
+        flags=TxFlags.STATE_SETTLED, block_hash=b'11',
         block_height=1, block_position=1, fee_value=250,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
     TX_BYTES_2 = os.urandom(10)
@@ -229,7 +229,7 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     tx2 = TransactionRow(
         tx_hash=TX_HASH_2,
         tx_bytes=TX_BYTES_2,
-        flags=TxFlags.STATE_SETTLED,
+        flags=TxFlags.STATE_SETTLED, block_hash=b'11',
         block_height=1, block_position=1, fee_value=250,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
     future = db_functions.create_transactions(db_context, [ tx1, tx2 ])
@@ -374,9 +374,10 @@ class TestTransactionTable:
     def test_create_read_various(self):
         tx_bytes_1 = os.urandom(10)
         tx_hash = bitcoinx.double_sha256(tx_bytes_1)
-        tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes_1, flags=TxFlags.STATE_DISPATCHED,
-            block_height=None, block_position=None, fee_value=None, description=None,
-            version=None, locktime=None, date_created=1, date_updated=1)
+        tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes_1,
+            flags=TxFlags.STATE_DISPATCHED,
+            block_hash=b'11', block_height=None, block_position=None, fee_value=None,
+            description=None, version=None, locktime=None, date_created=1, date_updated=1)
         future = db_functions.create_transactions(self.db_context, [ tx_row ])
         future.result(timeout=5)
 
@@ -403,6 +404,7 @@ class TestTransactionTable:
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             to_add.append(
                 TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
+                    block_hash=b'11',
                     block_height=1, block_position=None, fee_value=2, description=None,
                     version=None, locktime=None, date_created=1, date_updated=1))
         future = db_functions.create_transactions(self.db_context, to_add)
@@ -412,7 +414,7 @@ class TestTransactionTable:
         added_tx_hashes = set(t[0] for t in to_add)
         assert added_tx_hashes == existing_tx_hashes
 
-    # TODO(nocheckin) no TxData any more
+    # TODO(no-merge) no TxData any more
     #
     # def test_update(self):
     #     to_add = []
@@ -493,8 +495,8 @@ class TestTransactionTable:
             tx_bytes = bytes.fromhex(tx_hex)
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
-                block_height=1, block_position=None, fee_value=2, description=None,
-                version=None, locktime=None, date_created=1, date_updated=1)
+                block_hash=b'11', block_height=1, block_position=None, fee_value=2,
+                description=None, version=None, locktime=None, date_created=1, date_updated=1)
             future = db_functions.create_transactions(self.db_context, [ tx_row ])
             future.result(timeout=5)
             get_tx_hashes.add(tx_hash)
@@ -619,7 +621,7 @@ class TestTransactionTable:
         tx_bytes = os.urandom(10)
         tx_hash = bitcoinx.double_sha256(tx_bytes)
         tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
-            block_height=1, block_position=None, fee_value=2, description=None,
+            block_hash=b'11', block_height=1, block_position=None, fee_value=2, description=None,
             version=None, locktime=None, date_created=1, date_updated=1)
         future = db_functions.create_transactions(self.db_context, [ tx_row ])
         future.result(timeout=5)
@@ -641,7 +643,7 @@ class TestTransactionTable:
         assert proof.branch == merkle_branch1
 
 
-    # TODO(nocheckin) descriptions have moved to AccountTransactions
+    # TODO(no-merge) descriptions have moved to AccountTransactions
     # def test_labels(self):
     #     bytedata_1 = os.urandom(10)
     #     tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
@@ -703,8 +705,9 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
         future.result(timeout=5)
 
     # Satisfy the transaction foreign key constraint by creating the transaction.
-    tx_rows = [ TransactionRow(TX_HASH, TX_BYTES, TxFlags.UNSET, 1, None, 2, None, None, None,
-        date_created=1, date_updated=1) ]
+    tx_rows = [ TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlags.UNSET,
+        block_hash=b'11', block_height=1, block_position=None, fee_value=2, description=None,
+        version=None, locktime=None, date_created=1, date_updated=1) ]
     future = db_functions.create_transactions(db_context, tx_rows)
     future.result(timeout=5)
 
@@ -810,13 +813,23 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
         future = db_functions.create_payment_requests(db_context, [ line1 ])
         future.result()
 
+    def compare_paymentrequest_rows(row1: PaymentRequestRow, row2: PaymentRequestRow) -> None:
+        assert row1.keyinstance_id == row2.keyinstance_id
+        assert row1.state == row2.state
+        assert row1.value == row2.value
+        assert row1.expiration == row2.expiration
+        assert row1.description == row2.description
+        assert -1 != row2.date_created
+
     # Read all rows in the table.
     db_lines = db_functions.read_payment_requests(db_context)
     assert 2 == len(db_lines)
-    db_line1 = [ db_line for db_line in db_lines if db_line == line1 ][0]
-    assert line1 == db_line1
-    db_line2 = [ db_line for db_line in db_lines if db_line == line2 ][0]
-    assert line2 == db_line2
+    db_line1 = [ db_line for db_line in db_lines
+        if db_line.paymentrequest_id == line1.paymentrequest_id ][0]
+    compare_paymentrequest_rows(line1, db_line1)
+    db_line2 = [ db_line for db_line in db_lines
+        if db_line.paymentrequest_id == line2.paymentrequest_id ][0]
+    compare_paymentrequest_rows(line2, db_line2)
 
     # Read all PAID rows in the table.
     db_lines = db_functions.read_payment_requests(db_context, mask=PaymentFlag.PAID)
@@ -936,7 +949,7 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
     assert 1 == len(db_lines)
 
 
-# TODO(nocheckin) need to remove when we deal with a new deactivated key system
+# TODO(no-merge) need to remove when we deal with a new deactivated key system
 # def test_update_used_keys(db_context: DatabaseContext):
 #     """3 main scenarios to test:
 #     - 2 x settled txs and zero balance -> used key gets deactivated
@@ -1103,7 +1116,7 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
     txs = []
     for txh, txb in ((TX_HASH_1, TX_BYTES_1), (TX_HASH_2, TX_BYTES_2), (TX_HASH_3, TX_BYTES_3)):
         tx = TransactionRow(tx_hash=txh, tx_bytes=txb, flags=TxFlags.STATE_SETTLED,
-            block_height=1, block_position=1, fee_value=250,
+            block_height=1, block_hash=b'11', block_position=1, fee_value=250,
             description=None, version=None, locktime=None, date_created=1, date_updated=2)
         txs.append(tx)
     future = db_functions.create_transactions(db_context, txs)

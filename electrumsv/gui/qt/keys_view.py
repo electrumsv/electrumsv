@@ -98,9 +98,9 @@ class KeyFlags(IntFlag):
     FROZEN = 1 << 16
     INACTIVE = 1 << 17
 
-# TODO(nocheckin) This should allow multi-select
-# TODO(nocheckin) This should combine key uses instead of having one row per key/txout.
-# TODO(nocheckin) Add back in the Uses column.
+# TODO(no-merge) This should allow multi-select
+# TODO(no-merge) This should combine key uses instead of having one row per key/txout.
+# TODO(no-merge) Add back in the Uses column.
 KeyLine = KeyListRow
 
 
@@ -929,7 +929,7 @@ class KeyView(QTableView):
                 menu.addAction(_("Remove forced activeness"),
                     partial(self._set_user_active, user_active_keyinstance_ids, False))
 
-            # TODO(nocheckin) Add option to set/unset frozen flag.
+            # TODO(no-merge) Add option to set/unset frozen flag.
 
             # freeze = self._main_window.set_frozen_state
             # if any(self._account.is_frozen_address(addr) for addr in addrs):

@@ -31,28 +31,28 @@ class HistoryListTests(unittest.TestCase):
         height = -1 # Legacy unconfirmed parent.
         position = None
         confs = 0
-        status = get_tx_status(account, height, position, confs, timestamp)
+        status = get_tx_status(account, height, position, confs)
         self.assertEqual(TxStatus.UNCONFIRMED, status)
 
         height = 0
         position = None
         confs = 0
-        status = get_tx_status(account, height, position, confs, timestamp)
+        status = get_tx_status(account, height, position, confs)
         self.assertEqual(TxStatus.UNCONFIRMED, status)
 
         height = local_height + 1
         confs = get_confs_from_height(local_height, height)
-        status = get_tx_status(account, height, position, confs, timestamp)
+        status = get_tx_status(account, height, position, confs)
         self.assertEqual(TxStatus.UNVERIFIED, status)
 
         height = local_height
         confs = get_confs_from_height(local_height, height)
-        status = get_tx_status(account, height, position, confs, timestamp)
+        status = get_tx_status(account, height, position, confs)
         self.assertEqual(TxStatus.FINAL, status)
 
         height = local_height - 1
         confs = get_confs_from_height(local_height, height)
-        status = get_tx_status(account, height, position, confs, timestamp)
+        status = get_tx_status(account, height, position, confs)
         self.assertEqual(TxStatus.FINAL, status)
 
     def test_get_tx_status_maturity(self) -> None:
@@ -68,12 +68,12 @@ class HistoryListTests(unittest.TestCase):
 
         height = (local_height - COINBASE_MATURITY) + 1
         position = 0
-        status = get_tx_status(account, height, position, confs, timestamp)
+        status = get_tx_status(account, height, position, confs)
         self.assertEqual(TxStatus.UNMATURED, status)
 
         height = (local_height - COINBASE_MATURITY)
         position = 0
-        status = get_tx_status(account, height, position, confs, timestamp)
+        status = get_tx_status(account, height, position, confs)
         self.assertEqual(TxStatus.FINAL, status)
 
     def test_get_tx_desc(self) -> None:

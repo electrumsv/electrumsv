@@ -244,9 +244,9 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
 
         last_allocation_index = next_index + count - 1
         if count == 0:
-            with pytest.raises(AssertionError):
-                new_keyinstances = account.derive_new_keys_until(
-                    RECEIVING_SUBPATH + (last_allocation_index,))
+            new_keyinstances = account.derive_new_keys_until(
+                RECEIVING_SUBPATH + (last_allocation_index,))
+            assert len(new_keyinstances) == 0
             continue
 
         new_keyinstances = account.derive_new_keys_until(
@@ -464,7 +464,7 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
         Net.set_to(SVMainnet)
 
 
-# TODO(nocheckin) need to remove when we deal with a new deactivated key system
+# TODO(no-merge) need to remove when we deal with a new deactivated key system
 # def test_detect_used_keys(mocker):
 #     class MockDatabaseContext:
 #         def acquire_connection(self):

@@ -8,8 +8,8 @@ from electrumsv.constants import ScriptType
 from electrumsv import keystore
 from electrumsv.keystore import Multisig_KeyStore
 from electrumsv.networks import Net, SVMainnet
-from electrumsv import wallet_database
 from electrumsv.wallet import MultisigAccount, StandardAccount, Wallet
+from electrumsv.wallet_database.sqlite_support import DatabaseContext
 from electrumsv.wallet_database.types import AccountRow
 
 from .util import setup_async, tear_down_async
@@ -47,7 +47,7 @@ class MockStorage:
         return self.path
 
     def get_db_context(self):
-        return wallet_database.DatabaseContext(self.path)
+        return DatabaseContext(self.path)
 
 
 class TestWalletKeystoreAddressIntegrity(unittest.TestCase):

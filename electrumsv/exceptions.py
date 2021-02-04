@@ -84,6 +84,9 @@ class WalletLoadError(Exception):
 class InvalidPayToError(Exception):
     pass
 
+class SubscriptionStale(Exception):
+    pass
+
 class PreviousTransactionsMissingException(Exception):
     have_tx_hashes: Set[bytes]
     need_tx_hashes: Set[bytes]

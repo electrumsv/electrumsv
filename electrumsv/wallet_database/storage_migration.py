@@ -1,7 +1,7 @@
 """
 Keeps backwards compatible logic for storage migration.
 """
-# TODO(nocheckin) write a decision document for why we have this file.
+# TODO(no-merge) write a decision document for why we have this file.
 import concurrent
 from enum import IntFlag as _IntFlag
 import json

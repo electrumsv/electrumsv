@@ -7,7 +7,7 @@ except ModuleNotFoundError:
     # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
     # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
     import sqlite3 # type: ignore
-from typing import Any, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, cast, Iterable, List, Optional, Sequence, Tuple
 
 from ..bitcoin import COINBASE_MATURITY
 from ..constants import (DerivationType, KeyInstanceFlag, pack_derivation_path,
@@ -28,7 +28,8 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     TransactionOutputAddRow, TransactionOutputSpendableRow,
     TransactionValueRow, TransactionMetadata,
     TransactionOutputFullRow, TransactionOutputShortRow,
-    TransactionOutputSpendableRow2, TransactionRow, TxProof, TxProofResult,
+    TransactionOutputSpendableRow2, TransactionRow,
+    TransactionSubscriptionRow, TxProof, TxProofResult,
     WalletBalance, WalletDataRow, WalletEventRow)
 from .util import (flag_clause, get_timestamp, pack_proof, read_rows_by_id,
     read_rows_by_ids, update_rows_by_id, update_rows_by_ids)
@@ -46,7 +47,7 @@ def count_unused_bip32_keys(db: sqlite3.Connection, account_id: int, masterkey_i
     # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
     sql = ("SELECT COUNT(*) FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&{KeyInstanceFlag.MASK_ALLOCATED})=0 "
+            f"AND (flags&{KeyInstanceFlag.IS_ASSIGNED})=0 "
             "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id")
     cursor = db.execute(sql, (account_id, masterkey_id,
@@ -168,10 +169,10 @@ def create_transaction_outputs(db_context: DatabaseContext,
 
 def create_transactions(db_context: DatabaseContext, rows: List[TransactionRow]) \
         -> concurrent.futures.Future:
-    sql = ("INSERT INTO Transactions (tx_hash, tx_data, flags, "
+    sql = ("INSERT INTO Transactions (tx_hash, tx_data, flags, block_hash, "
         "block_height, block_position, fee_value, description, version, locktime, "
         "date_created, date_updated) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
 
     for row in rows:
         assert type(row.tx_hash) is bytes and row.tx_bytes is not None
@@ -361,10 +362,10 @@ def read_account_transaction_outputs(db: sqlite3.Connection, account_id: int,
     return rows
 
 
-# TODO(nocheckin) test default
-# TODO(nocheckin) test exclude_frozen
-# TODO(nocheckin) test confirmed_only
-# TODO(nocheckin) test mature
+# TODO(no-merge) test default
+# TODO(no-merge) test exclude_frozen
+# TODO(no-merge) test confirmed_only
+# TODO(no-merge) test mature
 @replace_db_context_with_connection
 def read_account_transaction_outputs_spendable(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, mature_height: Optional[int]=None, exclude_frozen: bool=False,
@@ -408,10 +409,10 @@ def read_account_transaction_outputs_spendable(db: sqlite3.Connection, account_i
     return rows
 
 
-# TODO(nocheckin) test default
-# TODO(nocheckin) test exclude_frozen
-# TODO(nocheckin) test confirmed_only
-# TODO(nocheckin) test mature
+# TODO(no-merge) test default
+# TODO(no-merge) test exclude_frozen
+# TODO(no-merge) test confirmed_only
+# TODO(no-merge) test mature
 @replace_db_context_with_connection
 def read_account_transaction_outputs_spendable_extended(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, mature_height: Optional[int]=None, exclude_frozen: bool=False,
@@ -546,6 +547,60 @@ def read_invoices_for_account(db: sqlite3.Connection, account_id: int, flags: Op
 
 
 @replace_db_context_with_connection
+def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: int) \
+        -> List[TransactionSubscriptionRow]:
+    """
+    Find all script hashes we need to monitor for our transaction-related script hash subscriptions.
+
+    For any account-related transaction we would want the script hash of the first output to
+    be a canary for events related to this transaction whether it was malleated or not. However:
+    - ElectrumX does not index OP_FALSE OP_RETURN and we do not have a way to tell if the first
+      output is or is not that, if the output is not ours.
+    - We may not have any outputs in the transaction, and may solely be spending in it.
+    - There may not be any non-OP_FALSE OP_RETURN outputs in the transaction at all, regardless of
+      whose they are.
+    For these reasons we stick to our outputs (whether spends or receives) related to any given
+    transaction.
+
+    We are not concerned about reorgs, the reorg processing should happen independently and even
+    on account/wallet load before these subscriptions are made.
+    """
+    sql_values = [account_id, account_id]
+    sql = ("""
+        WITH summary AS (
+            SELECT TXO.tx_hash,
+                1 AS put_type,
+                TXO.keyinstance_id,
+                TXO.script_hash,
+                ROW_NUMBER() OVER(PARTITION BY TXO.tx_hash
+                                      ORDER BY TXO.tx_index ASC) AS rk
+            FROM TransactionOutputs TXO
+            INNER JOIN AccountTransactions ATX ON ATX.tx_hash = TXO.tx_hash
+            INNER JOIN Transactions TX ON TX.tx_hash = TXO.tx_hash
+            WHERE TXO.keyinstance_id IS NOT NULL AND ATX.account_id=? AND TX.proof_data IS NULL
+            UNION
+            SELECT TXI.tx_hash,
+                2 AS put_type,
+                TXO.keyinstance_id,
+                TXO.script_hash,
+                ROW_NUMBER() OVER(PARTITION BY TXI.tx_hash
+                                      ORDER BY TXI.txi_index ASC) AS rk
+            FROM TransactionInputs TXI
+            INNER JOIN AccountTransactions ATX ON ATX.tx_hash = TXI.tx_hash
+            INNER JOIN Transactions TX ON TX.tx_hash = TXI.tx_hash
+            INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash
+                AND TXO.tx_index=TXI.spent_txo_index
+            WHERE TXO.keyinstance_id IS NOT NULL AND ATX.account_id=? AND TX.proof_data IS NULL)
+        SELECT s.tx_hash, s.put_type, s.keyinstance_id, s.script_hash
+        FROM summary s
+        WHERE s.rk = 1
+        ORDER BY s.put_type""")
+
+    rows = db.execute(sql, sql_values).fetchall()
+    return [ TransactionSubscriptionRow(*t) for t in rows ]
+
+
+@replace_db_context_with_connection
 def read_key_list(db: sqlite3.Connection, account_id: int,
         keyinstance_ids: Optional[Sequence[int]]=None) -> List[KeyListRow]:
     """
@@ -650,7 +705,7 @@ def read_keyinstance_derivation_index_last(db: sqlite3.Connection, account_id: i
     # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
     sql = ("SELECT derivation_data2 FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&{KeyInstanceFlag.MASK_ALLOCATED})=0 "
+            f"AND (flags&{KeyInstanceFlag.IS_ASSIGNED})=0 "
             "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id DESC "
         "LIMIT 1")
@@ -698,7 +753,7 @@ def read_masterkeys(db: sqlite3.Connection) -> List[MasterKeyRow]:
 @replace_db_context_with_connection
 def read_paid_requests(db: sqlite3.Connection, account_id: int, keyinstance_ids: Sequence[int]) \
         -> List[int]:
-    # TODO(nocheckin) ensure this is filtering out transactions or transaction outputs that
+    # TODO(no-merge) ensure this is filtering out transactions or transaction outputs that
     # are not relevant.
     sql = ("SELECT PR.keyinstance_id "
         "FROM PaymentRequests PR "
@@ -767,7 +822,7 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
         sql += f" WHERE keyinstance_id=?"
         sql_values = [ keyinstance_id ]
     else:
-        # TODO(nocheckin) do not raise Exception
+        # TODO(no-merge) do not raise Exception
         raise NotImplementedError("request_id and keyinstance_id not supported")
     t = db.execute(sql, sql_values).fetchone()
     if t is not None:
@@ -834,7 +889,7 @@ def read_transaction_block_info(db: sqlite3.Connection, tx_hash: bytes) -> Tuple
     return row
 
 
-# TODO(nocheckin) descriptions have moved to AccountTransactions
+# TODO(no-merge) descriptions have moved to AccountTransactions
 # @replace_db_context_with_connection
 # def read_transaction_descriptions(db: sqlite3.Connection,
 #         tx_hashes: Optional[Sequence[bytes]]=None) -> List[TransactionDescriptionResult]:
@@ -940,7 +995,7 @@ def read_transaction_outputs_spendable_explicit(db: sqlite3.Connection, *,
     join_term = "INNER" if require_spends else "LEFT"
     if tx_hash:
         assert txo_keys is None
-        # TODO(nocheckin) What uses this? We should left join.
+        # TODO(no-merge) What uses this? We should left join.
         sql = (
             "SELECT TXO.tx_hash, TXO.tx_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
                 "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, "
@@ -985,7 +1040,7 @@ def read_transaction_proof(db: sqlite3.Connection, tx_hashes: Sequence[bytes]) \
 def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
         tx_hashes: Optional[List[bytes]]=None, mask: Optional[TxFlags]=None) \
             -> List[TransactionValueRow]:
-    # TODO(nocheckin) filter out irrelevant transactions (deleted, etc)
+    # TODO(no-merge) filter out irrelevant transactions (deleted, etc)
     if tx_hashes is None:
         sql = ("SELECT TXV.tx_hash, TOTAL(TXV.value), TX.flags, TX.block_height, "
                 "TX.date_created, TX.date_updated "
@@ -1041,7 +1096,7 @@ def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id
     sql = ("SELECT keyinstance_id, account_id, masterkey_id, derivation_type, "
         "derivation_data, derivation_data2, flags, description FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&{KeyInstanceFlag.MASK_ALLOCATED})=0 "
+            f"AND (flags&{KeyInstanceFlag.IS_ASSIGNED})=0 "
             "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id "
         f"LIMIT {limit}")
@@ -1052,7 +1107,7 @@ def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id
     rows = cursor.fetchall()
     cursor.close()
 
-    # TODO(nocheckin) work out if we need all this, or just keyinstance_id and the derivation
+    # TODO(no-merge) work out if we need all this, or just keyinstance_id and the derivation
     # path in derivation_data2.
     return [ KeyInstanceRow(row[0], row[1], row[2], DerivationType(row[3]), row[4], row[5],
         KeyInstanceFlag(row[6]), row[7]) for row in rows ]
@@ -1068,8 +1123,9 @@ def read_unverified_transactions(db: sqlite3.Connection, local_height: int) \
     that it is correct for our local blockchain headers, we get a batch of transactions that
     need to be verified and settled for the caller.
     """
-    # TODO There is a chance that this will pick up transactions in the database that are
-    # not related to accounts.
+    # TODO(no-merge) There is a chance that this will pick up transactions in the database that
+    # are not related to accounts. If a transaction has is associated with a block and an account
+    # we should probably fetch the proof.
     sql = (
         "SELECT tx_hash, block_height "
         "FROM Transactions "
@@ -1214,8 +1270,8 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
         f"SET flags=flags|{allocation_flags} "
         f"WHERE keyinstance_id=? AND flags&{KeyInstanceFlag.IS_ASSIGNED}=0")
 
-    def _write(db: sqlite3.Connection) -> int:
-        nonlocal sql_read, sql_read_values, sql_write
+    def _write(db: sqlite3.Connection) -> Tuple[int, KeyInstanceFlag]:
+        nonlocal allocation_flags, sql_read, sql_read_values, sql_write
 
         keyinstance_row = db.execute(sql_read, sql_read_values).fetchone()
         if keyinstance_row is None:
@@ -1227,7 +1283,7 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
             # The key was allocated by something else between the read and the write.
             raise DatabaseUpdateError()
 
-        return keyinstance_row[0]
+        return cast(int, keyinstance_row[0]), cast(KeyInstanceFlag, allocation_flags)
 
     return db_context.post_to_thread(_write)
 
@@ -1347,7 +1403,7 @@ def set_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRo
     return db_context.post_to_thread(_write)
 
 
-# TODO(nocheckin) descriptions have moved to AccountTransactions
+# TODO(no-merge) descriptions have moved to AccountTransactions
 # def update_transaction_descriptions(db_context: DatabaseContext,
 #         entries: Iterable[Tuple[str, bytes]]) -> concurrent.futures.Future:
 #     sql = "UPDATE Transactions SET date_updated=?, description=? WHERE tx_hash=?"

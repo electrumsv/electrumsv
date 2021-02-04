@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from bitcoinx import hash_to_hex_str
 
 from .constants import SubscriptionType
+from .exceptions import SubscriptionStale
 from .logs import logs
 from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey,
     ScriptHashSubscriptionCallback, ScriptHashSubscriptionEntry, ScriptHashResultCallback,
@@ -23,7 +24,7 @@ from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey,
 logger = logs.get_logger("subscriptions")
 
 
-# TODO(nocheckin) Need to unit test this class after it's been hooked into the different use
+# TODO(no-merge) Need to unit test this class after it's been hooked into the different use
 #     cases and proven to suit the needs.
 class SubscriptionManager:
     _script_hashes_added_callback: Optional[ScriptHashSubscriptionCallback] = None
@@ -58,7 +59,7 @@ class SubscriptionManager:
             if owner in self._owner_subscriptions:
                 subscribed_entries = [ SubscriptionEntry(key, None)
                     for key in self._owner_subscriptions[owner] ]
-                self.delete(subscribed_entries, owner)
+                self.delete_entries(subscribed_entries, owner)
                 del self._owner_subscriptions[owner]
 
     def set_script_hash_callbacks(self, added_callback: ScriptHashSubscriptionCallback,
@@ -118,7 +119,7 @@ class SubscriptionManager:
             return subscription_id
         return None
 
-    def create(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) -> None:
+    def create_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) -> None:
         """
         Add subscriptions from the given owner.
         """
@@ -150,15 +151,17 @@ class SubscriptionManager:
                 script_hash_entries.append(ScriptHashSubscriptionEntry(subscription_id, key.value))
             return script_hash_entries
 
-    def delete(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) -> None:
+    def delete_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) -> int:
         """
         Remove subscriptions from the given owner.
         """
+        removals = 0
         with self._lock:
             script_hash_entries: List[ScriptHashSubscriptionEntry] = []
             for entry in entries:
                 subscription_id = self._remove_subscription(entry, owner)
                 if subscription_id is not None:
+                    removals += 1
                     # All subscriptions for this key are removed, notify unsubscribing is possible.
                     if entry.key.value_type == SubscriptionType.SCRIPT_HASH:
                         script_hash_entries.append(
@@ -169,6 +172,7 @@ class SubscriptionManager:
                 from .app_state import app_state
                 app_state.async_.spawn_and_wait(self._script_hashes_removed_callback,
                     script_hash_entries)
+        return removals
 
     async def on_script_hash_history(self, subscription_id: int, script_hash: bytes,
             result: ElectrumXHistoryList) -> None:
@@ -179,13 +183,17 @@ class SubscriptionManager:
                 hash_to_hex_str(script_hash), subscription_id, existing_subscription_id)
             return
 
-        # Copy the list in case an owner unregisters mid-callback and the iterator does not
-        # like it.
         for owner, callback in list(self._owner_callbacks.items()):
             if owner in self._subscriptions[subscription_key]:
+                # This may modify the contents of the owner context for this subscription.
                 context = self._owner_subscription_context[(owner, subscription_key)]
                 try:
                     await callback(subscription_key, context, result)
+                except SubscriptionStale:
+                    logger.debug("Removing a stale subscription for %s", subscription_key)
+                    # TODO(no-merge) This needs to be unit tested.
+                    self.delete_entries([ SubscriptionEntry(subscription_key, context) ],
+                        owner)
                 except Exception:
-                    # Prevent exceptions raising up and killing the async.
+                    # Prevent unexpected exceptions raising up and killing the async.
                     logger.exception("Failed dispatching subscription callback")

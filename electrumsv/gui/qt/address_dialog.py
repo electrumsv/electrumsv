@@ -90,11 +90,12 @@ class KeyDialog(WindowModalDialog):
 
         # connect slots so the embedded history list gets updated whenever the history changes
         main_window.history_updated_signal.connect(self._history_list.update)
-        main_window.network_signal.connect(self._on_transaction_verified)
+        main_window.transaction_verified_signal.connect(self._on_transaction_verified)
 
-    def _on_transaction_verified(self, event: str, args) -> None:
-        if event == 'verified':
-            self._history_list.update_tx_item(*args)
+    def _on_transaction_verified(self, tx_hash: bytes, block_height: int, block_position: int,
+            confirmations: int, timestamp: int) -> None:
+        self._history_list.update_tx_item(tx_hash, block_height, block_position, confirmations,
+            timestamp)
 
     def update_key(self) -> None:
         script_template = self._account.get_script_template_for_key_data(self._key_data,

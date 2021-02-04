@@ -39,11 +39,11 @@ import random
 import threading
 import time
 from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence,
-    Set, Tuple, TypeVar, TYPE_CHECKING, Union)
+    Set, Tuple, TypeVar, TYPE_CHECKING)
 import weakref
 
 import aiorpcx
-from bitcoinx import (double_sha256, hash_to_hex_str, hex_str_to_hash, MissingHeader,
+from bitcoinx import (double_sha256, hash_to_hex_str, Header, hex_str_to_hash, MissingHeader,
     P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item,
     Script)
 
@@ -59,7 +59,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
-    UserCancelled, WalletLoadError)
+    SubscriptionStale, UserCancelled, WalletLoadError)
 from .i18n import _
 from .keys import get_multi_signer_script_template, get_single_signer_script_template
 from .keystore import (Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
@@ -71,7 +71,8 @@ from .storage import WalletStorage
 from .transaction import (Transaction, TransactionContext, TxSerialisationFormat, NO_SIGNATURE,
     tx_dict_from_text, XPublicKey, XPublicKeyType, XTxInput, XTxOutput)
 from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey, SubscriptionOwner,
-    SubscriptionScriptHashOwnerContext, TxoKeyType, WaitingUpdateCallback)
+    SubscriptionKeyScriptHashOwnerContext, SubscriptionTransactionScriptHashOwnerContext,
+    TxoKeyType, WaitingUpdateCallback)
 from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime,
     TriggeredCallbacks)
 from .util.cache import LRUCache
@@ -83,6 +84,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
     PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
     TransactionDeltaSumRow, TransactionLinkState, TransactionMetadata,
+    TransactionSubscriptionRow,
     TransactionOutputShortRow, TransactionOutputSpendableRow2, TransactionOutputSpendableRow,
     TransactionOutputSpendableTypes, TransactionValueRow,
     TransactionInputAddRow, TransactionOutputAddRow,
@@ -139,8 +141,11 @@ class AbstractAccount:
         self._wallet = weakref.proxy(wallet)
         self._row = row
         self._id = row.account_id
+
         self._subscription_owner_for_keys = SubscriptionOwner(self._wallet._id, self._id,
             SubscriptionOwnerPurpose.ACTIVE_KEYS)
+        self._subscription_owner_for_transactions = SubscriptionOwner(self._wallet._id, self._id,
+            SubscriptionOwnerPurpose.TRANSACTION_STATE)
 
         self._logger = logs.get_logger("account[{}]".format(self.name()))
         self._network = None
@@ -210,7 +215,7 @@ class AbstractAccount:
             self._logger.debug("derive_new_keys_until path=%s index=%d count=%d",
                 derivation_subpath, final_index, required_count)
             future, rows = self.create_keys(derivation_subpath, required_count)
-            # TODO(nocheckin) Reconcile the need for waiting for the future here.
+            # TODO(no-merge) Reconcile the need for waiting for the future here.
             if future is not None:
                 future.result()
             return rows
@@ -245,7 +250,7 @@ class AbstractAccount:
                 keyinstance_scripthashes.append(KeyInstanceScriptHashRow(row.keyinstance_id,
                     script_type, script_hash))
         future_ = self._wallet.create_keyinstance_scripts(keyinstance_scripthashes)
-        # TODO(nocheckin) The concept of activated keys will change with the new model.
+        # TODO(no-merge) The concept of activated keys will change with the new model.
         # self._add_activated_keys(rows)
         return keyinstance_future, rows
 
@@ -261,7 +266,7 @@ class AbstractAccount:
             entries.append(
                 SubscriptionEntry(
                     SubscriptionKey(SubscriptionType.SCRIPT_HASH, row.script_hash),
-                    SubscriptionScriptHashOwnerContext(row.keyinstance_id, row.script_type)))
+                    SubscriptionKeyScriptHashOwnerContext(row.keyinstance_id, row.script_type)))
         return entries
 
     def set_keyinstance_flags(self, keyinstance_ids: List[int], flags: KeyInstanceFlag,
@@ -277,15 +282,29 @@ class AbstractAccount:
             keyinstance_ids=keyinstance_ids)
         assert len(keyinstances) == len(keyinstance_ids)
 
+        assert flags & KeyInstanceFlag.IS_ACTIVE == 0, "cannot be set directly at this time"
+
+        # Setting `USER_SET_ACTIVE` is additive to the base `IS_ACTIVE` flag.
+        if flags & KeyInstanceFlag.USER_SET_ACTIVE:
+            flags |= KeyInstanceFlag.IS_ACTIVE
+
+        # NOTE(ActivitySubscription) If a key becomes active here through one of the specialised
+        #   activity flags, then we will want to subscribe to it. But if it has one of those flags
+        #   removed this does not mean we will want to unsubscribe. We may still want to get
+        #   notifications to detect whether a transaction has been mined, so that we know to
+        #   request a merkle proof.
         subscription_keyinstance_ids: List[int] = []
         unsubscription_keyinstance_ids: List[int] = []
         for keyinstance in keyinstances:
-            if flags & KeyInstanceFlag.MASK_ACTIVE:
-                if not keyinstance.flags & KeyInstanceFlag.MASK_ACTIVE:
+            if flags & KeyInstanceFlag.IS_ACTIVE:
+                if not keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
                     # Inactive -> active.
                     subscription_keyinstance_ids.append(keyinstance.keyinstance_id)
             else:
-                if keyinstance.flags & KeyInstanceFlag.MASK_ACTIVE:
+                if keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
+                    # TODO(no-merge) It is not correct to make a key inactive when USER_SET_ACTIVE
+                    #   is cleared as we may still have obligations with the key to detect when the
+                    #   transaction is mined and need the key to be subscribed for that.
                     # Active -> inactive.
                     unsubscription_keyinstance_ids.append(keyinstance.keyinstance_id)
 
@@ -298,12 +317,12 @@ class AbstractAccount:
             future.result()
 
             if len(subscription_keyinstance_ids):
-                app_state.subscriptions.create(
+                app_state.subscriptions.create_entries(
                     self._get_subscription_entries_for_keyinstance_ids(
                         subscription_keyinstance_ids), self._subscription_owner_for_keys)
 
             if len(unsubscription_keyinstance_ids):
-                app_state.subscriptions.delete(
+                app_state.subscriptions.delete_entries(
                     self._get_subscription_entries_for_keyinstance_ids(
                         unsubscription_keyinstance_ids), self._subscription_owner_for_keys)
 
@@ -334,7 +353,7 @@ class AbstractAccount:
         return script_template.to_script()
 
     def is_synchronized(self) -> bool:
-        # TODO(nocheckin) Need to reimplement to deal with scanning/pending state?
+        # TODO(no-merge) Need to reimplement to deal with scanning/pending state?
         return True
 
     def get_keystore(self) -> Optional[KeyStore]:
@@ -352,7 +371,7 @@ class AbstractAccount:
     def get_master_public_key(self):
         return None
 
-    # TODO(nocheckin) This is not compatible with multi-account usage of the same transaction
+    # TODO(no-merge) This is not compatible with multi-account usage of the same transaction
     # unless we repackage the outer transaction. The problem here is that we would be overwriting
     # the description on the cached transaction for the last requested account.
     def get_transaction(self, tx_hash: bytes) -> Optional[Transaction]:
@@ -437,7 +456,7 @@ class AbstractAccount:
 
     def get_label_data(self) -> Dict[str, Any]:
         # Create exported data structure for account labels/descriptions.
-        # TODO(nocheckin) Are key labels still supported?
+        # TODO(no-merge) Are key labels still supported?
         # NOTE(typing) Ignore when `derivation_data2` is None.
         label_entries = [
             (unpack_derivation_path(key.derivation_data2),  key.description) # type: ignore
@@ -770,16 +789,47 @@ class AbstractAccount:
     def start(self, network) -> None:
         self._network = network
         if network:
+            # Set up the key monitoring for the account.
             app_state.subscriptions.set_owner_callback(self._subscription_owner_for_keys,
                 self._on_network_key_script_hash_result)
-            # TODO(someday?) This only needs to read keyinstance ids.
+            # TODO(deferred) This only needs to read keyinstance ids and could be combined with
+            #   the second call in `_get_subscription_entries_for_keyinstance_ids`
             keyinstances = self._wallet.read_keyinstances(account_id=self._id,
-                mask=KeyInstanceFlag.MASK_ACTIVE)
+                mask=KeyInstanceFlag.IS_ACTIVE)
             if len(keyinstances):
+                self._logger.debug("Creating %d active key subscriptions",
+                    len(keyinstances))
                 subscription_keyinstance_ids = [ row.keyinstance_id for row in keyinstances ]
-                app_state.subscriptions.create(
+                app_state.subscriptions.create_entries(
                     self._get_subscription_entries_for_keyinstance_ids(
                         subscription_keyinstance_ids), self._subscription_owner_for_keys)
+
+            # Set up the transaction monitoring for the account.
+            app_state.subscriptions.set_owner_callback(self._subscription_owner_for_transactions,
+                self._on_network_transaction_script_hash_result)
+            # We need to filter out any input match for a transaction if we have an output match.
+            # The query will provide both, but order outputs before inputs. An input match has the
+            # script hash of the spent output, but the tx hash of the spending transaction. So
+            # the tx hash will always be the local transaction we need the event for.
+            tx_seen: Set[bytes] = set()
+            tx_rows_by_script_hash: Dict[bytes, List[TransactionSubscriptionRow]] = {}
+            tx_subscription_entries: List[SubscriptionEntry] = []
+            for tx_row in self._wallet.read_keys_for_transaction_subscriptions(self._id):
+                if tx_row.tx_hash not in tx_seen:
+                    tx_seen.add(tx_row.tx_hash)
+                    if tx_row.script_hash in tx_rows_by_script_hash:
+                        tx_rows_by_script_hash[tx_row.script_hash].append(tx_row)
+                    else:
+                        tx_entry_rows = tx_rows_by_script_hash[tx_row.script_hash] = [ tx_row ]
+                        tx_entry = SubscriptionEntry(
+                            SubscriptionKey(SubscriptionType.SCRIPT_HASH, tx_row.script_hash),
+                            SubscriptionTransactionScriptHashOwnerContext(tx_entry_rows))
+                        tx_subscription_entries.append(tx_entry)
+            if len(tx_subscription_entries):
+                self._logger.debug("Creating %d transaction subscriptions",
+                    len(tx_subscription_entries))
+                app_state.subscriptions.create_entries(tx_subscription_entries,
+                    self._subscription_owner_for_transactions)
 
     def stop(self) -> None:
         assert not self._stopped
@@ -792,7 +842,7 @@ class AbstractAccount:
             self._network = None
 
     async def _on_network_key_script_hash_result(self, subscription_key: SubscriptionKey,
-            context: SubscriptionScriptHashOwnerContext,
+            context: SubscriptionKeyScriptHashOwnerContext,
             history: ElectrumXHistoryList) -> None:
         """
         Receive an event related to this account and it's active keys.
@@ -835,7 +885,6 @@ class AbstractAccount:
             # NOTE(typing) The storage of mixed type values in the history gives false positives.
             tx_heights[tx_hash] = entry["height"] # type: ignore
             tx_fee_hints[tx_hash] = entry.get("fee") # type: ignore
-        existing_tx_hashes: Optional[List[bytes]] = None
 
         changes = 0
         keyinstance = self._wallet.read_keyinstance(account_id=self._id,
@@ -847,9 +896,101 @@ class AbstractAccount:
             if (request.state & (PaymentFlag.UNPAID | PaymentFlag.ARCHIVED)) == PaymentFlag.UNPAID:
                 changes += await self._wallet.maybe_obtain_transactions_async(tx_hashes,
                     tx_heights, tx_fee_hints)
-        changes += await self._wallet.maybe_obtain_proofs_async(tx_hashes, tx_heights)
         if changes > 0:
             self._wallet.txs_changed_event.set()
+
+    # TODO(no-merge) unit test malleation replacement of a transaction
+    # TODO(no-merge) unit test spam transaction presence
+    # TODO(no-merge) unit test spam transaction presence
+    async def _on_network_transaction_script_hash_result(self, subscription_key: SubscriptionKey,
+            context: SubscriptionTransactionScriptHashOwnerContext,
+            history: ElectrumXHistoryList) -> None:
+        """
+        Receive an event related to this account and it's published account-related transactions.
+
+        `history` is in immediately usable order. Transactions are listed in ascending
+        block height (height > 0), followed by the unconfirmed (height == 0) and then
+        those with unconfirmed parents (height < 0).
+
+            [
+                { "tx_hash": "e232...", "height": 111 },
+                { "tx_hash": "df12...", "height": 222 },
+                { "tx_hash": "aa12...", "height": 0, "fee": 400 },
+                { "tx_hash": "bb12...", "height": -1, "fee": 300 },
+            ]
+
+        Use cases handled:
+        * Ignore all information about unknown transactions that use this key, and solely
+          observe whether the given transaction is mined in order to know when we can obtain a
+          merkle proof.
+          - The user creates a local transaction and gives it to another party.
+          - The user creates and broadcasts a payment (pays to a payment destination).
+          - The user is paying an invoice.
+          - The user makes a payment to via Paymail.
+          - The user receives a payment via Paymail.
+
+        Note that we are called synchronously from the network.
+        """
+        if not history:
+            return
+
+        tx_heights: Dict[bytes, int] = {}
+        for entry in history:
+            tx_hash = hex_str_to_hash(entry["tx_hash"])
+            # NOTE(typing) The storage of mixed type values in the history gives false positives.
+            tx_heights[tx_hash] = entry["height"] # type: ignore
+
+        async with self._wallet._obtain_proofs_async_lock:
+            entries: List[TransactionBlockRow] = []
+            pending_rows: List[TransactionSubscriptionRow] = []
+            for row in context.tx_rows[:]:
+                if row.tx_hash in tx_heights:
+                    # The transaction is either present in the mempool or in a block. We can
+                    # update the height and clear the proof.
+                    block_height = tx_heights[row.tx_hash]
+                    block_hash = self._wallet._get_header_hash_for_height(block_height)
+                    entries.append(TransactionBlockRow(block_height, block_hash, row.tx_hash))
+                    # If the transaction is in a block, it will be in a state in the database
+                    # where we do not need to monitor it any more. If it is in the mempool we
+                    # need to wait for it to be included in a block, and will continue to monitor
+                    # it.
+                    if block_height > 0:
+                        context.tx_rows.remove(row)
+                else:
+                    pending_rows.append(row)
+
+            # Process any subscription transactions we did not locate if we can.
+            if len(pending_rows) and len(entries) < len(tx_heights):
+                # There are several possibilities here.
+                #
+                # 1. The transaction has been malleated and is present with another hash.
+                # 2. The transaction is not present but others are perhaps in the form of spam
+                #    transactions that we do not want to have.
+                #
+                # We need to fetch each transaction and analyse them. This should be the exception
+                # rather than the rule, so should not be that common. As the chance of users seeing
+                # spam transactions goes away, especially with ElectrumSV no longer showing them
+                # by default, the benefits of making them should no longer be present.
+                #
+                # However we are not going to do that at this point. It will be a todo item and a
+                # second pass.
+                # TODO(no-merge) Catch malleated transactions by fetching and processing them as
+                #   described.
+                pass
+
+            future = self._wallet.update_transaction_block_many(entries)
+            update_count = future.result()
+            self._logger.debug("maybe_obtain_proofs_async: updated %d of %d entries",
+                update_count, len(entries))
+            # The network loop that fetches transactions and proofs needs to be signalled that we
+            # have altered data it can use to potentially get new items to work on.
+            if update_count:
+                self._wallet.txs_changed_event.set()
+
+            # Ensure that all subscriptions to this script hash for our transaction needs are
+            # removed and cleaned up.
+            if len(context.tx_rows) == 0:
+                raise SubscriptionStale()
 
     def can_export(self) -> bool:
         if self.is_watching_only():
@@ -863,9 +1004,9 @@ class AbstractAccount:
         """
         Construct a "child pays for parent" transaction for `tx`.
         """
-        # TODO(nocheckin) get any output for this transaction that belongs to this account.
+        # TODO(no-merge) get any output for this transaction that belongs to this account.
         # Get all outputs for this transaction with keyinstances
-        # TODO(nocheckin) we need to get the script and the xpubkeys for the child
+        # TODO(no-merge) we need to get the script and the xpubkeys for the child
         tx_hash = tx.hash()
         # These are required to have attached keys, so will be account coins received in the
         # given transaction.
@@ -1093,74 +1234,13 @@ class AbstractAccount:
     def can_delete_key(self):
         return False
 
-    # TODO(nocheckin) This whole concept needs to be rewritten
-    # def _add_activated_keys(self, keys: Sequence[KeyInstanceRow]) -> None:
-    #     # There is no unique id for the account, so we just pass the wallet for now.
-    #     self._wallet.trigger_callback('on_keys_created', self._id, keyinstance_ids)
-
-    # TODO(nocheckin) need to remove when we deal with a new deactivated key system
-    # def poll_used_key_detection(self, every_n_seconds: int) -> None:
-    #     if self.last_poll_time is None or time.time() - self.last_poll_time > every_n_seconds:
-    #         self.last_poll_time = time.time()
-    #         self.detect_used_keys()
-
-    # TODO(nocheckin) need to remove when we deal with a new deactivated key system
-    # def detect_used_keys(self) -> None:
-    #     """Note: re-activation of keys is dealt with via:
-    #       a) reorg detection time - see self.reactivate_reorged_keys()
-    #       b) manual re-activation by the user
-
-    #     Therefore, this function only needs to deal with deactivation"""
-
-    #     if not self._wallet._storage.get('deactivate_used_keys', False):
-    #         return
-
-    #     # Get all used keys with zero balance (of the ones that are currently active)
-    #     self._logger.debug("detect-used-keys: checking active keys for deactivation criteria")
-    #     with TransactionDeltaTable(self._wallet._db_context) as table:
-    #         used_keyinstance_ids = table.update_used_keys(self._id)
-
-    #     if len(used_keyinstance_ids) == 0:
-    #         return
-
-    #     used_keyinstances = []
-    #     with self._deactivated_keys_lock:
-    #         for keyinstance_id in used_keyinstance_ids:
-    #             self._deactivated_keys.append(keyinstance_id)
-    #             key: KeyInstanceRow = self._keyinstances[keyinstance_id]
-    #             used_keyinstances.append(key)
-    #         self._deactivated_keys_event.set()
-
-    #     self.update_key_activation_state_cache(used_keyinstances, False)
-    #     self._logger.debug("deactivated %s used keys", len(used_keyinstance_ids))
-
-    # def update_key_activation_state(self, keyinstances: List[KeyInstanceRow], activate: bool) \
-    #         -> None:
-    #     db_updates = self.update_key_activation_state_cache(keyinstances, activate)
-    #     self._wallet.update_keyinstance_flags(db_updates)
-
-    # def update_key_activation_state_cache(self, keyinstances: List[KeyInstanceRow],
-    #         activate: bool) -> List[Tuple[KeyInstanceFlag, int]]:
-    #     db_updates = []
-    #     for key in keyinstances:
-    #         old_flags = KeyInstanceFlag(key.flags)
-    #         if activate:
-    #             new_flags = old_flags | KeyInstanceFlag.IS_ACTIVE
-    #         else:
-    #             # if USER_SET_ACTIVE flag is set - this flag will remain
-    #             new_flags = old_flags & (KeyInstanceFlag.MASK_INACTIVE |
-    #                 KeyInstanceFlag.USER_SET_ACTIVE)
-    #         self._keyinstances[key.keyinstance_id] = key._replace(flags=new_flags)
-    #         db_updates.append((new_flags, key.keyinstance_id))
-    #     return db_updates
-
     def reactivate_reorged_keys(self, reorged_tx_hashes: List[bytes]) -> None:
         """re-activate all of the reorged keys and allow deactivation to occur via the usual
         mechanisms."""
         pass
         # with self.lock:
         #     key_ids: List[int] = []
-            # TODO(nocheckin) needs to be unatchive keys for the reorged transactions?
+            # TODO(no-merge) needs to be unatchive keys for the reorged transactions?
             # Need to work out the larger model.
             # for tx_hash in reorged_tx_hashes:
             #     tx_key_ids.append((tx_hash, self._sync_state.get_transaction_key_ids(
@@ -1260,7 +1340,7 @@ class ImportedAddressAccount(ImportedAccountBase):
             KeyInstanceFlag.IS_ACTIVE, None)
         keyinstance_future, rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
 
-        # TODO(nocheckin) The concept of activated keys is going to change to a different model.
+        # TODO(no-merge) The concept of activated keys is going to change to a different model.
         # self._add_activated_keys(rows)
         return True
 
@@ -1300,7 +1380,7 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
     def _load_keys(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
         cast(Imported_KeyStore, self._default_keystore).load_state(keyinstance_rows)
 
-    # TODO(nocheckin) what should this account type do here?
+    # TODO(no-merge) what should this account type do here?
     # def _unload_keys(self, key_ids: Set[int]) -> None:
     #     for key_id in key_ids:
     #         cast(Imported_KeyStore, self._default_keystore).remove_key(key_id)
@@ -1332,9 +1412,9 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         raw_keyinstance = KeyInstanceRow(-1, -1, None, DerivationType.PRIVATE_KEY, derivation_data,
             derivation_data2, KeyInstanceFlag.IS_ACTIVE, None)
         keyinstance_future, rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
-        # TODO(nocheckin) imported private keystores need the key instances.
+        # TODO(no-merge) imported private keystores need the key instances.
         keystore.import_private_key(rows[0].keyinstance_id, public_key, enc_private_key_text)
-        # TODO(nocheckin) The concept of activated keys is going away as we change models.
+        # TODO(no-merge) The concept of activated keys is going away as we change models.
         # self._add_activated_keys(rows)
         return private_key_text
 
@@ -1395,16 +1475,30 @@ class DeterministicAccount(AbstractAccount):
 
     def reserve_unassigned_key(self, derivation_parent: Sequence[int], flags: KeyInstanceFlag) \
             -> int:
+        """
+        Select the first available unassigned key from the given sequence and mark it active.
+
+        TODO For now keys are implicitly marked active as part of this. But it is not the case that
+          something that reserves keys necessarily wants the key to be active. When we have a use
+          case we should refactor this so that only cases that want active keys get them. All other
+          cases just get IS_ASSIGNED.
+        """
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
         try:
-            keyinstance_id = self._wallet.reserve_keyinstance(self._id, masterkey_id,
+            keyinstance_id, final_flags = self._wallet.reserve_keyinstance(self._id, masterkey_id,
                 derivation_parent, flags)
         except KeyInstanceNotFoundError:
-            # TODO(nocheckin) Need to revisit how we manage an outstanding pool of fresh keys.
+            # TODO(no-merge) Need to revisit how we manage an outstanding pool of fresh keys.
             self.bulk_create_keys(derivation_parent)
-            keyinstance_id = self._wallet.reserve_keyinstance(self._id, masterkey_id,
+            keyinstance_id, final_flags = self._wallet.reserve_keyinstance(self._id, masterkey_id,
                 derivation_parent, flags)
+        if final_flags & KeyInstanceFlag.IS_ACTIVE:
+            # NOTE(ActivitySubscription) This represents a key that was not previously active
+            #   becoming active and requiring a subscription for events.
+            app_state.subscriptions.create_entries(
+                self._get_subscription_entries_for_keyinstance_ids(keyinstance_id),
+                    self._subscription_owner_for_keys)
         return keyinstance_id
 
     # Returns ordered from use first to use last.
@@ -1413,7 +1507,7 @@ class DeterministicAccount(AbstractAccount):
         if len(fresh_keys) < count:
             required_count = count - len(fresh_keys)
             future, new_keys = self.create_keys(derivation_parent, required_count)
-            # TODO(nocheckin) Reconcile whether we need to wait on the future here.
+            # TODO(no-merge) Reconcile whether we need to wait on the future here.
             if future is not None:
                 future.result()
             # Preserve oldest to newest ordering.
@@ -1428,18 +1522,6 @@ class DeterministicAccount(AbstractAccount):
         masterkey_id = keystore.get_id()
         return self._wallet.read_bip32_keys_unused(self._id, masterkey_id, derivation_parent,
             limit)
-        # def _is_fresh_key(keyinstance: KeyInstanceRow) -> bool:
-        #     return (keyinstance.script_type == ScriptType.NONE and
-        #         (keyinstance.flags & KeyInstanceFlag.MASK_ALLOCATED) == 0)
-        # parent_depth = len(derivation_parent)
-        # candidates = [ key for key in self._keyinstances.values()
-        #     if len(self._keypath[key.keyinstance_id]) == parent_depth+1
-        #     and self._keypath[key.keyinstance_id][:parent_depth] == derivation_parent ]
-        # # Order keys from newest to oldest and work out how many in front are unused/fresh.
-        # keys = sorted(candidates, key=lambda v: -v.keyinstance_id)
-        # newest_to_oldest = list(itertools.takewhile(_is_fresh_key, keys))
-        # # Provide them in the more usable oldest to newest form.
-        # return list(reversed(newest_to_oldest))
 
     def _count_unused_keys(self, derivation_parent: Sequence[int]) -> int:
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
@@ -1469,7 +1551,7 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
     def _get_public_key_for_key_data(self, keydata: KeyDataTypes) -> PublicKey:
         assert keydata.derivation_data2 is not None
         derivation_path = unpack_derivation_path(keydata.derivation_data2)
-        # TODO(nocheckin) is this ever not the account's keystore?
+        # TODO(no-merge) is this ever not the account's keystore?
         keystore = self._wallet.get_keystore(keydata.masterkey_id)
         return keystore.derive_pubkey(derivation_path)
 
@@ -1484,7 +1566,7 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
     def get_xpubkeys_for_key_data(self, keydata: KeyDataTypes) -> List[XPublicKey]:
         assert keydata.derivation_data2 is not None
         derivation_path = unpack_derivation_path(keydata.derivation_data2)
-        # TODO(nocheckin) is this ever not the account's keystore?
+        # TODO(no-merge) is this ever not the account's keystore?
         keystore = self._wallet.get_keystore(keydata.masterkey_id)
         return [ keystore.get_xpubkey(derivation_path) ]
 
@@ -1687,8 +1769,8 @@ class Wallet(TriggeredCallbacks):
                 key=lambda t: 0 if t.parent_masterkey_id is None else t.parent_masterkey_id):
             self._realize_keystore(mk_row)
 
-        # TODO(nocheckin) for deterministic accounts we need to load the unused keys
-        # TODO(nocheckin) for non-deterministic accounts we need to load all keys active.
+        # TODO(no-merge) for deterministic accounts we need to load the unused keys
+        # TODO(no-merge) for non-deterministic accounts we need to load all keys active.
         all_account_keys: Dict[int, List[KeyInstanceRow]] = defaultdict(list)
         keyinstances = {}
         for ki_row in self.read_keyinstances():
@@ -1747,7 +1829,7 @@ class Wallet(TriggeredCallbacks):
                     self.update_masterkey_derivation_data(keystore.get_id())
                 else:
                     assert isinstance(keystore, Imported_KeyStore)
-                    # TODO(nocheckin) read from the database
+                    # TODO(no-merge) read from the database
                     updates = []
                     for key_id, derivation_data in keystore.get_keyinstance_derivation_data():
                         derivation_bytes = json.dumps(derivation_data).encode()
@@ -1994,6 +2076,11 @@ class Wallet(TriggeredCallbacks):
             -> List[KeyListRow]:
         return db_functions.read_key_list(self.get_db_context(), account_id, keyinstance_ids)
 
+    def read_keys_for_transaction_subscriptions(self, account_id: int) \
+            -> List[TransactionSubscriptionRow]:
+        return db_functions.read_keys_for_transaction_subscriptions(self.get_db_context(),
+            account_id)
+
     def read_keyinstance_for_derivation(self, account_id: int,
             derivation_type: DerivationType, derivation_data2: bytes,
             masterkey_id: Optional[int]=None) -> Optional[KeyInstanceRow]:
@@ -2107,7 +2194,7 @@ class Wallet(TriggeredCallbacks):
         return db_functions.read_payment_requests(self.get_db_context(), account_id, flags,
             mask)
 
-    # TODO(nocheckin) What called this? Nothing seems to now.
+    # TODO(no-merge) What called this? Nothing seems to now.
     def update_payment_request_states(self, entries: Iterable[Tuple[Optional[PaymentFlag], int]]) \
             -> concurrent.futures.Future:
         return db_functions.update_payment_request_states(self.get_db_context(), entries)
@@ -2230,25 +2317,23 @@ class Wallet(TriggeredCallbacks):
     def get_transaction_metadata(self, tx_hash: bytes) -> Optional[TransactionMetadata]:
         return db_functions.read_transaction_metadata(self.get_db_context(), tx_hash)
 
-    def get_tx_height(self, tx_hash: bytes) -> Tuple[int, int, int, Union[int, bool]]:
-        """ return the height and timestamp of a verified transaction. """
-        block_height, block_position = db_functions.read_transaction_block_info(
+    def get_transaction_height(self, tx_hash: bytes) -> int:
+        """
+        Return the height we have for a transaction.
+
+        Remember that the only valid height values we should find are:
+
+            -2: Most likely a local transaction.
+            -1: In the mempool with unconfirmed parents.
+             0: In the mempool with confirmed parents.
+            1+: Confirmed in a block with the given value as the height.
+
+        If someone is calling this, they should know that the transaction is in the database.
+        """
+        block_height, _block_position = db_functions.read_transaction_block_info(
             self.get_db_context(), tx_hash)
         assert block_height is not None, f"tx {hash_to_hex_str(tx_hash)} has no height"
-        assert block_position is not None, f"tx {hash_to_hex_str(tx_hash)} has no position"
-        timestamp = None
-        if block_height > 0:
-            chain = app_state.headers.longest_chain()
-            try:
-                header = app_state.headers.header_at_height(chain, block_height)
-                timestamp = header.timestamp
-            except MissingHeader:
-                pass
-        if timestamp is not None:
-            conf = max(self.get_local_height() - block_height + 1, 0)
-            return block_height, block_position, conf, timestamp
-        else:
-            return block_height, block_position, 0, False
+        return block_height
 
     def read_transaction_value_entries(self, account_id: int, *,
             tx_hashes: Optional[List[bytes]]=None, mask: Optional[TxFlags]=None) \
@@ -2263,12 +2348,14 @@ class Wallet(TriggeredCallbacks):
             -> concurrent.futures.Future:
         return db_functions.update_transaction_block_many(self.get_db_context(), entries)
 
+    # Data acquisition.
+
     async def maybe_obtain_transactions_async(self, tx_hashes: List[bytes],
             tx_heights: Dict[bytes, int], tx_fee_hints: Dict[bytes, Optional[int]]) -> int:
         """
         Update the registry of transactions we do not have or are in the process of getting.
 
-        Return the subset of transactions that have already been obtained.
+        Return the count of the missing transactions.
         """
         async with self._obtain_transactions_async_lock:
             additions = 0
@@ -2298,40 +2385,20 @@ class Wallet(TriggeredCallbacks):
         height ordered transactions that need to be acquired, those should be fetched in that
         order. However, if any other keyinstance already referred to any of those transactions
         this will break that ordering. So.. who cares?
+
+        Returns a list of transaction hashes that the wallet wants the byte data for.
         """
         async with self._obtain_transactions_async_lock:
             return list(itertools.islice(self._missing_transactions, n))
 
-    async def maybe_obtain_proofs_async(self, all_tx_hashes: List[bytes],
-            tx_heights: Dict[bytes, int]) -> int:
-        """
-        Reconcile the block height and hash of transactions to indicate need for a merkle proof.
-        """
-        async with self._obtain_proofs_async_lock:
-            # Filter out transactions that are not in a block.
-            tx_hashes = [ tx_hash for tx_hash in all_tx_hashes if tx_heights[tx_hash] > 0 ]
-            if not tx_hashes:
-                self._logger.debug("maybe_obtain_proofs_async: none of the %d are mined",
-                    len(all_tx_hashes))
-                return
-
-            # Update any rows with changed block height or hash, clearing any proof and ensuring
-            # they are cleared and not settled. These should be criteria for selection as being
-            # unverified.
-            entries: List[TransactionBlockRow] = []
-            for tx_hash in tx_hashes:
-                block_height = tx_heights[tx_hash]
-                block_hash = self._get_header_hash_for_height(block_height)
-                entries.append(TransactionBlockRow(block_height, block_hash, tx_hash))
-
-            future = self.update_transaction_block_many(entries)
-            update_count = future.result()
-            self._logger.debug("maybe_obtain_proofs_async: updated %d of %d entries",
-                update_count, len(entries))
-            return update_count
 
     async def get_unverified_transactions_async(self) -> Dict[bytes, int]:
-        '''Returns a map of tx_hash to tx_height.'''
+        """
+        Identify transactions that are associated with a block but lack the merkle proof.
+
+        Returns any transactions that are in need of a merkle proof in the form of:
+            [ (tx_hash_1: bytes, tx_height_1: int), ... ]
+        """
         async with self._obtain_proofs_async_lock:
             results = db_functions.read_unverified_transactions(self.get_db_context(),
                 self.get_local_height())
@@ -2350,7 +2417,7 @@ class Wallet(TriggeredCallbacks):
         else:
             return double_sha256(header_bytes)
 
-    # TODO(nocheckin) unit test
+    # TODO(no-merge) unit test
     def _acquire_transaction_lock(self, tx_hash: bytes) -> threading.RLock:
         """
         Acquire a lock for working with a given transaction.
@@ -2367,7 +2434,7 @@ class Wallet(TriggeredCallbacks):
                 self._transaction_locks[tx_hash] = (lock, reference_count + 1)
         return lock
 
-    # TODO(nocheckin) unit test
+    # TODO(no-merge) unit test
     def _release_transaction_lock(self, tx_hash: bytes) -> None:
         """
         Release a lock acquired for working with a given transaction.
@@ -2380,7 +2447,7 @@ class Wallet(TriggeredCallbacks):
                 assert reference_count > 1
                 self._transaction_locks[tx_hash] = (lock, reference_count - 1)
 
-    # TODO(nocheckin) unused
+    # TODO(no-merge) unused
     # def _extend_transaction_output(self, output: XTxOutput, key_data: KeyDataTypes) -> None:
     #     output.account_id = key_data.account_id
     #     output.keyinstance_id = key_data.keyinstance_id
@@ -2408,7 +2475,7 @@ class Wallet(TriggeredCallbacks):
         for tx_input in tx.inputs:
             outpoint = TxoKeyType(tx_input.prev_hash, tx_input.prev_idx)
             input_map[outpoint] = tx_input
-        # TODO(nocheckin) require_spends=True?
+        # TODO(no-merge) require_spends=True?
         previous_outputs = self.get_transaction_outputs_spendable_explicit(txo_keys=list(input_map))
 
         for db_output in previous_outputs:
@@ -2416,7 +2483,7 @@ class Wallet(TriggeredCallbacks):
             txi_index, tx_input = input_map[outpoint]
 
             if tx_input.value is not None and tx_input.value != db_output.value:
-                # TODO(nocheckin) this should report back to the caller
+                # TODO(no-merge) this should report back to the caller
                 logger.error("extend_transaction: input %s:%d got value %d, expected %d",
                     tx_id, txi_index, tx_input.value, db_output.value)
             tx_input.value = db_output.value
@@ -2427,7 +2494,7 @@ class Wallet(TriggeredCallbacks):
             assert db_output.derivation_type is not None
             tx_input.key_data = KeyDataType(db_output.keyinstance_id, db_output.account_id,
                 db_output.masterkey_id, db_output.derivation_type, db_output.derivation_data2)
-        # TODO(nocheckin) unfinished
+        # TODO(no-merge) unfinished
 
     def _extend_ephemeral_transaction(self, tx_hash: bytes, tx: Transaction) -> None:
         """
@@ -2474,7 +2541,7 @@ class Wallet(TriggeredCallbacks):
             TxoKeyType(txo.tx_hash, txo.txo_index):
                 txo for txo in self.get_transaction_outputs_spendable_explicit(tx_hash=tx_hash)
         }
-        # TODO(nocheckin) need to work out what we actually want to store here. Good idea would
+        # TODO(no-merge) need to work out what we actually want to store here. Good idea would
         # be to look at transaction dialog.
 
     def extend_transaction(self, tx: Transaction) -> None:
@@ -2505,7 +2572,7 @@ class Wallet(TriggeredCallbacks):
         #   are imported either via indexer results or manually.
 
         db_output_map: Dict[TxoKeyType, TransactionOutputSpendableRow] = {}
-        # TODO(nocheckin) Either . . .
+        # TODO(no-merge) Either . . .
         db_output_map.update({
             TxoKeyType(row.tx_hash, row.txo_index): row
             for row in db_functions.read_parent_transaction_outputs_spendable(
@@ -2542,7 +2609,7 @@ class Wallet(TriggeredCallbacks):
             for txo_index, tx_output in parent_tx.outputs:
                 # NOTE parent transactions are not extended and if they are it is an accident.
                 spent_values[TxoKeyType(parent_tx_hash, txo_index)] = tx_output.value
-        # TODO(nocheckin) do we have any other use for the information in the parent transactions
+        # TODO(no-merge) do we have any other use for the information in the parent transactions
         #    at this time?
 
         # Do all the input information gathering.
@@ -2562,7 +2629,7 @@ class Wallet(TriggeredCallbacks):
                     if xpk_kind == XPublicKeyType.PRIVATE_KEY:
                         signer_key_entry[1].append(x_public_key.to_public_key_bytes())
                     elif xpk_kind in (XPublicKeyType.BIP32, XPublicKeyType.OLD):
-                        # TODO(nocheckin) Find the masterkey for the mpk/oldkey and include it in
+                        # TODO(no-merge) Find the masterkey for the mpk/oldkey and include it in
                         # the lookup data.
                         derivation_path_bytes = pack_derivation_path(x_public_key.derivation_path())
                         signer_key_entry[1].append(derivation_path_bytes)
@@ -2574,18 +2641,18 @@ class Wallet(TriggeredCallbacks):
             pass
 
 
-        # TODO(nocheckin) all cases should add spent output values to transaction inputs.
-        # TODO(nocheckin) there may be parent data that is in memory that we do not have in the
+        # TODO(no-merge) all cases should add spent output values to transaction inputs.
+        # TODO(no-merge) there may be parent data that is in memory that we do not have in the
         #     database. This should also be processed.
-        # TODO(nocheckin) incomplete transactions may have extended public key data that maps
+        # TODO(no-merge) incomplete transactions may have extended public key data that maps
         #     to key usage we do not know about. They may also be partially signed and have
         #     removed public key data for those signed inputs, so we also need to scan here.
-        # TODO(nocheckin) complete transactions may have key usage we do not know about also,
+        # TODO(no-merge) complete transactions may have key usage we do not know about also,
         #     so we need to scan here.
 
         pass
 
-    # TODO(nocheckin) rewritten and needs to be tested
+    # TODO(no-merge) rewritten and needs to be tested
     def load_transaction_from_text(self, text: str) -> Optional[Transaction]:
         """
         Takes user-provided text and attempts to extract a transaction from it.
@@ -2674,8 +2741,8 @@ class Wallet(TriggeredCallbacks):
         tx_row = TransactionRow(tx_hash, tx.to_bytes(), flags, block_hash, block_height,
             block_position, fee_hint, None, tx.version, tx.locktime, timestamp, timestamp)
 
-        # TODO(nocheckin) Verify that the input flags used here are correct.
-        # TODO(nocheckin) Unit test that the input script offset and lengths are correct. Also
+        # TODO(no-merge) Verify that the input flags used here are correct.
+        # TODO(no-merge) Unit test that the input script offset and lengths are correct. Also
         #     do it for migrated wallets in the unit tests.
         txi_rows: List[TransactionInputAddRow] = []
         for txi_index, input in enumerate(tx.inputs):
@@ -2686,13 +2753,13 @@ class Wallet(TriggeredCallbacks):
                 timestamp, timestamp)
             txi_rows.append(txi_row)
 
-        # TODO(nocheckin) Unit test that the output script offset and lengths are correct.
+        # TODO(no-merge) Unit test that the output script offset and lengths are correct.
         txo_rows: List[TransactionOutputAddRow] = []
         for txo_index, txo in enumerate(tx.outputs):
             txo_row = TransactionOutputAddRow(tx_hash, txo_index, txo.value,
                 None,                           # Raw transaction means no idea of key usage.
                 ScriptType.NONE,                # Raw transaction means no idea of script type.
-                TransactionOutputFlag.NONE,     # TODO(nocheckin) work out if different
+                TransactionOutputFlag.NONE,     # TODO(no-merge) work out if different
                 scripthash_bytes(txo.script_pubkey),
                 txo.script_offset, txo.script_length,
                 timestamp, timestamp)
@@ -2709,20 +2776,24 @@ class Wallet(TriggeredCallbacks):
         self.trigger_callback('transaction_added', tx_hash, tx, link_state, external)
 
     # Called by network.
-    async def add_transaction_proof(self, tx_hash: bytes, height: int, timestamp: int,
-            position: int, proof_position: int, proof_branch: Sequence[bytes]) -> None:
+    async def add_transaction_proof(self, tx_hash: bytes, block_height: int, header: Header,
+            block_position: int, proof_position: int, proof_branch: Sequence[bytes]) -> None:
         tx_id = hash_to_hex_str(tx_hash)
         if self._stopped:
             self._logger.debug("add_transaction_proof on stopped wallet: %s", tx_id)
             return
 
         proof = TxProof(proof_position, proof_branch)
-        await self.db_functions_async.update_transaction_proof_async(tx_hash, height, position,
-            proof)
+        await self.db_functions_async.update_transaction_proof_async(tx_hash, block_height,
+            block_position, proof)
 
-        height, position, conf, _timestamp = self.get_tx_height(tx_hash)
-        self._logger.debug("add_transaction_proof %d %d %d", height, conf, timestamp)
-        self.trigger_callback('verified', tx_hash, height, position, conf, timestamp)
+        confirmations = max(self.get_local_height() - block_height + 1, 0)
+        timestamp = header.timestamp
+
+        self._logger.debug("add_transaction_proof %d %d %d", block_height, confirmations,
+            header.timestamp)
+        self.trigger_callback('transaction_verified', tx_hash, block_height, block_position,
+            confirmations, header.timestamp)
 
     def remove_transaction(self, tx_hash: bytes) -> concurrent.futures.Future:
         """
@@ -2747,7 +2818,7 @@ class Wallet(TriggeredCallbacks):
         future.add_done_callback(on_db_call_done)
         return future
 
-    # TODO(nocheckin) unit test
+    # TODO(no-merge) unit test
     def ensure_incomplete_transaction_keys_exist(self, tx: Transaction) -> None:
         """
         Ensure that the keys the incomplete transaction uses exist.
@@ -2808,7 +2879,7 @@ class Wallet(TriggeredCallbacks):
 
         if self._storage.get('deactivate_used_keys', False):
             for account in self._accounts.values():
-                # TODO(nocheckin) Verify this does what it should.
+                # TODO(no-merge) Verify this does what it should.
                 account.reactivate_reorged_keys(tx_hashes)
 
     def have_transaction(self, tx_hash: bytes) -> bool:

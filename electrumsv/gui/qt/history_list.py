@@ -26,7 +26,7 @@
 import enum
 from functools import partial
 import time
-from typing import List, Optional, Union, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 import weakref
 import webbrowser
 
@@ -199,8 +199,7 @@ class HistoryList(MyTreeWidget):
                     else:
                         logger.debug("Unable to backfill header at %d (> %d)",
                             row.block_height, server_height)
-            status = get_tx_status(self._account, row.block_height, row.block_position, conf,
-                timestamp)
+            status = get_tx_status(self._account, row.block_height, row.block_position, conf)
             status_str = get_tx_desc(status, timestamp)
             v_str = app_state.format_amount(row.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(entry.balance, whitespaces=True)
@@ -271,13 +270,13 @@ class HistoryList(MyTreeWidget):
             item.setText(Columns.DESCRIPTION, label)
 
     # From the wallet 'verified' event.
-    def update_tx_item(self, tx_hash: bytes, height: int, position: int, conf: int,
-            timestamp: int) -> None:
+    def update_tx_item(self, tx_hash: bytes, block_height: int, block_position: int,
+            confirmations: int, timestamp: int) -> None:
         # External event may be called before the UI element has an account.
         if self._account is None:
             return
 
-        status = get_tx_status(self._account, height, position, conf, timestamp)
+        status = get_tx_status(self._account, block_height, block_position, confirmations)
         tx_id = hash_to_hex_str(tx_hash)
         items = self.findItems(tx_id, self.TX_ROLE | Qt.MatchContains | Qt.MatchRecursive,
             column=Columns.TX_ID)
@@ -285,7 +284,7 @@ class HistoryList(MyTreeWidget):
             item = items[0]
             item.setIcon(Columns.STATUS, get_tx_icon(status))
             item.setText(Columns.DATE, get_tx_desc(status, timestamp))
-            item.setToolTip(Columns.STATUS, get_tx_tooltip(status, conf))
+            item.setToolTip(Columns.STATUS, get_tx_tooltip(status, confirmations))
 
             # NOTE: This is a damned if you do and damned if you don't situation.
             # - If we update the now verified row then it is not guaranteed to be in final order.
@@ -304,7 +303,7 @@ class HistoryList(MyTreeWidget):
 
             # # Consistent sorting.
             # metadata = self._wallet._transaction_cache.get_metadata(tx_hash)
-            # sort_key = height, metadata.position
+            # sort_key = block_height, metadata.position
             # item.setData(Columns.STATUS, SortableTreeWidgetItem.DataRole, sort_key)
             # item.setData(Columns.DATE, SortableTreeWidgetItem.DataRole, sort_key)
 
@@ -329,7 +328,7 @@ class HistoryList(MyTreeWidget):
 
         tx_id = hash_to_hex_str(tx_hash)
         tx_URL = web.BE_URL(self.config, 'tx', tx_id)
-        height, _position, _conf, _timestamp = self._wallet.get_tx_height(tx_hash)
+        height = self._wallet.get_transaction_height(tx_hash)
         tx = account.get_transaction(tx_hash)
         if not tx: return # this happens sometimes on account synch when first starting up.
         is_unconfirmed = height <= 0
@@ -369,7 +368,7 @@ class HistoryList(MyTreeWidget):
 
 
 def get_tx_status(account: AbstractAccount, height: Optional[int], position: Optional[int],
-        conf: int, timestamp: Union[bool, int]) -> TxStatus:
+        conf: int) -> TxStatus:
     if position == 0:
         if height + COINBASE_MATURITY > account._wallet.get_local_height():
             return TxStatus.UNMATURED
@@ -381,7 +380,7 @@ def get_tx_status(account: AbstractAccount, height: Optional[int], position: Opt
     return TxStatus.FINAL
 
 
-def get_tx_desc(status: TxStatus, timestamp: Union[bool, int]) -> str:
+def get_tx_desc(status: TxStatus, timestamp: Optional[int]) -> str:
     if status in [ TxStatus.UNCONFIRMED, TxStatus.MISSING ]:
         return TX_STATUS[status]
     return format_time(timestamp, _("unknown")) if timestamp else _("unknown")
@@ -480,10 +479,10 @@ class HistoryView(QWidget):
     def update_tx_headers(self) -> None:
         self.list.update_tx_headers()
 
-    # From the wallet 'verified' event.
-    def update_tx_item(self, tx_hash: bytes, height: int, position: int, conf: int,
-            timestamp: int) -> None:
-        self.list.update_tx_item(tx_hash, height, position, conf, timestamp)
+    # From the wallet 'verified' event (not actually called see the list method).
+    def update_tx_item(self, tx_hash: bytes, block_height: int, block_position: int,
+            confirmations: int, timestamp: int) -> None:
+        self.list.update_tx_item(tx_hash, block_height, block_position, confirmations, timestamp)
 
     def update_tx_list(self) -> None:
         self.list.update()

@@ -465,7 +465,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     logger.debug("fix table TransactionOutputs by creating secondary table")
     conn.execute("CREATE TABLE IF NOT EXISTS TransactionOutputs2 ("
         "tx_hash BLOB NOT NULL,"
-        # TODO(nocheckin) rename txo_index
+        # TODO(no-merge) rename txo_index
         "tx_index INTEGER NOT NULL,"
         "value INTEGER NOT NULL,"
         "keyinstance_id INTEGER DEFAULT NULL,"

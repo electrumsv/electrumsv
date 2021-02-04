@@ -204,10 +204,10 @@ class ReceiveView(QWidget):
         self._expires_combo.setCurrentIndex(2)
 
     # Only called from key list menu.
-    # TODO(nocheckin) We should support receiving in designated keys and we need to flesh this out
+    # TODO(no-merge) We should support receiving in designated keys and we need to flesh this out
     # later and make sure it works right.
     def receive_at_key(self, key_data: KeyDataTypes) -> None:
-        # TODO(nocheckin) Ensure we are not already receiving at the given key? Popup the dialog
+        # TODO(no-merge) Ensure we are not already receiving at the given key? Popup the dialog
         # if we are?
         self._main_window.show_receive_tab()
 
