@@ -224,7 +224,7 @@ class LabelImporter(QDialog):
                     self._tx_state[tx_hash] = LabelState.REPLACE
 
         for keyinstance_id, key_description in result.key_labels.items():
-            # TODO(nocheckin) this account call is a database call better combined
+            # TODO(no-merge) this account call is a database call better combined
             existing_description = account.get_keyinstance_label(keyinstance_id)
             if existing_description == "":
                 self._key_state[keyinstance_id] = LabelState.ADD

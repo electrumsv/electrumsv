@@ -113,6 +113,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     transaction_state_signal = pyqtSignal(object, object, object)
     transaction_added_signal = pyqtSignal(object, object, object)
     transaction_deleted_signal = pyqtSignal(object, object)
+    transaction_verified_signal = pyqtSignal(object, object, object, object, object)
     show_secured_data_signal = pyqtSignal(object)
     wallet_setting_changed_signal = pyqtSignal(str, object)
 
@@ -192,7 +193,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # network callbacks
         if self.network:
             self.network_signal.connect(self.on_network_qt)
-            interests = ['updated', 'status', 'banner', 'verified']
+            interests = ['updated', 'status', 'banner']
             # To avoid leaking references to "self" that prevent the
             # window from being GC-ed when closed, callbacks should be
             # methods of this class only, and specifically not be
@@ -217,6 +218,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             ['transaction_state_change'])
         self._wallet.register_callback(self._on_transaction_added, ['transaction_added'])
         self._wallet.register_callback(self._on_transaction_deleted, ['transaction_deleted'])
+        self._wallet.register_callback(self._on_transaction_verified, ['transaction_verified'])
 
         self.load_wallet()
         self._on_ready()
@@ -307,6 +309,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             new_state: TxFlags) -> None:
         self.transaction_state_signal.emit(account_id, tx_hash, new_state)
 
+    # Map the wallet event to a Qt UI signal.
     def _on_transaction_added(self, event_name: str, tx_hash: bytes, tx: Transaction,
             link_result: TransactionLinkState, is_external: bool) -> None:
         # Account ids is the accounts that have changed the balance.
@@ -323,8 +326,23 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.transaction_added_signal.emit(tx_hash, tx, link_result.account_ids)
 
+    # Map the wallet event to a Qt UI signal.
     def _on_transaction_deleted(self, event_name: str, account_id: int, tx_hash: bytes) -> None:
         self.transaction_deleted_signal.emit(account_id, tx_hash)
+
+    # Map the wallet event to a Qt UI signal.
+    def _on_transaction_verified(self, event_name: str, tx_hash: bytes, block_height: int,
+            block_position: int, confirmations: int, timestamp: int) -> None:
+        # TODO(deferred) This is overkill and some UI elements now listen for the signal directly.
+        #   We need to do directed updates everywhere based off the signal, but there are issues
+        #   with that .. see the history tab
+        self.need_update.set()
+        self.transaction_verified_signal.emit(tx_hash, block_height, block_position, confirmations,
+            timestamp)
+        # NOTE(rt12): Disabled due to fact we can't update individual rows and their order due
+        # to the balance column being dependent on order. Redirected to the `need_update` flow.
+        # self.history_view.update_tx_item(tx_hash, block_height, block_position, confirmations,
+        #     timestamp)
 
     def _on_account_created(self, event_name: str, new_account_id: int) -> None:
         account = self._wallet.get_account(new_account_id)
@@ -464,7 +482,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.on_exception(exc_info[1])
 
     def on_network(self, event, *args) -> None:
-        if event in ('updated', 'verified'):
+        if event == 'updated':
             self.need_update.set()
             return
 
@@ -480,10 +498,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.update_status_bar()
         elif event == 'banner':
             self.console.showMessage(self.network.main_server.state.banner)
-        # NOTE(rt12): Disabled due to fact we can't update individual rows and their order due
-        # to the balance column being dependent on order. Redirected to the `need_update` flow.
-        # elif event == 'verified':
-        #     self.history_view.update_tx_item(*args[1:])
         else:
             self._logger.debug("unexpected network_qt signal event='%s' args='%s'", event, args)
 
@@ -1456,12 +1470,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contact_list = l = ContactList(self._api, self)
         return self.create_list_tab(l)
 
-    # TODO(nocheckin) Several bugs in this given changes to the way things work. Not just marked.
+    # TODO(no-merge) Several bugs in this given changes to the way things work. Not just marked.
     def remove_key(self, account_id: int, key_id: int) -> None:
         account = self._wallet.get_account(account_id)
 
         extra_text = ""
-        # TODO(nocheckin) Function does not exist.
+        # TODO(no-merge) Function does not exist.
         coin_count = len(account.get_key_utxos({ key_id }))
         if coin_count > 0:
             extra_text += " "+ _("It has {} known coins associated with it.").format(coin_count)
@@ -2061,7 +2075,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             for send_view in self._send_views.values():
                 if isinstance(send_view, SendView):
                     send_view.set_fiat_ccy_enabled(b)
-            # TODO(nocheckin) The receive views should be getting the event directly now.
+            # TODO(no-merge) The receive views should be getting the event directly now.
             # for receive_view in self._receive_views.values():
             #     if isinstance(receive_view, ReceiveView):
             #         receive_view.set_fiat_ccy_enabled(b)

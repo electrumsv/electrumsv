@@ -366,7 +366,7 @@ class SendView(QWidget):
 
         def format_utxo(utxo: TransactionOutputSpendableTypes) -> str:
             h = hash_to_hex_str(utxo.tx_hash)
-            # TODO(nocheckin) do not have a .address attribute to use here.
+            # TODO(no-merge) do not have a .address attribute to use here.
             return '{}...{}:{:d}\t{}'.format(h[0:10], h[-10:], utxo.txo_index, utxo.address)
 
         for utxo in self.pay_from:

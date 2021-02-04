@@ -1,9 +1,8 @@
 import os
-import tempfile
 
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.app_state import AppStateProxy
-from electrumsv.wallet_database import DatabaseContext
+from electrumsv.wallet_database.sqlite_support import DatabaseContext
 
 
 class AppStateProxyTest(AppStateProxy):

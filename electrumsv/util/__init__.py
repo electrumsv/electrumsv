@@ -308,9 +308,11 @@ def timestamp_to_datetime(timestamp):
     except Exception:
         return None
 
-def format_time(timestamp, default_text):
+def format_time(timestamp, default_text: str) -> str:
     date = timestamp_to_datetime(timestamp)
-    return date.isoformat(' ')[:-3] if date else default_text
+    if date:
+        return date.isoformat(' ')[:-3]
+    return default_text
 
 
 # Takes a timestamp and returns a string with the approximation of the age

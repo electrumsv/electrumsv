@@ -237,8 +237,8 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         # connect slots so we update in realtime as blocks come in, etc
         main_window.history_updated_signal.connect(self.update_tx_if_in_wallet)
-        main_window.network_signal.connect(self._on_transaction_verified)
         main_window.transaction_added_signal.connect(self._on_transaction_added)
+        main_window.transaction_verified_signal.connect(self._on_transaction_verified)
 
     def _validate_account_event(self, account_ids: Set[int]) -> bool:
         return self._account_id in account_ids
@@ -267,8 +267,9 @@ class TxDialog(QDialog, MessageBoxMixin):
         app_state.app.clipboard().setText(hash_to_hex_str(self._tx_hash))
         QToolTip.showText(QCursor.pos(), _("Transaction ID copied to clipboard"), self)
 
-    def _on_transaction_verified(self, event, args):
-        if event == 'verified' and args[0] == self._tx_hash:
+    def _on_transaction_verified(self, tx_hash: bytes, block_height: int, block_position: int,
+            confirmations: int, timestamp: int):
+        if tx_hash == self._tx_hash:
             self.update()
 
     def update_tx_if_in_wallet(self) -> None:
@@ -587,7 +588,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         is_tx_complete = self.tx.is_complete()
         is_tx_known = self._account and self._wallet.have_transaction(self._tx_hash)
 
-        # TODO(nocheckin) we also have local parent transactions in the transaction context that
+        # TODO(no-merge) we also have local parent transactions in the transaction context that
         # we should consider using/combining with the database state. Need to reconcile what would
         # be in the context, and what would be in the database, and how to correctly mix the two.
         prev_txos = self._wallet.get_transaction_outputs_spendable_explicit(

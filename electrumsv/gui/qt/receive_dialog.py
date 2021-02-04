@@ -23,10 +23,10 @@ from .qrwindow import QR_Window
 from .util import ButtonsLineEdit, EnterButton, HelpLabel
 
 
-# TODO(nocheckin) Reusable expected payment windows.
-# TODO(nocheckin) Hook up expiration.
-# TODO(nocheckin) Test update
-# TODO(nocheckin) Add copy URL button.
+# TODO(no-merge) Reusable expected payment windows.
+# TODO(no-merge) Hook up expiration.
+# TODO(no-merge) Test update
+# TODO(no-merge) Add copy URL button.
 
 class ReceiveDialog(QDialog):
     """
@@ -57,9 +57,9 @@ class ReceiveDialog(QDialog):
 
         self._update_destination()
         self._receive_amount_e.setAmount(self._request_row.value)
-        # TODO(nocheckin) Need to update the expiration date field.
+        # TODO(no-merge) Need to update the expiration date field.
 
-        # TODO(nocheckin) Verify that these get disconnected on exit.
+        # TODO(no-merge) Verify that these get disconnected on exit.
         app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
 
@@ -172,7 +172,7 @@ class ReceiveDialog(QDialog):
         return hbox
 
     def update_widgets(self) -> None:
-        # TODO(nocheckin) Who calls this and when?
+        # TODO(no-merge) Who calls this and when?
         pass
 
     def _update_destination(self) -> None:

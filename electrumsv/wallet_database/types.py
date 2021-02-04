@@ -298,6 +298,13 @@ class TransactionRow(NamedTuple):
     date_updated: int=-1
 
 
+class TransactionSubscriptionRow(NamedTuple):
+    tx_hash: bytes
+    put_type: int
+    keyinstance_id: int
+    script_hash: bytes
+
+
 class TransactionValueRow(NamedTuple):
     tx_hash: bytes
     value: int

@@ -533,7 +533,7 @@ class SVSession(RPCSession):
         if proven_root != expected_root:
             raise DisconnectSessionError(f'invalid header proof {proven_root} expected '
                                          f'{expected_root}', blacklist=True)
-        self.logger.debug(f'good header proof for height {height}')
+        self.logger.debug('good header proof for height %d', height)
 
     async def _on_new_tip(self, json_tip):
         '''Raises: RPCError, TaskTimeout, DisconnectSessionError'''
@@ -554,7 +554,7 @@ class SVSession(RPCSession):
         while True:
             try:
                 self.tip, self.chain = self._connect_header(tip.height, tip.raw)
-                self.logger.debug(f'connected tip at height {height:,d}')
+                self.logger.debug('connected tip at height %d', height)
                 self._network.check_main_chain_event.set()
                 return
             except (IncorrectBits, InsufficientPoW) as e:
@@ -569,7 +569,7 @@ class SVSession(RPCSession):
         # Avoid thundering herd effect by having one session catch up per tip
         done_event = SVSession._connecting_tips.get(tip.raw)
         if done_event:
-            self.logger.debug(f'another session is connecting my tip {tip.hex_str()}')
+            self.logger.debug('another session is connecting my tip %s', tip.hex_str())
             await done_event.wait()
         else:
             self.logger.debug(f'connecting my own tip {tip.hex_str()}')
@@ -1019,6 +1019,10 @@ class Network(TriggeredCallbacks):
             # headers and also due to sequential nature of jobs undo any existing ones first.
             await self._wallet_jobs.put(('check_verifications', None))
             main_chain = new_main_chain
+            # TODO(deferred) We get triggered every time any server we are connected to gets a
+            #   new tip. This means that it is possible that all the UI elements will end up
+            #   refreshing (even if every 500 ms due to the timer choke which I observed happening
+            #   when I noticed this, so it does happen).
             self.trigger_callback('updated')
             self.trigger_callback('main_chain', main_chain, new_main_chain)
 
@@ -1130,13 +1134,13 @@ class Network(TriggeredCallbacks):
             while tasks:
                 task = await group.next_done()
                 tx_hash, tx_id = tasks.pop(task)
-                tx_height = wanted_map[tx_hash]
+                block_height = wanted_map[tx_hash]
                 try:
                     result = task.result()
                     branch = [hex_str_to_hash(item) for item in result['merkle']]
                     tx_pos = result['pos']
                     proven_root = _root_from_proof(tx_hash, branch, tx_pos)
-                    header = headers[wanted_map[tx_hash]]
+                    header = headers[block_height]
                 except CancelledError:
                     had_timeout = True
                 except Exception as e:
@@ -1144,7 +1148,7 @@ class Network(TriggeredCallbacks):
                 else:
                     if header.merkle_root == proven_root:
                         logger.debug(f'received valid proof for {tx_id}')
-                        await wallet.add_transaction_proof(tx_hash, tx_height, header.timestamp,
+                        await wallet.add_transaction_proof(tx_hash, block_height, header,
                             tx_pos, tx_pos, branch)
                     else:
                         hhts = hash_to_hex_str
@@ -1165,7 +1169,7 @@ class Network(TriggeredCallbacks):
             entries = app_state.subscriptions.read_script_hashes()
             session.logger.info(f"Subscribing to {len(entries):,d} script hashes")
             await session.subscribe_to_script_hashes(entries, initial_subscription=True)
-            # TODO(nocheckin) Verify that this loop works.
+            # TODO(no-merge) Verify that this loop works.
             await session._closed_event.wait()
 
     async def _monitor_script_hash_status_subscriptions(self, group) -> None:

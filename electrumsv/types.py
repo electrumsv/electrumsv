@@ -1,9 +1,11 @@
-from typing import Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, TYPE_CHECKING, Union
+from typing import (Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, TYPE_CHECKING,
+    Union)
 
 from bitcoinx import hash_to_hex_str
 from mypy_extensions import Arg, DefaultArg
 
 from .constants import ScriptType, SubscriptionOwnerPurpose, SubscriptionType
+from .wallet_database.types import TransactionSubscriptionRow
 
 if TYPE_CHECKING:
     from .keystore import KeyStore
@@ -25,12 +27,17 @@ class SubscriptionKey(NamedTuple):
     value: Any
 
 
-class SubscriptionScriptHashOwnerContext(NamedTuple):
+class SubscriptionKeyScriptHashOwnerContext(NamedTuple):
     keyinstance_id: int
     script_type: ScriptType
 
 
-SubscriptionOwnerContextType = Union[SubscriptionScriptHashOwnerContext]
+class SubscriptionTransactionScriptHashOwnerContext(NamedTuple):
+    tx_rows: List[TransactionSubscriptionRow]
+
+
+SubscriptionOwnerContextType = Union[SubscriptionKeyScriptHashOwnerContext,
+    SubscriptionTransactionScriptHashOwnerContext]
 
 
 class SubscriptionEntry(NamedTuple):
@@ -45,7 +52,7 @@ class ScriptHashSubscriptionEntry(NamedTuple):
 
 ScriptHashSubscriptionCallback = Callable[[List[ScriptHashSubscriptionEntry]],
     Awaitable[None]]
-ScriptHashResultCallback = Callable[[SubscriptionKey, SubscriptionScriptHashOwnerContext,
+ScriptHashResultCallback = Callable[[SubscriptionKey, SubscriptionOwnerContextType,
     ElectrumXHistoryList], Awaitable[None]]
 
 

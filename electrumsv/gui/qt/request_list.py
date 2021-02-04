@@ -97,7 +97,7 @@ class RequestList(MyTreeWidget):
         if self._account_id is None:
             return
 
-        # TODO(nocheckin) Check the account and only update if applicable?
+        # TODO(no-merge) Check the account and only update if applicable?
 
         wallet = self._account._wallet
         rows = wallet.read_payment_requests(self._account_id, flags=PaymentFlag.NONE,

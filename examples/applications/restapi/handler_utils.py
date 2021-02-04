@@ -198,12 +198,12 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     def utxo_as_dict(self, utxo: TransactionOutputSpendableRow):
         return {"value": utxo.value,
-                # "script_pubkey": utxo.script_pubkey.to_hex(), # TODO(nocheckin) not in struct
+                # "script_pubkey": utxo.script_pubkey.to_hex(), # TODO(no-merge) not in struct
                 "script_type": utxo.script_type,
                 "tx_hash": hash_to_hex_str(utxo.tx_hash),
                 "out_index": utxo.txo_index,
                 "keyinstance_id": utxo.keyinstance_id,
-                # "address": utxo.address.to_string(), # TODO(nocheckin) not in struct
+                # "address": utxo.address.to_string(), # TODO(no-merge) not in struct
                 "is_coinbase": utxo.flags & TransactionOutputFlag.IS_COINBASE != 0,
                 "flags": utxo.flags}  # TransactionOutputFlag(s) only
 
@@ -439,10 +439,10 @@ class ExtendedHandlerUtils(HandlerUtils):
                                                             VNAME.OUTPUTS, VNAME.PASSWORD])
             wallet_name = vars[VNAME.WALLET_NAME]
             index = vars[VNAME.ACCOUNT_ID]
-            # TODO(nocheckin) this should pass in ids and lookup values
+            # TODO(no-merge) this should pass in ids and lookup values
             outputs = vars[VNAME.OUTPUTS]
 
-            # TODO(nocheckin) this should pass in ids and lookup values
+            # TODO(no-merge) this should pass in ids and lookup values
             utxos = vars.get(VNAME.UTXOS, None)
             utxo_preselection = vars.get(VNAME.UTXO_PRESELECTION, True)
             password = vars.get(VNAME.PASSWORD, None)

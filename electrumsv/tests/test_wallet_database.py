@@ -1,10 +1,9 @@
 import os
 
 from electrumsv.logs import logs
-from electrumsv import wallet_database
-from electrumsv.wallet_database import DatabaseContext 
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.migration import create_database, update_database
+from electrumsv.wallet_database.sqlite_support import DatabaseContext
 from electrumsv.wallet_database.types import TxProof, WalletDataRow
 
 logs.set_level("debug")
@@ -111,7 +110,7 @@ class MockTransactionStore:
     def update_proof(self, tx_hash: bytes, proof: TxProof) -> None:
         raise NotImplementedError
 
-    # TODO(nocheckin) need replacement tests
+    # TODO(no-merge) need replacement tests
     # def test_get_unverified_entries_too_high(self):
     #     cache = TransactionCache(self.db_context, self.store)
 
@@ -227,7 +226,7 @@ class MockTransactionStore:
     #     assert TxFlags.STATE_DISPATCHED | expected_flags == n3.flags, TxFlags.to_repr(n3.flags)
 
 
-# TODO(nocheckin) This is no longer valid, but we should really have some tests for it.
+# TODO(no-merge) This is no longer valid, but we should really have some tests for it.
 # class TestSqliteWriteDispatcher:
 #     @classmethod
 #     def setup_method(self):

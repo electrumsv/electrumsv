@@ -55,13 +55,14 @@ from .logs import logs
 from .networks import Net
 from .transaction import Transaction, classify_tx_output, parse_script_sig
 from .util.misc import ProgressCallbacks
-from .wallet_database import DatabaseContext, migration
+from .wallet_database import migration
 from .wallet_database import functions as db_functions
 from .wallet_database.storage_migration import (create_accounts1, create_keys1,
     create_master_keys1, create_payment_requests1, create_transaction_outputs1,
     create_transactions1, create_wallet_datas1, AccountRow1, KeyInstanceRow1, MasterKeyRow1,
     PaymentRequestRow1, TransactionOutputFlag1, TransactionOutputRow1, TransactionRow1, TxData1,
     TxFlags1, read_wallet_data1, update_wallet_datas1, WalletDataRow1)
+from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import WalletDataRow
 
 

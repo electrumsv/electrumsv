@@ -33,8 +33,11 @@ class WalletTypes:
 
 class StorageKind(IntEnum):
     UNKNOWN = 0
+    # Pre-database ElectrumSV, Electron Cash and Electrum Core formats.
     FILE = 1
+    # A temporary mid-transition to database format we do not really support.
     HYBRID = 2
+    # The current database storage.
     DATABASE = 3
 
 ## Wallet database
@@ -112,11 +115,6 @@ class TxFlags(IntFlag):
         return f"TxFlags({'|'.join(names)})"
 
 
-# All these states can only be set if there is transaction data present.
-TRANSACTION_FLAGS = (TxFlags.STATE_SETTLED, TxFlags.STATE_DISPATCHED, TxFlags.STATE_RECEIVED,
-    TxFlags.STATE_CLEARED, TxFlags.STATE_SIGNED)
-
-
 class AccountTxFlags(IntFlag):
     NONE = 0
 
@@ -130,7 +128,7 @@ class AccountTxFlags(IntFlag):
     # This transaction is part of paying an invoice.
     PAYS_INVOICE = 1 << 30
 
-    # TODO(nocheckin) Ensure this is observed where it should be.
+    # TODO(no-merge) Ensure this is observed where it should be.
     # This transaction should be ignored from being included in the account balance.
     IRRELEVANT_MASK = REPLACED | DELETED
 
@@ -143,6 +141,7 @@ class ScriptType(IntEnum):
     MULTISIG_P2SH = 4
     MULTISIG_BARE = 5
     MULTISIG_ACCUMULATOR = 6
+    OP_RETURN = 7
 
 ADDRESSABLE_SCRIPT_TYPES = (ScriptType.P2PKH, ScriptType.MULTISIG_P2SH)
 
@@ -183,24 +182,20 @@ class KeystoreTextType(IntEnum):
 class KeyInstanceFlag(IntFlag):
     NONE = 0
 
+    ## These are the two primary flags.
     # This key should be loaded and managed appropriately.
     IS_ACTIVE = 1 << 0
     # This key has been assigned for some use and should not be reassigned ever.
     IS_ASSIGNED = 1 << 1
 
+    ## These are the secondary flags for `IS_ACTIVE`.
     # The user explicitly set this key to be active. It is not intended that the wallet go and
-    # mark it inactive without good reason. It is a supplementary flag to `IS_ACTIVE`.
+    # mark it inactive without good reason.
     USER_SET_ACTIVE = 1 << 8
 
+    ## These are the secondary reason flags for `IS_ASSIGNED`.
     IS_PAYMENT_REQUEST = 1 << 9
     IS_INVOICE = 1 << 10
-
-    # The keys that are being monitored on the indexer.
-    MASK_ACTIVE = IS_ACTIVE | USER_SET_ACTIVE
-    # The keys that are not being monitored on the indexer.
-    MASK_INACTIVE = ~IS_ACTIVE
-    # The keys that are not available for use.
-    MASK_ALLOCATED = IS_PAYMENT_REQUEST | IS_INVOICE | IS_ASSIGNED
 
 
 class SubscriptionType(IntEnum):
@@ -213,6 +208,7 @@ class SubscriptionOwnerPurpose(IntEnum):
     SCANNER = 1
     GAP_LIMIT_OBSERVER = 2
     ACTIVE_KEYS = 3
+    TRANSACTION_STATE = 4
 
 
 class TransactionInputFlag(IntFlag):

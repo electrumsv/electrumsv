@@ -300,7 +300,7 @@ class XTxInput(TxInput):
     key_data: Optional[KeyDataType] = attr.ib(default=None)
 
     # Parsing metadata that we store in the database for easy script access.
-    # TODO(nocheckin) work out if this can be obtained without storing it on the class. It does
+    # TODO(no-merge) work out if this can be obtained without storing it on the class. It does
     # not really belong here.
     script_offset: int = attr.ib(default=0)
     script_length: int = attr.ib(default=0)
@@ -418,7 +418,7 @@ class XTxOutput(TxOutput):
     key_data: Optional[KeyDataType] = attr.ib(default=None)
 
     # Parsing metadata that we store in the database for easy script access.
-    # TODO(nocheckin) work out if this can be obtained without storing it on the class. It does
+    # TODO(no-merge) work out if this can be obtained without storing it on the class. It does
     # not really belong here.
     script_offset: int = attr.ib(default=0)
     script_length: int = attr.ib(default=0)
