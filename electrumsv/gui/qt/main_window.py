@@ -1322,8 +1322,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         def broadcast_tx(update_cb: WaitingUpdateCallback) -> None:
             nonlocal tx, account
             # non-GUI thread
-            if account and not self._send_view.maybe_send_invoice_payment(tx):
-                return None
+
+            if self._send_view.is_bip270_payment_request():
+                success = self._send_view.send_bip270_invoice_payment(tx)
+                if account and not success:
+                    return None
+                # On success still broadcast as usual to ElectrumX but it is assumed
+                # the merchant has already broadcast to "merchant API" (mAPI).
 
             try:
                 result = self.network.broadcast_transaction_and_wait(tx)

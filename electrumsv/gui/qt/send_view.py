@@ -526,37 +526,37 @@ class SendView(QWidget):
             return self._account.get_transaction(invoice_row.tx_hash)
         return None
 
-    def maybe_send_invoice_payment(self, tx: Transaction) -> bool:
+    def is_bip270_payment_request(self):
+        return self._payment_request is not None
+
+    def send_bip270_invoice_payment(self, tx: Transaction) -> bool:
         pr = self._payment_request
-        if pr:
-            tx_hash = tx.hash()
-            invoice_id = pr.get_id()
+        tx_hash = tx.hash()
+        invoice_id = pr.get_id()
 
-            # TODO: Remove the dependence of broadcasting a transaction to pay an invoice on that
-            # invoice being active in the send tab. Until then we assume that broadcasting a
-            # transaction that is not related to the active invoice and it's repercussions, has
-            # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
-            # in the main window logic.
-            invoice_row = self._account.invoices.get_invoice_for_id(invoice_id)
-            if tx_hash != invoice_row.tx_hash:
-                # Calling logic should have detected this and warned/confirmed with the user.
-                return True
+        # TODO: Remove the dependence on an invoice being active in the send tab.
+        #  Until then a mismatch of tx_hash and invoice_row.tx_hash means there is an active
+        #  invoice but we are broadcasting an unrelated tx. We assume this tx has been checked
+        #  properly by the calling logic, similar to 'confirm_broadcast_transaction` in the
+        #  main window logic.
+        invoice_row = self._account.invoices.get_invoice_for_id(invoice_id)
+        if tx_hash != invoice_row.tx_hash:
+            # Calling logic should have detected this and warned/confirmed with the user.
+            return False
 
-            if pr.has_expired():
-                pr.error = _("The invoice has expired")
-                self.payment_request_error_signal.emit(invoice_id, tx_hash)
-                return False
+        if pr.has_expired():
+            pr.error = _("The invoice has expired")
+            self.payment_request_error_signal.emit(invoice_id, tx_hash)
+            return False
 
-            if not pr.send_payment(self._account, str(tx)):
-                self.payment_request_error_signal.emit(invoice_id, tx_hash)
-                return False
+        successful_send = pr.send_payment(self._account, str(tx))  # via BIP270 server
+        if not successful_send:
+            self.payment_request_error_signal.emit(invoice_id, tx_hash)
+            return False
 
-            self._account.invoices.set_invoice_paid(invoice_id)
-
-            self._payment_request = None
-            # On success we broadcast as well, but it is assumed that the merchant also
-            # broadcasts.
-        return True
+        self._account.invoices.set_invoice_paid(invoice_id)
+        self._payment_request = None
+        return True  # success
 
     def pay_for_payment_request(self, pr: PaymentRequest) -> None:
         # The invoice id will already be set on the payment request.
