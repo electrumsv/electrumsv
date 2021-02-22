@@ -338,6 +338,48 @@ class NetworkEventNames:
     HISTORICAL_EXCHANGE_RATES = "on_history"
     EXCHANGE_RATE_QUOTES = "on_quotes"
 
+
+class BroadcastServicesUI:
+    MERCHANT_API = "Merchant API"
+    ELECTRUMX = "ElectrumX"
+
+
+class BroadcastServices:
+    MERCHANT_API = "merchant_api"
+    ELECTRUMX = "electrumx"
+    # HOSTING_SERVICE = "hosting_service"  # Not implemented
+
+    @classmethod
+    def to_ui_display_format(cls, broadcast_service):
+        valid_set = {cls.MERCHANT_API, cls.ELECTRUMX}
+        assert broadcast_service in valid_set, f"Must select one of: {valid_set}"
+        if broadcast_service == cls.MERCHANT_API:
+            return BroadcastServicesUI.MERCHANT_API
+        elif broadcast_service == cls.ELECTRUMX:
+            return BroadcastServicesUI.ELECTRUMX
+        # elif broadcast_service == cls.HOSTING_SERVICE:
+        #     return "Hosting Service"
+
+    @classmethod
+    def from_ui_display_format(cls, ui_display_format):
+        MERCHANT_API_UI_FORM = cls.to_ui_display_format(cls.MERCHANT_API)
+        ELECTRUMX_UI_FORM = cls.to_ui_display_format(cls.ELECTRUMX)
+        # HOSTING_SERVICE_UI_FORM = cls.to_ui_display_format(cls.HOSTING_SERVICE)
+
+        valid_set = {MERCHANT_API_UI_FORM, ELECTRUMX_UI_FORM}  # + HOSTING_SERVICE_UI_FORM
+        assert ui_display_format in valid_set, f"Must select one of: {valid_set}"
+        if ui_display_format == MERCHANT_API_UI_FORM:
+            return BroadcastServices.MERCHANT_API
+        elif ui_display_format == ELECTRUMX_UI_FORM:
+            return BroadcastServices.ELECTRUMX
+        # elif ui_display_format == HOSTING_SERVICE_UI_FORM:
+        #    return "Hosting Service"
+
+    @classmethod
+    def list_all(cls):
+        return [cls.MERCHANT_API, cls.ELECTRUMX]
+
+
 PREFIX_ASM_SCRIPT = "asm:"
 
 # WARNING(script-types) We currently bake all the possible script hashes for a key into the

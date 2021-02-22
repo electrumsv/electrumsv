@@ -22,66 +22,64 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import enum
 import socket
+from collections import namedtuple
+from typing import List, Optional, Tuple
 
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTabWidget, QSizePolicy, QWidget, QTreeWidget, \
+    QTreeWidgetItem, QHeaderView, QLabel, QCheckBox, QComboBox, QLineEdit, QGridLayout, QMessageBox, \
+    QMenu, QDialogButtonBox, QFormLayout
 from PyQt5.QtCore import pyqtSignal, Qt, QThread
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QTreeWidget, QMenu, QTreeWidgetItem, QHeaderView, QTabWidget,
-    QWidget, QGridLayout, QLineEdit, QCheckBox, QLabel, QComboBox, QSizePolicy
-)
-
 from aiorpcx import NetAddress
 from bitcoinx import hash_to_hex_str
 
 from electrumsv.app_state import app_state
-from electrumsv.i18n import _
+from electrumsv.constants import BroadcastServicesUI, BroadcastServices
+from electrumsv.gui.qt.password_dialog import PasswordLineEdit
+from electrumsv.gui.qt.table_widgets import AddOrEditButtonsLayout
 from electrumsv.logs import logs
-from electrumsv.network import Network, SVServer, SVProxy, SVUserAuth
-from electrumsv.networks import Net
+from electrumsv.network import Network, SVUserAuth, SVProxy, SVSession
+from electrumsv.gui.qt.util import Buttons, CloseButton, HelpDialogButton, FormSectionWidget, \
+    HelpButton, read_QIcon, IconButton, MessageBox
+from electrumsv.i18n import _
 
-from .password_dialog import PasswordLineEdit
-from .util import (Buttons, CloseButton, FormSectionWidget, HelpButton, HelpDialogButton,
-    read_QIcon, MessageBox)
+ITEM_DATA_ROLE = Qt.UserRole
+URL_DATA_ROLE = Qt.UserRole + 1
+
+logger = logs.get_logger("network-ui")
+
+COMBOBOX_INDEX_MAP = {
+    BroadcastServices.ELECTRUMX: 0,
+    BroadcastServices.MERCHANT_API: 1
+}
+
+SERVER_STATUS_ICONS = [
+    "icons8-checkmark-green-52.png",  # Connected.
+    "red-cross.png",    # Disconnected.
+]
 
 
-logger = logs.get_logger("networkui")
+class ServerStatus(enum.IntEnum):
+    CONNECTED = 0
+    DISCONNECTED = 1
 
 
-class NetworkDialog(QDialog):
-    network_updated_signal = pyqtSignal()
+SERVER_STATUS = {
+    ServerStatus.CONNECTED: _('Connected'),
+    ServerStatus.DISCONNECTED: _('Disconnected'),
+}
 
-    def __init__(self, network: Network, config) -> None:
-        super().__init__(flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
-        self.setWindowTitle(_('Network'))
-        self.setMinimumSize(500, 200)
-        self.resize(560, 400)
-        self._nlayout = NetworkChoiceLayout(network, config)
 
-        buttons_layout = Buttons(CloseButton(self))
-        buttons_layout.add_left_button(HelpDialogButton(self, "misc", "network-dialog"))
-
-        vbox = QVBoxLayout(self)
-        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
-        vbox.addLayout(self._nlayout.layout())
-        vbox.addLayout(buttons_layout)
-
-        self.network_updated_signal.connect(self.on_update)
-        network.register_callback(self.on_network, ['updated', 'sessions'])
-
-    def on_network(self, event, *args):
-        ''' This may run in network thread '''
-        self.network_updated_signal.emit()
-
-    def on_update(self):
-        ''' This always runs in main GUI thread '''
-        self._nlayout.update()
+ServerItem = namedtuple('ServerItem',
+    ['status_icon', 'server_name', 'api_type', 'child_items'])
+MERCHANT_API_CAPABILITIES = ('BROADCAST', 'FEE_QUOTE')
+ELECTRUMX_CAPABILITIES = ('SCRIPTHASH_HISTORY', 'BROADCAST', 'REQUEST_MERKLE_PROOF')
 
 
 class NodesListWidget(QTreeWidget):
 
-    def __init__(self, parent):
+    def __init__(self, parent: 'NetworkTabsLayout'):
         QTreeWidget.__init__(self)
         self.parent = parent
         self.setHeaderLabels([_('Connected node'), _('Height')])
@@ -97,7 +95,10 @@ class NodesListWidget(QTreeWidget):
             return
 
         def use_as_server():
-            self.parent.follow_server(server)
+            try:
+                self.parent.follow_server(server)
+            except Exception as e:
+                MessageBox.show_error(str(e))
         menu = QMenu()
         menu.addAction(_("Use as server"), use_as_server)
         menu.exec_(self.viewport().mapToGlobal(position))
@@ -127,7 +128,6 @@ class NodesListWidget(QTreeWidget):
 
     def update(self, network):
         self.clear()
-        self.addChild = self.addTopLevelItem
         chains = network.sessions_by_chain()
         our_chain = network.chain()
         for chain, sessions in chains.items():
@@ -149,126 +149,292 @@ class NodesListWidget(QTreeWidget):
                 item = QTreeWidgetItem([session.server.host + extra_name,
                     str(session.tip.height)])
                 item.setData(0, Qt.UserRole, session.server)
-                x.addChild(item)
+                x.addTopLevelItem(item)
             if len(chains) > 1:
                 self.addTopLevelItem(x)
                 x.setExpanded(True)
 
+            height_str = "%d "%(network.get_local_height()) + _('blocks')
+            self.parent.height_label.setText(height_str)
+            n = len(network.sessions)
+            status = _("Connected to {:d} servers.").format(n) if n else _("Not connected")
+            self.parent.status_label.setText(status)
+            chains = network.sessions_by_chain().keys()
+            if len(chains) > 1:
+                our_chain = network.chain()
+                heights = set()
+                for chain in chains:
+                    if chain != our_chain:
+                        _chain, common_height = our_chain.common_chain_and_height(chain)
+                        heights.add(common_height + 1)
+                msg = _('Chain split detected at height(s) {}\n').format(
+                    ','.join(f'{height:,d}' for height in sorted(heights)))
+            else:
+                msg = ''
+            self.parent.split_label.setText(msg)
+            self.parent.server_label.setText(network.main_server.host)
+
         h = self.header()
         h.setStretchLastSection(False)
         h.setSectionResizeMode(0, QHeaderView.Stretch)
         h.setSectionResizeMode(1, QHeaderView.ResizeToContents)
 
 
-class ServerListWidget(QTreeWidget):
+class BlockchainTab(QWidget):
 
-    def __init__(self, parent):
+    def __init__(self, parent: 'NetworkTabsLayout'):
+        super().__init__()
+        self.parent = parent
+        blockchain_layout = QVBoxLayout(self)
+
+        form = FormSectionWidget()
+        self.status_label = QLabel('')
+        form.add_row(_('Status'), self.status_label, True)
+        self.server_label = QLabel('')
+        form.add_row(_('Server'), self.server_label, True)
+        self.height_label = QLabel('')
+        form.add_row(_('Blockchain'), self.height_label, True)
+
+        blockchain_layout.addWidget(form)
+
+        self.split_label = QLabel('')
+        form.add_row(QLabel(""), self.split_label)
+
+        self.nodes_list_widget = NodesListWidget(self)
+        blockchain_layout.addWidget(self.nodes_list_widget)
+        blockchain_layout.addStretch(1)
+        self.nodes_list_widget.update(self.parent.network)
+
+
+class EditServerDialog(QDialog):
+    """Two modes: edit_mode=True and edit_mode=False"""
+
+    def __init__(self, parent: 'ServersTab', title: str, edit_mode: bool=False):
+        super().__init__()
+        self.parent = parent
+        self.servers_list = self.parent.servers_list
+        self._is_edit_mode = edit_mode
+
+        # Internal State -> see self.update_state()
+        current_item: Optional[QTreeWidgetItem] = self.servers_list.get_current_item()
+        self._selected_server: Optional['ServerItem'] = None
+        self._server_url: Optional[str] = None
+        self._server_type = None
+
+        if current_item and self._is_edit_mode:
+            self._selected_server: 'ServerItem' = current_item.data(0, ITEM_DATA_ROLE)
+            self._server_url: str = current_item.data(0, URL_DATA_ROLE)
+            server_type = BroadcastServices.from_ui_display_format(self._selected_server.api_type)
+            self._server_type = server_type
+
+        self.setWindowTitle(title)
+        self.resize(380, 170)
+
+        self._vbox = QVBoxLayout(self)
+        self._form_layout = QFormLayout()
+
+        self.row1 = QLabel(_("API Type:"))
+        self.serverTypeCombobox = QComboBox()
+        self.serverTypeCombobox.addItem(BroadcastServicesUI.ELECTRUMX)
+        self.serverTypeCombobox.addItem(BroadcastServicesUI.MERCHANT_API)
+        if self._server_type:
+            self.serverTypeCombobox.setCurrentIndex(COMBOBOX_INDEX_MAP[self._server_type])
+        self.serverTypeCombobox.currentIndexChanged.connect(self.on_server_type_changed)
+
+        self.row2 = QLabel(_("URL:"))
+        field2 = QLineEdit()
+        if self._is_edit_mode:
+            field2.setText(self._server_url)
+
+        okay_cancel_button = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+
+        self._form_layout.addRow(self.row1, self.serverTypeCombobox)
+        self._form_layout.addRow(self.row2, field2)
+
+        self.row3 = None
+        if self._server_type == BroadcastServices.MERCHANT_API:
+            self.row3 = QLabel("API Key:")
+            self._mapi_api_key = QLineEdit()
+            self._form_layout.addRow(self.row3, self._mapi_api_key)
+
+        self._vbox.addLayout(self._form_layout)
+        self._vbox.addWidget(okay_cancel_button)
+
+        self.update_state()
+
+    def update_state(self):
+        """redraw to include / exclude the API Key field for Merchant API type server"""
+        if self._server_type == BroadcastServices.MERCHANT_API and not self.row3:
+            self.row3 = QLabel("API Key:")
+            self._mapi_api_key = QLineEdit()
+            self._form_layout.addRow(self.row3, self._mapi_api_key)
+            self._vbox.update()
+
+        elif not self._server_type == BroadcastServices.MERCHANT_API and self.row3:
+            self.row3 = None
+            self._form_layout.removeRow(2)
+
+        self.update()
+
+    def on_server_type_changed(self):
+        self._server_type = BroadcastServices.from_ui_display_format(
+            self.serverTypeCombobox.currentText())
+        self.update_state()
+
+
+class ServersListWidget(QTreeWidget):
+
+    def __init__(self, parent: 'NetworkTabsLayout'):
         QTreeWidget.__init__(self)
         self.parent = parent
-        self.setHeaderLabels([_('Host'), _('Protocol'), _('Port')])
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self.create_menu)
+        self.headers = ['', _('Service Name'), _('API Type')]
+        self.update_headers()
 
-    def create_menu(self, position):
-        item = self.currentItem()
-        if not item:
-            return
-        server = item.data(0, Qt.UserRole)
-        if not server:
-            return
-        menu = QMenu()
-        menu.addAction(_("Use as server"), lambda: self.set_server(server))
-        menu.exec_(self.viewport().mapToGlobal(position))
+    def update_headers(self):
+        self.setColumnCount(len(self.headers))
+        self.setHeaderLabels(self.headers)
+        self.header().setStretchLastSection(False)
+        for col in range(len(self.headers)):
+            sm = QHeaderView.ResizeToContents
+            self.header().setSectionResizeMode(col, sm)
 
-    def set_server(self, server):
-        self.parent.server_host.setText(server.host)
-        self.parent.server_port.setText(str(server.port))
-        self.parent.set_server(server)   # parent is NetworkChoiceLayout
-
-    def keyPressEvent(self, event):
-        if event.key() in [ Qt.Key_F2, Qt.Key_Return ]:
-            self.on_activated(self.currentItem(), self.currentColumn())
-        else:
-            QTreeWidget.keyPressEvent(self, event)
-
-    def on_activated(self, item, column):
-        # on 'enter' we show the menu
-        pt = self.visualItemRect(item).bottomLeft()
-        pt.setX(50)
-        self.customContextMenuRequested.emit(pt)
-
-    def update(self, servers, protocol, use_tor):
+    def update(self, items):
         self.clear()
-        for server in servers:
-            if server.host.endswith('.onion') and not use_tor:
-                continue
-            x = QTreeWidgetItem([server.host, server.protocol_text(), str(server.port)])
-            x.setData(0, Qt.UserRole, server)
-            self.addTopLevelItem(x)
+        for service, url in items:
+            parent = QTreeWidgetItem(["", service[1], service[2]])
+            parent.setIcon(0, service[0])
+            parent.setData(0, ITEM_DATA_ROLE, service)
+            parent.setData(0, URL_DATA_ROLE, url)
+
+            lvl1_indent = " " * 4
+            lvl2_indent = " " * 8
+            child_lvl1 = QTreeWidgetItem(["", lvl1_indent+"capabilities"])
+            parent.addChild(child_lvl1)
+            capabilities: List[str] = service[len(service) - 1]
+            if capabilities:
+                for capability in capabilities:
+                    child_lvl2 = QTreeWidgetItem(["", lvl2_indent+capability])
+                    child_lvl1.addChild(child_lvl2)
+
+            self.addTopLevelItem(parent)
 
         h = self.header()
         h.setStretchLastSection(False)
-        h.setSectionResizeMode(0, QHeaderView.Stretch)
+        h.setSectionResizeMode(0, QHeaderView.Fixed)
         h.setSectionResizeMode(1, QHeaderView.ResizeToContents)
 
+    def get_current_item(self):
+        return self.currentItem()
 
-class NetworkChoiceLayout(object):
+    def set_current_item(self, item: QTreeWidgetItem):
+        return self.setCurrentItem(item)
 
-    def __init__(self, network, config, wizard=False):
-        self.network = network
-        self.config = config
-        self.protocol = None
-        self.tor_proxy = None
-        self.filling_in = False
+    def add_item(self):
+        pass
 
-        self.tabs = tabs = QTabWidget()
-        tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        server_tab = QWidget()
-        proxy_tab = QWidget()
-        blockchain_tab = QWidget()
-        tabs.addTab(blockchain_tab, _('Overview'))
-        tabs.addTab(server_tab, _('Server'))
-        tabs.addTab(proxy_tab, _('Proxy'))
 
-        if wizard:
-            tabs.setCurrentIndex(1)
+class ServersTab(QWidget):
 
-        # server tab
-        grid = QGridLayout(server_tab)
+    def __init__(self, parent: 'NetworkTabsLayout'):
+        super().__init__()
+        self.parent = parent
+        self.config = self.parent.config
+        self.network = self.parent.network
+        grid = QGridLayout(self)
         grid.setSpacing(8)
 
-        self.server_host = QLineEdit()
-        self.server_host.setFixedWidth(200)
-        self.server_port = QLineEdit()
-        self.server_port.setFixedWidth(60)
-        self.autoconnect_cb = QCheckBox(_('Select server automatically'))
-        self.autoconnect_cb.setEnabled(self.config.is_modifiable('auto_connect'))
-
-        self.server_host.editingFinished.connect(self.set_server)
-        self.server_port.editingFinished.connect(self.set_server)
-        self.autoconnect_cb.clicked.connect(self._on_autoconnect_toggled)
-        self.autoconnect_cb.clicked.connect(self.update)
-
-        msg = ' '.join([
-            _("If auto-connect is enabled, ElectrumSV will always use a server that "
-              "is on the longest blockchain."),
-            _("If it is disabled, you have to choose a server you want to use. "
-              "ElectrumSV will warn you if your server is lagging.")
+        self.help_text = ' '.join([
+            _("This is a high-level overview of the servers that ElectrumSV depends upon. "
+              "You can add, remove or edit the entries via the buttons to the left.")
         ])
-        grid.addWidget(self.autoconnect_cb, 0, 0, 1, 3)
-        grid.addWidget(HelpButton(msg), 0, 4)
+        help_icon_button = IconButton("icons8-info-80-blueui.png", self._show_help, tooltip="help")
+        grid.addWidget(help_icon_button, 0, 4)
 
-        grid.addWidget(QLabel(_('Server') + ':'), 1, 0)
-        grid.addWidget(self.server_host, 1, 1, 1, 2)
-        grid.addWidget(self.server_port, 1, 3)
+        self._top_button_layout = AddOrEditButtonsLayout()
+        self._top_button_layout.add_signal.connect(self._on_add_server_button_clicked)
+        self._top_button_layout.edit_signal.connect(self._on_edit_server_button_clicked)
+        grid.addLayout(self._top_button_layout, 0, 0)
+        self.servers_list = ServersListWidget(self)
+        grid.addWidget(self.servers_list, 2, 0, 1, 5)
+        self.update_servers()
 
-        label = _('Server peers') if network.is_connected() else _('Default Servers')
-        grid.addWidget(QLabel(label), 2, 0, 1, 5)
-        self.servers_list = ServerListWidget(self)
-        grid.addWidget(self.servers_list, 3, 0, 1, 5)
+    def _show_help(self) -> None:
+        b = QMessageBox()
+        b.setIcon(QMessageBox.Information)
+        b.setTextFormat(Qt.AutoText)
+        b.setText(self.help_text)
+        b.setWindowTitle("Help")
+        b.exec()
 
-        # Proxy tab
-        grid = QGridLayout(proxy_tab)
+    def _get_server_status_icon(self, status: ServerStatus):
+        return read_QIcon(SERVER_STATUS_ICONS[status])
+
+    def _on_add_server_button_clicked(self):
+        dialogue = EditServerDialog(self, title="Add Server")
+        dialogue.exec()
+
+    def _on_edit_server_button_clicked(self):
+        dialogue = EditServerDialog(self, title="Edit Server", edit_mode=True)
+        dialogue.exec()
+
+    def update_servers(self):
+        items: List[Tuple[ServerItem, str]] = []  # second type is full url
+
+        # Add ElectrumX items
+        api_type = BroadcastServices.to_ui_display_format(BroadcastServices.ELECTRUMX)
+        sessions = self.network.sessions
+        if sessions:
+            max_tip_height = max([session.tip.height for session in sessions])
+
+            for session in sessions:
+                session: SVSession
+                server = session.server
+                is_more_than_two_blocks_behind = max_tip_height > session.tip.height + 2
+                if server.state.last_good >= server.state.last_try and not \
+                        is_more_than_two_blocks_behind:
+                    status_icon = self._get_server_status_icon(ServerStatus.CONNECTED)
+                else:
+                    status_icon = self._get_server_status_icon(ServerStatus.DISCONNECTED)
+                server_name = server.host
+                child_items = ELECTRUMX_CAPABILITIES
+                server_item = ServerItem(status_icon, server_name, api_type, child_items)
+                url = f"tcp://" if server.protocol == "t" else "ssl://" + \
+                      f"{server.host}:{server.port}"
+                items.append((server_item, url))
+
+        # Add mAPI items
+        api_type = BroadcastServices.to_ui_display_format(BroadcastServices.MERCHANT_API)
+        for mapi_server in self.network.get_mapi_servers():
+            if mapi_server['last_good'] == mapi_server['last_try']:
+                status_icon = self._get_server_status_icon(ServerStatus.CONNECTED)
+            else:
+                status_icon = self._get_server_status_icon(ServerStatus.DISCONNECTED)
+            server_name = mapi_server['uri']
+
+            child_items = MERCHANT_API_CAPABILITIES
+            server_item = ServerItem(status_icon, server_name, api_type, child_items)
+            items.append((server_item, mapi_server['uri']))
+
+        self.servers_list.update(items)
+        self.parent.blockchain_tab.nodes_list_widget.update(self.network)
+        self.enable_set_broadcast_service()
+
+    def enable_set_broadcast_service(self):
+        if self.config.is_modifiable('broadcast_service'):
+            self.servers_list.setEnabled(True)
+        else:
+            self.servers_list.setEnabled(False)
+
+
+class ProxyTab(QWidget):
+
+    def __init__(self, parent: 'NetworkTabsLayout'):
+        super().__init__()
+        self.parent = parent
+        self.config = self.parent.config
+        self.network = self.parent.network
+
+        grid = QGridLayout(self)
         grid.setSpacing(8)
 
         # proxy setting
@@ -316,39 +482,7 @@ class NetworkChoiceLayout(object):
         grid.addWidget(self.proxy_password, 5, 3, Qt.AlignTop)
         grid.setRowStretch(7, 1)
 
-        # Blockchain Tab
-        blockchain_layout = QVBoxLayout(blockchain_tab)
-
-        form = FormSectionWidget()
-        self.status_label = QLabel('')
-        form.add_row(_('Status'), self.status_label, True)
-        self.server_label = QLabel('')
-        form.add_row(_('Server'), self.server_label, True)
-        self.height_label = QLabel('')
-        form.add_row(_('Blockchain'), self.height_label, True)
-
-        blockchain_layout.addWidget(form)
-
-        self.split_label = QLabel('')
-        form.add_row(QLabel(""), self.split_label)
-
-        self.nodes_list_widget = NodesListWidget(self)
-        blockchain_layout.addWidget(self.nodes_list_widget)
-        blockchain_layout.addStretch(1)
-
-        vbox = QVBoxLayout()
-        vbox.addWidget(tabs)
-        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
-        self.layout_ = vbox
-        # tor detector
-        self.td = td = TorDetector()
-        td.found_proxy.connect(self.suggest_proxy)
-        td.start()
-
-        self.last_values = None
-
         self.fill_in_proxy_settings()
-        self.update()
 
     def check_disable_proxy(self, b):
         if not self.config.is_modifiable('proxy'):
@@ -356,50 +490,6 @@ class NetworkChoiceLayout(object):
         for w in [self.proxy_mode, self.proxy_host, self.proxy_port,
                   self.proxy_username, self.proxy_password]:
             w.setEnabled(b)
-
-    def enable_set_server(self):
-        if self.config.is_modifiable('server'):
-            enabled = not self.autoconnect_cb.isChecked()
-            self.server_host.setEnabled(enabled)
-            self.server_port.setEnabled(enabled)
-            self.servers_list.setEnabled(enabled)
-        else:
-            for w in [self.autoconnect_cb, self.server_host, self.server_port, self.servers_list]:
-                w.setEnabled(False)
-
-    def update(self):
-        server = self.network.main_server
-        self.server_host.setText(server.host)
-        self.server_port.setText(str(server.port))
-        self.autoconnect_cb.setChecked(self.network.auto_connect())
-
-        host = server.host if self.network.is_connected() else _('None')
-        self.server_label.setText(host)
-
-        self.set_protocol(server.protocol)
-        self.servers = self.network.get_servers()
-        self.servers_list.update(self.servers, self.protocol, self.tor_cb.isChecked())
-        self.enable_set_server()
-
-        height_str = "%d "%(self.network.get_local_height()) + _('blocks')
-        self.height_label.setText(height_str)
-        n = len(self.network.sessions)
-        status = _("Connected to {:d} servers.").format(n) if n else _("Not connected")
-        self.status_label.setText(status)
-        chains = self.network.sessions_by_chain().keys()
-        if len(chains) > 1:
-            our_chain = self.network.chain()
-            heights = set()
-            for chain in chains:
-                if chain != our_chain:
-                    _chain, common_height = our_chain.common_chain_and_height(chain)
-                    heights.add(common_height + 1)
-            msg = _('Chain split detected at height(s) {}\n').format(
-                ','.join(f'{height:,d}' for height in sorted(heights)))
-        else:
-            msg = ''
-        self.split_label.setText(msg)
-        self.nodes_list_widget.update(self.network)
 
     def fill_in_proxy_settings(self):
         self.filling_in = True
@@ -413,68 +503,19 @@ class NetworkChoiceLayout(object):
         self.proxy_password.setText(proxy.password())
         self.filling_in = False
 
-    def layout(self):
-        return self.layout_
+    def set_tor_detector(self):
+        # tor detector
+        self.td = td = TorDetector()
+        td.found_proxy.connect(self.suggest_proxy)
+        td.start()
 
     def set_protocol(self, protocol):
         if protocol != self.protocol:
             self.protocol = protocol
 
-    def change_protocol(self, use_ssl):
-        p = 's' if use_ssl else 't'
-        host = self.server_host.text()
-        pp = self.servers.get(host, Net.DEFAULT_PORTS)
-        if p not in pp.keys():
-            p = list(pp.keys())[0]
-        port = pp[p]
-        self.server_host.setText(host)
-        self.server_port.setText(port)
-        self.set_protocol(p)
-        self.set_server()
-
     def follow_server(self, server):
         self.network.set_server(server, self.network.auto_connect())
-        self.update()
-
-    def server_changed(self, x):
-        if x:
-            self.change_server(str(x.text(0)), self.protocol)
-
-    def change_server(self, host, protocol):
-        pp = self.servers.get(host, Net.DEFAULT_PORTS)
-        if protocol:
-            port = pp.get(protocol)
-            if port is None:
-                protocol = None
-        if not protocol:
-            if 's' in pp.keys():
-                protocol = 's'
-                port = pp.get(protocol)
-            else:
-                protocol = list(pp.keys())[0]
-                port = pp.get(protocol)
-        self.server_host.setText(host)
-        self.server_port.setText(port)
-
-    def accept(self):
-        pass
-
-    def _on_autoconnect_toggled(self, _checked):
-        self.set_server()
-
-    def set_server(self, server=None):
-        # EditingFinished can fire twice in Qt (a bug).  More generally, prevent repeats
-        # on e.g. dialog exit
-        values = (self.server_host.text(), self.server_port.text(),
-                  self.network.main_server.protocol, self.autoconnect_cb.isChecked())
-        if values != self.last_values:
-            self.last_values = values
-            try:
-                if not server:
-                    server = SVServer.unique(*values[:3])
-                self.network.set_server(server, self.autoconnect_cb.isChecked())
-            except Exception as e:
-                MessageBox.show_error(str(e))
+        self.blockchain_tab.nodes_list_widget.update(self.network)
 
     def set_proxy(self):
         if self.filling_in:
@@ -550,3 +591,68 @@ class TorDetector(QThread):
         except socket.error:
             pass
         return False
+
+
+class NetworkTabsLayout(QVBoxLayout):
+
+    def __init__(self, network, config, wizard=False):
+        super().__init__()
+        self.network = network
+        self.config = config
+        self.protocol = None
+        self.tor_proxy = None
+        self.filling_in = False
+
+        self.blockchain_tab = BlockchainTab(self)
+        self.servers_tab = ServersTab(self)
+        self.proxy_tab = ProxyTab(self)
+
+        self.tabs = QTabWidget()
+        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.tabs.addTab(self.blockchain_tab, _('Blockchain Status'))
+        self.tabs.addTab(self.servers_tab, _('Servers'))
+        self.tabs.addTab(self.proxy_tab, _('Proxy'))
+
+        if wizard:
+            self.tabs.setCurrentIndex(1)
+
+        self.addWidget(self.tabs)
+        self.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        self.proxy_tab.set_tor_detector()
+        self.last_values = None
+
+    def follow_server(self, server):
+        self.network.set_server(server, self.network.auto_connect())
+        self.blockchain_tab.nodes_list_widget.update(self.network)
+
+
+class NetworkDialog(QDialog):
+    network_updated_signal = pyqtSignal()
+
+    def __init__(self, network: Network, config) -> None:
+        super().__init__(flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
+        self.setWindowTitle(_('Network'))
+        self.setMinimumSize(500, 200)
+        self.resize(560, 400)
+
+        self._tabs_layout = NetworkTabsLayout(network, config)
+        self._buttons_layout = Buttons(CloseButton(self))
+        self._buttons_layout.add_left_button(HelpDialogButton(self, "misc", "network-dialog"))
+
+        self.vbox = QVBoxLayout(self)
+        self.vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        self.vbox.addLayout(self._tabs_layout)
+        self.vbox.addLayout(self._buttons_layout)
+
+        self.network_updated_signal.connect(self.on_update)
+        network.register_callback(self.on_network, ['updated', 'sessions'])
+
+    def on_network(self, event, *args):
+        ''' This may run in network thread '''
+        self.network_updated_signal.emit()
+
+    def on_update(self):
+        ''' This always runs in main GUI thread '''
+        self._tabs_layout.servers_tab.update_servers()
+

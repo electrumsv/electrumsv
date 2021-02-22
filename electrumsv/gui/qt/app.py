@@ -45,7 +45,7 @@ from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount, Wallet
 from electrumsv.wallet_database.types import WalletEventRow
 
-from . import dialogs
+from . import dialogs, network_dialog
 from .cosigner_pool import CosignerPool
 from .main_window import ElectrumWindow
 from .exception_window import Exception_Hook
@@ -223,7 +223,6 @@ class SVApplication(QApplication):
             self.net_dialog.show()
             self.net_dialog.raise_()
             return
-        from . import network_dialog
         # from importlib import reload
         # reload(network_dialog)
         self.net_dialog = network_dialog.NetworkDialog(app_state.daemon.network, app_state.config)
