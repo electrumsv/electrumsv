@@ -5,6 +5,7 @@ from bitcoinx import hash160, P2MultiSig_Output, P2PK_Output, P2SH_Address, Publ
 
 from .bitcoin import ScriptTemplate
 from .constants import DerivationType, ScriptType
+from .exceptions import UnsupportedScriptTypeError
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
 from .wallet_database.types import KeyInstanceRow
@@ -15,6 +16,7 @@ def extract_public_key_hash(row: KeyInstanceRow) -> str:
     assert row.derivation_type == DerivationType.PUBLIC_KEY_HASH
     return derivation_data['hash']
 
+
 def get_single_signer_script_template(public_key: PublicKey, script_type: ScriptType) \
         -> ScriptTemplate:
     if script_type == ScriptType.P2PK:
@@ -22,10 +24,10 @@ def get_single_signer_script_template(public_key: PublicKey, script_type: Script
     elif script_type == ScriptType.P2PKH:
         return public_key.to_address(coin=Net.COIN)
     else:
-        raise Exception("unsupported script type", script_type)
+        raise UnsupportedScriptTypeError("unsupported script type", script_type)
 
-def get_multi_signer_script_template(public_keys_hex: List[str],
-        threshold: int,
+
+def get_multi_signer_script_template(public_keys_hex: List[str], threshold: int,
         script_type: Optional[ScriptType]=None) -> ScriptTemplate:
     if script_type == ScriptType.MULTISIG_BARE:
         return P2MultiSig_Output(sorted(public_keys_hex), threshold)
@@ -35,4 +37,4 @@ def get_multi_signer_script_template(public_keys_hex: List[str],
     elif script_type == ScriptType.MULTISIG_ACCUMULATOR:
         return AccumulatorMultiSigOutput(sorted(public_keys_hex), threshold)
     else:
-        raise Exception("unsupported script type", script_type)
+        raise UnsupportedScriptTypeError("unsupported script type", script_type)

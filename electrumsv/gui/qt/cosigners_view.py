@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import (QAbstractItemView, QAbstractScrollArea, QLabel, QLi
 
 from electrumsv.constants import DerivationType, KeystoreTextType
 from electrumsv.i18n import _
-from electrumsv.keystore import instantiate_keystore_from_text, KeyStore
+from electrumsv.keystore import instantiate_keystore_from_text, KeyStore, SinglesigKeyStoreTypes
 
 from .main_window import ElectrumWindow
 from .qrtextedit import ShowQRTextEdit
@@ -47,11 +47,12 @@ from .wizard_common import WizardFlags
 
 
 class CosignerState:
-    keystore: Optional[KeyStore] = None
+    keystore: Optional[SinglesigKeyStoreTypes] = None
     name: Optional[str] = None
     is_local = False
 
-    def __init__(self, cosigner_index: int, keystore: Optional[KeyStore]=None) -> None:
+    def __init__(self, cosigner_index: int, keystore: Optional[SinglesigKeyStoreTypes]=None) \
+            -> None:
         self.cosigner_index = cosigner_index
         self.keystore = keystore
 

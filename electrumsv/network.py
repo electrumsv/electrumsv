@@ -626,10 +626,7 @@ class SVSession(RPCSession):
             # are in arbitrary order.
             result = await self.request_history(script_hash)
 
-        if result is not None:
-            self.logger.debug(f"received history for {subscription_id} length {len(result)}")
-        else:
-            self.logger.debug(f"received empty history for {subscription_id}")
+        self.logger.debug(f"received history for {subscription_id} length {len(result)}")
 
         await app_state.subscriptions.on_script_hash_history(subscription_id, script_hash_bytes,
             result)
@@ -970,7 +967,7 @@ class Network(TriggeredCallbacks):
         Process wallet script hash subscription requests.
         """
         session = await self._main_session()
-        session.logger.info(f'subscribing to {len(entries):,d} script hashes')
+        session.logger.debug('Subscribing to %d script hashes', len(entries))
         await session.subscribe_to_script_hashes(entries)
 
     async def _on_unsubscribe_script_hashes(self, entries: List[ScriptHashSubscriptionEntry]) \
@@ -979,7 +976,7 @@ class Network(TriggeredCallbacks):
         Process wallet script hash unsubscription requests.
         """
         session = await self._main_session()
-        session.logger.info(f"Unsubscribing from {len(entries):,d} script hashes")
+        session.logger.debug("Unsubscribing from %d script hashes", len(entries))
         await session.unsubscribe_from_script_hashes(entries)
 
     async def _monitor_wallets(self, group):
@@ -1277,7 +1274,7 @@ class Network(TriggeredCallbacks):
     def auto_connect(self):
         return app_state.config.get('auto_connect', True)
 
-    def is_connected(self):
+    def is_connected(self) -> bool:
         return self.main_session() is not None
 
     def main_session(self):

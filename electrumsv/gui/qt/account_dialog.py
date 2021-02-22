@@ -1,12 +1,13 @@
-from typing import Optional
+from typing import cast, Optional
 import weakref
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QComboBox, QDialog, QLabel, QLineEdit, QVBoxLayout, QWidget
 
-from electrumsv.constants import ACCOUNT_SCRIPT_TYPES, DerivationType, KeystoreType, ScriptType
-from electrumsv.i18n import _
-from electrumsv.wallet import Wallet
+from ...constants import ACCOUNT_SCRIPT_TYPES, DerivationType, KeystoreType, ScriptType
+from ...i18n import _
+from ...keystore import Hardware_KeyStore, Multisig_KeyStore, SinglesigKeyStoreTypes
+from ...wallet import Wallet
 
 from .cosigners_view import CosignerState, CosignerList
 from .main_window import ElectrumWindow
@@ -19,8 +20,8 @@ class AccountDialog(QDialog):
 
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet, account_id: int,
             parent: QWidget) -> None:
-        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+        super().__init__(parent, Qt.WindowFlag(Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint))
 
         assert type(main_window) is weakref.ProxyType
         self._main_window = main_window
@@ -48,7 +49,8 @@ class AccountDialog(QDialog):
         #######
 
         if keystore is not None and keystore.type() == KeystoreType.HARDWARE:
-            form.add_row(_("Derivation path"), QLabel(keystore.derivation))
+            hkeystore = cast(Hardware_KeyStore, keystore)
+            form.add_row(_("Derivation path"), QLabel(hkeystore.derivation))
 
         script_type_combo = QComboBox()
 
@@ -75,7 +77,10 @@ class AccountDialog(QDialog):
         script_type_combo.currentIndexChanged.connect(on_script_type_change)
 
         update_script_types()
-        # Prevent users from changing their script type.
+        # NOTE(warning) We explicitly do not allow accumulator multi-signature because it is an
+        # experimental option and requires some form of testing. This is the reason we do not
+        # allow changing the script type at this time. If it is enabled for some reason,
+        # accumulator multi-signature should be excluded UNLESS it has been tested sufficiently.
         script_type_combo.setEnabled(False)
         form.add_row(_("Script type"), script_type_combo, True)
 
@@ -84,16 +89,17 @@ class AccountDialog(QDialog):
         add_stretch = True
         if keystore is not None:
             if keystore.derivation_type == DerivationType.ELECTRUM_MULTISIG:
+                mkeystore = cast(Multisig_KeyStore, keystore)
                 multisig_form = FormSectionWidget(minimum_label_width=160)
                 multisig_form.add_title("Multi-signature properties")
-                multisig_form.add_row(_("Number of cosigners"), QLabel(str(keystore.n)))
-                multisig_form.add_row(_("Number of signatures required"), QLabel(str(keystore.m)))
+                multisig_form.add_row(_("Number of cosigners"), QLabel(str(mkeystore.n)))
+                multisig_form.add_row(_("Number of signatures required"), QLabel(str(mkeystore.m)))
                 vbox.addWidget(multisig_form)
 
                 self._list = list = CosignerList(self._main_window, create=False)
                 list.setMinimumHeight(350)
                 for i, keystore in enumerate(account.get_keystores()):
-                    state = CosignerState(i, keystore)
+                    state = CosignerState(i, cast(SinglesigKeyStoreTypes, keystore))
                     list.add_state(state)
                 vbox.addWidget(list, 1)
                 add_stretch = False

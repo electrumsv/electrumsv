@@ -42,6 +42,10 @@ class SubscriptionManager:
         self._next_id = 1
         self._subscription_ids: Dict[SubscriptionKey, int] = {}
         self._subscriptions: Dict[SubscriptionKey, Set[SubscriptionOwner]] = {}
+        # The current result arrives as a response to an initial subcription, any subscriber for
+        # another purpose who arrives later will miss it. For this reason we store the last result
+        # for a subscription entry and give it to later concurrent subscribers.
+        self._subscription_results: Dict[SubscriptionKey, ElectrumXHistoryList] = {}
         self._owner_subscriptions: Dict[SubscriptionOwner, Set[SubscriptionKey]] = {}
         self._owner_subscription_context: Dict[Tuple[SubscriptionOwner, SubscriptionKey],
             SubscriptionOwnerContextType] = {}
@@ -72,7 +76,7 @@ class SubscriptionManager:
         self._script_hashes_removed_callback = None
 
     def _add_subscription(self, entry: SubscriptionEntry, owner: SubscriptionOwner) \
-            -> Optional[int]:
+            -> Tuple[int, bool]:
         """
         Add the owner's subscription for the given subscription key.
         """
@@ -86,14 +90,14 @@ class SubscriptionManager:
             # This is an existing subscription, it should already be subscribed.
             self._subscriptions[key].add(owner)
             owner_subscriptions.add(key)
-            return None
+            return self._subscription_ids[key], False
         # This is a new subscription, it needs to be subscribed.
         subscription_id = self._next_id
         self._next_id = self._next_id + 1
         self._subscription_ids[key] = subscription_id
         self._subscriptions[key] = { owner }
         owner_subscriptions.add(key)
-        return subscription_id
+        return subscription_id, True
 
     def _remove_subscription(self, entry: SubscriptionEntry, owner: SubscriptionOwner) \
             -> Optional[int]:
@@ -126,16 +130,21 @@ class SubscriptionManager:
         with self._lock:
             script_hash_entries: List[ScriptHashSubscriptionEntry] = []
             for entry in entries:
-                subscription_id = self._add_subscription(entry, owner)
-                if subscription_id is not None:
+                subscription_id, is_new = self._add_subscription(entry, owner)
+                if is_new:
                     if entry.key.value_type == SubscriptionType.SCRIPT_HASH:
                         script_hash_entries.append(
                             ScriptHashSubscriptionEntry(subscription_id, entry.key.value))
                     else:
                         raise NotImplementedError(f"{entry.key.value_type} not supported")
+                elif self._script_hashes_added_callback is not None:
+                    # This should not block and will spawn a task to do the notification.
+                    self.check_notify_script_hash_history(entry.key, owner)
             if self._script_hashes_added_callback is not None and len(script_hash_entries):
                 from .app_state import app_state
-                app_state.async_.spawn_and_wait(self._script_hashes_added_callback,
+                # TODO(no-merge) This used to be spawn and wait but was changed to spawn to not
+                #   block the caller. Is this acceptable behaviour?
+                app_state.app.run_coro(self._script_hashes_added_callback,
                     script_hash_entries)
 
     def read_script_hashes(self) -> List[ScriptHashSubscriptionEntry]:
@@ -170,7 +179,11 @@ class SubscriptionManager:
                         raise NotImplementedError(f"{entry.key.value_type} not supported")
             if self._script_hashes_removed_callback is not None and len(script_hash_entries):
                 from .app_state import app_state
-                app_state.async_.spawn_and_wait(self._script_hashes_removed_callback,
+                # TODO(no-merge) This used to be spawn and wait but was changed to spawn to not
+                #   block the caller. Is this acceptable behaviour? In this case, the caller would
+                #   sometimes be the network thread and it would block it indefinitely, so we did
+                #   not have an option.
+                app_state.app.run_coro(self._script_hashes_removed_callback,
                     script_hash_entries)
         return removals
 
@@ -183,17 +196,40 @@ class SubscriptionManager:
                 hash_to_hex_str(script_hash), subscription_id, existing_subscription_id)
             return
 
+        self._subscription_results[subscription_key] = result
+
         for owner, callback in list(self._owner_callbacks.items()):
-            if owner in self._subscriptions[subscription_key]:
-                # This may modify the contents of the owner context for this subscription.
-                context = self._owner_subscription_context[(owner, subscription_key)]
-                try:
-                    await callback(subscription_key, context, result)
-                except SubscriptionStale:
-                    logger.debug("Removing a stale subscription for %s", subscription_key)
-                    # TODO(no-merge) This needs to be unit tested.
-                    self.delete_entries([ SubscriptionEntry(subscription_key, context) ],
-                        owner)
-                except Exception:
-                    # Prevent unexpected exceptions raising up and killing the async.
-                    logger.exception("Failed dispatching subscription callback")
+            await self._notify_script_hash_history(subscription_key, owner, callback, result)
+
+    async def _notify_script_hash_history(self, subscription_key: SubscriptionKey,
+            owner: SubscriptionOwner, callback: ScriptHashResultCallback,
+            result: ElectrumXHistoryList) -> None:
+        if owner in self._subscriptions[subscription_key]:
+            # This may modify the contents of the owner context for this subscription.
+            context = self._owner_subscription_context[(owner, subscription_key)]
+            try:
+                await callback(subscription_key, context, result)
+            except SubscriptionStale:
+                logger.debug("Removing a stale subscription for %s/%s", subscription_key,
+                    owner)
+                # TODO(no-merge) This needs to be unit tested.
+                self.delete_entries([ SubscriptionEntry(subscription_key, context) ],
+                    owner)
+            except Exception:
+                # Prevent unexpected exceptions raising up and killing the async.
+                logger.exception("Failed dispatching subscription callback")
+
+    def check_notify_script_hash_history(self, subscription_key: SubscriptionKey,
+            owner: SubscriptionOwner) -> None:
+        result = self._subscription_results.get(subscription_key)
+        if result is None:
+            return
+
+        callback = self._owner_callbacks.get(owner)
+        if callback is None:
+            return
+
+        from .app_state import app_state
+        app_state.app.run_coro(self._notify_script_hash_history,
+            subscription_key, owner, callback, result)
+

@@ -1,15 +1,10 @@
-from typing import (Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, TYPE_CHECKING,
-    Union)
+from typing import Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, Union
 
 from bitcoinx import hash_to_hex_str
 from mypy_extensions import Arg, DefaultArg
 
 from .constants import ScriptType, SubscriptionOwnerPurpose, SubscriptionType
 from .wallet_database.types import TransactionSubscriptionRow
-
-if TYPE_CHECKING:
-    from .keystore import KeyStore
-    from .wallet import AbstractAccount
 
 
 ElectrumXHistoryEntry = Dict[str, Union[int, str]]
@@ -36,7 +31,12 @@ class SubscriptionTransactionScriptHashOwnerContext(NamedTuple):
     tx_rows: List[TransactionSubscriptionRow]
 
 
+class SubscriptionScannerScriptHashOwnerContext(NamedTuple):
+    value: Any
+
+
 SubscriptionOwnerContextType = Union[SubscriptionKeyScriptHashOwnerContext,
+    SubscriptionScannerScriptHashOwnerContext,
     SubscriptionTransactionScriptHashOwnerContext]
 
 

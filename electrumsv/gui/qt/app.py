@@ -23,7 +23,7 @@
 
 '''ElectrumSV application.'''
 
-import concurrent
+import concurrent.futures
 import datetime
 import os
 from functools import partial

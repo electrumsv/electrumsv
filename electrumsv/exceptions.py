@@ -84,6 +84,12 @@ class WalletLoadError(Exception):
 class InvalidPayToError(Exception):
     pass
 
+class UnsupportedAccountTypeError(Exception):
+    pass
+
+class UnsupportedScriptTypeError(Exception):
+    pass
+
 class SubscriptionStale(Exception):
     pass
 

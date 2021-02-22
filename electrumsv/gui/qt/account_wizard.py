@@ -26,9 +26,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import concurrent
+import concurrent.futures
 import enum
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
     bip32_key_from_string, PrivateKey, P2SH_Address)
@@ -48,7 +48,7 @@ from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, IntFla
 from electrumsv.device import DeviceInfo
 from electrumsv.i18n import _
 from electrumsv.keystore import (bip39_is_checksum_valid, bip44_derivation_cointype, from_seed,
-    instantiate_keystore_from_text, KeyStore, Multisig_KeyStore)
+    instantiate_keystore_from_text, KeyStore, KeystoreMatchType, Multisig_KeyStore)
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.storage import WalletStorage
@@ -88,9 +88,6 @@ DEVICE_SETUP_SUCCESS_TEXT = _("Your {} hardware wallet was both successfully det
     "this field unchanged.") + _("The default value of {} is the default derivation for "
     "{} wallets. This matches BTC usage and that of most other BSV wallet software. To match "
     "BCH wallet addresses use m/44'/145'/0'")
-
-
-KeystoreMatchType = Union[str, Set[str]]
 
 
 class AccountPage(enum.IntEnum):
@@ -219,6 +216,7 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
         return self._keystore_type != ResultType.UNKNOWN
 
     def get_keystore(self) -> KeyStore:
+        assert self._keystore is not None
         return self._keystore
 
     def set_keystore_result(self, result_type: ResultType, keystore: Optional[KeyStore]) -> None:
@@ -240,7 +238,8 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
 
         if self.flags & WizardFlags.ACCOUNT_RESULT:
             assert password is not None
-            self._wallet.create_account_from_text_entries(text_type, script_type, text_matches,
+            self._wallet.create_account_from_text_entries(text_type, script_type,
+                cast(Set[str], text_matches),
                 password)
         else:
             raise NotImplementedError("Invalid attempt to generate keyless keystore data")
@@ -292,7 +291,7 @@ class AddAccountWizardPage(QWizardPage):
 
         option_detail = self._option_detail = QLabel()
         option_detail.setMinimumWidth(200)
-        option_detail.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        option_detail.setAlignment(Qt.AlignmentFlag(Qt.AlignTop | Qt.AlignLeft))
         option_detail.setTextFormat(Qt.RichText)
         option_detail.setWordWrap(True)
         option_detail.setOpenExternalLinks(True)
@@ -656,7 +655,7 @@ class ImportWalletTextPage(QWizardPage):
                     match_found = True
                     if KeystoreTextType.PRIVATE_KEYS not in matches:
                         matches[KeystoreTextType.PRIVATE_KEYS] = set()
-                    matches[KeystoreTextType.PRIVATE_KEYS].add(word)
+                    cast(Set[str], matches[KeystoreTextType.PRIVATE_KEYS]).add(word)
 
                 try:
                     address = Address.from_string(word, Net.COIN)
@@ -673,12 +672,12 @@ class ImportWalletTextPage(QWizardPage):
                         match_found = True
                         if KeystoreTextType.ADDRESSES not in matches:
                             matches[KeystoreTextType.ADDRESSES] = set()
-                        matches[KeystoreTextType.ADDRESSES].add(word)
+                        cast(Set[str], matches[KeystoreTextType.ADDRESSES]).add(word)
 
                 if not match_found:
                     if KeystoreTextType.UNRECOGNIZED not in matches:
                         matches[KeystoreTextType.UNRECOGNIZED] = set()
-                    matches[KeystoreTextType.UNRECOGNIZED].add(word)
+                    cast(Set[str], matches[KeystoreTextType.UNRECOGNIZED]).add(word)
 
         self._set_matches(matches)
 
@@ -705,6 +704,7 @@ class ImportWalletTextPage(QWizardPage):
             if not self._create_account(main_window=wizard._main_window):
                 return False
         else:
+            assert self._checked_match_type is not None
             wizard.set_text_import_matches(self._checked_match_type,
                 self._matches[self._checked_match_type])
         return True
@@ -737,6 +737,7 @@ class ImportWalletTextPage(QWizardPage):
     def _create_account(self, main_window: Optional[ElectrumWindow]=None,
             password: Optional[str]=None) -> bool:
         wizard: AccountWizard = self.wizard()
+        assert self._checked_match_type is not None
         entries = self._matches[self._checked_match_type]
         if self._checked_match_type in (KeystoreTextType.ADDRESSES, KeystoreTextType.PRIVATE_KEYS):
             script_type = (ScriptType.P2PKH
@@ -852,7 +853,10 @@ class ImportWalletTextCustomPage(QWizardPage):
         watch_only = (self._watchonly_button.isChecked()
             if self._allow_watch_only_usage() else False)
 
-        _keystore = instantiate_keystore_from_text(self._text_type, self._text_matches,
+        assert self._text_type is not None
+        assert self._text_matches is not None
+        _keystore = instantiate_keystore_from_text(self._text_type,
+            self._text_matches,
             password, derivation_text, passphrase, watch_only)
         wizard: AccountWizard = self.wizard()
         wizard.set_keystore_result(ResultType.IMPORTED, _keystore)
@@ -987,6 +991,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
 
         scan_text_label = QLabel(_("Debug messages") +":")
         scan_text_edit = QTextEdit()
+        assert self._device_debug_message is not None
         scan_text_edit.setText(self._device_debug_message)
         scan_text_edit.setReadOnly(True)
         grid.addWidget(scan_text_label, 0, 0, 2, 1, Qt.AlignRight)
@@ -1220,6 +1225,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
 
         scan_text_label = QLabel(_("Debug messages:"))
         scan_text_edit = QTextEdit()
+        assert self._plugin_debug_message is not None
         scan_text_edit.setText(self._plugin_debug_message)
         scan_text_edit.setReadOnly(True)
         grid.addWidget(scan_text_label, 0, 0, 2, 1, Qt.AlignRight)
@@ -1274,6 +1280,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         wizard: AccountWizard = self.wizard()
         name, device_info = wizard.get_selected_device()
 
+        assert self._derivation_user is not None
         derivation_text = compose_chain_string(self._derivation_user)
         try:
             mpk = self._plugin.get_master_public_key(device_info.device.id_, derivation_text,
@@ -1296,12 +1303,12 @@ class SetupHardwareWalletAccountPage(QWizardPage):
 
 
 class CosignWidget(QWidget):
-    size = 200
+    _size = 200
 
     def __init__(self, m: int, n: int) -> None:
         QWidget.__init__(self)
-        self.setMinimumHeight(self.size)
-        self.setMaximumHeight(self.size)
+        self.setMinimumHeight(self._size)
+        self.setMaximumHeight(self._size)
         self.m = m
         self.n = n
 
@@ -1323,12 +1330,12 @@ class CosignWidget(QWidget):
         qp.setPen(pen)
         qp.setRenderHint(QPainter.Antialiasing)
         qp.setBrush(Qt.gray)
-        x = int((self.width() - self.size) / 2)
+        x = int((self.width() - self._size) / 2)
         for i in range(self.n):
             alpha = int(16 * 360 * i/self.n)
             alpha2 = int(16 * 360 * 1/self.n)
             qp.setBrush(self._green if i<self.m else Qt.gray)
-            qp.drawPie(x, 0, self.size, self.size, alpha, alpha2)
+            qp.drawPie(x, 0, self._size, self._size, alpha, alpha2)
         qp.end()
 
 
@@ -1615,7 +1622,8 @@ class MultisigAccountCosignerListPage(QWizardPage):
     # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
     # Overriding this requires us to emit the 'completeChanges' signal where applicable.
     def isComplete(self) -> bool:
-        return len(self._cosigner_states) and all(s.is_complete() for s in self._cosigner_states)
+        return bool(len(self._cosigner_states) and all(s.is_complete()
+            for s in self._cosigner_states))
 
     def event_cosigner_updated(self, cosigner_index: int) -> None:
         self.completeChanged.emit()

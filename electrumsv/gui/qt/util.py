@@ -309,7 +309,7 @@ class UntrustedMessageDialog(QDialog):
 class WindowModalDialog(QDialog, MessageBoxMixin):
     '''Handy wrapper; window modal dialogs are better for our multi-window
     daemon model as other wallet windows can still be accessed.'''
-    def __init__(self, parent, title: Optional[str]=None, hide_close_button: bool=False):
+    def __init__(self, parent: QWidget, title: Optional[str]=None, hide_close_button: bool=False):
         flags = Qt.WindowSystemMenuHint | Qt.WindowTitleHint
         # This is the window close button, not any one we add ourselves.
         if not hide_close_button:
