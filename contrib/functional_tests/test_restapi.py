@@ -95,36 +95,23 @@ class TestRestAPI:
         assert result.json()['accounts']['1']['wallet_type'] == 'Standard account'
 
     def test_get_parent_wallet(self):
-        expected_json = {
-            "parent_wallet": "worker1.sqlite",
-            "accounts": {
-                "1": {
-                    "wallet_type": "Standard account",
-                    "default_script_type": "P2PKH",
-                    "is_wallet_ready": True
-                }
-            }
-        }
         time.sleep(5)
         result = requests.get(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/{self.TEST_WALLET_NAME}')
         if result.status_code != 200:
             raise requests.exceptions.HTTPError(result.text)
 
-        assert result.json() == expected_json
+        assert result.json()['parent_wallet'] == 'worker1.sqlite'
+        assert result.json()['accounts']['1']['default_script_type'] == 'P2PKH'
+        assert result.json()['accounts']['1']['wallet_type'] == 'Standard account'
 
     def test_get_account(self):
-        expected_json = {
-            '1':
-                {'wallet_type': 'Standard account',
-                 'default_script_type': 'P2PKH',
-                 'is_wallet_ready': True}
-        }
         result = requests.get(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'
                               f'{self.TEST_WALLET_NAME}/1')
         if result.status_code != 200:
             raise requests.exceptions.HTTPError(result.text)
 
-        assert result.json() == expected_json
+        assert result.json()['1']['wallet_type'] == 'Standard account'
+        assert result.json()['1']['default_script_type'] == 'P2PKH'
 
     """Disabled test until websockets are implemented for waiting on tx processing"""
     # def test_get_utxos_and_top_up(self):

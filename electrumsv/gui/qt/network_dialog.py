@@ -28,8 +28,8 @@ from collections import namedtuple
 from typing import List, Optional, Tuple
 
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTabWidget, QSizePolicy, QWidget, QTreeWidget, \
-    QTreeWidgetItem, QHeaderView, QLabel, QCheckBox, QComboBox, QLineEdit, QGridLayout, QMessageBox, \
-    QMenu, QDialogButtonBox, QFormLayout
+    QTreeWidgetItem, QHeaderView, QLabel, QCheckBox, QComboBox, QLineEdit, QGridLayout, \
+    QMessageBox, QMenu, QDialogButtonBox, QFormLayout
 from PyQt5.QtCore import pyqtSignal, Qt, QThread
 from aiorpcx import NetAddress
 from bitcoinx import hash_to_hex_str
@@ -79,7 +79,7 @@ ELECTRUMX_CAPABILITIES = ('SCRIPTHASH_HISTORY', 'BROADCAST', 'REQUEST_MERKLE_PRO
 
 class NodesListWidget(QTreeWidget):
 
-    def __init__(self, parent: 'NetworkTabsLayout'):
+    def __init__(self, parent: 'BlockchainTab'):
         QTreeWidget.__init__(self)
         self.parent = parent
         self.setHeaderLabels([_('Connected node'), _('Height')])
@@ -185,6 +185,7 @@ class BlockchainTab(QWidget):
     def __init__(self, parent: 'NetworkTabsLayout'):
         super().__init__()
         self.parent = parent
+        self.network = parent.network
         blockchain_layout = QVBoxLayout(self)
 
         form = FormSectionWidget()
@@ -203,7 +204,11 @@ class BlockchainTab(QWidget):
         self.nodes_list_widget = NodesListWidget(self)
         blockchain_layout.addWidget(self.nodes_list_widget)
         blockchain_layout.addStretch(1)
-        self.nodes_list_widget.update(self.parent.network)
+        self.nodes_list_widget.update(self.network)
+
+    def follow_server(self, server):
+        self.network.set_server(server, self.network.auto_connect())
+        self.nodes_list_widget.update(self.network)
 
 
 class EditServerDialog(QDialog):
@@ -620,10 +625,6 @@ class NetworkTabsLayout(QVBoxLayout):
         self.setSizeConstraint(QVBoxLayout.SetFixedSize)
         self.proxy_tab.set_tor_detector()
         self.last_values = None
-
-    def follow_server(self, server):
-        self.network.set_server(server, self.network.auto_connect())
-        self.blockchain_tab.nodes_list_widget.update(self.network)
 
 
 class NetworkDialog(QDialog):
