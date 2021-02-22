@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QToolButton, QWidget
 
 from electrumsv.i18n import _
 
-from .util import KeyEventLineEdit, read_QIcon
+from .util import KeyEventLineEdit, read_QIcon, IconButton
 
 
 class TableTopButtonLayout(QHBoxLayout):
@@ -95,3 +95,38 @@ class TableTopButtonLayout(QHBoxLayout):
             self._filter_box.setText('')
             self._filter_box.hide()
             self.filter_signal.emit('')
+
+
+class AddOrEditButtonsLayout(QHBoxLayout):
+    add_signal = pyqtSignal()
+    edit_signal = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget]=None) -> None:
+        super().__init__(parent)
+
+        # The offset to insert the next button at.
+        self._button_index = 0
+
+        self.setSpacing(2)
+        self.setContentsMargins(0, 2, 0, 2)
+        self.add_an_add_button()
+        self.add_edit_button()
+
+    def add_button(self, icon_name: str, on_click: Callable[[], None], tooltip: str,
+            position: Optional[int]=None) -> QToolButton:
+        button = IconButton(icon_name, on_click, tooltip)
+        if position is None:
+            position = self._button_index
+            self._button_index += 1
+        self.insertWidget(position, button)
+        return button
+
+    def add_an_add_button(self, tooltip: Optional[str]=None) -> QToolButton:
+        if tooltip is None:
+            tooltip = _("Add a server to the list.")
+        return self.add_button("favicon_dot_com/001-plus.png", self.add_signal.emit, tooltip)
+
+    def add_edit_button(self, tooltip: Optional[str]=None) -> QToolButton:
+        if tooltip is None:
+            tooltip = _("Edit or remove the selected server")
+        return self.add_button("favicon_dot_com/003-pencil.png", self.edit_signal.emit, tooltip)

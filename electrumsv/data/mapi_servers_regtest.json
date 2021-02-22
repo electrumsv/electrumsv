@@ -1,0 +1,9 @@
+[
+    {
+        "uri": "https://127.0.0.1:5051/mapi",
+        "fee": null,
+        "version": "1.2.0",
+        "last_good": null,
+        "last_try": null
+    }
+]

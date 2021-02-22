@@ -148,6 +148,7 @@ class CloseButton(QPushButton):
         self.clicked.connect(dialog.accept)
         self.setDefault(True)
 
+
 class CopyButton(QPushButton):
     def __init__(self, text_getter, app):
         QPushButton.__init__(self, _("Copy"))
@@ -1277,3 +1278,19 @@ class AspectRatioPixmapLabel(QLabel):
             super().setPixmap(self._scaled_pixmap())
         super().resizeEvent(event)
 
+
+class IconButton(QPushButton):
+
+    def __init__(self, icon_name: str, on_click: Callable[[], None], tooltip: str):
+        icon = read_QIcon(icon_name)
+        super().__init__(icon, "")
+        buttonStyle = "QPushButton{border:none;background-color:rgba(255, 255, 255,100);}"
+        self.setStyleSheet(buttonStyle)
+
+        self.setIconSize(QSize(20, 20))
+        self.setMinimumSize(20, 20)
+        self.setMaximumSize(20, 20)
+
+        self.setToolTip(tooltip)
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.clicked.connect(on_click)

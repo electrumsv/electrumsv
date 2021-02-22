@@ -22,6 +22,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 import asyncio
+import json
+import socket
 from collections import defaultdict
 from contextlib import suppress
 from enum import IntEnum
@@ -34,7 +36,10 @@ import stat
 import time
 from typing import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
 
+import aiohttp
 import certifi
+from aiodns.error import DNSError
+from aiohttp import AsyncResolver, ClientConnectorError
 from aiorpcx import (
     connect_rs, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
     TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
@@ -52,7 +57,8 @@ from .logs import logs
 from .transaction import Transaction
 from .types import ElectrumXHistoryList, ScriptHashSubscriptionEntry
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
-from .networks import Net
+from .networks import Net, SVRegTestnet
+from .util.misc import decode_response_body
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
 
 if TYPE_CHECKING:
@@ -353,6 +359,8 @@ class SVSession(RPCSession):
         self.server = server
         self.tip = None
         self.ptuple = (0, )
+
+        self.mapi_client: aiohttp.ClientSession = None
 
     def set_throttled(self, flag: bool) -> None:
         if flag:
@@ -851,6 +859,7 @@ class Network(TriggeredCallbacks):
         self.sessions = []
         self.chosen_servers = set()
         self.main_server = None
+        self.mapi_servers = self._read_config_mapi()
         self.proxy = None
 
         # Events
@@ -874,6 +883,31 @@ class Network(TriggeredCallbacks):
 
         app_state.subscriptions.set_script_hash_callbacks(
             self._on_subscribe_script_hashes, self._on_unsubscribe_script_hashes)
+        self.mapi_client: Optional[aiohttp.ClientSession]=None
+
+    def _read_config_mapi(self):
+        mapi_servers = app_state.config.get("mapi_servers", [])
+        if mapi_servers:
+            logger.info(f'read {len(mapi_servers)} merchant api servers from config file')
+        for mapi_server in Net.DEFAULT_MAPI_SERVERS:
+            if mapi_server['uri'] not in [mapi_server['uri'] for mapi_server in mapi_servers]:
+                mapi_servers.append(mapi_server)
+        return mapi_servers
+
+    async def _get_mapi_client(self):
+        # aiohttp session needs to be initialised in async function
+        # https://github.com/tiangolo/fastapi/issues/301
+        if self.mapi_client is None:
+            resolver = AsyncResolver()
+            conn = aiohttp.TCPConnector(family=socket.AF_INET, resolver=resolver, ttl_dns_cache=10,
+                                        force_close=True, enable_cleanup_closed=True)
+            self.mapi_client = aiohttp.ClientSession(connector=conn)
+        return self.mapi_client
+
+    async def _close_mapi_client(self):
+        logger.debug("closing aiohttp client session.")
+        if self.mapi_client:
+            await self.mapi_client.close()
 
     async def _main_task(self):
         try:
@@ -884,9 +918,55 @@ class Network(TriggeredCallbacks):
                 await group.spawn(self._initial_script_hash_status_subscriptions, group)
                 await group.spawn(self._monitor_script_hash_status_subscriptions, group)
                 await group.spawn(self._monitor_wallets, group)
+                await group.spawn(self._monitor_mapi_servers)
         finally:
             self.shutdown_complete_event.set()
             app_state.config.set_key('servers', list(SVServer.all_servers.values()), True)
+            app_state.config.set_key('mapi_servers', self.get_mapi_servers(), True)
+
+    async def _do_mapi_health_check(self):
+        """The last_good and last_try timestamps will be used to include/exclude the mAPI for
+        selection"""
+        now = time.time()
+        for i, mapi_server in enumerate(self.mapi_servers):
+            mapi_server['last_try'] = now
+            uri = mapi_server['uri'] + "/feeQuote"
+            headers = {'Content-Type': 'application/json'}
+            if Net._net is SVRegTestnet:
+                ssl = False
+            else:
+                ssl = True
+
+            async with self.mapi_client.get(uri, headers=headers, ssl=ssl) as resp:
+                try:
+                    json_response = await decode_response_body(resp)
+                    if resp.status != 200:
+                        logger.error(f"feeQuote request to {mapi_server['uri']} "
+                                     f"failed with: status: {resp.status}; reason: {resp.reason}")
+                    else:
+                        assert json_response['encoding'].lower() == 'utf-8'
+                        json_payload = json.loads(json_response['payload'])
+                        logger.debug(f"valid feeQuote received from {mapi_server['uri']}")
+                        mapi_server['last_good'] = now
+                        mapi_server['fee'] = json_payload
+                except (ClientConnectorError, ConnectionError, OSError, SOCKSError, DNSError):
+                    logger.error(f"failed to connect to {mapi_server['uri']}")
+                finally:
+                    self.mapi_servers[i] = mapi_server
+
+        # update mapi servers in json config
+        app_state.config.set_key('mapi_servers', self.mapi_servers, True)
+
+    async def _monitor_mapi_servers(self):
+        if not self.mapi_client:
+            self.mapi_client = await self._get_mapi_client()
+
+        if self.mapi_servers is None:
+            self._read_config_mapi()
+
+        while True:
+            await self._do_mapi_health_check()
+            await asyncio.sleep(60)
 
     async def _restart_network(self):
         self.stop_network_event.set()
@@ -898,7 +978,7 @@ class Network(TriggeredCallbacks):
                 server.state.retry_delay = 0
 
             if self.main_server is None:
-                self.main_server, self.proxy = self._read_config()
+                self.main_server, self.proxy = self._read_config_electrumx()
 
             logger.debug('starting...')
             connections_task = await group.spawn(self._maintain_connections)
@@ -1035,7 +1115,7 @@ class Network(TriggeredCallbacks):
     async def _set_main_server(self, server, reason):
         '''Set the main server to something new.'''
         assert isinstance(server, SVServer), f"got invalid server value: {server}"
-        logger.info(f'switching main server to {server}: {reason.name}')
+        logger.info(f'switching main server to: {server}; reason: {reason.name}')
         old_main_session = self.main_session()
         self.main_server = server
         self.check_main_chain_event.set()
@@ -1054,11 +1134,14 @@ class Network(TriggeredCallbacks):
             await old_main_session.close()
         self.trigger_callback('status')
 
-    def _read_config(self):
+    def _read_config_electrumx(self):
         # Remove obsolete key
         app_state.config.set_key('server_blacklist', None)
         count = len(SVServer.all_servers)
-        logger.info(f'read {count:,d} servers from config file')
+        # The way SVServers are read from config.json is confusing. JSON.register() is called for
+        # SVServer and when the config is deserialized, the SVServer adds itself to the
+        # class level list of "all_servers"
+        logger.info(f'read {count:,d} electrumx servers from config file')
         if count < 5:
             # Add default servers if not present.   FIXME: an awful dict.  Make it a list!
             for host, data in Net.DEFAULT_SERVERS.items():
@@ -1303,6 +1386,9 @@ class Network(TriggeredCallbacks):
 
     def get_servers(self):
         return SVServer.all_servers.values()
+
+    def get_mapi_servers(self):
+        return self.mapi_servers
 
     def add_wallet(self, wallet: 'Wallet') -> None:
         app_state.async_.spawn(self._wallet_jobs.put, ('add', wallet))
