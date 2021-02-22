@@ -43,7 +43,7 @@ class Logs(object):
     def remove_handler(self, handler):
         self.root.removeHandler(handler)
 
-    def add_file_output(self, path):
+    def add_file_output(self, path: str):
         self.add_handler(logging.FileHandler(path))
 
     def set_stream_output(self, stream):
@@ -53,7 +53,7 @@ class Logs(object):
         self.stream_handler = logging.StreamHandler(stream)
         self.add_handler(self.stream_handler)
 
-    def get_logger(self, name):
+    def get_logger(self, name: str):
         return logging.getLogger(name)
 
     def set_level(self, level):

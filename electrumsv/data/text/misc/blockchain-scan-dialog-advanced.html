@@ -1,0 +1,42 @@
+<h2>Blockchain scanner - Advanced options</h2>
+<p style="text-align: center"><i>Provisional in-wallet help</i></p>
+<p>
+The options shown in this dialog window will depend on the type of account the scan is being
+performed for.
+</p>
+<h3>Deterministic accounts</h3>
+<p>
+An account is classified as "deterministic" if it has the ability to generate new keys on demand.
+Accounts which are not deterministic, are generally only those with directly imported public keys,
+private keys and addresses.
+</p>
+<h4>Detecting when to stop searching</h4>
+<p>
+Certain types of accounts have the ability to create new keys on demand. If the wallet software is
+scanning the blockchain looking for transactions that use the keys in an account, it can look at
+known approaches to creating a sequence of keys and keep looking at those sequences until it stops
+finding used keys along them. The way it works out if there are no more keys, is if it reaches a
+point in the sequence of keys where there are a given number of unused keys in a row. The technical
+term for this sequence of unused keys, is the "gap limit."
+</p>
+<p>
+This section allows the gap limit to be set for the different key sequences. Changing the gap
+limit is not recommended unless it is known that something has gone wrong in the past with the
+key sequences causing unexpected gaps to occur. Servers can rate limit the free access they give
+to the services the scanner uses, and in the future may charge for more than a small amount of free
+daily usage.
+</p>
+<h5>Change</h5>
+<p>
+When a user is paying someone else, the coins from their account that they pay with rarely add up
+to exactly the amount they are paying. The left over balance is sent back to the account the funds
+come from. This change from the payment is placed in payment destinations using keys from a
+specific sequence of keys, the change keys. This is the same concept as the change that is made
+when physical notes and coins are used for payment.
+</p>
+<h5>Received funds</h5>
+<p>
+When a user is planning on receiving funds, they select a payment destination it should go to and
+give it to the payer. These payment destinations are created including keys from a specific
+sequence of keys, the receiving keys.
+</p>

@@ -23,7 +23,7 @@
 
 import hashlib
 import json
-from typing import Any, cast, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, cast, Dict, List, Optional, Sequence, Set, Tuple, Union
 from unicodedata import normalize
 
 from bitcoinx import (
@@ -123,6 +123,9 @@ class KeyStore:
 
     def can_export(self) -> bool:
         return False
+
+    def get_master_public_key(self) -> Optional[str]:
+        raise NotImplementedError
 
     def get_private_key(self, key_data: Any, password: str) -> Tuple[bytes, bool]:
         raise NotImplementedError
@@ -322,6 +325,7 @@ class Deterministic_KeyStore(Software_KeyStore):
         self.seed = self.format_seed(seed)
 
     def get_seed(self, password):
+        assert isinstance(self.seed, str)
         return pw_decode(self.seed, password)
 
     def get_passphrase(self, password):
@@ -356,8 +360,9 @@ class Xpub:
         return self.get_pubkey_from_xpub(xpub, derivation_path[-1:])
 
     @classmethod
-    def get_pubkey_from_xpub(self, xpub: str, sequence: Sequence[int]) -> PublicKey:
+    def get_pubkey_from_xpub(cls, xpub: str, sequence: Sequence[int]) -> PublicKey:
         pubkey = bip32_key_from_string(xpub)
+        assert isinstance(pubkey, PublicKey)
         for n in sequence:
             pubkey = pubkey.child_safe(n)
         return pubkey
@@ -404,6 +409,9 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_data = json.dumps(self.to_derivation_data()).encode()
         return MasterKeyRow(-1, None, DerivationType.BIP32, derivation_data)
+
+    def get_master_public_key(self) -> Optional[str]:
+        return Xpub.get_master_public_key(self)
 
     def get_master_private_key(self, password: Optional[str]):
         assert self.xprv is not None
@@ -537,7 +545,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         return ' '.join(old_mnemonic.mn_encode(s))
 
     @classmethod
-    def stretch_key(self, seed):
+    def stretch_key(cls, seed):
         x = seed
         for i in range(100000):
             x = hashlib.sha256(x + seed).digest()
@@ -621,6 +629,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         if old_password:
             self.check_password(old_password)
         if self.has_seed():
+            assert self.seed is not None
             decoded = pw_decode(self.seed, old_password)
             self.seed = pw_encode(decoded, new_password)
 
@@ -889,8 +898,10 @@ def from_xpub(xpub) -> BIP32_KeyStore:
 def from_master_key(text: str) -> Union[BIP32_KeyStore, Old_KeyStore]:
     k: Union[BIP32_KeyStore, Old_KeyStore]
     if is_xprv(text):
+        xprv = bip32_key_from_string(text)
+        assert isinstance(xprv, BIP32PrivateKey)
         k = BIP32_KeyStore({})
-        k.add_xprv(bip32_key_from_string(text))
+        k.add_xprv(xprv)
     elif Old_KeyStore.is_hex_mpk(text):
         k = Old_KeyStore.from_mpk(text)
     elif is_xpub(text):
@@ -948,7 +959,9 @@ def instantiate_keystore(derivation_type: DerivationType, data: Dict[str, Any],
             row.masterkey_id if row is not None else None, derivation_type))
     return keystore
 
-def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Union[str, List[str]],
+KeystoreMatchType = Union[str, Set[str]]
+
+def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: KeystoreMatchType,
         password: Optional[str], derivation_text: Optional[str]=None,
         passphrase: Optional[str]=None, watch_only: bool=False) -> KeyStore:
     derivation_type: Optional[DerivationType] = None
@@ -967,6 +980,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Unio
             assert password is not None
             data['xprv'] = pw_encode(text_match, password)
         private_key = bip32_key_from_string(text_match)
+        assert isinstance(private_key, PrivateKey)
         data['xpub'] = private_key.public_key.to_extended_key_string()
     elif text_type == KeystoreTextType.PRIVATE_KEYS:
         derivation_type = DerivationType.IMPORTED
@@ -999,7 +1013,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Unio
         derivation_text = "m"
         xprv = BIP32PrivateKey.from_seed(bip32_seed, Net.COIN)
         for n in bip32_decompose_chain_string(derivation_text):
-            xprv = private_key.child_safe(n)
+            xprv = xprv.child_safe(n)
         if not watch_only:
             assert password is not None
             data['xprv'] = pw_encode(xprv.to_extended_key_string(), password)

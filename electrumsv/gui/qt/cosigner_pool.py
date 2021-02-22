@@ -31,7 +31,7 @@
 from functools import partial
 import json
 import time
-from typing import List, NamedTuple, Set
+from typing import List, NamedTuple, Optional, Set, TYPE_CHECKING
 from xmlrpc.client import ServerProxy
 
 from bitcoinx import PublicKey, bip32_key_from_string
@@ -46,6 +46,8 @@ from electrumsv.logs import logs
 from electrumsv.transaction import Transaction
 from electrumsv.wallet import MultisigAccount, AbstractAccount
 
+if TYPE_CHECKING:
+    from electrumsv.gui.qt.main_window import ElectrumWindow
 from electrumsv.gui.qt.util import WaitingDialog
 
 
@@ -102,7 +104,7 @@ class Listener(util.DaemonThread):
 
 
 class CosignerPool:
-    _listener: Listener = None
+    _listener: Optional[Listener] = None
 
     def __init__(self):
         # This is accessed without locking by both the UI thread and the listener thread.

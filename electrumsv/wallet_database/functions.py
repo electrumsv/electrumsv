@@ -1,4 +1,4 @@
-import concurrent
+import concurrent.futures
 import json
 try:
     # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
@@ -1420,7 +1420,8 @@ def update_transaction_block_many(db_context: DatabaseContext,
     timestamp = get_timestamp()
     rows: List[Tuple[int, int, Optional[bytes], bytes, int, Optional[bytes]]] = []
     for entry in entries:
-        rows.append((timestamp, *entry, entry.block_height, entry.block_hash))
+        # NOTE(typing) Type checker does not understand unpacking `entry`.
+        rows.append((timestamp, *entry, entry.block_height, entry.block_hash)) # type: ignore
     sql = (
         "UPDATE Transactions "
         "SET date_updated=?, block_height=?, block_hash=?, proof_data=NULL, "

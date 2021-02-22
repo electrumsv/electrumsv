@@ -22,10 +22,11 @@
 # SOFTWARE.
 
 from asyncio import Event, Queue, new_event_loop, run_coroutine_threadsafe, CancelledError
-from concurrent.futures import CancelledError as FCancelledError
+import concurrent.futures
 from functools import partial
 import queue
 import threading
+from typing import Set
 
 from aiorpcx import instantiate_coroutine
 
@@ -45,7 +46,7 @@ class ASync(object):
         self.loop = new_event_loop()
         self.start_event = threading.Event()
         self.stop_event = self.event()
-        self.futures = set()
+        self.futures: Set[concurrent.futures.Future] = set()
 
     def event(self):
         '''Return an asyncio.Event for our event loop.'''
@@ -92,12 +93,14 @@ class ASync(object):
         else:
             try:
                 future.result()
-            except (CancelledError, FCancelledError):
+            except (CancelledError, concurrent.futures.CancelledError):
                 pass
             except Exception:
                 logger.exception('async task raised an unhandled exception')
 
-    def spawn(self, coro, *args, on_done=None):
+    # WARNING If called directly this will not trigger the pending callbacks and `on_done` will
+    #   not happen reliably.
+    def spawn(self, coro, *args, on_done=None) -> concurrent.futures.Future:
         future = self._spawn(coro, args)
         self.futures.add(future)
         future.add_done_callback(partial(self._collect, on_done))

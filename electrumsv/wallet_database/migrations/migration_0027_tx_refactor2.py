@@ -2,7 +2,8 @@ from collections import defaultdict
 import json
 try:
     # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
-    import pysqlite3 as sqlite3
+    # NOTE(typing) pylance complains about a missing import.
+    import pysqlite3 as sqlite3 # type: ignore
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
     # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
@@ -12,10 +13,9 @@ from typing import Any, cast, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from bitcoinx import Address, hash_to_hex_str, PublicKey
 
-from ...bitcoin import scripthash_bytes
-from ...constants import (ACCOUNT_SCRIPT_TYPES, AccountTxFlags, AccountType,
-    CHANGE_SUBPATH, DerivationType, KeyInstanceFlag, KeystoreType,
-    RECEIVING_SUBPATH, ScriptType, TransactionInputFlag, TransactionOutputFlag)
+from ...bitcoin import scripthash_bytes, sha256
+from ...constants import (AccountTxFlags, CHANGE_SUBPATH, DerivationType, KeyInstanceFlag,
+    KeystoreType, RECEIVING_SUBPATH, ScriptType, TransactionInputFlag, TransactionOutputFlag)
 from ...exceptions import DatabaseMigrationError
 from ...i18n import _
 from ...keys import (extract_public_key_hash, get_multi_signer_script_template,
@@ -291,16 +291,15 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                     for script_type in SINGLESIG_SCRIPT_TYPES:
                         script_template = get_single_signer_script_template(public_key,
                             script_type)
-                        script_hash = scripthash_bytes(script_template.to_script_bytes())
+                        script_hash = sha256(script_template.to_script_bytes())
                         key_script_hashes[script_hash] = PossibleScript(account_id,
                             None, keyinstance, (), script_type,
                             script_hash)
             elif found_types & address_types:
-                script_types = ACCOUNT_SCRIPT_TYPES[AccountType.IMPORTED_ADDRESS]
                 for keyinstance, _derivation_data2 in account_keyinstance_data:
                     hash = extract_public_key_hash(keyinstance) # type: ignore
                     script_template = Address.from_string(hash, Net.COIN)
-                    script_hash = scripthash_bytes(script_template.to_script_bytes())
+                    script_hash = sha256(script_template.to_script_bytes())
                     key_script_hashes[script_hash] = PossibleScript(account_id,
                         None, keyinstance, (), ScriptType.P2PKH,
                         script_hash)
@@ -324,13 +323,13 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                     # derivation path. The assumption is that if further keys are enumerated by the
                     # account later, they will get mapped and matched then.
                     for i in range(mk_watermarks[subpath]):
-                        derivation_path = subpath + (i,)
+                        derivation_path = tuple(subpath) + (i,)
                         public_keys_hex = [ k.derive_pubkey(derivation_path).to_hex()
                             for k in child_ms_keystores ]
                         for script_type in MULTISIG_SCRIPT_TYPES:
                             script_template = get_multi_signer_script_template(public_keys_hex,
                                 ms_keystore.m, script_type)
-                            script_hash = scripthash_bytes(script_template.to_script_bytes())
+                            script_hash = sha256(script_template.to_script_bytes())
                             key_script_hashes[script_hash] = PossibleScript(account_id,
                                 masterkey_id, mk_keyinstances[derivation_path], derivation_path,
                                 script_type, script_hash)
@@ -338,12 +337,12 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                 ss_keystore = cast(SinglesigKeyStoreTypes, keystore)
                 for subpath in (CHANGE_SUBPATH, RECEIVING_SUBPATH):
                     for i in range(mk_watermarks[subpath]):
-                        derivation_path = subpath + (i,)
+                        derivation_path = tuple(subpath) + (i,)
                         public_key = ss_keystore.derive_pubkey(derivation_path)
                         for script_type in SINGLESIG_SCRIPT_TYPES:
                             script_template = get_single_signer_script_template(public_key,
                                 script_type)
-                            script_hash = scripthash_bytes(script_template.to_script_bytes())
+                            script_hash = sha256(script_template.to_script_bytes())
                             key_script_hashes[script_hash] = PossibleScript(account_id,
                                 masterkey_id, mk_keyinstances[derivation_path], derivation_path,
                                 script_type, script_hash)

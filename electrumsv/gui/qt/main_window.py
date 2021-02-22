@@ -882,6 +882,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.w = payment.PaymentWindow(self._api, parent=self)
         self.w.show()
 
+    def has_connected_main_server(self) -> bool:
+        return self.network is not None and self.network.is_connected()
+
     def donate_to_server(self):
         server = self.network.main_server
         addr = server.state.donation_address
@@ -1144,12 +1147,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tx_dialog.finished.disconnect()
         self.tx_dialogs.remove(tx_dialog)
 
-    def is_send_view_active(self) -> None:
-        return self._send_view is not None and self._account is not None and \
-            self._account.can_spend()
+    def is_send_view_active(self) -> bool:
+        return bool(self._send_view is not None and self._account is not None and \
+            self._account.can_spend())
 
-    def is_receive_view_active(self) -> None:
-        return self._receive_view is not None and self._account_id is not None
+    def is_receive_view_active(self) -> bool:
+        return bool(self._receive_view is not None and self._account_id is not None)
 
     def _reset_send_tab(self) -> None:
         self._send_view = self._reset_stacked_tab(self.send_tab, self.get_send_view)

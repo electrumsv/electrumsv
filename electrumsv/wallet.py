@@ -29,7 +29,7 @@
 
 import asyncio
 from collections import defaultdict
-import concurrent
+import concurrent.futures
 from dataclasses import dataclass
 from datetime import datetime
 import itertools
@@ -39,12 +39,12 @@ import random
 import threading
 import time
 from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence,
-    Set, Tuple, TypeVar, TYPE_CHECKING)
+    Set, Tuple, TypeVar, TYPE_CHECKING, Union)
 import weakref
 
 import aiorpcx
-from bitcoinx import (double_sha256, hash_to_hex_str, Header, hex_str_to_hash, MissingHeader,
-    P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item,
+from bitcoinx import (Address, double_sha256, hash_to_hex_str, Header, hex_str_to_hash,
+    MissingHeader, P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item,
     Script)
 
 from . import coinchooser
@@ -59,11 +59,12 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
 from .contacts import Contacts
 from .crypto import pw_encode, sha256
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
-    SubscriptionStale, UserCancelled, WalletLoadError)
+    SubscriptionStale, UnsupportedAccountTypeError, UnsupportedScriptTypeError, UserCancelled,
+    WalletLoadError)
 from .i18n import _
 from .keys import get_multi_signer_script_template, get_single_signer_script_template
 from .keystore import (Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
-    instantiate_keystore, KeyStore, Multisig_KeyStore, SinglesigKeyStoreTypes,
+    instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, SinglesigKeyStoreTypes,
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
 from .networks import Net
@@ -138,7 +139,7 @@ class AbstractAccount:
     def __init__(self, wallet: 'Wallet', row: AccountRow, keyinstance_rows: List[KeyInstanceRow],
             transaction_descriptions: List[AccountTransactionDescriptionRow]) -> None:
         # Prevent circular reference keeping parent and accounts alive.
-        self._wallet = weakref.proxy(wallet)
+        self._wallet: 'Wallet' = cast('Wallet', weakref.proxy(wallet))
         self._row = row
         self._id = row.account_id
 
@@ -246,7 +247,7 @@ class AbstractAccount:
         keyinstance_scripthashes: List[KeyInstanceScriptHashRow] = []
         for row in rows:
             for script_type, script in self.get_possible_scripts_for_key_data(row):
-                script_hash = scripthash_bytes(script.to_bytes())
+                script_hash = scripthash_bytes(script)
                 keyinstance_scripthashes.append(KeyInstanceScriptHashRow(row.keyinstance_id,
                     script_type, script_hash))
         future_ = self._wallet.create_keyinstance_scripts(keyinstance_scripthashes)
@@ -350,7 +351,8 @@ class AbstractAccount:
     def get_script_for_key_data(self, keydata: KeyDataTypes, script_type: ScriptType) \
             -> Script:
         script_template = self.get_script_template_for_key_data(keydata, script_type)
-        return script_template.to_script()
+        # NOTE(typing) Pylance does not know how to deal with abstract methods.
+        return script_template.to_script() # type: ignore
 
     def is_synchronized(self) -> bool:
         # TODO(no-merge) Need to reimplement to deal with scanning/pending state?
@@ -367,9 +369,6 @@ class AbstractAccount:
 
     def get_keyinstances(self) -> List[KeyInstanceRow]:
         return self._wallet.read_keyinstances(account_id=self._id)
-
-    def get_master_public_key(self):
-        return None
 
     # TODO(no-merge) This is not compatible with multi-account usage of the same transaction
     # unless we repackage the outer transaction. The problem here is that we would be overwriting
@@ -464,7 +463,7 @@ class AbstractAccount:
         ]
         rows = self._wallet.read_account_transaction_descriptions(self._id)
         transaction_entries = [
-            (hash_to_hex_str(tx_hash), description) for tx_hash, description in rows
+            (hash_to_hex_str(tx_hash), description) for account_id, tx_hash, description in rows
         ]
 
         data: Dict[str, Any] = {}
@@ -479,11 +478,13 @@ class AbstractAccount:
 
     def get_keyinstance_label(self, key_id: int) -> str:
         keyinstance = self._wallet.read_keyinstance(keyinstance_id=key_id)
+        assert keyinstance is not None
         return keyinstance.description or ""
 
     def set_keyinstance_label(self, keyinstance_id: int, text: Optional[str]) -> None:
         text = None if text is None or text.strip() == "" else text.strip()
         keyinstance = self._wallet.read_keyinstance(keyinstance_id=keyinstance_id)
+        assert keyinstance is not None
         if keyinstance.description == text:
             return
         self._wallet.update_keyinstance_descriptions([ (text, keyinstance_id) ])
@@ -508,15 +509,14 @@ class AbstractAccount:
         self._wallet.update_account_script_types([ (script_type, self._row.account_id) ])
         self._row = self._row._replace(default_script_type=script_type)
 
-    def get_threshold(self, script_type: ScriptType) -> int:
-        assert script_type in (ScriptType.P2PKH, ScriptType.P2PK), \
-            f"get_threshold got bad script type {script_type}"
+    def get_threshold(self) -> int:
         return 1
 
     def export_private_key(self, keydata: KeyDataTypes, password: str) -> Optional[str]:
         """ extended WIF format """
         if self.is_watching_only():
             return None
+        assert keydata.masterkey_id is not None
         keystore = self._wallet.get_keystore(keydata.masterkey_id)
         assert keydata.derivation_data2 is not None
         derivation_path = unpack_derivation_path(keydata.derivation_data2)
@@ -570,7 +570,7 @@ class AbstractAccount:
             confirmed_only: Optional[bool]=None, keyinstance_ids: Optional[List[int]]=None) \
                 -> List[TransactionOutputSpendableRow]:
         if confirmed_only is None:
-            confirmed_only = app_state.config.get('confirmed_only', False)
+            confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
         mature_height = self._wallet.get_local_height() if mature else None
         return self._wallet.read_account_transaction_outputs_spendable(self._id,
             confirmed_only=confirmed_only, mature_height=mature_height,
@@ -580,7 +580,7 @@ class AbstractAccount:
             mature: bool=True, confirmed_only: Optional[bool]=None,
             keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow2]:
         if confirmed_only is None:
-            confirmed_only = app_state.config.get('confirmed_only', False)
+            confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
         mature_height = self._wallet.get_local_height() if mature else None
         return self._wallet.read_account_transaction_outputs_spendable_extended(self._id,
             confirmed_only=confirmed_only, mature_height=mature_height,
@@ -598,7 +598,7 @@ class AbstractAccount:
             prev_idx           = row.txo_index,
             script_sig         = Script(),
             sequence           = 0xffffffff,
-            threshold          = self.get_threshold(row.script_type),
+            threshold          = self.get_threshold(),
             script_type        = row.script_type,
             signatures         = [NO_SIGNATURE] * len(x_pubkeys),
             x_pubkeys          = x_pubkeys,
@@ -624,9 +624,10 @@ class AbstractAccount:
 
         for row in self._wallet.read_history_list(self._id, domain):
             if row.block_position is not None:
+                assert row.block_height is not None
                 sort_key = row.block_height, row.block_position
             else:
-                sort_key = (1e9, row.date_created)
+                sort_key = (1000000000, row.date_created)
             history_raw.append(HistoryListEntry(sort_key, row, 0))
 
         history_raw.sort(key=lambda t: t.sort_key)
@@ -649,18 +650,20 @@ class AbstractAccount:
         backfill_headers = network.backfill_headers_at_heights
         header_at_height = app_state.headers.header_at_height
         server_height = network.get_server_height() if network else 0
-        for history_line, balance in h:
+        for entry in h:
+            _sort_key, history_line, balance = entry.sort_key, entry.row, entry.balance
             try:
                 timestamp = timestamp_to_datetime(header_at_height(chain,
-                                history_line.height).timestamp)
+                                history_line.block_height).timestamp)
             except MissingHeader:
-                if history_line.height > 0:
+                if history_line.block_height > 0:
                     self._logger.debug("fetching missing headers at height: %s",
-                                       history_line.height)
-                    assert history_line.height <= server_height, "inconsistent blockchain data"
-                    backfill_headers([history_line.height])
+                                       history_line.block_height)
+                    assert history_line.block_height <= server_height, \
+                        "inconsistent blockchain data"
+                    backfill_headers([history_line.block_height])
                     timestamp = timestamp_to_datetime(header_at_height(chain,
-                                    history_line.height).timestamp)
+                                    history_line.block_height).timestamp)
                 else:
                     timestamp = datetime.now()
             if from_timestamp and timestamp < from_timestamp:
@@ -669,7 +672,7 @@ class AbstractAccount:
                 continue
             item = {
                 'txid': hash_to_hex_str(history_line.tx_hash),
-                'height': history_line.height,
+                'height': history_line.block_height,
                 'timestamp': timestamp.isoformat(),
                 'value': format_satoshis(history_line.value_delta,
                             is_diff=True) if history_line.value_delta is not None else '--',
@@ -878,7 +881,7 @@ class AbstractAccount:
 
         tx_hashes: List[bytes] = []
         tx_heights: Dict[bytes, int] = {}
-        tx_fee_hints: Dict[bytes, int] = {}
+        tx_fee_hints: Dict[bytes, Optional[int]] = {}
         for entry in history:
             tx_hash = hex_str_to_hash(entry["tx_hash"])
             tx_hashes.append(tx_hash)
@@ -1019,14 +1022,15 @@ class AbstractAccount:
         output = db_outputs[0]
         inputs = [ self.get_extended_input_for_spendable_output(output) ]
         # TODO(rt12) This should get a change output key from the account (if applicable).
+        # NOTE(typing) mypy struggles with attrs inheritance, so we need to disable it.
         outputs = [
             XTxOutput(
                 # TxOutput
-                output.value - fee,
-                self.get_script_for_key_data(output, output.script_type),
+                output.value - fee, # type:ignore
+                self.get_script_for_key_data(output, output.script_type), # type:ignore
                 # XTxOutput
-                output.script_type,
-                self.get_xpubkeys_for_key_data(output)) # type: ignore
+                output.script_type, # type:ignore
+                self.get_xpubkeys_for_key_data(output)) # type:ignore
         ]
         locktime = self._wallet.get_local_height()
         # note: no need to call tx.BIP_LI01_sort() here - single input/output
@@ -1041,6 +1045,9 @@ class AbstractAccount:
         return False
 
     def get_xpubkeys_for_key_data(self, row: KeyDataTypes) -> List[XPublicKey]:
+        raise NotImplementedError
+
+    def get_master_public_key(self) -> Optional[str]:
         raise NotImplementedError
 
     def get_master_public_keys(self):
@@ -1155,7 +1162,7 @@ class AbstractAccount:
             # over the contents of a wallet, we should be able to add this to the
             # database as an non-owned input transaction. This isn't necessarily what we want
             # so we may want to make it an opt-in user option.
-            return Transaction.from_hex(tx_hex)
+            return cast(Transaction, Transaction.from_hex(tx_hex))
 
     def _add_hardware_derivation_context(self, tx: Transaction) -> None:
         # add output info for hw wallets
@@ -1177,8 +1184,7 @@ class AbstractAccount:
                     pubkeys = self.get_public_keys_for_key_data(tx_output)
                     pubkeys = [pubkey.to_hex() for pubkey in pubkeys]
                     sorted_pubkeys, sorted_xpubs = zip(*sorted(zip(pubkeys, xpubs)))
-                    item = (x_public_key.derivation_path(), sorted_xpubs,
-                        self.get_threshold(self.get_default_script_type()))
+                    item = (x_public_key.derivation_path(), sorted_xpubs, self.get_threshold())
                     output_items[candidate_keystores[0].get_fingerprint()] = item
             info.append(output_items)
         tx.output_info = info
@@ -1288,7 +1294,7 @@ class ImportedAccountBase(SimpleAccount):
     def has_seed(self) -> bool:
         return False
 
-    def get_master_public_keys(self):
+    def get_master_public_keys(self) -> List[str]:
         return []
 
     def get_fingerprint(self) -> bytes:
@@ -1322,29 +1328,32 @@ class ImportedAddressAccount(ImportedAccountBase):
         return True
 
     # TODO(nocheckin,test) verify this still works.
-    def import_address(self, address: P2PKH_Address) -> bool:
-        assert isinstance(address, P2PKH_Address)
+    def import_address(self, address: Address) -> bool:
+        if isinstance(address, P2PKH_Address):
+            derivation_type = DerivationType.PUBLIC_KEY_HASH
+        elif isinstance(address, P2SH_Address):
+            derivation_type = DerivationType.SCRIPT_HASH
+        else:
+            raise UnsupportedScriptTypeError()
 
         # TODO(nocheckin,test) verify that this does indeed find any existing keys.
-        existing_key = self._wallet.read_keyinstance_for_derivation(self._id,
-            DerivationType.PUBLIC_KEY_HASH, address.hash160())
+        existing_key = self._wallet.read_keyinstance_for_derivation(self._id, derivation_type,
+            address.hash160())
         if existing_key is None:
             return False
 
         derivation_data_dict = { "hash": address.to_string() }
         derivation_data = json.dumps(derivation_data_dict).encode()
-        derivation_data2 = create_derivation_data2(DerivationType.PUBLIC_KEY_HASH,
-            derivation_data_dict)
-        raw_keyinstance = KeyInstanceRow(-1, -1,
-            None, DerivationType.PUBLIC_KEY_HASH, derivation_data, derivation_data2,
-            KeyInstanceFlag.IS_ACTIVE, None)
-        keyinstance_future, rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
+        derivation_data2 = create_derivation_data2(derivation_type, derivation_data_dict)
+        raw_keyinstance = KeyInstanceRow(-1, -1, None, derivation_type, derivation_data,
+            derivation_data2, KeyInstanceFlag.IS_ACTIVE, None)
+        _keyinstance_future, _rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
 
         # TODO(no-merge) The concept of activated keys is going to change to a different model.
         # self._add_activated_keys(rows)
         return True
 
-    def get_public_keys_for_key_data(self, keydata: KeyDataTypes) -> List[PublicKey]:
+    def get_public_keys_for_key_data(self, _keydata: KeyDataTypes) -> List[PublicKey]:
         return [ ]
 
     def get_script_template_for_key_data(self, keydata: KeyDataTypes,
@@ -1486,13 +1495,14 @@ class DeterministicAccount(AbstractAccount):
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
         try:
-            keyinstance_id, final_flags = self._wallet.reserve_keyinstance(self._id, masterkey_id,
-                derivation_parent, flags)
+            future = self._wallet.reserve_keyinstance(self._id, masterkey_id, derivation_parent,
+                flags)
         except KeyInstanceNotFoundError:
             # TODO(no-merge) Need to revisit how we manage an outstanding pool of fresh keys.
             self.bulk_create_keys(derivation_parent)
-            keyinstance_id, final_flags = self._wallet.reserve_keyinstance(self._id, masterkey_id,
+            future = self._wallet.reserve_keyinstance(self._id, masterkey_id,
                 derivation_parent, flags)
+        keyinstance_id, final_flags = future.result()
         if final_flags & KeyInstanceFlag.IS_ACTIVE:
             # NOTE(ActivitySubscription) This represents a key that was not previously active
             #   becoming active and requiring a subscription for events.
@@ -1529,7 +1539,9 @@ class DeterministicAccount(AbstractAccount):
         return self._wallet.count_unused_bip32_keys(self._id, masterkey_id, derivation_parent)
 
     def get_master_public_keys(self) -> List[str]:
-        return [self.get_master_public_key()]
+        mpk = self.get_master_public_key()
+        assert mpk is not None
+        return [ mpk ]
 
     def get_fingerprint(self) -> bytes:
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
@@ -1552,7 +1564,8 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
         assert keydata.derivation_data2 is not None
         derivation_path = unpack_derivation_path(keydata.derivation_data2)
         # TODO(no-merge) is this ever not the account's keystore?
-        keystore = self._wallet.get_keystore(keydata.masterkey_id)
+        assert keydata.masterkey_id is not None
+        keystore = cast(Xpub, self._wallet.get_keystore(keydata.masterkey_id))
         return keystore.derive_pubkey(derivation_path)
 
     def get_public_keys_for_key_data(self, keydata: KeyDataTypes) -> List[PublicKey]:
@@ -1567,7 +1580,8 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
         assert keydata.derivation_data2 is not None
         derivation_path = unpack_derivation_path(keydata.derivation_data2)
         # TODO(no-merge) is this ever not the account's keystore?
-        keystore = self._wallet.get_keystore(keydata.masterkey_id)
+        assert keydata.masterkey_id is not None
+        keystore = cast(Union[Xpub, Old_KeyStore], self._wallet.get_keystore(keydata.masterkey_id))
         return [ keystore.get_xpubkey(derivation_path) ]
 
     def derive_pubkeys(self, derivation_path: Sequence[int]) -> PublicKey:
@@ -1598,9 +1612,7 @@ class MultisigAccount(DeterministicAccount):
     def type(self) -> AccountType:
         return AccountType.MULTISIG
 
-    def get_threshold(self, script_type: ScriptType) -> int:
-        assert script_type in ACCOUNT_SCRIPT_TYPES[AccountType.MULTISIG], \
-            f"get_threshold got bad script_type {script_type}"
+    def get_threshold(self) -> int:
         return self.m
 
     def get_public_keys_for_key_data(self, keydata: KeyDataTypes) -> List[PublicKey]:
@@ -1612,10 +1624,12 @@ class MultisigAccount(DeterministicAccount):
             -> List[Tuple[ScriptType, Script]]:
         public_keys = self.get_public_keys_for_key_data(keydata)
         public_keys_hex = [ public_key.to_hex() for public_key in public_keys ]
+        # NOTE(typing) `get_script_template` is an abstract method that raises a not implemented
+        # error and not all type checkers can handle abstract methods.
         return [
             (script_type, self.get_script_template(public_keys_hex, script_type).to_script())
             for script_type in ACCOUNT_SCRIPT_TYPES[AccountType.MULTISIG]
-        ]
+        ] # type: ignore
 
     def get_script_template_for_key_data(self, keydata: KeyDataTypes,
             script_type: ScriptType) -> ScriptTemplate:
@@ -1659,7 +1673,6 @@ class MultisigAccount(DeterministicAccount):
 
     def get_master_public_key(self) -> str:
         raise NotImplementedError
-        # return cast(str, self.get_keystore().get_master_public_key())
 
     def get_master_public_keys(self) -> List[str]:
         return [cast(str, k.get_master_public_key()) for k in self.get_keystores()]
@@ -1668,8 +1681,8 @@ class MultisigAccount(DeterministicAccount):
         # Sort the fingerprints in the same order as their master public keys.
         mpks = self.get_master_public_keys()
         fingerprints = [ k.get_fingerprint() for k in self.get_keystores() ]
-        sorted_mpks, sorted_fingerprints = zip(*sorted(zip(mpks, fingerprints)))
-        return b''.join(sorted_fingerprints)
+        _sorted_mpks, sorted_fingerprints = zip(*sorted(zip(mpks, fingerprints)))
+        return b''.join(cast(Sequence[bytes], sorted_fingerprints))
 
     def get_xpubkeys_for_key_data(self, row: KeyDataTypes) -> List[XPublicKey]:
         assert row.derivation_data2 is not None
@@ -1733,6 +1746,9 @@ class Wallet(TriggeredCallbacks):
 
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
+
+    def get_id(self) -> int:
+        return self._id
 
     def get_db_context(self) -> DatabaseContext:
         assert self._db_context is not None, "This wallet does not have a database context"
@@ -1886,12 +1902,13 @@ class Wallet(TriggeredCallbacks):
             elif keyinstance_rows[0].derivation_type == DerivationType.PRIVATE_KEY:
                 return ImportedPrivkeyAccount(self, account_row, keyinstance_rows,
                     transaction_descriptions)
+            raise WalletLoadError(_("unknown imported account type"))
         else:
             masterkey_row = self._masterkey_rows[account_row.default_masterkey_id]
             klass = account_constructors.get(masterkey_row.derivation_type, None)
             if klass is not None:
                 return klass(self, account_row, keyinstance_rows, transaction_descriptions)
-        raise WalletLoadError(_("unknown account type %d"), masterkey_row.derivation_type)
+            raise WalletLoadError(_("unknown account type %d"), masterkey_row.derivation_type)
 
     def _realize_account_from_row(self, account_row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
@@ -1954,7 +1971,7 @@ class Wallet(TriggeredCallbacks):
         return self._realize_account_from_row(rows[0], [], [])
 
     def create_account_from_text_entries(self, text_type: KeystoreTextType, script_type: ScriptType,
-            entries: List[str], password: str) -> AbstractAccount:
+            entries: Set[str], password: str) -> AbstractAccount:
         account_name: Optional[str] = None
         if text_type == KeystoreTextType.ADDRESSES:
             account_name = "Imported addresses"
@@ -2084,8 +2101,8 @@ class Wallet(TriggeredCallbacks):
     def read_keyinstance_for_derivation(self, account_id: int,
             derivation_type: DerivationType, derivation_data2: bytes,
             masterkey_id: Optional[int]=None) -> Optional[KeyInstanceRow]:
-        return db_functions.read_keyinstance_for_derivation(account_id, derivation_type,
-            derivation_data2, masterkey_id)
+        return db_functions.read_keyinstance_for_derivation(self.get_db_context(), account_id,
+            derivation_type, derivation_data2, masterkey_id)
 
     def read_keyinstance(self, *, account_id: Optional[int]=None, keyinstance_id: int) \
             -> Optional[KeyInstanceRow]:
@@ -2472,9 +2489,9 @@ class Wallet(TriggeredCallbacks):
         tx_id = hash_to_hex_str(tx.hash())
 
         input_map: Dict[TxoKeyType, Tuple[int, XTxInput]] = {}
-        for tx_input in tx.inputs:
+        for txi_index, tx_input in enumerate(tx.inputs):
             outpoint = TxoKeyType(tx_input.prev_hash, tx_input.prev_idx)
-            input_map[outpoint] = tx_input
+            input_map[outpoint] = txi_index, tx_input
         # TODO(no-merge) require_spends=True?
         previous_outputs = self.get_transaction_outputs_spendable_explicit(txo_keys=list(input_map))
 
@@ -2528,11 +2545,13 @@ class Wallet(TriggeredCallbacks):
             tx_input.script_type = spent_output.script_type
 
             # Provide key data values.
-            tx_input.keyinstance_id = spent_output.keyinstance_id
-            tx_input.account_id = spent_output.account_id
-            tx_input.masterkey_id = spent_output.masterkey_id
-            tx_input.derivation_type = spent_output.derivation_type
-            tx_input_derivation_data2 = spent_output.derivation_data2
+            assert spent_output.keyinstance_id is not None
+            assert spent_output.account_id is not None
+            assert spent_output.derivation_type is not None
+            key_data = KeyDataType(spent_output.keyinstance_id, spent_output.account_id,
+                spent_output.masterkey_id, spent_output.derivation_type,
+                spent_output.derivation_data2)
+            tx_input.key_data = key_data
             # NOTE we do not populate the x_pubkeys as the transaction is fully signed.
             # There is some overlap with the key data values, and this can be worked out
             # later anyway.

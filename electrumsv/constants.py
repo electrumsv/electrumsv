@@ -160,9 +160,9 @@ class DerivationType(IntEnum):
     SCRIPT_HASH = 10
 
 
-RECEIVING_SUBPATH = (0,)
+RECEIVING_SUBPATH: Sequence[int] = (0,)
 RECEIVING_SUBPATH_BYTES = pack_derivation_path(RECEIVING_SUBPATH)
-CHANGE_SUBPATH = (1,)
+CHANGE_SUBPATH: Sequence[int] = (1,)
 CHANGE_SUBPATH_BYTES = pack_derivation_path(CHANGE_SUBPATH)
 
 DEFAULT_FEE = 500
@@ -305,20 +305,30 @@ class NetworkEventNames:
 
 PREFIX_ASM_SCRIPT = "asm:"
 
+# WARNING(script-types) We currently bake all the possible script hashes for a key into the
+#   `KeyInstanceScripts` database table. If you add a script type here, you need to write a
+#   database migration that includes that new script type OR resolve this in another way.
+# NOTE(script-type-ordering) The script types are ordered in terms of preferred script type that
+#   the user should be using for a given form of signer.
+MULTI_SIGNER_SCRIPT_TYPES: Sequence[ScriptType] = tuple([
+    ScriptType.MULTISIG_BARE,
+    ScriptType.MULTISIG_P2SH,
+    ScriptType.MULTISIG_ACCUMULATOR,
+])
+SINGLE_SIGNER_SCRIPT_TYPES: Sequence[ScriptType] = tuple([
+    ScriptType.P2PKH,
+    ScriptType.P2PK
+])
+
+# These script types are possible choices the user could make (or have chosen for them) for which
+# script type the user can use for a given account type. Note that imported address accounts have
+# an implicit script type depending on the derivation type of the given key, therefore the user
+# has no choice. Addresses are a legacy concept.
 ACCOUNT_SCRIPT_TYPES = {
-    AccountType.IMPORTED_ADDRESS: set([
-        ScriptType.P2PKH,
-    ]),
-    AccountType.IMPORTED_PRIVATE_KEY: set([
-        ScriptType.P2PKH,
-    ]),
-    AccountType.MULTISIG: set([
-        ScriptType.MULTISIG_P2SH,
-        ScriptType.MULTISIG_BARE,
-    ]),
-    AccountType.STANDARD: set([
-        ScriptType.P2PKH,
-    ]),
+    AccountType.IMPORTED_ADDRESS: (),
+    AccountType.IMPORTED_PRIVATE_KEY: SINGLE_SIGNER_SCRIPT_TYPES,
+    AccountType.MULTISIG: MULTI_SIGNER_SCRIPT_TYPES,
+    AccountType.STANDARD: SINGLE_SIGNER_SCRIPT_TYPES,
 }
 
 

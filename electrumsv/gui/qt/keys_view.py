@@ -45,7 +45,7 @@ from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 
 from electrumsv.i18n import _
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import compose_chain_string, scripthash_hex
+from electrumsv.bitcoin import compose_chain_string, scripthash_bytes, sha256
 from electrumsv.constants import (ACCOUNT_SCRIPT_TYPES, DerivationType, IntFlag, KeyInstanceFlag,
     ScriptType, TransactionOutputFlag, unpack_derivation_path)
 from electrumsv.keystore import Hardware_KeyStore
@@ -584,7 +584,7 @@ class KeyView(QTableView):
         self._dispatch_updates(pending_actions, pending_state)
 
     def _have_pending_updates(self) -> bool:
-        return bool(self._pending_actions) or bool(self._pending_state)
+        return bool(len(self._pending_actions) or len(self._pending_state))
 
     # def _dispatch_updates(self, pending_actions: Set[ListActions],
     #         pending_state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
@@ -794,7 +794,7 @@ class KeyView(QTableView):
     def _set_user_active(self, keyinstance_ids: Set[int], enable: bool) -> None:
         self._logger.debug("_set_user_active %s %s", keyinstance_ids, enable)
         flags = KeyInstanceFlag.USER_SET_ACTIVE if enable else KeyInstanceFlag.NONE
-        mask = ~KeyInstanceFlag.USER_SET_ACTIVE
+        mask = KeyInstanceFlag(~KeyInstanceFlag.USER_SET_ACTIVE)
         self._account.set_keyinstance_flags(list(keyinstance_ids), flags, mask)
 
     def _event_double_clicked(self, model_index: QModelIndex) -> None:
@@ -809,18 +809,16 @@ class KeyView(QTableView):
             self._main_window.show_key(self._account, line, script_type)
 
     def _event_create_menu(self, position):
-        account_id = self._account_id
-
         menu = QMenu()
 
         # What the user clicked on.
         menu_index = self.indexAt(position)
         menu_source_index = get_source_index(menu_index, _ItemModel)
+        menu_column = menu_source_index.column()
 
         column_title: Optional[str] = None
         if menu_source_index.row() != -1:
             menu_line = self._data[menu_source_index.row()]
-            menu_column = menu_source_index.column()
             column_title = self._headers[menu_column]
             if menu_column == 0:
                 copy_text = get_key_text(menu_line)
@@ -850,12 +848,12 @@ class KeyView(QTableView):
 
             if not multi_select:
                 row, column, line, selected_index, base_index = selected[0]
-                key_id = line.keyinstance_id
                 script_type = line.txo_script_type if line.txo_script_type is not None \
                     else ScriptType.NONE
                 menu.addAction(_('Details'),
                     lambda: self._main_window.show_key(self._account, line, script_type))
                 if column == LABEL_COLUMN:
+                    column_title = self._headers[menu_column]
                     menu.addAction(_("Edit {}").format(column_title),
                         lambda: self.edit(selected_index))
                 menu.addAction(_("Request payment"),
@@ -896,7 +894,7 @@ class KeyView(QTableView):
                     script_action.setEnabled(False)
 
                 for script_type, script in self._account.get_possible_scripts_for_key_data(line):
-                    scripthash = scripthash_hex(bytes(script))
+                    scripthash = scripthash_bytes(script)
                     script_URL = web.BE_URL(self._main_window.config, 'script', scripthash)
                     if script_URL:
                         # NOTE(typing) `addAction` does not like a return value for the callback.
