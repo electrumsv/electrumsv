@@ -892,7 +892,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
               "Bitcoin SV. Startup times are instant because it operates in "
               "conjunction with high-performance servers that handle the most complicated "
               "parts of the Bitcoin SV system."  + "\n\n" +
-              _("Uses icons from the Icons8 icon pack (icons8.com).")))
+              _("Uses icons from the Icons8 icon pack (icons8.com) and Flaticon.com.")))
 
     def show_update_check(self):
         from . import update_check
