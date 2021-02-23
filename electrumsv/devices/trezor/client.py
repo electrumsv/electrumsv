@@ -1,13 +1,13 @@
 import time
+from unicodedata import normalize
 
 from bitcoinx import (
     bip32_decompose_chain_string, BIP32Derivation, BIP32PublicKey, PublicKey,
-    pack_be_uint32,
+    pack_be_uint32
 )
 
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
-from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 
@@ -274,7 +274,7 @@ class TrezorClientSV:
             return passphrase
         if passphrase is None:
             raise Cancelled
-        passphrase = bip39_normalize_passphrase(passphrase)
+        passphrase = normalize('NFKD', passphrase or '')
         length = len(passphrase)
         if length > 50:
             self.handler.show_error(_("Too long passphrase ({} > 50 chars).").format(length))

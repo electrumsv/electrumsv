@@ -23,17 +23,16 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Sequence, Union
+from typing import Union
 
 from bitcoinx import (Ops, hash_to_hex_str, sha256, Address, classify_output_script,
     OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address,
-    Script, TruncatedScriptError, Unknown_Output)
+    Script, TruncatedScriptError, Unknown_Output, ElectrumMnemonic)
 
 from .bip276 import bip276_decode, bip276_encode, PREFIX_BIP276_SCRIPT
-from .crypto import hmac_oneshot
+from .constants import SEED_PREFIX
 from .networks import Net
 from .util import bfh, bh2u, assert_bytes, to_bytes
-from . import version
 
 
 ################################## transactions
@@ -109,35 +108,10 @@ def push_script(data_hex: str) -> str:
     return op_push(data_len) + bh2u(data)
 
 
-def is_new_seed(x, prefix=version.SEED_PREFIX):
-    from . import mnemonic
-    x = mnemonic.normalize_text(x)
-    s = bh2u(hmac_oneshot(b"Seed version", x.encode('utf8'), 'sha512'))
-    return s.startswith(prefix)
-
-
-def is_old_seed(seed):
-    from . import old_mnemonic, mnemonic
-    seed = mnemonic.normalize_text(seed)
-    words = seed.split()
-    try:
-        # checks here are deliberately left weak for legacy reasons, see #3149
-        old_mnemonic.mn_decode(words)
-        uses_electrum_words = True
-    except Exception:
-        uses_electrum_words = False
-    try:
-        seed = bfh(seed)
-        is_hex = (len(seed) == 16 or len(seed) == 32)
-    except Exception:
-        is_hex = False
-    return is_hex or (uses_electrum_words and (len(words) == 12 or len(words) == 24))
-
-
-def seed_type(x):
-    if is_old_seed(x):
+def seed_type(x: str) -> str:
+    if ElectrumMnemonic.is_valid_old(x):
         return 'old'
-    elif is_new_seed(x):
+    elif ElectrumMnemonic.is_valid_new(x, SEED_PREFIX):
         return 'standard'
     return ''
 

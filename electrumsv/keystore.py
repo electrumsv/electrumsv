@@ -24,13 +24,12 @@
 import hashlib
 import json
 from typing import Any, cast, Dict, List, Optional, Sequence, Set, Tuple, Union
-from unicodedata import normalize
 
 from bitcoinx import (
     PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey,
     int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
     bip32_key_from_string, bip32_decompose_chain_string, Base58Error, hash160,
-    bip32_build_chain_string
+    bip32_build_chain_string, BIP39Mnemonic, ElectrumMnemonic
 )
 
 from .i18n import _
@@ -40,7 +39,7 @@ from .constants import DerivationType, KeystoreTextType, KeystoreType
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword, OverloadedMultisigKeystore, IncompatibleWalletError
 from .logs import logs
-from .mnemonic import Mnemonic, load_wordlist
+from .mnemonic import mnemonic_to_seed
 from .networks import Net
 from .transaction import Transaction, TransactionContext, XPublicKey, XPublicKeyType
 from .wallet_database.types import KeyInstanceRow, MasterKeyRow
@@ -488,23 +487,6 @@ class Old_KeyStore(Deterministic_KeyStore):
         return pw_decode(self.seed, password).encode('utf8')
 
     @classmethod
-    def _seed_to_hex(cls, seed):
-        from . import old_mnemonic, mnemonic
-        seed = mnemonic.normalize_text(seed)
-        # see if seed was entered as hex
-        if seed:
-            try:
-                bytes.fromhex(seed)
-                return seed
-            except Exception:
-                pass
-        words = seed.split()
-        seed = old_mnemonic.mn_decode(words)
-        if not seed:
-            raise Exception("Invalid seed")
-        return seed
-
-    @classmethod
     def _mpk_from_hex_seed(cls, hex_seed) -> str:
         secexp = cls.stretch_key(hex_seed.encode())
         master_private_key = PrivateKey(int_to_be_bytes(secexp, 32))
@@ -515,8 +497,13 @@ class Old_KeyStore(Deterministic_KeyStore):
         return PublicKey.from_hex('04' + mpk)
 
     @classmethod
-    def from_seed(cls, seed) -> 'Old_KeyStore':
-        hex_seed = cls._seed_to_hex(seed)
+    def from_seed(cls, text: str) -> 'Old_KeyStore':
+        try:
+            bytes.fromhex(text)
+        except ValueError:
+            hex_seed = ElectrumMnemonic.old_to_hex_seed(text)
+        else:
+            hex_seed = text
         return cls({'seed': hex_seed, 'mpk': cls._mpk_from_hex_seed(hex_seed), 'subpaths': []})
 
     @classmethod
@@ -541,9 +528,8 @@ class Old_KeyStore(Deterministic_KeyStore):
         return MasterKeyRow(-1, None, DerivationType.ELECTRUM_OLD, derivation_lump)
 
     def get_seed(self, password: Optional[str]) -> str:
-        from . import old_mnemonic
         s = self._get_hex_seed_bytes(password)
-        return ' '.join(old_mnemonic.mn_encode(s))
+        return ElectrumMnemonic.hex_seed_to_old(s)
 
     @classmethod
     def stretch_key(cls, seed):
@@ -798,48 +784,9 @@ class Multisig_KeyStore(KeyStore):
         self._cosigner_keystores.append(keystore)
 
 
-def bip39_normalize_passphrase(passphrase):
-    return normalize('NFKD', passphrase or '')
-
-def bip39_to_seed(mnemonic, passphrase):
-    PBKDF2_ROUNDS = 2048
-    mnemonic = normalize('NFKD', ' '.join(mnemonic.split()))
-    passphrase = bip39_normalize_passphrase(passphrase)
-    return hashlib.pbkdf2_hmac('sha512', mnemonic.encode('utf-8'),
-        b'mnemonic' + passphrase.encode('utf-8'), iterations = PBKDF2_ROUNDS)
-
-# returns tuple (is_checksum_valid, is_wordlist_valid)
-def bip39_is_checksum_valid(mnemonic):
-    words = [ normalize('NFKD', word) for word in mnemonic.split() ]
-    words_len = len(words)
-    wordlist = load_wordlist("english.txt")
-    n = len(wordlist)
-    checksum_length = 11*words_len//33
-    entropy_length = 32*checksum_length
-    i = 0
-    words.reverse()
-    while words:
-        w = words.pop()
-        try:
-            k = wordlist.index(w)
-        except ValueError:
-            return False, False
-        i = i*n + k
-    if words_len not in [12, 15, 18, 21, 24]:
-        return False, True
-    entropy = i >> checksum_length
-    checksum = i % 2**checksum_length
-    h = '{:x}'.format(entropy)
-    while len(h) < entropy_length/4:
-        h = '0'+h
-    b = bytearray.fromhex(h)
-    hashed = int(hashlib.sha256(b).digest().hex(), 16)
-    calculated_checksum = hashed >> (256 - checksum_length)
-    return checksum == calculated_checksum, True
-
 def from_bip39_seed(seed: str, passphrase: Optional[str], derivation_text: str) -> BIP32_KeyStore:
     k = BIP32_KeyStore({})
-    bip32_seed = bip39_to_seed(seed, passphrase)
+    bip32_seed = BIP39Mnemonic.to_seed(seed, passphrase)
     k.add_xprv_from_seed(bip32_seed, derivation_text)
     return k
 
@@ -881,7 +828,7 @@ def from_seed(seed, passphrase):
         keystore = BIP32_KeyStore({})
         keystore.add_seed(seed)
         keystore.passphrase = passphrase
-        bip32_seed = Mnemonic.mnemonic_to_seed(seed, passphrase)
+        bip32_seed = mnemonic_to_seed(seed, passphrase)
         der = "m"
         keystore.add_xprv_from_seed(bip32_seed, der)
     else:
@@ -995,7 +942,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
         if derivation_text is None:
             derivation_text = bip44_derivation_cointype(0, 0)
         assert isinstance(text_match, str)
-        bip32_seed = bip39_to_seed(text_match, passphrase)
+        bip32_seed = BIP39Mnemonic.to_seed(text_match, passphrase)
         xprv = BIP32PrivateKey.from_seed(bip32_seed, Net.COIN)
         for n in bip32_decompose_chain_string(derivation_text):
             xprv = xprv.child_safe(n)
@@ -1010,7 +957,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
     elif text_type == KeystoreTextType.ELECTRUM_SEED_WORDS:
         derivation_type = DerivationType.BIP32
         assert isinstance(text_match, str)
-        bip32_seed = Mnemonic.mnemonic_to_seed(text_match, passphrase or '')
+        bip32_seed = mnemonic_to_seed(text_match, passphrase or '')
         derivation_text = "m"
         xprv = BIP32PrivateKey.from_seed(bip32_seed, Net.COIN)
         for n in bip32_decompose_chain_string(derivation_text):
@@ -1028,7 +975,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
         assert isinstance(text_match, str)
         assert passphrase is None
         # `watch_only` is ignored.
-        hex_seed = Old_KeyStore._seed_to_hex(text_match)
+        hex_seed = ElectrumMnemonic.old_to_hex_seed(text_match)
         assert password is not None
         data['seed'] = pw_encode(hex_seed, password)
         data['mpk'] = Old_KeyStore._mpk_from_hex_seed(hex_seed)
