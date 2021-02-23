@@ -27,12 +27,6 @@ import hashlib
 import string
 import unicodedata
 
-from bitcoinx import Wordlists
-
-from .logs import logs
-
-logger = logs.get_logger("mnemonic")
-
 
 # http://www.asahi-net.or.jp/~ax2s-kmtn/ref/unicode/e_asia.html
 CJK_INTERVALS = [
