@@ -64,7 +64,7 @@ class SecuredDataDialog(QDialog):
             if keystore.derivation_type == DerivationType.BIP32:
                 if ElectrumMnemonic.is_valid_new(seed_text, SEED_PREFIX):
                     seed_type_text = _("Electrum")
-                is_bip39_value = False
+                is_bip39_valid = False
                 try:
                     is_bip39_valid = BIP39Mnemonic.is_valid(seed_text,
                         Wordlists.bip39_wordlist("english.txt"))

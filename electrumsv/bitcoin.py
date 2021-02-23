@@ -115,8 +115,6 @@ def seed_type(x: str) -> str:
         return 'standard'
     return ''
 
-is_seed = lambda x: bool(seed_type(x))
-
 ############ functions from pywallet #####################
 
 __b43chars = b'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$*+-./:'

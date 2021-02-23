@@ -31,7 +31,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar
 import attr
 from bitcoinx import (
     Address, base58_encode_check, bip32_key_from_string, BIP32PublicKey, classify_output_script,
-    der_signature_to_compact, double_sha256, hash160, hash_to_hex_str, InvalidSignatureError,
+    der_signature_to_compact, double_sha256, hash160, hash_to_hex_str, InvalidSignature,
     Ops, P2PK_Output, P2SH_Address, pack_byte, pack_le_int32, pack_le_uint32, pack_list,
     PrivateKey, PublicKey, push_int, push_item, read_le_int32, read_le_int64, read_le_uint32,
     read_varint, Script, SigHash, Tx, TxInput, TxOutput, unpack_le_uint16,
@@ -708,7 +708,7 @@ class Transaction(Tx):
                 rec_sig = rec_sig_base + bytes([recid])
                 try:
                     public_key = PublicKey.from_recoverable_signature(rec_sig, pre_hash, None)
-                except (InvalidSignatureError, ValueError):
+                except (InvalidSignature, ValueError):
                     # the point might not be on the curve for some recid values
                     continue
                 if public_key in pubkeys:

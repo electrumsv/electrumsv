@@ -34,12 +34,11 @@ from bitcoinx import (
 
 from .i18n import _
 from .app_state import app_state
-from .bitcoin import is_address_valid, is_seed, seed_type
+from .bitcoin import is_address_valid, seed_type
 from .constants import DerivationType, KeystoreTextType, KeystoreType
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword, OverloadedMultisigKeystore, IncompatibleWalletError
 from .logs import logs
-from .mnemonic import mnemonic_to_seed
 from .networks import Net
 from .transaction import Transaction, TransactionContext, XPublicKey, XPublicKeyType
 from .wallet_database.types import KeyInstanceRow, MasterKeyRow
@@ -808,12 +807,6 @@ def is_private_key_list(text: str) -> bool:
     return bool(get_private_keys(text))
 
 
-is_mpk = lambda x: Old_KeyStore.is_hex_mpk(x) or is_xpub(x)
-is_private = lambda x: is_seed(x) or is_xprv(x) or is_private_key_list(x)
-is_master_key = lambda x: Old_KeyStore.is_hex_mpk(x) or is_xprv(x) or is_xpub(x)
-is_bip32_key = lambda x: is_xprv(x) or is_xpub(x)
-
-
 def bip44_derivation(account_id: int) -> str:
     return "m/44'/%d'/%d'" % (Net.BIP44_COIN_TYPE, int(account_id))
 
@@ -828,7 +821,7 @@ def from_seed(seed, passphrase):
         keystore = BIP32_KeyStore({})
         keystore.add_seed(seed)
         keystore.passphrase = passphrase
-        bip32_seed = mnemonic_to_seed(seed, passphrase)
+        bip32_seed = ElectrumMnemonic.new_to_seed(seed, passphrase, compatible=True)
         der = "m"
         keystore.add_xprv_from_seed(bip32_seed, der)
     else:
@@ -957,7 +950,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
     elif text_type == KeystoreTextType.ELECTRUM_SEED_WORDS:
         derivation_type = DerivationType.BIP32
         assert isinstance(text_match, str)
-        bip32_seed = mnemonic_to_seed(text_match, passphrase or '')
+        bip32_seed = ElectrumMnemonic.new_to_seed(text_match, passphrase or '', compatible=True)
         derivation_text = "m"
         xprv = BIP32PrivateKey.from_seed(bip32_seed, Net.COIN)
         for n in bip32_decompose_chain_string(derivation_text):
