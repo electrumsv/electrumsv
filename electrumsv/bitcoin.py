@@ -250,23 +250,6 @@ def is_address_valid(address) -> bool:
     except ValueError:
         return False
 
-HARDENED = 1 << 31
-
-def compose_chain_string(derivation: Sequence[int]) -> str:
-    '''Given a list of unsigned integers return a chain string.
-
-       For example:  [1, 0x80000002, 0x80000003, 0] -> m/1/2'/3'/0
-                     []                              -> m
-    '''
-    result = "m"
-    for value in derivation:
-        result += "/"
-        if value >= HARDENED:
-            result += str(value - HARDENED) +"'"
-        else:
-            result += str(value)
-    return result
-
 
 def script_bytes_to_asm(script: Script) -> str:
     # Adapted version of `script.to_asm` which just shows "[error]" in event of truncation.

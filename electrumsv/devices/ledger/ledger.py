@@ -3,11 +3,12 @@ from struct import pack, unpack
 from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx import (
-    BIP32Derivation, BIP32PublicKey, PublicKey, pack_be_uint32, pack_list, pack_le_int64
+    BIP32Derivation, BIP32PublicKey, PublicKey, pack_be_uint32, pack_list, pack_le_int64,
+    bip32_build_chain_string
 )
 
 from ...app_state import app_state
-from ...bitcoin import compose_chain_string, int_to_hex, ScriptTemplate
+from ...bitcoin import int_to_hex, ScriptTemplate
 from ...constants import ScriptType, unpack_derivation_path
 from ...i18n import _
 from ...keystore import Hardware_KeyStore
@@ -373,7 +374,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
                 info = output_metadatas.get(keystore_fingerprint)
                 if (info is not None) and len(tx.outputs) != 1:
                     key_derivation, xpubs, m = info
-                    key_subpath = compose_chain_string(key_derivation)[1:]
+                    key_subpath = bip32_build_chain_string(key_derivation)[1:]
                     changePath = self.get_derivation()[2:] + key_subpath
                     changeAmount = tx_output.value
                 else:

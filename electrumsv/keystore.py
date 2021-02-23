@@ -29,12 +29,13 @@ from unicodedata import normalize
 from bitcoinx import (
     PrivateKey, PublicKey, BIP32PrivateKey, BIP32PublicKey,
     int_to_be_bytes, be_bytes_to_int, CURVE_ORDER,
-    bip32_key_from_string, bip32_decompose_chain_string, Base58Error, hash160
+    bip32_key_from_string, bip32_decompose_chain_string, Base58Error, hash160,
+    bip32_build_chain_string
 )
 
 from .i18n import _
 from .app_state import app_state
-from .bitcoin import compose_chain_string, is_address_valid, is_seed, seed_type
+from .bitcoin import is_address_valid, is_seed, seed_type
 from .constants import DerivationType, KeystoreTextType, KeystoreType
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword, OverloadedMultisigKeystore, IncompatibleWalletError
@@ -656,7 +657,7 @@ class Hardware_KeyStore(Xpub, KeyStore):
         self.derivation = data['derivation']
         # New hardware account bug stored the derivation as a decomposed list not a string.
         if isinstance(self.derivation, list):
-            self.derivation = compose_chain_string(self.derivation)
+            self.derivation = bip32_build_chain_string(self.derivation)
         self.hw_type = data['hw_type']
         self.label = data.get('label')
         self.handler = None

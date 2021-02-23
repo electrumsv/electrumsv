@@ -15,10 +15,11 @@ import struct
 import time
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from bitcoinx import PublicKey, compact_signature_to_der, bip32_key_from_string
+from bitcoinx import (bip32_build_chain_string, bip32_key_from_string, compact_signature_to_der,
+    PublicKey)
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import msg_magic, compose_chain_string
+from electrumsv.bitcoin import msg_magic
 from electrumsv.constants import ScriptType
 from electrumsv.crypto import (sha256d, EncodeAES_base64, EncodeAES_bytes, DecodeAES_bytes,
     hmac_oneshot)
@@ -547,7 +548,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 if txout.x_pubkeys:
                     for xpubkey in [ xpk for xpk in txout.x_pubkeys
                             if self.is_signature_candidate(xpk) ]:
-                        key_path_text = compose_chain_string(xpubkey.derivation_path())[1:]
+                        key_path_text = bip32_build_chain_string(xpubkey.derivation_path())[1:]
                         changePath = self.get_derivation() + key_path_text # "/1/0", no "m"
                         pubkeyarray.append({
                             'pubkey': xpubkey.to_public_key().to_hex(),
