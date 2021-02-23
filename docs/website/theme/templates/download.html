@@ -40,11 +40,12 @@
                 </div>
                 <div class="container esv-box-border esv-box-padding">
                     {% for release in DOWNLOADS_OLDER %}
-                    <div class="{% if not loop.first %}pt-3 border-top{% endif %} pb-3">
+                    <div class="{% if not loop.first %}pt-3 border-top{% endif %} pb-2">
                         <div class="row">
                             <div class="col-sm-12 text-center pb-2">
                                 ElectrumSV {{ release.version }} ({{ release.release_date }})
                                 <br/><a href="{{ release.article_link }}">What has changed?</a>
+                                {% if release.extra_text %}<br/><i>{{ release.extra_text }}</i>{% endif %}
                             </div>
                         </div>
                         {% for released_file in release.files %}

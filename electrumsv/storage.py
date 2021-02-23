@@ -1392,8 +1392,11 @@ class WalletStorage:
         self.requires_upgrade = store.requires_upgrade
 
     def get_text_store(self) -> TextStore:
-        if not isinstance(self._store, TextStore):
-            raise NotImplementedError
+        assert isinstance(self._store, TextStore)
+        return self._store
+
+    def get_database_store(self) -> DatabaseStore:
+        assert isinstance(self._store, DatabaseStore)
         return self._store
 
     def is_legacy_format(self) -> bool:

@@ -44,7 +44,7 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import DATABASE_EXT, IntFlag, StorageKind
+from electrumsv.constants import DATABASE_EXT, IntFlag, MIGRATION_CURRENT, StorageKind
 from electrumsv.exceptions import DatabaseMigrationError, IncompatibleWalletError
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -105,6 +105,7 @@ class FileState(NamedTuple):
     password_state: PasswordState = PasswordState.UNKNOWN
     requires_upgrade: bool = False
     modification_time: int = 0
+    is_too_modern: bool = False
 
 class MigrationContext(NamedTuple):
     entry: FileState
@@ -122,6 +123,7 @@ def create_file_state(wallet_path: str) -> Optional[FileState]:
         logger.exception("problem looking at selected wallet '%s'", wallet_path)
         return None
 
+    is_too_modern = False
     try:
         storage_info = categorise_file(wallet_path)
         if storage_info.kind == StorageKind.HYBRID:
@@ -151,6 +153,8 @@ def create_file_state(wallet_path: str) -> Optional[FileState]:
         else:
             assert storage_info.kind == StorageKind.DATABASE
             password_state = PasswordState.PASSWORDED
+            database_store = storage.get_database_store()
+            is_too_modern = database_store.get("migration") > MIGRATION_CURRENT
 
         requires_upgrade = storage.requires_split() or storage.requires_upgrade()
     finally:
@@ -159,7 +163,7 @@ def create_file_state(wallet_path: str) -> Optional[FileState]:
     name = get_wallet_name_from_path(wallet_path)
     modification_time = os.path.getmtime(wallet_path)
     return FileState(name, wallet_path, wallet_action, storage_info.kind, password_state,
-        requires_upgrade, modification_time)
+        requires_upgrade, modification_time, is_too_modern)
 
 
 def request_password(parent: Optional[QWidget], storage: WalletStorage, entry: FileState) \
@@ -243,7 +247,7 @@ class WalletWizard(BaseWizard):
         """
         entry = create_file_state(wallet_path)
         was_aborted = False
-        if entry is not None:
+        if entry is not None and not entry.is_too_modern:
             storage = WalletStorage(wallet_path)
             try:
                 password = request_password(None, storage, entry)
@@ -495,7 +499,7 @@ class ChooseWalletPage(QWizardPage):
     def _attempt_open_wallet(self, wallet_path: str, change_page: bool=False) -> bool:
         if not os.path.exists(wallet_path):
             MessageBox.show_error(_("Unable to open a deleted wallet."))
-            return
+            return False
 
         entry: Optional[FileState] = None
         for entry in self._recent_wallet_entries.values():
@@ -506,6 +510,11 @@ class ChooseWalletPage(QWizardPage):
             if entry is None:
                 MessageBox.show_error(_("Unrecognised or unsupported wallet file."))
                 return False
+
+        if entry.is_too_modern:
+            MessageBox.show_error(_("The selected wallet cannot be opened as it is from a later "
+                "version of ElectrumSV."))
+            return False
 
         password: str = None
         wizard: WalletWizard = self.wizard()
