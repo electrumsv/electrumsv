@@ -411,7 +411,7 @@ class Test_seeds(SequentialTestCase):
         ('cram swing cover prefer miss modify ritual silly deliver chunk behind inform', ''),
         ('ostrich security deer aunt climb inner alpha arm mutual marble solid task', 'standard'),
         ('OSTRICH SECURITY DEER AUNT CLIMB INNER ALPHA ARM MUTUAL MARBLE SOLID TASK', 'standard'),
-        ('   oStRiCh sEcUrItY DeEr aUnT ClImB       InNeR AlPhA ArM MuTuAl mArBlE   SoLiD TaSk  ', ''), # Was standard
+        ('   oStRiCh sEcUrItY DeEr aUnT ClImB       InNeR AlPhA ArM MuTuAl mArBlE   SoLiD TaSk  ', 'standard'),
         ('x8', 'standard'),
         ('science dawn member doll dutch real ca brick knife deny drive list', ''),
     }
