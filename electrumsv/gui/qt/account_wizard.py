@@ -31,7 +31,7 @@ import enum
 from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
-    bip32_key_from_string, PrivateKey, P2SH_Address)
+    bip32_key_from_string, PrivateKey, P2SH_Address, bip32_build_chain_string)
 
 from PyQt5.QtCore import QObject, QSize, Qt
 from PyQt5.QtGui import QBrush, QColor, QPainter, QPalette, QPen, QPixmap, QTextOption
@@ -42,7 +42,7 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import compose_chain_string, is_new_seed, is_old_seed
+from electrumsv.bitcoin import is_new_seed, is_old_seed
 from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, IntFlag,
     KeystoreTextType, MAXIMUM_COSIGNER_COUNT, ScriptType)
 from electrumsv.device import DeviceInfo
@@ -1154,7 +1154,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
 
         wallet_type = "standard"
         text = DEVICE_SETUP_SUCCESS_TEXT.format(name.capitalize(),
-            compose_chain_string(self._derivation_default), wallet_type)
+            bip32_build_chain_string(self._derivation_default), wallet_type)
 
         label = QLabel(text + "\n")
         label.setWordWrap(True)
@@ -1178,7 +1178,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         grid.setContentsMargins(50, 10, 50, 10)
         grid.setColumnStretch(1,1)
 
-        path_text = compose_chain_string(self._derivation_default)
+        path_text = bip32_build_chain_string(self._derivation_default)
         self._path_edit = QLineEdit()
         self._path_edit.setText(path_text)
         self._path_edit.textEdited.connect(self._on_derivation_path_changed)
@@ -1281,7 +1281,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         name, device_info = wizard.get_selected_device()
 
         assert self._derivation_user is not None
-        derivation_text = compose_chain_string(self._derivation_user)
+        derivation_text = bip32_build_chain_string(self._derivation_user)
         try:
             mpk = self._plugin.get_master_public_key(device_info.device.id_, derivation_text,
                 wizard)

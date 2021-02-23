@@ -36,7 +36,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 import weakref
 import webbrowser
 
-from bitcoinx import Address
+from bitcoinx import Address, bip32_build_chain_string
 
 from PyQt5.QtCore import (QAbstractItemModel, QModelIndex, QVariant, Qt, QSortFilterProxyModel,
     QTimer)
@@ -45,7 +45,7 @@ from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 
 from electrumsv.i18n import _
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import compose_chain_string, scripthash_bytes, sha256
+from electrumsv.bitcoin import scripthash_bytes, sha256
 from electrumsv.constants import (ACCOUNT_SCRIPT_TYPES, DerivationType, IntFlag, KeyInstanceFlag,
     ScriptType, TransactionOutputFlag, unpack_derivation_path)
 from electrumsv.keystore import Hardware_KeyStore
@@ -109,7 +109,7 @@ def get_key_text(line: KeyLine) -> str:
     derivation_text = ""
     if line.derivation_type == DerivationType.BIP32_SUBPATH:
         derivation_path = unpack_derivation_path(line.derivation_data2)
-        derivation_text = compose_chain_string(derivation_path)
+        derivation_text = bip32_build_chain_string(derivation_path)
     return text +":"+ derivation_text
 
 
@@ -341,7 +341,7 @@ class _ItemModel(QAbstractItemModel):
                     derivation_path_text: str = ""
                     if line.derivation_type == DerivationType.BIP32_SUBPATH:
                         derivation_path = unpack_derivation_path(line.derivation_data2)
-                        derivation_path_text = compose_chain_string(derivation_path)
+                        derivation_path_text = bip32_build_chain_string(derivation_path)
                     return "\n".join([
                         f"Key instance id: {line.keyinstance_id}",
                         f"Master key id: {line.masterkey_id}",
