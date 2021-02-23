@@ -23,7 +23,6 @@
 # SOFTWARE.
 import asyncio
 import json
-import socket
 from collections import defaultdict
 from contextlib import suppress
 from enum import IntEnum
@@ -38,8 +37,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
 
 import aiohttp
 import certifi
-from aiodns.error import DNSError
-from aiohttp import AsyncResolver, ClientConnectorError
+from aiohttp import ClientConnectorError
 from aiorpcx import (
     connect_rs, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
     TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
@@ -359,8 +357,6 @@ class SVSession(RPCSession):
         self.server = server
         self.tip = None
         self.ptuple = (0, )
-
-        self.mapi_client: aiohttp.ClientSession = None
 
     def set_throttled(self, flag: bool) -> None:
         if flag:
@@ -883,7 +879,7 @@ class Network(TriggeredCallbacks):
 
         app_state.subscriptions.set_script_hash_callbacks(
             self._on_subscribe_script_hashes, self._on_unsubscribe_script_hashes)
-        self.mapi_client: Optional[aiohttp.ClientSession]=None
+        self.mapi_client: Optional[aiohttp.ClientSession] = None
 
     def _read_config_mapi(self):
         mapi_servers = app_state.config.get("mapi_servers", [])
@@ -898,10 +894,11 @@ class Network(TriggeredCallbacks):
         # aiohttp session needs to be initialised in async function
         # https://github.com/tiangolo/fastapi/issues/301
         if self.mapi_client is None:
-            resolver = AsyncResolver()
-            conn = aiohttp.TCPConnector(family=socket.AF_INET, resolver=resolver, ttl_dns_cache=10,
-                                        force_close=True, enable_cleanup_closed=True)
-            self.mapi_client = aiohttp.ClientSession(connector=conn)
+            # resolver = AsyncResolver()
+            # conn = aiohttp.TCPConnector(family=socket.AF_INET, resolver=resolver, ttl_dns_cache=10,
+            #                             force_close=True, enable_cleanup_closed=True)
+            # self.mapi_client = aiohttp.ClientSession(connector=conn)
+            self.mapi_client = aiohttp.ClientSession()
         return self.mapi_client
 
     async def _close_mapi_client(self):
@@ -949,7 +946,7 @@ class Network(TriggeredCallbacks):
                         logger.debug(f"valid feeQuote received from {mapi_server['uri']}")
                         mapi_server['last_good'] = now
                         mapi_server['fee'] = json_payload
-                except (ClientConnectorError, ConnectionError, OSError, SOCKSError, DNSError):
+                except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
                     logger.error(f"failed to connect to {mapi_server['uri']}")
                 finally:
                     self.mapi_servers[i] = mapi_server
