@@ -3,7 +3,7 @@
         "uri": "https://mapi.test.taal.com/mapi",
         "fee": null,
         "version": "0.1.0",
-        "last_good": null,
+        "last_good": 0,
         "last_try": null
     }
 ]

@@ -25,11 +25,11 @@
 import enum
 import socket
 from collections import namedtuple
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Sequence
 
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTabWidget, QSizePolicy, QWidget, QTreeWidget, \
-    QTreeWidgetItem, QHeaderView, QLabel, QCheckBox, QComboBox, QLineEdit, QGridLayout, QMessageBox, \
-    QMenu, QDialogButtonBox, QFormLayout
+    QTreeWidgetItem, QHeaderView, QLabel, QCheckBox, QComboBox, QLineEdit, QGridLayout, \
+    QMessageBox, QMenu, QDialogButtonBox, QFormLayout
 from PyQt5.QtCore import pyqtSignal, Qt, QThread
 from aiorpcx import NetAddress
 from bitcoinx import hash_to_hex_str
@@ -39,13 +39,15 @@ from electrumsv.constants import BroadcastServicesUI, BroadcastServices
 from electrumsv.gui.qt.password_dialog import PasswordLineEdit
 from electrumsv.gui.qt.table_widgets import AddOrEditButtonsLayout
 from electrumsv.logs import logs
-from electrumsv.network import Network, SVUserAuth, SVProxy, SVSession
+from electrumsv.network import Network, SVUserAuth, SVProxy, SVSession, SVServer
 from electrumsv.gui.qt.util import Buttons, CloseButton, HelpDialogButton, FormSectionWidget, \
     HelpButton, read_QIcon, IconButton, MessageBox
 from electrumsv.i18n import _
 
 ITEM_DATA_ROLE = Qt.UserRole
-URL_DATA_ROLE = Qt.UserRole + 1
+TIMESTAMP_SORTKEY_ROLE = Qt.UserRole + 1
+CONNECTEDNESS_SORTKEY_ROLE = Qt.UserRole + 2
+URL_DATA_ROLE = Qt.UserRole + 3
 
 logger = logs.get_logger("network-ui")
 
@@ -79,7 +81,7 @@ ELECTRUMX_CAPABILITIES = ('SCRIPTHASH_HISTORY', 'BROADCAST', 'REQUEST_MERKLE_PRO
 
 class NodesListWidget(QTreeWidget):
 
-    def __init__(self, parent: 'NetworkTabsLayout'):
+    def __init__(self, parent: 'BlockchainTab'):
         QTreeWidget.__init__(self)
         self.parent = parent
         self.setHeaderLabels([_('Connected node'), _('Height')])
@@ -185,6 +187,7 @@ class BlockchainTab(QWidget):
     def __init__(self, parent: 'NetworkTabsLayout'):
         super().__init__()
         self.parent = parent
+        self.network = parent.network
         blockchain_layout = QVBoxLayout(self)
 
         form = FormSectionWidget()
@@ -203,7 +206,11 @@ class BlockchainTab(QWidget):
         self.nodes_list_widget = NodesListWidget(self)
         blockchain_layout.addWidget(self.nodes_list_widget)
         blockchain_layout.addStretch(1)
-        self.nodes_list_widget.update(self.parent.network)
+        self.nodes_list_widget.update(self.network)
+
+    def follow_server(self, server):
+        self.network.set_server(server, self.network.auto_connect())
+        self.nodes_list_widget.update(self.network)
 
 
 class EditServerDialog(QDialog):
@@ -246,7 +253,12 @@ class EditServerDialog(QDialog):
         if self._is_edit_mode:
             field2.setText(self._server_url)
 
-        okay_cancel_button = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.okay_cancel_button = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+
+        self.okay_cancel_button.accepted.connect(self.accept)
+        self.okay_cancel_button.rejected.connect(self.reject)
+        self.okay_cancel_button.accepted.connect(self.accepted)
+        self.okay_cancel_button.rejected.connect(self.rejected)
 
         self._form_layout.addRow(self.row1, self.serverTypeCombobox)
         self._form_layout.addRow(self.row2, field2)
@@ -258,9 +270,15 @@ class EditServerDialog(QDialog):
             self._form_layout.addRow(self.row3, self._mapi_api_key)
 
         self._vbox.addLayout(self._form_layout)
-        self._vbox.addWidget(okay_cancel_button)
+        self._vbox.addWidget(self.okay_cancel_button)
 
         self.update_state()
+
+    def accepted(self):
+        logger.debug("accepted form")
+
+    def rejected(self):
+        logger.debug("rejected form")
 
     def update_state(self):
         """redraw to include / exclude the API Key field for Merchant API type server"""
@@ -282,6 +300,32 @@ class EditServerDialog(QDialog):
         self.update_state()
 
 
+class SortableServerTreeWidgetItem(QTreeWidgetItem):
+
+    def _has_poorer_connection(self, self_is_connected, other_is_connected):
+        """tcp:// SVServers that are not active as sessions have a lesser 'last_good' despite
+        being capable of connecting - these should outrank disconnected SVServers"""
+        if self_is_connected == other_is_connected:
+            return True
+        elif not self_is_connected and other_is_connected:
+            return True
+        elif self_is_connected and not other_is_connected:
+            return False
+
+    def __lt__(self, other):
+        column = self.treeWidget().sortColumn()
+        self_last_good: int = int(self.data(column, TIMESTAMP_SORTKEY_ROLE))
+        other_last_good: int = int(other.data(column, TIMESTAMP_SORTKEY_ROLE))
+        self_is_connected: bool = self.data(column, CONNECTEDNESS_SORTKEY_ROLE)
+        other_is_connected: bool = other.data(column, CONNECTEDNESS_SORTKEY_ROLE)
+
+        if self._has_poorer_connection(self_is_connected, other_is_connected):
+            return True
+
+        if None not in (self_last_good, other_last_good):
+            return self_last_good < other_last_good
+
+
 class ServersListWidget(QTreeWidget):
 
     def __init__(self, parent: 'NetworkTabsLayout'):
@@ -289,6 +333,8 @@ class ServersListWidget(QTreeWidget):
         self.parent = parent
         self.headers = ['', _('Service Name'), _('API Type')]
         self.update_headers()
+        self.setSortingEnabled(True)
+        self.sortItems(0, Qt.DescendingOrder)
 
     def update_headers(self):
         self.setColumnCount(len(self.headers))
@@ -300,10 +346,12 @@ class ServersListWidget(QTreeWidget):
 
     def update(self, items):
         self.clear()
-        for service, url in items:
-            parent = QTreeWidgetItem(["", service[1], service[2]])
+        for service, url, last_good, is_connected in items:
+            parent = SortableServerTreeWidgetItem(["", service[1], service[2]])
             parent.setIcon(0, service[0])
             parent.setData(0, ITEM_DATA_ROLE, service)
+            parent.setData(0, TIMESTAMP_SORTKEY_ROLE, last_good if not None else 0)
+            parent.setData(0, CONNECTEDNESS_SORTKEY_ROLE, is_connected)
             parent.setData(0, URL_DATA_ROLE, url)
 
             lvl1_indent = " " * 4
@@ -377,43 +425,60 @@ class ServersTab(QWidget):
         dialogue = EditServerDialog(self, title="Edit Server", edit_mode=True)
         dialogue.exec()
 
+    def _is_server_healthy(self, server: SVServer, sessions: Sequence[SVSession]) -> bool:
+        """Sessions only include currently active SVSessions, hence the for loop and
+        matching pattern - this only applies to ElectrumX type servers"""
+        if not sessions:
+            return False
+
+        max_tip_height = max([session.tip.height for session in sessions])
+        for session in sessions:
+            if session.server.host == server.host:
+                break
+        else:
+            return False  # The server is unable to connect - there is no SVSession for it
+
+        is_more_than_two_blocks_behind = max_tip_height > session.tip.height + 2
+        if server.state.last_good >= server.state.last_try and not is_more_than_two_blocks_behind:
+            return True
+        return False
+
     def update_servers(self):
         items: List[Tuple[ServerItem, str]] = []  # second type is full url
 
         # Add ElectrumX items
         api_type = BroadcastServices.to_ui_display_format(BroadcastServices.ELECTRUMX)
-        sessions = self.network.sessions
-        if sessions:
-            max_tip_height = max([session.tip.height for session in sessions])
-
-            for session in sessions:
-                session: SVSession
-                server = session.server
-                is_more_than_two_blocks_behind = max_tip_height > session.tip.height + 2
-                if server.state.last_good >= server.state.last_try and not \
-                        is_more_than_two_blocks_behind:
+        servers = self.network.get_servers()    # SVServer
+        sessions = self.network.sessions        # SVSession
+        if servers:
+            for server in servers:
+                if self._is_server_healthy(server, sessions):
                     status_icon = self._get_server_status_icon(ServerStatus.CONNECTED)
+                    is_connected = True
                 else:
                     status_icon = self._get_server_status_icon(ServerStatus.DISCONNECTED)
+                    is_connected = False
                 server_name = server.host
                 child_items = ELECTRUMX_CAPABILITIES
                 server_item = ServerItem(status_icon, server_name, api_type, child_items)
-                url = f"tcp://" if server.protocol == "t" else "ssl://" + \
-                      f"{server.host}:{server.port}"
-                items.append((server_item, url))
+                proto_prefix = f"tcp://" if server.protocol == "t" else "ssl://"
+                url = proto_prefix + f"{server.host}:{server.port}"
+                items.append((server_item, url, server.state.last_good, is_connected))
 
         # Add mAPI items
         api_type = BroadcastServices.to_ui_display_format(BroadcastServices.MERCHANT_API)
         for mapi_server in self.network.get_mapi_servers():
             if mapi_server['last_good'] == mapi_server['last_try']:
                 status_icon = self._get_server_status_icon(ServerStatus.CONNECTED)
+                is_connected = True
             else:
                 status_icon = self._get_server_status_icon(ServerStatus.DISCONNECTED)
+                is_connected = False
             server_name = mapi_server['uri']
 
             child_items = MERCHANT_API_CAPABILITIES
             server_item = ServerItem(status_icon, server_name, api_type, child_items)
-            items.append((server_item, mapi_server['uri']))
+            items.append((server_item, mapi_server['uri'], mapi_server['last_good'], is_connected))
 
         self.servers_list.update(items)
         self.parent.blockchain_tab.nodes_list_widget.update(self.network)
@@ -620,10 +685,6 @@ class NetworkTabsLayout(QVBoxLayout):
         self.setSizeConstraint(QVBoxLayout.SetFixedSize)
         self.proxy_tab.set_tor_detector()
         self.last_values = None
-
-    def follow_server(self, server):
-        self.network.set_server(server, self.network.auto_connect())
-        self.blockchain_tab.nodes_list_widget.update(self.network)
 
 
 class NetworkDialog(QDialog):
