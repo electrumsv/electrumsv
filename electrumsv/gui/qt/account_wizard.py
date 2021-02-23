@@ -31,7 +31,8 @@ import enum
 from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
-    bip32_key_from_string, PrivateKey, P2SH_Address, bip32_build_chain_string)
+    bip32_key_from_string, PrivateKey, P2SH_Address, bip32_build_chain_string,
+    BIP39Mnemonic, ElectrumMnemonic, Wordlists)
 
 from PyQt5.QtCore import QObject, QSize, Qt
 from PyQt5.QtGui import QBrush, QColor, QPainter, QPalette, QPen, QPixmap, QTextOption
@@ -42,12 +43,11 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import is_new_seed, is_old_seed
 from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, IntFlag,
-    KeystoreTextType, MAXIMUM_COSIGNER_COUNT, ScriptType)
+    KeystoreTextType, MAXIMUM_COSIGNER_COUNT, ScriptType, SEED_PREFIX)
 from electrumsv.device import DeviceInfo
 from electrumsv.i18n import _
-from electrumsv.keystore import (bip39_is_checksum_valid, bip44_derivation_cointype, from_seed,
+from electrumsv.keystore import (bip44_derivation_cointype, from_seed,
     instantiate_keystore_from_text, KeyStore, KeystoreMatchType, Multisig_KeyStore)
 from electrumsv.logs import logs
 from electrumsv.networks import Net
@@ -394,8 +394,7 @@ class AddAccountWizardPage(QWizardPage):
         if password is None:
             return
 
-        from electrumsv import mnemonic
-        seed_phrase = mnemonic.Mnemonic('en').make_seed('standard')
+        seed_phrase = ElectrumMnemonic.generate_new(Wordlists.bip39_wordlist("english.txt"))
         keystore = from_seed(seed_phrase, '')
         keystore.update_password(password)
         wizard.set_keystore_result(ResultType.NEW, keystore)
@@ -625,12 +624,17 @@ class ImportWalletTextPage(QWizardPage):
         text = self.text_area.toPlainText().strip()
 
         # First try the matches that match the entire text.
-        if is_old_seed(text):
+        if ElectrumMnemonic.is_valid_old(text):
             matches[KeystoreTextType.ELECTRUM_OLD_SEED_WORDS] = text
-        if is_new_seed(text):
+        if ElectrumMnemonic.is_valid_new(text, SEED_PREFIX):
             matches[KeystoreTextType.ELECTRUM_SEED_WORDS] = text
-        is_checksum_valid, is_wordlist_valid = bip39_is_checksum_valid(text)
-        if is_checksum_valid and is_wordlist_valid:
+
+        is_bip39_valid = False
+        try:
+            is_bip39_valid = BIP39Mnemonic.is_valid(text, Wordlists.bip39_wordlist("english.txt"))
+        except (ValueError, BIP39Mnemonic.BadWords):
+            pass
+        if is_bip39_valid:
             matches[KeystoreTextType.BIP39_SEED_WORDS] = text
 
         try:

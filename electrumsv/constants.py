@@ -47,6 +47,10 @@ MIGRATION_FIRST = 22
 MIGRATION_CURRENT = 27
 
 
+# The hash of the mnemonic seed must begin with this
+SEED_PREFIX      = '01'      # Standard wallet
+
+
 class TxFlags(IntFlag):
     UNSET = 0
 

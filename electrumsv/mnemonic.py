@@ -24,14 +24,12 @@
 # SOFTWARE.
 
 import hashlib
-import math
 import string
 import unicodedata
 
-from . import version
-from .bitcoin import is_old_seed, is_new_seed
+from bitcoinx import Wordlists
+
 from .logs import logs
-from .util import resource_path, random_integer
 
 logger = logs.get_logger("mnemonic")
 
@@ -69,14 +67,14 @@ CJK_INTERVALS = [
     (0xA490, 0xA4CF, 'Yi Radicals'),
 ]
 
-def is_CJK(c):
+def _is_CJK(c):
     n = ord(c)
     for imin,imax,name in CJK_INTERVALS:
         if n>=imin and n<=imax: return True
     return False
 
 
-def normalize_text(seed):
+def _normalize_text(seed):
     # normalize
     seed = unicodedata.normalize('NFKD', seed)
     # lower
@@ -88,99 +86,14 @@ def normalize_text(seed):
     # remove whitespaces between CJK
     seed = u''.join(seed[i] for i in range(len(seed))
                     if not (seed[i] in string.whitespace and
-                            is_CJK(seed[i-1]) and is_CJK(seed[i+1])))
+                            _is_CJK(seed[i-1]) and _is_CJK(seed[i+1])))
     return seed
 
-def load_wordlist(filename):
-    path = resource_path('wordlist', filename)
-    with open(path, 'r', encoding='utf-8') as f:
-        s = f.read().strip()
-    s = unicodedata.normalize('NFKD', s)
-    lines = s.split('\n')
-    wordlist = []
-    for line in lines:
-        line = line.split('#')[0]
-        line = line.strip(' \r')
-        assert ' ' not in line
-        if line:
-            wordlist.append(line)
-    return wordlist
 
-
-filenames = {
-    'en':'english.txt',
-    'es':'spanish.txt',
-    'ja':'japanese.txt',
-    'pt':'portuguese.txt',
-    'zh':'chinese_simplified.txt'
-}
-
-
-
-class Mnemonic(object):
-    # Seed derivation no longer follows BIP39
-    # Mnemonic phrase uses a hash based checksum, instead of a wordlist-dependent checksum
-
-    def __init__(self, lang=None):
-        lang = lang or 'en'
-        logger.debug("language '%s'", lang)
-        filename = filenames.get(lang[0:2], 'english.txt')
-        self.wordlist = load_wordlist(filename)
-        logger.debug("wordlist has %d words", len(self.wordlist))
-
-    @classmethod
-    def mnemonic_to_seed(self, mnemonic, passphrase):
-        PBKDF2_ROUNDS = 2048
-        mnemonic = normalize_text(mnemonic)
-        passphrase = normalize_text(passphrase)
-        return hashlib.pbkdf2_hmac('sha512', mnemonic.encode('utf-8'),
-                                   b'electrum' + passphrase.encode('utf-8'),
-                                   iterations = PBKDF2_ROUNDS)
-
-    def mnemonic_encode(self, i):
-        n = len(self.wordlist)
-        words = []
-        while i:
-            x = i%n
-            i = i//n
-            words.append(self.wordlist[x])
-        return ' '.join(words)
-
-    def get_suggestions(self, prefix):
-        for w in self.wordlist:
-            if w.startswith(prefix):
-                yield w
-
-    def mnemonic_decode(self, seed):
-        n = len(self.wordlist)
-        words = seed.split()
-        i = 0
-        while words:
-            w = words.pop()
-            k = self.wordlist.index(w)
-            i = i*n + k
-        return i
-
-    def make_seed(self, seed_type='standard', num_bits=132):
-        prefix = version.seed_prefix(seed_type)
-        # increase num_bits in order to obtain a uniform distibution for the last word
-        bpw = math.log(len(self.wordlist), 2)
-        # rounding
-        nbits = int(math.ceil(num_bits/bpw) * bpw)
-        logger.debug("make_seed() prefix='%s' entropy=%d bits", prefix, nbits)
-        entropy = 1
-        while entropy < pow(2, nbits - bpw):
-            # try again if seed would not contain enough words
-            entropy = random_integer(nbits)
-        nonce = 0
-        while True:
-            nonce += 1
-            i = entropy + nonce
-            seed = self.mnemonic_encode(i)
-            assert i == self.mnemonic_decode(seed)
-            if is_old_seed(seed):
-                continue
-            if is_new_seed(seed, prefix):
-                break
-        logger.debug('%d words', len(seed.split()))
-        return seed
+def mnemonic_to_seed(mnemonic, passphrase):
+    PBKDF2_ROUNDS = 2048
+    mnemonic = _normalize_text(mnemonic)
+    passphrase = _normalize_text(passphrase)
+    return hashlib.pbkdf2_hmac('sha512', mnemonic.encode('utf-8'),
+                                b'electrum' + passphrase.encode('utf-8'),
+                                iterations = PBKDF2_ROUNDS)

@@ -23,17 +23,17 @@
 # SOFTWARE.
 
 import time
+from unicodedata import normalize
 
 from bitcoinx import (
     bip32_decompose_chain_string, BIP32Derivation, BIP32PublicKey, PublicKey,
-    pack_be_uint32,
+    pack_be_uint32
 )
 
 from keepkeylib.client import proto, BaseClient, ProtocolMixin, types
 
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
-from electrumsv.keystore import bip39_normalize_passphrase
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 
@@ -237,7 +237,7 @@ class KeepKeyClient(ProtocolMixin, BaseClient):
         passphrase = self.handler.get_passphrase(msg, self.creating_wallet)
         if passphrase is None:
             return self.proto.Cancel()
-        passphrase = bip39_normalize_passphrase(passphrase)
+        passphrase = normalize('NFKD', passphrase or '')
         return self.proto.PassphraseAck(passphrase=passphrase)
 
     def callback_WordRequest(self, msg):

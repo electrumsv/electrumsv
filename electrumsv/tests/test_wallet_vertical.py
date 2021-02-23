@@ -1,7 +1,7 @@
-import pytest
 import tempfile
 import unittest
 
+from bitcoinx import BIP39Mnemonic, Wordlists
 
 from electrumsv.bitcoin import seed_type, address_from_string
 from electrumsv.constants import ScriptType
@@ -129,7 +129,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
 
     def test_bip39_seed_bip44_standard(self):
         seed_words = 'treat dwarf wealth gasp brass outside high rent blood crowd make initial'
-        self.assertEqual(keystore.bip39_is_checksum_valid(seed_words), (True, True))
+        assert BIP39Mnemonic.is_valid(seed_words, Wordlists.bip39_wordlist("english.txt"))
 
         ks = keystore.from_bip39_seed(seed_words, '', "m/44'/0'/0'")
 
@@ -170,7 +170,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
 
     def test_bip39_multisig_seed_bip45_standard(self):
         seed_words = 'treat dwarf wealth gasp brass outside high rent blood crowd make initial'
-        self.assertEqual(keystore.bip39_is_checksum_valid(seed_words), (True, True))
+        assert BIP39Mnemonic.is_valid(seed_words, Wordlists.bip39_wordlist("english.txt"))
 
         ks1 = keystore.from_bip39_seed(seed_words, '', "m/45'/0")
         self.assertTrue(isinstance(ks1, keystore.BIP32_KeyStore))

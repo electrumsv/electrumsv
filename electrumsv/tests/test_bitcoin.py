@@ -1,15 +1,15 @@
 import base64
-import pytest
 
 from bitcoinx import (
     PublicKey, Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check, is_minikey,
-    bip32_build_chain_string
+    ElectrumMnemonic
 )
 
 from electrumsv.bitcoin import (
-    is_new_seed, is_old_seed, var_int, op_push, seed_type, address_from_string,
+    var_int, op_push, seed_type, address_from_string,
     push_script, int_to_hex, is_address_valid, scripthash_hex
 )
+from electrumsv.constants import SEED_PREFIX
 from electrumsv.crypto import sha256d
 from electrumsv.keystore import is_xpub, is_xprv, is_private_key
 from electrumsv import crypto
@@ -406,31 +406,31 @@ class Test_seeds(SequentialTestCase):
         ('cElL DuMb hEaRtBeAt nOrTh bOoM TeAsE ShIp bAbY BrIgHt kInGdOm rArE SqUeEzE', 'old'),
         ('   cElL  DuMb hEaRtBeAt nOrTh bOoM  TeAsE ShIp    bAbY BrIgHt kInGdOm rArE SqUeEzE   ', 'old'),
         # below seed is actually 'invalid old' as it maps to 33 hex chars
-        ('hurry idiot prefer sunset mention mist jaw inhale impossible kingdom rare squeeze', 'old'),
+        ('hurry idiot prefer sunset mention mist jaw inhale impossible kingdom rare squeeze', ''), # Was old
         ('cram swing cover prefer miss modify ritual silly deliver chunk behind inform able', 'standard'),
         ('cram swing cover prefer miss modify ritual silly deliver chunk behind inform', ''),
         ('ostrich security deer aunt climb inner alpha arm mutual marble solid task', 'standard'),
         ('OSTRICH SECURITY DEER AUNT CLIMB INNER ALPHA ARM MUTUAL MARBLE SOLID TASK', 'standard'),
-        ('   oStRiCh sEcUrItY DeEr aUnT ClImB       InNeR AlPhA ArM MuTuAl mArBlE   SoLiD TaSk  ', 'standard'),
+        ('   oStRiCh sEcUrItY DeEr aUnT ClImB       InNeR AlPhA ArM MuTuAl mArBlE   SoLiD TaSk  ', ''), # Was standard
         ('x8', 'standard'),
         ('science dawn member doll dutch real ca brick knife deny drive list', ''),
     }
 
     def test_new_seed(self):
         seed = "cram swing cover prefer miss modify ritual silly deliver chunk behind inform able"
-        self.assertTrue(is_new_seed(seed))
+        self.assertTrue(ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX))
 
         seed = "cram swing cover prefer miss modify ritual silly deliver chunk behind inform"
-        self.assertFalse(is_new_seed(seed))
+        self.assertFalse(ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX))
 
     def test_old_seed(self):
-        self.assertTrue(is_old_seed(" ".join(["like"] * 12)))
-        self.assertFalse(is_old_seed(" ".join(["like"] * 18)))
-        self.assertTrue(is_old_seed(" ".join(["like"] * 24)))
-        self.assertFalse(is_old_seed("not a seed"))
+        self.assertTrue(ElectrumMnemonic.is_valid_old(" ".join(["like"] * 12)))
+        self.assertFalse(ElectrumMnemonic.is_valid_old(" ".join(["like"] * 18)))
+        self.assertTrue(ElectrumMnemonic.is_valid_old(" ".join(["like"] * 24)))
+        self.assertFalse(ElectrumMnemonic.is_valid_old("not a seed"))
 
-        self.assertTrue(is_old_seed("0123456789ABCDEF" * 2))
-        self.assertTrue(is_old_seed("0123456789ABCDEF" * 4))
+        self.assertTrue(ElectrumMnemonic.is_valid_old("0123456789ABCDEF" * 2))
+        self.assertTrue(ElectrumMnemonic.is_valid_old("0123456789ABCDEF" * 4))
 
     def test_seed_type(self):
         for seed_words, _type in self.mnemonics:
