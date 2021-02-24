@@ -39,7 +39,6 @@ from ..hw_wallet.qt import QtHandlerBase, QtPluginBase, HandlerWindow
 from electrumsv.app_state import app_state
 from electrumsv.keystore import is_xprv, Hardware_KeyStore
 from electrumsv.i18n import _
-from electrumsv.util import bh2u
 
 from electrumsv.gui.qt.main_window import ElectrumWindow
 from electrumsv.gui.qt.util import (
@@ -336,7 +335,7 @@ class SettingsDialog(WindowModalDialog):
         def update(features):
             self.features = features
             set_label_enabled()
-            bl_hash = bh2u(features.bootloader_hash)
+            bl_hash = features.bootloader_hash.hex()
             bl_hash = "\n".join([bl_hash[:32], bl_hash[32:]])
             noyes = [_("No"), _("Yes")]
             endis = [_("Enable Passphrases"), _("Disable Passphrases")]

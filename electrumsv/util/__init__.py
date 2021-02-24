@@ -244,23 +244,6 @@ def to_bytes(something, encoding='utf8') -> bytes:
         raise TypeError("Not a string or bytes like object")
 
 
-bfh = bytes.fromhex
-
-
-def bh2u(x):
-    """
-    str with hex representation of a bytes-like object
-
-    >>> x = bytes((1, 2, 10))
-    >>> bh2u(x)
-    '01020A'
-
-    :param x: bytes
-    :rtype: str
-    """
-    return x.hex()
-
-
 def make_dir(path):
     # Make directory if it does not yet exist.
     if not os.path.exists(path):
