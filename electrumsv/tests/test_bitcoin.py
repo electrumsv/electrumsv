@@ -1,20 +1,16 @@
 import base64
 
 from bitcoinx import (
-    PublicKey, Ops, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check, is_minikey,
+    PublicKey, PrivateKey, Bitcoin, BitcoinTestnet, base58_encode_check, is_minikey,
     ElectrumMnemonic
 )
 
-from electrumsv.bitcoin import (
-    var_int, op_push, seed_type, address_from_string,
-    push_script, int_to_hex, is_address_valid, scripthash_hex
-)
+from electrumsv.bitcoin import address_from_string, is_address_valid, scripthash_hex, seed_type
 from electrumsv.constants import SEED_PREFIX
 from electrumsv.crypto import sha256d
 from electrumsv.keystore import is_xpub, is_xprv, is_private_key
 from electrumsv import crypto
 from electrumsv.exceptions import InvalidPassword
-from electrumsv.util import bfh, bh2u
 from electrumsv.storage import WalletStorage
 
 
@@ -109,13 +105,13 @@ class Test_bitcoin(SequentialTestCase):
             self.assertNotEqual(ciphertext1, ciphertext2)
 
     def test_sign_transaction(self):
-        eckey1 = PrivateKey(bfh('7e1255fddb52db1729fc3ceb21a46f95b8d9fe94cc83425e936a6c5223bb679d'))
-        sig1 = eckey1.sign(bfh('5a548b12369a53faaa7e51b5081829474ebdd9c924b3a8230b69aa0be254cd94'), None)
-        self.assertEqual(bfh('3045022100902a288b98392254cd23c0e9a49ac6d7920f171b8249a48e484b998f1874a2010220723d844826828f092cf400cb210c4fa0b8cd1b9d1a7f21590e78e022ff6476b9'), sig1)
+        eckey1 = PrivateKey(bytes.fromhex('7e1255fddb52db1729fc3ceb21a46f95b8d9fe94cc83425e936a6c5223bb679d'))
+        sig1 = eckey1.sign(bytes.fromhex('5a548b12369a53faaa7e51b5081829474ebdd9c924b3a8230b69aa0be254cd94'), None)
+        self.assertEqual(bytes.fromhex('3045022100902a288b98392254cd23c0e9a49ac6d7920f171b8249a48e484b998f1874a2010220723d844826828f092cf400cb210c4fa0b8cd1b9d1a7f21590e78e022ff6476b9'), sig1)
 
-        eckey2 = PrivateKey(bfh('c7ce8c1462c311eec24dff9e2532ac6241e50ae57e7d1833af21942136972f23'))
-        sig2 = eckey2.sign(bfh('642a2e66332f507c92bda910158dfe46fc10afbf72218764899d3af99a043fac'), None)
-        self.assertEqual(bfh('30440220618513f4cfc87dde798ce5febae7634c23e7b9254a1eabf486be820f6a7c2c4702204fef459393a2b931f949e63ced06888f35e286e446dc46feb24b5b5f81c6ed52'), sig2)
+        eckey2 = PrivateKey(bytes.fromhex('c7ce8c1462c311eec24dff9e2532ac6241e50ae57e7d1833af21942136972f23'))
+        sig2 = eckey2.sign(bytes.fromhex('642a2e66332f507c92bda910158dfe46fc10afbf72218764899d3af99a043fac'), None)
+        self.assertEqual(bytes.fromhex('30440220618513f4cfc87dde798ce5febae7634c23e7b9254a1eabf486be820f6a7c2c4702204fef459393a2b931f949e63ced06888f35e286e446dc46feb24b5b5f81c6ed52'), sig2)
 
     @needs_test_with_all_aes_implementations
     def test_aes_homomorphic(self):
@@ -153,69 +149,6 @@ class Test_bitcoin(SequentialTestCase):
     def test_sha256d(self):
         self.assertEqual(b'\x95MZI\xfdp\xd9\xb8\xbc\xdb5\xd2R&x)\x95\x7f~\xf7\xfalt\xf8\x84\x19\xbd\xc5\xe8"\t\xf4',
                          sha256d(u"test"))
-
-    def test_int_to_hex(self):
-        self.assertEqual('00', int_to_hex(0, 1))
-        self.assertEqual('ff', int_to_hex(-1, 1))
-        self.assertEqual('00000000', int_to_hex(0, 4))
-        self.assertEqual('01000000', int_to_hex(1, 4))
-        self.assertEqual('7f', int_to_hex(127, 1))
-        self.assertEqual('7f00', int_to_hex(127, 2))
-        self.assertEqual('80', int_to_hex(128, 1))
-        self.assertEqual('80', int_to_hex(-128, 1))
-        self.assertEqual('8000', int_to_hex(128, 2))
-        self.assertEqual('ff', int_to_hex(255, 1))
-        self.assertEqual('ff7f', int_to_hex(32767, 2))
-        self.assertEqual('0080', int_to_hex(-32768, 2))
-        self.assertEqual('ffff', int_to_hex(65535, 2))
-        with self.assertRaises(OverflowError): int_to_hex(256, 1)
-        with self.assertRaises(OverflowError): int_to_hex(-129, 1)
-        with self.assertRaises(OverflowError): int_to_hex(-257, 1)
-        with self.assertRaises(OverflowError): int_to_hex(65536, 2)
-        with self.assertRaises(OverflowError): int_to_hex(-32769, 2)
-
-    def test_var_int(self):
-        for i in range(0xfd):
-            self.assertEqual(var_int(i), "{:02x}".format(i) )
-
-        self.assertEqual(var_int(0xfd), "fdfd00")
-        self.assertEqual(var_int(0xfe), "fdfe00")
-        self.assertEqual(var_int(0xff), "fdff00")
-        self.assertEqual(var_int(0x1234), "fd3412")
-        self.assertEqual(var_int(0xffff), "fdffff")
-        self.assertEqual(var_int(0x10000), "fe00000100")
-        self.assertEqual(var_int(0x12345678), "fe78563412")
-        self.assertEqual(var_int(0xffffffff), "feffffffff")
-        self.assertEqual(var_int(0x100000000), "ff0000000001000000")
-        self.assertEqual(var_int(0x0123456789abcdef), "ffefcdab8967452301")
-
-    def test_op_push(self):
-        self.assertEqual(op_push(0x00), '00')
-        self.assertEqual(op_push(0x12), '12')
-        self.assertEqual(op_push(0x4b), '4b')
-        self.assertEqual(op_push(0x4c), '4c4c')
-        self.assertEqual(op_push(0xfe), '4cfe')
-        self.assertEqual(op_push(0xff), '4cff')
-        self.assertEqual(op_push(0x100), '4d0001')
-        self.assertEqual(op_push(0x1234), '4d3412')
-        self.assertEqual(op_push(0xfffe), '4dfeff')
-        self.assertEqual(op_push(0xffff), '4dffff')
-        self.assertEqual(op_push(0x10000), '4e00000100')
-        self.assertEqual(op_push(0x12345678), '4e78563412')
-
-    def test_push_script(self):
-        # https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#push-operators
-        self.assertEqual(push_script(''), bh2u(bytes([Ops.OP_0])))
-        self.assertEqual(push_script('07'), bh2u(bytes([Ops.OP_7])))
-        self.assertEqual(push_script('10'), bh2u(bytes([Ops.OP_16])))
-        self.assertEqual(push_script('81'), bh2u(bytes([Ops.OP_1NEGATE])))
-        self.assertEqual(push_script('11'), '0111')
-        self.assertEqual(push_script(75 * '42'), '4b' + 75 * '42')
-        self.assertEqual(push_script(76 * '42'), bh2u(bytes([Ops.OP_PUSHDATA1]) + bfh('4c' + 76 * '42')))
-        self.assertEqual(push_script(100 * '42'), bh2u(bytes([Ops.OP_PUSHDATA1]) + bfh('64' + 100 * '42')))
-        self.assertEqual(push_script(255 * '42'), bh2u(bytes([Ops.OP_PUSHDATA1]) + bfh('ff' + 255 * '42')))
-        self.assertEqual(push_script(256 * '42'), bh2u(bytes([Ops.OP_PUSHDATA2]) + bfh('0001' + 256 * '42')))
-        self.assertEqual(push_script(520 * '42'), bh2u(bytes([Ops.OP_PUSHDATA2]) + bfh('0802' + 520 * '42')))
 
     def test_address_to_script(self):
         # base58 P2PKH

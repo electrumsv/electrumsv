@@ -68,7 +68,7 @@ from ...networks import Net
 from ...storage import WalletStorage
 from ...transaction import Transaction, TransactionContext
 from ...types import TxoKeyType, WaitingUpdateCallback
-from ...util import (bh2u, format_fee_satoshis, get_update_check_dates,
+from ...util import (format_fee_satoshis, get_update_check_dates,
     get_identified_release_signers, get_wallet_name_from_path, profiler)
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, Wallet
@@ -1898,7 +1898,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return d.run()
 
     def read_tx_from_qrcode(self) -> Optional[Transaction]:
-        data = qrscanner.scan_barcode(self.config.get_video_device())
+        data: Optional[str] = qrscanner.scan_barcode(self.config.get_video_device())
         if not data:
             return
         # if the user scanned a bitcoin URI
@@ -1906,11 +1906,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.pay_to_URI(data)
             return
         # else if the user scanned an offline signed tx
-        data = bitcoin.base_decode(data, length=None, base=43)
-        if data.startswith(b"\x1f\x8b"):
-            text = gzip.decompress(data).decode()
+        data_bytes = bitcoin.base_decode(data, base=43)
+        if data_bytes.startswith(b"\x1f\x8b"):
+            text = gzip.decompress(data_bytes).decode()
         else:
-            text = bh2u(data)
+            text = data_bytes.hex()
         return self._wallet.load_transaction_from_text(text)
 
     def read_tx_from_file(self) -> Optional[Transaction]:

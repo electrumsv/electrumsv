@@ -2,15 +2,13 @@ import unittest
 
 from bitcoinx import BIP39Mnemonic, ElectrumMnemonic, Wordlists
 
-from electrumsv.util import bh2u
-
 
 
 class Test_NewMnemonic(unittest.TestCase):
 
     def test_to_seed(self):
         seed = ElectrumMnemonic.new_to_seed(mnemonic='foobar', passphrase='none', compatible=True)
-        self.assertEqual(bh2u(seed),
+        self.assertEqual(seed.hex(),
                           '741b72fd15effece6bfe5a26a52184f66811bd2be363190e07a42cca442b1a5b'
                           'b22b3ad0eb338197287e6d314866c7fba863ac65d3f156087a5052ebc7157fce')
 

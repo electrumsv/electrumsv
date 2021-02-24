@@ -2,13 +2,11 @@ import hashlib
 from struct import pack, unpack
 from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
 
-from bitcoinx import (
-    BIP32Derivation, BIP32PublicKey, PublicKey, pack_be_uint32, pack_list, pack_le_int64,
-    bip32_build_chain_string
-)
+from bitcoinx import (bip32_build_chain_string, BIP32Derivation, BIP32PublicKey, PublicKey,
+    pack_be_uint32, pack_list, pack_le_int64, pack_le_int32)
 
 from ...app_state import app_state
-from ...bitcoin import int_to_hex, ScriptTemplate
+from ...bitcoin import ScriptTemplate
 from ...constants import ScriptType, unpack_derivation_path
 from ...i18n import _
 from ...keystore import Hardware_KeyStore
@@ -385,7 +383,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
         try:
             for i, utxo in enumerate(inputs):
                 txin = tx.inputs[i]
-                sequence = int_to_hex(utxo.sequence, 4)
+                sequence = pack_le_int32(utxo.sequence).hex()
                 prevout_bytes = txin.prevout_bytes()
                 value_bytes = prevout_bytes + pack_le_int64(utxo.value)
                 chipInputs.append({'value' : value_bytes, 'witness' : True, 'sequence' : sequence})

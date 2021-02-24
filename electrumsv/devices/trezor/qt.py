@@ -9,7 +9,6 @@ from PyQt5.QtWidgets import QGridLayout, QPushButton, \
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
-from electrumsv.util import bh2u
 
 from electrumsv.gui.qt.main_window import ElectrumWindow
 from electrumsv.gui.qt.util import (
@@ -293,7 +292,7 @@ class SettingsDialog(WindowModalDialog):
             self.features = features
             set_label_enabled()
             if features.bootloader_hash:
-                bl_hash = bh2u(features.bootloader_hash)
+                bl_hash = features.bootloader_hash.hex()
                 bl_hash = "\n".join([bl_hash[:32], bl_hash[32:]])
             else:
                 bl_hash = "N/A"
