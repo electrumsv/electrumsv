@@ -16,10 +16,9 @@ import time
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from bitcoinx import (bip32_build_chain_string, bip32_key_from_string, compact_signature_to_der,
-    PublicKey)
+    pack_signed_message, PublicKey)
 
 from electrumsv.app_state import app_state
-from electrumsv.bitcoin import msg_magic
 from electrumsv.constants import ScriptType
 from electrumsv.crypto import (sha256d, EncodeAES_base64, EncodeAES_bytes, DecodeAES_bytes,
     hmac_oneshot)
@@ -29,7 +28,6 @@ from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.platform import platform
 from electrumsv.transaction import Transaction, TransactionContext
-from electrumsv.util import to_string
 
 from ..hw_wallet import HW_PluginBase
 
@@ -392,8 +390,7 @@ class DigitalBitbox_Client():
                 r = self.hid_read_frame()
             r = r.rstrip(b' \t\r\n\0')
             r = r.replace(b"\0", b'')
-            r = to_string(r, 'utf8')
-            reply = json.loads(r)
+            reply = json.loads(r.decode('utf8'))
         except Exception:
             logger.exception('Exception caught')
         return reply
@@ -414,9 +411,8 @@ class DigitalBitbox_Client():
                     authentication_key, b64_unencoded[:-sha256_byte_len], 'sha256')
                 if not hmac.compare_digest(reply_hmac, hmac_calculated):
                     raise Exception("Failed to validate HMAC")
-                reply = DecodeAES_bytes(encryption_key, b64_unencoded[:-sha256_byte_len])
-                reply = to_string(reply, 'utf8')
-                reply = json.loads(reply)
+                reply_data = DecodeAES_bytes(encryption_key, b64_unencoded[:-sha256_byte_len])
+                reply = json.loads(reply_data.decode('utf8'))
             if 'error' in reply:
                 self.password = None
         except Exception:
@@ -463,7 +459,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
         try:
             message = message.encode('utf8')
             inputPath = self.get_derivation() + "/%d/%d" % sequence
-            msg_hash = sha256d(msg_magic(message))
+            msg_hash = sha256d(pack_signed_message(message))
             inputHash = msg_hash.hex()
             hasharray = []
             hasharray.append({'hash': inputHash, 'keypath': inputPath})

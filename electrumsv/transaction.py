@@ -101,7 +101,7 @@ def script_to_display_text(script: Script, kind: ScriptTemplate) -> str:
     elif isinstance(kind, P2PK_Output):
         text = kind.public_key.to_hex()
     else:
-        text = script.to_asm()
+        text = script.to_asm(False)
     return text
 
 def tx_output_to_display_text(tx_output: TxOutput) -> Tuple[str, ScriptTemplate]:

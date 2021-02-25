@@ -28,14 +28,12 @@ from datetime import datetime
 import json
 import hmac
 import os
-import socket
-import ssl
 import stat
 import sys
 import threading
 import time
 import types
-from typing import Any, cast, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, cast, Dict, List, Optional, Sequence
 
 from bitcoinx import PublicKey, be_bytes_to_int
 
@@ -169,9 +167,9 @@ def json_decode(x):
 
 
 # taken from Django Source Code
-def constant_time_compare(val1, val2):
+def constant_time_compare(val1: str, val2: str) -> bool:
     """Return True if the two strings are equal, False otherwise."""
-    return hmac.compare_digest(to_bytes(val1, 'utf8'), to_bytes(val2, 'utf8'))
+    return hmac.compare_digest(val1.encode('utf8'), val2.encode('utf8'))
 
 
 # decorator that prints execution time
@@ -215,33 +213,6 @@ def assert_bytes(*args):
     except AssertionError:
         logs.root.error('assert bytes failed %s', [type(arg) for arg in args])
         raise
-
-
-def random_integer(nbits):
-    nbytes = (nbits + 7) // 8
-    return be_bytes_to_int(os.urandom(nbytes)) % (1 << nbits)
-
-
-def to_string(x, enc):
-    if isinstance(x, (bytes, bytearray)):
-        return x.decode(enc)
-    if isinstance(x, str):
-        return x
-    else:
-        raise TypeError("Not a string or bytes like object")
-
-def to_bytes(something, encoding='utf8') -> bytes:
-    """
-    cast string to bytes() like object, but for python2 support it's bytearray copy
-    """
-    if isinstance(something, bytes):
-        return something
-    if isinstance(something, str):
-        return something.encode(encoding)
-    elif isinstance(something, bytearray):
-        return bytes(something)
-    else:
-        raise TypeError("Not a string or bytes like object")
 
 
 def make_dir(path):
