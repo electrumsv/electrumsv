@@ -30,6 +30,8 @@ import os
 import time
 import jsonrpclib
 
+from bitcoinx import be_bytes_to_int
+
 from .restapi import AiohttpServer
 from .app_state import app_state
 from .commands import known_commands, Commands
@@ -39,7 +41,7 @@ from .logs import logs
 from .network import Network
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
-from .util import json_decode, DaemonThread, to_string, random_integer, get_wallet_name_from_path
+from .util import json_decode, DaemonThread, get_wallet_name_from_path
 from .version import PACKAGE_VERSION
 from .wallet import Wallet
 from .restapi_endpoints import DefaultEndpoints
@@ -121,6 +123,10 @@ def get_server(config: SimpleConfig) -> Optional[jsonrpclib.Server]:
 
 def get_rpc_credentials(config: SimpleConfig, is_restapi=False) \
         -> Tuple[Optional[str], Optional[str]]:
+    def random_integer(nbits):
+        nbytes = (nbits + 7) // 8
+        return be_bytes_to_int(os.urandom(nbytes)) % (1 << nbits)
+
     rpc_user = config.get('rpcuser', None)
     rpc_password = config.get('rpcpassword', None)
     if rpc_user is None or rpc_password is None:
@@ -129,7 +135,7 @@ def get_rpc_credentials(config: SimpleConfig, is_restapi=False) \
         pw_int = random_integer(nbits)
         pw_b64 = base64.b64encode(
             pw_int.to_bytes(nbits // 8, 'big'), b'-_')
-        rpc_password = to_string(pw_b64, 'ascii')
+        rpc_password = pw_b64.decode('ascii')
         config.set_key('rpcuser', rpc_user)
         config.set_key('rpcpassword', rpc_password, save=True)
     elif rpc_password == '' and not is_restapi:

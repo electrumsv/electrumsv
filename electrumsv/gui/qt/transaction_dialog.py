@@ -43,7 +43,7 @@ from PyQt5.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
 from bitcoinx import hash_to_hex_str, MissingHeader, Unknown_Output
 
 from ...app_state import app_state
-from ...bitcoin import base_encode, script_bytes_to_asm
+from ...bitcoin import base_encode
 from ...constants import (CHANGE_SUBPATH_BYTES, DerivationType, RECEIVING_SUBPATH_BYTES,
     ScriptType, TransactionOutputFlag, TxFlags)
 from ...i18n import _
@@ -670,7 +670,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         for tx_index, tx_output in enumerate(self.tx.outputs):
             text, _kind = tx_output_to_display_text(tx_output)
             if isinstance(_kind, Unknown_Output):
-                text = script_bytes_to_asm(tx_output.script_pubkey)
+                text = tx_output.script_pubkey.to_asm(False)
 
             account_name = ""
             is_receiving = is_change = False
@@ -684,6 +684,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     # Imported private key or watched public key.
                     is_receiving = True
                 account = self._wallet.get_account(tx_output.key_data.account_id)
+                assert account is not None
                 account_name = name_for_account(account)
                 received_value += tx_output.value
 

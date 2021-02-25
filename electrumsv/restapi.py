@@ -7,7 +7,7 @@ from aiohttp import web
 
 from .logs import logs
 from .app_state import app_state
-from .util import to_bytes, to_string, constant_time_compare
+from .util import constant_time_compare
 
 # Supported networks in restapi url
 MAINNET = 'main'
@@ -201,13 +201,13 @@ class AiohttpServer(BaseAiohttpServer):
             return unauthorized(Errors.AUTH_CREDENTIALS_MISSING_CODE,
                                 Errors.AUTH_CREDENTIALS_MISSING_MESSAGE)
 
-        (basic, _, encoded) = auth_string.partition(' ')
+        (basic, _, encoded_text) = auth_string.partition(' ')
         if basic != 'Basic':
             return unauthorized(Errors.AUTH_UNSUPPORTED_TYPE_CODE,
                                 Errors.AUTH_UNSUPPORTED_TYPE_MESSAGE)
 
-        encoded = to_bytes(encoded, 'utf8')
-        credentials = to_string(b64decode(encoded), 'utf8')
+        encoded = encoded_text.encode('utf8')
+        credentials = b64decode(encoded).decode('utf8')
         (username, _, password) = credentials.partition(':')
         if not (constant_time_compare(username, self.username)
                 and constant_time_compare(password, self.password)):

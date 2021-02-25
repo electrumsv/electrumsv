@@ -132,6 +132,7 @@ def init_daemon(config_options):
         print("Type 'electrum-sv create' to create a new wallet, "
               "or provide a path to a wallet with the -w option")
         sys.exit(0)
+    assert wallet_path is not None
     storage = WalletStorage(wallet_path)
     if 'wallet_password' in config_options:
         print('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
@@ -149,6 +150,7 @@ def init_daemon(config_options):
 def init_cmdline(config_options, server):
     config = SimpleConfig(config_options)
     cmdname = config.get('cmd')
+    assert isinstance(cmdname, str)
     cmd = known_commands[cmdname.replace("-", "_")]
 
     if cmdname == 'signtransaction' and config.get('privkey'):
@@ -232,7 +234,7 @@ def run_offline_command(config, config_options):
     result = func(*args, **kwargs)
     # save wallet
     if wallet:
-        wallet.save_storage()
+        wallet.stop()
     return result
 
 
@@ -414,6 +416,7 @@ def main():
             from electrumsv.gui.qt.app_state import QtAppStateProxy
         except ImportError as e:
             platform.missing_import(e)
+            raise
         QtAppStateProxy(config, 'qt')
     elif cmdname == 'daemon' and 'daemon_app_module' in config_options:
         load_app_module(config_options['daemon_app_module'], config)
@@ -449,7 +452,8 @@ def main():
                     if not hasattr(os, "fork"):
                         print(f"Starting the daemon is not supported on {sys.platform}.")
                         sys.exit(0)
-                    pid = os.fork()
+                    # NOTE(typing) Pylance/Pyright do not pick up the hasattr check.
+                    pid = os.fork() # type:ignore
                     if pid:
                         print("Starting daemon (PID %d)" % pid, file=sys.stderr)
                         sys.exit(0)
@@ -471,6 +475,7 @@ def main():
         if server is not None:
             result = server.run_cmdline(config_options)
         else:
+            assert isinstance(cmdname, str)
             cmd = known_commands[cmdname]
             if cmd.requires_network:
                 print("Daemon not running; try 'electrum-sv daemon start'")

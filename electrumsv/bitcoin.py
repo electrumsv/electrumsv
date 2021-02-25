@@ -27,13 +27,12 @@ from typing import Union
 
 from bitcoinx import (hash_to_hex_str, sha256, Address, classify_output_script,
     OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address,
-    pack_varint, Script, TruncatedScriptError, Unknown_Output, ElectrumMnemonic)
+    Script, Unknown_Output, ElectrumMnemonic)
 
 from .bip276 import bip276_decode, bip276_encode, PREFIX_BIP276_SCRIPT
 from .constants import SEED_PREFIX
 from .networks import Net
-from .util import assert_bytes, to_bytes
-
+from .util import assert_bytes
 
 ################################## transactions
 
@@ -85,8 +84,7 @@ def base_encode(v, base: int) -> str:
 
 def base_decode(value: str, base: int):
     """ decode v into a string of len bytes."""
-    # assert_bytes(v)
-    v = to_bytes(value, 'ascii')
+    v = value.encode('ascii')
     assert base == 43
     chars = __b43chars
     long_value: int = 0
@@ -117,6 +115,7 @@ ScriptTemplate = Union[OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_A
 def script_template_to_string(template: ScriptTemplate, bip276: bool=False) -> str:
     if not bip276 and isinstance(template, Address):
         return template.to_string()
+    assert not isinstance(template, Unknown_Output)
     return bip276_encode(PREFIX_BIP276_SCRIPT, template.to_script_bytes(), Net.BIP276_VERSION)
 
 def string_to_script_template(text: str) -> ScriptTemplate:
@@ -140,10 +139,6 @@ def scripthash_bytes(script: Script) -> bytes:
 def scripthash_hex(item: Script) -> str:
     return hash_to_hex_str(scripthash_bytes(item))
 
-def msg_magic(message) -> bytes:
-    length_bytes = pack_varint(len(message))
-    return b"\x18Bitcoin Signed Message:\n" + length_bytes + message
-
 def address_from_string(address) -> Address:
     return Address.from_string(address, Net.COIN)
 
@@ -153,17 +148,3 @@ def is_address_valid(address) -> bool:
         return True
     except ValueError:
         return False
-
-
-def script_bytes_to_asm(script: Script) -> str:
-    # Adapted version of `script.to_asm` which just shows "[error]" in event of truncation.
-    # Ideally we need an updated version in bitcoinx that identifies the truncation point.
-    op_to_asm_word = script.op_to_asm_word
-    parts = []
-    try:
-        for op in script.ops():
-            parts.append(op_to_asm_word(op))
-    except TruncatedScriptError:
-        parts.insert(0, "[decoding error]")
-        parts.append("[script truncated]")
-    return ' '.join(parts)
