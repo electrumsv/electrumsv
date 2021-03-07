@@ -35,7 +35,7 @@ import time
 import types
 from typing import Any, cast, Dict, List, Optional, Sequence
 
-from bitcoinx import PublicKey, be_bytes_to_int
+from bitcoinx import PublicKey
 
 from ..logs import logs
 from ..startup import package_dir
@@ -342,7 +342,8 @@ def setup_thread_excepthook():
             try:
                 run_original(*args2, **kwargs2)
             except Exception:
-                sys.excepthook(*sys.exc_info())
+                # NOTE(typing) We know there is a value and we do not want it in the local scope.
+                sys.excepthook(*sys.exc_info()) # type:ignore
 
         self.run = run_with_except_hook
 
@@ -368,11 +369,12 @@ def read_resource_file(filename: str) -> str:
 
 
 def text_resource_path(*parts: Sequence[str]) -> str:
-    return resource_path("text", *parts) # type: ignore
+    return resource_path("text", *parts)
 
 
 def read_resource_text(*parts: Sequence[str]) -> str:
-    return read_resource_file(os.path.join("text", *parts)) # type: ignore
+    # NOTE(typing) Does not recognize the sequence of strings as strings, waste of time.
+    return read_resource_file(os.path.join("text", *parts)) # type:ignore
 
 
 def get_update_check_dates(new_date):

@@ -87,7 +87,7 @@ class TableTopButtonLayout(QHBoxLayout):
             self._filter_button.setIcon(read_QIcon("icons8-clear-filters-32-windows.png"))
             self._filter_box.show()
             self.removeItem(self._stretch_item)
-            self._filter_box.setFocus(1)
+            self._filter_box.setFocus()
         else:
             self.addItem(self._stretch_item)
             # Deactivate filtering and hide the text field.

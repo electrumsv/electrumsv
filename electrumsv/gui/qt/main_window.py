@@ -182,7 +182,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.network_status_signal.connect(self._update_network_status)
         self.notify_transactions_signal.connect(self._notify_transactions)
         self.show_secured_data_signal.connect(self._on_show_secured_data)
-        self.history_view.setFocus(True)
+        self.history_view.setFocus()
 
         # Link wallet synchronisation to throttled UI updates.
         self._wallet_sync_event = app_state.async_.event()
