@@ -52,17 +52,17 @@ def random_BE(kind: Optional[str]=None):
     if len(possible_keys):
         return random.choice(possible_keys)
 
-def BE_URL(config, kind: str, item):
+def BE_URL(config, kind: str, item) -> Optional[str]:
     selected_key = BE_from_config(config)
     if selected_key is None or selected_key not in Net.BLOCK_EXPLORERS:
         selected_key = random_BE(kind)
     be_tuple = Net.BLOCK_EXPLORERS.get(selected_key)
     if not be_tuple:
-        return
+        return None
     url_base, parts = be_tuple
     kind_str = parts.get(kind)
     if kind_str is None:
-        return
+        return None
     if kind == 'addr':
         assert isinstance(item, Address)
         item = item.to_string()
@@ -160,6 +160,7 @@ def parse_URI(uri: str, on_pr=None, on_pr_error=None) -> Dict[str, Any]:
     if on_pr and payment_url:
         def get_payment_request_thread():
             from . import paymentrequest
+            assert payment_url is not None
             try:
                 request = paymentrequest.get_payment_request(payment_url)
             except Bip270Exception as e:

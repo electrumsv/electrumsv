@@ -23,7 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import concurrent
+import concurrent.futures
 import copy
 import datetime
 import enum
@@ -31,7 +31,7 @@ from functools import partial
 import gzip
 import json
 import math
-from typing import Any, Dict, NamedTuple, Optional, Set
+from typing import Any, Dict, NamedTuple, Optional, Set, TYPE_CHECKING
 import weakref
 import webbrowser
 
@@ -57,6 +57,8 @@ from ...wallet import AbstractAccount
 from ... import web
 
 from .constants import UIBroadcastSource
+if TYPE_CHECKING:
+    from .main_window import ElectrumWindow
 from .util import (Buttons, ButtonsLineEdit, ColorScheme, FormSectionWidget, MessageBox,
     MessageBoxMixin, MyTreeWidget, read_QIcon, WaitingDialog)
 
@@ -132,11 +134,12 @@ class TxDialog(QDialog, MessageBoxMixin):
         Pass desc to give a description for txs not yet in the wallet.
         '''
         # We want to be a top-level window
-        QDialog.__init__(self, parent=None, flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+        QDialog.__init__(self, parent=None, flags=Qt.WindowType(Qt.WindowSystemMenuHint |
+            Qt.WindowTitleHint | Qt.WindowCloseButtonHint))
 
-        self.copy_data_ready_signal.connect(self._copy_transaction_ready)
-        self.save_data_ready_signal.connect(self._save_transaction_ready)
+        # NOTE(typing) Pylance/pyright do not have typing information this aspect of PyQt5.
+        self.copy_data_ready_signal.connect(self._copy_transaction_ready) # type:ignore
+        self.save_data_ready_signal.connect(self._save_transaction_ready) # type:ignore
 
         # Take a copy; it might get updated in the main window by the FX thread.  If this
         # happens during or after a long sign operation the signatures are lost.
@@ -235,10 +238,10 @@ class TxDialog(QDialog, MessageBoxMixin):
         vbox.addLayout(hbox)
         self.update()
 
-        # connect slots so we update in realtime as blocks come in, etc
-        main_window.history_updated_signal.connect(self.update_tx_if_in_wallet)
-        main_window.transaction_added_signal.connect(self._on_transaction_added)
-        main_window.transaction_verified_signal.connect(self._on_transaction_verified)
+        # NOTE(typing) Pylance/pyright do not have typing information this aspect of PyQt5.
+        main_window.history_updated_signal.connect(self.update_tx_if_in_wallet) # type:ignore
+        main_window.transaction_added_signal.connect(self._on_transaction_added) # type:ignore
+        main_window.transaction_verified_signal.connect(self._on_transaction_verified) # type:ignore
 
     def _validate_account_event(self, account_ids: Set[int]) -> bool:
         return self._account_id in account_ids
@@ -418,7 +421,8 @@ class TxDialog(QDialog, MessageBoxMixin):
             fee_amount = _('Unknown')
         fee_str = '{}'.format(fee_amount)
         if tx_info_fee is not None:
-            fee_str += ' ({}) '.format(self._main_window.format_fee_rate(tx_info_fee/size * 1000))
+            fee_str += ' ({}) '.format(self._main_window.format_fee_rate(
+                int(tx_info_fee/size * 1000)))
         self.fee_label.setText(fee_str)
 
         # Cosigner button
@@ -472,10 +476,11 @@ class TxDialog(QDialog, MessageBoxMixin):
             completion_text: str) -> None:
         tx_data = self.tx.to_format(format)
         if not isinstance(tx_data, dict):
+            # NOTE(typing) Pylance/pyright do not have typing information for PyQt5 signals.
             # This is not ideal, but it covers both bases.
             if completion_signal is not None:
-                completion_signal.emit(format, tx_data)
-            done_signal.emit(format, tx_data)
+                completion_signal.emit(format, tx_data) # type:ignore
+            done_signal.emit(format, tx_data) # type:ignore
             return
 
         steps = self._account.estimate_extend_serialised_transaction_steps(format, self.tx,
@@ -487,11 +492,13 @@ class TxDialog(QDialog, MessageBoxMixin):
             try:
                 data = future.result()
             except concurrent.futures.CancelledError:
-                done_signal.emit(format, None)
+                # NOTE(typing) Pylance/pyright do not have typing information for PyQt5 signals.
+                done_signal.emit(format, None) # type:ignore
             except Exception as exc:
                 weakwindow.on_exception(exc)
             else:
-                done_signal.emit(format, data)
+                # NOTE(typing) Pylance/pyright do not have typing information for PyQt5 signals.
+                done_signal.emit(format, data) # type:ignore
 
         title = _("Obtaining transaction data")
         func = partial(self._obtain_transaction_data_worker, format, tx_data, completion_signal,
@@ -507,7 +514,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         data = self._account.extend_serialised_transaction(format, self.tx, tx_data, update_cb)
         if data is not None:
             if completion_signal is not None:
-                completion_signal.emit(format, data)
+                # NOTE(typing) Pylance/pyright do not have typing information for PyQt5 signals.
+                completion_signal.emit(format, data) # type:ignore
             update_cb(False, completion_text)
         return data
 
@@ -830,9 +838,12 @@ class InputTreeWidget(MyTreeWidget):
         details_menu = menu.addAction(_("Transaction details"),
             partial(self._show_other_transaction, tx_hash))
         details_menu.setEnabled(have_tx)
-        if tx_URL:
-            menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
+        if tx_URL is not None:
+            menu.addAction(_("View on block explorer"), partial(self._event_menu_open_url, tx_URL))
         menu.exec_(self.viewport().mapToGlobal(position))
+
+    def _event_menu_open_url(self, url: str) -> None:
+        webbrowser.open(url)
 
     def _show_other_transaction(self, tx_hash: bytes) -> None:
         dialog = self.parent()

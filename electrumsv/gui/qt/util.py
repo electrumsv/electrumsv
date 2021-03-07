@@ -1,4 +1,4 @@
-import concurrent
+import concurrent.futures
 from enum import IntEnum
 from functools import partial, lru_cache
 import os.path
@@ -76,7 +76,7 @@ class HelpLabel(QLabel):
     def __init__(self, text, help_text, parent: Optional[QWidget]=None):
         super().__init__(text, parent)
         self.app = QCoreApplication.instance()
-        self.font = QFont()
+        self._font = QFont()
         self.set_help_text(help_text)
 
     def set_help_text(self, help_text):
@@ -86,14 +86,14 @@ class HelpLabel(QLabel):
         QMessageBox.information(self, 'Help', self.help_text)
 
     def enterEvent(self, event):
-        self.font.setUnderline(True)
-        self.setFont(self.font)
+        self._font.setUnderline(True)
+        self.setFont(self._font)
         self.app.setOverrideCursor(QCursor(Qt.PointingHandCursor))
         return QLabel.enterEvent(self, event)
 
     def leaveEvent(self, event):
-        self.font.setUnderline(False)
-        self.setFont(self.font)
+        self._font.setUnderline(False)
+        self.setFont(self._font)
         self.app.setOverrideCursor(QCursor(Qt.ArrowCursor))
         return QLabel.leaveEvent(self, event)
 
@@ -213,7 +213,7 @@ class MessageBoxMixin(object):
     def top_level_window(self):
         return top_level_window_recurse(self)
 
-    def question(self, msg: str, parent=None, title=None, icon=None) -> int:
+    def question(self, msg: str, parent=None, title=None, icon=None) -> bool:
         Yes, No = QMessageBox.Yes, QMessageBox.No
         return self.msg_box(icon or QMessageBox.Question,
                             parent, title or '',
@@ -277,8 +277,8 @@ class MessageBox:
 class UntrustedMessageDialog(QDialog):
     def __init__(self, parent, title, description, exception: Optional[Exception]=None,
             untrusted_text: str="") -> None:
-        QDialog.__init__(self, parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+        QDialog.__init__(self, parent, Qt.WindowFlag(Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint))
         self.setWindowTitle(title)
         self.setMinimumSize(500, 280)
         self.setMaximumSize(1000, 400)
@@ -314,7 +314,7 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
         # This is the window close button, not any one we add ourselves.
         if not hide_close_button:
             flags |= Qt.WindowCloseButtonHint
-        QDialog.__init__(self, parent, flags)
+        QDialog.__init__(self, parent, Qt.WindowType(flags))
         if not app_state.config.get('ui_disable_modal_dialogs', False):
             self.setWindowModality(Qt.WindowModal)
         if title:
@@ -529,14 +529,14 @@ def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,
     def enable_OK() -> None:
         nonlocal txt, ok_button
         new_text = txt.text().strip()
-        ok_button.setEnabled(len(new_text))
+        ok_button.setEnabled(len(new_text) > 0)
     txt.textChanged.connect(enable_OK)
     if default:
         default = default.strip()
         txt.setText(default)
     l.addWidget(txt)
     enable_OK()
-    txt.setFocus(True)
+    txt.setFocus()
     txt.selectAll()
     l.addLayout(Buttons(CancelButton(dialog), ok_button))
     if dialog.exec_():
