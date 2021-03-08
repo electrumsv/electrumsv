@@ -1,4 +1,4 @@
-aiohttp>=3.6.2,<=3.7.3
+aiohttp>=3.7.4.post
 aiorpcX>=0.18.0,<0.19
 certifi
 dnspython<2.0
@@ -6,7 +6,7 @@ ecdsa>=0.13.3
 jsonrpclib-pelix
 mypy-extensions
 pyaes>=0.1a1
-requests>=2.22.0,<=2.25.0
+requests>=2.25.1
 python-dateutil>=2.8.0
 qrcode
-yarl>=1.5.1
+yarl

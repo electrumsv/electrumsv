@@ -11,7 +11,7 @@ attrs==20.3.0 \
 bitcoinx==0.4.1 \
     --hash=sha256:0a8699d5e80147a46bc1ae201139e60bcba10383971dc6e31c1813529540556c \
     --hash=sha256:720532cc0afed914010707732d2a2ceef8dd7f3c2df788f98174625b6b6d96ca
-    # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements-binaries.txt
+    # via -r G:\electrumsv_official\contrib\requirements\requirements-binaries.txt
 cffi==1.14.5 \
     --hash=sha256:005a36f41773e148deac64b08f233873a4d0c18b053d37da83f6af4d9087b813 \
     --hash=sha256:0857f0ae312d855239a55c81ef453ee8fd24136eaba8e87a2eceba644c0d4c06 \
