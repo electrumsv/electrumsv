@@ -12,9 +12,6 @@ ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 LIBUSB_REPO='https://github.com/libusb/libusb.git'
 LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 
-PYINSTALLER_REPO='https://github.com/ElectrumSV/pyinstaller.git'
-PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
-
 PYTHON_VERSION=3.9.1
 
 ## These settings probably don't need change
@@ -75,11 +72,6 @@ set -e
 
 wine 'wineboot'
 
-# HACK to work around https://bugs.winehq.org/show_bug.cgi?id=42474#c22
-# needed for python 3.6+
-rm -f /opt/wine-stable/lib/wine/fakedlls/api-ms-win-core-path-l1-1-0.dll
-rm -f /opt/wine-stable/lib/wine/api-ms-win-core-path-l1-1-0.dll.so
-
 cd /tmp/electrum-build
 
 # Install Python
@@ -100,8 +92,8 @@ done
 # upgrade pip
 $PYTHON -m pip install pip --upgrade
 
-
 $PYTHON -m pip install -r $here/../deterministic-build/requirements-binaries.txt
+$PYTHON -m pip install -r $here/../deterministic-build/requirements-pyinstaller.txt
 
 echo "Compiling PyInstaller bootloader with anti-virus false-positive protection"
 pushd $WINEPREFIX/drive_c/electrum
