@@ -21,6 +21,11 @@ pr:
   - releases/*
   - features/*
 
+variables:
+- group: electrumsv-variables
+- name: wine-build-image
+  value: $[variables.wine_build_image]
+
 stages:
 - stage: 'Test'
   displayName: 'Test ElectrumSV'
@@ -29,7 +34,7 @@ stages:
   - job: Pylint
     displayName: Pylint Static Analysis
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
     - template: prepare-general-environment.yml
       parameters:
@@ -42,7 +47,7 @@ stages:
   - job: Mypy
     displayName: Mypy Static Analysis
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
@@ -54,7 +59,7 @@ stages:
   - job: MainUnittestsPy39
     displayName: Main Unittests (Python 3.9)
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
@@ -66,7 +71,7 @@ stages:
   - job: RESTAPIUnittestsPy39
     displayName: REST API tests (Python 3.9)
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
@@ -94,7 +99,7 @@ stages:
   jobs:
   - job: Preparation
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
     - script: |
         COMMIT_REVISION=$(Build.SourceVersion)
@@ -164,7 +169,7 @@ stages:
     dependsOn:
     - Preparation
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
     - task: UsePythonVersion@0
       inputs:
@@ -172,8 +177,8 @@ stages:
         addToPath: true
         architecture: x64
     - script: |
-        sudo docker pull $(imageName)
-        sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum -e PYI_SKIP_TAG="$PYI_SKIP_TAG" --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
+        sudo docker pull -q $(wine-build-image)
+        sudo docker run --name electrumsv-wine-build-container -v $PWD:/opt/wine64/drive_c/electrum -e PYI_SKIP_TAG="$PYI_SKIP_TAG" --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(wine-build-image) ./build.sh
       displayName: 'Windows build'
       enabled: true
       continueOnError: false
@@ -188,13 +193,11 @@ stages:
       inputs:
         artifactName: 'build-windows'
         targetPath: $(Build.ArtifactStagingDirectory)
-    variables:
-      imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img@sha256:8274d555237fc569f032006eccb7d76c1e2e4c9d9ca420d98a00efb527cce46e'
   - job: BuildSourceArchive
     dependsOn:
     - Preparation
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
     - task: UsePythonVersion@0
       inputs:
@@ -222,7 +225,7 @@ stages:
     dependsOn:
     - Preparation
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     variables:
       RELEASE_KEY: $[dependencies.Preparation.outputs['exportVars.RELEASE_KEY']]
     steps:
@@ -284,7 +287,7 @@ stages:
         targetPath: $(Build.ArtifactStagingDirectory)
   - job: ProcessArtifacts
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     dependsOn:
       - BuildLinuxBasedWindows
       - BuildSourceArchive
