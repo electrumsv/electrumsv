@@ -12,6 +12,10 @@ ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 LIBUSB_REPO='https://github.com/libusb/libusb.git'
 LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 
+PYINSTALLER_REPO="https://github.com/SomberNight/pyinstaller.git"
+PYINSTALLER_COMMIT="80ee4d613ecf75a1226b960a560ee01459e65ddb"
+# ^ tag 4.2, plus a custom commit that fixes cross-compilation with MinGW
+
 PYTHON_VERSION=3.9.1
 
 ## These settings probably don't need change
@@ -92,8 +96,8 @@ done
 # upgrade pip
 $PYTHON -m pip install pip --upgrade
 
-$PYTHON -m pip install -r $here/../deterministic-build/requirements-binaries.txt
 $PYTHON -m pip install -r $here/../deterministic-build/requirements-pyinstaller.txt
+$PYTHON -m pip install -r $here/../deterministic-build/requirements-binaries.txt
 
 echo "Compiling PyInstaller bootloader with anti-virus false-positive protection"
 pushd $WINEPREFIX/drive_c/electrum
