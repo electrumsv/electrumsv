@@ -103,11 +103,15 @@ class ScriptEntry(NamedTuple):
     parent_index: int = -1
 
 
-class ScriptHashHistory(NamedTuple):
+@dataclass
+class ScriptHashHistory:
     """
     The sub-context for the history and the history itself.
     """
     history: ElectrumXHistoryList
+    bip32_subpath: Optional[Sequence[int]] = None
+    bip32_subpath_index: int = -1
+
 
 
 class Scanner:
@@ -343,7 +347,7 @@ class Scanner:
         script_hash = cast(bytes, subscription_key.value)
 
         # Signal that we have a result for this script hash and have finished with it.
-        self._script_hash_histories[script_hash] = ScriptHashHistory(history)
+        history_entry = self._script_hash_histories[script_hash] = ScriptHashHistory(history)
         del self._active_scripts[script_hash]
 
         entry = cast(ScriptEntry, context.value)
@@ -354,6 +358,9 @@ class Scanner:
             if len(history):
                 entry.parent_path.highest_used_index = max(entry.parent_path.highest_used_index,
                     entry.parent_index)
+
+            history_entry.bip32_subpath = entry.parent_path.subpath
+            history_entry.bip32_subpath_index = entry.parent_index
 
         self._event.set()
         # Trigger the unsubscription for this script hash.

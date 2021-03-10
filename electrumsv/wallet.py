@@ -84,7 +84,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataType, KeyDataTypes,
     KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
     PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
-    TransactionDeltaSumRow, TransactionLinkState, TransactionMetadata,
+    TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState, TransactionMetadata,
     TransactionSubscriptionRow,
     TransactionOutputShortRow, TransactionOutputSpendableRow2, TransactionOutputSpendableRow,
     TransactionOutputSpendableTypes, TransactionValueRow,
@@ -155,8 +155,9 @@ class AbstractAccount:
         self.response_count = 0
         self.last_poll_time: Optional[float] = None
 
-        self._masterkey_ids: Set[int] = set(row.masterkey_id for row in keyinstance_rows
-            if row.masterkey_id is not None)
+        # TODO(no-merge) Does not appear to be used, either restore it and use it or remove it.
+        # self._masterkey_ids: Set[int] = set(row.masterkey_id for row in keyinstance_rows
+        #     if row.masterkey_id is not None)
         self._transaction_descriptions: Dict[bytes, str] = { r.tx_hash: cast(str, r.description)
             for r in transaction_descriptions }
 
@@ -889,18 +890,18 @@ class AbstractAccount:
             tx_heights[tx_hash] = entry["height"] # type: ignore
             tx_fee_hints[tx_hash] = entry.get("fee") # type: ignore
 
-        changes = 0
         keyinstance = self._wallet.read_keyinstance(account_id=self._id,
             keyinstance_id=context.keyinstance_id)
         assert keyinstance is not None
         if keyinstance.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
+            # We subscribe for events for keys used in unpaid payment requests. So we need to
+            # ensure that we fetch the transactins when we receive these events as the model no
+            # longer monitors all key usage any more.
             request = self._wallet.read_payment_request(keyinstance_id=context.keyinstance_id)
             assert request is not None
             if (request.state & (PaymentFlag.UNPAID | PaymentFlag.ARCHIVED)) == PaymentFlag.UNPAID:
-                changes += await self._wallet.maybe_obtain_transactions_async(tx_hashes,
+                await self._wallet.maybe_obtain_transactions_async(tx_hashes,
                     tx_heights, tx_fee_hints)
-        if changes > 0:
-            self._wallet.txs_changed_event.set()
 
     # TODO(no-merge) unit test malleation replacement of a transaction
     # TODO(no-merge) unit test spam transaction presence
@@ -2358,8 +2359,9 @@ class Wallet(TriggeredCallbacks):
         return db_functions.read_transaction_value_entries(self.get_db_context(), account_id,
             tx_hashes=tx_hashes, mask=mask)
 
-    def read_transactions_exist(self, tx_hashes: Sequence[bytes]) -> List[bytes]:
-        return db_functions.read_transactions_exist(self.get_db_context(), tx_hashes)
+    def read_transactions_exist(self, tx_hashes: Sequence[bytes], account_id: Optional[int]=None) \
+            -> List[TransactionExistsRow]:
+        return db_functions.read_transactions_exist(self.get_db_context(), tx_hashes, account_id)
 
     def update_transaction_block_many(self, entries: Iterable[TransactionBlockRow]) \
             -> concurrent.futures.Future:
@@ -2368,16 +2370,23 @@ class Wallet(TriggeredCallbacks):
     # Data acquisition.
 
     async def maybe_obtain_transactions_async(self, tx_hashes: List[bytes],
-            tx_heights: Dict[bytes, int], tx_fee_hints: Dict[bytes, Optional[int]]) -> int:
+            tx_heights: Dict[bytes, int], tx_fee_hints: Dict[bytes, Optional[int]]) -> Set[bytes]:
         """
         Update the registry of transactions we do not have or are in the process of getting.
 
-        Return the count of the missing transactions.
+        For now we attempt to preserve the ordering the caller gives. This is assisted by
+        Python 3.7+ dictionary key ordering being in order of insertion. In theory we could
+        keep a height ordered list if it were really important, but for now we do not bother.
+
+        Return the hashes out of `tx_hashes` that do not already exist.
         """
         async with self._obtain_transactions_async_lock:
-            additions = 0
-            existing_tx_hashes = self.read_transactions_exist(tx_hashes)
-            for tx_hash in set(tx_hashes) - set(existing_tx_hashes):
+            missing_tx_hashes: Set[bytes] = set()
+            existing_tx_rows = self.read_transactions_exist(tx_hashes)
+            existing_tx_hashes = set(r.tx_hash for r in existing_tx_rows)
+            for tx_hash in tx_hashes:
+                if tx_hash in existing_tx_hashes:
+                    continue
                 block_height = tx_heights[tx_hash]
                 block_hash = self._get_header_hash_for_height(block_height)
                 fee_hint = tx_fee_hints[tx_hash]
@@ -2390,9 +2399,11 @@ class Wallet(TriggeredCallbacks):
                 else:
                     self._missing_transactions[tx_hash] = MissingTransactionEntry(block_hash,
                         block_height, fee_hint)
-                    additions += 1
-            self._logger.debug("Added %d missing transactions", additions)
-            return additions
+                    missing_tx_hashes.add(tx_hash)
+            self._logger.debug("Registering %d missing transactions", len(missing_tx_hashes))
+            if len(missing_tx_hashes):
+                self.txs_changed_event.set()
+            return missing_tx_hashes
 
     async def get_missing_transactions_async(self, n: int=50) -> List[bytes]:
         """
@@ -2407,7 +2418,6 @@ class Wallet(TriggeredCallbacks):
         """
         async with self._obtain_transactions_async_lock:
             return list(itertools.islice(self._missing_transactions, n))
-
 
     async def get_unverified_transactions_async(self) -> Dict[bytes, int]:
         """
@@ -2784,15 +2794,29 @@ class Wallet(TriggeredCallbacks):
                 timestamp, timestamp)
             txo_rows.append(txo_row)
 
-        ret = await self.db_functions_async.import_transaction_async(tx_row, txi_rows, txo_rows,
+        await self.db_functions_async.import_transaction_async(tx_row, txi_rows, txo_rows,
             link_state)
 
         async with self._obtain_transactions_async_lock:
             if tx_hash in self._missing_transactions:
                 del self._missing_transactions[tx_hash]
                 self._logger.debug("Removed missing transaction %s", hash_to_hex_str(tx_hash)[:8])
+                self.trigger_callback('missing_transaction_obtained', tx_hash, tx, link_state)
 
         self.trigger_callback('transaction_added', tx_hash, tx, link_state, external)
+
+    async def link_transaction_async(self, tx_hash: bytes, link_state: TransactionLinkState) \
+            -> None:
+        """
+        Link an existing transaction to any applicable accounts.
+
+        We do not know whether the transaction uses any wallet keys, and is related to any
+        accounts related to those keys. We will work this out as part of the importing process.
+        This should not be done for any pre-existing transactions.
+        """
+        await self.db_functions_async.link_transaction_async(tx_hash, link_state)
+
+        self.trigger_callback('transaction_link_result', tx_hash, link_state)
 
     # Called by network.
     async def add_transaction_proof(self, tx_hash: bytes, block_height: int, header: Header,

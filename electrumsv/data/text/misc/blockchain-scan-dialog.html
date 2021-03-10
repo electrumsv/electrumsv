@@ -33,6 +33,12 @@ show progress in the form of noting how many transactions have been found and ho
 spent looking. When all keys have been searched, the scanner will have a record of where they
 were used ready for the import stage.
 </p>
+<h5>Limitations</h5>
+<p>
+The blockchain scanning functionality is not intended to fix any conflicts that may exist.
+If scanning locates any conflicting transactions, the import process will be disabled. This should
+not occur, and if it does occur it is possibly because of unexpected circumstances.
+</p>
 <h5>Advanced options</h5>
 <p>
 Only deterministic accounts have advanced options at this time. Imported address, public key and

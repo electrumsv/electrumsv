@@ -127,6 +127,7 @@ class AccountTxFlags(IntFlag):
     # transaction that has the same set of ordered inputs.
     REPLACED = 1 << 10
     # This transaction has been manually removed from the account by the user.
+    # TODO(no-merge) Implement?
     DELETED = 1 << 11
 
     # This transaction is part of paying an invoice.

@@ -23,7 +23,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceRow,
     KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, PaymentRequestRow,
     PaymentRequestUpdateRow, SpendConflictType, TransactionBlockRow,
-    TransactionDeltaSumRow, TransactionInputAddRow, TransactionLinkState,
+    TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
     # TransactionDescriptionResult,
     TransactionOutputAddRow, TransactionOutputSpendableRow,
     TransactionValueRow, TransactionMetadata,
@@ -911,12 +911,22 @@ def read_transaction_block_info(db: sqlite3.Connection, tx_hash: bytes) -> Tuple
 #     return row
 
 @replace_db_context_with_connection
-def read_transactions_exist(db: sqlite3.Connection, tx_hashes: Sequence[bytes]) -> List[bytes]:
+def read_transactions_exist(db: sqlite3.Connection, tx_hashes: Sequence[bytes],
+        account_id: Optional[int]=None) -> List[TransactionExistsRow]:
     """
     Return the subset of transactions that are already present in the database.
     """
-    sql = "SELECT tx_hash FROM Transactions WHERE tx_hash IN ({})"
-    return read_rows_by_id(bytes, db, sql, [], tx_hashes)
+    if account_id is None:
+        sql = ("SELECT tx_hash, flags, NULL "
+            "FROM Transactions "
+            "WHERE tx_hash IN ({})")
+        return read_rows_by_id(TransactionExistsRow, db, sql, [ ], tx_hashes)
+
+    sql = ("SELECT T.tx_hash, T.flags, ATX.account_id "
+        "FROM Transactions T "
+        "LEFT JOIN AccountTransactions ATX ON ATX.tx_hash=T.tx_hash AND ATX.account_id=? "
+        "WHERE T.tx_hash IN ({})")
+    return read_rows_by_id(TransactionExistsRow, db, sql, [ account_id ], tx_hashes)
 
 
 @replace_db_context_with_connection
@@ -1655,7 +1665,7 @@ class AsynchronousFunctions:
             if not self._reset_transaction_for_import(db, tx_row.tx_hash):
                 raise
 
-        self._link_transaction(db, tx_row, txi_rows, txo_rows, link_state)
+        self._link_transaction(db, tx_row.tx_hash, link_state)
         # Returning commits the changes applied in this function.
         return True
 
@@ -1713,8 +1723,16 @@ class AsynchronousFunctions:
             (tx_hash,))
         return True
 
-    def _link_transaction(self, db: sqlite3.Connection, tx_row: TransactionRow,
-            txi_rows: List[TransactionInputAddRow], txo_rows: List[TransactionOutputAddRow],
+    async def link_transaction_async(self, tx_hash: bytes,
+            link_state: TransactionLinkState) -> bool:
+        """
+        Wrap the database operations required to link a transaction so the processing is
+        offloaded to the SQLite writer thread while this task is blocked.
+        """
+        return await self._db_context.run_in_thread_async(self._link_transaction, tx_hash,
+            link_state)
+
+    def _link_transaction(self, db: sqlite3.Connection, tx_hash: bytes,
             link_state: TransactionLinkState) -> None:
         """
         Populate the metadata for the given transaction in the database.
@@ -1725,14 +1743,14 @@ class AsynchronousFunctions:
         spends should only occur in synchronisation, and we can special case that at a higher
         level.
         """
-        self._link_transaction_key_usage(db, tx_row.tx_hash)
-        self._link_transaction_to_accounts(db, tx_row.tx_hash)
+        _rowcount1 = self._link_transaction_key_usage(db, tx_hash)
+        _rowcount2 = self._link_transaction_to_accounts(db, tx_hash)
 
         # NOTE We do not handle removing the conflict flag here. That whole process can be
         # done elsewhere.
-        if self._reconcile_transaction_output_spends(db, tx_row.tx_hash):
+        if self._reconcile_transaction_output_spends(db, tx_hash):
             sql1 = "SELECT account_id FROM AccountTransactions WHERE tx_hash=?"
-            sql1_values = (tx_row.tx_hash,)
+            sql1_values = (tx_hash,)
             link_state.account_ids = \
                 set(account_id for (account_id,) in db.execute(sql1, sql1_values))
         else:
@@ -1746,7 +1764,7 @@ class AsynchronousFunctions:
                 raise DatabaseUpdateError("Transaction rolled back due to spend conflicts")
 
             sql2 = "UPDATE Transactions SET flags=flags|? WHERE tx_hash=?"
-            sql2_values = (TxFlags.CONFLICTING, tx_row.tx_hash)
+            sql2_values = (TxFlags.CONFLICTING, tx_hash)
             db.execute(sql2, sql2_values)
 
     def _link_transaction_key_usage(self, db: sqlite3.Connection, tx_hash: bytes) -> int:

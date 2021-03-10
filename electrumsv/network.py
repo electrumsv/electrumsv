@@ -966,19 +966,28 @@ class Network(TriggeredCallbacks):
     async def _on_subscribe_script_hashes(self, entries: List[ScriptHashSubscriptionEntry]) -> None:
         """
         Process wallet script hash subscription requests.
+
+        This is non-blocking and if there is no main session we do not need to subscribe, and
+        the initial subscription logic that happens on main server connection should take care of
+        it for us.
         """
-        session = await self._main_session()
-        session.logger.debug('Subscribing to %d script hashes', len(entries))
-        await session.subscribe_to_script_hashes(entries)
+        session = self.main_session()
+        if session is not None:
+            session.logger.debug('Subscribing to %d script hashes', len(entries))
+            await session.subscribe_to_script_hashes(entries)
 
     async def _on_unsubscribe_script_hashes(self, entries: List[ScriptHashSubscriptionEntry]) \
             -> None:
         """
         Process wallet script hash unsubscription requests.
+
+        This is non-blocking and if there is no main session then it will simply not have anything
+        to unsubscribe.
         """
-        session = await self._main_session()
-        session.logger.debug("Unsubscribing from %d script hashes", len(entries))
-        await session.unsubscribe_from_script_hashes(entries)
+        session = self.main_session()
+        if session is not None:
+            session.logger.debug("Unsubscribing from %d script hashes", len(entries))
+            await session.unsubscribe_from_script_hashes(entries)
 
     async def _monitor_wallets(self, group):
         tasks = {}

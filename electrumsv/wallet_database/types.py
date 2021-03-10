@@ -147,6 +147,12 @@ class TransactionDescriptionResult(NamedTuple):
     description: str
 
 
+class TransactionExistsRow(NamedTuple):
+    tx_hash: bytes
+    flags: TxFlags
+    account_id: Optional[int]
+
+
 class TransactionInputAddRow(NamedTuple):
     tx_hash: bytes
     txi_index: int
