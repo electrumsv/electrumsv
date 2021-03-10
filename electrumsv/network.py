@@ -556,6 +556,7 @@ class SVSession(RPCSession):
                 self.tip, self.chain = self._connect_header(tip.height, tip.raw)
                 self.logger.debug('connected tip at height %d', height)
                 self._network.check_main_chain_event.set()
+                self._network.check_main_chain_event.clear()
                 return
             except (IncorrectBits, InsufficientPoW) as e:
                 raise DisconnectSessionError(f'bad header provided: {e}', blacklist=True)
@@ -1003,7 +1004,6 @@ class Network(TriggeredCallbacks):
         main_chain = None
         while True:
             await self.check_main_chain_event.wait()
-            self.check_main_chain_event.clear()
             main_session = await self._main_session()
             new_main_chain = main_session.chain
             if main_chain != new_main_chain and main_chain:
@@ -1030,7 +1030,13 @@ class Network(TriggeredCallbacks):
         old_main_session = self.main_session()
         self.main_server = server
         self.check_main_chain_event.set()
-        main_session = self.main_session()
+        self.check_main_chain_event.clear()
+        # This event is typically generated when sessions are both established and closed.
+        # We need to generate it here to wake up all the things that may be waiting for main
+        # sessions, given that an existing session can be upgraded to a main session.
+        self.sessions_changed_event.set()
+        self.sessions_changed_event.clear()
+        _main_session = self.main_session()
         # Disconnect the old main session, if any, in order to lose scripthash
         # subscriptions.
         if old_main_session:
@@ -1161,13 +1167,15 @@ class Network(TriggeredCallbacks):
         Raises: RPCError, TaskTimeout
         """
         while True:
-            logger.info(f"Renewing subscription to script hashes")
-            session = await self._main_session()
+            logger.info("Pending subscription to script hashes")
+            await self.check_main_chain_event.wait()
+            main_session = await self._main_session()
             entries = app_state.subscriptions.read_script_hashes()
-            session.logger.info(f"Subscribing to {len(entries):,d} script hashes")
-            await session.subscribe_to_script_hashes(entries, initial_subscription=True)
-            # TODO(no-merge) Verify that this loop works.
-            await session._closed_event.wait()
+            main_session.logger.info(f"Subscribing to {len(entries):,d} script hashes")
+            await main_session.subscribe_to_script_hashes(entries, initial_subscription=True)
+            # When we switch main servers we close the connection to the old main server. This
+            # will trigger the next iteration for any subsequent main server.
+            await main_session._closed_event.wait()
 
     async def _monitor_script_hash_status_subscriptions(self, group) -> None:
         """
