@@ -725,7 +725,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._reset_menus()
 
     def _reset_menus(self, account_id: Optional[int]=None) -> None:
-        self._paytomany_menu.setEnabled(account_id is not None)
+        enable_spending_menus = False
+        if account_id is not None:
+            account = self._wallet.get_account(account_id)
+            enable_spending_menus = account.can_spend()
+
+        self._paytomany_menu.setEnabled(enable_spending_menus)
 
         if account_id is not None:
             weakself = weakref.proxy(self)
@@ -1502,7 +1507,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def paytomany(self) -> None:
         self.show_send_tab()
-        self._send_view.paytomany()
+        if isinstance(self._send_view, SendView):
+            self._send_view.paytomany()
 
     def _on_contacts_changed(self) -> None:
         self.contact_list.update()
