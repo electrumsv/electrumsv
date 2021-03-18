@@ -4,6 +4,7 @@ from typing import Optional, Dict, Union, Any, List
 
 from base64 import b64decode
 from aiohttp import web
+from aiohttp_middlewares import cors_middleware
 
 from .logs import logs
 from .app_state import app_state
@@ -126,7 +127,12 @@ class BaseAiohttpServer:
     def __init__(self, host: str = "localhost", port: int = 9999):
         self.runner = None
         self.is_alive = False
-        self.app = web.Application()
+        self.app = web.Application(middlewares=[
+            cors_middleware(
+                origins=["http://localhost"],
+                allow_methods=("GET","POST"),
+                allow_headers=["authorization"])
+        ])
         self.app.on_startup.append(self.on_startup)
         self.app.on_shutdown.append(self.on_shutdown)
         self.host = host
