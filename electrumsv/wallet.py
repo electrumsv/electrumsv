@@ -1458,9 +1458,6 @@ class DeterministicAccount(AbstractAccount):
     def has_seed(self) -> bool:
         return cast(Deterministic_KeyStore, self.get_keystore()).has_seed()
 
-    def get_seed(self, password: Optional[str]) -> str:
-        return cast(Deterministic_KeyStore, self.get_keystore()).get_seed(password)
-
     def get_next_derivation_index(self, derivation_parent: Sequence[int]) -> int:
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         return self._wallet.get_next_derivation_index(self._id, keystore.get_id(),

@@ -323,7 +323,12 @@ class Deterministic_KeyStore(Software_KeyStore):
             raise Exception("a seed exists")
         self.seed = self.format_seed(seed)
 
-    def get_seed(self, password):
+    def get_seed(self, password) -> str:
+        """
+        Get the source private key data for this keystore.
+
+        This may be the seed words where applicable, or whatever else the user originally entered.
+        """
         assert isinstance(self.seed, str)
         return pw_decode(self.seed, password)
 
@@ -429,7 +434,8 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         self.check_password(old_password)
         assert new_password, "calling code must only do so with an actual new password"
         if self.has_seed():
-            decoded = self.get_seed(old_password)
+            assert self.seed is not None
+            decoded = pw_decode(self.seed, old_password)
             self.seed = pw_encode(decoded, new_password)
         if self.passphrase:
             decoded = self.get_passphrase(old_password)
@@ -527,6 +533,11 @@ class Old_KeyStore(Deterministic_KeyStore):
         return MasterKeyRow(-1, None, DerivationType.ELECTRUM_OLD, derivation_lump)
 
     def get_seed(self, password: Optional[str]) -> str:
+        """
+        Get the old Electrum type mnemonic words for this keystore's master key.
+
+        Raises ValueError if the hex seed is not either of 16 or 32 bytes.
+        """
         s = self._get_hex_seed_bytes(password)
         return ElectrumMnemonic.hex_seed_to_old(s)
 
