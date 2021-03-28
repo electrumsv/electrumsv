@@ -1711,11 +1711,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d.exec_()
 
     @protected
-    def do_sign(self, account: AbstractAccount, key_data: KeyDataTypes, message: str, signature,
-            password: str) -> None:
+    def do_sign(self, account: AbstractAccount, key_data: Optional[KeyDataTypes],
+            message: QTextEdit, signature: QTextEdit, password: str) -> None:
         message = message.toPlainText().strip()
         if account.is_watching_only():
             self.show_message(_('This is a watching-only account.'))
+            return
+
+        if key_data is None:
+            self.show_error(_("Signing messages with user-provided addresses is not supported at "
+                "this time. Select the given key from the list in the Keys tab and use the "
+                "context menu there to sign a message using it."))
             return
 
         def show_signed_message(sig: bytes) -> None:
@@ -1796,7 +1802,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox = QHBoxLayout()
 
         b = QPushButton(_("Sign"))
-        def do_sign(checked=False):
+        def do_sign(checked=False) -> None:
             # pylint: disable=no-value-for-parameter
             self.do_sign(account, key_data, message_e, signature_e)
         b.clicked.connect(do_sign)
