@@ -163,8 +163,6 @@ class DatabaseContext:
     MEMORY_PATH = ":memory:"
     JOURNAL_MODE = JournalModes.WAL
 
-    SQLITE_CONN_POOL_SIZE = 0
-
     def __init__(self, wallet_path: str) -> None:
         if not self.is_special_path(wallet_path) and not wallet_path.endswith(DATABASE_EXT):
             wallet_path += DATABASE_EXT
@@ -192,8 +190,6 @@ class DatabaseContext:
 
     def increase_connection_pool(self) -> None:
         """adds 1 more connection to the pool"""
-        self.SQLITE_CONN_POOL_SIZE += 1
-
         # pylint: disable=line-too-long
         # `isolation_level` is set to `None` in order to disable the automatic transaction
         # management in :mod:`sqlite3`. See the `Python documentation <https://docs.python.org/3/library/sqlite3.html#controlling-transactions>`_
@@ -262,7 +258,7 @@ class DatabaseContext:
         for conn in outstanding_connections:
             self.release_connection(conn)
 
-        for conn in range(self.SQLITE_CONN_POOL_SIZE):
+        while self._connection_pool.qsize() > 0:
             self.decrease_connection_pool()
 
         leak_count = len(outstanding_connections)
