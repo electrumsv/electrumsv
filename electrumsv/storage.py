@@ -1272,8 +1272,7 @@ class WalletStorage:
     _is_closed: bool = False
     _backup_filepaths: Optional[Tuple[str, str]] = None
 
-    def __init__(self, path: str, manual_upgrades: bool=False,
-            storage_kind: StorageKind=StorageKind.UNKNOWN) -> None:
+    def __init__(self, path: str, storage_kind: StorageKind=StorageKind.UNKNOWN) -> None:
         logger.debug("wallet path '%s'", path)
         dirname = os.path.dirname(path)
         if not os.path.exists(dirname):
