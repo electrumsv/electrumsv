@@ -57,20 +57,20 @@ class ASync(object):
         return Queue(maxsize, loop=self.loop)
 
     def __enter__(self):
-        logger.info('starting async thread')
+        logger.debug('starting async thread')
         self.thread.start()
         # Wait for the thread to definitively start before returning
         self.start_event.wait()
-        logger.info('async thread started')
+        logger.debug('async thread started')
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         # Wait for the thread to definitively stop before returning
         # stop_event must be set from the loop
-        logger.info('stopping async thread')
+        logger.debug('stopping async thread')
         self.loop.call_soon_threadsafe(self.stop_event.set)
         self.thread.join()
-        logger.info('async thread stopped')
+        logger.debug('async thread stopped')
 
     async def _wait_until_stopped(self):
         await self.stop_event.wait()
