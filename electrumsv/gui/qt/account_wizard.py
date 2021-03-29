@@ -537,7 +537,7 @@ class ImportWalletTextPage(QWizardPage):
 
         for match_type, button in self._get_buttons(wizard):
             def make_check_callback(match_type: KeystoreTextType) -> Callable[[bool], None]:
-                def on_button_check(checked: bool=False):
+                def on_button_check(_checked: bool=False):
                     self._on_match_type_selected(match_type)
                 return on_button_check
             button.clicked.connect(make_check_callback(match_type))

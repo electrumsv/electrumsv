@@ -804,7 +804,7 @@ class KeyView(QTableView):
             self.edit(model_index)
         else:
             line: KeyListRow = self._data[base_index.row()]
-            script_type = line.txo_script_type if line.txo_script_type is not None \
+            script_type = ScriptType(line.txo_script_type) if line.txo_script_type is not None \
                 else ScriptType.NONE
             self._main_window.show_key(self._account, line, script_type)
 
@@ -848,7 +848,7 @@ class KeyView(QTableView):
 
             if not multi_select:
                 row, column, line, selected_index, base_index = selected[0]
-                script_type = line.txo_script_type if line.txo_script_type is not None \
+                script_type = ScriptType(line.txo_script_type) if line.txo_script_type is not None \
                     else ScriptType.NONE
                 menu.addAction(_('Details'),
                     partial(self._main_window.show_key, self._account, line, script_type))

@@ -255,9 +255,7 @@ class AbstractAccount:
                 script_hash = scripthash_bytes(script)
                 keyinstance_scripthashes.append(KeyInstanceScriptHashRow(row.keyinstance_id,
                     script_type, script_hash))
-        future_ = self._wallet.create_keyinstance_scripts(keyinstance_scripthashes)
-        # TODO(no-merge) The concept of activated keys will change with the new model.
-        # self._add_activated_keys(rows)
+        _future = self._wallet.create_keyinstance_scripts(keyinstance_scripthashes)
         return keyinstance_future, rows
 
     def create_derivation_data_dict(self, key_allocation: DeterministicKeyAllocation) \
@@ -1354,8 +1352,6 @@ class ImportedAddressAccount(ImportedAccountBase):
             derivation_data2, KeyInstanceFlag.IS_ACTIVE, None)
         _keyinstance_future, _rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
 
-        # TODO(no-merge) The concept of activated keys is going to change to a different model.
-        # self._add_activated_keys(rows)
         return True
 
     def get_public_keys_for_key_data(self, _keydata: KeyDataTypes) -> List[PublicKey]:
@@ -1425,11 +1421,9 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         derivation_data2 = create_derivation_data2(DerivationType.PRIVATE_KEY, derivation_data_dict)
         raw_keyinstance = KeyInstanceRow(-1, -1, None, DerivationType.PRIVATE_KEY, derivation_data,
             derivation_data2, KeyInstanceFlag.IS_ACTIVE, None)
-        keyinstance_future, rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
+        _keyinstance_future, rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
         # TODO(no-merge) imported private keystores need the key instances.
         keystore.import_private_key(rows[0].keyinstance_id, public_key, enc_private_key_text)
-        # TODO(no-merge) The concept of activated keys is going away as we change models.
-        # self._add_activated_keys(rows)
         return private_key_text
 
     def export_private_key(self, keydata: KeyDataTypes, password: str) -> str:
