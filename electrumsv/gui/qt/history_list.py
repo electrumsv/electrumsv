@@ -162,7 +162,7 @@ class HistoryList(MyTreeWidget):
         self.update_headers(headers)
 
     def get_domain(self) -> Optional[List[int]]:
-        '''Replaced in address_dialog.py'''
+        '''Overridden in key_dialog.py'''
         return None
 
     def on_update(self) -> None:

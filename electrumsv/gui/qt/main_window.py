@@ -1131,8 +1131,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def show_key(self, account: AbstractAccount, key_data: KeyDataTypes,
             script_type: ScriptType) -> None:
-        from . import address_dialog
-        d = address_dialog.KeyDialog(self, account.get_id(), key_data, script_type)
+        from . import key_dialog
+        d = key_dialog.KeyDialog(self, account.get_id(), key_data, script_type)
         d.exec_()
 
     def show_transaction(self, account: AbstractAccount, tx: Transaction,
