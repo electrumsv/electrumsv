@@ -669,7 +669,9 @@ class ImportWalletTextPage(QWizardPage):
                     # ValueError: Wrong version byte for given network.
                     pass
                 else:
-                    # NOTE(P2SHNotImportable) wallet import code does not need to handle P2SH.
+                    # NOTE(P2SHNotImportable) wallet import code does not currently handle P2SH.
+                    #   Maybe it should. Watch only viewing of residual P2SH spends sounds like
+                    #   something that would cost us little to do, and is an oversight not to.
                     if isinstance(address, P2SH_Address):
                         pass
                     else:

@@ -120,8 +120,12 @@ class MissingTransactionEntry:
     fee_hint: Optional[int]
 
 
+ADDRESS_TYPES = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
+
+
 def dust_threshold(network):
     return 546 # hard-coded Bitcoin SV dust threshold. Was changed to this as of Sept. 2018
+
 
 T = TypeVar('T', bound='AbstractAccount')
 
@@ -1784,7 +1788,10 @@ class Wallet(TriggeredCallbacks):
             self._realize_keystore(mk_row)
 
         # TODO(no-merge) for deterministic accounts we need to load the unused keys
-        # TODO(no-merge) for non-deterministic accounts we need to load all keys active.
+        #     What on earth does this mean by load unused keys??
+        #     Do we even use the keys for these accounts? Can we just load the keyinstances for the
+        #         ...
+        # TODO(no-merge) for non-deterministic accounts we need to load all keys.
         account_keyinstance_map: Dict[int, List[KeyInstanceRow]] = defaultdict(list)
         for keyinstance_row in self.read_keyinstances():
             account_keyinstance_map[keyinstance_row.account_id].append(keyinstance_row)
@@ -1792,22 +1799,8 @@ class Wallet(TriggeredCallbacks):
         for account_row in db_functions.read_accounts(self.get_db_context()):
             account_keyinstances = account_keyinstance_map.get(account_row.account_id, [])
             account_descriptions = all_account_tx_descriptions.get(account_row.account_id, [])
-            if account_row.default_masterkey_id is not None:
-                account = self._realize_account(account_row, account_keyinstances,
-                    account_descriptions)
-            else:
-                found_types = set(key.derivation_type for key in account_keyinstances)
-                prvkey_types = { DerivationType.PRIVATE_KEY }
-                address_types = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
-                if found_types & prvkey_types:
-                    account = ImportedPrivkeyAccount(self, account_row, account_keyinstances,
-                        account_descriptions)
-                elif found_types & address_types:
-                    account = ImportedAddressAccount(self, account_row, account_keyinstances,
-                        account_descriptions)
-                else:
-                    raise WalletLoadError(_("Account corrupt, types: %s"), found_types)
-            self.register_account(account_row.account_id, account)
+            self._instantiate_account(account_row, account_keyinstances,
+                account_descriptions)
 
     def register_account(self, account_id: int, account: AbstractAccount) -> None:
         self._accounts[account_id] = account
@@ -1880,37 +1873,46 @@ class Wallet(TriggeredCallbacks):
         self._keystores[row.masterkey_id] = keystore
         self._masterkey_rows[row.masterkey_id] = row
 
-    def _realize_account(self, account_row: AccountRow,
-            keyinstance_rows: List[KeyInstanceRow],
-            transaction_descriptions: List[AccountTransactionDescriptionRow]) \
-                -> AbstractAccount:
-        account_constructors = {
-            DerivationType.BIP32: StandardAccount,
-            DerivationType.BIP32_SUBPATH: StandardAccount,
-            DerivationType.ELECTRUM_OLD: StandardAccount,
-            DerivationType.ELECTRUM_MULTISIG: MultisigAccount,
-            DerivationType.HARDWARE: StandardAccount,
-        }
+    def _instantiate_account(self, account_row: AccountRow, keyinstance_rows: List[KeyInstanceRow],
+            transaction_descriptions: List[AccountTransactionDescriptionRow]) -> AbstractAccount:
+        """
+        Create the correct account type instance and register it for the given account id.
+        """
+        account: Optional[AbstractAccount] = None
         if account_row.default_masterkey_id is None:
-            if keyinstance_rows[0].derivation_type == DerivationType.PUBLIC_KEY_HASH:
-                return ImportedAddressAccount(self, account_row, keyinstance_rows,
+            # It is not possible to create an empty imported account, in order to create an account
+            # of this type the user needs to provide some initial content. However, it is possible
+            # to in theory delete all the entries in an account which then creates the obvious
+            # problem of loading the account erroring.
+            if keyinstance_rows[0].derivation_type in ADDRESS_TYPES:
+                account = ImportedAddressAccount(self, account_row, keyinstance_rows,
                     transaction_descriptions)
             elif keyinstance_rows[0].derivation_type == DerivationType.PRIVATE_KEY:
-                return ImportedPrivkeyAccount(self, account_row, keyinstance_rows,
+                account = ImportedPrivkeyAccount(self, account_row, keyinstance_rows,
                     transaction_descriptions)
-            raise WalletLoadError(_("unknown imported account type"))
+            else:
+                raise WalletLoadError(_("unknown imported account type"))
         else:
             masterkey_row = self._masterkey_rows[account_row.default_masterkey_id]
-            klass = account_constructors.get(masterkey_row.derivation_type, None)
+            klass = {
+                DerivationType.BIP32: StandardAccount,
+                DerivationType.BIP32_SUBPATH: StandardAccount,
+                DerivationType.ELECTRUM_OLD: StandardAccount,
+                DerivationType.ELECTRUM_MULTISIG: MultisigAccount,
+                DerivationType.HARDWARE: StandardAccount,
+            }.get(masterkey_row.derivation_type, None)
             if klass is not None:
-                return klass(self, account_row, keyinstance_rows, transaction_descriptions)
-            raise WalletLoadError(_("unknown account type %d"), masterkey_row.derivation_type)
+                account = klass(self, account_row, keyinstance_rows, transaction_descriptions)
+            else:
+                raise WalletLoadError(_("unknown account type %d"), masterkey_row.derivation_type)
+        assert account is not None
+        self.register_account(account_row.account_id, account)
+        return account
 
-    def _realize_account_from_row(self, account_row: AccountRow,
+    def _create_account_from_data(self, account_row: AccountRow,
             keyinstance_rows: List[KeyInstanceRow],
             transaction_descriptions: List[AccountTransactionDescriptionRow]) -> AbstractAccount:
-        account = self._realize_account(account_row, keyinstance_rows, transaction_descriptions)
-        self.register_account(account_row.account_id, account)
+        account = self._instantiate_account(account_row, keyinstance_rows, transaction_descriptions)
         self.trigger_callback("on_account_created", account_row.account_id)
 
         self.create_wallet_events([
@@ -1964,7 +1966,7 @@ class Wallet(TriggeredCallbacks):
 
         basic_row = AccountRow(-1, masterkey_row.masterkey_id, script_type, account_name)
         rows = self.add_accounts([ basic_row ])
-        return self._realize_account_from_row(rows[0], [], [])
+        return self._create_account_from_data(rows[0], [], [])
 
     def create_account_from_text_entries(self, text_type: KeystoreTextType, script_type: ScriptType,
             entries: Set[str], password: str) -> AbstractAccount:
@@ -2004,7 +2006,7 @@ class Wallet(TriggeredCallbacks):
         account_row = self.add_accounts([ basic_account_row ])[0]
         keyinstance_future, keyinstance_rows = self.create_keyinstances(account_row.account_id,
             raw_keyinstance_rows)
-        return self._realize_account_from_row(account_row, keyinstance_rows, [])
+        return self._create_account_from_data(account_row, keyinstance_rows, [])
 
     def read_account_balance(self, account_id: int, local_height: int,
             filter_bits: Optional[TransactionOutputFlag]=None,
