@@ -153,7 +153,7 @@ class CosignerPool:
             self._items.extend(items)
 
     def _cosigner_can_sign(self, tx: Transaction, cosigner_xpub: str) -> bool:
-        xpub_set = set([])
+        xpub_set = set()
         for txin in tx.inputs:
             for x_pubkey in txin.x_pubkeys:
                 if x_pubkey.is_bip32_key():

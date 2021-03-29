@@ -109,8 +109,8 @@ def get_categorised_files(wallet_path: str) -> List[WalletStorageInfo]:
     DATABASE - Just the database (version >= 22).
       thiswalletfile.sqlite
     """
-    filenames = set(s for s in os.listdir(wallet_path))
-    database_filenames = set([ s for s in filenames if s.endswith(DATABASE_EXT) ])
+    filenames = { s for s in os.listdir(wallet_path) }
+    database_filenames = { s for s in filenames if s.endswith(DATABASE_EXT) }
     matches = []
     for database_filename in database_filenames:
         filename, _ext = os.path.splitext(database_filename)
@@ -860,7 +860,7 @@ class TextStore(AbstractStore):
                     for addr_history in address_usage.values()
                     for tx_id, tx_height in addr_history}
 
-            txouts_frozen = set([])
+            txouts_frozen = set()
             for txo_id in frozen_coins:
                 tx_id, n = txo_id.split(":")
                 txouts_frozen.add((tx_id, int(n)))
@@ -879,15 +879,15 @@ class TextStore(AbstractStore):
                     flags = TxFlags1.STATE_SETTLED
                     height, _timestamp, position = tx_verified[tx_id]
                     tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
-                        verified=True, height=height, known_addresses=set([]),
-                        encountered_addresses=set([]))
+                        verified=True, height=height, known_addresses=set(),
+                        encountered_addresses=set())
                 else:
                     height = tx_heights.get(tx_id)
                     flags = TxFlags1.STATE_CLEARED
                     position = None
                     tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
-                        verified=False, height=height, known_addresses=set([]),
-                        encountered_addresses=set([]))
+                        verified=False, height=height, known_addresses=set(),
+                        encountered_addresses=set())
                 tx_metadata = TxData1(height=height, fee=fee, position=position,
                     date_added=date_added, date_updated=date_added)
                 transaction_rows.append(TransactionRow1(tx_hash, tx_metadata, tx_bytedata, flags,

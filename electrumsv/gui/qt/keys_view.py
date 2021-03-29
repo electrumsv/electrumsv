@@ -445,7 +445,7 @@ class KeyView(QTableView):
         self.setAlternatingRowColors(True)
 
         self._pending_state: Dict[int, EventFlags] = {}
-        self._pending_actions = set([ ListActions.RESET ])
+        self._pending_actions = { ListActions.RESET }
         self._main_window.keys_created_signal.connect(self._on_keys_created)
         self._main_window.keys_updated_signal.connect(self._on_keys_updated)
         self._main_window.account_change_signal.connect(self._on_account_change)
@@ -528,12 +528,12 @@ class KeyView(QTableView):
     def reset_table(self) -> None:
         with self._update_lock:
             self._pending_state.clear()
-            self._pending_actions = set([ ListActions.RESET ])
+            self._pending_actions = { ListActions.RESET }
 
     def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
         with self._update_lock:
             self._pending_state.clear()
-            self._pending_actions = set([ ListActions.RESET ])
+            self._pending_actions = { ListActions.RESET }
 
             old_account_id = self._account_id
             self._account_id = new_account_id

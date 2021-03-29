@@ -272,8 +272,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             parent_keystore, mkrow) # type: ignore
         mk_rows[mkrow.masterkey_id] = mkrow
 
-    private_key_types = set([ DerivationType.PRIVATE_KEY ])
-    address_types = set([ DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH ])
+    private_key_types = { DerivationType.PRIVATE_KEY }
+    address_types = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
     key_script_hashes: Dict[bytes, PossibleScript] = {}
     for account in accounts.values():
         account_id = account.account_id

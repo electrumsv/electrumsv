@@ -236,7 +236,7 @@ class Imported_KeyStore(Software_KeyStore):
         return True
 
     def remove_key(self, keyinstance_id: int) -> None:
-        pubkey = self._public_keys[keyinstance_id]
+        pubkey = self._public_keys.pop(keyinstance_id)
         self._keypairs.pop(pubkey)
 
     def check_password(self, password: Optional[str]) -> None:
@@ -422,6 +422,11 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         return pw_decode(self.xprv, password)
 
     def check_password(self, password: Optional[str]) -> None:
+        """
+        Check if the password is valid for one of the pieces of encrypted data.
+
+        It is assumed that all the encrypted data
+        """
         assert self.xprv is not None
         xprv = pw_decode(self.xprv, password)
         try:

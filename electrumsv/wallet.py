@@ -1785,31 +1785,29 @@ class Wallet(TriggeredCallbacks):
 
         # TODO(no-merge) for deterministic accounts we need to load the unused keys
         # TODO(no-merge) for non-deterministic accounts we need to load all keys active.
-        all_account_keys: Dict[int, List[KeyInstanceRow]] = defaultdict(list)
-        keyinstances = {}
-        for ki_row in self.read_keyinstances():
-            keyinstances[ki_row.keyinstance_id] = ki_row
-            all_account_keys[ki_row.account_id].append(ki_row)
+        account_keyinstance_map: Dict[int, List[KeyInstanceRow]] = defaultdict(list)
+        for keyinstance_row in self.read_keyinstances():
+            account_keyinstance_map[keyinstance_row.account_id].append(keyinstance_row)
 
-        for row in db_functions.read_accounts(self.get_db_context()):
-            account_keys = all_account_keys.get(row.account_id, [])
-            account_descriptions = all_account_tx_descriptions.get(row.account_id, [])
-            if row.default_masterkey_id is not None:
-                account = self._realize_account(row, account_keys, account_descriptions)
+        for account_row in db_functions.read_accounts(self.get_db_context()):
+            account_keyinstances = account_keyinstance_map.get(account_row.account_id, [])
+            account_descriptions = all_account_tx_descriptions.get(account_row.account_id, [])
+            if account_row.default_masterkey_id is not None:
+                account = self._realize_account(account_row, account_keyinstances,
+                    account_descriptions)
             else:
-                found_types = set(key.derivation_type for key in account_keys)
-                prvkey_types = set([ DerivationType.PRIVATE_KEY ])
-                address_types = set([ DerivationType.PUBLIC_KEY_HASH,
-                    DerivationType.SCRIPT_HASH ])
+                found_types = set(key.derivation_type for key in account_keyinstances)
+                prvkey_types = { DerivationType.PRIVATE_KEY }
+                address_types = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
                 if found_types & prvkey_types:
-                    account = ImportedPrivkeyAccount(self, row, account_keys,
+                    account = ImportedPrivkeyAccount(self, account_row, account_keyinstances,
                         account_descriptions)
                 elif found_types & address_types:
-                    account = ImportedAddressAccount(self, row, account_keys,
+                    account = ImportedAddressAccount(self, account_row, account_keyinstances,
                         account_descriptions)
                 else:
                     raise WalletLoadError(_("Account corrupt, types: %s"), found_types)
-            self.register_account(row.account_id, account)
+            self.register_account(account_row.account_id, account)
 
     def register_account(self, account_id: int, account: AbstractAccount) -> None:
         self._accounts[account_id] = account

@@ -140,7 +140,7 @@ def _fake_create_transaction_succeeded(file_id, message_bytes, child_wallet, pas
                                        require_confirmed) -> Tuple[Any, set]:
     # Todo - test _create_transaction separately
     tx = Transaction.from_hex(rawtx)
-    frozen_utxos = set([])
+    frozen_utxos = set()
     return tx, frozen_utxos
 
 async def _fake_broadcast_tx(rawtx: str, tx_hash: bytes, account: AbstractAccount) -> str:

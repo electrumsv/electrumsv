@@ -490,7 +490,7 @@ class TestTransactionTable:
 
 
     def test_get_all_pending(self):
-        get_tx_hashes = set([])
+        get_tx_hashes = set()
         for tx_hex in (tx_hex_1, tx_hex_2):
             tx_bytes = bytes.fromhex(tx_hex)
             tx_hash = bitcoinx.double_sha256(tx_bytes)

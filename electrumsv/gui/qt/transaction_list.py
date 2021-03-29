@@ -330,7 +330,7 @@ class TransactionView(QTableView):
         self.setAlternatingRowColors(True)
 
         self._pending_state: Dict[bytes, EventFlags] = {}
-        self._pending_actions = set([ ListActions.RESET ])
+        self._pending_actions = { ListActions.RESET }
 
         self._main_window.transaction_state_signal.connect(self._on_transaction_state_change)
         self._main_window.transaction_added_signal.connect(self._on_transaction_added)
@@ -405,7 +405,7 @@ class TransactionView(QTableView):
         with self._update_lock:
             # The account change event should ~immediately clear the list.
             self._pending_state.clear()
-            self._pending_actions = set([ ListActions.RESET ])
+            self._pending_actions = { ListActions.RESET }
 
             old_account_id = self._account_id
             self._account_id = new_account_id

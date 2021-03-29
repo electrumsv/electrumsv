@@ -614,7 +614,7 @@ async def test_transaction_import_removal(tmp_storage) -> None:
         # Verify all the transactions are linked to the account.
         rows = db_functions.read_transaction_hashes(db_context, account.get_id())
         assert len(rows) == 2
-        assert set(rows) == set([ tx_hash_1, tx_hash_2 ])
+        assert set(rows) == { tx_hash_1, tx_hash_2 }
 
         # Remove both transactions (does not delete).
         future_1 = wallet.remove_transaction(tx_hash_1)
