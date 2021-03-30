@@ -20,7 +20,7 @@ class AccountDialog(QDialog):
 
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet, account_id: int,
             parent: QWidget) -> None:
-        super().__init__(parent, Qt.WindowFlag(Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+        super().__init__(parent, Qt.WindowType(Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
             Qt.WindowCloseButtonHint))
 
         assert type(main_window) is weakref.ProxyType
