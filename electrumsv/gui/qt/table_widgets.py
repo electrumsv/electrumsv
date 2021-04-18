@@ -6,22 +6,28 @@ from PyQt5.QtWidgets import QHBoxLayout, QToolButton, QWidget
 
 from electrumsv.i18n import _
 
-from .util import KeyEventLineEdit, read_QIcon, IconButton
+from .util import KeyEventLineEdit, read_QIcon
 
 
 class TableTopButtonLayout(QHBoxLayout):
+    add_signal = pyqtSignal()
     refresh_signal = pyqtSignal()
     filter_signal = pyqtSignal(str)
 
-    def __init__(self, parent: Optional[QWidget]=None, filter_placeholder_text: str="") -> None:
-        super().__init__(parent)
+    def __init__(self, parent: Optional[QWidget]=None, filter_placeholder_text: str="",
+            enable_filter: bool=True) -> None:
+        # NOTE(typing) The checker does not have signatures for the parent being an explicit None.
+        super().__init__(parent) # type: ignore
 
         # The offset to insert the next button at.
         self._button_index = 0
 
+        self._filter_button: Optional[QToolButton] = None
         self._filter_box = KeyEventLineEdit(override_events={Qt.Key_Escape})
         # When the focus is in the search box, if the user presses Escape the filtering exits.
-        self._filter_box.key_event_signal.connect(self._on_search_override_key_press_event)
+        # NOTE(typing) The checker does not have correct signal handling.
+        self._filter_box.key_event_signal.connect( # type: ignore
+            self._on_search_override_key_press_event)
         # As text in the search box changes, the filter updates in real time.
         self._filter_box.textChanged.connect(self._on_search_text_changed)
         if not filter_placeholder_text:
@@ -32,7 +38,8 @@ class TableTopButtonLayout(QHBoxLayout):
         self.setSpacing(2)
         self.setContentsMargins(0, 2, 0, 2)
         self.add_refresh_button()
-        self._filter_button = self.add_filter_button()
+        if enable_filter:
+            self._filter_button = self.add_filter_button()
         self.addWidget(self._filter_box, 1)
         self.addStretch(1)
 
@@ -60,10 +67,20 @@ class TableTopButtonLayout(QHBoxLayout):
         self.insertWidget(position, button)
         return button
 
+    def add_create_button(self, tooltip: Optional[str]=None) -> QToolButton:
+        if tooltip is None:
+            tooltip = _("Add a new entry.")
+        # NOTE(typing) The checker does not have correct signal handling.
+        return self.add_button("icons8-add-new-96-windows.png",
+            self.add_signal.emit, # type: ignore
+            tooltip)
+
     def add_refresh_button(self, tooltip: Optional[str]=None) -> QToolButton:
         if tooltip is None:
             tooltip = _("Refresh the list.")
-        return self.add_button("refresh_win10_16.png", self.refresh_signal.emit, tooltip)
+        # NOTE(typing) The checker does not have correct signal handling.
+        return self.add_button("refresh_win10_16.png", self.refresh_signal.emit, # type: ignore
+            tooltip)
 
     def add_filter_button(self, tooltip: Optional[str]=None) -> QToolButton:
         if tooltip is None:
@@ -74,7 +91,8 @@ class TableTopButtonLayout(QHBoxLayout):
     def _on_search_text_changed(self, text: str) -> None:
         if self._filter_box.isHidden():
             return
-        self.filter_signal.emit(text)
+        # NOTE(typing) The checker does not have correct signal handling.
+        self.filter_signal.emit(text) # type: ignore
 
     def _on_search_override_key_press_event(self, event_key: int) -> None:
         if event_key == Qt.Key_Escape:
@@ -94,39 +112,5 @@ class TableTopButtonLayout(QHBoxLayout):
             self._filter_button.setIcon(read_QIcon("icons8-filter-edit-32-windows.png"))
             self._filter_box.setText('')
             self._filter_box.hide()
-            self.filter_signal.emit('')
-
-
-class AddOrEditButtonsLayout(QHBoxLayout):
-    add_signal = pyqtSignal()
-    edit_signal = pyqtSignal()
-
-    def __init__(self, parent: Optional[QWidget]=None) -> None:
-        super().__init__(parent)
-
-        # The offset to insert the next button at.
-        self._button_index = 0
-
-        self.setSpacing(2)
-        self.setContentsMargins(0, 2, 0, 2)
-        self.add_an_add_button()
-        self.add_edit_button()
-
-    def add_button(self, icon_name: str, on_click: Callable[[], None], tooltip: str,
-            position: Optional[int]=None) -> QToolButton:
-        button = IconButton(icon_name, on_click, tooltip)
-        if position is None:
-            position = self._button_index
-            self._button_index += 1
-        self.insertWidget(position, button)
-        return button
-
-    def add_an_add_button(self, tooltip: Optional[str]=None) -> QToolButton:
-        if tooltip is None:
-            tooltip = _("Add a server to the list.")
-        return self.add_button("favicon_dot_com/001-plus.png", self.add_signal.emit, tooltip)
-
-    def add_edit_button(self, tooltip: Optional[str]=None) -> QToolButton:
-        if tooltip is None:
-            tooltip = _("Edit or remove the selected server")
-        return self.add_button("favicon_dot_com/003-pencil.png", self.edit_signal.emit, tooltip)
+            # NOTE(typing) The checker does not have correct signal handling.
+            self.filter_signal.emit('') # type: ignore

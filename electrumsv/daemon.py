@@ -127,8 +127,8 @@ def get_rpc_credentials(config: SimpleConfig, is_restapi=False) \
         nbytes = (nbits + 7) // 8
         return be_bytes_to_int(os.urandom(nbytes)) % (1 << nbits)
 
-    rpc_user = config.get('rpcuser', None)
-    rpc_password = config.get('rpcpassword', None)
+    rpc_user = cast(Optional[str], config.get('rpcuser', None))
+    rpc_password = cast(Optional[str], config.get('rpcpassword', None))
     if rpc_user is None or rpc_password is None:
         rpc_user = 'user'
         nbits = 128
@@ -146,6 +146,12 @@ def get_rpc_credentials(config: SimpleConfig, is_restapi=False) \
 
 
 class Daemon(DaemonThread):
+    # Note that the dynamic app_state object does not propagate typing information, so application
+    # logic will need to cast to ensure correct type checking.
+    #
+    #   e.g. network = cast(Network, app_state.daemon.network)
+
+    network: Optional[Network]
     rest_server: Optional[AiohttpServer]
     cmd_runner: Commands
 
@@ -153,7 +159,7 @@ class Daemon(DaemonThread):
         super().__init__('daemon')
         app_state.daemon = self
         config = app_state.config
-        self.config = config
+        self.config: SimpleConfig = config
         if config.get('offline'):
             self.network = None
             self.fx_task = None
@@ -180,9 +186,9 @@ class Daemon(DaemonThread):
         self.rest_server.register_routes(self.default_api)
 
     def init_restapi_server(self, config: SimpleConfig, fd) -> None:
-        host = config.get("rpchost", '127.0.0.1')
+        host = cast(str, config.get("rpchost", '127.0.0.1'))
         if os.environ.get('RESTAPI_HOST'):
-            host = os.environ.get('RESTAPI_HOST')
+            host = cast(str, os.environ.get('RESTAPI_HOST'))
 
         restapi_port = int(config.get('restapi_port', 9999))
         if os.environ.get('RESTAPI_PORT'):
@@ -225,7 +231,8 @@ class Daemon(DaemonThread):
                     # if "GUI" not in th_text:
                     #     continue
                     print(th)
-                    traceback.print_stack(sys._current_frames()[th.ident])
+                    # NOTE(typing) Optional debugging code, not too invested in the typing error.
+                    traceback.print_stack(sys._current_frames()[th.ident]) # type: ignore
                     print()
                 time.sleep(5.0)
 
@@ -271,6 +278,8 @@ class Daemon(DaemonThread):
         elif sub == 'stop':
             self.stop()
             response = "Daemon stopped"
+        else:
+            response = False
         return response
 
     def run_gui(self, config_options: dict) -> str:
@@ -328,7 +337,7 @@ class Daemon(DaemonThread):
         password = config_options.get('password')
         new_password = config_options.get('new_password')
         config = SimpleConfig(config_options)
-        cmdname = config.get('cmd')
+        cmdname = cast(str, config.get('cmd'))
         cmd = known_commands[cmdname]
         if cmd.requires_wallet:
             cmdline_wallet_filepath = config.get_cmdline_wallet_filepath()

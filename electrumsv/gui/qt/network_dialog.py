@@ -22,44 +22,59 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import enum
-import socket
-from collections import namedtuple
-from typing import List, Optional, Tuple, Sequence
 
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTabWidget, QSizePolicy, QWidget, QTreeWidget, \
-    QTreeWidgetItem, QHeaderView, QLabel, QCheckBox, QComboBox, QLineEdit, QGridLayout, \
-    QMessageBox, QMenu, QDialogButtonBox, QFormLayout
-from PyQt5.QtCore import pyqtSignal, Qt, QThread
+import datetime
+import enum
+from functools import partial
+import socket
+from typing import Callable, cast, List, NamedTuple, Optional, Sequence
+import urllib.parse
+
 from aiorpcx import NetAddress
 from bitcoinx import hash_to_hex_str
+from PyQt5.QtCore import pyqtSignal, QModelIndex, QObject, QPoint, Qt, QThread
+from PyQt5.QtGui import QColor, QContextMenuEvent, QKeyEvent, QPixmap, QValidator
+from PyQt5.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, \
+    QGridLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, \
+    QSizePolicy, QTableWidget, QTabWidget, QTreeWidget, QTreeWidgetItem, \
+    QVBoxLayout, QWidget
 
-from electrumsv.app_state import app_state
-from electrumsv.constants import BroadcastServicesUI, BroadcastServices
-from electrumsv.gui.qt.password_dialog import PasswordLineEdit
-from electrumsv.gui.qt.table_widgets import AddOrEditButtonsLayout
-from electrumsv.logs import logs
-from electrumsv.network import Network, SVUserAuth, SVProxy, SVSession, SVServer
-from electrumsv.gui.qt.util import Buttons, CloseButton, HelpDialogButton, FormSectionWidget, \
-    HelpButton, read_QIcon, IconButton, MessageBox
-from electrumsv.i18n import _
+from ...app_state import app_state
+from ...constants import BroadcastServicesUI, BroadcastServices
+from ...i18n import _
+from ...logs import logs
+from ...network import Network, SVServerKey, SVUserAuth, SVProxy, SVSession, SVServer
+from ...util.network import DEFAULT_SCHEMES, UrlValidationError, validate_url
 
-ITEM_DATA_ROLE = Qt.UserRole
-TIMESTAMP_SORTKEY_ROLE = Qt.UserRole + 1
-CONNECTEDNESS_SORTKEY_ROLE = Qt.UserRole + 2
-URL_DATA_ROLE = Qt.UserRole + 3
+from .password_dialog import PasswordLineEdit
+from .table_widgets import TableTopButtonLayout
+from .util import Buttons, CloseButton, FormSectionWidget, HelpButton, HelpDialogButton, \
+    icon_path, MessageBox, read_QIcon, WindowModalDialog
+
+
+class Roles:
+    ITEM_DATA = Qt.UserRole
+    TIMESTAMP_SORTKEY = Qt.UserRole + 1
+    CONNECTEDNESS_SORTKEY = Qt.UserRole + 2
+    URL_DATA = Qt.UserRole + 3
 
 logger = logs.get_logger("network-ui")
+
+
+SERVER_TYPE_ENTRIES = [
+    BroadcastServices.ELECTRUMX,
+    BroadcastServices.MERCHANT_API,
+]
+
+SERVER_TYPE_LABELS = {
+    BroadcastServices.ELECTRUMX: _("ElectrumX"),
+    BroadcastServices.MERCHANT_API: _("MAPI"),
+}
 
 COMBOBOX_INDEX_MAP = {
     BroadcastServices.ELECTRUMX: 0,
     BroadcastServices.MERCHANT_API: 1
 }
-
-SERVER_STATUS_ICONS = [
-    "icons8-checkmark-green-52.png",  # Connected.
-    "red-cross.png",    # Disconnected.
-]
 
 
 class ServerStatus(enum.IntEnum):
@@ -73,22 +88,64 @@ SERVER_STATUS = {
 }
 
 
-ServerItem = namedtuple('ServerItem',
-    ['status_icon', 'server_name', 'api_type', 'child_items'])
-MERCHANT_API_CAPABILITIES = ('BROADCAST', 'FEE_QUOTE')
-ELECTRUMX_CAPABILITIES = ('SCRIPTHASH_HISTORY', 'BROADCAST', 'REQUEST_MERKLE_PROOF')
+class ServerCapabilities(enum.IntEnum):
+    TRANSACTION_BROADCAST = 1
+    FEE_QUOTE = 2
+    SCRIPTHASH_HISTORY = 3
+    MERKLE_PROOF = 4
+
+
+class ServerItem(NamedTuple):
+    server_name: str
+    server_type: str
+
+
+class ServerListEntry(NamedTuple):
+    item: ServerItem
+    url: str
+    last_try: float
+    last_good: float
+    is_connected: bool
+
+
+# TODO Upgrade how this is displayed and what is displayed. It would be valuable for users to
+#      be able to get a per-capability tooltip when they have their mouse over a given entry.
+#      This suggests a list view might be a good choice for an upgrade, but a table also might
+#      be even better as it can show costing and quotas and so on. And the last time a capability
+#      was used and how often it has been used. Given the limited space, this might mean a
+#      tree view is even better.
+MAPI_CAPABILITY_HTML = "Transaction broadcast.<br>"+ \
+    "Transaction fee quotes."
+
+ELECTRUMX_CAPABILITY_HTML = "Blockchain scanning.<br>"+ \
+    "Transaction broadcast.<br>"+ \
+    "Transaction proofs."
+
+
+def url_to_server_key(url: str) -> SVServerKey:
+    """
+    Convert a URL to a server key.
+
+    This does not do validation in any way, shape or form. It is assumed before we got to this
+    point there was some kind of validation that passed.
+    """
+    result = urllib.parse.urlparse(url)
+    host, port_str = result.netloc.split(":")
+    port = int(port_str)
+    protocol = "s" if result.scheme.startswith("ssl") else "t"
+    return SVServerKey(host, port, protocol)
 
 
 class NodesListWidget(QTreeWidget):
 
-    def __init__(self, parent: 'BlockchainTab'):
+    def __init__(self, parent: 'BlockchainTab') -> None:
         QTreeWidget.__init__(self)
-        self.parent = parent
-        self.setHeaderLabels([_('Connected node'), _('Height')])
+        self._parent_tab = parent
+        self.setHeaderLabels([ _('Connected node'), _('Height') ])
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.create_menu)
 
-    def create_menu(self, position):
+    def create_menu(self, position: QPoint) -> None:
         item = self.currentItem()
         if not item:
             return
@@ -96,30 +153,30 @@ class NodesListWidget(QTreeWidget):
         if not server:
             return
 
-        def use_as_server():
+        def use_as_server() -> None:
             try:
-                self.parent.follow_server(server)
+                self._parent_tab.follow_server(server)
             except Exception as e:
                 MessageBox.show_error(str(e))
         menu = QMenu()
         menu.addAction(_("Use as server"), use_as_server)
         menu.exec_(self.viewport().mapToGlobal(position))
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in [ Qt.Key_F2, Qt.Key_Return ]:
             self.on_activated(self.currentItem(), self.currentColumn())
         else:
             QTreeWidget.keyPressEvent(self, event)
 
-    def on_activated(self, item, column):
+    def on_activated(self, item: QTreeWidgetItem, _column: int) -> None:
         # on 'enter' we show the menu
         pt = self.visualItemRect(item).bottomLeft()
         pt.setX(50)
         self.customContextMenuRequested.emit(pt)
 
-    def chain_name(self, chain, our_chain):
+    def chain_name(self, chain, our_chain) -> str:
         if chain is our_chain:
-            return f'our_chain'
+            return 'our_chain'
 
         _chain, common_height = our_chain.common_chain_and_height(chain)
         fork_height = common_height + 1
@@ -128,17 +185,20 @@ class NodesListWidget(QTreeWidget):
         prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
         return f'{prefix}@{fork_height}'
 
-    def update(self, network):
+    def update(self) -> None:
         self.clear()
+
+        # NOTE(typing) The dynamic app_state object does not propagate typing information.
+        network = cast(Network, app_state.daemon.network)
         chains = network.sessions_by_chain()
         our_chain = network.chain()
         for chain, sessions in chains.items():
             if len(chains) > 1:
                 name = self.chain_name(chain, our_chain)
-                x = QTreeWidgetItem([name, '%d' % chain.height])
-                x.setData(0, Qt.UserRole, None)  # server
+                tree_item = QTreeWidgetItem([name, '%d' % chain.height])
+                tree_item.setData(0, Qt.UserRole, None)  # server
             else:
-                x = self
+                tree_item = self
             # If someone is connected to two nodes on the same server, indicate the difference.
             host_counts = {}
             for session in sessions:
@@ -151,16 +211,17 @@ class NodesListWidget(QTreeWidget):
                 item = QTreeWidgetItem([session.server.host + extra_name,
                     str(session.tip.height)])
                 item.setData(0, Qt.UserRole, session.server)
-                x.addTopLevelItem(item)
+                tree_item.addTopLevelItem(item)
             if len(chains) > 1:
-                self.addTopLevelItem(x)
-                x.setExpanded(True)
+                self.addTopLevelItem(tree_item)
+                # NOTE(typing) remove ambiguity so it knows it is a tree item, not the tree itself.
+                cast(QTreeWidgetItem, tree_item).setExpanded(True)
 
             height_str = "%d "%(network.get_local_height()) + _('blocks')
-            self.parent.height_label.setText(height_str)
+            self._parent_tab.height_label.setText(height_str)
             n = len(network.sessions)
             status = _("Connected to {:d} servers.").format(n) if n else _("Not connected")
-            self.parent.status_label.setText(status)
+            self._parent_tab.status_label.setText(status)
             chains = network.sessions_by_chain().keys()
             if len(chains) > 1:
                 our_chain = network.chain()
@@ -173,8 +234,8 @@ class NodesListWidget(QTreeWidget):
                     ','.join(f'{height:,d}' for height in sorted(heights)))
             else:
                 msg = ''
-            self.parent.split_label.setText(msg)
-            self.parent.server_label.setText(network.main_server.host)
+            self._parent_tab.split_label.setText(msg)
+            self._parent_tab.server_label.setText(network.main_server.host)
 
         h = self.header()
         h.setStretchLastSection(False)
@@ -184,10 +245,8 @@ class NodesListWidget(QTreeWidget):
 
 class BlockchainTab(QWidget):
 
-    def __init__(self, parent: 'NetworkTabsLayout'):
+    def __init__(self, _parent: 'NetworkTabsLayout') -> None:
         super().__init__()
-        self.parent = parent
-        self.network = parent.network
         blockchain_layout = QVBoxLayout(self)
 
         form = FormSectionWidget()
@@ -206,103 +265,255 @@ class BlockchainTab(QWidget):
         self.nodes_list_widget = NodesListWidget(self)
         blockchain_layout.addWidget(self.nodes_list_widget)
         blockchain_layout.addStretch(1)
-        self.nodes_list_widget.update(self.network)
+        self.nodes_list_widget.update()
 
-    def follow_server(self, server):
-        self.network.set_server(server, self.network.auto_connect())
-        self.nodes_list_widget.update(self.network)
+    def follow_server(self, server: SVServer) -> None:
+        network = cast(Network, app_state.daemon.network)
+        network.set_server(server, network.auto_connect())
+
+        self.nodes_list_widget.update()
 
 
-class EditServerDialog(QDialog):
+class EditServerDialog(WindowModalDialog):
     """Two modes: edit_mode=True and edit_mode=False"""
+    validation_change = pyqtSignal(bool)
 
-    def __init__(self, parent: 'ServersTab', title: str, edit_mode: bool=False):
-        super().__init__()
-        self.parent = parent
-        self.servers_list = self.parent.servers_list
+    def __init__(self, parent: QWidget, title: str, edit_mode: bool=False,
+            entry: Optional[ServerListEntry]=None) -> None:
+        super().__init__(parent, title=title)
+
+        # External accessible state.
         self._is_edit_mode = edit_mode
+        self._entry = entry
 
-        # Internal State -> see self.update_state()
-        current_item: Optional[QTreeWidgetItem] = self.servers_list.get_current_item()
-        self._selected_server: Optional['ServerItem'] = None
-        self._server_url: Optional[str] = None
-        self._server_type = None
-
-        if current_item and self._is_edit_mode:
-            self._selected_server: 'ServerItem' = current_item.data(0, ITEM_DATA_ROLE)
-            self._server_url: str = current_item.data(0, URL_DATA_ROLE)
-            server_type = BroadcastServices.from_ui_display_format(self._selected_server.api_type)
-            self._server_type = server_type
+        initial_server_url = ""
+        initial_server_type = BroadcastServices.ELECTRUMX
+        server_type_schemes: Optional[set[str]] = None
+        if self._is_edit_mode:
+            assert entry is not None
+            initial_server_url = entry.url
+            initial_server_type = entry.item.server_type
+        if initial_server_type == BroadcastServices.ELECTRUMX:
+            server_type_schemes = {"ssl", "tcp"}
 
         self.setWindowTitle(title)
-        self.resize(380, 170)
+        self.setMinimumWidth(380)
 
         self._vbox = QVBoxLayout(self)
-        self._form_layout = QFormLayout()
 
-        self.row1 = QLabel(_("API Type:"))
-        self.serverTypeCombobox = QComboBox()
-        self.serverTypeCombobox.addItem(BroadcastServicesUI.ELECTRUMX)
-        self.serverTypeCombobox.addItem(BroadcastServicesUI.MERCHANT_API)
-        if self._server_type:
-            self.serverTypeCombobox.setCurrentIndex(COMBOBOX_INDEX_MAP[self._server_type])
-        self.serverTypeCombobox.currentIndexChanged.connect(self.on_server_type_changed)
+        self._server_type_combobox = QComboBox()
+        self._server_type_combobox.addItem(BroadcastServicesUI.ELECTRUMX)
+        self._server_type_combobox.addItem(BroadcastServicesUI.MERCHANT_API)
+        self._server_type_combobox.setCurrentIndex(SERVER_TYPE_ENTRIES.index(initial_server_type))
+        self._server_type_combobox.currentIndexChanged.connect(
+            self._event_combobox_server_type_changed)
 
-        self.row2 = QLabel(_("URL:"))
-        field2 = QLineEdit()
-        if self._is_edit_mode:
-            field2.setText(self._server_url)
+        def apply_line_edit_validation_style(edit: QLineEdit, default_brush: QColor,
+                validation_callback: Callable[[bool], None], _new_text: str) -> None:
+            # Change the background to indicate whether the edit field contents are valid or not.
+            palette = edit.palette()
+            if edit.hasAcceptableInput():
+                palette.setBrush(palette.Base, default_brush)
+            else:
+                palette.setBrush(palette.Base, QColor(Qt.yellow).lighter(167))
+            edit.setPalette(palette)
 
-        self.okay_cancel_button = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            # If the field contents are invalid, the tooltip will indicate why.
+            validator = cast(URLValidator, edit.validator())
+            last_message = validator.get_last_message()
+            edit.setToolTip(last_message)
 
-        self.okay_cancel_button.accepted.connect(self.accept)
-        self.okay_cancel_button.rejected.connect(self.reject)
-        self.okay_cancel_button.accepted.connect(self.accepted)
-        self.okay_cancel_button.rejected.connect(self.rejected)
+            validation_callback(last_message == "")
 
-        self._form_layout.addRow(self.row1, self.serverTypeCombobox)
-        self._form_layout.addRow(self.row2, field2)
+            # NOTE(bonus-feature) It is quite useful to visually indicate the reason the field
+            #   contents are invalid, but using a tooltip to do so is awkward and gets in the
+            #   way. It would be better to have a validation area in the form that appears
+            #   below the field pushing the latter form rows further down.
+            #
+            # # This seems to map to the center of the widget, no effort to adjust it.
+            # tooltip_position = edit.mapToGlobal(edit.pos())
+            # QToolTip.showText(tooltip_position, last_message, edit)
 
-        self.row3 = None
-        if self._server_type == BroadcastServices.MERCHANT_API:
-            self.row3 = QLabel("API Key:")
-            self._mapi_api_key = QLineEdit()
-            self._form_layout.addRow(self.row3, self._mapi_api_key)
+        self._server_url_edit = QLineEdit()
+        default_edit_palette = self._server_url_edit.palette()
+        default_base_brush = default_edit_palette.brush(default_edit_palette.Base)
+        self._server_url_edit.setValidator(URLValidator(schemes=server_type_schemes))
+        self._server_url_edit.textChanged.connect(
+            partial(apply_line_edit_validation_style, self._server_url_edit, default_base_brush,
+                # NOTE(typing) signals are not handled properly by Pyright
+                self.validation_change.emit)) # type: ignore
+        # Ensure that the `textChanged` signal is emitted for initial validation and it's styling.
+        if self._is_edit_mode and initial_server_url is not None:
+            self._server_url_edit.setText(initial_server_url)
+        else:
+            # Manually trigger the signal and the validation as `setText("")` does not.
+            self._server_url_edit.textChanged.emit("")
 
-        self._vbox.addLayout(self._form_layout)
-        self._vbox.addWidget(self.okay_cancel_button)
+        self._api_key_edit = QLineEdit()
 
-        self.update_state()
+        editable_form = FormSectionWidget()
+        editable_form.add_row(_("Type"), self._server_type_combobox, True)
+        editable_form.add_row(_("URL"), self._server_url_edit, True)
+        editable_form.add_row(_("API Key"), self._api_key_edit, True)
+        self._vbox.addWidget(editable_form)
 
-    def accepted(self):
-        logger.debug("accepted form")
+        self._offered_services_label = QLabel("...")
 
-    def rejected(self):
-        logger.debug("rejected form")
+        # NOTE(rt12) This looks better than separate sections as it makes the label column width
+        #   consistent.
+        details_form = editable_form # FormSectionWidget()
+        details_form.add_title(_("Details"))
+        details_form.add_row(_("Offered services"), self._offered_services_label, True)
 
-    def update_state(self):
-        """redraw to include / exclude the API Key field for Merchant API type server"""
-        if self._server_type == BroadcastServices.MERCHANT_API and not self.row3:
-            self.row3 = QLabel("API Key:")
-            self._mapi_api_key = QLineEdit()
-            self._form_layout.addRow(self.row3, self._mapi_api_key)
-            self._vbox.update()
+        if edit_mode:
+            if entry.last_try:
+                attempt_label = QLabel(
+                    datetime.datetime.fromtimestamp(int(entry.last_try)).isoformat(' '))
+            else:
+                attempt_label = QLabel("-")
 
-        elif not self._server_type == BroadcastServices.MERCHANT_API and self.row3:
-            self.row3 = None
-            self._form_layout.removeRow(2)
+            if entry.last_good:
+                connected_label = QLabel(
+                    datetime.datetime.fromtimestamp(int(entry.last_good)).isoformat(' '))
+            else:
+                connected_label = QLabel("-")
 
-        self.update()
+            details_form.add_row(_("Last attempted"), attempt_label, True)
+            details_form.add_row(_("Last connected"), connected_label, True)
 
-    def on_server_type_changed(self):
-        self._server_type = BroadcastServices.from_ui_display_format(
-            self.serverTypeCombobox.currentText())
-        self.update_state()
+        self._vbox.addWidget(details_form)
+
+        self._dialog_button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton(QDialogButtonBox.Ok | QDialogButtonBox.Cancel))
+        ok_button = self._dialog_button_box.button(
+            QDialogButtonBox.StandardButton(QDialogButtonBox.Ok))
+        if edit_mode:
+            ok_button.setText(_("Update"))
+        else:
+            ok_button.setText(_("Add"))
+
+        self._dialog_button_box.accepted.connect(self._event_dialog_button_box_accepted)
+        self._dialog_button_box.rejected.connect(self.reject)
+
+        self._vbox.addWidget(self._dialog_button_box)
+
+        self._update_state()
+
+        # NOTE(typing) signals are not handled properly by Pyright
+        self.validation_change.connect(self._event_validation_change) # type: ignore
+        # Do an initial validation change event, with asserted validity which will cause a check.
+        self._event_validation_change(True)
+
+    def _is_form_valid(self) -> bool:
+        validator = cast(URLValidator, self._server_url_edit.validator())
+        # Check all "valid for add/update" conditions are met. Only one for this form.
+        return validator.get_last_message() == ""
+
+    def _event_validation_change(self, is_valid: bool) -> None:
+        """
+        Observe form validity.
+
+        If the form is not valid for either creation or update depending on the context, then
+        we want to disable the ability of the user to submit the form.
+        """
+        # Any invalid field makes the form invalid, but one valid field does not make the form
+        # valid. So one valid field requires checking the whole form for validity.
+        if is_valid:
+            is_valid = self._is_form_valid()
+
+        # The current sole effect of the form not being valid is the "add/update" button is
+        # disabled.
+        ok_button = self._dialog_button_box.button(
+            QDialogButtonBox.StandardButton(QDialogButtonBox.Ok))
+        ok_button.setEnabled(is_valid)
+
+    def _event_dialog_button_box_accepted(self) -> None:
+        """
+        Process the user submitting the form.
+
+        Once the create or update action is performed, the dialog will be accepted and will close.
+        If the form is not valid, then the add/update button will be disabled and we should never
+        reach here.
+        """
+        assert self._is_form_valid(), "should only get here if the form is valid and it is not"
+
+        network = cast(Network, app_state.daemon.network)
+
+        server_url = self._server_url_edit.text().strip()
+        server_type = self._get_server_type()
+        api_key = self._api_key_edit.text().strip()
+
+        if server_type == BroadcastServices.ELECTRUMX:
+            assert api_key == "", "the api key field is currently disabled for ElectrumX servers"
+            if self._is_edit_mode:
+                updated_server_key = url_to_server_key(server_url)
+                assert self._entry is not None
+                # TODO(rt12) Need to change the update method on the network singleton to take
+                # the old server key in addition to the new server key. It'd also be good to
+                # make server keys named tuples.
+                existing_server_key = url_to_server_key(self._entry.url)
+                network.update_electrumx_server(existing_server_key, updated_server_key)
+            else:
+                raise Exception("...")
+        elif server_type == BroadcastServices.MERCHANT_API:
+            pass
+        else:
+            raise ValueError(f"unsupported server type '{server_type}'")
+
+        # if self._is_edit_mode:
+        #     # Update the server in the network code. This will need to disable/disconnect the
+        #     # server (if it is connected), update it and then re-enable it.
+        #     pass
+        # else:
+        #     # Add the server in the network code.
+        #     pass
+
+        self.accept()
+
+    def _event_combobox_server_type_changed(self) -> None:
+        """
+        Update the form contents for changes in the server type.
+
+        The different server types have different form fields that can or cannot be provided.
+        It will also affect the validation of the server URL, so constraints relevant to that
+        will need to be updated.
+        """
+        server_type = self._get_server_type()
+
+        validator = cast(URLValidator, self._server_url_edit.validator())
+        if server_type == BroadcastServices.ELECTRUMX:
+            validator.set_schemes({"ssl", "tcp"})
+        else:
+            validator.set_schemes(DEFAULT_SCHEMES)
+
+        self._update_state()
+
+        # Revalidate the server URL value and apply validation related UI changes.
+        self._server_url_edit.textChanged.emit(self._server_url_edit.text())
+
+    def _update_state(self) -> None:
+        """
+        Update the form contents for existing current server type value.
+        """
+        server_type = self._get_server_type()
+        if server_type == BroadcastServices.MERCHANT_API:
+            self._offered_services_label.setText(MAPI_CAPABILITY_HTML)
+            self._api_key_edit.setEnabled(True)
+        elif server_type == BroadcastServices.ELECTRUMX:
+            self._offered_services_label.setText(ELECTRUMX_CAPABILITY_HTML)
+            self._api_key_edit.setText("")
+            self._api_key_edit.setEnabled(False)
+        else:
+            self._offered_services_label.setText(_("Unknown"))
+            self._api_key_edit.setEnabled(False)
+
+    def _get_server_type(self) -> str:
+        return SERVER_TYPE_ENTRIES[self._server_type_combobox.currentIndex()]
 
 
 class SortableServerTreeWidgetItem(QTreeWidgetItem):
 
-    def _has_poorer_connection(self, self_is_connected, other_is_connected):
+    def _has_poorer_connection(self, self_is_connected: bool, other_is_connected: bool) -> bool:
         """tcp:// SVServers that are not active as sessions have a lesser 'last_good' despite
         being capable of connecting - these should outrank disconnected SVServers"""
         if self_is_connected == other_is_connected:
@@ -311,99 +522,191 @@ class SortableServerTreeWidgetItem(QTreeWidgetItem):
             return True
         elif self_is_connected and not other_is_connected:
             return False
+        return False
 
-    def __lt__(self, other):
+    def __lt__(self, other: 'SortableServerTreeWidgetItem') -> bool:
         column = self.treeWidget().sortColumn()
-        self_last_good: int = int(self.data(column, TIMESTAMP_SORTKEY_ROLE))
-        other_last_good: int = int(other.data(column, TIMESTAMP_SORTKEY_ROLE))
-        self_is_connected: bool = self.data(column, CONNECTEDNESS_SORTKEY_ROLE)
-        other_is_connected: bool = other.data(column, CONNECTEDNESS_SORTKEY_ROLE)
+        self_last_good: int = int(self.data(column, Roles.TIMESTAMP_SORTKEY))
+        other_last_good: int = int(other.data(column, Roles.TIMESTAMP_SORTKEY))
+        self_is_connected: bool = self.data(column, Roles.CONNECTEDNESS_SORTKEY)
+        other_is_connected: bool = other.data(column, Roles.CONNECTEDNESS_SORTKEY)
 
         if self._has_poorer_connection(self_is_connected, other_is_connected):
             return True
-
-        if None not in (self_last_good, other_last_good):
-            return self_last_good < other_last_good
+        return self_last_good < other_last_good
 
 
-class ServersListWidget(QTreeWidget):
+class ServersListWidget(QTableWidget):
+    COLUMN_NAMES = ('', _('Service'), _('Type'))
 
-    def __init__(self, parent: 'NetworkTabsLayout'):
-        QTreeWidget.__init__(self)
-        self.parent = parent
-        self.headers = ['', _('Service Name'), _('API Type')]
-        self.update_headers()
+    def __init__(self, parent: 'ServersTab') -> None:
+        super().__init__()
+        self._parent_tab = parent
+
+        self._row_data: List[ServerListEntry] = []
+
+        self.setStyleSheet("""
+            QTableView {
+                selection-background-color: #F5F8FA;
+            }
+            QHeaderView::section {
+                font-weight: bold;
+            }
+        """)
+
+        self._connected_pixmap = QPixmap(icon_path("icons8-data-transfer-80-blue.png")
+            ).scaledToWidth(16, Qt.SmoothTransformation)
+
         self.setSortingEnabled(True)
         self.sortItems(0, Qt.DescendingOrder)
+        self.doubleClicked.connect(self._event_double_clicked)
 
-    def update_headers(self):
-        self.setColumnCount(len(self.headers))
-        self.setHeaderLabels(self.headers)
-        self.header().setStretchLastSection(False)
-        for col in range(len(self.headers)):
-            sm = QHeaderView.ResizeToContents
-            self.header().setSectionResizeMode(col, sm)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        # Tab should move to the next UI element, not to the next link in the table. The user
+        # should be able to use cursor keys to move selected lines.
+        self.setTabKeyNavigation(False)
 
-    def update(self, items):
+    def update_list(self, items: List[ServerListEntry]) -> None:
         self.clear()
-        for service, url, last_good, is_connected in items:
-            parent = SortableServerTreeWidgetItem(["", service[1], service[2]])
-            parent.setIcon(0, service[0])
-            parent.setData(0, ITEM_DATA_ROLE, service)
-            parent.setData(0, TIMESTAMP_SORTKEY_ROLE, last_good if not None else 0)
-            parent.setData(0, CONNECTEDNESS_SORTKEY_ROLE, is_connected)
-            parent.setData(0, URL_DATA_ROLE, url)
+        # Clearing the table does not remove the rows already added to it. That is done manually.
+        while self.rowCount():
+            self.removeRow(self.rowCount()-1)
+        self._row_data.clear()
 
-            lvl1_indent = " " * 4
-            lvl2_indent = " " * 8
-            child_lvl1 = QTreeWidgetItem(["", lvl1_indent+"capabilities"])
-            parent.addChild(child_lvl1)
-            capabilities: List[str] = service[len(service) - 1]
-            if capabilities:
-                for capability in capabilities:
-                    child_lvl2 = QTreeWidgetItem(["", lvl2_indent+capability])
-                    child_lvl1.addChild(child_lvl2)
+        self.setColumnCount(len(self.COLUMN_NAMES))
+        self.setHorizontalHeaderLabels(self.COLUMN_NAMES)
 
-            self.addTopLevelItem(parent)
+        vh = self.verticalHeader()
+        vh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        vh.hide()
 
-        h = self.header()
-        h.setStretchLastSection(False)
-        h.setSectionResizeMode(0, QHeaderView.Fixed)
-        h.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hh = self.horizontalHeader()
+        # This is done to ensure that the image column is not expanded to the normal default column
+        # width of 39 pixels. 24 pixels is the resized pixmap width of 18 with some padding.
+        # As the image is in a label, the label width is tied to the column width and this will
+        # center the image in the column given the centered label alignment.
+        hh.setMinimumSectionSize(24)
+        hh.setDefaultSectionSize(24)
 
-    def get_current_item(self):
-        return self.currentItem()
+        for row_index, list_entry in enumerate(items):
+            self.insertRow(row_index)
+            self._row_data.append(list_entry)
 
-    def set_current_item(self, item: QTreeWidgetItem):
-        return self.setCurrentItem(item)
+            considered_active = False
+            if list_entry.is_connected:
+                tooltip_text = _("There is an active connection to this server.")
+                considered_active = True
+            elif not list_entry.last_try:
+                tooltip_text = _("There has never been a connection to this server.")
+                considered_active = True
+            elif not list_entry.last_good:
+                tooltip_text = _("There has never been a successful connection to this server.")
+            elif list_entry.last_good < list_entry.last_try:
+                tooltip_text = _("The last connection attempt to this server was unsuccessful.")
+            else:
+                tooltip_text = _("There is no current connection to this server.")
+                considered_active = True
 
-    def add_item(self):
-        pass
+            row_icon_label = QLabel()
+            if list_entry.is_connected:
+                row_icon_label.setPixmap(self._connected_pixmap)
+            row_icon_label.setToolTip(tooltip_text)
+            row_icon_label.setAlignment(Qt.AlignCenter)
+            self.setCellWidget(row_index, 0, row_icon_label)
+
+            # item_0 = self.item(row_index, 0)
+            # item_0.setData(Roles.ITEM_DATA, list_entry.item)
+            # item_0.setData(Roles.TIMESTAMP_SORTKEY, list_entry.last_good if not None else 0)
+            # item_0.setData(Roles.CONNECTEDNESS_SORTKEY, list_entry.is_connected)
+            # item_0.setData(Roles.URL_DATA, list_entry.url)
+
+            if considered_active:
+                row_name_label = QLabel(list_entry.url)
+            else:
+                row_name_label = QLabel("<font color='grey'>"+ list_entry.url +"</font>")
+                row_name_label.setTextFormat(Qt.RichText)
+            row_name_label.setStyleSheet("padding-left: 3px; padding-right: 3px;")
+            row_name_label.setToolTip(tooltip_text)
+            self.setCellWidget(row_index, 1, row_name_label)
+
+            row_type_label = QLabel(SERVER_TYPE_LABELS[list_entry.item.server_type])
+            row_type_label.setStyleSheet("padding-left: 3px; padding-right: 3px;")
+            self.setCellWidget(row_index, 2, row_type_label)
+
+        # If this happens before the row insertion loop it is not guaranteed that the last column
+        # (at this time being the API type) will get resized to contents. Instead it will be
+        # pushed right and clipped with only partial text displayed.
+        hh = self.horizontalHeader()
+        hh.setStretchLastSection(False)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+
+    def _get_selected_entry(self) -> ServerListEntry:
+        row_index = self.currentRow()
+        return self._row_data[row_index]
+
+    def _view_entry(self, entry: ServerListEntry) -> None:
+        dialog = EditServerDialog(self._parent_tab, title="Edit Server", edit_mode=True,
+            entry=entry)
+        if dialog.exec() == QDialog.Accepted:
+            self._parent_tab.update_servers()
+
+    # Qt signal handler.
+    def _event_double_clicked(self, index: QModelIndex) -> None:
+        """
+        The user double clicks on a row in the list.
+        """
+        entry = self._row_data[index.row()]
+        self._view_entry(entry)
+
+    # Qt function override.
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        key = event.key()
+        if key == Qt.Key_Return or key == Qt.Key_Enter:
+            entry = self._get_selected_entry()
+            self._view_entry(entry)
+            return
+        super().keyPressEvent(event)
+
+    # Qt function override.
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        selected_ranges = self.selectedRanges()
+        if len(selected_ranges) != 1:
+            return
+
+        row = selected_ranges[0].topRow()
+        assert row == selected_ranges[0].bottomRow()
+
+        entry = self._row_data[row]
+
+        menu = QMenu(self)
+        details_action = menu.addAction("Details")
+
+        action = menu.exec_(self.mapToGlobal(event.pos()))
+        if action == details_action:
+            self._view_entry(entry)
 
 
 class ServersTab(QWidget):
 
-    def __init__(self, parent: 'NetworkTabsLayout'):
+    def __init__(self, parent: 'NetworkTabsLayout') -> None:
         super().__init__()
-        self.parent = parent
-        self.config = self.parent.config
-        self.network = self.parent.network
+        self._parent = parent
         grid = QGridLayout(self)
         grid.setSpacing(8)
 
-        self.help_text = ' '.join([
-            _("This is a high-level overview of the servers that ElectrumSV depends upon. "
-              "You can add, remove or edit the entries via the buttons to the left.")
-        ])
-        help_icon_button = IconButton("icons8-info-80-blueui.png", self._show_help, tooltip="help")
-        grid.addWidget(help_icon_button, 0, 4)
-
-        self._top_button_layout = AddOrEditButtonsLayout()
-        self._top_button_layout.add_signal.connect(self._on_add_server_button_clicked)
-        self._top_button_layout.edit_signal.connect(self._on_edit_server_button_clicked)
+        self._server_list = ServersListWidget(self)
+        self._top_button_layout = TableTopButtonLayout(enable_filter=False)
+        self._top_button_layout.add_create_button()
+        # NOTE(typing) signals are not handled properly by Pyright
+        self._top_button_layout.add_signal.connect( # type: ignore
+            self._event_button_clicked_add_server)
+        self._top_button_layout.refresh_signal.connect( # type: ignore
+            self._event_button_clicked_refresh_list)
         grid.addLayout(self._top_button_layout, 0, 0)
-        self.servers_list = ServersListWidget(self)
-        grid.addWidget(self.servers_list, 2, 0, 1, 5)
+        grid.addWidget(self._server_list, 2, 0, 1, 5)
         self.update_servers()
 
     def _show_help(self) -> None:
@@ -414,18 +717,15 @@ class ServersTab(QWidget):
         b.setWindowTitle("Help")
         b.exec()
 
-    def _get_server_status_icon(self, status: ServerStatus):
-        return read_QIcon(SERVER_STATUS_ICONS[status])
+    def _event_button_clicked_refresh_list(self) -> None:
+        self.update_servers()
 
-    def _on_add_server_button_clicked(self):
-        dialogue = EditServerDialog(self, title="Add Server")
-        dialogue.exec()
+    def _event_button_clicked_add_server(self) -> None:
+        dialog = EditServerDialog(self, title="Add Server")
+        dialog.exec()
 
-    def _on_edit_server_button_clicked(self):
-        dialogue = EditServerDialog(self, title="Edit Server", edit_mode=True)
-        dialogue.exec()
-
-    def _is_server_healthy(self, server: SVServer, sessions: Sequence[SVSession]) -> bool:
+    @staticmethod
+    def _is_server_healthy(server: SVServer, sessions: Sequence[SVSession]) -> bool:
         """Sessions only include currently active SVSessions, hence the for loop and
         matching pattern - this only applies to ElectrumX type servers"""
         if not sessions:
@@ -433,7 +733,7 @@ class ServersTab(QWidget):
 
         max_tip_height = max([session.tip.height for session in sessions])
         for session in sessions:
-            if session.server.host == server.host:
+            if session.server == server:
                 break
         else:
             return False  # The server is unable to connect - there is no SVSession for it
@@ -441,212 +741,199 @@ class ServersTab(QWidget):
         is_more_than_two_blocks_behind = max_tip_height > session.tip.height + 2
         if server.state.last_good >= server.state.last_try and not is_more_than_two_blocks_behind:
             return True
+
         return False
 
-    def update_servers(self):
-        items: List[Tuple[ServerItem, str]] = []  # second type is full url
+    def update_servers(self) -> None:
+        network = cast(Network, app_state.daemon.network)
+        items: List[ServerListEntry] = []
 
         # Add ElectrumX items
-        api_type = BroadcastServices.to_ui_display_format(BroadcastServices.ELECTRUMX)
-        servers = self.network.get_servers()    # SVServer
-        sessions = self.network.sessions        # SVSession
-        if servers:
-            for server in servers:
-                if self._is_server_healthy(server, sessions):
-                    status_icon = self._get_server_status_icon(ServerStatus.CONNECTED)
-                    is_connected = True
-                else:
-                    status_icon = self._get_server_status_icon(ServerStatus.DISCONNECTED)
-                    is_connected = False
-                server_name = server.host
-                child_items = ELECTRUMX_CAPABILITIES
-                server_item = ServerItem(status_icon, server_name, api_type, child_items)
-                proto_prefix = f"tcp://" if server.protocol == "t" else "ssl://"
-                url = proto_prefix + f"{server.host}:{server.port}"
-                items.append((server_item, url, server.state.last_good, is_connected))
+        sessions = network.sessions        # SVSession
+        for server in network.get_servers():
+            is_connected = self._is_server_healthy(server, sessions)
+            server_name = server.host
+            server_item = ServerItem(server_name, BroadcastServices.ELECTRUMX)
+            proto_prefix = f"tcp://" if server.protocol == "t" else "ssl://"
+            url = proto_prefix + f"{server.host}:{server.port}"
+            items.append(ServerListEntry(server_item, url, server.state.last_try,
+                server.state.last_good, is_connected))
 
         # Add mAPI items
-        api_type = BroadcastServices.to_ui_display_format(BroadcastServices.MERCHANT_API)
-        for mapi_server in self.network.get_mapi_servers():
-            if mapi_server['last_good'] == mapi_server['last_try']:
-                status_icon = self._get_server_status_icon(ServerStatus.CONNECTED)
-                is_connected = True
-            else:
-                status_icon = self._get_server_status_icon(ServerStatus.DISCONNECTED)
-                is_connected = False
+        for mapi_server in network.get_mapi_servers():
+            is_connected = mapi_server['last_good'] == mapi_server['last_try']
             server_name = mapi_server['uri']
+            server_item = ServerItem(server_name, BroadcastServices.MERCHANT_API)
+            items.append(ServerListEntry(server_item, mapi_server['uri'], mapi_server['last_try'],
+                mapi_server['last_good'], is_connected))
 
-            child_items = MERCHANT_API_CAPABILITIES
-            server_item = ServerItem(status_icon, server_name, api_type, child_items)
-            items.append((server_item, mapi_server['uri'], mapi_server['last_good'], is_connected))
+        self._server_list.update_list(items)
+        self._parent._blockchain_tab.nodes_list_widget.update()
+        self._enable_set_broadcast_service()
 
-        self.servers_list.update(items)
-        self.parent.blockchain_tab.nodes_list_widget.update(self.network)
-        self.enable_set_broadcast_service()
-
-    def enable_set_broadcast_service(self):
-        if self.config.is_modifiable('broadcast_service'):
-            self.servers_list.setEnabled(True)
+    def _enable_set_broadcast_service(self) -> None:
+        if app_state.config.is_modifiable('broadcast_service'):
+            self._server_list.setEnabled(True)
         else:
-            self.servers_list.setEnabled(False)
+            self._server_list.setEnabled(False)
 
 
 class ProxyTab(QWidget):
 
     def __init__(self, parent: 'NetworkTabsLayout'):
         super().__init__()
-        self.parent = parent
-        self.config = self.parent.config
-        self.network = self.parent.network
+        self._parent = parent
 
         grid = QGridLayout(self)
         grid.setSpacing(8)
 
         # proxy setting
-        self.proxy_cb = QCheckBox(_('Use proxy'))
-        self.proxy_cb.clicked.connect(self.check_disable_proxy)
-        self.proxy_cb.clicked.connect(self.set_proxy)
+        self._proxy_checkbox = QCheckBox(_('Use proxy'))
+        self._proxy_checkbox.clicked.connect(self._check_disable_proxy)
+        self._proxy_checkbox.clicked.connect(self._set_proxy)
 
-        self.proxy_mode = QComboBox()
-        self.proxy_mode.addItems(list(SVProxy.kinds))
-        self.proxy_host = QLineEdit()
-        self.proxy_host.setFixedWidth(200)
-        self.proxy_port = QLineEdit()
-        self.proxy_port.setFixedWidth(100)
-        self.proxy_username = QLineEdit()
-        self.proxy_username.setPlaceholderText(_("Proxy user"))
-        self.proxy_username.setFixedWidth(self.proxy_host.width())
-        self.proxy_password = PasswordLineEdit()
-        self.proxy_password.setPlaceholderText(_("Password"))
+        self._proxy_mode_combo = QComboBox()
+        self._proxy_mode_combo.addItems(list(SVProxy.kinds))
+        self._proxy_host_edit = QLineEdit()
+        self._proxy_host_edit.setFixedWidth(200)
+        self._proxy_port_edit = QLineEdit()
+        self._proxy_port_edit.setFixedWidth(100)
+        self._proxy_username_edit = QLineEdit()
+        self._proxy_username_edit.setPlaceholderText(_("Proxy user"))
+        self._proxy_username_edit.setFixedWidth(self._proxy_host_edit.width())
+        self._proxy_password_edit = PasswordLineEdit()
+        self._proxy_password_edit.setPlaceholderText(_("Password"))
 
-        self.proxy_mode.currentIndexChanged.connect(self.set_proxy)
-        self.proxy_host.editingFinished.connect(self.set_proxy)
-        self.proxy_port.editingFinished.connect(self.set_proxy)
-        self.proxy_username.editingFinished.connect(self.set_proxy)
-        self.proxy_password.editingFinished.connect(self.set_proxy)
+        self._proxy_mode_combo.currentIndexChanged.connect(self._set_proxy)
+        self._proxy_host_edit.editingFinished.connect(self._set_proxy)
+        self._proxy_port_edit.editingFinished.connect(self._set_proxy)
+        self._proxy_username_edit.editingFinished.connect(self._set_proxy)
+        self._proxy_password_edit.editingFinished.connect(self._set_proxy)
 
-        self.proxy_mode.currentIndexChanged.connect(self.proxy_settings_changed)
-        self.proxy_host.textEdited.connect(self.proxy_settings_changed)
-        self.proxy_port.textEdited.connect(self.proxy_settings_changed)
-        self.proxy_username.textEdited.connect(self.proxy_settings_changed)
-        self.proxy_password.textEdited.connect(self.proxy_settings_changed)
+        self._proxy_mode_combo.currentIndexChanged.connect(self._proxy_settings_changed)
+        self._proxy_host_edit.textEdited.connect(self._proxy_settings_changed)
+        self._proxy_port_edit.textEdited.connect(self._proxy_settings_changed)
+        self._proxy_username_edit.textEdited.connect(self._proxy_settings_changed)
+        self._proxy_password_edit.textEdited.connect(self._proxy_settings_changed)
 
-        self.tor_cb = QCheckBox(_("Use Tor Proxy"))
-        self.tor_cb.setIcon(read_QIcon("tor_logo.png"))
-        self.tor_cb.hide()
-        self.tor_cb.clicked.connect(self.use_tor_proxy)
+        self._tor_checkbox = QCheckBox(_("Use Tor Proxy"))
+        self._tor_checkbox.setIcon(read_QIcon("tor_logo.png"))
+        self._tor_checkbox.hide()
+        self._tor_checkbox.clicked.connect(self._use_tor_proxy)
 
-        grid.addWidget(self.tor_cb, 1, 0, 1, 3)
-        grid.addWidget(self.proxy_cb, 2, 0, 1, 3)
+        grid.addWidget(self._tor_checkbox, 1, 0, 1, 3)
+        grid.addWidget(self._proxy_checkbox, 2, 0, 1, 3)
         grid.addWidget(HelpButton(_('Proxy settings apply to all connections: both '
                                     'ElectrumSV servers and third-party services.')), 2, 4)
-        grid.addWidget(self.proxy_mode, 4, 1)
-        grid.addWidget(self.proxy_host, 4, 2)
-        grid.addWidget(self.proxy_port, 4, 3)
-        grid.addWidget(self.proxy_username, 5, 2, Qt.AlignTop)
-        grid.addWidget(self.proxy_password, 5, 3, Qt.AlignTop)
+        grid.addWidget(self._proxy_mode_combo, 4, 1)
+        grid.addWidget(self._proxy_host_edit, 4, 2)
+        grid.addWidget(self._proxy_port_edit, 4, 3)
+        grid.addWidget(self._proxy_username_edit, 5, 2, Qt.AlignTop)
+        grid.addWidget(self._proxy_password_edit, 5, 3, Qt.AlignTop)
         grid.setRowStretch(7, 1)
 
-        self.fill_in_proxy_settings()
+        self._fill_in_proxy_settings()
 
-    def check_disable_proxy(self, b):
-        if not self.config.is_modifiable('proxy'):
+    def _check_disable_proxy(self, b: bool) -> None:
+        if not app_state.config.is_modifiable('proxy'):
             b = False
-        for w in [self.proxy_mode, self.proxy_host, self.proxy_port,
-                  self.proxy_username, self.proxy_password]:
+        for w in [ self._proxy_mode_combo, self._proxy_host_edit, self._proxy_port_edit,
+                self._proxy_username_edit, self._proxy_password_edit ]:
             w.setEnabled(b)
 
-    def fill_in_proxy_settings(self):
-        self.filling_in = True
-        self.check_disable_proxy(self.network.proxy is not None)
-        self.proxy_cb.setChecked(self.network.proxy is not None)
-        proxy = self.network.proxy or SVProxy('localhost:9050', 'SOCKS5', None)
-        self.proxy_mode.setCurrentText(proxy.kind())
-        self.proxy_host.setText(proxy.host())
-        self.proxy_port.setText(str(proxy.port()))
-        self.proxy_username.setText(proxy.username())
-        self.proxy_password.setText(proxy.password())
-        self.filling_in = False
+    def _fill_in_proxy_settings(self) -> None:
+        network = cast(Network, app_state.daemon.network)
+        self._filling_in = True
+        self._check_disable_proxy(network.proxy is not None)
+        self._proxy_checkbox.setChecked(network.proxy is not None)
+        proxy = network.proxy or SVProxy('localhost:9050', 'SOCKS5', None)
+        self._proxy_mode_combo.setCurrentText(proxy.kind())
+        self._proxy_host_edit.setText(str(proxy.host()))
+        self._proxy_port_edit.setText(str(proxy.port()))
+        self._proxy_username_edit.setText(proxy.username())
+        self._proxy_password_edit.setText(proxy.password())
+        self._filling_in = False
 
-    def set_tor_detector(self):
-        # tor detector
+    def set_tor_detector(self) -> None:
         self.td = td = TorDetector()
-        td.found_proxy.connect(self.suggest_proxy)
+        # NOTE(typing) signals are not handled properly by Pyright
+        td.found_proxy.connect(self._suggest_proxy) # type: ignore
         td.start()
 
-    def set_protocol(self, protocol):
-        if protocol != self.protocol:
-            self.protocol = protocol
+    def follow_server(self, server: SVServer) -> None:
+        network = cast(Network, app_state.daemon.network)
+        network.set_server(server, network.auto_connect())
+        self._blockchain_tab.nodes_list_widget.update()
 
-    def follow_server(self, server):
-        self.network.set_server(server, self.network.auto_connect())
-        self.blockchain_tab.nodes_list_widget.update(self.network)
-
-    def set_proxy(self):
-        if self.filling_in:
+    def _set_proxy(self) -> None:
+        if self._filling_in:
             return
         proxy = None
-        if self.proxy_cb.isChecked():
+        if self._proxy_checkbox.isChecked():
             try:
-                address = NetAddress(self.proxy_host.text(), self.proxy_port.text())
-                if self.proxy_username.text():
-                    auth = SVUserAuth(self.proxy_username.text(), self.proxy_password.text())
+                address = NetAddress(self._proxy_host_edit.text(), self._proxy_port_edit.text())
+                if self._proxy_username_edit.text():
+                    auth = SVUserAuth(self._proxy_username_edit.text(),
+                        self._proxy_password_edit.text())
                 else:
                     auth = None
-                proxy = SVProxy(address, self.proxy_mode.currentText(), auth)
+                proxy = SVProxy(address, self._proxy_mode_combo.currentText(), auth)
             except Exception:
                 logger.exception('error setting proxy')
         if not proxy:
-            self.tor_cb.setChecked(False)
-        self.network.set_proxy(proxy)
+            self._tor_checkbox.setChecked(False)
 
-    def suggest_proxy(self, found_proxy):
-        self.tor_proxy = found_proxy
-        self.tor_cb.setText("Use Tor proxy at port " + str(found_proxy[1]))
-        if (self.proxy_cb.isChecked() and
-                self.proxy_mode.currentText() == 'SOCKS5' and
-                self.proxy_host.text() == found_proxy[0] and
-                self.proxy_port.text() == str(found_proxy[1])):
-            self.tor_cb.setChecked(True)
-        self.tor_cb.show()
+        # Apply the changes.
+        network = cast(Network, app_state.daemon.network)
+        network.set_proxy(proxy)
 
-    def use_tor_proxy(self, use_it):
+    def _suggest_proxy(self, found_proxy: tuple[str, int]) -> None:
+        self._tor_proxy = found_proxy
+        self._tor_checkbox.setText("Use Tor proxy at port " + str(found_proxy[1]))
+        if (self._proxy_checkbox.isChecked() and
+                self._proxy_mode_combo.currentText() == 'SOCKS5' and
+                self._proxy_host_edit.text() == found_proxy[0] and
+                self._proxy_port_edit.text() == str(found_proxy[1])):
+            self._tor_checkbox.setChecked(True)
+        self._tor_checkbox.show()
+
+    def _use_tor_proxy(self, use_it: bool) -> None:
         if use_it:
-            self.proxy_mode.setCurrentText('SOCKS5')
-            self.proxy_host.setText(self.tor_proxy[0])
-            self.proxy_port.setText(str(self.tor_proxy[1]))
-            self.proxy_username.setText("")
-            self.proxy_password.setText("")
-            self.proxy_cb.setChecked(True)
+            self._proxy_mode_combo.setCurrentText('SOCKS5')
+            self._proxy_host_edit.setText(self._tor_proxy[0])
+            self._proxy_port_edit.setText(str(self._tor_proxy[1]))
+            self._proxy_username_edit.setText("")
+            self._proxy_password_edit.setText("")
+            self._proxy_checkbox.setChecked(True)
         else:
-            self.proxy_cb.setChecked(False)
-        self.check_disable_proxy(use_it)
-        self.set_proxy()
+            self._proxy_checkbox.setChecked(False)
+        self._check_disable_proxy(use_it)
+        self._set_proxy()
 
-    def proxy_settings_changed(self):
-        self.tor_cb.setChecked(False)
+    def _proxy_settings_changed(self) -> None:
+        self._tor_checkbox.setChecked(False)
 
 
 class TorDetector(QThread):
     found_proxy = pyqtSignal(object)
 
-    def __init__(self):
+    def __init__(self) -> None:
         QThread.__init__(self)
 
-    def run(self):
+    def run(self) -> None:
         # Probable ports for Tor to listen at
         ports = [9050, 9150]
         for p in ports:
             pair = ('localhost', p)
             if TorDetector.is_tor_port(pair):
-                self.found_proxy.emit(pair)
+                # NOTE(typing) signals are not handled properly by Pyright
+                self.found_proxy.emit(pair) # type: ignore
                 return
 
     @staticmethod
-    def is_tor_port(pair):
+    def is_tor_port(pair) -> bool:
         try:
-            s = (socket._socketobject if hasattr(socket, "_socketobject")
-                 else socket.socket)(socket.AF_INET, socket.SOCK_STREAM)
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(0.1)
             s.connect(pair)
             # Tor responds uniquely to HTTP-like requests
@@ -659,61 +946,115 @@ class TorDetector(QThread):
 
 
 class NetworkTabsLayout(QVBoxLayout):
-
-    def __init__(self, network, config, wizard=False):
+    def __init__(self, wizard=False) -> None:
         super().__init__()
-        self.network = network
-        self.config = config
-        self.protocol = None
-        self.tor_proxy = None
-        self.filling_in = False
+        self._tor_proxy = None
+        self._filling_in = False
 
-        self.blockchain_tab = BlockchainTab(self)
-        self.servers_tab = ServersTab(self)
-        self.proxy_tab = ProxyTab(self)
+        self._blockchain_tab = BlockchainTab(self)
+        self._servers_tab = ServersTab(self)
+        self._proxy_tab = ProxyTab(self)
 
-        self.tabs = QTabWidget()
-        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.tabs.addTab(self.blockchain_tab, _('Blockchain Status'))
-        self.tabs.addTab(self.servers_tab, _('Servers'))
-        self.tabs.addTab(self.proxy_tab, _('Proxy'))
+        self._tabs = QTabWidget()
+        self._tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._tabs.addTab(self._blockchain_tab, _('Blockchain Status'))
+        self._tabs.addTab(self._servers_tab, _('Servers'))
+        self._tabs.addTab(self._proxy_tab, _('Proxy'))
 
         if wizard:
-            self.tabs.setCurrentIndex(1)
+            self._tabs.setCurrentIndex(1)
 
-        self.addWidget(self.tabs)
+        self.addWidget(self._tabs)
         self.setSizeConstraint(QVBoxLayout.SetFixedSize)
-        self.proxy_tab.set_tor_detector()
+        self._proxy_tab.set_tor_detector()
         self.last_values = None
 
 
 class NetworkDialog(QDialog):
     network_updated_signal = pyqtSignal()
 
-    def __init__(self, network: Network, config) -> None:
-        super().__init__(flags=Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+    def __init__(self) -> None:
+        super().__init__(flags=Qt.WindowType(Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint))
         self.setWindowTitle(_('Network'))
         self.setMinimumSize(500, 200)
         self.resize(560, 400)
 
-        self._tabs_layout = NetworkTabsLayout(network, config)
+        self._tabs_layout = NetworkTabsLayout()
         self._buttons_layout = Buttons(CloseButton(self))
         self._buttons_layout.add_left_button(HelpDialogButton(self, "misc", "network-dialog"))
 
-        self.vbox = QVBoxLayout(self)
-        self.vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
-        self.vbox.addLayout(self._tabs_layout)
-        self.vbox.addLayout(self._buttons_layout)
+        vbox = QVBoxLayout(self)
+        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        vbox.addLayout(self._tabs_layout)
+        vbox.addLayout(self._buttons_layout)
 
-        self.network_updated_signal.connect(self.on_update)
-        network.register_callback(self.on_network, ['updated', 'sessions'])
+        # The following event registrations cover what should be the full scope of keeping the
+        # list up to date, both main server status and the existence of which servers the
+        # application is connected to.
+        # NOTE(typing) signals are not handled properly by Pyright
+        self.network_updated_signal.connect(self._event_network_updated) # type: ignore
 
-    def on_network(self, event, *args):
-        ''' This may run in network thread '''
-        self.network_updated_signal.emit()
+        # 'update': possible main server change.
+        # 'sessions': a session is either opened or closed.
+        network = cast(Network, app_state.daemon.network)
+        network.register_callback(self._event_network_callbacks, ['updated', 'sessions'])
 
-    def on_update(self):
-        ''' This always runs in main GUI thread '''
-        self._tabs_layout.servers_tab.update_servers()
+    def _event_network_callbacks(self, event, *args):
+        # This may run in network thread??
+        # NOTE(typing) signals are not handled properly by Pyright
+        self.network_updated_signal.emit() # type: ignore
+
+    def _event_network_updated(self):
+        # This always runs in main GUI thread.
+        self._tabs_layout._servers_tab.update_servers()
+
+
+class URLValidator(QValidator):
+    _last_message: str = ""
+
+    def __init__(self, parent: Optional[QObject]=None, schemes: Optional[set[str]]=None) -> None:
+        super().__init__(parent)
+
+        self._schemes = schemes
+
+    def set_schemes(self, schemes: Optional[set[str]]=None) -> None:
+        """
+        Custom method to update the schemes to validate against.
+        """
+        self._schemes = schemes
+
+    def get_last_message(self) -> str:
+        return self._last_message
+
+    def validate(self, text: str, position: int) -> tuple[QValidator.State, str, int]:
+        """
+        Overridden method to differentiate betwen intermediate and acceptable values.
+
+        We intentionally do not return an `Invalid` result as that prevents the user from entering
+        what they have entered, and unless we are differentiating between numbers and text or some
+        equally distinct set of values this is not so easy.
+        """
+        try:
+            text = validate_url(text, schemes=self._schemes, host_only=True)
+        except UrlValidationError as e:
+            if e.code == UrlValidationError.INVALID_SCHEME:
+                schemes = self._schemes if self._schemes else DEFAULT_SCHEMES
+                self._last_message = _("Invalid scheme (expected: {})").format(", ".join(schemes))
+            else:
+                self._last_message = e.args[0]
+            return QValidator.Intermediate, text, position
+
+        self._last_message = ""
+        return QValidator.Acceptable, text, position
+
+    def fixup(self, text: str) -> str:
+        """
+        Overridden method to fix the content.
+
+        It is unclear from the documentation when this gets called, whether it is just for
+        `Invalid` validation results, or any that are not `Acceptable`. We do not attempt to
+        fix anything.
+        """
+        return text
 
