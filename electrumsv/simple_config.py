@@ -2,7 +2,7 @@ from copy import deepcopy
 import os
 import stat
 import threading
-from typing import Optional
+from typing import cast, Optional
 
 from . import util
 from .bitcoin import MAX_FEE_RATE
@@ -69,10 +69,10 @@ class SimpleConfig:
         if self.requires_upgrade():
             self.upgrade()
 
-    def electrum_path(self):
+    def electrum_path(self) -> str:
         # Read electrum_cash_path from command line
         # Otherwise use the user's default data directory.
-        path = self.get('electrum_sv_path')
+        path = cast(str, self.get('electrum_sv_path'))
         if path is None:
             path = self.user_dir()
 
@@ -283,7 +283,7 @@ def read_user_config(path):
             data = f.read()
         result = JSON.loads(data)
     except Exception:
-        logger.error("Cannot read config file %s.", config_path)
+        logger.exception("Cannot read config file %s.", config_path)
         return {}
     if not type(result) is dict:
         return {}

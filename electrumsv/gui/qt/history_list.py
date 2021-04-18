@@ -118,7 +118,7 @@ class HistoryList(MyTreeWidget):
 
         self._main_window = weakref.proxy(main_window)
         self._account_id: Optional[int] = None
-        self._account: AbstractAccount = None
+        self._account: Optional[AbstractAccount] = None
         self._wallet = main_window._wallet
 
         self._main_window.account_change_signal.connect(self._on_account_change)
@@ -139,7 +139,6 @@ class HistoryList(MyTreeWidget):
 
     def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
         self.clear()
-        old_account_id = self._account_id
         self._account_id = new_account_id
         self._account = new_account
 
@@ -187,6 +186,7 @@ class HistoryList(MyTreeWidget):
         items = []
         for entry in self._account.get_history(self.get_domain()):
             row = entry.row
+            assert row.block_height is not None
             tx_id = hash_to_hex_str(row.tx_hash)
             conf = 0 if row.block_height <= 0 else max(local_height - row.block_height + 1, 0)
             timestamp = False
@@ -278,7 +278,9 @@ class HistoryList(MyTreeWidget):
 
         status = get_tx_status(self._account, block_height, block_position, confirmations)
         tx_id = hash_to_hex_str(tx_hash)
-        items = self.findItems(tx_id, self.TX_ROLE | Qt.MatchContains | Qt.MatchRecursive,
+        # NOTE(typing) The combination of match flags does not match the available signatures.
+        items = self.findItems(tx_id,
+            self.TX_ROLE | Qt.MatchContains | Qt.MatchRecursive, # type: ignore
             column=Columns.TX_ID)
         if items:
             item = items[0]
@@ -339,7 +341,8 @@ class HistoryList(MyTreeWidget):
         if column in self.editable_columns:
             # We grab a fresh reference to the current item, as it has been deleted in a
             # reported issue.
-            menu.addAction(_("Edit {}").format(column_title),
+            # NOTE(typing) The PYQT_SLOT argument should take the lambda as a callable, but doesn't.
+            menu.addAction(_("Edit {}").format(column_title), # type: ignore
                 lambda: self.currentItem() and self.editItem(self.currentItem(), column))
         menu.addAction(_("Details"), lambda: self._main_window.show_transaction(account, tx))
         if is_unconfirmed and tx:
@@ -356,7 +359,10 @@ class HistoryList(MyTreeWidget):
             action.setEnabled(invoice_id is not None)
 
         if tx_URL:
-            menu.addAction(_("View on block explorer"), lambda: webbrowser.open(tx_URL))
+            # NOTE(typing) The PYQT_SLOT argument should take the lambda as a callable, but doesn't.
+            # NOTE(typing) The `webbrowser.open` call does not factor in the above for used types.
+            menu.addAction(_("View on block explorer"), # type: ignore
+                lambda: webbrowser.open(tx_URL)) # type: ignore
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _show_invoice_window(self, invoice_id: int) -> None:
@@ -405,7 +411,7 @@ class HistoryView(QWidget):
         self._main_window = weakref.proxy(main_window)
 
         self._account_id: Optional[int] = None
-        self._account: AbstractAccount = None
+        self._account: Optional[AbstractAccount] = None
 
         # The history view is created before the transactions view, so this will be updated by
         # an event from the transactions view. If this ordering changes you may see that it is
@@ -423,8 +429,11 @@ class HistoryView(QWidget):
 
         self.list = HistoryList(parent, main_window)
         self._top_button_layout = TableTopButtonLayout()
-        self._top_button_layout.refresh_signal.connect(self._main_window.refresh_wallet_display)
-        self._top_button_layout.filter_signal.connect(self.filter_tx_list)
+        # NOTE(typing) signals are not handled properly by Pyright
+        self._top_button_layout.refresh_signal.connect( # type: ignore
+            self._main_window.refresh_wallet_display)
+        # NOTE(typing) signals are not handled properly by Pyright
+        self._top_button_layout.filter_signal.connect(self.filter_tx_list) # type: ignore
         self._top_button_layout.add_button("icons8-export-32-windows.png",
             self._main_window.export_history_dialog, _("Export history as.."))
 
@@ -438,7 +447,8 @@ class HistoryView(QWidget):
 
         self._update_transactions_tab_summary()
 
-        main_window.account_change_signal.connect(self._on_account_changed)
+        # NOTE(typing) signals are not handled properly by Pyright
+        main_window.account_change_signal.connect(self._on_account_changed) # type: ignore
 
     def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount) -> None:
         self._account_id = new_account_id

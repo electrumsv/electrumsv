@@ -2,7 +2,8 @@ from typing import cast, Optional
 import weakref
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QComboBox, QDialog, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QComboBox, QDialog, QLabel, QLineEdit, QSizePolicy, QSpacerItem, \
+    QVBoxLayout, QWidget
 
 from ...constants import ACCOUNT_SCRIPT_TYPES, DerivationType, KeystoreType, ScriptType
 from ...i18n import _
@@ -31,9 +32,12 @@ class AccountDialog(QDialog):
         keystore = account.get_keystore()
 
         self.setWindowTitle(_("Account Information"))
-        self.setMinimumSize(600, 400)
 
         vbox = QVBoxLayout()
+        # Ensure the size of the dialog is hard fixed to the space used by the widgets.
+        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        # The fixed size constraint leaves no way to ensure a minimum width, so we use a spacer.
+        vbox.addSpacerItem(QSpacerItem(600, 1))
 
         self._form = form = FormSectionWidget()
 
@@ -106,7 +110,7 @@ class AccountDialog(QDialog):
             elif account.is_deterministic():
                 mpk_list = account.get_master_public_keys()
                 mpk_text = ShowQRTextEdit()
-                mpk_text.setFixedHeight(65)
+                mpk_text.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
                 mpk_text.addCopyButton(self._main_window.app)
                 mpk_text.setText(mpk_list[0])
                 mpk_text.repaint()   # macOS hack for Electrum #4777

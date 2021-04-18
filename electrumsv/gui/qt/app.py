@@ -219,13 +219,13 @@ class SVApplication(QApplication):
                                   'ElectrumSV if you want to get connected'), title=_('Offline'))
             return
         if self.net_dialog:
-            self.net_dialog.on_update()
+            self.net_dialog._event_network_updated()
             self.net_dialog.show()
             self.net_dialog.raise_()
             return
         # from importlib import reload
         # reload(network_dialog)
-        self.net_dialog = network_dialog.NetworkDialog(app_state.daemon.network, app_state.config)
+        self.net_dialog = network_dialog.NetworkDialog()
         self.net_dialog.show()
 
     def show_log_viewer(self) -> None:
