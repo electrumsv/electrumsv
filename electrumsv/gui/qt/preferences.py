@@ -375,7 +375,8 @@ class PreferencesDialog(QDialog):
 
     def _wallet_widgets(self, wallet: Wallet, tab: QWidget) -> None:
         use_change_addresses_cb = QCheckBox(_('Use change addresses'))
-        use_change_addresses_cb.setChecked(wallet.get_boolean_setting(WalletSettings.USE_CHANGE))
+        use_change_addresses_cb.setChecked(
+            wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True))
         use_change_addresses_cb.setEnabled(
             app_state.config.is_modifiable(WalletSettings.USE_CHANGE))
         use_change_addresses_cb.setToolTip(
@@ -384,14 +385,15 @@ class PreferencesDialog(QDialog):
         )
         def on_usechange(state: int):
             should_enable = state == Qt.Checked
-            if wallet.get_boolean_setting(WalletSettings.USE_CHANGE) != should_enable:
+            if wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True) != should_enable:
                 wallet.set_boolean_setting(WalletSettings.USE_CHANGE, should_enable)
                 multiple_change_cb.setEnabled(should_enable)
         use_change_addresses_cb.stateChanged.connect(on_usechange)
 
         multiple_change_cb = QCheckBox(_('Use multiple change addresses'))
-        multiple_change_cb.setChecked(wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE))
-        multiple_change_cb.setEnabled(wallet.get_boolean_setting(WalletSettings.USE_CHANGE))
+        multiple_change_cb.setChecked(
+            wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True))
+        multiple_change_cb.setEnabled(wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True))
         multiple_change_cb.setToolTip('\n'.join([
             _('In some cases, use up to 3 change keys in order to break '
               'up large coin amounts and obfuscate the recipient key.'),
@@ -399,7 +401,7 @@ class PreferencesDialog(QDialog):
         ]))
         def on_multiple_change_toggled(state: int) -> None:
             multiple = state == Qt.Checked
-            if wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE) != multiple:
+            if wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True) != multiple:
                 wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, multiple)
         multiple_change_cb.stateChanged.connect(on_multiple_change_toggled)
 

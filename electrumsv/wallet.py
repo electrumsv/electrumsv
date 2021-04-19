@@ -1316,8 +1316,8 @@ class AbstractAccount:
             # TODO(rt12) BACKLOG Hardware wallets should use 1 change at most. Make sure the
             # corner case of the active multisig cosigning wallet being hardware is covered.
             max_change = self.max_change_outputs \
-                if self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE) else 1
-            if self._wallet.get_boolean_setting(WalletSettings.USE_CHANGE) and \
+                if self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True) else 1
+            if self._wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True) and \
                     self.is_deterministic():
                 change_keyinstances = self.get_fresh_keys(CHANGE_SUBPATH, max_change)
                 change_outs = []
@@ -2838,6 +2838,14 @@ class Wallet(TriggeredCallbacks):
         return self._storage.put('deactivate_used_keys', enabled)
 
     def get_boolean_setting(self, setting_name: str, default_value: bool=False) -> bool:
+        """
+        Get the value of a wallet-global config variable that is known to be boolean type.
+
+        For the sake of simplicity, callers are expected to know the default value of their
+        given variable and pass it in. Known cases are:
+          WalletSettings.USE_CHANGE: True
+          WalletSettings.MULTIPLE_CHANGE: True
+        """
         return self._storage.get(str(setting_name), default_value)
 
     def set_boolean_setting(self, setting_name: str, enabled: bool) -> None:
