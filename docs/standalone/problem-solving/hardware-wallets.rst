@@ -1,6 +1,91 @@
 Hardware wallet issues
 ======================
 
+Ledger
+------
+
+While Ledger as a company do not support Bitcoin SV as a coin on their device, users have been
+able to use their Ledger devices with ElectrumSV through compatibility with the Bitcoin Cash
+support.
+
+The Ledger device reports "unverified inputs"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+You go to sign your transaction and your Ledger device has a confusing series of screens talking
+about "unverified inputs" and updating your device and/or software. You can simply step through
+these screens and select continue. These screens will be shown below, and then a detailed
+explanation of why you are seeing them will be provided.
+
+The short version is that you can continue past these screens to signing your transaction as you
+signed it before you started seeing these messages, and it will be as secure as it was then. Just
+make sure you only sign it once, and if ElectrumSV asks you to resign it over and over not
+recognising that you did it once, you are probably using malware. Again, see below the screens
+for an explanation of this in more detail.
+
+.. figure:: images/ledger-sign-01-unverified-inputs.png
+   :alt: Unverified inputs
+   :align: center
+
+It should not be necessary to update your Ledger firmware and applications to deal with this.
+
+.. figure:: images/ledger-sign-02-unverified-inputs-update.png
+   :alt: Update Ledger Live
+   :align: center
+
+It should not be necessary to update ElectrumSV, although you should always be using the latest
+version.
+
+.. figure:: images/ledger-sign-03-unverified-inputs-update.png
+   :alt: Or third party software
+   :align: center
+
+You can cancel the signing of the transaction if you want.
+
+.. figure:: images/ledger-sign-04-unverified-inputs-cancel.png
+   :alt: The cancel option
+   :align: center
+
+But if you select the "continue" option, the Ledger device will go through the normal transaction
+signing process.
+
+.. figure:: images/ledger-sign-05-unverified-inputs-continue.png
+   :alt: The continue option
+   :align: center
+
+As you might recall, the first step of the correct signing process is to confirm where you are
+sending funds. And this is where the process is now at. You can go ahead and sign the transaction
+as you would have in the past before this confusing message.
+
+.. figure:: images/ledger-sign-06-review-output.png
+   :alt: Now you are past that, the real signing process begins with address confirmation.
+   :align: center
+
+Why do I see this "unverified inputs" message?
+##############################################
+
+A theoretical but unlikely exploit was discovered where wallet malware could direct a user to sign
+a transaction several times, and extract the signed spends from each and combine them into a new
+transaction which gave a large fee to miners. Trezor wrote an `article about it <https://blog.trezor.io/details-of-firmware-updates-for-trezor-one-version-1-9-1-and-trezor-model-t-version-2-3-1-1eba8f60f2dd>`_
+which you can read if you wish. You see this warning because ElectrumSV is not providing the
+previous transactions in which the spent coins were originally received to the Ledger device.
+
+The simple reason we do not provide the previous transaction data is because Ledger cannot handle
+it and will break. You can see in the Trezor hardware issues a "DataError: bytes overflow" error,
+which their users may encounter. We have to provide these transactions to the Trezor devices but
+they cannot handle them and they break, this means that Trezor users have to be careful not to
+spend anything other than the simplest of received payments in their transactions themselves and
+work out what they can and can't spend themseves. If any of their coins is not simple and cannot
+be handled by Trezor, they need to bypass their hardware wallet and spend them in an unsafe way
+by entering their seed words.
+
+Back to Ledger devices. Ledger allow the transaction to be signed without the spent transaction
+data, and on detecting they do not have it, they show an "unverified inputs" message. This makes
+it a little lot for Ledger users. They can still sign a spend they are confident is going to the
+correct places, and not bypass their hardware wallet to do so. Let's be honest, if someone is going
+to all the effort of writing malware it has never in the history of malware been to give the stolen
+coins to miners. The chances of downloading malware are slight, and the chances of downloading
+malware that gives coins to anyone other than the thief are even slighter.
+
 Trezor
 ------
 
