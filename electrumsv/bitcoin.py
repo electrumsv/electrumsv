@@ -230,10 +230,11 @@ def string_to_bip276_script(text: str) -> Script:
         return Script(data)
     raise ValueError("string is not bip276")
 
-def scripthash_bytes(script: Script) -> bytes:
-    return sha256(bytes(script))
+def scripthash_bytes(script: Union[bytes, Script]) -> bytes:
+    # NOTE(typing) Ignore passing a bytes object into the `bytes` builtin, as it is valid.
+    return sha256(bytes(script)) # type: ignore
 
-def scripthash_hex(item: Script) -> str:
+def scripthash_hex(item: Union[bytes, Script]) -> str:
     return hash_to_hex_str(scripthash_bytes(item))
 
 def msg_magic(message) -> bytes:

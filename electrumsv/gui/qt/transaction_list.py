@@ -151,33 +151,6 @@ class _ItemModel(QAbstractItemModel):
         # If there are any other rows that need to be updated relating to the data in that
         # line, here is the place to do it.  Then signal what has changed.
 
-    def update_row(self, row: int, values: Dict[int, Any]) -> bool:
-        old_line = self._data[row]
-        tx_id = hash_to_hex_str(old_line.hash)
-        self._logger.debug("update_line tx=%s idx=%d", tx_id, row)
-
-        if len(values):
-            l = list(old_line)
-            for value_index, value in values.items():
-                l[value_index] = value
-            new_line = self._data[row] = TxLine(*l)
-
-            old_key = get_sort_key(old_line)
-            new_key = get_sort_key(new_line)
-
-            if old_key != new_key:
-                # We need to move the line, so it is more than a simple row update.
-                self.remove_row(row)
-                insert_row = self._add_line(new_line)
-                return True
-
-        start_index = self.createIndex(row, 0)
-        column_count = self.columnCount(start_index)
-        end_index = self.createIndex(row, column_count-1)
-        self.dataChanged.emit(start_index, end_index)
-
-        return True
-
     def invalidate_cell_by_key(self, tx_hash: bytes, column: int) -> None:
         row = self._get_row(tx_hash)
         if row is None:

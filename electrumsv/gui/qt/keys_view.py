@@ -132,7 +132,7 @@ class _ItemModel(QAbstractItemModel):
     def set_column_name(self, column_index: int, column_name: str) -> None:
         self._column_names[column_index] = column_name
 
-    def set_data(self, account_id: int, data: List[KeyLine]) -> None:
+    def set_data(self, account_id: Optional[int], data: List[KeyLine]) -> None:
         self.beginResetModel()
         self._account_id = account_id
         self._data = data
@@ -176,31 +176,6 @@ class _ItemModel(QAbstractItemModel):
         # If there are any other rows that need to be updated relating to the data in that
         # line, here is the place to do it.  Then signal what has changed.
 
-    def update_line(self, line: KeyLine, values: Dict[int, Any]) -> bool:
-        row_index = self._get_data_line(line.keyinstance_id)
-        if row_index is None:
-            self._logger.debug("update_line called for non-existent entry %r", line)
-            return False
-
-        return self.update_row(row_index, values)
-
-    def update_row(self, row_index: int, values: Dict[int, Any]) -> bool:
-        old_line = self._data[row_index]
-        self._logger.debug("update_line key=%d idx=%d", old_line.keyinstance_id, row_index)
-
-        if len(values):
-            l = list(old_line)
-            for value_index, value in values.items():
-                l[value_index] = value
-            self._data[row_index] = KeyLine(*l)
-
-        start_index = self.createIndex(row_index, 0)
-        column_count = self.columnCount(start_index)
-        end_index = self.createIndex(row_index, column_count-1)
-        self.dataChanged.emit(start_index, end_index)
-
-        return True
-
     def invalidate_column(self, column_index: int) -> None:
         start_index = self.createIndex(0, column_index)
         row_count = self.rowCount(start_index)
@@ -218,7 +193,7 @@ class _ItemModel(QAbstractItemModel):
     def columnCount(self, model_index: QModelIndex) -> int:
         return len(self._column_names)
 
-    def data(self, model_index: QModelIndex, role: int) -> QVariant:
+    def data(self, model_index: QModelIndex, role: int) -> Any:
         if self._view._account_id != self._account_id:
             return None
 
@@ -335,7 +310,7 @@ class _ItemModel(QAbstractItemModel):
             return flags
         return Qt.ItemIsEnabled
 
-    def headerData(self, section: int, orientation: int, role: int) -> QVariant:
+    def headerData(self, section: int, orientation: int, role: int) -> Any:
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
             if section < len(self._column_names):
                 return self._column_names[section]
@@ -396,6 +371,9 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
         self.invalidateFilter()
 
     def lessThan(self, source_left: QModelIndex, source_right: QModelIndex) -> bool:
+        # There is the chance that the data can be None which will not compare in problematic
+        # situations, however the filter should check for it and prevent those rows from being
+        # compared.
         value_left = self.sourceModel().data(source_left, QT_SORT_ROLE)
         value_right = self.sourceModel().data(source_right, QT_SORT_ROLE)
         return value_left < value_right
@@ -409,7 +387,9 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
         if self._filter_type == MatchType.TEXT:
             for column in (KEY_COLUMN, LABEL_COLUMN, SCRIPT_COLUMN):
                 column_index = source_model.index(source_row, column, source_parent)
-                if match in source_model.data(column_index, Qt.DisplayRole).lower():
+                cell_data = source_model.data(column_index, Qt.DisplayRole)
+                # In rare occasions the filter may get a None result for cell data.
+                if cell_data and match in cell_data.lower():
                     return True
         elif self._filter_type == MatchType.ADDRESS and self._account is not None:
             column_index = source_model.index(source_row, KEY_COLUMN, source_parent)
@@ -428,7 +408,7 @@ class KeyView(QTableView):
         self._logger = logs.get_logger("key-view")
 
         self._main_window = weakref.proxy(main_window)
-        self._account: AbstractAccount = None
+        self._account: Optional[AbstractAccount] = None
         self._account_id: Optional[int] = None
 
         self._update_lock = threading.Lock()
@@ -579,7 +559,7 @@ class KeyView(QTableView):
         self._dispatch_updates(pending_actions, pending_state)
 
     def _have_pending_updates(self) -> bool:
-        return len(self._pending_actions) or len(self._pending_state)
+        return bool(self._pending_actions) or bool(self._pending_state)
 
     # def _dispatch_updates(self, pending_actions: Set[ListActions],
     #         pending_state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
@@ -790,6 +770,7 @@ class KeyView(QTableView):
         menu_index = self.indexAt(position)
         menu_source_index = get_source_index(menu_index, _ItemModel)
 
+        column_title: Optional[str] = None
         if menu_source_index.row() != -1:
             menu_line = self._data[menu_source_index.row()]
             menu_column = menu_source_index.column()
@@ -848,15 +829,19 @@ class KeyView(QTableView):
                     if isinstance(script_template, Address):
                         addr_URL = web.BE_URL(self._main_window.config, 'addr', script_template)
 
-                    scripthash = scripthash_hex(script_template.to_script_bytes())
+                    script_bytes = script_template.to_script_bytes()
+                    assert isinstance(script_bytes, bytes)
+                    scripthash = scripthash_hex(script_bytes)
                     script_URL = web.BE_URL(self._main_window.config, 'script', scripthash)
 
+                # NOTE(typing) `addAction` does not like a return value for the callback.
                 addr_action = explore_menu.addAction(_("By address"),
-                    partial(webbrowser.open, addr_URL))
+                    partial(webbrowser.open, addr_URL)) # type: ignore
                 if not addr_URL:
                     addr_action.setEnabled(False)
+                # NOTE(typing) `addAction` does not like a return value for the callback.
                 script_action = explore_menu.addAction(_("By script"),
-                    partial(webbrowser.open, script_URL))
+                    partial(webbrowser.open, script_URL)) # type: ignore
                 if not script_URL:
                     script_action.setEnabled(False)
 
@@ -864,17 +849,20 @@ class KeyView(QTableView):
                     scripthash = scripthash_hex(bytes(script))
                     script_URL = web.BE_URL(self._main_window.config, 'script', scripthash)
                     if script_URL:
+                        # NOTE(typing) `addAction` does not like a return value for the callback.
                         explore_menu.addAction(
                             _("As {scripttype}").format(scripttype=script_type.name),
-                            partial(webbrowser.open, script_URL))
+                            partial(webbrowser.open, script_URL)) # type: ignore
 
                 if isinstance(self._account, StandardAccount):
                     keystore = self._account.get_keystore()
                     if isinstance(keystore, Hardware_KeyStore):
+                        # NOTE(typing) The whole keystore.plugin thing is not well defined.
                         def show_key():
                             self._main_window.run_in_thread(
-                                keystore.plugin.show_key, self._account, key_id)
-                        menu.addAction(_("Show on {}").format(keystore.plugin.device), show_key)
+                                keystore.plugin.show_key, self._account, key_id) # type: ignore
+                        menu.addAction(_("Show on {}").format(
+                            keystore.plugin.device), show_key) # type: ignore
 
             # freeze = self._main_window.set_frozen_state
             key_ids = [ line.keyinstance_id

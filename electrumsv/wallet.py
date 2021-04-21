@@ -445,7 +445,7 @@ class AbstractAccount:
         "The complete set of script types that this account type can make use of."
         return self.get_enabled_script_types()
 
-    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Script]:
+    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
         raise NotImplementedError
 
     def get_script_for_id(self, keyinstance_id: int,
