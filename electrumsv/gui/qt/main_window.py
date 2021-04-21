@@ -2138,9 +2138,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.tx_notify_timer.stop()
             self.tx_notify_timer = None
 
+        # Cancelled tasks have a reference to a cancelled exception, if we do not delete the
+        # future that links to the task, the task methods on the window class will keep the window
+        # from being garbage collected.
         self._network_status_task.cancel()
+        self._network_status_task = None
         self._monitor_wallet_network_status_task.cancel()
-        self._network_status_task.cancel()
+        self._monitor_wallet_network_status_task = None
 
         # We catch these errors with the understanding that there is no recovery at
         # this point, given user has likely performed an action we cannot recover
