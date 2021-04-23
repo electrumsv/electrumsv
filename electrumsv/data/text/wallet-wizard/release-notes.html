@@ -2,21 +2,22 @@
     <body>
         <p>
             Changes included in this version of ElectrumSV are documented in a more readable
-            form within the following article: <a href="https://medium.com/@roger-taylor/electrumsv-1-3-11-6f09f2aaed94">ElectrumSV 1.3.11</a>
+            form within the following article: <a href="https://medium.com/@roger-taylor/electrumsv-1-3-12-a4002e6dbdf6">ElectrumSV 1.3.12</a>
         </p>
         <p>
             The most prominent changes are also summarised below for convenience, if you wish to read more
             about any given change, please read the linked article.
         </p>
         <ul>
-          <li>Ledger hardware devices: The latest Ledger software has been updated in a way that is not
-            backwards compatible. This means that anyone who updates their device needs to get the changes
-            in this release that update ElectrumSV to work with these latest Ledger updates.</li>
-          <li>Hardware wallet accounts: The derivation path is now visible in the account information
-            dialog.</li>
-          <li>Account-less: Loading transactions in a wallet with no accounts no longer errors due to an
-            unnecessary dependency on accounts in this functionality.</li>
-          <li>Invoices: Importing invoices into an account would error displaying the open file dialog.</li>
+          <li>Memory leaks: If a user opened multiple wallets at the same time in ElectrumSV, closing the
+            window for one wallet would not result in it being garbage collected. The wallet itself and
+            the accounts however, would have been closed properly.</li>
+          <li>Payments: The default value for the "use change" setting was lost, and instead of
+            being "True" defaulted to "False". This would only happen for new wallets created since
+            this regression happened in the 1.3.11 release.</li>
+          <li>Wallet reliability: It is no longer possible to open wallets created with a later version
+            of ElectrumSV than you are using. Rather than potentially erroring or introducing corruption
+            a user friendly error message is shown.</li>
         </ul>
     </body>
 </html>
