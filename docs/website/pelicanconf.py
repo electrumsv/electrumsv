@@ -50,12 +50,12 @@ class DownloadEntry(NamedTuple):
     extra_text: str = ""
 
 DOWNLOAD_LATEST = DownloadEntry("1.3.12", "2021/04/23", "https://medium.com/@roger-taylor/electrumsv-1-3-12-a4002e6dbdf6", [
-    DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.12.dmg","30.1 MB"),
-    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.12.exe", "26.4 MB"),
-    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.12-portable.exe", "26.4 MB"),
-    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.12.tar.gz", "7.3 MB"),
-    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.12.zip", "7.6 MB"),
-    DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.3.12-docs.zip", "11.5 MB"),
+    DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.12.dmg","30.5 MB"),
+    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.12.exe", "26.9 MB"),
+    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.12-portable.exe", "26.9 MB"),
+    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.12.tar.gz", "7.6 MB"),
+    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.12.zip", "7.9 MB"),
+    DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.3.12-docs.zip", "10.3 MB"),
 ])
 
 DOWNLOADS_OLDER = [
