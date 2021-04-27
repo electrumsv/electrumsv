@@ -46,6 +46,12 @@ body {
 	font-weight: 100;
 }
 
+img {
+	/* Chrome 90.0.4430.85 down scales the logo to a blurry result.
+	   Source: https://stackoverflow.com/a/66979096 */
+	transform: translateZ(0);
+}
+
 img.bcomm {
 	height: 3em;
 }
