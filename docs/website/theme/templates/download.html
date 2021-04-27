@@ -22,6 +22,7 @@
                     {% endfor %}
                 </div>
             </div>
+            <!--
             <div class="mb-3">
                 <div class="row">
                     <div class="col-lg-12 esv-section-title">Experimental releases</div>
@@ -34,6 +35,7 @@
                     </div>
                 </div>
             </div>
+            -->
             <div class="mb-3">
                 <div class="row">
                     <div class="col-lg-12 esv-section-title">Older releases</div>
@@ -78,63 +80,39 @@
         </div>
         <div class="col-lg-4 pl-4 pr-4">
             <div class="row">
-                <div class="col-lg-12 esv-section-title">Security Tips</div>
+                <div class="col-lg-12 esv-section-title">Avoid Malware</div>
+            </div>
+            <div class="row esv-border-grey pt-3 esv-highlight-box mb-1">
+                <div class="col-12">
+                    <p class="mb-3">
+                        Have you checked that this is the real ElectrumSV web site?
+                    </p>
+                </div>
+            </div>
+            <div class="row esv-border-grey pt-3 esv-highlight-box">
+                <div class="col-12">
+                    <p class="mb-3">
+                        Will you verify that the file you download from this web site has not been
+                        altered or replaced by a hacker?
+                    </p>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-lg-12 esv-section-title">Verify Your Download</div>
             </div>
             <div class="row esv-border-grey bg-light p-1 mt-1">
-                <div class="col-12 text-center">Who created this?</div>
+                <div class="col-12 text-center">Verify it yourself</div>
             </div>
             <div class="row esv-border-grey border-top-0 pt-3">
                 <div class="col-12">
                     <p>
-                        The traditional way that nerds verify that the files they get were
-                        created by the same people they dealt with in the past, is with
-                        PGP signatures.
+                        The best place to find out how to verify your downloaded file yourself
+                        is to follow the instructions in <a href="https://electrumsv.readthedocs.io/en/releases-1.3/getting-started/verifying-downloads.html">the verification guide</a>
+                        on our official documentation web site.
                     </p>
                     <p>
-                        For every file that is provided, the person who
-                        provided it also makes available their digital signature for that
-                        file.
-                    </p>
-                    <p>
-                        In the real world it turns out that working with the tools involved
-                        in checking these is an often buggy and complicated process, and
-                        only paranoid people with too much time on their hands bother.
-                    </p>
-                    <p></p>
-                        You can get
-                        <a href="https://github.com/electrumsv/electrumsv/tree/master/pubkeys">our PGP keys</a>
-                        from the official ElectrumSV git repository, and check the
-                        signatures we provide in
-                        <a href="https://electrumsv.io/download/">the download folder</a>
-                        on this web site if you really want to.
-                    </p>
-                </div>
-            </div>
-            <div class="row esv-border-grey bg-light p-1 border-top-0">
-                <div class="col-12 text-center">Has this been tampered with?</div>
-            </div>
-            <div class="row esv-border-grey border-top-0 rounded-bottom pt-3">
-                <div class="col-12">
-                    <p>
-                        The traditional way that nerds verify that the files they get are
-                        the same files that everyone else is getting, is with file hashes
-                        or checksums.
-                    </p>
-                    <p>
-                        For every file that is provided, the person who
-                        provided it also makes available a hash for that file. But the hash
-                        should be made available from a separate place than the file
-                        that it is associated with, or anyone who substitutes the
-                        file for malware can just replace the matching hash.
-                    </p>
-                    <p>
-                        In the real world, most people are too lazy to check these. But
-                        you should learn to do it for your own sake, until ElectrumSV
-                        can download and validate updates for you.
-                    </p>
-                    <p>
-                        You can get the <a href="https://en.wikipedia.org/wiki/SHA-2">SHA256 hashes</a>
-                        for the files we make available to download, from the
+                        Experienced users who know what to do with them can get the SHA256 hashes
+                        for the files we make available to download, from our
                         <a href="https://github.com/electrumsv/electrumsv/blob/master/build-hashes.txt">official
                         ElectrumSV git repository</a>.
                     </p>

@@ -153,8 +153,7 @@ div.figure p.caption {
 }
 
 .esv-box-border {
-	border-width: .2rem;
-	border: solid #f8f9fa;
+	border: 1px solid rgba(0,0,0,.125);
 }
 
 .esv-box-padding {
@@ -198,4 +197,11 @@ article {
 
 .esv-article .post-time time {
 	font-style: italic;
+}
+
+.esv-highlight-box {
+	background-color: #4A154B;
+	color: white;
+	font-weight: 600;
+	text-align: center;
 }
