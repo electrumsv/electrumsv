@@ -205,3 +205,19 @@ article {
 	font-weight: 600;
 	text-align: center;
 }
+
+.esv-highlight-box a:link {
+	color: #fff;
+}
+
+.esv-highlight-box a:visited {
+	color: #ccc;
+}
+
+.esv-highlight-box a:hover {
+	color: #eee;
+}
+
+.esv-highlight-box a:active {
+	color: #eee;
+}

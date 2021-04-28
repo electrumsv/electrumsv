@@ -50,25 +50,25 @@ class DownloadEntry(NamedTuple):
     extra_text: str = ""
 
 DOWNLOAD_LATEST = DownloadEntry("1.3.12", "2021/04/23", "https://medium.com/@roger-taylor/electrumsv-1-3-12-a4002e6dbdf6", [
-    DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.12.dmg","30.5 MB"),
-    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.12.exe", "26.9 MB"),
-    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.12-portable.exe", "26.9 MB"),
-    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.12.tar.gz", "7.6 MB"),
-    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.12.zip", "7.9 MB"),
-    DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.3.12-docs.zip", "10.3 MB"),
+    DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.12.dmg","30.5 MiB"),
+    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.12.exe", "26.9 MiB"),
+    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.12-portable.exe", "26.9 MiB"),
+    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.12.tar.gz", "7.6 MiB"),
+    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.12.zip", "7.9 MiB"),
+    DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.3.12-docs.zip", "10.3 MiB"),
 ])
 
 DOWNLOADS_OLDER = [
     DownloadEntry("1.3.11", "2020/11/30", "https://medium.com/@roger-taylor/electrumsv-1-3-11-6f09f2aaed94", [
-        DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.11.dmg","30.1 MB"),
-        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.11.exe", "26.4 MB"),
-        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.11-portable.exe", "26.4 MB"),
-        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.11.tar.gz", "7.3 MB"),
-        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.11.zip", "7.6 MB"),
-        DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.3.11-docs.zip", "11.5 MB"),
+        DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.11.dmg","30.1 MiB"),
+        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.11.exe", "26.4 MiB"),
+        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.11-portable.exe", "26.4 MiB"),
+        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.11.tar.gz", "7.3 MiB"),
+        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.11.zip", "7.6 MiB"),
+        DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.3.11-docs.zip", "11.5 MiB"),
     ], "If you use or revert to this release, enable the 'Use change' setting in the Preferences. See the 1.3.12 'What has changed?' for more details."),
     DownloadEntry("1.3.4", "2020/06/16", "https://medium.com/@roger.taylor/electrumsv-1-3-4-9408b74fd397", [
-        DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.4.dmg","28.3 MB"),
+        DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.4.dmg","28.3 MiB"),
     ], "This is provided for users of MacOS 10.13 and 10.14, given they have no expectation of receiving support."),
 ]
 

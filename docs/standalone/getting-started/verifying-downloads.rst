@@ -106,6 +106,41 @@ from ``10/11/2020`` to ``11/11/2022``.
 
    The certificate the file was signed with.
 
+Using certutil
+``````````````
+
+``certutil`` is already present in your Windows installation already. However, it requires opening
+a command prompt to run it, which might be something beyond some users. Press the `Windows` key and
+the ``s`` key at the same time, this will open the Windows searchy thing and there you can type
+``cmd`` and then press the ``enter`` key to open a command prompt.
+
+.. figure:: images/verifying-downloads-05-cmd.png
+   :alt: Opening a command prompt
+   :align: center
+   :width: 80%
+
+   Opening a command prompt.
+
+Then you need to change the directory until you are in the same directory as the file you wish
+to get a checksum for. The ``cd`` command is used for this. Then you can use the certutil command
+to generate a SHA 256 checksum for that file. The syntax is
+``certutil --hashfile <filename> SHA256``, but remember you need to replace ``<filename>`` with
+the actual file name. You can see an illustration of this in the image below.
+
+.. figure:: images/verifying-downloads-04-certutil-command-line.png
+   :alt: The certutil checksum result
+   :align: center
+   :width: 80%
+
+   The certutil checksum result.
+
+If you find the ``ElectrumSV-1.3.12.exe`` entry in the
+`linked Github list <https://github.com/electrumsv/electrumsv/blob/master/build-hashes.txt>`__,
+you can see it matches the certutil checksum result. The case of the letters does not matter,
+both lower case and upper case are equivalent. If you get a different result, and the command
+complains that it cannot find the file, then the file is not in the current directory. You need
+to use the ``cd`` command to change the current directory as mentioned above.
+
 Using 7-Zip
 ```````````
 
@@ -137,41 +172,6 @@ If you find the ``ElectrumSV-1.3.12.exe`` entry in the
 `linked Github list <https://github.com/electrumsv/electrumsv/blob/master/build-hashes.txt>`__,
 you can see it matches the 7-zip checksum result. The case of the letters does not matter, both
 lower case and upper case are equivalent.
-
-Using certutil
-``````````````
-
-Unlike ``7-Zip``, ``certutil`` is included with Windows already. However, it requires opening a
-command prompt to run it, which might be something beyond some users. Press the `Windows` key and
-the ``s`` key at the same time, this will open the Windows searchy thing and there you can type
-``cmd`` and then press the ``enter`` key to open a command prompt.
-
-.. figure:: images/verifying-downloads-05-cmd.png
-   :alt: Opening a command prompt
-   :align: center
-   :width: 80%
-
-   Opening a command prompt.
-
-Then you need to change the directory until you are in the same directory as the file you wish
-to get a checksum for. The ``cd`` command is used for this. Then you can use the certutil command
-to generate a SHA 256 checksum for that file. The syntax is
-``certutil --hashfile <filename> SHA256``, but remember you need to replace ``<filename>`` with
-the actual file name. You can see an illustration of this in the image below.
-
-.. figure:: images/verifying-downloads-04-certutil-command-line.png
-   :alt: The certutil checksum result
-   :align: center
-   :width: 80%
-
-   The certutil checksum result.
-
-If you find the ``ElectrumSV-1.3.12.exe`` entry in the
-`linked Github list <https://github.com/electrumsv/electrumsv/blob/master/build-hashes.txt>`__,
-you can see it matches the certutil checksum result. The case of the letters does not matter,
-both lower case and upper case are equivalent. If you get a different result, and the command
-complains that it cannot find the file, then the file is not in the current directory. You need
-to use the ``cd`` command to change the current directory as mentioned above.
 
 MacOS
 ~~~~~
