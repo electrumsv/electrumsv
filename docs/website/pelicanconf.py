@@ -14,6 +14,7 @@ ARTICLE_PATHS = [ "articles" ]
 STATIC_PATHS = [
     "download",
     "release.json",
+    "BingSiteAuth.xml",
 ]
 
 ARTICLE_SAVE_AS = 'articles/{date:%Y}/{slug}.html'

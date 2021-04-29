@@ -38,6 +38,19 @@ MacOS/Linux::
 The generated web site will be available in the ``output`` sub-directory. You can
 navigate here and open ``index.html``.
 
+Special files
+`````````````
+
+release.json
+^^^^^^^^^^^^
+
+ElectrumSV downloads this file and uses it to detect updates.
+
+BingSiteAuth.xml
+^^^^^^^^^^^^^^^^
+
+This is used by Bing webmaster tools to confirm that Roger Taylor owns the electrumsv.io web site.
+
 The standalone documentation
 ----------------------------
 
