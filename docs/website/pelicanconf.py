@@ -5,6 +5,8 @@ from typing import List, NamedTuple
 AUTHOR = 'ElectrumSV Developers'
 SITENAME = 'ElectrumSV Website'
 SITEURL = ''
+PAGEDESC = 'This page is currently lacking a description. Contact the developers and let them know.'
+PAGEIMG = "https://electrumsv.io/theme/img/ESV_atomicon_RGB_small.png"
 
 THEME = "theme"
 

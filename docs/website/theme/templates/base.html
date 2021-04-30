@@ -6,10 +6,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
     <meta name="description" content="The ElectrumSV Wallet for Bitcoin SV"/>
     <meta name="author" content="The ElectrumSV Developers"/>
+    <meta property="og:site_name" content="ElectrumSV"/>
+    <meta property="og:title" content="{% block page_title %}{{ SITENAME }}{%endblock%}"/>
+    <meta property="og:description" content="{% block page_description %}{{ PAGEDESC }}{%endblock%}"/>
+    <meta property="og:image" content="{% block page_image %}{{ PAGEIMG }}{%endblock%}"/>
+	<meta name="twitter:card" content="summary" />
+    <meta name="twitter:site" content="@ElectrumSV"/>
+    <meta name="twitter:title" content="{{ self.page_title() }}"/>
+    <meta name="twitter:description" content="{{ self.page_description() }}"/>
+    <meta name="twitter:image" content="{{ self.page_image() }}"/>
     <title>{% block title %}{{ SITENAME }}{%endblock%}</title>
     <link rel="stylesheet" href="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/css/fontawesome-v5.6.3.min.css">
     <link rel="stylesheet" href="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/css/bootstrap.min.css">
-    <link rel="stylesheet" href="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/css/local.css?4">
+    <link rel="stylesheet" href="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/css/local.css?7">
     <link rel="icon" href="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/img/favicon.ico">
     {% if FEED_ALL_ATOM %}
     <link href="{{ FEED_DOMAIN }}/{% if FEED_ALL_ATOM_URL %}{{ FEED_ALL_ATOM_URL }}{% else %}{{ FEED_ALL_ATOM }}{% endif %}" type="application/atom+xml" rel="alternate" title="{{ SITENAME }} Atom Feed" />
@@ -25,7 +34,7 @@
 		<div class="bg-dark">
 			<div class="container">
 				<nav class="navbar navbar-dark navbar-expand-lg">
-					<a class="navbar-brand" href="{{ SITEURL }}/index.html"><img alt="The ElectrumSV logo" class="d-md-block" src="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/img/title_lg.png" height="40px" title="ElectrumSV"/></a>
+					<a class="navbar-brand" href="{{ SITEURL }}/index.html"><img alt="The ElectrumSV logo" class="d-md-block" src="{{ SITEURL }}/{{ THEME_STATIC_DIR }}/img/ESV_logo_wh_RGB_full.svg" onerror="this.onerror=null; this.src='{{ SITEURL }}/{{ THEME_STATIC_DIR }}/img/title_lg.png'" height="40px" title="ElectrumSV"/></a>
 					<button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
 						<span class="navbar-toggler-icon"></span>
 					</button>
