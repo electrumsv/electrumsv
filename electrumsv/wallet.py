@@ -340,16 +340,16 @@ class AbstractAccount:
             script_type: ScriptType) -> ScriptTemplate:
         raise NotImplementedError
 
-    def get_enabled_script_types(self) -> Sequence[ScriptType]:
-        "The allowed set of script types that this account can make use of."
-        raise NotImplementedError
-
-    def get_supported_script_types(self) -> Sequence[ScriptType]:
-        "The complete set of script types that this account type can make use of."
-        return self.get_enabled_script_types()
-
-    def get_possible_scripts_for_id(self, keyinstance_id: int) -> List[Tuple[ScriptType, Script]]:
-        raise NotImplementedError
+    def get_possible_scripts_for_key_data(self, keydata: KeyDataTypes) \
+            -> List[Tuple[ScriptType, Script]]:
+        script_types = ACCOUNT_SCRIPT_TYPES.get(self.type())
+        if script_types is None:
+            raise UnsupportedAccountTypeError
+        # NOTE(typing) Pylance does not know how to deal with abstract methods.
+        return [
+            (script_type,
+                self.get_script_template_for_key_data(keydata, script_type).to_script())
+            for script_type in script_types ] # type: ignore
 
     def get_script_for_key_data(self, keydata: KeyDataTypes, script_type: ScriptType) \
             -> Script:
