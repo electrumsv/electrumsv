@@ -129,6 +129,7 @@ def test_lrucache_add_single(max_count: int, max_size: int, test_tx_datacarrier)
 def test_lrucache_add_to_limit(max_count: int, max_size: int, test_tx_datacarrier):
     entries = []
     cache = LRUCache(max_count=max_count, max_size=max_size)
+    previous_added_node = cache._root
     for i in range(1, 1+3):
         k = chr(i).encode()
         v = test_tx_datacarrier
@@ -136,6 +137,13 @@ def test_lrucache_add_to_limit(max_count: int, max_size: int, test_tx_datacarrie
         added, removals = cache.set(k, v)
         assert added
         assert len(removals) == 0
+        # The previous recent node was at the end of the chain before the root node. Now the one
+        # we just added is. We want to verify that the ordering is as expected and that the
+        # directional links are in place.
+        current_node = cache._cache.get(k)
+        assert current_node.previous == previous_added_node
+        assert current_node.next == cache._root
+        previous_added_node = current_node
     assert cache.current_size == 3*SIZEOF_TEST_TX_DATA
     assert cache.hits == 0
     assert cache.misses == 0
