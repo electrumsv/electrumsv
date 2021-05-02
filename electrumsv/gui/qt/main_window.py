@@ -1908,7 +1908,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return self.tx_from_text(text)
 
     def read_tx_from_file(self) -> Optional[Transaction]:
-        fileName = self.getOpenFileName(_("Select your transaction file"), "*.txn")
+        fileName = self.getOpenFileName(_("Select your transaction file"),
+            "*.txn;;*.json;;*.txt;;*.*")
         if not fileName:
             return
         with open(fileName, "r") as f:
