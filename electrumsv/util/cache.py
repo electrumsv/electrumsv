@@ -14,11 +14,16 @@ class Node:
     value: Transaction
 
     def __init__(self, previous: Optional['Node']=None, next: Optional['Node']=None,
-            key: bytes=b'', value=None) -> None:
+            key: bytes=b'', value=None,  value_size: int=0) -> None:
+        """
+        The only node which can have an empty key or value is the root node. None of the added
+        nodes will have empty links, keys or values.
+        """
         self.previous = previous if previous is not None else self
-        self.next = previous if previous is not None else self
+        self.next = next if next is not None else self
         self.key = key
         self.value = value
+        self.value_size = value_size
 
 
 # Derived from functools.lrucache, LRUCache should be considered licensed under Python license.
@@ -53,7 +58,7 @@ class LRUCache:
 
     def _add(self, key: bytes, value: Transaction, size: int) -> Node:
         most_recent_node = self._root.previous
-        new_node = Node(most_recent_node, self._root, key, value)
+        new_node = Node(most_recent_node, self._root, key, value, size)
         most_recent_node.next = self._root.previous = self._cache[key] = new_node
         self.current_size += size
         return new_node
@@ -71,11 +76,13 @@ class LRUCache:
         with self._lock:
             node = self._cache.get(key, None)
             if node is not None:
+                # This will either remove the entry if the value is `None` or reorder the entry
+                # to be the most recent by removing and readding it (meaning it will get flushed
+                # from the cache after less recent transactions if space is needed).
                 previous_node, next_node, old_value = node.previous, node.next, node.value
-                assert value != old_value, "duplicate set not supported"
                 previous_node.next = next_node
                 next_node.previous = previous_node
-                self.current_size -= obj_size(old_value)
+                self.current_size -= node.value_size
                 del self._cache[key]
                 removals.append((key, old_value))
 
@@ -116,7 +123,7 @@ class LRUCache:
                 node.previous, node.next, node.key, node.value
             previous_node.next = next_node
             next_node.previous = previous_node
-            self.current_size -= obj_size(discard_value)
+            self.current_size -= node.value_size
             del self._cache[discard_key]
             removals.append((discard_key, discard_value))
         return removals

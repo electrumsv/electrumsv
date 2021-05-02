@@ -15,6 +15,13 @@ Getting started
 Before you can send and receive payments, you need to first create a wallet, and then create at
 least one account within it.
 
+How do you know you have the official software and not malware?
+    Every person who had their coins stolen and was interested in investigating, identified that
+    they had not downloaded from our official web site, and had instead obtained malware from some
+    other fake site. Many swore they downloaded from the official site until their verified their
+    download and found it to be malware. Read more about
+    :doc:`verifying your download <getting-started/verifying-downloads>`.
+
 How do you create a wallet?
     Your wallet is a standalone container for all your bitcoin-related data. You should be able
     to create as many accounts as you need within it, each account containing separated funds
@@ -41,6 +48,7 @@ How do you make a payment to someone else?
    :hidden:
    :caption: Getting started
 
+   /getting-started/verifying-downloads
    /getting-started/creating-a-wallet
    /getting-started/creating-an-account
    /getting-started/receiving-a-payment

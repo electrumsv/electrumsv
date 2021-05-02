@@ -189,21 +189,21 @@ class SVScalingTestnet(object):
     COIN = BitcoinScalingTestnet
 
     # Replace after sufficient time has passed after a chain reset.
-    CHECKPOINT = CheckPoint(bytes.fromhex(
-        '0000002050c936fce8c10522b399a9feee9c48fba7c409561d0553369fd6dc0a00000000735d99a4'
-        '0a4ff9d2499db4524ca1663b82736211390885bd5d813ef2d4612c798e7e285f99d91d1cb33ad085'
-    ), height=15789, prev_work=0x12c8202e00871)
+    # CHECKPOINT = CheckPoint(bytes.fromhex(
+    #     '0000002050c936fce8c10522b399a9feee9c48fba7c409561d0553369fd6dc0a00000000735d99a4'
+    #     '0a4ff9d2499db4524ca1663b82736211390885bd5d813ef2d4612c798e7e285f99d91d1cb33ad085'
+    # ), height=15789, prev_work=0x12c8202e00871)
 
-    VERIFICATION_BLOCK_MERKLE_ROOT = (
-        '3c6449749d6376dd341f4e1b2192ec658b68c241beaaf665e5615ae01c35b853'
-    )
+    # VERIFICATION_BLOCK_MERKLE_ROOT = (
+    #     '3c6449749d6376dd341f4e1b2192ec658b68c241beaaf665e5615ae01c35b853'
+    # )
 
     # Use the following for a chain reset.
-    # CHECKPOINT = CheckPoint(bytes.fromhex(
-    #     '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
-    #     '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
-    # ), height=0, prev_work=0)
-    # VERIFICATION_BLOCK_MERKLE_ROOT = None
+    CHECKPOINT = CheckPoint(bytes.fromhex(
+        '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
+        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
+    ), height=0, prev_work=0)
+    VERIFICATION_BLOCK_MERKLE_ROOT = None
 
     BIP44_COIN_TYPE = 1
 
