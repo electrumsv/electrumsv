@@ -54,10 +54,10 @@ class DownloadEntry(NamedTuple):
 
 DOWNLOAD_LATEST = DownloadEntry("1.3.13", "2021/05/04", "/articles/2021/electrumsv-1_3_13.html", [
     DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.13.dmg","30.5 MiB"),
-    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.13.exe", "26.9 MiB"),
-    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.13-portable.exe", "26.9 MiB"),
-    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.13.tar.gz", "7.6 MiB"),
-    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.13.zip", "7.9 MiB"),
+    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.13.exe", "26.8 MiB"),
+    DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.3.13-portable.exe", "26.8 MiB"),
+    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.13.tar.gz", "9.0 MiB"),
+    DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.13.zip", "9.3 MiB"),
     DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.3.13-docs.zip", "10.3 MiB"),
 ])
 
