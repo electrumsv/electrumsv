@@ -144,8 +144,8 @@ Your coins are your responsibility, take care with them.</span>
 """
 
 all_boxes = [
-    InfoBox('welcome-ESV-1.3.12',
-            _('Welcome to ElectrumSV 1.3.12'),
+    InfoBox('welcome-ESV-1.3.13',
+            _('Welcome to ElectrumSV 1.3.13'),
             '<p>'+ take_care_notice +'</p>'+
             '<p>You can read about the changes included in this release, in the '+
             f'<a href="{article_uri}">release guide</a> we have written.</p>'

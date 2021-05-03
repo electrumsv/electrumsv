@@ -95,8 +95,8 @@ file, where you should select the ``Digital Signatures`` tab to see the signatur
 From there click on ``Details`` and then ``View Certificate``. You should see a certificate with
 the following information for the given version.
 
-1.3.12
-^^^^^^
+1.3.12 and above
+^^^^^^^^^^^^^^^^
 
 The certificate should be issued to ``Bitcoin Association for BSV``, be issued by
 ``COMODO RSA Extended Validation Code Signing CA`` and as of the time of writing be valid

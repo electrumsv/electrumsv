@@ -31,11 +31,6 @@ When you run ElectrumSV, it will run against the main network by default. This i
 official Bitcoin SV coins exist. In order to run ElectrumSV against the STN, a user needs to
 provide it with a command-line argument.
 
-.. important::
-   It is not currently possible to use the Windows and MacOS builds to connect to the STN.
-   Anyone wanting to do so, needs to either run from the ``releases/1.3`` Github branch
-   directly or request a development build via `a Github issue <https://github.com/electrumsv/electrumsv/issues/new/choose>`_.
-
 Running in Scaling Testnet mode
 ===============================
 
@@ -48,7 +43,7 @@ If you are running a Windows build you might use the following command:
 
 .. code:: console
 
-  ElectrumSV-1.3.12-portable.exe --scaling-testnet
+  ElectrumSV-1.3.13-portable.exe --scaling-testnet
 
 If you are running on macOS or Linux, you might use the following command:
 

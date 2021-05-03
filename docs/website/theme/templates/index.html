@@ -86,7 +86,11 @@
                         <p>
                             <a href="download.html">ElectrumSV {{DOWNLOAD_LATEST.version}}</a> ({{DOWNLOAD_LATEST.release_date}})
                             <br/>
-                            <a target="_blank" href="{{DOWNLOAD_LATEST.article_link}}">What changed?</a>
+                            {% if DOWNLOAD_LATEST.article_link.startswith("/") %}
+                            <a href="{{SITEURL}}{{DOWNLOAD_LATEST.article_link}}">What changed?</a>
+                            {% else %}
+                            <a target="_blank" rel="noopener" href="{{DOWNLOAD_LATEST.article_link}}">What changed? <i class="fas fa-external-link-alt"></i></a>
+                            {% endif %}
                         </p>
                     </div>
                 </div>

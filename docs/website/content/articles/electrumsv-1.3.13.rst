@@ -6,7 +6,7 @@ What changed in ElectrumSV 1.3.13?
 :authors: The ElectrumSV Developers
 :summary: This update includes a variety of bug fixes and improvements. Read this illustrated overview to find out more.
 :category: releases
-:status: draft
+:status: published
 :unfurlimage: articles/electrumsv-1.3.13/20210503-scaling-testnet-wallet.png
 
 .. |br| raw:: html
@@ -95,6 +95,8 @@ to debug technical issues, which have led to it falling offline for a while now.
 `satoshi.io <https://satoshi.io/>`_  has been running his own server which he has kindly agreed to
 let ElectrumSV users use, and it is now built into ElectrumSV as the default.
 
+You can read an article on how to `access the scaling testnet with ElectrumSV <https://electrumsv.io/articles/2021/the-scaling-test-network.html>`__ on our web site.
+
 *Commits:* `#1 <https://github.com/electrumsv/electrumsv/commit/ac2fc1b0d4e70b6a9367776773874a074862ad0b>`__
 `#2 <https://github.com/electrumsv/electrumsv/commit/9eb793e8f246c26763e8e2ebada85f199033b5b1>`__
 
@@ -178,10 +180,17 @@ whenever Apple decides that suits.. we're happy to accept pull requests.
 
 *Commits:* `#1 <https://github.com/electrumsv/electrumsv/commit/87373049aaadbc800658bcf73c4f58c275d128eb>`__
 
+Other changes
+=============
+
+* The documentation 'verify your download' guide has been extended with information on how to
+  verify the GPG signatures on MacOS. Thanks to Amberto for the assistance with this.
+* The web site has a new article detailing how to use the scaling testnet with ElectrumSV.
+
 What changed before this release?
 ---------------------------------
 
 Each of our release articles links to the article for the release before it. You can follow our
 releases back and see what changed in each, by the article that accompanied that release.
 
-Read about `ElectrumSV 1.3.12 <https://roger-taylor.medium.com/electrumsv-1-3-12-a4002e6dbdf6>`__
+Read about what changed in `ElectrumSV 1.3.12 <https://roger-taylor.medium.com/electrumsv-1-3-12-a4002e6dbdf6>`__

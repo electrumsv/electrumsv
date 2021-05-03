@@ -36,6 +36,21 @@ at first, to yourself, to confirm the network is processing your transactions as
 ElectrumSV
 -----------
 
+# Release 1.3.13
+  * Release guide: https://electrumsv.io/articles/2021/electrumsv-1_3_13.html
+  * Reliability: Fixed a long time bug in the transaction caching which would in very rare
+    circumstances cause errors when transactions were evicted from the cache to make room for
+    more recently loaded ones.
+  * Transaction loading: The loading from file dialog filtered for the '.txn' extension and
+    now it offers a range of filters including '*.json', '*.txt' and the open '*.*'.
+  * Scaling testnet: The checkpoint for the scaling testnet was out of date and prevented using
+    existing builds for that blockchain. Now the checkpoint has been removed, and any build
+    from this one on should never have this problem again.
+  * Documentation: Extended the 'verify your download' guide with information on how to verify
+    the GPG signatures on MacOS.
+  * Web site: An article on how to access the scaling testnet (STN) with ElectrumSV has
+    been added.
+
 # Release 1.3.12
   * Release guide: https://medium.com/@roger-taylor/electrumsv-1-3-12-a4002e6dbdf6
   * Documentation: Added information about the "Unverified inputs" screens Ledger shows users

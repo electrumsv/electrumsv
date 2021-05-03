@@ -278,6 +278,12 @@ article {
 	color: #e74c3c;
 }
 
+i.fa-external-link-alt {
+	font-size: 8pt;
+	position: relative;
+	top: -2px;
+}
+
 @font-face{
 	font-family: Lato;
 	src: 	url(../webfonts/lato-normal.woff2?bd03a2cc277bbbc338d464e679fe9942) format("woff2");
