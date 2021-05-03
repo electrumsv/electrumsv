@@ -4,22 +4,26 @@
 {% block title %}{{ SITENAME }} - {{ article.title|striptags  }}{% endblock %}
 {% block page_title %}{{ article.title|striptags  }}{% endblock %}
 
+{% if article.summary %}
+{% block page_description %}{{ article.summary|striptags }}{% endblock %}
+{% block card_type %}summary_large_image{% endblock %}
+{% if article.unfurlimage %}
+{% block page_image %}https://electrumsv.io/{{ article.unfurlimage }}{% endblock %}
+{% endif %}
+{% endif %}
+
 {% block head %}
   {{ super() }}
-
   {% import 'translations.html' as translations with context %}
   {% if translations.entry_hreflang(article) %}
     {{ translations.entry_hreflang(article) }}
   {% endif %}
-
   {% if article.description %}
     <meta name="description" content="{{article.description}}" />
   {% endif %}
-
   {% for tag in article.tags %}
     <meta name="tags" content="{{tag}}" />
   {% endfor %}
-
 {% endblock %}
 
 {% block content %}

@@ -10,7 +10,7 @@
     <meta property="og:title" content="{% block page_title %}{{ SITENAME }}{%endblock%}"/>
     <meta property="og:description" content="{% block page_description %}{{ PAGEDESC }}{%endblock%}"/>
     <meta property="og:image" content="{% block page_image %}{{ PAGEIMG }}{%endblock%}"/>
-	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:card" content="{% block card_type %}summary{% endblock %}" />
     <meta name="twitter:site" content="@ElectrumSV"/>
     <meta name="twitter:title" content="{{ self.page_title() }}"/>
     <meta name="twitter:description" content="{{ self.page_description() }}"/>
@@ -28,6 +28,14 @@
     {% endif %}
     {% block extra_head %}{% endblock extra_head %}
     {% endblock head %}
+	<!-- Clarity tracking code for http://electrumsv.io/ -->
+	<script>
+		(function(c,l,a,r,i,t,y){
+			c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+			t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i+"?ref=bwt";
+			y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+		})(window, document, "clarity", "script", "6ivfzjahk2");
+	</script>
   </head>
   <body class="d-flex flex-column h-100">
 	<main role="main" class="flex-shrink-0 mb-3">
