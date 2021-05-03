@@ -120,6 +120,10 @@ plutil -insert 'CFBundleURLTypes' \
 	-- dist/$PACKAGE.app/Contents/Info.plist \
 	|| fail "Could not add keys to Info.plist. Make sure the program 'plutil' exists and is installed."
 
+info "Hopefully forcing light mode and avoiding dark mode which we do not support."
+plutil -insert NSRequiresAquaSystemAppearance -bool YES -- dist/$PACKAGE.app/Contents/Info.plist \
+	|| fail "Could not add keys to Info.plist. Make sure the program 'plutil' exists and is installed."
+
 DoCodeSignMaybe "app bundle" "dist/${PACKAGE}.app" "$APP_SIGN"
 
 info "Creating .DMG"
