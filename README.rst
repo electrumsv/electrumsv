@@ -1,4 +1,4 @@
-|azureboards_badge| |crowdin_badge| |azurepipeline_badge|
+|azureboards_badge| |crowdin_badge| |azurepipeline_badge| |rtd_badge|
 
 .. |azureboards_badge| image:: https://dev.azure.com/electrumsv/dc4594d0-46c9-4b75-ad35-f7fb21ce6933/46962181-6adc-4d37-bf1a-4f3f98c9c649/_apis/work/boardbadge/74437d75-4be7-4c91-8049-518350865962
     :target: https://dev.azure.com/electrumsv/dc4594d0-46c9-4b75-ad35-f7fb21ce6933/_boards/board/t/46962181-6adc-4d37-bf1a-4f3f98c9c649/Microsoft.RequirementCategory
@@ -8,7 +8,10 @@
     :alt: Build status on Azure Pipelines \
 .. |crowdin_badge| image:: https://d322cqt584bo4o.cloudfront.net/electrumsv/localized.svg
     :target: https://crowdin.com/project/electrumsv
-    :alt: Help translate ElectrumSV online
+    :alt: Help translate ElectrumSV online \
+.. |rtd_badge| image:: https://readthedocs.org/projects/electrumsv/badge/?version=sv-1.3.13
+    :target: https://electrumsv.readthedocs.io/en/sv-1.3.13/?badge=sv-1.3.13
+    :alt: Documentation Status
 
 ElectrumSV - Lightweight Bitcoin SV client
 ==========================================
