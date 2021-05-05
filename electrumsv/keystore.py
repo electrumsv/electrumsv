@@ -951,6 +951,8 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
         if derivation_text is None:
             derivation_text = bip44_derivation_cointype(0, 0)
         assert isinstance(text_match, str)
+        passphrase = "" if passphrase is None else passphrase
+        assert isinstance(passphrase, str)
         bip32_seed = BIP39Mnemonic.to_seed(text_match, passphrase)
         xprv = BIP32PrivateKey.from_seed(bip32_seed, Net.COIN)
         for n in bip32_decompose_chain_string(derivation_text):
