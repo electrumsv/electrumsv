@@ -740,8 +740,8 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
         future.result(timeout=5)
 
     txo_keys = [
-        TxoKeyType(row1.tx_hash, row1.tx_index),
-        TxoKeyType(row2.tx_hash, row2.tx_index),
+        TxoKeyType(row1.tx_hash, row1.txo_index),
+        TxoKeyType(row2.tx_hash, row2.txo_index),
     ]
     db_rows = db_functions.read_transaction_outputs_explicit(db_context, txo_keys)
     assert 2 == len(db_rows)
@@ -754,7 +754,7 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
 
     date_updated = 20
 
-    txo_keys = [ TxoKeyType(row2.tx_hash, row2.tx_index) ]
+    txo_keys = [ TxoKeyType(row2.tx_hash, row2.txo_index) ]
     future = db_functions.update_transaction_output_flags(db_context, txo_keys,
         TransactionOutputFlag.IS_SPENT)
     future.result()

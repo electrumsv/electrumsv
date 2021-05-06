@@ -631,6 +631,7 @@ def tx_dict_from_text(text: str) -> Dict[str, Any]:
 class Transaction(Tx):
     output_info: Optional[List[Dict[bytes, Any]]] = attr.ib(default=None)
     context: TransactionContext = attr.ib(default=attr.Factory(TransactionContext))
+    is_extended: bool = attr.ib(default=False)
 
     SIGHASH_FORKID = 0x40
 
@@ -645,7 +646,7 @@ class Transaction(Tx):
         return cls( # type: ignore
             read_le_int32(read), # type: ignore
             xread_list(read, tell, XTxInput.read), # type: ignore
-            xread_list(read, tell, XTxOutput.read),
+            xread_list(read, tell, XTxOutput.read), # type: ignore
             read_le_uint32(read),
         )
 
@@ -655,7 +656,7 @@ class Transaction(Tx):
         return cls( # type: ignore
             read_le_int32(read), # type: ignore
             xread_list(read, tell, XTxInput.read_extended), # type: ignore
-            xread_list(read, tell, XTxOutput.read),
+            xread_list(read, tell, XTxOutput.read), # type: ignore
             read_le_uint32(read),
         )
 

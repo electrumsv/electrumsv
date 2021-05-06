@@ -155,6 +155,9 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._prompt_if_unsaved = prompt_if_unsaved
         self._saved = False
 
+        # TODO(no-merge) Reconcile when transactions should be extended.
+        self._wallet.extend_transaction(self.tx)
+
         self.setMinimumWidth(1000)
         self.setWindowTitle(_("Transaction"))
         self._monospace_font = QFont(platform.monospace_font)
@@ -593,7 +596,6 @@ class TxDialog(QDialog, MessageBoxMixin):
             name = account.display_name()
             return f"{account.get_id()}: {name}"
 
-        is_tx_complete = self.tx.is_complete()
         is_tx_known = self._account and self._wallet.have_transaction(self._tx_hash)
 
         # TODO(no-merge) we also have local parent transactions in the transaction context that
@@ -603,7 +605,8 @@ class TxDialog(QDialog, MessageBoxMixin):
             txo_keys=[ TxoKeyType(txin.prev_hash, txin.prev_idx) for txin in self.tx.inputs ])
         prev_txo_dict = { TxoKeyType(r.tx_hash, r.txo_index): r for r in prev_txos }
         self._spent_value_label.setText(_("Spent input value") +": "+
-            app_state.format_amount(sum(r.value for r in prev_txos)))
+            app_state.format_amount(
+                sum(r.value for r in prev_txos if r.account_id and r.account_id==self._account_id)))
 
         for tx_index, txin in enumerate(self.tx.inputs):
             account: Optional[AbstractAccount] = None
@@ -629,17 +632,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     if prev_txo.account_id:
                         account = self._wallet.get_account(prev_txo.account_id)
                     # Identify inconsistent state.
-                    # TODO()
-                    if is_tx_known:
-                        # The viewed transaction is in the database and should be associated with
-                        # all the wallet's accounts. This means that if the spent output has a
-                        # key associated with it, it should already be recorded as spent.
-                        is_broken = (prev_txo.keyinstance_id is not None and
-                            prev_txo.flags & TransactionOutputFlag.IS_SPENT) == 0
-                        broken_text = _("The viewed transaction is in the database. It is "
-                            "expected that the spent output should be considered spent by the "
-                            "database, but it is not.")
-                    else:
+                    if not is_tx_known:
                         # The transaction is not in the database, any outputs it spends should
                         # indicate as broken. This does
                         is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) != 0
@@ -694,7 +687,8 @@ class TxDialog(QDialog, MessageBoxMixin):
                 account = self._wallet.get_account(tx_output.key_data.account_id)
                 assert account is not None
                 account_name = name_for_account(account)
-                received_value += tx_output.value
+                if self._account_id and self._account_id == tx_output.key_data.account_id:
+                    received_value += tx_output.value
 
             amount_text = app_state.format_amount(tx_output.value, whitespaces=True)
 
@@ -847,7 +841,7 @@ class InputTreeWidget(MyTreeWidget):
 
     def _show_other_transaction(self, tx_hash: bytes) -> None:
         dialog = self.parent()
-        tx = self._wallet.get_transaction(tx_hash)
+        tx = self.parent()._wallet.get_transaction(tx_hash)
         if tx is not None:
             self._main_window.show_transaction(dialog._account, tx)
         else:

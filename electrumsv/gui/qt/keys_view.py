@@ -907,7 +907,8 @@ class KeyView(QTableView):
                         # NOTE(typing) The whole keystore.plugin thing is not well defined.
                         def show_key():
                             self._main_window.run_in_thread(
-                                keystore.plugin.show_key, self._account, key_id) # type: ignore
+                                keystore.plugin.show_key, self._account, # type: ignore
+                                    line.keyinstance_id)
                         menu.addAction(_("Show on {}").format(
                             keystore.plugin.device), show_key) # type: ignore
 

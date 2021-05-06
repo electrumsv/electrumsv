@@ -156,7 +156,7 @@ def create_payment_requests(db_context: DatabaseContext,
 
 def create_transaction_outputs(db_context: DatabaseContext,
         entries: Iterable[TransactionOutputShortRow]) -> concurrent.futures.Future:
-    sql = ("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, keyinstance_id, "
+    sql = ("INSERT INTO TransactionOutputs (tx_hash, txo_index, value, keyinstance_id, "
         "flags, script_type, script_hash, date_created, date_updated) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     timestamp = get_timestamp()
@@ -219,7 +219,6 @@ def create_wallet_events(db_context: DatabaseContext, entries: Iterable[WalletEv
 
 def delete_invoices(db_context: DatabaseContext, entries: Iterable[Tuple[int]]) \
         -> concurrent.futures.Future:
-    # TODO(optimisation) This should be batched deletion not multiple single deletions
     sql = "DELETE FROM Invoices WHERE invoice_id=?"
     def _write(db: sqlite3.Connection) -> None:
         nonlocal sql, entries
@@ -328,38 +327,39 @@ def read_account_transaction_descriptions(db: sqlite3.Connection, account_id: Op
         for row in db.execute(sql, sql_values).fetchall() ]
 
 
-@replace_db_context_with_connection
-def read_account_transaction_outputs(db: sqlite3.Connection, account_id: int,
-        flags: TransactionOutputFlag, mask: TransactionOutputFlag,
-        require_key_usage: bool=False, tx_hash: Optional[bytes]=None,
-        keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow2]:
-    sql = (
-        "SELECT TXO.tx_hash, TXO.tx_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
-            "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2 "
-            "TX.flags AS tx_flags, TX.block_height"
-        "FROM AccountTransactions ATX "
-        "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash "
-        "INNER JOIN KeyInstances KI ON TXO.keyinstance_id=TXO.keyinstance_id "
-        "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash"
-        f"WHERE ATX.account_id=? AND TXO.flags&{mask}={flags} ")
-    sql_values: List[Any] = [ account_id ]
-    if tx_hash is not None:
-        sql += "AND ATX.tx_hash=? "
-        sql_values.append(tx_hash)
-    else:
-        sql_values = [account_id]
-    if keyinstance_ids is not None:
-        sql += "AND TXO.keyinstance_id IN ({}) "
-    elif require_key_usage:
-        sql += "AND TXO.keyinstance_id IS NOT NULL "
+# @replace_db_context_with_connection
+# def read_account_transaction_outputs(db: sqlite3.Connection, account_id: int,
+#         flags: TransactionOutputFlag, mask: TransactionOutputFlag,
+#         require_key_usage: bool=False, tx_hash: Optional[bytes]=None,
+#         keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow2]:
+#     sql = (
+#         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
+#             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2, "
+#             "TX.flags AS tx_flags, TX.block_height "
+#         "FROM AccountTransactions ATX "
+#         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash "
+#         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
+#         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
+#         f"WHERE ATX.account_id=? AND TXO.flags&{mask}={flags} ")
+#     sql_values: List[Any] = [ account_id ]
+#     if tx_hash is not None:
+#         sql += "AND ATX.tx_hash=? "
+#         sql_values.append(tx_hash)
+#     else:
+#         sql_values = [account_id]
+#     if keyinstance_ids is not None:
+#         sql += "AND TXO.keyinstance_id IN ({}) "
+#     elif require_key_usage:
+#         sql += "AND TXO.keyinstance_id IS NOT NULL "
 
-    if keyinstance_ids is not None:
-        rows = read_rows_by_id(TransactionOutputSpendableRow2, db, sql, sql_values, keyinstance_ids)
-    else:
-        cursor = db.execute(sql, sql_values)
-        rows = [ TransactionOutputSpendableRow2(*row) for row in cursor.fetchall() ]
-        cursor.close()
-    return rows
+#     if keyinstance_ids is not None:
+#         rows = read_rows_by_id(TransactionOutputSpendableRow2, db, sql, sql_values,
+#             keyinstance_ids)
+#     else:
+#         cursor = db.execute(sql, sql_values)
+#         rows = [ TransactionOutputSpendableRow2(*row) for row in cursor.fetchall() ]
+#         cursor.close()
+#     return rows
 
 
 # TODO(no-merge) test default
@@ -386,7 +386,7 @@ def read_account_transaction_outputs_spendable(db: sqlite3.Connection, account_i
 
     sql_values = [ account_id ]
     sql = (
-        "SELECT TXO.tx_hash, TXO.tx_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
+        "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2 "
         "FROM TransactionOutputs TXO "
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id ")
@@ -433,7 +433,7 @@ def read_account_transaction_outputs_spendable_extended(db: sqlite3.Connection, 
 
     sql_values = [ account_id ]
     sql = (
-        "SELECT TXO.tx_hash, TXO.tx_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
+        "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2, "
             "TX.flags, TX.block_height "
         "FROM TransactionOutputs TXO "
@@ -573,7 +573,7 @@ def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: 
                 TXO.keyinstance_id,
                 TXO.script_hash,
                 ROW_NUMBER() OVER(PARTITION BY TXO.tx_hash
-                                      ORDER BY TXO.tx_index ASC) AS rk
+                                      ORDER BY TXO.txo_index ASC) AS rk
             FROM TransactionOutputs TXO
             INNER JOIN AccountTransactions ATX ON ATX.tx_hash = TXO.tx_hash
             INNER JOIN Transactions TX ON TX.tx_hash = TXO.tx_hash
@@ -589,7 +589,7 @@ def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: 
             INNER JOIN AccountTransactions ATX ON ATX.tx_hash = TXI.tx_hash
             INNER JOIN Transactions TX ON TX.tx_hash = TXI.tx_hash
             INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash
-                AND TXO.tx_index=TXI.spent_txo_index
+                AND TXO.txo_index=TXI.spent_txo_index
             WHERE TXO.keyinstance_id IS NOT NULL AND ATX.account_id=? AND TX.proof_data IS NULL)
         SELECT s.tx_hash, s.put_type, s.keyinstance_id, s.script_hash
         FROM summary s
@@ -618,7 +618,7 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
     sql = (
         "SELECT KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
             "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description, KI.date_updated, "
-            "TXO.tx_hash, TXO.tx_index, TXO.flags, TXO.script_type, coalesce(TXO.value, 0) "
+            "TXO.tx_hash, TXO.txo_index, TXO.flags, TXO.script_type, coalesce(TXO.value, 0) "
         "FROM KeyInstances AS KI "
         "LEFT JOIN TransactionOutputs TXO ON TXO.keyinstance_id = KI.keyinstance_id "
         "WHERE KI.account_id = ?")
@@ -658,8 +658,6 @@ def read_keyinstance(db: sqlite3.Connection, *, account_id: Optional[int]=None,
         sql += " AND account_id=?"
         sql_values.append(account_id)
     row = db.execute(sql, sql_values).fetchone()
-    # TODO(?) Should we just union these values with int, and avoid the copy that comes with
-    #   repackaging the tuple we get from the database?
     return KeyInstanceRow(row[0], row[1], row[2], DerivationType(row[3]), row[4], row[5],
         KeyInstanceFlag(row[6]), row[7]) if row is not None else None
 
@@ -750,20 +748,20 @@ def read_masterkeys(db: sqlite3.Connection) -> List[MasterKeyRow]:
     return [ MasterKeyRow(*row) for row in db.execute(sql).fetchall() ]
 
 
-@replace_db_context_with_connection
-def read_paid_requests(db: sqlite3.Connection, account_id: int, keyinstance_ids: Sequence[int]) \
-        -> List[int]:
-    # TODO(no-merge) ensure this is filtering out transactions or transaction outputs that
-    # are not relevant.
-    sql = ("SELECT PR.keyinstance_id "
-        "FROM PaymentRequests PR "
-        "INNER JOIN TransactionOutputs TXO ON TXO.keyinstance_id=PR.keyinstance_id "
-        "INNER JOIN AccountTransactions ATX ON ATX.tx_hash=TXO.tx_hash AND ATX.account_id = ? "
-        "WHERE PR.keyinstance_id IN ({}) "
-            f"AND (PR.state & {PaymentFlag.UNPAID}) != 0 "
-        "GROUP BY PR.keyinstance_id "
-        "HAVING PR.value IS NULL OR PR.value <= TOTAL(TXO.value)")
-    return read_rows_by_id(int, db, sql, [ account_id ], keyinstance_ids)
+# @replace_db_context_with_connection
+# def read_paid_requests(db: sqlite3.Connection, account_id: int, keyinstance_ids: Sequence[int]) \
+#         -> List[int]:
+#     # TODO ensure this is filtering out transactions or transaction outputs that
+#     # are not relevant.
+#     sql = ("SELECT PR.keyinstance_id "
+#         "FROM PaymentRequests PR "
+#         "INNER JOIN TransactionOutputs TXO ON TXO.keyinstance_id=PR.keyinstance_id "
+#         "INNER JOIN AccountTransactions ATX ON ATX.tx_hash=TXO.tx_hash AND ATX.account_id = ? "
+#         "WHERE PR.keyinstance_id IN ({}) "
+#             f"AND (PR.state & {PaymentFlag.UNPAID}) != 0 "
+#         "GROUP BY PR.keyinstance_id "
+#         "HAVING PR.value IS NULL OR PR.value <= TOTAL(TXO.value)")
+#     return read_rows_by_id(int, db, sql, [ account_id ], keyinstance_ids)
 
 
 @replace_db_context_with_connection
@@ -775,7 +773,7 @@ def read_parent_transaction_outputs(db: sqlite3.Connection, tx_hash: bytes) \
     """
     sql_values = (tx_hash,)
     sql = (
-        "SELECT TXO.tx_hash, TXO.tx_index, TXO.value, TXO.keyinstance_id, TXO.flags, "
+        "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.flags, "
             "TXO.script_type, TXO.script_hash "
         "FROM TransactionInputs TXI "
         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash "
@@ -795,12 +793,12 @@ def read_parent_transaction_outputs_spendable(db: sqlite3.Connection, tx_hash: b
     """
     sql_values = (tx_hash,)
     sql = (
-        "SELECT TXO.tx_hash, TXO.tx_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
+        "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, "
             "KI.derivation_data2 "
         "FROM TransactionInputs TXI "
         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash "
-        "LEFT JOIN KeyInstances KI ON KI=keyinstance_id=TXO.keyinstance_id "
+        "LEFT JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
         "WHERE TXI.tx_hash=?")
     cursor = db.execute(sql, sql_values)
     rows = [ TransactionOutputSpendableRow(*row) for row in cursor.fetchall() ]
@@ -822,7 +820,6 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
         sql += f" WHERE keyinstance_id=?"
         sql_values = [ keyinstance_id ]
     else:
-        # TODO(no-merge) do not raise Exception
         raise NotImplementedError("request_id and keyinstance_id not supported")
     t = db.execute(sql, sql_values).fetchone()
     if t is not None:
@@ -967,9 +964,9 @@ def read_transaction_outputs_explicit(db: sqlite3.Connection, output_ids: List[T
     Read all the transaction outputs for the given outpoints if they exist.
     """
     sql = (
-        "SELECT tx_hash, tx_index, value, keyinstance_id, flags, script_type, script_hash "
+        "SELECT tx_hash, txo_index, value, keyinstance_id, flags, script_type, script_hash "
         "FROM TransactionOutputs")
-    sql_condition = "tx_hash=? AND tx_index=?"
+    sql_condition = "tx_hash=? AND txo_index=?"
     return read_rows_by_ids(TransactionOutputShortRow, db, sql, sql_condition, [], output_ids)
 
 
@@ -980,11 +977,11 @@ def read_transaction_outputs_full(db: sqlite3.Connection,
     Read all the transaction outputs for the given outpoints if they exist.
     """
     sql = (
-        "SELECT tx_hash, tx_index, value, keyinstance_id, flags, script_type, script_hash, "
+        "SELECT tx_hash, txo_index, value, keyinstance_id, flags, script_type, script_hash, "
             "script_offset, script_length, spending_tx_hash, spending_txi_index "
         "FROM TransactionOutputs")
     if output_ids is not None:
-        sql_condition = "tx_hash=? AND tx_index=?"
+        sql_condition = "tx_hash=? AND txo_index=?"
         return read_rows_by_ids(TransactionOutputFullRow, db, sql, sql_condition, [], output_ids)
 
     cursor = db.execute(sql)
@@ -1005,13 +1002,12 @@ def read_transaction_outputs_spendable_explicit(db: sqlite3.Connection, *,
     join_term = "INNER" if require_spends else "LEFT"
     if tx_hash:
         assert txo_keys is None
-        # TODO(no-merge) What uses this? We should left join.
         sql = (
-            "SELECT TXO.tx_hash, TXO.tx_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
+            "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
                 "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, "
                 "KI.derivation_data2 "
             "FROM TransactionOutputs TXO "
-            f"{join_term} JOIN KeyInstances KI ON KI=keyinstance_id=TXO.keyinstance_id "
+            f"{join_term} JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
             "WHERE TXO.tx_hash=?")
         if account_id is not None:
             sql += " AND KI.account_id=?"
@@ -1028,12 +1024,12 @@ def read_transaction_outputs_spendable_explicit(db: sqlite3.Connection, *,
         # this is that we always want to know the value of an output being spent. Remember that
         # the wallet only adds account relevant transactions to the database.
         sql = (
-            "SELECT TXO.tx_hash, TXO.tx_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
+            "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
                 "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, "
                 "KI.derivation_data2 "
             "FROM TransactionOutputs TXO "
             f"{join_term} JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id")
-        sql_condition = "TXO.tx_hash=? AND TXO.tx_index=?"
+        sql_condition = "TXO.tx_hash=? AND TXO.txo_index=?"
         return read_rows_by_ids(TransactionOutputSpendableRow, db, sql, sql_condition, [], txo_keys)
     else:
         raise NotImplementedError()
@@ -1050,7 +1046,6 @@ def read_transaction_proof(db: sqlite3.Connection, tx_hashes: Sequence[bytes]) \
 def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
         tx_hashes: Optional[List[bytes]]=None, mask: Optional[TxFlags]=None) \
             -> List[TransactionValueRow]:
-    # TODO(no-merge) filter out irrelevant transactions (deleted, etc)
     if tx_hashes is None:
         sql = ("SELECT TXV.tx_hash, TOTAL(TXV.value), TX.flags, TX.block_height, "
                 "TX.date_created, TX.date_updated "
@@ -1117,8 +1112,9 @@ def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id
     rows = cursor.fetchall()
     cursor.close()
 
-    # TODO(no-merge) work out if we need all this, or just keyinstance_id and the derivation
-    # path in derivation_data2.
+    # TODO Looking at the callers of this as of the time this comment was written, it appears that
+    #    only the keydata related fields are used by those callers. It should be possible to drop
+    #    the non-keydata fields and return a more limited keydata-specific result.
     return [ KeyInstanceRow(row[0], row[1], row[2], DerivationType(row[3]), row[4], row[5],
         KeyInstanceFlag(row[6]), row[7]) for row in rows ]
 
@@ -1133,9 +1129,8 @@ def read_unverified_transactions(db: sqlite3.Connection, local_height: int) \
     that it is correct for our local blockchain headers, we get a batch of transactions that
     need to be verified and settled for the caller.
     """
-    # TODO(no-merge) There is a chance that this will pick up transactions in the database that
-    # are not related to accounts. If a transaction has is associated with a block and an account
-    # we should probably fetch the proof.
+    # NOTE This implicitly excludes `flags&TxFlags.MASK_UNLINKED` rows as it only looks at rows
+    #     with `TxFlags.STATE_CLEARED`.
     sql = (
         "SELECT tx_hash, block_height "
         "FROM Transactions "
@@ -1385,7 +1380,7 @@ def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[
         mask = ~flags # type: ignore
     sql = ("UPDATE TransactionOutputs "
         f"SET date_updated=?, flags=(flags&{mask})|{flags}")
-    sql_id_expression = "tx_hash=? AND tx_index=?"
+    sql_id_expression = "tx_hash=? AND txo_index=?"
     sql_values = [ get_timestamp() ]
 
     def _write(db: sqlite3.Connection) -> bool:
@@ -1700,7 +1695,7 @@ class AsynchronousFunctions:
             "date_updated) VALUES (?,?,?,?,?,?,?,?,?,?)", txi_rows)
 
         # Constraint: (tx_hash, tx_index) should be unique.
-        db.executemany("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, keyinstance_id, "
+        db.executemany("INSERT INTO TransactionOutputs (tx_hash, txo_index, value, keyinstance_id, "
             "script_type, flags, script_hash, script_offset, script_length, date_created, "
             "date_updated) VALUES (?,?,?,?,?,?,?,?,?,?,?)", txo_rows)
 
@@ -1845,10 +1840,10 @@ class AsynchronousFunctions:
         timestamp = get_timestamp()
         # The base SQL is just the spends of parent transaction outputs.
         sql = (
-            "SELECT TXI.tx_hash, TXI.txi_index, TXO.tx_hash, TXO.tx_index, TXO.spending_tx_hash "
+            "SELECT TXI.tx_hash, TXI.txi_index, TXO.tx_hash, TXO.txo_index, TXO.spending_tx_hash "
             "FROM TransactionInputs TXI "
             "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash = TXI.spent_tx_hash AND "
-                "TXO.tx_index = TXI.spent_txo_index "
+                "TXO.txo_index = TXI.spent_txo_index "
             "WHERE TXI.tx_hash=?")
         # The caller can specify that there might be out of order spends of this transaction.
         if self_spends:
@@ -1888,7 +1883,7 @@ class AsynchronousFunctions:
         cursor = db.executemany("UPDATE TransactionOutputs "
             "SET date_updated=?, spending_tx_hash=?, spending_txi_index=?, "
                 f"flags=(flags&{~clear_bits})|{set_bits} "
-            f"WHERE spending_tx_hash IS NULL AND tx_hash=? AND tx_index=?", spent_rows)
+            f"WHERE spending_tx_hash IS NULL AND tx_hash=? AND txo_index=?", spent_rows)
         # Detect if we did not update all of the rows we expected to update.
         if cursor.rowcount != len(spent_rows):
             # If we do not update all the rows we expect to update, then we rollback any updates

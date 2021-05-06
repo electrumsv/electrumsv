@@ -601,14 +601,14 @@ async def test_transaction_import_removal(tmp_storage) -> None:
         txof_rows = db_functions.read_transaction_outputs_full(db_context)
         assert len(txof_rows) == 3
         # tx_1.output0 is linked to the first key.
-        assert txof_rows[0].tx_hash == tx_hash_1 and txof_rows[0].tx_index == 0 and \
+        assert txof_rows[0].tx_hash == tx_hash_1 and txof_rows[0].txo_index == 0 and \
             txof_rows[0].keyinstance_id == 1 and txof_rows[0].spending_tx_hash == tx_hash_2 and \
             txof_rows[0].spending_txi_index == 0
         # tx_1.output1 is to the payer's change and not linked.
-        assert txof_rows[1].tx_hash == tx_hash_1 and txof_rows[1].tx_index == 1 and \
+        assert txof_rows[1].tx_hash == tx_hash_1 and txof_rows[1].txo_index == 1 and \
             txof_rows[1].keyinstance_id is None
         # tx_2.output2 is to some other payee.
-        assert txof_rows[2].tx_hash == tx_hash_2 and txof_rows[2].tx_index == 0 and \
+        assert txof_rows[2].tx_hash == tx_hash_2 and txof_rows[2].txo_index == 0 and \
             txof_rows[2].keyinstance_id is None
 
         # Verify all the transactions are linked to the account.

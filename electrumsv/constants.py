@@ -50,7 +50,11 @@ MIGRATION_CURRENT = 27
 # The hash of the mnemonic seed must begin with this
 SEED_PREFIX      = '01'      # Standard wallet
 
-
+# TODO(no-merge) Go through and work out where REMOVED and CONFLICTING need to be used to filter
+#    out transactions.
+# TODO Add an UNRELATED flag? used for external transactions that have been added
+#    to the database. I do not believe that we add these transactions at this time, they are
+#    instead ephemeral.
 class TxFlags(IntFlag):
     UNSET = 0
 

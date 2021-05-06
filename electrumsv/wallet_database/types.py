@@ -183,7 +183,7 @@ class TransactionMetadata(NamedTuple):
 
 class TransactionOutputAddRow(NamedTuple):
     tx_hash: bytes
-    tx_index: int
+    txo_index: int
     value: int
     keyinstance_id: Optional[int]
     script_type: ScriptType
@@ -198,7 +198,7 @@ class TransactionOutputAddRow(NamedTuple):
 class TransactionOutputShortRow(NamedTuple):
     # Standard transaction output fields.
     tx_hash: bytes
-    tx_index: int
+    txo_index: int
     value: int
     keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
     flags: TransactionOutputFlag
@@ -210,7 +210,7 @@ class TransactionOutputShortRow(NamedTuple):
 class TransactionOutputFullRow(NamedTuple):
     # Standard transaction output fields.
     tx_hash: bytes
-    tx_index: int
+    txo_index: int
     value: int
     keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
     flags: TransactionOutputFlag

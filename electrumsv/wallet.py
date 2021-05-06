@@ -544,8 +544,8 @@ class AbstractAccount:
             return True
         return False
 
-    def get_paid_requests(self, keyinstance_ids: Sequence[int]) -> List[int]:
-        return self._wallet.read_paid_requests(self._id, keyinstance_ids)
+    # def get_paid_requests(self, keyinstance_ids: Sequence[int]) -> List[int]:
+    #     return self._wallet.read_paid_requests(self._id, keyinstance_ids)
 
     def get_raw_balance(self, flags: Optional[int]=None, mask: Optional[int]=None) \
             -> TransactionDeltaSumRow:
@@ -563,11 +563,11 @@ class AbstractAccount:
             -> List[TransactionValueRow]:
         return self._wallet.read_transaction_value_entries(self._id, mask=mask)
 
-    def get_transaction_outputs(self, flags: TransactionOutputFlag, mask: TransactionOutputFlag,
-            require_key_usage: bool=False, tx_hash: Optional[bytes]=None) \
-                -> List[TransactionOutputSpendableRow2]:
-        return self._wallet.read_account_transaction_outputs(self._id, flags, mask,
-            require_key_usage, tx_hash)
+    # def get_transaction_outputs(self, flags: TransactionOutputFlag, mask: TransactionOutputFlag,
+    #         require_key_usage: bool=False, tx_hash: Optional[bytes]=None) \
+    #             -> List[TransactionOutputSpendableRow2]:
+    #     return self._wallet.read_account_transaction_outputs(self._id, flags, mask,
+    #         require_key_usage, tx_hash)
 
     def get_spendable_transaction_outputs(self, exclude_frozen: bool=True, mature: bool=True,
             confirmed_only: Optional[bool]=None, keyinstance_ids: Optional[List[int]]=None) \
@@ -2190,8 +2190,8 @@ class Wallet(TriggeredCallbacks):
         future.add_done_callback(callback)
         return future
 
-    def read_paid_requests(self, account_id: int, keyinstance_ids: Sequence[int]) -> List[int]:
-        return db_functions.read_paid_requests(self.get_db_context(), account_id, keyinstance_ids)
+    # def read_paid_requests(self, account_id: int, keyinstance_ids: Sequence[int]) -> List[int]:
+    #     return db_functions.read_paid_requests(self.get_db_context(), account_id, keyinstance_ids)
 
     def read_payment_request(self, *, request_id: Optional[int]=None,
             keyinstance_id: Optional[int]=None) -> Optional[PaymentRequestRow]:
@@ -2243,12 +2243,12 @@ class Wallet(TriggeredCallbacks):
         db_functions.create_transaction_outputs(self.get_db_context(), entries)
         return entries
 
-    def read_account_transaction_outputs(self, account_id: int,
-            flags: TransactionOutputFlag, mask: TransactionOutputFlag,
-            require_key_usage: bool=False, tx_hash: Optional[bytes]=None,
-            keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow2]:
-        return db_functions.read_account_transaction_outputs(self.get_db_context(), account_id,
-            flags, mask, require_key_usage, tx_hash, keyinstance_ids)
+    # def read_account_transaction_outputs(self, account_id: int,
+    #         flags: TransactionOutputFlag, mask: TransactionOutputFlag,
+    #         require_key_usage: bool=False, tx_hash: Optional[bytes]=None,
+    #         keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow2]:
+    #     return db_functions.read_account_transaction_outputs(self.get_db_context(), account_id,
+    #         flags, mask, require_key_usage, tx_hash, keyinstance_ids)
 
     def read_account_transaction_outputs_spendable(self, account_id: int,
             confirmed_only: bool=False, mature_height: Optional[int]=None,
@@ -2276,7 +2276,8 @@ class Wallet(TriggeredCallbacks):
             txo_keys: Optional[List[TxoKeyType]]=None,
             require_spends: bool=False) -> List[TransactionOutputSpendableRow]:
         return db_functions.read_transaction_outputs_spendable_explicit(self.get_db_context(),
-            account_id=account_id, tx_hash=tx_hash, txo_keys=txo_keys)
+            account_id=account_id, tx_hash=tx_hash, txo_keys=txo_keys,
+            require_spends=require_spends)
 
     def get_transaction_outputs_short(self, l: List[TxoKeyType]) \
             -> List[TransactionOutputShortRow]:
@@ -2473,46 +2474,47 @@ class Wallet(TriggeredCallbacks):
     #     output.derivation_type = key_data.derivation_type
     #     output.derivation_data2 = key_data.derivation_data2
 
-    def _extend_database_transaction(self, tx: Transaction, force: bool=False) -> None:
-        """
-        Add external extended data to a transaction object.
+    # def _extend_database_transaction(self, tx: Transaction, force: bool=False) -> None:
+    #     """
+    #     Add external extended data to a transaction object.
 
-        A transaction is composed of extended inputs and outputs that can contain additional
-        information, and most of that can be populated from an extended serialisation
-        format that contains more data than standard transactions do.
+    #     A transaction is composed of extended inputs and outputs that can contain additional
+    #     information, and most of that can be populated from an extended serialisation
+    #     format that contains more data than standard transactions do.
 
-        This method aims to populate the extended data of a transaction object, and if there
-        is already information present there, to validate that it is correct. If there is an
-        inconsistency, an `InvalidTransactionError` exception will be raised. The caller can
-        opt to ignore all inconsistencies and just overwrite the values using the `force`
-        argument (NOT DONE).
-        """
-        tx_id = hash_to_hex_str(tx.hash())
+    #     This method aims to populate the extended data of a transaction object, and if there
+    #     is already information present there, to validate that it is correct. If there is an
+    #     inconsistency, an `InvalidTransactionError` exception will be raised. The caller can
+    #     opt to ignore all inconsistencies and just overwrite the values using the `force`
+    #     argument (NOT DONE).
+    #     """
+    #     tx_id = hash_to_hex_str(tx.hash())
 
-        input_map: Dict[TxoKeyType, Tuple[int, XTxInput]] = {}
-        for txi_index, tx_input in enumerate(tx.inputs):
-            outpoint = TxoKeyType(tx_input.prev_hash, tx_input.prev_idx)
-            input_map[outpoint] = txi_index, tx_input
-        # TODO(no-merge) require_spends=True?
-        previous_outputs = self.get_transaction_outputs_spendable_explicit(txo_keys=list(input_map))
+    #     input_map: Dict[TxoKeyType, Tuple[int, XTxInput]] = {}
+    #     for txi_index, tx_input in enumerate(tx.inputs):
+    #         outpoint = TxoKeyType(tx_input.prev_hash, tx_input.prev_idx)
+    #         input_map[outpoint] = txi_index, tx_input
+    #     # TODO(no-merge) require_spends=True?
+    #     previous_outputs = self.get_transaction_outputs_spendable_explicit(
+    #          txo_keys=list(input_map))
 
-        for db_output in previous_outputs:
-            outpoint = TxoKeyType(db_output.tx_hash, db_output.txo_index)
-            txi_index, tx_input = input_map[outpoint]
+    #     for db_output in previous_outputs:
+    #         outpoint = TxoKeyType(db_output.tx_hash, db_output.txo_index)
+    #         txi_index, tx_input = input_map[outpoint]
 
-            if tx_input.value is not None and tx_input.value != db_output.value:
-                # TODO(no-merge) this should report back to the caller
-                logger.error("extend_transaction: input %s:%d got value %d, expected %d",
-                    tx_id, txi_index, tx_input.value, db_output.value)
-            tx_input.value = db_output.value
+    #         if tx_input.value is not None and tx_input.value != db_output.value:
+    #             # TODO(no-merge) this should report back to the caller
+    #             logger.error("extend_transaction: input %s:%d got value %d, expected %d",
+    #                 tx_id, txi_index, tx_input.value, db_output.value)
+    #         tx_input.value = db_output.value
 
-            tx_input.script_type = db_output.script_type
-            assert db_output.keyinstance_id is not None
-            assert db_output.account_id is not None
-            assert db_output.derivation_type is not None
-            tx_input.key_data = KeyDataType(db_output.keyinstance_id, db_output.account_id,
-                db_output.masterkey_id, db_output.derivation_type, db_output.derivation_data2)
-        # TODO(no-merge) unfinished
+    #         tx_input.script_type = db_output.script_type
+    #         assert db_output.keyinstance_id is not None
+    #         assert db_output.account_id is not None
+    #         assert db_output.derivation_type is not None
+    #         tx_input.key_data = KeyDataType(db_output.keyinstance_id, db_output.account_id,
+    #             db_output.masterkey_id, db_output.derivation_type, db_output.derivation_data2)
+    #     # TODO(no-merge) unfinished
 
     def _extend_ephemeral_transaction(self, tx_hash: bytes, tx: Transaction) -> None:
         """
@@ -2581,6 +2583,8 @@ class Wallet(TriggeredCallbacks):
             a local transaction in one wallet and also used them in a dispatched transaction
             in the other wallet.
         """
+        assert not tx.is_extended
+
         tx_hash = tx.hash()
         is_complete = tx.is_complete()
 
@@ -2655,13 +2659,22 @@ class Wallet(TriggeredCallbacks):
                         signer_key_entry[1].append(derivation_path_bytes)
 
         # Do all the output information gathering.
-        for tx_output in tx.outputs:
+        for output_index, tx_output in enumerate(tx.outputs):
             # Extended public keys are only present for incomplete transactions and are expected
             # to only represent the change transactions in this payment.
-            pass
+            db_output_key = TxoKeyType(tx_hash, output_index)
+            db_output = db_output_map.get(db_output_key)
+            if db_output is None:
+                continue
+            if db_output.keyinstance_id is None:
+                continue
+            assert db_output.account_id is not None and db_output.derivation_type is not None
+            tx_output.key_data = KeyDataType(db_output.keyinstance_id, db_output.account_id,
+                db_output.masterkey_id, db_output.derivation_type, db_output.derivation_data2)
 
 
         # TODO(no-merge) all cases should add spent output values to transaction inputs.
+        # - What all cases?
         # TODO(no-merge) there may be parent data that is in memory that we do not have in the
         #     database. This should also be processed.
         # TODO(no-merge) incomplete transactions may have extended public key data that maps
@@ -2670,7 +2683,7 @@ class Wallet(TriggeredCallbacks):
         # TODO(no-merge) complete transactions may have key usage we do not know about also,
         #     so we need to scan here.
 
-        pass
+        tx.is_extended = True
 
     # TODO(no-merge) rewritten and needs to be tested
     def load_transaction_from_text(self, text: str) -> Optional[Transaction]:

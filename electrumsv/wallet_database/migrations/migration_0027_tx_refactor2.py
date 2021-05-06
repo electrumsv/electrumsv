@@ -355,11 +355,12 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # tx_deltas: Dict[Tuple[bytes, int], int] = defaultdict(int)
     for script_hash, txo_datas in txo_script_hashes.items():
         for txo_data in txo_datas:
-            # We are mapping in TXO usage of keys, so if the script is unknown skip it.
+            # We are mapping in TXO usage of keys, so if the script is unknown (likely because the
+            # output does not belong to this wallet) skip it.
             kscript = key_script_hashes.get(script_hash)
             if kscript is None:
-                logger.warning("Failed to find key usage for script hash "
-                    f"{script_hash.hex()} in txo {txo_data.key}")
+                logger.warning("Failed to find key usage for script hash %s in txo %s",
+                    script_hash.hex(), txo_data.key)
                 continue
 
             keyinstance_id = kscript.keyinstance.keyinstance_id
@@ -373,7 +374,6 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                 # The output already exists. So there should already be a positive tx delta also.
                 if txi_spend:
                     if txo_data.flags & TransactionOutputFlag.IS_SPENT:
-                        # TODO: Is there anything else we can validate here?
                         assert txo_update.keyinstance_id == keyinstance_id, \
                             "Transaction output spending key does not match"
                     else:
@@ -386,7 +386,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                     if txo_data.flags & TransactionOutputFlag.IS_SPENT:
                         raise DatabaseMigrationError(_("txo update spent with no txi"))
                 txo_updates[txo_data.key] = txo_update._replace(
-                    flags=txo_data.flags,
+                    flags=txo_flags,
                     keyinstance_id=txo_update.keyinstance_id,
                     script_type=kscript.script_type,
                     spending_tx_hash=spending_tx_hash,
@@ -464,8 +464,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     logger.debug("fix table TransactionOutputs by creating secondary table")
     conn.execute("CREATE TABLE IF NOT EXISTS TransactionOutputs2 ("
         "tx_hash BLOB NOT NULL,"
-        # TODO(no-merge) rename txo_index
-        "tx_index INTEGER NOT NULL,"
+        "txo_index INTEGER NOT NULL,"
         "value INTEGER NOT NULL,"
         "keyinstance_id INTEGER DEFAULT NULL,"
         "flags INTEGER NOT NULL,"
@@ -482,7 +481,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     ")")
 
     logger.debug("copying the TransactionOutputs table to secondary table")
-    conn.execute("INSERT INTO TransactionOutputs2 (tx_hash, tx_index, value, keyinstance_id, "
+    conn.execute("INSERT INTO TransactionOutputs2 (tx_hash, txo_index, value, keyinstance_id, "
         "flags, date_created, date_updated) "
         "SELECT tx_hash, tx_index, value, keyinstance_id, flags, date_created, date_updated "
         "FROM TransactionOutputs")
@@ -495,10 +494,10 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
 
     # If we do not recreate this it gets lost (presumably with the old table).
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
-        "idx_TransactionOutputs_unique ON TransactionOutputs(tx_hash, tx_index)")
+        "idx_TransactionOutputs_unique ON TransactionOutputs(tx_hash, txo_index)")
 
     logger.debug("inserting %d TransactionOutputs rows", len(txo_inserts))
-    conn.executemany("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, "
+    conn.executemany("INSERT INTO TransactionOutputs (tx_hash, txo_index, value, "
         "keyinstance_id, flags, script_hash, script_type, script_offset, script_length, "
         "spending_tx_hash, spending_txi_index, date_created, date_updated) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", txo_inserts.values())
@@ -506,7 +505,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     logger.debug("updating %d TransactionOutputs rows", len(txo_updates))
     cursor = conn.executemany("UPDATE TransactionOutputs SET keyinstance_id=?, flags=?, "
         "script_hash=?, script_type=?, script_offset=?, script_length=?, spending_tx_hash=?, "
-        "spending_txi_index=?, date_updated=? WHERE tx_hash=? AND tx_index=?", txo_updates.values())
+        "spending_txi_index=?, date_updated=? WHERE tx_hash=? AND txo_index=?",
+            txo_updates.values())
     logger.debug("updated %d TransactionOutputs rows", cursor.rowcount)
     if cursor.rowcount != len(txo_updates):
         raise DatabaseMigrationError(f"Made {cursor.rowcount} txo changes, "
@@ -658,6 +658,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # TransactionDeltas table. The idea is that TransactionValues can be used as a drop in
     # replacement for it, and if at a later stage we need to optimise things we can.
     #
+    # TransactionReceivedValues: The outputs of a given account transaction, where those
+    # outputs are associated with the account.
 
     logger.debug("creating view TransactionReceivedValues")
     conn.execute(
@@ -666,7 +668,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             "SELECT ATX.account_id, ATX.tx_hash, TXO.keyinstance_id, TXO.value "
             "FROM AccountTransactions ATX "
             "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash "
-            "WHERE TXO.keyinstance_id IS NOT NULL"
+            "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
+            "WHERE TXO.keyinstance_id IS NOT NULL AND KI.account_id=ATX.account_id"
     )
 
     logger.debug("creating view TransactionSpentValues")
@@ -676,7 +679,9 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             "FROM AccountTransactions ATX "
             "INNER JOIN TransactionInputs TXI ON TXI.tx_hash=ATX.tx_hash "
             "INNER JOIN TransactionOutputs PTXO ON PTXO.tx_hash=TXI.spent_tx_hash "
-            "WHERE PTXO.keyinstance_id IS NOT NULL"
+                "AND PTXO.txo_index=TXI.spent_txo_index "
+            "INNER JOIN KeyInstances KI ON KI.keyinstance_id=PTXO.keyinstance_id "
+            "WHERE PTXO.keyinstance_id IS NOT NULL AND KI.account_id=ATX.account_id"
     )
 
     logger.debug("creating view TransactionValues")
