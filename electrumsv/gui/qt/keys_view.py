@@ -609,8 +609,6 @@ class KeyView(QTableView):
         if ListActions.RESET in pending_actions:
             self._logger.debug("_on_update_check reset")
 
-# TODO(nocheckin) This is not actually valid. WE need to OUTER JOIN on the transaction outputs
-# and may get multiple keyinstance rows for multiply used keys. #key-list-problem
             self._data = account.get_key_list()
             self._base_model.set_data(account_id, self._data)
             return
@@ -930,23 +928,6 @@ class KeyView(QTableView):
                     partial(self._set_user_active, user_active_keyinstance_ids, False))
 
             # TODO(no-merge) Add option to set/unset frozen flag.
-
-            user_active_keyinstance_ids: Set[int] = set()
-            non_user_active_keyinstance_ids: Set[int] = set()
-            for _row, _column, line, _selected_index, _base_index in selected:
-                if (line.flags & KeyInstanceFlag.USER_SET_ACTIVE) == 0:
-                    non_user_active_keyinstance_ids.add(line.keyinstance_id)
-                else:
-                    user_active_keyinstance_ids.add(line.keyinstance_id)
-
-            if len(non_user_active_keyinstance_ids):
-                menu.addAction(_("Force activeness"),
-                    partial(self._set_user_active, non_user_active_keyinstance_ids, True))
-            if len(user_active_keyinstance_ids):
-                menu.addAction(_("Remove forced activeness"),
-                    partial(self._set_user_active, user_active_keyinstance_ids, False))
-
-            # TODO(nocheckin) Add option to set/unset frozen flag.
 
             # freeze = self._main_window.set_frozen_state
             # if any(self._account.is_frozen_address(addr) for addr in addrs):

@@ -405,29 +405,6 @@ class AbstractAccount:
         label = self._transaction_descriptions.get(tx_hash)
         return "" if label is None else label
 
-    def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) -> None:
-        self.set_transaction_labels([ (tx_hash, text) ])
-
-    def set_transaction_labels(self, entries: List[Tuple[bytes, Optional[str]]]) -> None:
-        update_entries = []
-        for tx_hash, value in entries:
-            text = None if value is None or value.strip() == "" else value.strip()
-            label = self._transaction_descriptions.get(tx_hash)
-            if label != text:
-                if label is not None and value is None:
-                    del self._transaction_descriptions[tx_hash]
-                update_entries.append((text, self._id, tx_hash))
-
-        with self._wallet.get_account_transaction_table() as table:
-            table.update_descriptions(update_entries)
-
-        for text, _account_id, tx_hash in update_entries:
-            app_state.app.on_transaction_label_change(self, tx_hash, text)
-
-    def get_transaction_label(self, tx_hash: bytes) -> str:
-        label = self._transaction_descriptions.get(tx_hash)
-        return "" if label is None else label
-
     def __str__(self) -> str:
         return self.name()
 
@@ -1371,8 +1348,6 @@ class ImportedAddressAccount(ImportedAccountBase):
             derivation_data2, KeyInstanceFlag.IS_ACTIVE, None)
         _keyinstance_future, _rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
 
-        # TODO(nocheckin) The concept of activated keys is going to change to a different model.
-        self._add_activated_keys(rows)
         return True
 
     def get_public_keys_for_key_data(self, _keydata: KeyDataTypes) -> List[PublicKey]:
@@ -1760,15 +1735,6 @@ class Wallet(TriggeredCallbacks):
         self._obtain_transactions_async_lock = asyncio.Lock()
         self._obtain_proofs_async_lock = asyncio.Lock()
 
-        # Guards `transaction_locks`.
-        self._transaction_lock = threading.RLock()
-        # Guards per-transaction locks to limit blocking to per-transaction activity.
-        self._transaction_locks: Dict[bytes, Tuple[threading.RLock, int]] = {}
-
-        # Guards the obtaining and processing of missing transactions from race conditions.
-        self._obtain_transactions_async_lock = asyncio.Lock()
-        self._obtain_proofs_async_lock = asyncio.Lock()
-
         self.load_state()
 
         self.contacts = Contacts(self._storage)
@@ -2141,11 +2107,6 @@ class Wallet(TriggeredCallbacks):
             masterkey_id: Optional[int]=None) -> Optional[KeyInstanceRow]:
         return db_functions.read_keyinstance_for_derivation(self.get_db_context(), account_id,
             derivation_type, derivation_data2, masterkey_id)
-
-    def read_keyinstance(self, *, account_id: Optional[int]=None, keyinstance_id: int) \
-            -> Optional[KeyInstanceRow]:
-        return db_functions.read_keyinstance(self.get_db_context(), account_id=account_id,
-            keyinstance_id=keyinstance_id)
 
     def read_keyinstance(self, *, account_id: Optional[int]=None, keyinstance_id: int) \
             -> Optional[KeyInstanceRow]:
@@ -2802,14 +2763,6 @@ class Wallet(TriggeredCallbacks):
             block_height = missing_entry.block_height
             fee_hint = missing_entry.fee_hint
 
-        link_state = TransactionLinkState()
-        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash, block_height,
-            fee_hint, external=external)
-
-    async def _import_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
-            link_state: TransactionLinkState, block_hash: Optional[bytes]=None,
-            block_height: int=-2, block_position: Optional[int]=None,
-            fee_hint: Optional[int]=None, external: bool=False) -> None:
         link_state = TransactionLinkState()
         await self._import_transaction(tx_hash, tx, flags, link_state, block_hash, block_height,
             fee_hint, external=external)

@@ -1,5 +1,5 @@
 import re
-from typing import Optional
+from typing import Optional, Set
 import urllib.parse
 
 from ..i18n import _
@@ -60,7 +60,7 @@ DOMAIN_FORMAT = re.compile(
 )
 DEFAULT_SCHEMES = { "http", "https" }
 
-def validate_url(url: str, schemes: Optional[set[str]]=None, host_only: bool=False) -> str:
+def validate_url(url: str, schemes: Optional[Set[str]]=None, host_only: bool=False) -> str:
     if schemes is None:
         schemes = DEFAULT_SCHEMES
 

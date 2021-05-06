@@ -296,7 +296,9 @@ class SVServer:
             return 'SSL'
         return 'TCP'
 
-    def __eq__(self, other: 'SVServer') -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, SVServer):
+            return NotImplemented
         return self.host == other.host and self.port == other.port and \
             self.protocol == other.protocol
 
@@ -930,7 +932,8 @@ class Network(TriggeredCallbacks):
         # https://github.com/tiangolo/fastapi/issues/301
         if self.mapi_client is None:
             # resolver = AsyncResolver()
-            # conn = aiohttp.TCPConnector(family=socket.AF_INET, resolver=resolver, ttl_dns_cache=10,
+            # conn = aiohttp.TCPConnector(family=socket.AF_INET, resolver=resolver,
+            #      ttl_dns_cache=10,
             #                             force_close=True, enable_cleanup_closed=True)
             # self.mapi_client = aiohttp.ClientSession(connector=conn)
             self.mapi_client = aiohttp.ClientSession()
@@ -969,6 +972,7 @@ class Network(TriggeredCallbacks):
             else:
                 ssl = True
 
+            assert self.mapi_client is not None
             async with self.mapi_client.get(uri, headers=headers, ssl=ssl) as resp:
                 try:
                     json_response = await decode_response_body(resp)
