@@ -11,10 +11,6 @@ ElectrumXHistoryEntry = Dict[str, Union[int, str]]
 ElectrumXHistoryList = List[ElectrumXHistoryEntry]
 
 
-ElectrumXHistoryEntry = Dict[str, Union[int, str]]
-ElectrumXHistoryList = List[ElectrumXHistoryEntry]
-
-
 class SubscriptionOwner(NamedTuple):
     wallet_id: int
     account_id: int
@@ -66,10 +62,6 @@ class TxoKeyType(NamedTuple):
 
     def __repr__(self) -> str:
         return f'TxoKeyType("{hash_to_hex_str(self.tx_hash)}",{self.txo_index})'
-
-
-    def __repr__(self) -> str:
-        return f'TxoKeyType("{hash_to_hex_str(self.tx_hash)}",{self.tx_index})'
 
 
 WaitingUpdateCallback = Callable[[Arg(bool, "advance"), DefaultArg(Optional[str], "message")], None]

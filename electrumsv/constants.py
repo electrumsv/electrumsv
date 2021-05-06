@@ -63,11 +63,6 @@ class TxFlags(IntFlag):
     # The transaction spends conflict with other transactions and it is not linked to any account.
     CONFLICTING = 1 << 7
 
-    # The transaction has been "removed" and is no longer linked to any account.
-    REMOVED = 1 << 0
-    # The transaction spends conflict with other transactions and it is not linked to any account.
-    CONFLICTING = 1 << 7
-
     # Complete transactions must always be added with bytedata. We no longer use this flag.
     # There will be incomplete transactions which may allow b'' perhaps, and which should be
     # updateable, but we're not there yet.
@@ -143,23 +138,6 @@ class AccountTxFlags(IntFlag):
     PAYS_INVOICE = 1 << 30
 
     # TODO(no-merge) Ensure this is observed where it should be.
-    # This transaction should be ignored from being included in the account balance.
-    IRRELEVANT_MASK = REPLACED | DELETED
-
-
-class AccountTxFlags(IntFlag):
-    NONE = 0
-
-    # This transaction has been replaced by another transaction and is no longer relevant.
-    # An example of this is a transaction in a payment channel that is no longer the latest
-    # transaction that has the same set of ordered inputs.
-    REPLACED = 1 << 10
-    # This transaction has been manually removed from the account by the user.
-    DELETED = 1 << 11
-
-    # This transaction is part of paying an invoice.
-    PAYS_INVOICE = 1 << 30
-
     # This transaction should be ignored from being included in the account balance.
     IRRELEVANT_MASK = REPLACED | DELETED
 
@@ -240,10 +218,6 @@ class SubscriptionOwnerPurpose(IntEnum):
     GAP_LIMIT_OBSERVER = 2
     ACTIVE_KEYS = 3
     TRANSACTION_STATE = 4
-
-
-class TransactionInputFlag(IntFlag):
-    NONE = 0
 
 
 class TransactionInputFlag(IntFlag):
