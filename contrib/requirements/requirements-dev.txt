@@ -1,4 +1,4 @@
-electrumsv-sdk>=0.0.33
+electrumsv-sdk>=0.0.35
 mypy
 pylint
 pytest>=5.2.1
