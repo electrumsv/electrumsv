@@ -72,7 +72,7 @@ def BE_sorted_list():
     return sorted(Net.BLOCK_EXPLORERS)
 
 
-def create_URI(dest: str, amount: int, message: str) -> str:
+def create_URI(dest: str, amount: Optional[int], message: str) -> str:
     scheme = Net.BITCOIN_URI_PREFIX
     query_parts = ['sv']
     scheme_idx = dest.find(":")

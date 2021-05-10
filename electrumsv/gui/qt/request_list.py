@@ -24,10 +24,12 @@
 # SOFTWARE.
 
 from functools import partial
+import math
+import time
 from typing import Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtCore import pyqtSignal, Qt, QTimer
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QLabel, QTreeWidgetItem, QMenu, QVBoxLayout
 
@@ -78,7 +80,54 @@ class RequestList(MyTreeWidget):
         self.setColumnWidth(0, 180)
         self.hideColumn(1)
 
-        self.update_signal.connect(self.update)
+        # NOTE(typing) pylance does not recognise `connect` on signals.
+        self.update_signal.connect(self.update) # type: ignore
+
+        # This is used if there is a pending expiry.
+        self._timer: Optional[QTimer] = None
+        self._timer_event_time = 0
+
+    def _start_timer(self, event_time: float) -> None:
+        self._stop_timer()
+
+        self._timer_event_time = event_time
+        all_seconds = math.ceil(event_time - time.time())
+        # Cap the time spent waiting to 50 seconds
+        seconds = min(all_seconds, 50) # * 60)
+        assert seconds > 0, f"got invalid timer duration {seconds}"
+        self._logger.debug("start_timer for %d seconds", seconds)
+        interval = seconds * 1000
+
+        assert self._timer is None, "timer already active"
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._on_timer_event)
+        self._timer.start(interval)
+
+    def _stop_timer(self) -> None:
+        if self._timer is None:
+            return
+        self._timer.stop()
+        self._timer = None
+        self._timer_event_time = 0
+
+    def _on_timer_event(self) -> None:
+        """
+        This should be triggered when the nearest expiry time is reached.
+
+        The updating of the list should if necessary restart a timer for the new nearest expiry
+        time, if there is one.
+        """
+        self._logger.debug("_on_timer_event")
+
+        event_time = self._timer_event_time
+        self._stop_timer()
+        if event_time == 0:
+            return
+
+        if event_time > time.time():
+            self._start_timer(event_time)
+        else:
+            self.update()
 
     def _on_item_double_clicked(self, item) -> None:
         self._logger.debug("request_list._on_item_double_clicked")
@@ -97,16 +146,17 @@ class RequestList(MyTreeWidget):
         if self._account_id is None:
             return
 
-        # TODO(no-merge) Check the account and only update if applicable?
+        current_time = time.time()
+        nearest_expiry_time = float('inf')
 
         wallet = self._account._wallet
         rows = wallet.read_payment_requests(self._account_id, flags=PaymentFlag.NONE,
             mask=PaymentFlag.ARCHIVED)
 
-
         # clear the list and fill it again
         self.clear()
         for row in rows:
+            flags = row.state & PaymentFlag.MASK_STATE
             date = format_time(row.date_created, _("Unknown"))
             amount_str = app_state.format_amount(row.value, whitespaces=True) if row.value else ""
 
@@ -117,7 +167,14 @@ class RequestList(MyTreeWidget):
                 self._account.get_default_script_type())
             address_text = script_template_to_string(script_template)
 
-            state = row.state & sum(pr_icons.keys())
+            if row.expiration is not None:
+                date_expires = row.date_created + row.expiration
+                if date_expires < current_time + 5:
+                    flags = (flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
+                else:
+                    nearest_expiry_time = min(nearest_expiry_time, date_expires)
+
+            state = flags & sum(pr_icons.keys())
             item = QTreeWidgetItem([date, address_text, '', row.description or "",
                 amount_str, pr_tooltips.get(state,'')])
             item.setData(0, Qt.UserRole, row.paymentrequest_id)
@@ -127,6 +184,9 @@ class RequestList(MyTreeWidget):
                     item.setIcon(6, read_QIcon(icon_name))
             item.setFont(4, self._monospace_font)
             self.addTopLevelItem(item)
+
+        if nearest_expiry_time != float("inf"):
+            self._start_timer(nearest_expiry_time)
 
     def create_menu(self, position):
         item = self.itemAt(position)
@@ -155,6 +215,7 @@ class RequestList(MyTreeWidget):
         message = self._account.get_keyinstance_label(req.keyinstance_id)
         # TODO(ScriptTypeAssumption) see above for context
         keyinstance = wallet.read_keyinstance(keyinstance_id=req.keyinstance_id)
+        assert keyinstance is not None
         script_template = self._account.get_script_template_for_key_data(keyinstance,
             self._account.get_default_script_type())
         address_text = script_template_to_string(script_template)
@@ -166,7 +227,9 @@ class RequestList(MyTreeWidget):
         return str(URI)
 
     def _export_payment_request(self, pr_id: int) -> None:
+        assert self._account is not None
         pr = self._account._wallet.read_payment_request(request_id=pr_id)
+        assert pr is not None
         pr_data = PaymentRequest.from_wallet_entry(self._account, pr).to_json()
         name = f'{pr.paymentrequest_id}.bip270.json'
         fileName = self._main_window.getSaveFileName(
@@ -177,18 +240,21 @@ class RequestList(MyTreeWidget):
             self.show_message(_("Request saved successfully"))
 
     def _delete_payment_request(self, request_id: int) -> None:
+        assert self._account_id is not None
+
         # Blocking deletion call.
         wallet = self._account.get_wallet()
         row = wallet.read_payment_request(request_id=request_id)
         if row is None:
             return
 
-        future = wallet.delete_payment_request(request_id, row.keyinstance_id)
+        future = wallet.delete_payment_request(self._account_id, request_id, row.keyinstance_id)
         future.result()
 
-        self.update_signal.emit()
+        # NOTE(typing) pylance does not recognise `emit` on signals.
+        self.update_signal.emit() # type: ignore
         # The key may have been freed up and should be used first.
-        # NOTE(rt12) WTF does this even mean?
+        # NOTE(rt12) WTF does this even mean? ^
         self._receive_view.update_contents()
 
     def _view_and_paste(self, title: str, msg: str, data: str) -> None:

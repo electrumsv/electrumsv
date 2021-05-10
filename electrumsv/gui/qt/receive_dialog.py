@@ -1,4 +1,4 @@
-import concurrent
+import concurrent.futures
 from typing import List, Optional, TYPE_CHECKING
 import weakref
 
@@ -11,6 +11,7 @@ from ...app_state import app_state
 from ...bitcoin import script_template_to_string
 from ...i18n import _
 from ...logs import logs
+from ...util import age
 from ... import web
 from ...wallet_database.types import KeyDataTypes, PaymentRequestUpdateRow
 
@@ -23,10 +24,12 @@ from .qrwindow import QR_Window
 from .util import ButtonsLineEdit, EnterButton, HelpLabel
 
 
-# TODO(no-merge) Reusable expected payment windows.
-# TODO(no-merge) Hook up expiration.
-# TODO(no-merge) Test update
+# TODO(no-merge) Test that the update works correctly.
+# TODO(no-merge) Consider allowing modification of the expiry date.
 # TODO(no-merge) Add copy URL button.
+# TODO(no-merge) Polish the layout, move the fiat value down under the BSV value, maybe
+#     just disable it if fiat is not enabled but keep it visible. If this is done, then it might
+#     be worth considering doing the same for the send tab/view.
 
 class ReceiveDialog(QDialog):
     """
@@ -57,7 +60,6 @@ class ReceiveDialog(QDialog):
 
         self._update_destination()
         self._receive_amount_e.setAmount(self._request_row.value)
-        # TODO(no-merge) Need to update the expiration date field.
 
         # TODO(no-merge) Verify that these get disconnected on exit.
         app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
@@ -141,11 +143,12 @@ class ReceiveDialog(QDialog):
               'of this ElectrumSV wallet.'),
         ])
         grid.addWidget(HelpLabel(_('Request expires'), msg), row, 0)
+        self._expires_combo.hide()
         grid.addWidget(self._expires_combo, row, 1)
-        self._expires_label = QLineEdit('')
-        self._expires_label.setReadOnly(1)
-        self._expires_label.setFocusPolicy(Qt.NoFocus)
-        self._expires_label.hide()
+        expires_text = age(self._request_row.date_created +
+            self._request_row.expiration).capitalize() \
+                if self._request_row.expiration else _('Never')
+        self._expires_label = QLabel(expires_text)
         grid.addWidget(self._expires_label, row, 1)
 
         row += 1
@@ -176,6 +179,7 @@ class ReceiveDialog(QDialog):
         pass
 
     def _update_destination(self) -> None:
+        assert self._key_data is not None
         text = ""
         script_template = self._account.get_script_template_for_key_data(self._key_data,
             self._account.get_default_script_type())
@@ -187,6 +191,8 @@ class ReceiveDialog(QDialog):
     def _update_receive_qr(self) -> None:
         if self._layout_pending:
             return
+
+        assert self._key_data is not None
 
         amount = self._receive_amount_e.get_amount()
         message = self._receive_message_e.text()

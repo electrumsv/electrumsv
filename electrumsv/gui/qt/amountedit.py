@@ -109,7 +109,7 @@ class BTCAmountEdit(AmountEdit):
         p = pow(10, self.decimal_point())
         return int( p * x )
 
-    def setAmount(self, amount: int) -> None:
+    def setAmount(self, amount: Optional[int]) -> None:
         if amount is None:
             self.setText(" ") # Space forces repaint in case units changed
         else:

@@ -1,5 +1,5 @@
-import concurrent
-from typing import Dict, List, Optional, TYPE_CHECKING
+import concurrent.futures
+from typing import List, Optional, TYPE_CHECKING
 import weakref
 
 from PyQt5.QtCore import Qt
@@ -36,12 +36,15 @@ class ReceiveView(QWidget):
         self._account = main_window._wallet.get_account(account_id)
         self._logger = logs.get_logger(f"receive-view[{self._account_id}]")
 
-        self._dialogs: Dict[int, ReceiveDialog] = weakref.WeakValueDictionary()
+        self._dialogs: weakref.WeakValueDictionary[int, ReceiveDialog] = \
+            weakref.WeakValueDictionary()
 
         self._request_list_toolbar_layout = TableTopButtonLayout()
-        self._request_list_toolbar_layout.refresh_signal.connect(
+        # NOTE(typing) pylance does not recognise `connect` on signals.
+        self._request_list_toolbar_layout.refresh_signal.connect( # type: ignore
             self._main_window.refresh_wallet_display)
-        self._request_list_toolbar_layout.filter_signal.connect(self._filter_request_list)
+        self._request_list_toolbar_layout.filter_signal.connect( # type: ignore
+            self._filter_request_list)
 
         form_layout = self._create_form_layout()
         self._request_list = RequestList(self, main_window)
@@ -112,7 +115,7 @@ class ReceiveView(QWidget):
         # These two expiry date value related widgets overlap and only one shows at once.
         grid.addWidget(self._expires_combo, 3, 1)
         self._expires_label = QLineEdit('')
-        self._expires_label.setReadOnly(1)
+        self._expires_label.setReadOnly(True)
         self._expires_label.setFocusPolicy(Qt.NoFocus)
         self._expires_label.hide()
         grid.addWidget(self._expires_label, 3, 1)
@@ -177,17 +180,17 @@ class ReceiveView(QWidget):
         i = self._expires_combo.currentIndex()
         expiration = [ x[1] for x in EXPIRATION_VALUES ][i]
 
+        keyinstance_id = self._account.reserve_unassigned_key(RECEIVING_SUBPATH,
+            KeyInstanceFlag.IS_PAYMENT_REQUEST)
+
         def callback(future: concurrent.futures.Future) -> None:
             # Skip if the operation was cancelled.
             if future.cancelled():
                 return
             # Raise any exception if it errored or get the result if completed successfully.
             future.result()
-            self._request_list.update_signal.emit()
-
-        key_future = self._account.reserve_unassigned_key(RECEIVING_SUBPATH,
-            KeyInstanceFlag.IS_PAYMENT_REQUEST)
-        keyinstance_id = key_future.result()
+            # NOTE(typing) pylance does not recognise `emit` on signals.
+            self._request_list.update_signal.emit() # type: ignore
 
         # Update the payment request next.
         row = PaymentRequestRow(-1, keyinstance_id, PaymentFlag.UNPAID, amount, expiration, message,

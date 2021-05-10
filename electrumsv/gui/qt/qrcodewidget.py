@@ -1,7 +1,7 @@
 import os
 from typing import Callable, TYPE_CHECKING
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtGui import QColor, QCursor, QPainter
 from PyQt5.QtWidgets import (
     QApplication, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QWidget)
@@ -30,7 +30,7 @@ class QRCodeWidget(QWidget):
     def clean_up(self) -> None:
         del self.mouseReleaseEvent
 
-    def link_to_window(self, toggle_func: Callable[[], None]) -> None:
+    def link_to_window(self, toggle_func: Callable[[QEvent], None]) -> None:
         self.mouseReleaseEvent = toggle_func
         self.enterEvent = lambda x: app_state.app.setOverrideCursor(QCursor(Qt.PointingHandCursor))
         self.leaveEvent = lambda x: app_state.app.setOverrideCursor(QCursor(Qt.ArrowCursor))

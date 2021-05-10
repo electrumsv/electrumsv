@@ -226,12 +226,6 @@ class AbstractAccount:
                 future.result()
             return rows
 
-    def bulk_create_keys(self, derivation_parent: Sequence[int]) -> None:
-        """
-        Ensure we have enough keys for future usage readily available.
-        """
-        self.create_keys(derivation_parent, 500)
-
     def create_keys(self, derivation_subpath: Sequence[int], count: int) \
             -> Tuple[Optional[concurrent.futures.Future], List[KeyInstanceRow]]:
         # Identify the metadata for each key that is to be created.
@@ -591,6 +585,7 @@ class AbstractAccount:
 
     def get_extended_input_for_spendable_output(self, row: TransactionOutputSpendableTypes) \
             -> XTxInput:
+        assert row.account_id is not None
         assert row.account_id == self._id
         assert row.keyinstance_id is not None
         assert row.derivation_type is not None
@@ -1143,7 +1138,7 @@ class AbstractAccount:
             else:
                 tx_context.prev_txs[txin.prev_hash] = prev_tx
                 if update_cb is not None:
-                    update_cb(True)
+                    update_cb(True, None)
         if need_tx_hashes:
             have_tx_hashes = set(tx_context.prev_txs)
             raise PreviousTransactionsMissingException(have_tx_hashes, need_tx_hashes)
@@ -1483,6 +1478,13 @@ class DeterministicAccount(AbstractAccount):
         """
         Select the first available unassigned key from the given sequence and mark it active.
 
+        If there are no existing keys available, then it creates new keys and uses those.
+
+        TODO This should be safe for re-entrant calls in that if a call creates a key and which
+          is then reserved by another call before it can reserve it itself, it should error with
+          no available keys to reserve. However it should be possible to make it correctly
+          re-entrant where it avoids this created key sniping scenario.
+
         TODO For now keys are implicitly marked active as part of this. But it is not the case that
           something that reserves keys necessarily wants the key to be active. When we have a use
           case we should refactor this so that only cases that want active keys get them. All other
@@ -1490,20 +1492,21 @@ class DeterministicAccount(AbstractAccount):
         """
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
+        future = self._wallet.reserve_keyinstance(self._id, masterkey_id, derivation_parent,
+            flags)
         try:
-            future = self._wallet.reserve_keyinstance(self._id, masterkey_id, derivation_parent,
-                flags)
+            keyinstance_id, final_flags = future.result()
         except KeyInstanceNotFoundError:
-            # TODO(no-merge) Need to revisit how we manage an outstanding pool of fresh keys.
-            self.bulk_create_keys(derivation_parent)
+            self.create_keys(derivation_parent, 1)
             future = self._wallet.reserve_keyinstance(self._id, masterkey_id,
                 derivation_parent, flags)
-        keyinstance_id, final_flags = future.result()
+            keyinstance_id, final_flags = future.result()
+
         if final_flags & KeyInstanceFlag.IS_ACTIVE:
             # NOTE(ActivitySubscription) This represents a key that was not previously active
             #   becoming active and requiring a subscription for events.
             app_state.subscriptions.create_entries(
-                self._get_subscription_entries_for_keyinstance_ids(keyinstance_id),
+                self._get_subscription_entries_for_keyinstance_ids([ keyinstance_id ]),
                     self._subscription_owner_for_keys)
         return keyinstance_id
 
@@ -2079,6 +2082,14 @@ class Wallet(TriggeredCallbacks):
             keyinstance_id += 1
         self._storage.put("next_keyinstance_id", keyinstance_id)
         future = db_functions.create_keyinstances(self.get_db_context(), rows)
+        def callback(callback_future: concurrent.futures.Future) -> None:
+            nonlocal account_id, rows
+            if callback_future.cancelled():
+                return
+            callback_future.result()
+            keyinstance_ids = [ row.keyinstance_id for row in rows ]
+            self.trigger_callback('on_keys_created', account_id, keyinstance_ids)
+        future.add_done_callback(callback)
         return future, rows
 
     def read_key_list(self, account_id: int, keyinstance_ids: Optional[List[int]]=None) \
@@ -2185,7 +2196,6 @@ class Wallet(TriggeredCallbacks):
             rows.append(request._replace(paymentrequest_id=request_id))
             request_id += 1
         self._storage.put("next_paymentrequest_id", request_id)
-        print(rows)
         future = db_functions.create_payment_requests(self.get_db_context(), rows)
         future.add_done_callback(callback)
         return future

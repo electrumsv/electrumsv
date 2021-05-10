@@ -42,7 +42,7 @@ from .wallet_database.types import PaymentRequestRow
 
 
 if TYPE_CHECKING:
-    from electrumsv.wallet import DeterministicAccount
+    from electrumsv.wallet import AbstractAccount, DeterministicAccount
 
 logger = logs.get_logger("paymentrequest")
 
@@ -152,7 +152,7 @@ class PaymentRequest:
         return self.to_json()
 
     @classmethod
-    def from_wallet_entry(cls, account: 'DeterministicAccount',
+    def from_wallet_entry(cls, account: 'AbstractAccount',
             pr: PaymentRequestRow) -> 'PaymentRequest':
         wallet = account.get_wallet()
         keyinstance = wallet.read_keyinstance(keyinstance_id=pr.keyinstance_id)

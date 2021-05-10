@@ -123,7 +123,7 @@ class InvoiceList(MyTreeWidget):
         current_time = time.time()
         nearest_expiry_time = float("inf")
 
-        # DEFERRED: Ability to change the invoice list to specify what invoices are shown.
+        # TODO Ability to change the invoice list to specify what invoices are shown.
         #   This would for instance allow viewing of archived invoices.
         wallet = self._send_view._account.get_wallet()
         invoice_rows = wallet.read_invoices_for_account(self._send_view._account.get_id(),
