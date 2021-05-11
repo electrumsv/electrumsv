@@ -173,8 +173,7 @@ class BlockchainScanDialog(WindowModalDialog):
         # is directly tied to the life of this dialog.
         self._timer = QTimer(self)
 
-        # NOTE(typing) PyQt5 lacks typing information for the connect method on signals.
-        self.import_step_signal.connect(self._update_for_import_step) # type: ignore
+        self.import_step_signal.connect(self._update_for_import_step)
 
         self.attempt_import_icon = read_QIcon("icons8-add-green-48-ui.png")
         self._conflicted_tx_icon = read_QIcon("icons8-error-48-ui.png")
@@ -191,8 +190,7 @@ class BlockchainScanDialog(WindowModalDialog):
         self._progress_bar.setFormat("%p% scanned")
         self._progress_bar.setVisible(False)
 
-        # NOTE(typing) PyQt5 lacks typing information for the connect method on signals.
-        self.update_progress_signal.connect(self._progress_bar.setValue) # type: ignore
+        self.update_progress_signal.connect(self._progress_bar.setValue)
 
         self._advanced_button = QPushButton(_("Advanced"))
         # At the time of writing, there are no advanced options to set for non-deterministic ones.
@@ -351,9 +349,8 @@ class BlockchainScanDialog(WindowModalDialog):
         for tx_hash in list(link_tx_hashes):
             link_state = TransactionLinkState()
             await self._wallet.link_transaction_async(tx_hash, link_state)
-            # NOTE(typing) PyQt5 lacks typing information for the emit method on signals.
             self._import_link_hashes.remove(tx_hash)
-            self.import_step_signal.emit(tx_hash, link_state) # type: ignore
+            self.import_step_signal.emit(tx_hash, link_state)
 
     def _on_wallet_event(self, event: str, *args: Iterable[Any]) -> None:
         """
@@ -372,8 +369,7 @@ class BlockchainScanDialog(WindowModalDialog):
             if tx_hash not in self._import_fetch_hashes:
                 return
             self._import_fetch_hashes.remove(tx_hash)
-            # NOTE(typing) PyQt5 lacks typing information for the emit method on signals.
-            self.import_step_signal.emit(tx_hash, link_state) # type: ignore
+            self.import_step_signal.emit(tx_hash, link_state)
 
     def _update_for_import_step(self, tx_hash: bytes, link_state: TransactionLinkState) -> None:
         tree_item_index = self._scan_tree_indexes[tx_hash]
@@ -392,8 +388,7 @@ class BlockchainScanDialog(WindowModalDialog):
             tree_item.setToolTip(Columns.STATUS, _("This transaction was imported successfully."))
 
         total_work_units, remaining_work_units = self._get_import_work_units()
-        # NOTE(typing) PyQt5 lacks typing information for the emit method on signals.
-        self.update_progress_signal.emit(total_work_units - remaining_work_units) # type: ignore
+        self.update_progress_signal.emit(total_work_units - remaining_work_units)
 
         if remaining_work_units == 0:
             self._stage = ScanDialogStage.FINAL
