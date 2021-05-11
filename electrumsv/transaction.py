@@ -642,22 +642,23 @@ class Transaction(Tx):
     @classmethod
     def read(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> 'Transaction':
         '''Overridden to specialize reading the inputs.'''
-        # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
+        # NOTE(typing) workaround for mypy not recognising the base class init arguments.
         return cls( # type: ignore
             read_le_int32(read), # type: ignore
             xread_list(read, tell, XTxInput.read), # type: ignore
             xread_list(read, tell, XTxOutput.read), # type: ignore
-            read_le_uint32(read),
+            read_le_uint32(read), # type: ignore
         )
 
     @classmethod
     def read_extended(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> 'Transaction':
         '''Overridden to specialize reading the inputs.'''
+        # NOTE(typing) workaround for mypy not recognising the base class init arguments.
         return cls( # type: ignore
             read_le_int32(read), # type: ignore
             xread_list(read, tell, XTxInput.read_extended), # type: ignore
             xread_list(read, tell, XTxOutput.read), # type: ignore
-            read_le_uint32(read),
+            read_le_uint32(read), # type: ignore
         )
 
     def to_bytes(self):

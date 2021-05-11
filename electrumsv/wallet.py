@@ -591,11 +591,11 @@ class AbstractAccount:
         assert row.derivation_type is not None
         x_pubkeys = self.get_xpubkeys_for_key_data(row)
         # NOTE(typing) The first four arguments for `TxInput` cause mypy to choke because `attrs`..
-        return XTxInput( # type: ignore
-            prev_hash          = row.tx_hash,
-            prev_idx           = row.txo_index,
-            script_sig         = Script(),
-            sequence           = 0xffffffff,
+        return XTxInput(
+            prev_hash          = row.tx_hash, # type: ignore
+            prev_idx           = row.txo_index, # type: ignore
+            script_sig         = Script(), # type: ignore
+            sequence           = 0xffffffff, # type: ignore
             threshold          = self.get_threshold(),
             script_type        = row.script_type,
             signatures         = [NO_SIGNATURE] * len(x_pubkeys),
@@ -745,16 +745,17 @@ class AbstractAccount:
                 change_outs = []
                 for keyinstance in change_keyinstances:
                     # NOTE(typing) `attrs` and `mypy` are not compatible, `TxOutput` vars unseen.
-                    change_outs.append(XTxOutput( # type: ignore
-                        value         = 0,
-                        script_pubkey = self.get_script_for_key_data(keyinstance, script_type),
+                    change_outs.append(XTxOutput(
+                        value         = 0, # type: ignore
+                        script_pubkey = self.get_script_for_key_data(keyinstance, # type: ignore
+                            script_type),
                         script_type   = script_type,
                         x_pubkeys     = self.get_xpubkeys_for_key_data(keyinstance)))
             else:
                 # NOTE(typing) `attrs` and `mypy` are not compatible, `TxOutput` vars unseen.
                 change_outs = [ XTxOutput( # type: ignore
-                    value         = 0,
-                    script_pubkey = self.get_script_for_key_data(unspent_outputs[0],
+                    value         = 0, # type: ignore
+                    script_pubkey = self.get_script_for_key_data(unspent_outputs[0], # type: ignore
                                         unspent_outputs[0].script_type),
                     script_type   = inputs[0].script_type,
                     x_pubkeys     = inputs[0].x_pubkeys) ]

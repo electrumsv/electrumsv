@@ -26,7 +26,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import concurrent
+import concurrent.futures
 import textwrap
 import time
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
@@ -90,7 +90,7 @@ class SendView(QWidget):
 
         self._is_max = False
         self._not_enough_funds = False
-        self._require_fee_update: Optional[int] = None
+        self._require_fee_update: Optional[float] = None
         self._payment_request: Optional[PaymentRequest] = None
         self._completions = QStringListModel()
 
@@ -139,7 +139,7 @@ class SendView(QWidget):
 
         self._from_label = QLabel(_('From'), self)
         self._from_label.setContentsMargins(0, 5, 0, 0)
-        self._from_label.setAlignment(Qt.AlignTop)
+        self._from_label.setAlignment(Qt.AlignmentFlag.AlignTop)
         grid.addWidget(self._from_label, 1, 0)
 
         self._from_list = MyTreeWidget(self, self._main_window.reference(), self.from_list_menu,
@@ -179,7 +179,7 @@ class SendView(QWidget):
         grid.addWidget(self._max_button, 3, 3)
 
         completer = QCompleter()
-        completer.setCaseSensitivity(False)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseSensitive)
         self._payto_e.set_completer(completer)
         completer.setModel(self._completions)
 
@@ -200,8 +200,8 @@ class SendView(QWidget):
         self._coinsplitting_checkbox.setVisible(self._show_splitting_option())
         # Hardware wallets can only sign a small set of fixed types of scripts (not this kind).
         self._coinsplitting_checkbox.setEnabled(not self._account.involves_hardware_wallet())
-        def coinsplitting_checkbox_cb(state: int) -> None:
-            if state != Qt.Checked:
+        def coinsplitting_checkbox_cb(state: Qt.CheckState) -> None:
+            if state != Qt.CheckState.Checked:
                 dialogs.show_named('sv-only-disabled')
         self._coinsplitting_checkbox.stateChanged.connect(coinsplitting_checkbox_cb)
         grid.addWidget(self._coinsplitting_checkbox, 5, 1, 1, -1)
@@ -261,7 +261,7 @@ class SendView(QWidget):
 
         invoice_box = QGroupBox()
         invoice_box.setTitle(_('Invoices'))
-        invoice_box.setAlignment(Qt.AlignCenter)
+        invoice_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
         invoice_box.setContentsMargins(0, 0, 0, 0)
         invoice_box.setLayout(invoice_layout)
 
@@ -400,7 +400,8 @@ class SendView(QWidget):
                 output_script = self._payto_e.get_payee_script()
                 if output_script is None:
                     output_script = self._account.get_dummy_script_template().to_script()
-                outputs = [XTxOutput(amount, output_script)]
+                # NOTE(typing) workaround for mypy not recognising the base class init arguments.
+                outputs = [XTxOutput(amount, output_script)] # type: ignore
 
             coins = self._get_coins()
             outputs.extend(self._account.create_extra_outputs(coins, outputs))
@@ -438,7 +439,7 @@ class SendView(QWidget):
                 return
 
         r = self._read()
-        if not r:
+        if r is None:
             return
 
         outputs, fee, tx_desc, coins = r
@@ -463,11 +464,11 @@ class SendView(QWidget):
             amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
             self._sign_tx_and_broadcast_if_complete(amount, tx)
 
-    def _read(self) \
-            -> Tuple[List[XTxOutput], Optional[int], str, List[TransactionOutputSpendableTypes]]:
+    def _read(self) -> Optional[Tuple[List[XTxOutput], Optional[int], str,
+            List[TransactionOutputSpendableTypes]]]:
         if self._payment_request and self._payment_request.has_expired():
             self._main_window.show_error(_('Payment request has expired'))
-            return
+            return None
         label = self._message_e.text()
 
         outputs: List[XTxOutput]
@@ -480,16 +481,16 @@ class SendView(QWidget):
                     '\n'.join([
                         "\n".join(textwrap.wrap(_("Line #") + str(x[0]+1) +": "+ x[1]))
                         for x in errors]))
-                return
+                return None
             outputs = self._payto_e.get_outputs(self._is_max)
 
         if not outputs:
             self._main_window.show_error(_('No payment destinations provided'))
-            return
+            return None
 
         if any(output.value is None for output in outputs):
             self._main_window.show_error(_('Invalid Amount'))
-            return
+            return None
 
         fee = None
         coins = self._get_coins()
@@ -540,6 +541,7 @@ class SendView(QWidget):
         return None
 
     def maybe_send_invoice_payment(self, tx: Transaction) -> bool:
+        assert self._account is not None
         pr = self._payment_request
         if pr:
             tx_hash = tx.hash()
@@ -651,6 +653,7 @@ class SendView(QWidget):
                 return
         else:
             row = self._account._wallet.read_invoice(invoice_id=pr.get_id())
+            assert row is not None
 
         # The invoice is already present. Populate it unless it's paid.
         if row.flags & PaymentFlag.PAID:
@@ -661,6 +664,8 @@ class SendView(QWidget):
         self._payment_request_imported(row)
 
     def _payment_request_imported(self, row: InvoiceRow) -> None:
+        assert row.description is not None
+
         self._invoice_list.update()
 
         self._payto_e.is_pr = True
@@ -713,6 +718,7 @@ class SendView(QWidget):
         self._main_window.show_message(msg, title=_('Pay to many'))
 
     def import_invoices(self) -> None:
+        assert self._account is not None
         self._invoice_list.import_invoices(self._account)
 
     def update_widgets(self) -> None:
