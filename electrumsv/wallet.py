@@ -746,10 +746,10 @@ class AbstractAccount:
                 for keyinstance in change_keyinstances:
                     # NOTE(typing) `attrs` and `mypy` are not compatible, `TxOutput` vars unseen.
                     change_outs.append(XTxOutput( # type: ignore
-                        value       = 0,
-                        script      = self.get_script_for_key_data(keyinstance, script_type),
-                        script_type = script_type,
-                        x_pubkeys   = self.get_xpubkeys_for_key_data(keyinstance)))
+                        value         = 0,
+                        script_pubkey = self.get_script_for_key_data(keyinstance, script_type),
+                        script_type   = script_type,
+                        x_pubkeys     = self.get_xpubkeys_for_key_data(keyinstance)))
             else:
                 # NOTE(typing) `attrs` and `mypy` are not compatible, `TxOutput` vars unseen.
                 change_outs = [ XTxOutput( # type: ignore

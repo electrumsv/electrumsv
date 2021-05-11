@@ -118,6 +118,8 @@ class CoinChooserBase:
         max_change = max(max(output_amounts) * 1.25, 0.02 * COIN)
 
         # Use N change outputs
+        change_amount = 0
+        n = 0
         for n in range(1, count + 1):
             # How much is left if we add this many change outputs?
             change_amount = max(0, tx.get_fee() - fee_estimator(n))
@@ -165,8 +167,10 @@ class CoinChooserBase:
         # size of the change output, add it to the transaction.
         dust = sum(amount for amount in amounts if amount < dust_threshold)
         amounts = [amount for amount in amounts if amount >= dust_threshold]
-        change = [XTxOutput(amount, out.script_pubkey, out.script_type, out.x_pubkeys)
-                  for out, amount in zip(change_outs, amounts)]
+        change = [
+            XTxOutput(amount, out.script_pubkey, out.script_type, out.x_pubkeys)
+            for out, amount in zip(change_outs, amounts)
+        ]
         logger.debug('change %s', change)
         if dust:
             logger.debug('not keeping dust %s', dust)
