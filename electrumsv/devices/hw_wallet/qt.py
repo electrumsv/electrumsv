@@ -27,10 +27,10 @@
 from functools import partial
 from queue import Queue
 import threading
-from typing import Any, Iterable, Optional
+from typing import Any, cast, Iterable, Optional
 import weakref
 
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtBoundSignal
 from PyQt5.QtWidgets import QAction, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout
 from PyQt5 import sip
 
@@ -67,6 +67,11 @@ class QtHandlerBase(QObject):
     _cleaned_up: bool = False
     _choice: Optional[int] = None
     _ok: int = 0
+
+    word: Optional[str] = None
+    action: Optional[QAction] = None
+    icon_paired: str = ""
+    icon_unpaired: str = ""
 
     def __init__(self, win: HandlerWindow, device):
         super(QtHandlerBase, self).__init__()
@@ -174,7 +179,7 @@ class QtHandlerBase(QObject):
         hbox.addWidget(QLabel(msg))
         text = QLineEdit()
         text.setMaximumWidth(100)
-        text.returnPressed.connect(dialog.accept)
+        cast(pyqtBoundSignal, text.returnPressed).connect(dialog.accept)
         hbox.addWidget(text)
         hbox.addStretch(1)
         dialog.exec_()  # Firmware cannot handle cancellation
@@ -239,8 +244,8 @@ class QtPluginBase(object):
         if keystore.label and keystore.label.strip():
             action_label = keystore.label.strip()
         action = QAction(read_QIcon(self.icon_unpaired), action_label, window)
-        action.triggered.connect(partial(self.show_settings_wrapped, weakref.proxy(window),
-            keystore))
+        cast(pyqtBoundSignal, action.triggered).connect(
+            partial(self.show_settings_wrapped, weakref.proxy(window), keystore))
         action.setToolTip(_("Hardware Wallet"))
         window.add_toolbar_action(action)
         handler.action = action

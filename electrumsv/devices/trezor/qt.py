@@ -1,6 +1,7 @@
 from functools import partial
+from typing import cast
 
-from PyQt5.QtCore import Qt, QEventLoop, pyqtSignal
+from PyQt5.QtCore import Qt, QEventLoop, pyqtBoundSignal, pyqtSignal
 from PyQt5.QtWidgets import QGridLayout, QPushButton, \
     QVBoxLayout, QLabel, QCheckBox, QDialog, QLineEdit, QHBoxLayout, \
     QGroupBox, QButtonGroup, QRadioButton, QFileDialog, QMessageBox, \
@@ -444,8 +445,8 @@ class SettingsDialog(WindowModalDialog):
         label_edit.setMinimumWidth(150)
         label_edit.setMaxLength(plugin.MAX_LABEL_LEN)
         label_apply = QPushButton(_("Apply"))
-        label_apply.clicked.connect(rename)
-        label_edit.textChanged.connect(set_label_enabled)
+        cast(pyqtBoundSignal, label_apply.clicked).connect(rename)
+        cast(pyqtBoundSignal, label_edit.textChanged).connect(set_label_enabled)
         settings_glayout.addWidget(label_label, 0, 0)
         settings_glayout.addWidget(label_edit, 0, 1, 1, 2)
         settings_glayout.addWidget(label_apply, 0, 3)
@@ -454,7 +455,7 @@ class SettingsDialog(WindowModalDialog):
         # Settings tab - PIN
         pin_label = QLabel(_("PIN Protection"))
         pin_button = QPushButton()
-        pin_button.clicked.connect(set_pin)
+        cast(pyqtBoundSignal, pin_button.clicked).connect(set_pin)
         settings_glayout.addWidget(pin_label, 2, 0)
         settings_glayout.addWidget(pin_button, 2, 1)
         pin_msg = QLabel(_("PIN protection is strongly recommended.  "
@@ -469,7 +470,7 @@ class SettingsDialog(WindowModalDialog):
         homescreen_label = QLabel(_("Homescreen"))
         homescreen_change_button = QPushButton(_("Change..."))
         homescreen_clear_button = QPushButton(_("Reset"))
-        homescreen_change_button.clicked.connect(change_homescreen)
+        cast(pyqtBoundSignal, homescreen_change_button.clicked).connect(change_homescreen)
         try:
             import PIL
         except ImportError:
@@ -478,7 +479,7 @@ class SettingsDialog(WindowModalDialog):
                 _("Required package 'PIL' is not available - "
                   "Please install it or use the Trezor website instead.")
             )
-        homescreen_clear_button.clicked.connect(clear_homescreen)
+        cast(pyqtBoundSignal, homescreen_clear_button.clicked).connect(clear_homescreen)
         homescreen_msg = QLabel(_("You can set the homescreen on your "
                                   "device to personalize it.  You must "
                                   "choose a {} x {} monochrome black and "
@@ -492,7 +493,7 @@ class SettingsDialog(WindowModalDialog):
         # Settings tab - Session Timeout
         timeout_label = QLabel(_("Session Timeout"))
         timeout_minutes = QLabel()
-        timeout_slider = QSlider(Qt.Horizontal)
+        timeout_slider = QSlider(Qt.Orientation.Horizontal)
         timeout_slider.setRange(1, 60)
         timeout_slider.setSingleStep(1)
         timeout_slider.setTickInterval(5)
@@ -506,8 +507,8 @@ class SettingsDialog(WindowModalDialog):
         timeout_msg.setWordWrap(True)
         timeout_slider.setSliderPosition(config.get_session_timeout() // 60)
         slider_moved()
-        timeout_slider.valueChanged.connect(slider_moved)
-        timeout_slider.sliderReleased.connect(slider_released)
+        cast(pyqtBoundSignal, timeout_slider.valueChanged).connect(slider_moved)
+        cast(pyqtBoundSignal, timeout_slider.sliderReleased).connect(slider_released)
         settings_glayout.addWidget(timeout_label, 6, 0)
         settings_glayout.addWidget(timeout_slider, 6, 1, 1, 3)
         settings_glayout.addWidget(timeout_minutes, 6, 4)
@@ -522,7 +523,7 @@ class SettingsDialog(WindowModalDialog):
 
         # Advanced tab - clear PIN
         clear_pin_button = QPushButton(_("Disable PIN"))
-        clear_pin_button.clicked.connect(clear_pin)
+        cast(pyqtBoundSignal, clear_pin_button.clicked).connect(clear_pin)
         clear_pin_warning = QLabel(
             _("If you disable your PIN, anyone with physical access to your "
               "{} device can spend your bitcoins.").format(plugin.device))
@@ -533,7 +534,7 @@ class SettingsDialog(WindowModalDialog):
 
         # Advanced tab - toggle passphrase protection
         passphrase_button = QPushButton()
-        passphrase_button.clicked.connect(toggle_passphrase)
+        cast(pyqtBoundSignal, passphrase_button.clicked).connect(toggle_passphrase)
         passphrase_msg = WWLabel(PASSPHRASE_HELP)
         passphrase_warning = WWLabel(PASSPHRASE_NOT_PIN)
         passphrase_warning.setStyleSheet("color: red")
@@ -543,7 +544,7 @@ class SettingsDialog(WindowModalDialog):
 
         # Advanced tab - wipe device
         wipe_device_button = QPushButton(_("Wipe Device"))
-        wipe_device_button.clicked.connect(wipe_device)
+        cast(pyqtBoundSignal, wipe_device_button.clicked).connect(wipe_device)
         wipe_device_msg = QLabel(
             _("Wipe the device, removing all data from it.  The firmware "
               "is left unchanged."))

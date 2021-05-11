@@ -1,6 +1,7 @@
 import copy
-from typing import Dict, Any
+from typing import Any, cast, Dict
 
+from PyQt5.QtCore import pyqtBoundSignal
 from PyQt5.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QLabel
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QComboBox
 from btchip.btchip import BTChipException
@@ -73,7 +74,7 @@ class LedgerAuthDialog(QDialog):
         vbox.addWidget(self.modebox)
 
         self.populate_modes()
-        self.modes.currentIndexChanged.connect(on_change_mode)
+        cast(pyqtBoundSignal, self.modes.currentIndexChanged).connect(on_change_mode)
 
         self.helpmsg = QTextEdit()
         self.helpmsg.setStyleSheet("QTextEdit { background-color: lightgray; }")
@@ -85,7 +86,7 @@ class LedgerAuthDialog(QDialog):
         self.pinbox.setLayout(pinlayout)
         self.pintxt = PasswordLineEdit()
         self.pintxt.setMaxLength(4)
-        self.pintxt.returnPressed.connect(return_pin)
+        cast(pyqtBoundSignal, self.pintxt.returnPressed).connect(return_pin)
         pinlayout.addWidget(QLabel(_("Enter PIN:")))
         pinlayout.addWidget(self.pintxt)
         pinlayout.addWidget(QLabel(_("NOT DEVICE PIN - see above")))
@@ -117,8 +118,8 @@ class LedgerAuthDialog(QDialog):
         cardpin.addWidget(QLabel(_("Enter PIN:")))
         self.cardtxt = PasswordLineEdit()
         self.cardtxt.setMaxLength(len(self.idxs))
-        self.cardtxt.textChanged.connect(pin_changed)
-        self.cardtxt.returnPressed.connect(return_pin)
+        cast(pyqtBoundSignal, self.cardtxt.textChanged).connect(pin_changed)
+        cast(pyqtBoundSignal, self.cardtxt.returnPressed).connect(return_pin)
         cardpin.addWidget(self.cardtxt)
         cardpin.addWidget(QLabel(_("NOT DEVICE PIN - see above")))
         cardpin.addStretch(1)
