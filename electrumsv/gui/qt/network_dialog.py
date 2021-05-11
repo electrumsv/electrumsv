@@ -33,10 +33,10 @@ import urllib.parse
 from aiorpcx import NetAddress
 from bitcoinx import hash_to_hex_str
 from PyQt5.QtCore import pyqtSignal, QModelIndex, QObject, QPoint, Qt, QThread
-from PyQt5.QtGui import QColor, QContextMenuEvent, QKeyEvent, QPixmap, QValidator
+from PyQt5.QtGui import QColor, QContextMenuEvent, QIcon, QKeyEvent, QPixmap, QValidator
 from PyQt5.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, \
     QGridLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, \
-    QSizePolicy, QTableWidget, QTabWidget, QTreeWidget, QTreeWidgetItem, \
+    QSizePolicy, QTableWidget, QTableWidgetItem, QTabWidget, QTreeWidget, QTreeWidgetItem, \
     QVBoxLayout, QWidget
 
 from ...app_state import app_state
@@ -56,7 +56,6 @@ class Roles:
     ITEM_DATA = Qt.UserRole
     TIMESTAMP_SORTKEY = Qt.UserRole + 1
     CONNECTEDNESS_SORTKEY = Qt.UserRole + 2
-    URL_DATA = Qt.UserRole + 3
 
 logger = logs.get_logger("network-ui")
 
@@ -511,7 +510,7 @@ class EditServerDialog(WindowModalDialog):
         return SERVER_TYPE_ENTRIES[self._server_type_combobox.currentIndex()]
 
 
-class SortableServerTreeWidgetItem(QTreeWidgetItem):
+class SortableServerQTableWidgetItem(QTableWidgetItem):
 
     def _has_poorer_connection(self, self_is_connected: bool, other_is_connected: bool) -> bool:
         """tcp:// SVServers that are not active as sessions have a lesser 'last_good' despite
@@ -524,12 +523,13 @@ class SortableServerTreeWidgetItem(QTreeWidgetItem):
             return False
         return False
 
-    def __lt__(self, other: 'SortableServerTreeWidgetItem') -> bool:
-        column = self.treeWidget().sortColumn()
-        self_last_good: int = int(self.data(column, Roles.TIMESTAMP_SORTKEY))
-        other_last_good: int = int(other.data(column, Roles.TIMESTAMP_SORTKEY))
-        self_is_connected: bool = self.data(column, Roles.CONNECTEDNESS_SORTKEY)
-        other_is_connected: bool = other.data(column, Roles.CONNECTEDNESS_SORTKEY)
+    def __lt__(self, other: 'SortableServerQTableWidgetItem') -> bool:
+        # TODO This only sorts for the first column which is a good enough first step.
+        #      We need sorting to work for all columns, like alphanumerically for the url column.
+        self_last_good: int = int(self.data(Roles.TIMESTAMP_SORTKEY))
+        other_last_good: int = int(other.data(Roles.TIMESTAMP_SORTKEY))
+        self_is_connected: bool = self.data(Roles.CONNECTEDNESS_SORTKEY)
+        other_is_connected: bool = other.data(Roles.CONNECTEDNESS_SORTKEY)
 
         if self._has_poorer_connection(self_is_connected, other_is_connected):
             return True
@@ -556,9 +556,8 @@ class ServersListWidget(QTableWidget):
 
         self._connected_pixmap = QPixmap(icon_path("icons8-data-transfer-80-blue.png")
             ).scaledToWidth(16, Qt.SmoothTransformation)
+        self._connected_icon = QIcon(self._connected_pixmap)
 
-        self.setSortingEnabled(True)
-        self.sortItems(0, Qt.DescendingOrder)
         self.doubleClicked.connect(self._event_double_clicked)
 
         self.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -608,18 +607,26 @@ class ServersListWidget(QTableWidget):
                 tooltip_text = _("There is no current connection to this server.")
                 considered_active = True
 
-            row_icon_label = QLabel()
+            item_0 = SortableServerQTableWidgetItem()
+            item_0.setToolTip(tooltip_text)
             if list_entry.is_connected:
-                row_icon_label.setPixmap(self._connected_pixmap)
-            row_icon_label.setToolTip(tooltip_text)
-            row_icon_label.setAlignment(Qt.AlignCenter)
-            self.setCellWidget(row_index, 0, row_icon_label)
+                item_0.setIcon(self._connected_icon)
+            item_0.setTextAlignment(Qt.AlignCenter)
+            item_0.setData(Roles.TIMESTAMP_SORTKEY, list_entry.last_good if not None else 0)
+            item_0.setData(Roles.CONNECTEDNESS_SORTKEY, list_entry.is_connected)
+            self.setItem(row_index, 0, item_0)
+
+            # row_icon_label = QLabel()
+            # if list_entry.is_connected:
+            #     row_icon_label.setPixmap(self._connected_pixmap)
+            # row_icon_label.setToolTip(tooltip_text)
+            # row_icon_label.setAlignment(Qt.AlignCenter)
+            # self.setCellWidget(row_index, 0, row_icon_label)
 
             # item_0 = self.item(row_index, 0)
             # item_0.setData(Roles.ITEM_DATA, list_entry.item)
             # item_0.setData(Roles.TIMESTAMP_SORTKEY, list_entry.last_good if not None else 0)
             # item_0.setData(Roles.CONNECTEDNESS_SORTKEY, list_entry.is_connected)
-            # item_0.setData(Roles.URL_DATA, list_entry.url)
 
             if considered_active:
                 row_name_label = QLabel(list_entry.url)
@@ -633,6 +640,9 @@ class ServersListWidget(QTableWidget):
             row_type_label = QLabel(SERVER_TYPE_LABELS[list_entry.item.server_type])
             row_type_label.setStyleSheet("padding-left: 3px; padding-right: 3px;")
             self.setCellWidget(row_index, 2, row_type_label)
+
+        self.sortItems(0, Qt.DescendingOrder)
+        self.setSortingEnabled(True)
 
         # If this happens before the row insertion loop it is not guaranteed that the last column
         # (at this time being the API type) will get resized to contents. Instead it will be
