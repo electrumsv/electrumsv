@@ -118,17 +118,10 @@ trezor==0.12.0 \
     --hash=sha256:da5b750ada03830fd1f0b9010f7d5d30e77ec3e1458230e3d08fe4588a0741b2 \
     --hash=sha256:f6bc821bddec06e67a1abd0be1d9fbc61c59b08272c736522ae2f6b225bf9579
     # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements-hw.txt
-<<<<<<< HEAD
 typing-extensions==3.10.0.0 \
     --hash=sha256:0ac0f89795dd19de6b97debb0c6af1c70987fd80a2d62d1958f7e56fcc31b497 \
     --hash=sha256:50b6f157849174217d0656f99dc82fe932884fb250826c18350e159ec6cdf342 \
     --hash=sha256:779383f6086d90c99ae41cf0ff39aac8a7937a9283ce0a414e5dd782f4c94a84
-=======
-typing-extensions==3.7.4.3 \
-    --hash=sha256:7cb407020f00f7bfc3cb3e7881628838e69d8f3fcab2f64742a5e76b2f841918 \
-    --hash=sha256:99d4073b617d30288f569d3f13d2bd7548c3a7e4c8de87db09a9d29bb3a4a60c \
-    --hash=sha256:dafc7639cde7f1b6e1acc0f457842a83e722ccca8eef5270af2d74792619a89f
->>>>>>> 7ef0aa69 (- The server list now indicates not good with gray text.)
     # via trezor
 urllib3==1.26.4 \
     --hash=sha256:2f4da4594db7e1e110a944bb1b551fdf4e6c136ad42e4234131391e21eb5b0df \
