@@ -27,15 +27,15 @@ import datetime
 import enum
 from functools import partial
 import socket
-from typing import Callable, cast, List, NamedTuple, Optional, Sequence
+from typing import Callable, cast, List, NamedTuple, Optional, Sequence, Tuple
 import urllib.parse
 
 from aiorpcx import NetAddress
 from bitcoinx import hash_to_hex_str
 from PyQt5.QtCore import pyqtSignal, QModelIndex, QObject, QPoint, Qt, QThread
-from PyQt5.QtGui import QColor, QContextMenuEvent, QIcon, QKeyEvent, QPixmap, QValidator
+from PyQt5.QtGui import QBrush, QColor, QContextMenuEvent, QIcon, QKeyEvent, QPixmap, QValidator
 from PyQt5.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, \
-    QGridLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, \
+    QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, \
     QSizePolicy, QTableWidget, QTableWidgetItem, QTabWidget, QTreeWidget, QTreeWidgetItem, \
     QVBoxLayout, QWidget
 
@@ -53,9 +53,9 @@ from .util import Buttons, CloseButton, FormSectionWidget, HelpButton, HelpDialo
 
 
 class Roles:
-    ITEM_DATA = Qt.UserRole
-    TIMESTAMP_SORTKEY = Qt.UserRole + 1
-    CONNECTEDNESS_SORTKEY = Qt.UserRole + 2
+    ITEM_DATA = Qt.ItemDataRole.UserRole
+    TIMESTAMP_SORTKEY = Qt.ItemDataRole.UserRole + 1
+    CONNECTEDNESS_SORTKEY = Qt.ItemDataRole.UserRole + 2
 
 logger = logs.get_logger("network-ui")
 
@@ -101,10 +101,12 @@ class ServerItem(NamedTuple):
 
 class ServerListEntry(NamedTuple):
     item: ServerItem
+    server: Optional[SVServer]
     url: str
     last_try: float
     last_good: float
     is_connected: bool
+    is_main_server: bool
 
 
 # TODO Upgrade how this is displayed and what is displayed. It would be valuable for users to
@@ -140,29 +142,49 @@ class NodesListWidget(QTreeWidget):
     def __init__(self, parent: 'BlockchainTab') -> None:
         QTreeWidget.__init__(self)
         self._parent_tab = parent
-        self.setHeaderLabels([ _('Connected node'), _('Height') ])
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.setHeaderLabels([ _('Connected server'), _('Height') ])
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.create_menu)
+
+        self._connected_pixmap = QPixmap(icon_path("icons8-data-transfer-80-blue.png")
+            ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
+        self._warning_pixmap = QPixmap(icon_path("icons8-error-48-ui.png")
+            ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
+        self._connected_icon = QIcon(self._connected_pixmap)
+        self._lock_pixmap = QPixmap(icon_path("icons8-lock-windows.svg")
+            ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
 
     def create_menu(self, position: QPoint) -> None:
         item = self.currentItem()
         if not item:
             return
-        server = item.data(0, Qt.UserRole)
+        server = item.data(0, Qt.ItemDataRole.UserRole)
         if not server:
             return
 
-        def use_as_server() -> None:
+        def use_as_server(auto_connect: bool) -> None:
             try:
-                self._parent_tab.follow_server(server)
+                self._parent_tab._parent.follow_server(server, auto_connect)
             except Exception as e:
                 MessageBox.show_error(str(e))
+
+        # NOTE(typing) The dynamic app_state object does not propagate typing information.
+        network = cast(Network, app_state.daemon.network)
+
         menu = QMenu()
-        menu.addAction(_("Use as server"), use_as_server)
+        action = menu.addAction(_("Use as main server"), partial(use_as_server, True))
+        action.setEnabled(server != network.main_server)
+        if network.auto_connect() or server != network.main_server:
+            action = menu.addAction(_("Lock as main server"), partial(use_as_server, False))
+            action.setEnabled(app_state.config.is_modifiable('auto_connect'))
+        else:
+            action = menu.addAction(_("Unlock as main server"), partial(use_as_server, True))
+            action.setEnabled(app_state.config.is_modifiable('auto_connect') and \
+                server == network.main_server)
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() in [ Qt.Key_F2, Qt.Key_Return ]:
+        if event.key() in [ Qt.Key.Key_F2, Qt.Key.Key_Return ]:
             self.on_activated(self.currentItem(), self.currentColumn())
         else:
             QTreeWidget.keyPressEvent(self, event)
@@ -195,7 +217,7 @@ class NodesListWidget(QTreeWidget):
             if len(chains) > 1:
                 name = self.chain_name(chain, our_chain)
                 tree_item = QTreeWidgetItem([name, '%d' % chain.height])
-                tree_item.setData(0, Qt.UserRole, None)  # server
+                tree_item.setData(0, Qt.ItemDataRole.UserRole, None)  # server
             else:
                 tree_item = self
             # If someone is connected to two nodes on the same server, indicate the difference.
@@ -209,7 +231,8 @@ class NodesListWidget(QTreeWidget):
                 extra_name += ' (main server)' if session.server is network.main_server else ''
                 item = QTreeWidgetItem([session.server.host + extra_name,
                     str(session.tip.height)])
-                item.setData(0, Qt.UserRole, session.server)
+                item.setIcon(0, self._connected_icon)
+                item.setData(0, Qt.ItemDataRole.UserRole, session.server)
                 tree_item.addTopLevelItem(item)
             if len(chains) > 1:
                 self.addTopLevelItem(tree_item)
@@ -219,7 +242,12 @@ class NodesListWidget(QTreeWidget):
             height_str = "%d "%(network.get_local_height()) + _('blocks')
             self._parent_tab.height_label.setText(height_str)
             n = len(network.sessions)
-            status = _("Connected to {:d} servers.").format(n) if n else _("Not connected")
+            if n == 0:
+                status = _("Not connected")
+            elif n == 1:
+                status = _("Connected to {:d} server.").format(n)
+            else:
+                status = _("Connected to {:d} servers.").format(n)
             self._parent_tab.status_label.setText(status)
             chains = network.sessions_by_chain().keys()
             if len(chains) > 1:
@@ -234,6 +262,26 @@ class NodesListWidget(QTreeWidget):
             else:
                 msg = ''
             self._parent_tab.split_label.setText(msg)
+            pixmaps: List[Tuple[Optional[QPixmap], str]] = []
+            if not network.auto_connect():
+                pixmaps.append((self._lock_pixmap,
+                    _("This server is locked into place as the permanent main server.")))
+            if network.main_server.state.last_good < network.main_server.state.last_try:
+                pixmaps.append((self._warning_pixmap, _("This server is not currently connected.")))
+
+            while len(pixmaps) < 2:
+                pixmaps.append((None, ''))
+
+            if pixmaps[0][0] is None:
+                self._parent_tab.server_label_icon1.clear()
+            else:
+                self._parent_tab.server_label_icon1.setPixmap(pixmaps[0][0])
+                self._parent_tab.server_label_icon1.setToolTip(pixmaps[0][1])
+            if pixmaps[1][0] is None:
+                self._parent_tab.server_label_icon2.clear()
+            else:
+                self._parent_tab.server_label_icon2.setPixmap(pixmaps[1][0])
+                self._parent_tab.server_label_icon2.setToolTip(pixmaps[1][1])
             self._parent_tab.server_label.setText(network.main_server.host)
 
         h = self.header()
@@ -244,15 +292,26 @@ class NodesListWidget(QTreeWidget):
 
 class BlockchainTab(QWidget):
 
-    def __init__(self, _parent: 'NetworkTabsLayout') -> None:
+    def __init__(self, parent: "NetworkTabsLayout") -> None:
         super().__init__()
+        self._parent = parent
+
         blockchain_layout = QVBoxLayout(self)
 
         form = FormSectionWidget()
-        self.status_label = QLabel('')
+        self.status_label = QLabel(_("No connections yet."))
         form.add_row(_('Status'), self.status_label, True)
-        self.server_label = QLabel('')
-        form.add_row(_('Server'), self.server_label, True)
+        self.server_label = QLabel()
+        self.server_label_icon1 = QLabel()
+        self.server_label_icon2 = QLabel()
+        server_label_layout = QHBoxLayout()
+        server_label_layout.addWidget(self.server_label)
+        server_label_layout.addSpacing(4)
+        server_label_layout.addWidget(self.server_label_icon1)
+        server_label_layout.addSpacing(4)
+        server_label_layout.addWidget(self.server_label_icon2)
+        server_label_layout.addStretch(1)
+        form.add_row(_('Main server'), server_label_layout, True)
         self.height_label = QLabel('')
         form.add_row(_('Blockchain'), self.height_label, True)
 
@@ -264,12 +323,6 @@ class BlockchainTab(QWidget):
         self.nodes_list_widget = NodesListWidget(self)
         blockchain_layout.addWidget(self.nodes_list_widget)
         blockchain_layout.addStretch(1)
-        self.nodes_list_widget.update()
-
-    def follow_server(self, server: SVServer) -> None:
-        network = cast(Network, app_state.daemon.network)
-        network.set_server(server, network.auto_connect())
-
         self.nodes_list_widget.update()
 
 
@@ -314,7 +367,7 @@ class EditServerDialog(WindowModalDialog):
             if edit.hasAcceptableInput():
                 palette.setBrush(palette.Base, default_brush)
             else:
-                palette.setBrush(palette.Base, QColor(Qt.yellow).lighter(167))
+                palette.setBrush(palette.Base, QColor(Qt.GlobalColor.yellow).lighter(167))
             edit.setPalette(palette)
 
             # If the field contents are invalid, the tooltip will indicate why.
@@ -537,26 +590,23 @@ class SortableServerQTableWidgetItem(QTableWidgetItem):
 
 
 class ServersListWidget(QTableWidget):
-    COLUMN_NAMES = ('', _('Service'), _('Type'))
+    COLUMN_NAMES = ('', _('Service'), '', _('Type'))
 
     def __init__(self, parent: 'ServersTab') -> None:
         super().__init__()
         self._parent_tab = parent
 
-        self._row_data: List[ServerListEntry] = []
-
         self.setStyleSheet("""
-            QTableView {
-                selection-background-color: #F5F8FA;
-            }
             QHeaderView::section {
                 font-weight: bold;
             }
         """)
 
         self._connected_pixmap = QPixmap(icon_path("icons8-data-transfer-80-blue.png")
-            ).scaledToWidth(16, Qt.SmoothTransformation)
+            ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
         self._connected_icon = QIcon(self._connected_pixmap)
+        self._unavailable_brush = QBrush(QColor("grey"))
+        self._lock_icon = read_QIcon("icons8-lock-windows.svg")
 
         self.doubleClicked.connect(self._event_double_clicked)
 
@@ -567,11 +617,9 @@ class ServersListWidget(QTableWidget):
         self.setTabKeyNavigation(False)
 
     def update_list(self, items: List[ServerListEntry]) -> None:
-        self.clear()
-        # Clearing the table does not remove the rows already added to it. That is done manually.
-        while self.rowCount():
-            self.removeRow(self.rowCount()-1)
-        self._row_data.clear()
+        self.setRowCount(0)
+
+        network = cast(Network, app_state.daemon.network)
 
         self.setColumnCount(len(self.COLUMN_NAMES))
         self.setHorizontalHeaderLabels(self.COLUMN_NAMES)
@@ -588,10 +636,11 @@ class ServersListWidget(QTableWidget):
         hh.setMinimumSectionSize(24)
         hh.setDefaultSectionSize(24)
 
-        for row_index, list_entry in enumerate(items):
-            self.insertRow(row_index)
-            self._row_data.append(list_entry)
+        # The sorting has to be disabled to maintain a stable order as we change the contents.
+        self.setSortingEnabled(False)
+        self.setRowCount(len(items))
 
+        for row_index, list_entry in enumerate(items):
             considered_active = False
             if list_entry.is_connected:
                 tooltip_text = _("There is an active connection to this server.")
@@ -611,37 +660,37 @@ class ServersListWidget(QTableWidget):
             item_0.setToolTip(tooltip_text)
             if list_entry.is_connected:
                 item_0.setIcon(self._connected_icon)
-            item_0.setTextAlignment(Qt.AlignCenter)
+            item_0.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item_0.setData(Roles.ITEM_DATA, list_entry)
             item_0.setData(Roles.TIMESTAMP_SORTKEY, list_entry.last_good if not None else 0)
             item_0.setData(Roles.CONNECTEDNESS_SORTKEY, list_entry.is_connected)
             self.setItem(row_index, 0, item_0)
 
-            # row_icon_label = QLabel()
-            # if list_entry.is_connected:
-            #     row_icon_label.setPixmap(self._connected_pixmap)
-            # row_icon_label.setToolTip(tooltip_text)
-            # row_icon_label.setAlignment(Qt.AlignCenter)
-            # self.setCellWidget(row_index, 0, row_icon_label)
-
-            # item_0 = self.item(row_index, 0)
-            # item_0.setData(Roles.ITEM_DATA, list_entry.item)
-            # item_0.setData(Roles.TIMESTAMP_SORTKEY, list_entry.last_good if not None else 0)
-            # item_0.setData(Roles.CONNECTEDNESS_SORTKEY, list_entry.is_connected)
-
+            item_1 = SortableServerQTableWidgetItem()
             if considered_active:
-                row_name_label = QLabel(list_entry.url)
+                item_1.setText(list_entry.url)
             else:
-                row_name_label = QLabel("<font color='grey'>"+ list_entry.url +"</font>")
-                row_name_label.setTextFormat(Qt.RichText)
-            row_name_label.setStyleSheet("padding-left: 3px; padding-right: 3px;")
-            row_name_label.setToolTip(tooltip_text)
-            self.setCellWidget(row_index, 1, row_name_label)
+                item_1.setText(list_entry.url)
+                item_1.setForeground(self._unavailable_brush)
+            item_1.setToolTip(tooltip_text)
+            # Unless we remove this flag, it seems for some reason this field is editable and when
+            # it is double clicked it turns into a line edit as well as opening the edit dialog.
+            # It's probably a default flag set when `setText` is called.
+            item_1.setFlags(item_1.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.setItem(row_index, 1, item_1)
+
+            item_2 = SortableServerQTableWidgetItem()
+            if list_entry.is_main_server and not network.auto_connect():
+                item_2.setIcon(self._lock_icon)
+                item_2.setToolTip(
+                    _("This server is locked into place as the permanent main server."))
+            self.setItem(row_index, 2, item_2)
 
             row_type_label = QLabel(SERVER_TYPE_LABELS[list_entry.item.server_type])
             row_type_label.setStyleSheet("padding-left: 3px; padding-right: 3px;")
-            self.setCellWidget(row_index, 2, row_type_label)
+            self.setCellWidget(row_index, 3, row_type_label)
 
-        self.sortItems(0, Qt.DescendingOrder)
+        self.sortItems(0, Qt.SortOrder.DescendingOrder)
         self.setSortingEnabled(True)
 
         # If this happens before the row insertion loop it is not guaranteed that the last column
@@ -652,10 +701,12 @@ class ServersListWidget(QTableWidget):
         hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
 
     def _get_selected_entry(self) -> ServerListEntry:
-        row_index = self.currentRow()
-        return self._row_data[row_index]
+        items = self.selectedItems()
+        assert len(items) == 1
+        return items[0].data(Roles.ITEM_DATA)
 
     def _view_entry(self, entry: ServerListEntry) -> None:
         dialog = EditServerDialog(self._parent_tab, title="Edit Server", edit_mode=True,
@@ -664,17 +715,19 @@ class ServersListWidget(QTableWidget):
             self._parent_tab.update_servers()
 
     # Qt signal handler.
-    def _event_double_clicked(self, index: QModelIndex) -> None:
+    def _event_double_clicked(self, _index: QModelIndex) -> None:
         """
         The user double clicks on a row in the list.
         """
-        entry = self._row_data[index.row()]
-        self._view_entry(entry)
+        items = self.selectedItems()
+        if not len(items):
+            return
+        self._view_entry(items[0].data(Roles.ITEM_DATA))
 
     # Qt function override.
     def keyPressEvent(self, event: QKeyEvent) -> None:
         key = event.key()
-        if key == Qt.Key_Return or key == Qt.Key_Enter:
+        if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
             entry = self._get_selected_entry()
             self._view_entry(entry)
             return
@@ -682,21 +735,39 @@ class ServersListWidget(QTableWidget):
 
     # Qt function override.
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
-        selected_ranges = self.selectedRanges()
-        if len(selected_ranges) != 1:
+        items = self.selectedItems()
+        if not len(items):
             return
+        entry = items[0].data(Roles.ITEM_DATA)
 
-        row = selected_ranges[0].topRow()
-        assert row == selected_ranges[0].bottomRow()
+        network = cast(Network, app_state.daemon.network)
 
-        entry = self._row_data[row]
+        def use_as_server(auto_connect: bool) -> None:
+            nonlocal entry
+            assert entry.server is not None
+            try:
+                self._parent_tab._parent.follow_server(entry.server, auto_connect)
+            except Exception as e:
+                MessageBox.show_error(str(e))
 
         menu = QMenu(self)
         details_action = menu.addAction("Details")
 
+        if entry.server is not None:
+            action = menu.addAction(_("Use as main server"), partial(use_as_server, True))
+            action.setEnabled(not entry.is_main_server)
+            if network.auto_connect() or not entry.is_main_server:
+                action = menu.addAction(_("Lock as main server"), partial(use_as_server, False))
+                action.setEnabled(app_state.config.is_modifiable('auto_connect'))
+            else:
+                action = menu.addAction(_("Unlock as main server"), partial(use_as_server, True))
+                action.setEnabled(app_state.config.is_modifiable('auto_connect') and \
+                    entry.is_main_server)
+
         action = menu.exec_(self.mapToGlobal(event.pos()))
         if action == details_action:
             self._view_entry(entry)
+
 
 
 class ServersTab(QWidget):
@@ -704,6 +775,7 @@ class ServersTab(QWidget):
     def __init__(self, parent: 'NetworkTabsLayout') -> None:
         super().__init__()
         self._parent = parent
+
         grid = QGridLayout(self)
         grid.setSpacing(8)
 
@@ -722,7 +794,7 @@ class ServersTab(QWidget):
     def _show_help(self) -> None:
         b = QMessageBox()
         b.setIcon(QMessageBox.Information)
-        b.setTextFormat(Qt.AutoText)
+        b.setTextFormat(Qt.TextFormat.AutoText)
         b.setText(self.help_text)
         b.setWindowTitle("Help")
         b.exec()
@@ -762,20 +834,22 @@ class ServersTab(QWidget):
         sessions = network.sessions        # SVSession
         for server in network.get_servers():
             is_connected = self._is_server_healthy(server, sessions)
+            is_main_server = server == network.main_server
             server_name = server.host
             server_item = ServerItem(server_name, BroadcastServices.ELECTRUMX)
             proto_prefix = f"tcp://" if server.protocol == "t" else "ssl://"
             url = proto_prefix + f"{server.host}:{server.port}"
-            items.append(ServerListEntry(server_item, url, server.state.last_try,
-                server.state.last_good, is_connected))
+            items.append(ServerListEntry(server_item, server, url, server.state.last_try,
+                server.state.last_good, is_connected, is_main_server))
 
         # Add mAPI items
+        is_main_server = False
         for mapi_server in network.get_mapi_servers():
             is_connected = mapi_server['last_good'] == mapi_server['last_try']
             server_name = mapi_server['uri']
             server_item = ServerItem(server_name, BroadcastServices.MERCHANT_API)
-            items.append(ServerListEntry(server_item, mapi_server['uri'], mapi_server['last_try'],
-                mapi_server['last_good'], is_connected))
+            items.append(ServerListEntry(server_item, None, mapi_server['uri'],
+                mapi_server['last_try'], mapi_server['last_good'], is_connected, is_main_server))
 
         self._server_list.update_list(items)
         self._parent._blockchain_tab.nodes_list_widget.update()
@@ -790,9 +864,8 @@ class ServersTab(QWidget):
 
 class ProxyTab(QWidget):
 
-    def __init__(self, parent: 'NetworkTabsLayout'):
+    def __init__(self):
         super().__init__()
-        self._parent = parent
 
         grid = QGridLayout(self)
         grid.setSpacing(8)
@@ -838,8 +911,8 @@ class ProxyTab(QWidget):
         grid.addWidget(self._proxy_mode_combo, 4, 1)
         grid.addWidget(self._proxy_host_edit, 4, 2)
         grid.addWidget(self._proxy_port_edit, 4, 3)
-        grid.addWidget(self._proxy_username_edit, 5, 2, Qt.AlignTop)
-        grid.addWidget(self._proxy_password_edit, 5, 3, Qt.AlignTop)
+        grid.addWidget(self._proxy_username_edit, 5, 2, Qt.AlignmentFlag.AlignTop)
+        grid.addWidget(self._proxy_password_edit, 5, 3, Qt.AlignmentFlag.AlignTop)
         grid.setRowStretch(7, 1)
 
         self._fill_in_proxy_settings()
@@ -869,11 +942,6 @@ class ProxyTab(QWidget):
         # NOTE(typing) signals are not handled properly by Pyright
         td.found_proxy.connect(self._suggest_proxy) # type: ignore
         td.start()
-
-    def follow_server(self, server: SVServer) -> None:
-        network = cast(Network, app_state.daemon.network)
-        network.set_server(server, network.auto_connect())
-        self._blockchain_tab.nodes_list_widget.update()
 
     def _set_proxy(self) -> None:
         if self._filling_in:
@@ -963,7 +1031,7 @@ class NetworkTabsLayout(QVBoxLayout):
 
         self._blockchain_tab = BlockchainTab(self)
         self._servers_tab = ServersTab(self)
-        self._proxy_tab = ProxyTab(self)
+        self._proxy_tab = ProxyTab()
 
         self._tabs = QTabWidget()
         self._tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -975,17 +1043,23 @@ class NetworkTabsLayout(QVBoxLayout):
             self._tabs.setCurrentIndex(1)
 
         self.addWidget(self._tabs)
-        self.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        self.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         self._proxy_tab.set_tor_detector()
         self.last_values = None
+
+    def follow_server(self, server: SVServer, auto_connect: bool) -> None:
+        network = cast(Network, app_state.daemon.network)
+        network.set_server(server, auto_connect)
+        # This updates the blockchain tab too.
+        self._servers_tab.update_servers()
 
 
 class NetworkDialog(QDialog):
     network_updated_signal = pyqtSignal()
 
     def __init__(self) -> None:
-        super().__init__(flags=Qt.WindowType(Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint))
+        super().__init__(flags=Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
         self.setWindowTitle(_('Network'))
         self.setMinimumSize(500, 200)
         self.resize(560, 400)
@@ -995,7 +1069,7 @@ class NetworkDialog(QDialog):
         self._buttons_layout.add_left_button(HelpDialogButton(self, "misc", "network-dialog"))
 
         vbox = QVBoxLayout(self)
-        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        vbox.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         vbox.addLayout(self._tabs_layout)
         vbox.addLayout(self._buttons_layout)
 
@@ -1053,10 +1127,10 @@ class URLValidator(QValidator):
                 self._last_message = _("Invalid scheme (expected: {})").format(", ".join(schemes))
             else:
                 self._last_message = e.args[0]
-            return QValidator.Intermediate, text, position
+            return QValidator.State.Intermediate, text, position
 
         self._last_message = ""
-        return QValidator.Acceptable, text, position
+        return QValidator.State.Acceptable, text, position
 
     def fixup(self, text: str) -> str:
         """

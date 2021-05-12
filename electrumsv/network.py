@@ -962,6 +962,7 @@ class Network(TriggeredCallbacks):
     async def _do_mapi_health_check(self) -> None:
         """The last_good and last_try timestamps will be used to include/exclude the mAPI for
         selection"""
+        return
         now = time.time()
         for i, mapi_server in enumerate(self.mapi_servers):
             mapi_server['last_try'] = now

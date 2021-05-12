@@ -1089,7 +1089,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _update_network_status(self) -> None:
         "Update the network status portion of the status bar."
         text = _("Offline")
+        tooltip_text = _("You have started ElectrumSV in offline mode.")
         if self.network:
+            tooltip_text = _("You are connected to at least one server.")
             request_count, response_count = self._wallet.get_request_response_counts()
             if request_count > response_count:
                 text = _("Synchronizing...")
@@ -1097,14 +1099,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 server_height = self.network.get_server_height()
                 if server_height == 0:
-                    text = _("Not connected")
+                    # This is shown when for instance, there is a forced main server setting and
+                    # the main server is offline. It might also be used on first start up before
+                    # the headers are synced (?).
+                    text = _("Main server pending")
+                    tooltip_text = _("You are not currently connected to a valid main server.")
                 else:
                     server_lag = self.network.get_local_height() - server_height
                     if server_lag > 1:
                         text = _("Server {} blocks behind").format(server_lag)
                     else:
                         text = _("Connected")
-        self._status_bar.set_network_status(text)
+        self._status_bar.set_network_status(text, tooltip_text)
 
     def update_tabs(self, *args) -> None:
         if self.is_receive_view_active():

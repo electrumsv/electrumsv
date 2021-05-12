@@ -220,5 +220,6 @@ class StatusBar(QStatusBar):
             self._fiat_bsv_label.setText(status[0])
             self._fiat_value_label.setText(status[1])
 
-    def set_network_status(self, text: str) -> None:
+    def set_network_status(self, text: str, tooltip_text: str="") -> None:
         self._network_label.setText(text)
+        self._network_label.setToolTip(tooltip_text)
